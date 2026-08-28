@@ -39,8 +39,8 @@ describe('a canvas is a name and an arrangement', () => {
     editCanvas(db, made.id, {
       epic: 'modes-are-modules',
       placements: [
-        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false },
-        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false },
+        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null },
+        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null },
       ],
     })
 
@@ -48,8 +48,8 @@ describe('a canvas is a name and an arrangement', () => {
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.epic).toBe('modes-are-modules')
     expect(canvas?.placements).toEqual([
-      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false },
-      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false },
+      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null },
+      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null },
     ])
   })
 
@@ -130,7 +130,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: -5, y: 0, w: 0, h: 1e9 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false, prompt: '', promptFor: null })
   })
 
   test('a number that is not one does not become NaN in the database', () => {
@@ -138,7 +138,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: 'over there', y: null, w: undefined, h: 5 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false, prompt: '', promptFor: null })
   })
 })
 
@@ -154,7 +154,7 @@ describe('following the module’s height is a property of one pane', () => {
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: true }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(true)
 
-    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false }] })
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(false)
   })
 
@@ -174,7 +174,7 @@ describe('following the module’s height is a property of one pane', () => {
     const one = createCanvas(db, 'one')
     const two = createCanvas(db, 'two')
     editCanvas(db, one.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: true }] })
-    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null }] })
 
     const canvases = listCanvases(db)
     expect(canvases[0]?.placements[0]?.grow).toBe(true)
@@ -228,6 +228,63 @@ describe('pinning a pane is a fact about the pane, not about the module', () => 
   })
 })
 
+describe('a prompt is written on one pane and aimed at another', () => {
+  test('what is written comes back, with its target', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [
+        { i: 'a.author', x: 0, y: 0, w: 6, h: 10, prompt: 'be terse', promptFor: 'a.reader' },
+      ],
+    })
+    const [pane] = listCanvases(db)[0]!.placements
+    expect(pane?.prompt).toBe('be terse')
+    expect(pane?.promptFor).toBe('a.reader')
+  })
+
+  test('nothing written is an empty string and nobody aimed at is null', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    const [pane] = listCanvases(db)[0]!.placements
+    expect(pane?.prompt).toBe('')
+    expect(pane?.promptFor).toBeNull()
+  })
+
+  test('a target that is not a module id is nobody, rather than a row keyed to nonsense', () => {
+    const made = createCanvas(db, 'one')
+    for (const promptFor of ['Not An Id', 42, {}, 'has spaces']) {
+      editCanvas(db, made.id, {
+        placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, prompt: 'x', promptFor } as never],
+      })
+      expect(listCanvases(db)[0]?.placements[0]?.promptFor).toBeNull()
+    }
+  })
+
+  test('a prompt longer than the bound is clipped rather than refused', () => {
+    /* The opposite of a ref, deliberately: a clipped ref is a DIFFERENT ref
+       filed against work nobody meant, while a clipped prompt is the person's
+       own text and they are the one who will see it end mid-sentence. */
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, prompt: 'x'.repeat(20_000) }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.prompt.length).toBe(8 * 1024)
+  })
+
+  test('the same module carries different prompts on two kehikot', () => {
+    const one = createCanvas(db, 'one')
+    const two = createCanvas(db, 'two')
+    editCanvas(db, one.id, {
+      placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, prompt: 'here', promptFor: 'a.b' }],
+    })
+    editCanvas(db, two.id, {
+      placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, prompt: 'there', promptFor: 'a.b' }],
+    })
+    const canvases = listCanvases(db)
+    expect(canvases[0]?.placements[0]?.prompt).toBe('here')
+    expect(canvases[1]?.placements[0]?.prompt).toBe('there')
+  })
+})
+
 describe('a database written before a column existed still opens', () => {
   test('the column is added and what was already stored keeps its meaning', () => {
     /* Canvases live on somebody's own disk. A schema that moved is not a reason
@@ -259,7 +316,7 @@ describe('a database written before a column existed still opens', () => {
     const after = open(file)
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false })
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null })
 
     /* And opening it a second time is not an error. */
     after.close()

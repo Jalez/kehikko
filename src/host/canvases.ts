@@ -33,7 +33,32 @@ const placementSchema = z.object({
    * pinned — which is what those panes have been doing all along.
    */
   pinned: z.boolean().default(false),
+  /** What this pane says to another module, and which one it says it to. */
+  prompt: z.string().default(''),
+  promptFor: z.string().nullable().default(null),
 })
+
+/**
+ * What one module is being told, composed from every pane aiming at it.
+ *
+ * The host does the composing rather than handing a module a list of fragments
+ * — see the essay on `prompt` in the protocol's `wire.ts`. Ordering is the
+ * arrangement's own: top to bottom, then left to right, which is the order a
+ * person reads their canvas in and therefore the order they will expect their
+ * instructions to have been assembled in. Anything else would be a rule they
+ * cannot see.
+ *
+ * Each fragment is labelled with the pane it came from. A person reading the
+ * whole of what a module was told needs to know which pane said what, or a
+ * contradiction between two of them is unattributable.
+ */
+export function promptFor(placements: readonly Placement[], module: string): string | null {
+  const aimed = [...placements]
+    .filter((p) => p.promptFor === module && p.prompt.trim())
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+  if (!aimed.length) return null
+  return aimed.map((p) => `## from ${p.i}\n\n${p.prompt.trim()}`).join('\n\n')
+}
 export type Placement = z.infer<typeof placementSchema>
 
 const canvasSchema = z.object({
@@ -180,7 +205,7 @@ export function place(placements: readonly Placement[], id: string): Placement[]
 
   /* Off. A new pane is the size this host chose and stays there until somebody
      says otherwise — either by dragging its corner or by turning this on. */
-  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false, pinned: false }]
+  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false, pinned: false, prompt: '', promptFor: null }]
 }
 
 /** Take one off. */

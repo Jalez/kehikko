@@ -78,6 +78,21 @@ export interface Placement {
    * grew a word for it.
    */
   pinned: boolean
+  /**
+   * What somebody wrote on this pane for another module to work from.
+   *
+   * A pane AUTHORS a prompt and aims it at a module; the module it is aimed at
+   * RECEIVES the composition of everything aimed at it. Both halves are stored
+   * here because both are facts about this pane on this kehikko: the same
+   * module can carry different instructions on two different canvases, which is
+   * most of the point of writing them per canvas rather than per module.
+   *
+   * Empty means nothing was written. `promptFor` naming a module that is not on
+   * this canvas is not an error — a pane can be taken off and put back, and
+   * throwing the prompt away in between would lose something a person typed.
+   */
+  prompt: string
+  promptFor: string | null
 }
 
 export interface Canvas {
@@ -108,7 +123,12 @@ export interface Canvas {
  * optional. A canvas sent by an older page, or by anything hand-written, has no
  * `grow` in it, and that is not an error — it is off.
  */
-export type PlacementInput = Omit<Placement, 'grow' | 'pinned'> & { grow?: boolean; pinned?: boolean }
+export type PlacementInput = Omit<Placement, 'grow' | 'pinned' | 'prompt' | 'promptFor'> & {
+  grow?: boolean
+  pinned?: boolean
+  prompt?: string
+  promptFor?: string | null
+}
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
 export interface CanvasEdit {
@@ -176,6 +196,8 @@ export function open(file = databaseFile()): Database {
   `)
   add(db, 'placements', 'grow', 'integer not null default 0')
   add(db, 'placements', 'pinned', 'integer not null default 0')
+  add(db, 'placements', 'prompt', "text not null default ''")
+  add(db, 'placements', 'prompt_for', 'text')
   add(db, 'canvases', 'selection', 'text')
   return db
 }
@@ -226,17 +248,21 @@ export function listCanvases(db: Database): Canvas[] {
         h: number
         grow: number
         pinned: number
+        prompt: string
+        prompt_for: string | null
       },
       []
-    >('select canvas, module as i, x, y, w, h, grow, pinned from placements order by canvas, module')
+    >(
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for from placements order by canvas, module',
+    )
     .all()
 
   const byCanvas = new Map<number, Placement[]>()
   for (const row of placements) {
-    const { canvas, grow, pinned, ...rest } = row
+    const { canvas, grow, pinned, prompt, prompt_for: promptFor, ...rest } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
        here, at the edge, so nothing above this line has to remember. */
-    const placement: Placement = { ...rest, grow: grow === 1, pinned: pinned === 1 }
+    const placement: Placement = { ...rest, grow: grow === 1, pinned: pinned === 1, prompt, promptFor }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
     else byCanvas.set(canvas, [placement])
@@ -297,10 +323,10 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned) values (?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
-        insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0, p.pinned ? 1 : 0)
+        insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0, p.pinned ? 1 : 0, p.prompt, p.promptFor)
       }
     }
     return true
@@ -456,6 +482,12 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          decides whether a module stops hearing about the canvas, which is not a
          behaviour to switch on because a string arrived. */
       pinned: p.pinned === true,
+      /* Clipped rather than refused, unlike a ref. A clipped ref is a DIFFERENT
+         ref filed against work nobody meant; a clipped prompt is the person's
+         own text, and they are the one who will notice it ends mid-sentence. */
+      prompt: typeof p.prompt === 'string' ? p.prompt.slice(0, LIMITS.PROMPT) : '',
+      promptFor:
+        typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
     })
   }
   return kept

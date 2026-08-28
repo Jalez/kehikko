@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
+import { PromptButton } from './Prompts.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -46,6 +47,7 @@ export function Pane({
   onGrow,
   pinned,
   onPin,
+  onPrompts,
   onRemove,
 }: {
   presence: Presence
@@ -70,6 +72,8 @@ export function Pane({
   /** Whether this pane is pinned, and stops hearing about the canvas. */
   pinned: boolean
   onPin(pinned: boolean): void
+  /** Open the host's prompt dialog for this pane. */
+  onPrompts(): void
   onRemove(): void
 }) {
   const name = presence.name ?? presence.id
@@ -163,6 +167,8 @@ export function Pane({
             </Button>
           </Hint>
         ) : null}
+
+        <PromptButton wanted={presence.module?.declares.prompt === true} onOpen={onPrompts} />
 
         {/*
          * Pin: hold this pane where it is and stop telling it about the canvas.

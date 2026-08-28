@@ -34,6 +34,7 @@ export function ModuleFrame({
   watcher,
   state,
   pinned,
+  prompt,
 }: {
   module: FramedModule
   context: ModuleContext
@@ -46,6 +47,8 @@ export function ModuleFrame({
   state: string | null
   /** Whether this pane is pinned. See the context effect below. */
   pinned: boolean
+  /** What this kehikko says to this module, composed by the host. */
+  prompt: string | null
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -68,7 +71,10 @@ export function ModuleFrame({
      it was still the host saying the same thing seventeen times, and the first
      module to react to context ARRIVING rather than to context CHANGING would
      have inherited a bug that looked like its own. */
-  const told: ModuleContext = useMemo(() => ({ ...context, pinned }), [context, pinned])
+  const told: ModuleContext = useMemo(
+    () => ({ ...context, pinned, prompt }),
+    [context, pinned, prompt],
+  )
 
   const contextRef = useRef(told)
   contextRef.current = told

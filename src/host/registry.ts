@@ -22,7 +22,7 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: { id: string; label: string; scope: 'epic' | 'global' }[]
   extensions: { emits: string[]; consumes: string[] }
-  declares: { protocol: string; uses: string[]; storage: boolean }
+  declares: { protocol: string; uses: string[]; storage: boolean; prompt?: boolean }
 }
 
 export interface Presence {

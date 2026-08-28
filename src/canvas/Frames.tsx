@@ -76,6 +76,8 @@ export interface Framing {
   state: string | null
   /** Whether this pane is pinned, and stops hearing about the canvas. */
   pinned: boolean
+  /** What this kehikko has to say to this module, composed by the host. */
+  prompt: string | null
 }
 
 export function Frames({
@@ -115,7 +117,7 @@ export function Frames({
        gaps between panes belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, rect, shown, state, pinned }) => {
+      {framings.map(({ module, rect, shown, state, pinned, prompt }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -140,6 +142,7 @@ export function Frames({
             watcher={watcherFor(module.id)}
             state={state}
             pinned={pinned}
+            prompt={prompt}
           />
         </div>
         )

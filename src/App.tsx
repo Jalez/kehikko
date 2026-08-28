@@ -4,6 +4,7 @@ import type { ModuleCondition } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
+import { Prompts } from './canvas/Prompts.tsx'
 import { Pane } from './canvas/Pane.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import {
@@ -14,6 +15,7 @@ import {
   everyPlaced,
   fetchCanvases,
   place,
+  promptFor,
   readOpen,
   reconcile,
   removeCanvas,
@@ -123,6 +125,10 @@ export function App() {
      transitions are off — see `.settling` in `index.css` for the slide that
      otherwise happens on every load. */
   const [settling, setSettling] = useState(true)
+  /* Which pane's prompts are being written, if any. The dialog belongs to the
+     host rather than to a module — see `Prompts.tsx` for why a modal inside an
+     iframe is not a modal. */
+  const [prompting, setPrompting] = useState<string | null>(null)
 
   /* Where each pane's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the panes. */
@@ -409,6 +415,17 @@ export function App() {
     [change, open?.placements],
   )
 
+  /** Write what one pane says, and who it says it to. */
+  const onWritePrompt = useCallback(
+    (id: string, prompt: string, aimedAt: string | null) => {
+      const placements = (open?.placements ?? []).map((p) =>
+        p.i === id ? { ...p, prompt, promptFor: aimedAt } : p,
+      )
+      change({ placements })
+    },
+    [change, open?.placements],
+  )
+
   /** Turn following-the-module's-height on or off for one pane. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -431,8 +448,14 @@ export function App() {
         y: item.y,
         w: item.w,
         h: item.h,
+        /* Everything of ours that react-grid-layout has never heard of is
+           carried across from what is stored. `next` is its idea of the
+           arrangement, so anything not in its vocabulary is dropped here on the
+           first drag unless it is copied over deliberately. */
         grow: was.find((p) => p.i === item.i)?.grow ?? false,
         pinned: was.find((p) => p.i === item.i)?.pinned ?? false,
+        prompt: was.find((p) => p.i === item.i)?.prompt ?? '',
+        promptFor: was.find((p) => p.i === item.i)?.promptFor ?? null,
       }))
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
@@ -479,6 +502,7 @@ export function App() {
   }, [registry])
 
   const placements = useMemo(() => open?.placements ?? [], [open?.placements])
+  const prompted = placements.find((p) => p.i === prompting) ?? null
   const panes = placements.filter((p) => byId.has(p.i))
   const placed = placements.map((p) => p.i)
 
@@ -525,6 +549,10 @@ export function App() {
           shown: onOpen.has(id) && (found?.condition ?? byId.get(id)?.condition) === 'ready' && !!found,
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
+          /* Composed here rather than in the module, because only the host
+             knows what else is on this kehikko. See the essay on `prompt` in
+             the protocol's `wire.ts`. */
+          prompt: promptFor(placements, id),
         }
       })
       .filter((framing): framing is Framing => framing !== null)
@@ -702,6 +730,7 @@ export function App() {
                   onGrow={(grow) => onGrow(presence.id, grow)}
                   pinned={placement.pinned}
                   onPin={(pinned) => onPin(presence.id, pinned)}
+                  onPrompts={() => setPrompting(presence.id)}
                   onRemove={() => onUnplace(presence.id)}
                 />
               </div>
@@ -709,6 +738,20 @@ export function App() {
           })}
         </Grid>
       </main>
+
+      {/* The prompt dialog, owned by the host. A module cannot open one: its
+          page is in an iframe, so a modal it rendered would be clipped to the
+          pane. See `Prompts.tsx`. */}
+      {prompted ? (
+        <Prompts
+          open
+          onOpenChange={(isOpen) => setPrompting(isOpen ? prompting : null)}
+          pane={prompted}
+          presences={registry?.presences ?? []}
+          placements={placements}
+          onWrite={(text, aimedAt) => onWritePrompt(prompted.i, text, aimedAt)}
+        />
+      ) : null}
     </div>
   )
 }
