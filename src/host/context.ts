@@ -78,11 +78,25 @@ export const NO_SUBJECT: Subject = { epic: null, project: null }
  * host stays responsible for having run it); using it is how the host finds out
  * it has drifted.
  */
-export function toWireContext(subject: Subject, theme: 'light' | 'dark'): ModuleContext {
+export function toWireContext(
+  subject: Subject,
+  theme: 'light' | 'dark',
+  /**
+   * What has been picked out, as refs.
+   *
+   * A separate argument rather than a third field on `Subject`, because it is
+   * not one. A subject is what the canvas is ABOUT and survives being looked
+   * away from; a selection is what somebody currently has their finger on. They
+   * change on different gestures and at different rates, and the canvas clears
+   * the second whenever the first moves.
+   */
+  selection: readonly string[] = [],
+): ModuleContext {
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     project: subject.project,
     theme,
+    selection,
   })
   if (parsed.success) return parsed.data
 
@@ -90,6 +104,8 @@ export function toWireContext(subject: Subject, theme: 'light' | 'dark'): Module
      still goes out — a module that is told nothing shows the last epic it heard
      about forever, which is a page quietly describing the wrong work — and it
      goes out empty, which is a state a module is required to be able to move
-     into. */
-  return contextSchema.parse({ epic: null, project: null, theme })
+     into. The selection goes with it: it was picked out of an epic that this
+     context no longer names, so keeping it would point every module at
+     something in a place they are no longer looking. */
+  return contextSchema.parse({ epic: null, project: null, theme, selection: [] })
 }

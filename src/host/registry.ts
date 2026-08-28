@@ -34,6 +34,16 @@ export interface Presence {
   name?: string
   module?: FramedModule
   protocols?: { host: number; module: number | null; range: string }
+  /**
+   * Whatever this host is keeping for the module, or null when it keeps
+   * nothing.
+   *
+   * It travels with the presence because the page is what greets a module and
+   * the greeting is where kept state has to be — a module that had to ask for
+   * it afterwards would draw its defaults first and then correct them. The page
+   * never reads this; it carries it.
+   */
+  state?: string | null
 }
 
 export interface RegistryView {

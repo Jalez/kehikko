@@ -32,6 +32,8 @@ export type Placement = z.infer<typeof placementSchema>
 const canvasSchema = z.object({
   id: z.number().int(),
   name: z.string(),
+  /** What has been picked out here. Defaulted, so a canvas stored before this reads. */
+  selection: z.array(z.string()).max(64).default([]),
   epic: z.string().nullable(),
   project: z.string().nullable(),
   placements: z.array(placementSchema).max(64),
@@ -68,6 +70,7 @@ export interface CanvasEdit {
   name?: string
   epic?: string | null
   project?: string | null
+  selection?: string[]
   placements?: Placement[]
 }
 

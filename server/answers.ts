@@ -114,6 +114,15 @@ export function answer(
   method: string,
   rawParams: unknown,
   knownModule: (id: string) => boolean,
+  /**
+   * Where a module's kept state goes.
+   *
+   * Injected, like `knownModule`, so this file stays a decision table rather
+   * than something that opens a database. Everything here is testable by
+   * calling it; a `Database` in the signature would mean a temp file per test
+   * for the sake of one branch.
+   */
+  keep: (module: string, state: string) => void = () => {},
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -251,6 +260,27 @@ export function answer(
       return notMineToSay('Nothing has been read from the trackers for that epic.')
     }
     return nothingToShow('live.get', live)
+  }
+
+  /**
+   * A module's own state, kept and handed back at the next greeting.
+   *
+   * The first write this host actually performs, and it is worth noticing how
+   * small the thing being written is. The host does not parse it, does not
+   * validate its contents past a length, and has no name for what is in it —
+   * see `state.set` in the protocol package for why that opacity is the design
+   * rather than laziness. A host that knew a module had "filters" would have
+   * made every module's preferences the protocol's business.
+   *
+   * Keyed by the module that asked, which is the id already checked against the
+   * registry at the top of this function. A module cannot write another's state
+   * because it has no way to name one: the id comes from the registry, not from
+   * the call.
+   */
+  case 'state.set': {
+    const { state } = parsed.data as { state: string }
+    keep(moduleId, state)
+    return nothingToShow('state.set', { kept: true })
   }
 
   /**

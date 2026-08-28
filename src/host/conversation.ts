@@ -161,7 +161,7 @@ export class Conversation {
    * has forgotten the conversation, and greeting it again is cheaper than
    * either side wondering which of them is confused.
    */
-  greet(context: ModuleContext): void {
+  greet(context: ModuleContext, state: string | null = null): void {
     if (this.closed) return
     this.greeted = true
     this.answered = false
@@ -171,6 +171,16 @@ export class Conversation {
       protocol: PROTOCOL,
       session: this.session,
       context,
+      /*
+       * Whatever this module last asked the host to keep, handed back before it
+       * has drawn anything. The host has not read it and does not know what is
+       * in it — see `state.set` in the protocol package.
+       *
+       * In the greeting rather than fetched afterwards, because a module that
+       * had to ask would render its defaults first and correct them, which is
+       * the same visible-flicker failure as a theme applied after first paint.
+       */
+      state,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)

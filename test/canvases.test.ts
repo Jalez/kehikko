@@ -11,6 +11,8 @@ import {
   deleteCanvas,
   editCanvas,
   ensureCanvases,
+  keepState,
+  readState,
   listCanvases,
   open,
 } from '../server/canvases.ts'
@@ -221,6 +223,93 @@ describe('a database written before a column existed still opens', () => {
     rmSync(file, { force: true })
     rmSync(`${file}-wal`, { force: true })
     rmSync(`${file}-shm`, { force: true })
+  })
+})
+
+describe('a selection is what somebody picked out, and the host holds it without reading it', () => {
+  test('what is set comes back', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, { selection: ['gh#131', 'gh#105'] })
+    expect(listCanvases(db)[0]?.selection).toEqual(['gh#131', 'gh#105'])
+  })
+
+  test('nothing selected is a state, and an empty list is how it is reached', () => {
+    const made = createCanvas(db, 'one')
+    expect(listCanvases(db)[0]?.selection).toEqual([])
+    editCanvas(db, made.id, { selection: ['gh#131'] })
+    editCanvas(db, made.id, { selection: [] })
+    expect(listCanvases(db)[0]?.selection).toEqual([])
+  })
+
+  test('the same ref twice is once — a duplicate is the same pick, not a second one', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, { selection: ['gh#1', 'gh#1', 'gh#2'] })
+    expect(listCanvases(db)[0]?.selection).toEqual(['gh#1', 'gh#2'])
+  })
+
+  test('anything that is not a usable ref is dropped rather than stored', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      selection: ['gh#1', '', '   ', 42, null, 'x'.repeat(500)] as never,
+    })
+    expect(listCanvases(db)[0]?.selection).toEqual(['gh#1'])
+  })
+
+  test('a canvas stored before selections existed reads as nothing selected', () => {
+    const made = createCanvas(db, 'one')
+    db.query('update canvases set selection = null where id = ?').run(made.id)
+    expect(listCanvases(db)[0]?.selection).toEqual([])
+  })
+
+  test('a column somebody edited by hand does not take the canvas down with it', () => {
+    const made = createCanvas(db, 'one')
+    for (const junk of ['{ not json', '"a string"', '{"refs":[]}', '17']) {
+      db.query('update canvases set selection = ? where id = ?').run(junk, made.id)
+      expect(listCanvases(db)[0]?.selection).toEqual([])
+    }
+  })
+})
+
+describe("a module's own kept state, which the host does not read", () => {
+  test('what is kept comes back verbatim', () => {
+    keepState(db, 'roadmap.references', '{"kind":"change","state":"merged"}')
+    expect(readState(db, 'roadmap.references')).toBe('{"kind":"change","state":"merged"}')
+  })
+
+  test('nothing kept is null, which is not the same as an empty string', () => {
+    expect(readState(db, 'roadmap.never-wrote')).toBeNull()
+    keepState(db, 'roadmap.wrote-nothing', '')
+    expect(readState(db, 'roadmap.wrote-nothing')).toBe('')
+  })
+
+  test('keeping again replaces, because there is one state and not a history', () => {
+    keepState(db, 'a.module', 'first')
+    keepState(db, 'a.module', 'second')
+    expect(readState(db, 'a.module')).toBe('second')
+  })
+
+  test('one module cannot read another by keeping something', () => {
+    keepState(db, 'a.one', 'mine')
+    expect(readState(db, 'a.two')).toBeNull()
+  })
+
+  test('it is per module and not per canvas, so switching canvases changes nothing', () => {
+    /* A module's page is loaded once and shown wherever it is placed, so one
+       module is one document with one set of preferences. */
+    const one = createCanvas(db, 'one')
+    const two = createCanvas(db, 'two')
+    keepState(db, 'a.module', 'kept')
+    editCanvas(db, one.id, { placements: [{ i: 'a.module', x: 0, y: 0, w: 6, h: 10 }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.module', x: 0, y: 0, w: 6, h: 10 }] })
+    expect(readState(db, 'a.module')).toBe('kept')
+  })
+
+  test('more than the bound is clipped rather than refused', () => {
+    /* The opposite of what happens to a ref, and deliberately: a clipped ref is
+       a DIFFERENT ref, while a clipped blob is a module's own business and it
+       is the one that will notice. */
+    keepState(db, 'a.module', 'x'.repeat(10_000))
+    expect(readState(db, 'a.module')?.length).toBe(4 * 1024)
   })
 })
 

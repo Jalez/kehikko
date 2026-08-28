@@ -72,6 +72,8 @@ export interface Framing {
   rect: Rect | null
   /** On the open canvas, greeted, and answering. Anything else is hidden. */
   shown: boolean
+  /** Whatever the host keeps for this module, carried into its greeting. */
+  state: string | null
 }
 
 export function Frames({
@@ -111,7 +113,7 @@ export function Frames({
        gaps between panes belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, rect, shown }) => {
+      {framings.map(({ module, rect, shown, state }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -134,6 +136,7 @@ export function Frames({
             context={context}
             canvas={canvas}
             watcher={watcherFor(module.id)}
+            state={state}
           />
         </div>
         )

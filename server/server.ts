@@ -7,7 +7,9 @@ import {
   deleteCanvas,
   editCanvas,
   ensureCanvases,
+  keepState,
   open,
+  readState,
   type CanvasEdit,
 } from './canvases.ts'
 import { look, type Presence } from './discover.ts'
@@ -64,14 +66,29 @@ const json = (body: unknown, status = 200) =>
  * modules would be twelve seconds of a person watching an empty canvas, and the
  * one thing this host must not do is make "not running" look like "broken".
  */
-async function sweep(): Promise<{ presences: Presence[]; sweep: RegistrationSweep; protocol: number }> {
+async function sweep(): Promise<{
+  presences: (Presence & { state: string | null })[]
+  sweep: RegistrationSweep
+  protocol: number
+}> {
   const found = await readRegistrations(registryDir())
   const presences = await Promise.all(found.registrations.map((registration) => look(registration)))
 
   callers.clear()
   for (const registration of found.registrations) callers.set(registration.id, registration.url)
 
-  return { presences, sweep: found, protocol: PROTOCOL }
+  return {
+    /*
+     * Each module's kept state travels with its presence, because the page is
+     * what greets a module and the greeting is where state has to be — a module
+     * that had to ask for it afterwards would draw its defaults first and
+     * correct them, which is the visible-flicker failure wearing a different
+     * hat. This is the one thing the page carries that it does not read.
+     */
+    presences: presences.map((presence) => ({ ...presence, state: readState(db, presence.id) })),
+    sweep: found,
+    protocol: PROTOCOL,
+  }
 }
 
 /**
@@ -163,7 +180,15 @@ const server = Bun.serve({
          registry rather than about the host having just started. */
       if (!callers.size) await sweep()
 
-      return json(answer(body.module, body.method, body.params, (id) => callers.has(id)))
+      return json(
+        answer(
+          body.module,
+          body.method,
+          body.params,
+          (id) => callers.has(id),
+          (module, state) => keepState(db, module, state),
+        ),
+      )
     }
 
     /* The canvases.
@@ -192,15 +217,17 @@ const server = Bun.serve({
         if (!body || typeof body !== 'object') {
           return json({ error: 'A change to a canvas is an object.' }, 400)
         }
-        /* Only the four fields, picked out by name. Handing the parsed body
-           straight to the store would make every future column writable by
-           anything that can POST — which is how an id becomes editable. */
+        /* Only the fields named here, picked out one at a time. Handing the
+           parsed body straight to the store would make every future column
+           writable by anything that can POST — which is how an id becomes
+           editable. */
         const edited = editCanvas(db, canvas, {
           ...(body.name !== undefined ? { name: String(body.name) } : {}),
           ...(body.epic !== undefined ? { epic: body.epic === null ? null : String(body.epic) } : {}),
           ...(body.project !== undefined
             ? { project: body.project === null ? null : String(body.project) }
             : {}),
+          ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
           ...(Array.isArray(body.placements) ? { placements: body.placements } : {}),
         })
         if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)

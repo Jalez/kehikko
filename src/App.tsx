@@ -239,7 +239,13 @@ export function App() {
 
   /** Change the open canvas, on screen now and in the database shortly. */
   const change = useCallback(
-    (edit: { name?: string; epic?: string | null; project?: string | null; placements?: Placement[] }) => {
+    (edit: {
+      name?: string
+      epic?: string | null
+      project?: string | null
+      selection?: string[]
+      placements?: Placement[]
+    }) => {
       const id = openId
       if (id === null) return
       setCanvases((was) => was.map((canvas) => (canvas.id === id ? { ...canvas, ...edit } : canvas)))
@@ -266,7 +272,10 @@ export function App() {
      the literal 'dark', which made `roadmap.context.theme` a field this host
      filled in with a constant and never revisited — a lie that happened to be
      true. */
-  const context = useMemo(() => toWireContext(subject, theme), [subject, theme])
+  const context = useMemo(
+    () => toWireContext(subject, theme, open?.selection ?? []),
+    [subject, theme, open?.selection],
+  )
 
   const onTheme = useCallback(() => {
     setTheme((was) => {
@@ -278,7 +287,14 @@ export function App() {
 
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
-    () => ({ showEpic: (epic) => change({ epic }) }),
+    () => ({
+      /* Moving to a different epic drops the selection. A ref was picked out of
+         one epic's references; carrying it into another would leave every
+         module pointing at something that is not in front of them any more, and
+         "nothing is selected" is a state they all have to handle anyway. */
+      showEpic: (epic) => change({ epic, selection: [] }),
+      select: (refs) => change({ selection: refs }),
+    }),
     [change],
   )
 
@@ -462,6 +478,7 @@ export function App() {
           module,
           rect: rects[id] ?? null,
           shown: onOpen.has(id) && (found?.condition ?? byId.get(id)?.condition) === 'ready' && !!found,
+          state: byId.get(id)?.state ?? null,
         }
       })
       .filter((framing): framing is Framing => framing !== null)

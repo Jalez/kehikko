@@ -32,11 +32,17 @@ export function ModuleFrame({
   context,
   canvas,
   watcher,
+  state,
 }: {
   module: FramedModule
   context: ModuleContext
   canvas: CanvasControls
   watcher: ConversationWatcher
+  /**
+   * Whatever the host is keeping for this module, or null when it keeps
+   * nothing. Handed straight into the greeting and never read here.
+   */
+  state: string | null
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -48,6 +54,12 @@ export function ModuleFrame({
      whatever they had typed in it. */
   const contextRef = useRef(context)
   contextRef.current = context
+  /* Same reason as the context, and the timing matters more here: the kept
+     state arrives with the registry sweep, which can land either side of the
+     frame's load. A module greeted with `null` because the sweep had not
+     returned yet would draw its defaults and never be told otherwise. */
+  const stateRef = useRef(state)
+  stateRef.current = state
   const watcherRef = useRef(watcher)
   watcherRef.current = watcher
   const canvasRef = useRef(canvas)
@@ -77,6 +89,7 @@ export function ModuleFrame({
       origin,
       makeAsk(framed.id, {
         showEpic: (epic) => canvasRef.current.showEpic(epic),
+        select: (refs) => canvasRef.current.select(refs),
       }),
       {
         ready: (p) => watcherRef.current.ready(p),
@@ -97,7 +110,7 @@ export function ModuleFrame({
     }
     window.addEventListener('message', onMessage)
 
-    const onLoad = () => conversation.greet(contextRef.current)
+    const onLoad = () => conversation.greet(contextRef.current, stateRef.current)
     frame.addEventListener('load', onLoad)
 
     return () => {

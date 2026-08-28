@@ -30,9 +30,26 @@ export const ANSWERED_BY_THE_SERVER = [
   'live.get',
   'stage.report',
   'events.emit',
+  /* A module's own kept state. Storage, so the half that has a database. */
+  'state.set',
 ] as const
 
-export const ANSWERED_BY_THE_VIEW = ['view.goto'] as const
+/**
+ * The methods that are about the VIEW rather than about material.
+ *
+ * `view.goto` asks the host to show something. `selection.set` says what the
+ * person has picked out, which becomes part of the context every framed module
+ * receives — and context is composed by the canvas.
+ *
+ * `selection.set` is answered here even though it is also written down, and the
+ * ORDER is what makes it a view method: the canvas changes, every module is
+ * told, and the storing happens afterwards through the same debounced path that
+ * stores an arrangement. A selection that waited for a round trip before the
+ * other panes heard about it would put a visible delay on a click for no gain —
+ * nothing is lost if the write lands a moment later, and the person is looking
+ * at the result either way.
+ */
+export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set'] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */
 export function unanswered(): string[] {

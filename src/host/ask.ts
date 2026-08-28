@@ -36,6 +36,15 @@ const params = new Map<string, (typeof methodParams)[keyof typeof methodParams]>
 export interface CanvasControls {
   /** Make this the canvas's subject, and tell every module. */
   showEpic(epic: string): void
+  /**
+   * Make this the canvas's selection, and tell every module.
+   *
+   * The canvas does not check these refs against anything, and could not: it
+   * holds no trackers and has never heard of `gh#131`. What it can vouch for is
+   * that these are the refs somebody picked, which is exactly what it goes on
+   * to say. See the essay on `selection` in the protocol's `wire.ts`.
+   */
+  select(refs: string[]): void
 }
 
 /**
@@ -93,6 +102,21 @@ function answerInTheView(method: string, rawParams: unknown, canvas: CanvasContr
     const issue = parsed.error.issues[0]
     const where = issue?.path.length ? issue.path.join('.') : 'params'
     return failed(`${method} was called with something the canvas will not accept: ${where} — ${issue?.message ?? 'malformed'}.`)
+  }
+
+  /*
+   * A selection, which is not a movement and so is not a `view.goto`.
+   *
+   * It is answered here rather than by the server because it changes the
+   * context, and the context is the canvas's to compose. What comes back is a
+   * plain success: unlike a walk, there is no outcome to report — the canvas
+   * has no grounds to decline, since it is not being asked to find anything,
+   * only to hold what it was handed and repeat it.
+   */
+  if (method === 'selection.set') {
+    const { refs } = parsed.data as { refs: string[] }
+    canvas.select(refs)
+    return succeeded(method, { selection: refs })
   }
 
   const target = parsed.data as { epic?: string; step?: number; ref?: string }

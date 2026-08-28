@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { MODULE_ID } from 'roadmap-module-protocol'
+import { LIMITS, MODULE_ID } from 'roadmap-module-protocol'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -71,6 +71,17 @@ export interface Canvas {
   /** What the canvas is about — see `src/host/context.ts`. Either may be null. */
   epic: string | null
   project: string | null
+  /**
+   * What has been picked out on this canvas, as refs.
+   *
+   * Stored as one JSON column rather than as rows, which is the opposite of the
+   * decision made for placements — and the difference is the reason. Placements
+   * are rows so that "which canvases hold this module" has an answer, and the
+   * canvas layer genuinely asks it. Nothing will ever ask which canvases have
+   * `gh#131` selected; a selection is read whole, written whole, and never
+   * queried across. A table for it would be schema for its own sake.
+   */
+  selection: string[]
   placements: Placement[]
 }
 
@@ -89,6 +100,7 @@ export interface CanvasEdit {
   name?: string
   epic?: string | null
   project?: string | null
+  selection?: string[]
   placements?: PlacementInput[]
 }
 
@@ -128,8 +140,27 @@ export function open(file = databaseFile()): Database {
       primary key (canvas, module)
     );
     create index if not exists placements_by_module on placements (module);
+
+    /*
+     * What a module asked the host to keep for it.
+     *
+     * Keyed by module and by nothing else — not by canvas. A module's page is
+     * loaded once and shown on whichever canvas asks for it, so one module is
+     * one document with one set of preferences; state per canvas would need the
+     * document to be told it had moved, which is a message the protocol does
+     * not have and should not grow.
+     *
+     * The host never reads the value. It is a string in, the same string out,
+     * and keeping it that way is what stops this table becoming a settings
+     * store whose schema the host would then have to know.
+     */
+    create table if not exists module_state (
+      module text primary key,
+      state  text not null
+    );
   `)
   add(db, 'placements', 'grow', 'integer not null default 0')
+  add(db, 'canvases', 'selection', 'text')
   return db
 }
 
@@ -162,9 +193,10 @@ function add(db: Database, table: string, column: string, definition: string): v
  */
 export function listCanvases(db: Database): Canvas[] {
   const rows = db
-    .query<{ id: number; name: string; epic: string | null; project: string | null }, []>(
-      'select id, name, epic, project from canvases order by rank, id',
-    )
+    .query<
+      { id: number; name: string; epic: string | null; project: string | null; selection: string | null },
+      []
+    >('select id, name, epic, project, selection from canvases order by rank, id')
     .all()
 
   const placements = db
@@ -185,7 +217,11 @@ export function listCanvases(db: Database): Canvas[] {
     else byCanvas.set(canvas, [placement])
   }
 
-  return rows.map((row) => ({ ...row, placements: byCanvas.get(row.id) ?? [] }))
+  return rows.map(({ selection, ...row }) => ({
+    ...row,
+    selection: refsFrom(selection),
+    placements: byCanvas.get(row.id) ?? [],
+  }))
 }
 
 /** Make one. It goes at the end, because that is where a person looks for a thing they just made. */
@@ -197,7 +233,7 @@ export function createCanvas(db: Database, name?: string): Canvas {
     )
     .get(clean)
   if (!row) throw new Error('the canvas was not written')
-  return { id: row.id, name: clean, epic: null, project: null, placements: [] }
+  return { id: row.id, name: clean, epic: null, project: null, selection: [], placements: [] }
 }
 
 /**
@@ -226,6 +262,12 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     }
     if (edit.project !== undefined) {
       db.query('update canvases set project = ? where id = ?').run(subject(edit.project), id)
+    }
+    if (edit.selection !== undefined) {
+      db.query('update canvases set selection = ? where id = ?').run(
+        JSON.stringify(refsIn(edit.selection)),
+        id,
+      )
     }
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
@@ -277,6 +319,72 @@ export function canvasesHolding(db: Database, module: string): number[] {
     .query<{ canvas: number }, [string]>('select canvas from placements where module = ? order by canvas')
     .all(module)
     .map((row) => row.canvas)
+}
+
+/**
+ * A selection read back out of its column.
+ *
+ * Anything that is not a list of plausible refs is no selection at all. The
+ * column is JSON this host wrote, so in practice it parses — but a database on
+ * somebody's own disk can be edited, restored from an older version, or
+ * corrupted, and a selection that failed to read must not take the canvas down
+ * with it. Nothing selected is a state the whole design already handles.
+ */
+function refsFrom(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? refsIn(parsed) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Refs, bounded before they are written.
+ *
+ * These arrived from a framed module. `LIMITS.REF` and `LIMITS.REFS` are the
+ * protocol's own numbers and they are applied here as well as at the wire,
+ * because this function is also what a hand-edited column goes through on the
+ * way back out.
+ */
+function refsIn(values: readonly unknown[]): string[] {
+  const kept: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    if (kept.length >= LIMITS.REFS) break
+    if (typeof value !== 'string') continue
+    const ref = value.trim()
+    /* A duplicate is not a second selection of the same thing; it is the same
+       one, and letting it through would make "how many are selected" a number
+       that disagrees with what is on screen. */
+    if (!ref || ref.length > LIMITS.REF || seen.has(ref)) continue
+    seen.add(ref)
+    kept.push(ref)
+  }
+  return kept
+}
+
+/**
+ * What this module last asked the host to keep, or null.
+ *
+ * Null rather than an empty string, because a module has to tell "nothing kept"
+ * from "kept, and it was empty" — only one of those means it should draw its
+ * defaults.
+ */
+export function readState(db: Database, module: string): string | null {
+  const row = db
+    .query<{ state: string }, [string]>('select state from module_state where module = ?')
+    .get(module)
+  return row?.state ?? null
+}
+
+/** Keep a string for a module. The host does not read it; see `state.set`. */
+export function keepState(db: Database, module: string, state: string): void {
+  db.query('insert or replace into module_state (module, state) values (?, ?)').run(
+    module,
+    state.slice(0, LIMITS.MODULE_STATE),
+  )
 }
 
 function tidyName(name: string | undefined): string | null {
