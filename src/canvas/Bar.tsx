@@ -1,4 +1,4 @@
-import { LayoutGrid, RotateCw } from 'lucide-react'
+import { LayoutGrid, Moon, RotateCw, Sun } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Presence, RegistryView } from '@/host/registry.ts'
+import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { ConditionDot } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
@@ -50,6 +51,8 @@ export function Bar({
   onUnplace,
   onLookAgain,
   looking,
+  theme,
+  onTheme,
 }: {
   registry: RegistryView | null
   canvases: readonly Canvas[]
@@ -65,6 +68,8 @@ export function Bar({
   onUnplace(id: string): void
   onLookAgain(): void
   looking: boolean
+  theme: Theme
+  onTheme(): void
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -95,12 +100,12 @@ export function Bar({
          * the honest reading of `roadmap.context` here is "what this workspace is
          * about", and six modules around one epic are six views of one thing.
          */}
-        <Hint label="the epic every module on this canvas is shown" align="start">
+        <Hint label="the epic every module on this kehikko is shown" align="start">
           <Input
             value={subject.epic ?? ''}
             onChange={(event) => onSubject({ ...subject, epic: event.target.value.trim() || null })}
-            placeholder="what this canvas is about"
-            aria-label="the epic this canvas is about"
+            placeholder="what this kehikko is about"
+            aria-label="the epic this kehikko is about"
             spellCheck={false}
             className="hover:border-input focus-visible:border-ring h-6 w-56 border-transparent bg-transparent font-mono text-xs"
           />
@@ -118,6 +123,28 @@ export function Bar({
           </Hint>
         ) : null}
 
+        {/*
+         * Light or dark. It says what it will DO rather than what it is —
+         * "switch to light", with the sun on it — because an icon showing the
+         * current state and an icon showing the destination are the same two
+         * pictures, and half of everyone reads it the wrong way round. A label
+         * settles it, and this control has room for one.
+         *
+         * The theme goes out to every module in `roadmap.context` as well, so
+         * a page inside a pane is not left bright inside a dark canvas.
+         */}
+        <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={theme === 'dark' ? 'switch to light' : 'switch to dark'}
+            className="text-muted-foreground hover:text-foreground size-6"
+            onClick={onTheme}
+          >
+            {theme === 'dark' ? <Sun className="size-3" /> : <Moon className="size-3" />}
+          </Button>
+        </Hint>
+
         <Hint label="ask every registered program again what it is">
           <Button
             variant="ghost"
@@ -132,7 +159,7 @@ export function Bar({
         </Hint>
 
         <Popover>
-          <Hint label="what is registered, and what is on this canvas" align="end">
+          <Hint label="what is registered, and what is on this kehikko" align="end">
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
@@ -253,8 +280,8 @@ function ModuleRow({
       <Hint
         label={
           placed
-            ? 'take it off this canvas — it stays registered, and stays on any other canvas'
-            : 'put it on this canvas'
+            ? 'take it off this kehikko — it stays registered, and stays on any other kehikko'
+            : 'put it on this kehikko'
         }
         side="left"
       >

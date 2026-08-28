@@ -14,14 +14,62 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Two palettes, and the same argument made twice.
+ *
+ * The dark one used to be the only one, and it sat on `:root` — which meant the
+ * `.dark` class on `<html>` selected nothing and changed nothing. It was
+ * decoration on a page that had exactly one appearance. Now `:root` is light,
+ * `.dark` is dark, and the class actually decides.
+ *
+ * Both are neutral to the point of being colourless, and that is the design
+ * rather than an omission: a canvas is a surface things sit ON, and a surface
+ * with a colour of its own competes with the modules, which are the only things
+ * here worth looking at. Everything this host draws is a hairline, a dim label
+ * or a sentence, and all three read against either extreme without a palette.
+ *
+ * The one departure at each end is the same departure: the canvas goes all the
+ * way to black and all the way to white, further than shadcn's own neutrals,
+ * so that a module's page — which is nearly always white — is either the bright
+ * thing on a dark field or flush with a light one, and never a slightly
+ * different shade of almost-the-same.
+ */
 :root {
   --radius: 0.5rem;
 
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2 0 0);
+
+  /* A pane. Barely darker than the canvas, so a module's own page is what you
+     look at and its frame is not. The dark palette makes the same move in the
+     other direction. */
+  --card: oklch(0.98 0 0);
+  --card-foreground: oklch(0.2 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0 0);
+
+  --primary: oklch(0.2 0 0);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.95 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.2 0 0);
+
+  /* The one colour with a job: a sentence about something being wrong. */
+  --destructive: oklch(0.58 0.2 27);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.87 0 0);
+  --ring: oklch(0.65 0 0);
+}
+
+.dark {
   --background: oklch(0 0 0);
   --foreground: oklch(0.92 0 0);
 
-  /* A pane. Barely lighter than the canvas, so a module's own page is the
-     bright thing and its frame is not. */
   --card: oklch(0.16 0 0);
   --card-foreground: oklch(0.92 0 0);
   --popover: oklch(0.16 0 0);
@@ -36,7 +84,6 @@
   --accent: oklch(0.26 0 0);
   --accent-foreground: oklch(0.92 0 0);
 
-  /* The one colour with a job: a sentence about something being wrong. */
   --destructive: oklch(0.66 0.16 27);
   --destructive-foreground: oklch(0.99 0 0);
 
@@ -99,9 +146,67 @@
   opacity: 0.7;
 }
 
-/* While a pane is being dragged or resized, its frame stops receiving the
-   pointer — otherwise the module's own page swallows the gesture halfway
-   through and the pane sticks to the cursor. */
+/*
+ * A grid item does not take the pointer; the parts of it that mean something
+ * do.
+ *
+ * The module's page is painted underneath the grid rather than inside it — see
+ * the essay in `Frames.tsx` — so a grid item that captured the pointer across
+ * its whole rectangle would swallow every click meant for the page beneath it.
+ * `Pane.tsx` hands it back to its header, its fault line and its notices; this
+ * hands it back to the one part of the item that `Pane` does not own.
+ *
+ * That handle is the reason any of this is written down. It lives in the
+ * bottom-right corner of the item, which is exactly where the page sat when the
+ * page was on top — so it was covered, on every pane, and no pane could be
+ * resized at all. Nothing looked broken: the handle was drawn, in the right
+ * place, doing nothing.
+ *
+ * The CONTAINER needs the same treatment as the items, and forgetting it looked
+ * like the fix had not worked. `.react-grid-layout` is one div stretched across
+ * the whole canvas; making every item transparent to the pointer while leaving
+ * it opaque just moves the blockage up one element. Panes could be resized
+ * again and no module would take a click, which is a confusing pair of symptoms
+ * for a single missing selector.
+ */
+.react-grid-layout,
+.react-grid-item {
+  pointer-events: none;
+}
+
+/*
+ * No animation while the grid is still working out how wide it is.
+ *
+ * `WidthProvider` renders once at a hardcoded 1280 pixels, measures, and
+ * renders again at the real width. On any canvas that is not exactly 1280 wide
+ * that means every pane is first placed wrongly and then corrected — and
+ * `react-grid-layout` transitions `transform`, so the correction is animated.
+ * The result is that on every single load the panes visibly slide from
+ * somewhere they never were into place, which reads as the arrangement being
+ * rebuilt in front of you rather than restored.
+ *
+ * The library's own answer is `measureBeforeMount`, and it is a trap: with it
+ * on the measurement never arrives at all and the grid stays at 1280 forever,
+ * putting column six four pixels from the left edge. See the essay on
+ * `MEASURE_FIRST` in `App.tsx`.
+ *
+ * So the correction still happens — it has to — and it simply is not animated.
+ * The host adds this class for the first moments of a load and of a switch
+ * between kehikot, and takes it off once things have settled. A jump nobody
+ * sees, instead of a slide everybody does.
+ */
+.react-grid-layout.settling .react-grid-item {
+  transition: none;
+}
+
+.react-grid-item > .react-resizable-handle {
+  pointer-events: auto;
+}
+
+/* While a pane is being dragged or resized, the pages stop receiving the
+   pointer — otherwise a module's page swallows the gesture halfway through and
+   the pane sticks to the cursor. The host sets this on the layer as well; this
+   is the same rule stated where a stylesheet can enforce it. */
 .react-grid-item.react-draggable-dragging iframe,
 .react-grid-item.resizing iframe {
   pointer-events: none;

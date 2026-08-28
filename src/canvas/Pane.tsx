@@ -65,8 +65,20 @@ export function Pane({
   const name = presence.name ?? presence.id
 
   return (
-    <div className="bg-card flex h-full flex-col overflow-hidden rounded-lg border">
-      <header className="pane-grip flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none">
+    /*
+     * No background on the pane itself, and no pointer either.
+     *
+     * The module's page is painted UNDERNEATH this — see `App.tsx` — so
+     * anything opaque here would hide it, and anything that takes the pointer
+     * here would swallow clicks meant for it. The parts that need to be seen
+     * and pressed opt back in one at a time: the header, the fault line, and
+     * whichever notice is standing in for a page that is not there.
+     *
+     * The border stays, because the border is the pane. It is the only thing
+     * that says where one module ends and the next begins.
+     */
+    <div className="pointer-events-none flex h-full flex-col overflow-hidden rounded-lg border">
+      <header className="pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none">
         <ConditionDot condition={condition} />
         <span className="truncate text-xs font-medium">{name}</span>
         {presence.module?.version ? (
@@ -75,7 +87,7 @@ export function Pane({
           </span>
         ) : null}
         <span className="flex-1" />
-        <Hint label="take it off this canvas — the program keeps running" side="left">
+        <Hint label="take it off this kehikko — the program keeps running" side="left">
           <Button
             variant="ghost"
             size="icon"
@@ -91,16 +103,26 @@ export function Pane({
         </Hint>
       </header>
 
+      {/* The hollow part. Its only jobs are to be measured — the page is
+          positioned to match it — and to stay out of the way of what is
+          showing through it. A notice, when there is one, is opaque and takes
+          the pointer again; there is no page behind it worth seeing. */}
       <div ref={body} className="relative min-h-0 flex-1">
-        {condition === 'ready' && !settled ? <ConnectingPanel at={presence.at} /> : null}
+        {condition === 'ready' && !settled ? (
+          <div className="bg-card pointer-events-auto absolute inset-0">
+            <ConnectingPanel at={presence.at} />
+          </div>
+        ) : null}
 
         {condition === 'ready' ? null : (
-          <ConditionPanel
-            condition={condition}
-            line={line}
-            at={presence.at}
-            protocols={presence.protocols}
-          />
+          <div className="bg-card pointer-events-auto absolute inset-0">
+            <ConditionPanel
+              condition={condition}
+              line={line}
+              at={presence.at}
+              protocols={presence.protocols}
+            />
+          </div>
         )}
       </div>
 
@@ -110,7 +132,7 @@ export function Pane({
           from across the canvas. */}
       {fault ? (
         <p
-          className="text-muted-foreground shrink-0 truncate border-t px-2.5 py-1 text-[11px]"
+          className="text-muted-foreground bg-card pointer-events-auto shrink-0 truncate border-t px-2.5 py-1 text-[11px]"
           title={fault}
         >
           {fault}

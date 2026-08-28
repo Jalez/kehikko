@@ -26,6 +26,7 @@ import type { ConversationWatcher } from './host/conversation.ts'
 import { toWireContext, type Subject } from './host/context.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
 
 /**
@@ -48,6 +49,30 @@ import { Writer } from './host/writer.ts'
  */
 
 const Grid = WidthProvider(Responsive)
+
+/**
+ * `measureBeforeMount`, and why it is off.
+ *
+ * It is tempting, and it was on for an hour. `WidthProvider` renders once at a
+ * hardcoded default of 1280 pixels, measures the element it rendered into, and
+ * renders again with the real width — so the first paint of every load places
+ * the panes with the wrong column width. `measureBeforeMount` is the library's
+ * own answer: render nothing until the measurement exists.
+ *
+ * With it on, the measurement never arrives. The grid stays at 1280 for the
+ * life of the page, on a canvas of any other width, and the damage is not a
+ * subtle misalignment — column six lands at four pixels instead of seven
+ * hundred, so a pane placed beside another is drawn on top of it, and a pane
+ * cannot be dragged to a column that is not where it appears to be. Widths
+ * computed from `1280` and positions from a container of some other size do not
+ * merely look wrong, they make the grid unusable.
+ *
+ * The reposition-on-reload it was brought in to fix had a different cause
+ * entirely — the height feedback loop described on `onHeight` — and fixing that
+ * fixed the symptom. So this stays off, and the one frame at the default width
+ * stays, which is a frame nobody has ever mentioned seeing.
+ */
+const MEASURE_FIRST = false
 
 /** Grid geometry. One row is small enough that a resize request lands close. */
 const ROW_HEIGHT = 24
@@ -91,6 +116,15 @@ export function App() {
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
   const [moving, setMoving] = useState<string | null>(null)
+  /* Read from the document rather than worked out again. The blocking script in
+     `index.html` already decided this before anything was painted, and a second
+     implementation of that decision is a second thing that can be wrong — see
+     `host/theme.ts`. */
+  const [theme, setTheme] = useState<Theme>(() => current())
+  /* Whether the grid is still finding its width. While it is, its own
+     transitions are off — see `.settling` in `index.css` for the slide that
+     otherwise happens on every load. */
+  const [settling, setSettling] = useState(true)
 
   /* Where each pane's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the panes. */
@@ -229,7 +263,20 @@ export function App() {
   /* What every module on the canvas is told. One object, memoised, so that a
      re-render caused by anything else does not look like a context change and
      re-point every frame. */
-  const context = useMemo(() => toWireContext(subject, 'dark'), [subject])
+  /* The theme is part of it, so switching sends every framed module a new
+     context and a module that honours it changes with the host. It used to be
+     the literal 'dark', which made `roadmap.context.theme` a field this host
+     filled in with a constant and never revisited — a lie that happened to be
+     true. */
+  const context = useMemo(() => toWireContext(subject, theme), [subject, theme])
+
+  const onTheme = useCallback(() => {
+    setTheme((was) => {
+      const next = other(was)
+      apply(next)
+      return next
+    })
+  }, [])
 
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
@@ -247,16 +294,48 @@ export function App() {
     [change, open?.placements],
   )
 
-  /* A module asking to be taller. The host clamped the pixels in
-     `Conversation`; here they become rows, and the pane is only ever GROWN —
-     shrinking a pane somebody deliberately made large would be the module
-     overruling the person about their own canvas. */
+  /**
+   * A module asking to be taller.
+   *
+   * ## Why this is allowed at most once, and never after a person has resized
+   *
+   * The obvious rule — "grow whenever a module asks for more" — has a runaway
+   * in it, and it is not subtle once seen. A module measures its own document.
+   * Its document is as tall as the frame the host gave it. So the host grows the
+   * pane, the frame gets taller, the document gets taller, the module reports a
+   * larger height, and the host grows the pane again. It does not oscillate; it
+   * climbs. One pane here reached eighty rows — two and a half thousand pixels —
+   * pushing its own resize handle so far down the canvas that it could not be
+   * reached, which is a very odd-looking bug for what is really a loop with no
+   * exit.
+   *
+   * Nothing in the protocol can prevent that from the module's side: reporting
+   * `scrollHeight` is the correct and obvious thing for a module to do, and any
+   * page whose content fills the space it is given will report the space it was
+   * given. The brake has to be here.
+   *
+   * So a request is honoured once per module per page load — enough for a page
+   * that opens shorter than its content to be given room — and not at all once
+   * the person has taken hold of the pane themselves. Their size is an
+   * instruction; the module's is a suggestion, and a suggestion does not get to
+   * repeat itself until it wins.
+   */
+  const grown = useRef(new Set<string>())
+  const sized = useRef(new Set<string>())
+  /** Forty rows is a tall pane on any screen and nowhere near a runaway. */
+  const MOST_ROWS = 40
+
   const onHeight = useCallback(
     (id: string, px: number) => {
-      const rows = Math.ceil((px + HEADER_PX + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1]))
+      if (grown.current.has(id) || sized.current.has(id)) return
+      const rows = Math.min(
+        MOST_ROWS,
+        Math.ceil((px + HEADER_PX + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])),
+      )
       const placements = (open?.placements ?? []).map((p) =>
         p.i === id && rows > p.h ? { ...p, h: rows } : p,
       )
+      grown.current.add(id)
       if (!same(open?.placements ?? [], placements)) change({ placements })
     },
     [change, open?.placements],
@@ -362,6 +441,16 @@ export function App() {
   /* Measure before the browser paints, not after. A canvas switch replaces
      every pane in one commit, and a page positioned over where the last
      canvas's pane used to be — even for a single frame — is a visible jump. */
+  /* A load, and every switch between kehikot, gets a moment with no animation
+     while `WidthProvider` measures and the grid re-places everything at the
+     real width. Long enough to cover that correction, short enough that a drag
+     a person starts immediately still animates normally. */
+  useEffect(() => {
+    setSettling(true)
+    const done = setTimeout(() => setSettling(false), 250)
+    return () => clearTimeout(done)
+  }, [openId])
+
   useLayoutEffect(() => {
     measure()
     /* And again for a moment afterwards. Adding a pane, removing one, or
@@ -414,6 +503,8 @@ export function App() {
         onUnplace={onUnplace}
         onLookAgain={() => void look()}
         looking={looking}
+        theme={theme}
+        onTheme={onTheme}
       />
 
       {trouble ? (
@@ -423,12 +514,41 @@ export function App() {
       <main ref={surface} className="relative flex-1 overflow-auto">
         {panes.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
 
+        {/*
+         * Every module's page, loaded once and positioned to line up with the
+         * pane that asked for it. Outside the grid, because the grid is what
+         * comes and goes when somebody switches kehikko — see `Frames.tsx`.
+         *
+         * UNDER the grid, and that is a correction. It used to be painted on
+         * top, which put an iframe over the bottom-right corner of every pane —
+         * exactly where `react-grid-layout` puts its resize handle. The handle
+         * was still there and still worked; nothing could reach it. Panes could
+         * not be resized at all, which is also why they ended up stuck at
+         * whatever width they last had.
+         *
+         * So the pages sit beneath and the panes are transparent over them:
+         * see `Pane.tsx` for the body that lets both light and the pointer
+         * through, and `index.css` for the grid item that does the same while
+         * keeping its handle live.
+         */}
+        <Frames
+          framings={framings}
+          context={context}
+          canvas={controls}
+          watcherFor={watcherFor}
+          moving={moving}
+        />
+
         <Grid
+          /* Above the pages, so the pane's own chrome — its header, its edge,
+             and the resize handle in its corner — is never underneath one. */
+          style={{ position: 'relative', zIndex: 1 }}
           /* Keyed by the canvas, so switching them is a new grid rather than
              the same grid being told every pane moved at once — which it would
              animate, one canvas melting into the next. */
           key={openId ?? 'none'}
-          className="min-h-full"
+          measureBeforeMount={MEASURE_FIRST}
+          className={settling ? 'min-h-full settling' : 'min-h-full'}
           layouts={{ lg: panes as Layout[] }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
@@ -457,7 +577,11 @@ export function App() {
           }}
           onResizeStart={(_all, _old, item) => setMoving(item.i)}
           onResize={() => remeasure()}
-          onResizeStop={() => {
+          onResizeStop={(_all, _old, item) => {
+            /* From here on this pane is the person's. A module may not ask for
+               height again — see `onHeight` for the loop that rule exists to
+               stop, and for why a person's size outranks a module's. */
+            sized.current.add(item.i)
             setMoving(null)
             settle()
           }}
@@ -492,18 +616,6 @@ export function App() {
             )
           })}
         </Grid>
-
-        {/* Every module's page, loaded once and positioned over the pane that
-            asked for it. This layer is deliberately outside the grid, because
-            the grid is what comes and goes when somebody switches canvases —
-            see the essay in `Frames.tsx`. */}
-        <Frames
-          framings={framings}
-          context={context}
-          canvas={controls}
-          watcherFor={watcherFor}
-          moving={moving}
-        />
       </main>
     </div>
   )
@@ -524,7 +636,7 @@ function Nothing({ registry, looking }: { registry: RegistryView | null; looking
         <p>Asking every registered program what it is…</p>
       ) : registered ? (
         <p>
-          {registered} module{registered === 1 ? '' : 's'} registered, none on this canvas. Put one here from
+          {registered} module{registered === 1 ? '' : 's'} registered, none on this kehikko. Put one here from
           <span className="text-foreground"> modules</span>, above right.
         </p>
       ) : (

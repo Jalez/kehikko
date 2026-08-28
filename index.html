@@ -1,9 +1,94 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Frame</title>
+    <title>Kehikot</title>
+    <!--
+      The canvas colour, inline, and the class alone is not enough without it.
+
+      The blocking script below puts `dark` on `<html>` before the body exists,
+      which is necessary and was not sufficient: a class selects nothing until
+      there is a stylesheet defining what it means. In development Vite injects
+      the stylesheet from JavaScript — `main.tsx` imports `index.css` — so it
+      arrives AFTER the first paint, and the background lives in a Tailwind
+      `@layer base` rule that is not there yet. The browser paints its own
+      white, then the real palette lands a moment later. That is the flash, and
+      it happens with the class already correct on the element.
+
+      So the two colours the eye actually notices are stated here, in the
+      document, where they need nothing to have loaded. Everything else waits
+      for the stylesheet quite happily; a background does not, because it is
+      the whole screen.
+
+      `color-scheme` comes with them so the scrollbars and any native control
+      match from the first frame too, instead of being light furniture on a
+      black page for the same beat.
+
+      These two values are the only duplication of the palette. They are the
+      `--background` token at each end, and if either changes in `index.css`
+      it has to change here — which is worth one comment and is still cheaper
+      than a flash on every reload.
+    -->
+    <style>
+      html {
+        background: oklch(1 0 0);
+        color-scheme: light;
+      }
+      html.dark {
+        background: oklch(0 0 0);
+        color-scheme: dark;
+      }
+    </style>
+    <!--
+      The theme, decided before anything is drawn.
+
+      This is a plain blocking script rather than a module, and it is in the
+      head rather than with the application, and both of those are the point. A
+      `type="module"` script is deferred: it runs after the document has been
+      parsed and, more to the point, after the browser has already painted the
+      page in whatever palette the stylesheet defaults to. That paint IS the
+      flash — a light page for one frame on the way to a dark one, on every
+      reload — and nothing further down can undo a frame that has been shown.
+
+      So the class lands on `<html>` before the body exists, and there is
+      nothing left for React to correct.
+
+      Kept in a cookie rather than `localStorage`, which is a real choice and
+      not a habit: a cookie is sent with the request for this document, so a
+      server rendering this page could pick the palette before writing a byte.
+      `localStorage` is invisible to a server, and choosing it would quietly
+      rule that out.
+
+      Dark unless the person has chosen light. The system preference is
+      deliberately NOT consulted, which is worth defending because consulting
+      it is the fashionable answer: this host is designed around the dark
+      canvas — a surface things sit on, black so that the modules are the only
+      lit things — and someone opening it for the first time should see the
+      thing it was designed as. Following the system would mean the first
+      impression depends on a setting made about a different program.
+
+      One switch, remembered forever, is a small enough cost for that.
+
+      `src/host/theme.ts` READS BACK what this script decided rather than
+      working it out again, so there is one answer rather than two that can
+      disagree. Only the cookie's name is duplicated, and only because an
+      inline blocking script cannot import anything. Change it here, change it
+      there.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var match = document.cookie.match(/(?:^|;\s*)kehikko\.theme=(dark|light)(?:;|$)/)
+          if (!match || match[1] !== 'light') document.documentElement.classList.add('dark')
+        } catch (_) {
+          /* Cookies refused, or a locked-down browser. Dark, like everybody
+             who has not said otherwise. A theme is not worth an exception
+             thrown before the application has started. */
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

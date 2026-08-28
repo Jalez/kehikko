@@ -8,7 +8,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -16,24 +15,36 @@ import type { Canvas } from '@/host/canvases.ts'
 import { Hint } from './Hint.tsx'
 
 /**
- * The canvas cluster: which canvas this is, which others there are, and one
- * more.
+ * The kehikko cluster: which one this is, which others there are, and the two
+ * things you can do to the set of them.
  *
  * Top left, where the name of the thing you are looking at goes in every
- * program anybody has ever used. Three controls in a row and no chrome around
- * them — the field has no border until you touch it, the chevron has no box,
- * and the plus is an icon. The strip is meant to be almost absent, and a group
- * of framed controls in the corner would be the loudest thing on a black
- * screen.
+ * program anybody has ever used. Four controls in a row and no chrome around
+ * them — the field has no border until you touch it, and the rest are bare
+ * icons. The strip is meant to be almost absent, and a group of framed controls
+ * in the corner would be the loudest thing on the screen.
  *
  * ## The name is a field, not a menu item
  *
- * Renaming a canvas is the most common thing a person does to one, and it is
- * usually done immediately after making it — the new canvas is called "canvas"
- * and it is about to be called something else. Putting the name behind
+ * Renaming is the most common thing a person does to a kehikko, and it is
+ * usually done immediately after making one — the new kehikko is called
+ * "kehikko" and is about to be called something else. Putting the name behind
  * "rename…" in the dropdown would make the common case two clicks and a dialog.
- * So the name is simply editable where it is displayed, and the dropdown holds
- * only the things that are not the name.
+ * So the name is editable where it is displayed.
+ *
+ * ## Making and removing sit together, and neither is in the menu
+ *
+ * They used to be split: `+` in the strip, "remove …" at the bottom of the
+ * dropdown. That put the two halves of one idea in two places, and it put the
+ * destructive half inside a menu whose whole job is switching — so the list you
+ * open in order to CHANGE kehikko also held the one item that DESTROYS one, a
+ * few pixels below the thing you meant to click.
+ *
+ * Now they are a pair, adjacent, both plain icons, and the menu does nothing
+ * but switch. Removing is still the more dangerous of the two and is treated as
+ * such: its label names what will go, and when there is only one kehikko left
+ * the button goes flat rather than disappearing — a control that vanishes is
+ * one a person hunts for, and its absence explains nothing.
  */
 export function Canvases({
   canvases,
@@ -55,12 +66,12 @@ export function Canvases({
       <Name canvas={open} onRename={onRename} />
 
       <DropdownMenu>
-        <Hint label={`switch canvas — ${canvases.length} in all`}>
+        <Hint label={`switch kehikko — ${canvases.length} in all`}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              aria-label="switch canvas"
+              aria-label="switch kehikko"
               className="text-muted-foreground hover:text-foreground size-6 shrink-0"
             >
               <ChevronDown className="size-3" />
@@ -68,41 +79,65 @@ export function Canvases({
           </DropdownMenuTrigger>
         </Hint>
         <DropdownMenuContent align="start" className="w-60">
-          <DropdownMenuLabel>canvases</DropdownMenuLabel>
+          <DropdownMenuLabel>kehikot</DropdownMenuLabel>
           {canvases.map((canvas) => (
             <DropdownMenuItem key={canvas.id} onSelect={() => onOpen(canvas.id)}>
               <DropdownMenuCheck checked={canvas.id === open?.id} />
               <span className="min-w-0 flex-1 truncate">{canvas.name}</span>
               {/* How much is on it. The one fact worth carrying in a switcher:
-                  it is how a person tells two canvases apart when they gave
-                  both the same forgettable name. */}
+                  it is how a person tells two kehikot apart when they gave both
+                  the same forgettable name. */}
               <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
                 {canvas.placements.length}
               </span>
             </DropdownMenuItem>
           ))}
-          {open && canvases.length > 1 ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(open.id)}>
-                <Trash2 className="size-4" />
-                <span className="truncate">remove &ldquo;{open.name}&rdquo;</span>
-              </DropdownMenuItem>
-            </>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Hint label="a new, empty canvas">
+      <Hint label="a new, empty kehikko">
         <Button
           variant="ghost"
           size="icon"
-          aria-label="new canvas"
+          aria-label="new kehikko"
           className="text-muted-foreground hover:text-foreground size-6 shrink-0"
           onClick={onCreate}
         >
           <Plus className="size-3" />
         </Button>
+      </Hint>
+
+      {/*
+       * Removing, beside making, because they are the two halves of one idea.
+       *
+       * Disabled rather than hidden when this is the only kehikko. The server
+       * refuses that deletion anyway — a host with no kehikko has no state to
+       * be in — and a button that is present and flat says so before you press
+       * it, where a button that has quietly gone missing leaves you looking for
+       * a feature you are sure you saw.
+       */}
+      <Hint
+        label={
+          canvases.length > 1
+            ? `remove “${open?.name ?? 'this kehikko'}” — the modules on it keep running`
+            : 'the only kehikko cannot be removed'
+        }
+      >
+        {/* A span, because a disabled button dispatches no pointer events and
+            so never triggers the tooltip — which is precisely the moment the
+            explanation is worth having. */}
+        <span className="inline-flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={open ? `remove ${open.name}` : 'remove this kehikko'}
+            disabled={!open || canvases.length < 2}
+            className="text-muted-foreground hover:text-destructive size-6 shrink-0 disabled:pointer-events-none"
+            onClick={() => open && onDelete(open.id)}
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </span>
       </Hint>
     </div>
   )
@@ -121,9 +156,9 @@ export function Canvases({
  * still.
  *
  * So the field owns a draft while it is being edited, and the stored name only
- * flows in when the canvas itself changes underneath it — which is what
- * switching canvases is. The draft is committed on blur and on Enter, and
- * abandoned on Escape.
+ * flows in when the kehikko itself changes underneath it — which is what
+ * switching is. The draft is committed on blur and on Enter, and abandoned on
+ * Escape.
  */
 function Name({ canvas, onRename }: { canvas: Canvas | null; onRename(name: string): void }) {
   const [draft, setDraft] = useState(canvas?.name ?? '')
@@ -149,7 +184,7 @@ function Name({ canvas, onRename }: { canvas: Canvas | null; onRename(name: stri
   }
 
   return (
-    <Hint label="the name of this canvas" align="start">
+    <Hint label="the name of this kehikko" align="start">
       <Input
         value={draft}
         disabled={!canvas}
@@ -162,8 +197,8 @@ function Name({ canvas, onRename }: { canvas: Canvas | null; onRename(name: stri
             event.currentTarget.blur()
           }
         }}
-        placeholder="canvas"
-        aria-label="the name of this canvas"
+        placeholder="kehikko"
+        aria-label="the name of this kehikko"
         spellCheck={false}
         maxLength={60}
         className="hover:border-input focus-visible:border-ring h-6 w-44 border-transparent bg-transparent px-1.5 text-xs font-medium"
