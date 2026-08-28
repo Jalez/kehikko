@@ -26,6 +26,13 @@ const placementSchema = z.object({
    * anyway.
    */
   grow: z.boolean().default(false),
+  /**
+   * Whether this pane is pinned, and stops hearing about the canvas.
+   *
+   * Defaulted, so an arrangement stored before pinning existed reads as not
+   * pinned — which is what those panes have been doing all along.
+   */
+  pinned: z.boolean().default(false),
 })
 export type Placement = z.infer<typeof placementSchema>
 
@@ -173,7 +180,7 @@ export function place(placements: readonly Placement[], id: string): Placement[]
 
   /* Off. A new pane is the size this host chose and stays there until somebody
      says otherwise — either by dragging its corner or by turning this on. */
-  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false }]
+  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false, pinned: false }]
 }
 
 /** Take one off. */

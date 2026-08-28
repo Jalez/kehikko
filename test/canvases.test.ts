@@ -39,8 +39,8 @@ describe('a canvas is a name and an arrangement', () => {
     editCanvas(db, made.id, {
       epic: 'modes-are-modules',
       placements: [
-        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false },
-        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false },
+        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false },
+        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false },
       ],
     })
 
@@ -48,8 +48,8 @@ describe('a canvas is a name and an arrangement', () => {
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.epic).toBe('modes-are-modules')
     expect(canvas?.placements).toEqual([
-      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false },
-      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false },
+      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false },
+      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false },
     ])
   })
 
@@ -130,7 +130,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: -5, y: 0, w: 0, h: 1e9 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false })
   })
 
   test('a number that is not one does not become NaN in the database', () => {
@@ -138,7 +138,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: 'over there', y: null, w: undefined, h: 5 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false })
   })
 })
 
@@ -154,7 +154,7 @@ describe('following the module’s height is a property of one pane', () => {
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: true }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(true)
 
-    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false }] })
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(false)
   })
 
@@ -174,11 +174,57 @@ describe('following the module’s height is a property of one pane', () => {
     const one = createCanvas(db, 'one')
     const two = createCanvas(db, 'two')
     editCanvas(db, one.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: true }] })
-    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false }] })
 
     const canvases = listCanvases(db)
     expect(canvases[0]?.placements[0]?.grow).toBe(true)
     expect(canvases[1]?.placements[0]?.grow).toBe(false)
+  })
+})
+
+describe('pinning a pane is a fact about the pane, not about the module', () => {
+  test('it is off unless asked for, and is written and read back', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    expect(listCanvases(db)[0]?.placements[0]?.pinned).toBe(false)
+
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, pinned: true }] })
+    expect(listCanvases(db)[0]?.placements[0]?.pinned).toBe(true)
+  })
+
+  test('anything that is not exactly true is off', () => {
+    /* It arrives over HTTP, and this one decides whether a module stops hearing
+       about the canvas — not a behaviour to switch on because a string came. */
+    const made = createCanvas(db, 'one')
+    for (const pinned of ['true', 1, {}, [], 'yes']) {
+      editCanvas(db, made.id, {
+        placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, pinned } as never],
+      })
+      expect(listCanvases(db)[0]?.placements[0]?.pinned).toBe(false)
+    }
+  })
+
+  test('the same module can be pinned on one canvas and following on another', () => {
+    /* The entire use: two panes on two epics, side by side, to compare. It is
+       per placement for exactly this, where a module's kept state is not. */
+    const one = createCanvas(db, 'one')
+    const two = createCanvas(db, 'two')
+    editCanvas(db, one.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, pinned: true }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, pinned: false }] })
+
+    const canvases = listCanvases(db)
+    expect(canvases[0]?.placements[0]?.pinned).toBe(true)
+    expect(canvases[1]?.placements[0]?.pinned).toBe(false)
+  })
+
+  test('pinning and following-the-height are independent', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: true, pinned: false }],
+    })
+    const [canvas] = listCanvases(db)
+    expect(canvas?.placements[0]?.grow).toBe(true)
+    expect(canvas?.placements[0]?.pinned).toBe(false)
   })
 })
 
@@ -213,7 +259,7 @@ describe('a database written before a column existed still opens', () => {
     const after = open(file)
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false })
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false })
 
     /* And opening it a second time is not an error. */
     after.close()

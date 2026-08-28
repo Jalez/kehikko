@@ -1,4 +1,4 @@
-import { ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, Pin, PinOff, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
@@ -44,6 +44,8 @@ export function Pane({
   body,
   grow,
   onGrow,
+  pinned,
+  onPin,
   onRemove,
 }: {
   presence: Presence
@@ -65,6 +67,9 @@ export function Pane({
   /** Whether this pane follows the height its module asks for. */
   grow: boolean
   onGrow(grow: boolean): void
+  /** Whether this pane is pinned, and stops hearing about the canvas. */
+  pinned: boolean
+  onPin(pinned: boolean): void
   onRemove(): void
 }) {
   const name = presence.name ?? presence.id
@@ -158,6 +163,49 @@ export function Pane({
             </Button>
           </Hint>
         ) : null}
+
+        {/*
+         * Pin: hold this pane where it is and stop telling it about the canvas.
+         *
+         * What it is for is two panes on two epics, side by side, to compare —
+         * move the canvas and the pinned one keeps what it had.
+         *
+         * The module is told it is pinned, which is the whole reason this host
+         * is allowed to have the button at all. A silent pin leaves a module
+         * describing itself as showing the open epic while it shows a
+         * remembered one, unable to tell a person's pin from the canvas not
+         * having moved; this host refused to pin until the protocol grew a word
+         * for it. See `pinned` in the protocol's `wire.ts`.
+         *
+         * Shown whatever the condition, unlike the height toggle: pinning is a
+         * fact about the pane rather than a conversation with the program, and
+         * a module that is not answering yet can still be pinned before it
+         * does.
+         */}
+        <Hint
+          label={
+            pinned
+              ? 'pinned — it keeps what it was last told, and is not hearing about this kehikko'
+              : 'pin it — it will keep what it has while the rest of the kehikko moves'
+          }
+          side="left"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={pinned ? 'let this pane follow the kehikko again' : 'pin this pane'}
+            aria-pressed={pinned}
+            className={
+              pinned
+                ? 'text-foreground size-6 cursor-default'
+                : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
+            }
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => onPin(!pinned)}
+          >
+            {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
+          </Button>
+        </Hint>
 
         <Hint label="take it off this kehikko — the program keeps running" side="left">
           <Button

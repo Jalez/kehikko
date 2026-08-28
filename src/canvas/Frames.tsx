@@ -74,6 +74,8 @@ export interface Framing {
   shown: boolean
   /** Whatever the host keeps for this module, carried into its greeting. */
   state: string | null
+  /** Whether this pane is pinned, and stops hearing about the canvas. */
+  pinned: boolean
 }
 
 export function Frames({
@@ -113,7 +115,7 @@ export function Frames({
        gaps between panes belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, rect, shown, state }) => {
+      {framings.map(({ module, rect, shown, state, pinned }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -137,6 +139,7 @@ export function Frames({
             canvas={canvas}
             watcher={watcherFor(module.id)}
             state={state}
+            pinned={pinned}
           />
         </div>
         )

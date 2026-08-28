@@ -63,6 +63,21 @@ export interface Placement {
    * grow to fit on another.
    */
   grow: boolean
+  /**
+   * Whether this pane has been pinned, and stops hearing about the canvas.
+   *
+   * Per placement rather than per module, unlike `state` and for the opposite
+   * reason: a pin is a fact about one pane on one kehikko. Holding a module
+   * still here while another kehikko moves it around is the entire use — two
+   * panes on two epics, side by side, to compare.
+   *
+   * The module is told, in `roadmap.context`. A host that pinned silently would
+   * leave a module describing itself as showing the open epic while it showed a
+   * remembered one, unable to tell a person's pin from the canvas not having
+   * moved — which is why this host refused to pin at all until the protocol
+   * grew a word for it.
+   */
+  pinned: boolean
 }
 
 export interface Canvas {
@@ -93,7 +108,7 @@ export interface Canvas {
  * optional. A canvas sent by an older page, or by anything hand-written, has no
  * `grow` in it, and that is not an error — it is off.
  */
-export type PlacementInput = Omit<Placement, 'grow'> & { grow?: boolean }
+export type PlacementInput = Omit<Placement, 'grow' | 'pinned'> & { grow?: boolean; pinned?: boolean }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
 export interface CanvasEdit {
@@ -160,6 +175,7 @@ export function open(file = databaseFile()): Database {
     );
   `)
   add(db, 'placements', 'grow', 'integer not null default 0')
+  add(db, 'placements', 'pinned', 'integer not null default 0')
   add(db, 'canvases', 'selection', 'text')
   return db
 }
@@ -201,17 +217,26 @@ export function listCanvases(db: Database): Canvas[] {
 
   const placements = db
     .query<
-      { canvas: number; i: string; x: number; y: number; w: number; h: number; grow: number },
+      {
+        canvas: number
+        i: string
+        x: number
+        y: number
+        w: number
+        h: number
+        grow: number
+        pinned: number
+      },
       []
-    >('select canvas, module as i, x, y, w, h, grow from placements order by canvas, module')
+    >('select canvas, module as i, x, y, w, h, grow, pinned from placements order by canvas, module')
     .all()
 
   const byCanvas = new Map<number, Placement[]>()
   for (const row of placements) {
-    const { canvas, grow, ...rest } = row
+    const { canvas, grow, pinned, ...rest } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
        here, at the edge, so nothing above this line has to remember. */
-    const placement: Placement = { ...rest, grow: grow === 1 }
+    const placement: Placement = { ...rest, grow: grow === 1, pinned: pinned === 1 }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
     else byCanvas.set(canvas, [placement])
@@ -272,9 +297,11 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow) values (?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned) values (?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      for (const p of cleaned(edit.placements)) insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0)
+      for (const p of cleaned(edit.placements)) {
+        insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0, p.pinned ? 1 : 0)
+      }
     }
     return true
   })
@@ -425,6 +452,10 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          string, a number or nothing at all should not switch on a behaviour
          that resizes somebody's pane. */
       grow: p.grow === true,
+      /* Same rule as `grow`: anything but a literal `true` is off. This one
+         decides whether a module stops hearing about the canvas, which is not a
+         behaviour to switch on because a string arrived. */
+      pinned: p.pinned === true,
     })
   }
   return kept

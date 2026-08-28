@@ -33,6 +33,7 @@ export function ModuleFrame({
   canvas,
   watcher,
   state,
+  pinned,
 }: {
   module: FramedModule
   context: ModuleContext
@@ -43,6 +44,8 @@ export function ModuleFrame({
    * nothing. Handed straight into the greeting and never read here.
    */
   state: string | null
+  /** Whether this pane is pinned. See the context effect below. */
+  pinned: boolean
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -52,8 +55,14 @@ export function ModuleFrame({
      context changing — tearing it down and rebuilding it would reload the
      module's page every time the person changed the subject, throwing away
      whatever they had typed in it. */
-  const contextRef = useRef(context)
-  contextRef.current = context
+  /* The pin travels with the context, because to a module it IS part of the
+     context: it says whether what it has just been told is the last it will
+     hear. Merged here rather than upstream because the pin is per pane and the
+     context is one object shared by every frame on the canvas. */
+  const told: ModuleContext = { ...context, pinned }
+
+  const contextRef = useRef(told)
+  contextRef.current = told
   /* Same reason as the context, and the timing matters more here: the kept
      state arrives with the registry sweep, which can land either side of the
      frame's load. A module greeted with `null` because the sweep had not
@@ -121,13 +130,38 @@ export function ModuleFrame({
     }
   }, [framed.id, framed.name, framed.entry, origin])
 
-  /* Context, re-sent whenever it changes. `sendContext` is a no-op before the
-     greeting, so a change arriving while the page is still loading is dropped
-     here and carried in the greeting itself instead — which is why `hello`
-     carries the context at all. */
+  /**
+   * Context, re-sent whenever it changes — unless this pane is pinned.
+   *
+   * `sendContext` is a no-op before the greeting, so a change arriving while the
+   * page is still loading is dropped here and carried in the greeting instead,
+   * which is why `hello` carries the context at all.
+   *
+   * ## The pin, and the one message that still goes out after it
+   *
+   * A pinned pane keeps what it was last told and hears nothing more about this
+   * canvas. That is the whole feature: two panes on two epics, side by side.
+   *
+   * But the pin itself is sent, in both directions, and that is not a
+   * contradiction. The message announcing the freeze is the last one through and
+   * the message lifting it is the first — because a module that was pinned and
+   * never told would go on describing itself as showing the open epic while
+   * showing a remembered one, with no way to tell a person's pin from the canvas
+   * not having moved. That is precisely why this host refused to pin at all
+   * until the protocol grew a word for it; see `pinned` in the protocol's
+   * `wire.ts`.
+   *
+   * So: while pinned, send only when the pin itself changed. The ref remembers
+   * what was last SENT rather than what is current, which is the distinction
+   * that makes "the transition, and only the transition" expressible.
+   */
+  const sentPinned = useRef<boolean | null>(null)
   useEffect(() => {
-    conversationRef.current?.sendContext(context)
-  }, [context])
+    const froze = sentPinned.current !== pinned
+    sentPinned.current = pinned
+    if (pinned && !froze) return
+    conversationRef.current?.sendContext(told)
+  }, [told, pinned])
 
   return (
     <iframe

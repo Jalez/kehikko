@@ -365,6 +365,28 @@ export function App() {
     [change, open?.placements],
   )
 
+  /**
+   * Pin a pane, or let it go.
+   *
+   * A pinned pane keeps whatever it was last told and hears nothing further
+   * about this canvas — which is how two panes end up on two different epics,
+   * side by side, to be compared.
+   *
+   * The module is TOLD, in `roadmap.context`. This host refused to pin at all
+   * until the protocol had a word for it, because a silent pin leaves a module
+   * describing itself as showing the open epic while it shows a remembered one,
+   * with no way to tell a person's pin from the canvas not having moved. See
+   * `pinned` in the protocol's `wire.ts`, and `ModuleFrame` for the one message
+   * that still goes out after the freeze.
+   */
+  const onPin = useCallback(
+    (id: string, pinned: boolean) => {
+      const placements = (open?.placements ?? []).map((p) => (p.i === id ? { ...p, pinned } : p))
+      change({ placements })
+    },
+    [change, open?.placements],
+  )
+
   /** Turn following-the-module's-height on or off for one pane. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -388,6 +410,7 @@ export function App() {
         w: item.w,
         h: item.h,
         grow: was.find((p) => p.i === item.i)?.grow ?? false,
+        pinned: was.find((p) => p.i === item.i)?.pinned ?? false,
       }))
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
@@ -479,6 +502,7 @@ export function App() {
           rect: rects[id] ?? null,
           shown: onOpen.has(id) && (found?.condition ?? byId.get(id)?.condition) === 'ready' && !!found,
           state: byId.get(id)?.state ?? null,
+          pinned: placements.find((p) => p.i === id)?.pinned ?? false,
         }
       })
       .filter((framing): framing is Framing => framing !== null)
@@ -654,6 +678,8 @@ export function App() {
                   body={body(presence.id)}
                   grow={placement.grow}
                   onGrow={(grow) => onGrow(presence.id, grow)}
+                  pinned={placement.pinned}
+                  onPin={(pinned) => onPin(presence.id, pinned)}
                   onRemove={() => onUnplace(presence.id)}
                 />
               </div>
