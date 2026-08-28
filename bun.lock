@@ -15,7 +15,7 @@
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
         "react-grid-layout": "^1.5.2",
-        "roadmap-module-protocol": "git+ssh://git@github.com/Jalez/frame-protocol.git#main",
+        "roadmap-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#main",
         "tailwind-merge": "^3.3.1",
         "zod": "^3.25.76",
       },
@@ -427,7 +427,7 @@
 
     "resize-observer-polyfill": ["resize-observer-polyfill@1.5.1", "", {}, "sha512-LwZrotdHOo12nQuZlHEmtuXdqGoOD0OhaxopaNFxWzInpEgaLWoVuAMbTzixuosCx2nEG58ngzW3vxdWoxIgdg=="],
 
-    "roadmap-module-protocol": ["roadmap-module-protocol@git+ssh://git@github.com/Jalez/frame-protocol.git#395df69eeab9b0f2fc7ea8f98875434ce5e724ec", { "peerDependencies": { "zod": "^3.23.8" } }, "395df69eeab9b0f2fc7ea8f98875434ce5e724ec"],
+    "roadmap-module-protocol": ["roadmap-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#209a89643f7d94ef8032f515e997f04fae41b22b", { "peerDependencies": { "zod": "^3.23.8" } }, "209a89643f7d94ef8032f515e997f04fae41b22b"],
 
     "rollup": ["rollup@4.63.1", "", { "dependencies": { "@types/estree": "1.0.9" }, "optionalDependencies": { "@napi-rs/lzma-linux-x64-gnu": "1.5.1", "@rollup/rollup-android-arm-eabi": "4.63.1", "@rollup/rollup-android-arm64": "4.63.1", "@rollup/rollup-darwin-arm64": "4.63.1", "@rollup/rollup-darwin-x64": "4.63.1", "@rollup/rollup-freebsd-arm64": "4.63.1", "@rollup/rollup-freebsd-x64": "4.63.1", "@rollup/rollup-linux-arm-gnueabihf": "4.63.1", "@rollup/rollup-linux-arm-musleabihf": "4.63.1", "@rollup/rollup-linux-arm64-gnu": "4.63.1", "@rollup/rollup-linux-arm64-musl": "4.63.1", "@rollup/rollup-linux-loong64-gnu": "4.63.1", "@rollup/rollup-linux-loong64-musl": "4.63.1", "@rollup/rollup-linux-ppc64-gnu": "4.63.1", "@rollup/rollup-linux-ppc64-musl": "4.63.1", "@rollup/rollup-linux-riscv64-gnu": "4.63.1", "@rollup/rollup-linux-riscv64-musl": "4.63.1", "@rollup/rollup-linux-s390x-gnu": "4.63.1", "@rollup/rollup-linux-x64-gnu": "4.63.1", "@rollup/rollup-linux-x64-musl": "4.63.1", "@rollup/rollup-openbsd-x64": "4.63.1", "@rollup/rollup-openharmony-arm64": "4.63.1", "@rollup/rollup-win32-arm64-msvc": "4.63.1", "@rollup/rollup-win32-ia32-msvc": "4.63.1", "@rollup/rollup-win32-x64-gnu": "4.63.1", "@rollup/rollup-win32-x64-msvc": "4.63.1", "fsevents": "~2.3.2" }, "bin": { "rollup": "dist/bin/rollup" } }, "sha512-3Df9jsstwhccuEfmAMi9l8XUh/GOkVObmFTU7CCVBysEbcOZLl84jCtaAZMcPiMz2EGKsATzQcU+Xr3n/wU6cg=="],
 
