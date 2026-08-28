@@ -12,6 +12,7 @@ import {
   readState,
   type CanvasEdit,
 } from './canvases.ts'
+import { agentKnows, awarenessOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
 import { answered, start, startable } from './launch.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
@@ -78,12 +79,13 @@ const json = (body: unknown, status = 200) =>
  * one thing this host must not do is make "not running" look like "broken".
  */
 async function sweep(): Promise<{
-  presences: (Presence & { state: string | null })[]
+  presences: (Presence & { state: string | null; agent: AgentAwareness })[]
   sweep: RegistrationSweep
   protocol: number
 }> {
   const found = await readRegistrations(registryDir())
   const presences = await Promise.all(found.registrations.map((registration) => look(registration)))
+  const knows = agentKnows()
 
   callers.clear()
   registered.clear()
@@ -100,7 +102,16 @@ async function sweep(): Promise<{
      * correct them, which is the visible-flicker failure wearing a different
      * hat. This is the one thing the page carries that it does not read.
      */
-    presences: presences.map((presence) => ({ ...presence, state: readState(db, presence.id) })),
+    /* Whether the AGENT has been told about each module's MCP door, read from
+       the agent's own configuration once per sweep. A module can be running
+       perfectly and offering tools that no agent has been told exist; nothing
+       errors, the tools are simply absent from the conversation. See
+       `agents.ts`. */
+    presences: presences.map((presence) => ({
+      ...presence,
+      state: readState(db, presence.id),
+      agent: awarenessOf(presence.module?.mcp?.url ?? null, presence.id, knows),
+    })),
     sweep: found,
     protocol: PROTOCOL,
   }

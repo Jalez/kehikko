@@ -6,6 +6,7 @@ import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
+import { Tools } from './Tools.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -131,6 +132,10 @@ export function Pane({
           </span>
         ) : null}
         <span className="flex-1" />
+
+        {/* Only when the agent has not been told about this module's tools. See
+            `Tools.tsx`: silence is the good news. */}
+        <Tools agent={presence.agent} name={name} />
 
         {/*
          * Whether this pane follows the height its module asks for.

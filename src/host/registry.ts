@@ -46,6 +46,18 @@ export interface Presence {
    * never reads this; it carries it.
    */
   state?: string | null
+  /**
+   * Whether the AGENT has been told about this module's MCP door.
+   *
+   * A fact about the agent's configuration, not about the module — which is why
+   * it sits beside `condition` rather than inside it. A module can be perfectly
+   * `ready`, serving tools, while no agent has been told the door exists.
+   */
+  agent?:
+    | { kind: 'none' }
+    | { kind: 'told'; as: string }
+    | { kind: 'elsewhere'; as: string; pointsAt: string }
+    | { kind: 'untold' }
 }
 
 export interface RegistryView {
