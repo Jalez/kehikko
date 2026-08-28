@@ -1,0 +1,19 @@
+# No trailing slash, deliberately.
+#
+# `node_modules/` matches a DIRECTORY called node_modules and nothing else. A
+# symlink called node_modules — which is what a linked local dependency is, and
+# what several package managers create — is not a directory, so the pattern
+# misses it and the link gets committed. That has happened on this codebase
+# once already: a symlink pointing at its own parent went into a commit, and
+# every checkout afterwards failed with ELOOP.
+node_modules
+
+# There is no build any more — Vite serves the page, see `run.sh` — but the
+# `build` script still exists and this is where it would land.
+dist
+
+# The canvases live in ~/.roadmap/frame.sqlite by default. This only catches a
+# stray one written here by an override during development.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

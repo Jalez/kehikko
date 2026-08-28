@@ -1,0 +1,113 @@
+@import 'tailwindcss';
+
+/*
+ * The dark canvas, and nothing beyond it.
+ *
+ * These are shadcn's own tokens at shadcn's own names, with one departure: the
+ * background is black rather than a dark neutral. That is the whole of the
+ * custom theming, and it is deliberate — a canvas is a surface things sit ON,
+ * and a surface with a colour of its own competes with the modules, which are
+ * the only things here worth looking at. Everything else the host draws is a
+ * hairline, a dim label, or a sentence, and all three read against black
+ * without needing a palette.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.5rem;
+
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.92 0 0);
+
+  /* A pane. Barely lighter than the canvas, so a module's own page is the
+     bright thing and its frame is not. */
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.92 0 0);
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.92 0 0);
+
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.16 0 0);
+  --secondary: oklch(0.24 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.62 0 0);
+  --accent: oklch(0.26 0 0);
+  --accent-foreground: oklch(0.92 0 0);
+
+  /* The one colour with a job: a sentence about something being wrong. */
+  --destructive: oklch(0.66 0.16 27);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.26 0 0);
+  --input: oklch(0.28 0 0);
+  --ring: oklch(0.5 0 0);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    overscroll-behavior: none;
+  }
+}
+
+/*
+ * react-grid-layout's own behaviour, dressed for a black canvas.
+ *
+ * Its stylesheet is imported in `main.tsx`; what follows only changes how the
+ * moving parts LOOK. The placeholder is the shape a pane will take when
+ * dropped, and it is drawn as an outline rather than a filled block because a
+ * filled block on black reads as a new pane appearing rather than as a space
+ * being made.
+ */
+.react-grid-item.react-grid-placeholder {
+  background: transparent;
+  border: 1px dashed var(--ring);
+  border-radius: var(--radius);
+  opacity: 0.7;
+}
+
+/* While a pane is being dragged or resized, its frame stops receiving the
+   pointer — otherwise the module's own page swallows the gesture halfway
+   through and the pane sticks to the cursor. */
+.react-grid-item.react-draggable-dragging iframe,
+.react-grid-item.resizing iframe {
+  pointer-events: none;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--muted-foreground);
+  border-bottom-color: var(--muted-foreground);
+}
