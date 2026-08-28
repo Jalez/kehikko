@@ -66,6 +66,8 @@ export interface FramedModule {
   name: string
   version: string
   summary: string
+  /** What this module says its presence obliges an agent to do. */
+  guidance: string
   /** Absolute, on the module's own origin, ready to be a frame's `src`. */
   entry: string
   icon: string | null
@@ -269,6 +271,25 @@ export async function look(
       name: manifest.name,
       version: manifest.version,
       summary: manifest.summary,
+      /**
+       * What this module says its presence obliges an agent to do.
+       *
+       * Carried, never read here. The canvas composes it into the prompt every
+       * agent on a kehikko is handed, attributed to the module that said it —
+       * because a host can vouch that a module said something and never that it
+       * is true.
+       *
+       * How this came to be missing is worth recording, because it is the same
+       * lesson three modules learned today. Everything below is a LIST OF NAMED
+       * FIELDS, and a list silently falls behind. The module served `guidance`
+       * correctly; the host fetched it, parsed it, and then built an object
+       * without it — so the field arrived and vanished with nothing erroring
+       * anywhere, and it took reading the served manifest side by side with the
+       * host's own answer to see it. The URLs below genuinely must be named,
+       * since each is resolved against the origin, but every plain field here
+       * is a candidate for the same quiet loss.
+       */
+      guidance: manifest.guidance,
       entry,
       /* Every other URL gets the same treatment as `entry`, and each is dropped
          rather than refusing the whole module: an icon pointing somewhere else

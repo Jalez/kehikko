@@ -283,9 +283,15 @@ const server = Bun.serve({
         return json({ ok: false, why: 'A start names one module.' }, 400)
       }
 
-      if (!registered.size) await sweep()
-
-      const can = startable(registered.get(body.module) ?? null)
+      /* Read the registrations now rather than trusting the last sweep, because
+         the commonest reason to press Start is that somebody has just edited a
+         registration — adding the `dir` that makes starting possible at all.
+         Answering out of a cached map made that edit invisible until something
+         else happened to sweep, which contradicted `launch.ts`'s own claim that
+         the answer is about the disk as it is at the moment of the press. It is
+         one small directory read; the honesty is worth more than the map. */
+      const now = await readRegistrations(registryDir())
+      const can = startable(now.registrations.find((r) => r.id === body.module) ?? null)
       if (!can.ok) return json({ ok: false, why: can.why }, 409)
 
       const ran = start(can.run)
@@ -293,7 +299,7 @@ const server = Bun.serve({
          is then asked. Sweeping immediately reported every successful start as
          a failure: the spawn worked, the module answered a second later, and
          the sweep had already run before the dev server bound its port. */
-      if (ran.ok) await answered(registered.get(body.module)!.url, WELL_KNOWN)
+      if (ran.ok) await answered(can.run.url, WELL_KNOWN)
       const after = ran.ok ? await sweep() : null
       return json({
         ...ran,

@@ -55,6 +55,8 @@ export interface Runnable {
   script: string
   /** What the module will be told to listen on, read from its registered url. */
   port: number | null
+  /** Where to ask whether it came up. The registered origin, unchanged. */
+  url: string
   /** The line shown to a person before they press Start. */
   command: string
 }
@@ -113,7 +115,13 @@ export function startable(registration: Registration | null): Startable {
 
   return {
     ok: true,
-    run: { dir: root, script, port: portOf(registration.url), command: commandFor(script, portOf(registration.url)) },
+    run: {
+      dir: root,
+      script,
+      port: portOf(registration.url),
+      url: registration.url,
+      command: commandFor(script, portOf(registration.url)),
+    },
   }
 }
 
@@ -138,19 +146,6 @@ export interface Started {
   why?: string
 }
 
-/**
- * Run it, and do not pretend to know more than that.
- *
- * `detached` and unref'd, because the module outlives the request that started
- * it and should outlive this host too — a person restarting the canvas has not
- * asked for their modules to be killed. Output goes to `ignore` rather than to
- * a pipe: a pipe nobody drains fills, and a filled pipe blocks the child, so a
- * module would freeze after its first few hundred lines of logging. Whoever
- * wants the logs runs the script themselves.
- *
- * The script is spawned directly rather than through a shell — no `sh -c`, no
- * string interpolation — so nothing in a registration can become shell.
- */
 /**
  * How long to keep asking whether it came up.
  *
@@ -193,6 +188,19 @@ export async function answered(origin: string, wellKnown: string): Promise<boole
   return false
 }
 
+/**
+ * Run it, and do not pretend to know more than that.
+ *
+ * `detached` and unref'd, because the module outlives the request that started
+ * it and should outlive this host too — a person restarting the canvas has not
+ * asked for their modules to be killed. Output goes to `ignore` rather than to
+ * a pipe: a pipe nobody drains fills, and a filled pipe blocks the child, so a
+ * module would freeze after its first few hundred lines of logging. Whoever
+ * wants the logs runs the script themselves.
+ *
+ * The script is spawned directly rather than through a shell — no `sh -c`, no
+ * string interpolation — so nothing in a registration can become shell.
+ */
 export function start(run: Runnable): Started {
   try {
     const child = spawn(run.script, [], {
