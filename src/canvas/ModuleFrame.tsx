@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { ModuleContext } from 'roadmap-module-protocol'
 
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
@@ -58,8 +58,17 @@ export function ModuleFrame({
   /* The pin travels with the context, because to a module it IS part of the
      context: it says whether what it has just been told is the last it will
      hear. Merged here rather than upstream because the pin is per pane and the
-     context is one object shared by every frame on the canvas. */
-  const told: ModuleContext = { ...context, pinned }
+     context is one object shared by every frame on the canvas.
+
+     Memoised, and that is not a performance nicety. This object is the
+     dependency of the effect that POSTS the context, so a fresh one per render
+     is a `roadmap.context` per render — measured at seventeen identical
+     broadcasts to three modules during one startup. Nothing looked wrong,
+     because every module already ignores a context that tells it nothing new;
+     it was still the host saying the same thing seventeen times, and the first
+     module to react to context ARRIVING rather than to context CHANGING would
+     have inherited a bug that looked like its own. */
+  const told: ModuleContext = useMemo(() => ({ ...context, pinned }), [context, pinned])
 
   const contextRef = useRef(told)
   contextRef.current = told

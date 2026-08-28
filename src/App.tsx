@@ -272,9 +272,31 @@ export function App() {
      the literal 'dark', which made `roadmap.context.theme` a field this host
      filled in with a constant and never revisited — a lie that happened to be
      true. */
+  /**
+   * The selection, as a value rather than as an array identity.
+   *
+   * `open.selection` is a fresh array on every read of the canvases — a `.map`
+   * over the rows produces new objects — so depending on it directly rebuilt
+   * the context whenever anything about any canvas changed, and every rebuild
+   * is a `roadmap.context` posted to every framed module. Measured on a canvas
+   * with three modules on it: seventeen identical broadcasts during startup,
+   * all carrying the same selection.
+   *
+   * Nothing was visibly wrong, which is why it survived being written. Every
+   * module already ignores a context that tells it nothing new — Journeys keeps
+   * what it was standing on, References re-asks only when the epic changes —
+   * so the cost was noise on the wire and re-renders nobody asked for. It is
+   * still a host telling three programs something seventeen times, and the
+   * first module to react to context arriving rather than to context CHANGING
+   * would have had a bug that looked like its own.
+   *
+   * A newline joins them because a ref cannot contain one, so two different
+   * selections cannot produce the same key.
+   */
+  const picked = (open?.selection ?? []).join('\n')
   const context = useMemo(
-    () => toWireContext(subject, theme, open?.selection ?? []),
-    [subject, theme, open?.selection],
+    () => toWireContext(subject, theme, picked ? picked.split('\n') : []),
+    [subject, theme, picked],
   )
 
   const onTheme = useCallback(() => {
