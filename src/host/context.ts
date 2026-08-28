@@ -91,12 +91,36 @@ export function toWireContext(
    * the second whenever the first moves.
    */
   selection: readonly string[] = [],
+  /**
+   * Which canvas this is, or null when there is not one open yet.
+   *
+   * The host has to fill this in and no module can work it out for itself: a
+   * module's page is loaded ONCE and shown on whichever canvas asks for it — see
+   * `Frames.tsx` on why the iframes outlive the panes — so a module genuinely
+   * cannot tell where it is standing. It only starts to matter now that
+   * something else on the wire says where IT came from: a `roadmap.event`
+   * carries the kehikko it happened on, this says the one being looked at, and
+   * near-or-far becomes a comparison the module makes rather than a rule the
+   * host imposes.
+   *
+   * Nullable rather than absent, and the null is honest rather than tidy. A
+   * module handed null cannot sort near from far, and the protocol says that is
+   * a smaller loss than being handed a wrong answer — so the right thing for a
+   * module to do with it is to say the filter cannot be honest, not to draw an
+   * empty list.
+   *
+   * Note what this is NOT: a per-frame fact. Every frame on this canvas is told
+   * the same one, because the canvas is one place and they are all standing in
+   * it. The subject is per-canvas for the same reason.
+   */
+  kehikko: { id: number; name: string } | null = null,
 ): ModuleContext {
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     project: subject.project,
     theme,
     selection,
+    kehikko,
   })
   if (parsed.success) return parsed.data
 
@@ -107,5 +131,16 @@ export function toWireContext(
      into. The selection goes with it: it was picked out of an epic that this
      context no longer names, so keeping it would point every module at
      something in a place they are no longer looking. */
-  return contextSchema.parse({ epic: null, project: null, theme, selection: [] })
+  /* The kehikko survives the fallback, and the selection does not. They fail
+     for different reasons: a selection is refs picked out of an epic this
+     context no longer names, so keeping it would point every module at
+     something that is not in front of them. Where the canvas IS has nothing to
+     do with what the person typed into the epic box, and blanking it would turn
+     a bad slug into every module losing its ability to tell near from far. */
+  const bare = contextSchema.safeParse({ epic: null, project: null, theme, selection: [], kehikko })
+  if (bare.success) return bare.data
+  /* Belt and braces: this function must not throw. It is called during render,
+     and a host that white-screens because somebody named a canvas something the
+     schema dislikes would be a host taking every module down with it. */
+  return contextSchema.parse({ epic: null, project: null, theme, selection: [], kehikko: null })
 }

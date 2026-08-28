@@ -5,11 +5,12 @@ import { METHOD_NAMES } from 'roadmap-module-protocol'
  * falls between them.
  *
  * The host is two programs: a server that knows what is registered, and a page
- * that is the canvas. Nearly every method a module can call is about the host's
- * material and is answered by the server. Exactly one is about the host's VIEW
- * — `view.goto` asks the host to show something — and a view is not a thing a
- * server has. So the canvas answers that one, in the browser, where the canvas
- * is.
+ * that is the canvas. Most methods a module can call are about the host's
+ * material and are answered by the server. Three are about the host's VIEW —
+ * `view.goto` asks the host to show something, `selection.set` changes what
+ * every pane is told, and `events.emit` has to reach a frame — and none of
+ * those is a thing a server has. So the canvas answers those, in the browser,
+ * where the frames are.
  *
  * Both lists live in this one file rather than each half keeping its own,
  * because the failure worth catching is a method that neither half answers.
@@ -29,7 +30,6 @@ export const ANSWERED_BY_THE_SERVER = [
   'steps.list',
   'live.get',
   'stage.report',
-  'events.emit',
   /* A module's own kept state. Storage, so the half that has a database. */
   'state.set',
 ] as const
@@ -48,8 +48,23 @@ export const ANSWERED_BY_THE_SERVER = [
  * other panes heard about it would put a visible delay on a click for no gain —
  * nothing is lost if the write lands a moment later, and the person is looking
  * at the result either way.
+ *
+ * ## `events.emit` moved here, and the move is the interesting part
+ *
+ * It sat in the server's list for as long as the server's answer was a refusal,
+ * and a refusal needs nothing: no frames, no windows, no canvas. Delivery needs
+ * all three. An event goes out as a `postMessage` into an iframe, and every
+ * iframe in this host exists on the canvas — the server has never held a window
+ * handle and cannot be given one. A server that answered this would have to
+ * push the result back to the page over a channel invented for the purpose,
+ * whose entire cargo would be events the page then re-posts: the same delivery
+ * with an extra hop and a second place to lose it.
+ *
+ * So the rule that puts a method on this list is not "it changes the screen".
+ * It is "answering it requires something only the canvas has", and a live frame
+ * is such a thing. `src/host/events.ts` is where the deciding lives.
  */
-export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set'] as const
+export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set', 'events.emit'] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */
 export function unanswered(): string[] {

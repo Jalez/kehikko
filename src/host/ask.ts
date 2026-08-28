@@ -1,4 +1,5 @@
 import { methodParams } from 'roadmap-module-protocol'
+import type { Emitted } from './events.ts'
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
@@ -25,6 +26,16 @@ assertEveryMethodIsAnswered()
  * there would mean the server answering a question about a screen it cannot
  * see, then pushing the answer back to the screen over a channel that would
  * have to be invented for the purpose.
+ *
+ * **`selection.set` and `events.emit` are answered here for the same reason,
+ * one step further on.** Neither is about a screen exactly; both are about
+ * something only this half of the host possesses. A selection becomes part of
+ * the context every framed module is told, and the context is composed by the
+ * canvas. An event has to arrive INSIDE a frame, and every frame is a window in
+ * this page — the server has never held one and could not be given one. The
+ * channel-invented-for-the-purpose argument above is the same argument, and it
+ * bites harder here: that channel's entire cargo would be events the page then
+ * re-posts.
  */
 
 const viewMethods = new Set<string>(ANSWERED_BY_THE_VIEW)
@@ -45,6 +56,16 @@ export interface CanvasControls {
    * to say. See the essay on `selection` in the protocol's `wire.ts`.
    */
   select(refs: string[]): void
+  /**
+   * Carry one module's event to whoever consumes the format.
+   *
+   * The sender is a parameter and is supplied by `makeAsk` out of the
+   * registration this conversation was built on — it is deliberately NOT
+   * reachable from anything the frame said. See the essay in `events.ts`: a
+   * module that could name its own sender could post under another module's
+   * name onto a panel whose whole job is attribution.
+   */
+  emit(from: string, extension: string, payload: unknown): Emitted
 }
 
 /**
@@ -56,7 +77,7 @@ export interface CanvasControls {
  */
 export function makeAsk(moduleId: string, canvas: CanvasControls): Ask {
   return async (method, rawParams) => {
-    if (viewMethods.has(method)) return answerInTheView(method, rawParams, canvas)
+    if (viewMethods.has(method)) return answerInTheView(moduleId, method, rawParams, canvas)
 
     try {
       const response = await fetch('/host/call', {
@@ -93,7 +114,19 @@ export function makeAsk(moduleId: string, canvas: CanvasControls): Ask {
  * shape precisely so that "I moved" and "I would rather not" do not both have
  * to arrive as failures.
  */
-function answerInTheView(method: string, rawParams: unknown, canvas: CanvasControls): Answer {
+function answerInTheView(
+  /**
+   * Who is asking, from the registration this conversation was built on.
+   *
+   * Threaded down here for one reason and it is `events.emit`: the sender's
+   * name has to come from the host's own material. The frame never sees this
+   * string in a place it could change it.
+   */
+  moduleId: string,
+  method: string,
+  rawParams: unknown,
+  canvas: CanvasControls,
+): Answer {
   const schema = params.get(method)
   if (!schema) return failed('The canvas claims to answer that method and has no shape for it.')
 
@@ -117,6 +150,27 @@ function answerInTheView(method: string, rawParams: unknown, canvas: CanvasContr
     const { refs } = parsed.data as { refs: string[] }
     canvas.select(refs)
     return succeeded(method, { selection: refs })
+  }
+
+  /*
+   * An event, handed to the canvas to deliver.
+   *
+   * A REFUSAL when it is not carried, rather than `ok: true` with a count of
+   * zero, in the two cases where the host itself declined: a format it does not
+   * know, and a payload that does not fit the format. Those are faults in the
+   * call and the author needs the sentence. The rate limit refuses for the same
+   * reason — an event silently not carried is indistinguishable, from inside
+   * the sender, from an event nobody happened to be listening for.
+   *
+   * `delivered: 0` with `ok: true` is a different sentence and an honest one:
+   * the event was fine, the host carried it, and nothing on this canvas
+   * consumes that format. A module emitting into an empty room has not failed,
+   * and telling it so would send its author looking for a bug in their payload.
+   */
+  if (method === 'events.emit') {
+    const { extension, payload } = parsed.data as { extension: string; payload: unknown }
+    const out = canvas.emit(moduleId, extension, payload)
+    return out.ok ? succeeded(method, { delivered: out.delivered }) : failed(out.error)
   }
 
   const target = parsed.data as { epic?: string; step?: number; ref?: string }

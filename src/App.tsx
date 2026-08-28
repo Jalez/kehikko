@@ -7,6 +7,7 @@ import { Frames, type Framing } from './canvas/Frames.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { Pane } from './canvas/Pane.tsx'
 import type { CanvasControls } from './host/ask.ts'
+import { EventBus } from './host/events.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -300,10 +301,50 @@ export function App() {
    * selections cannot produce the same key.
    */
   const picked = (open?.selection ?? []).join('\n')
-  const context = useMemo(
-    () => toWireContext(subject, theme, picked ? picked.split('\n') : []),
-    [subject, theme, picked],
+  /**
+   * Which canvas is open, as the wire spells it.
+   *
+   * Split out of `open` by value rather than by identity, exactly like the
+   * selection above and for exactly the same reason: `open` is a fresh object
+   * on every read of the canvases, so depending on it here would rebuild the
+   * context — and post a `roadmap.context` to every framed module — whenever
+   * anything about any canvas changed.
+   */
+  const kehikko = useMemo(
+    () => (open ? { id: open.id, name: open.name } : null),
+    [open?.id, open?.name],
   )
+  const context = useMemo(
+    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko),
+    [subject, theme, picked, kehikko],
+  )
+
+  /**
+   * The one event bus for this page.
+   *
+   * Built once and never rebuilt — it is the dependency of the effect that
+   * joins each frame to it, so a fresh one per render would be every module
+   * leaving and rejoining on every render, which is a window of exactly one
+   * render during which an event goes nowhere.
+   *
+   * It holds a token bucket per module and therefore a little state, and that
+   * state living for as long as the page is correct: a rate limit that reset
+   * whenever React re-rendered would be a rate limit a loop could outrun by
+   * causing re-renders, which is precisely what a loop of events does.
+   */
+  const bus = useMemo(() => new EventBus(), [])
+
+  /**
+   * Where the canvas is, for an event that is about to be sent.
+   *
+   * A ref rather than a dependency of `controls`, because `controls` is the
+   * object every conversation was built with and rebuilding it is not free.
+   * Read at emit time, which is also the honest reading: the kehikko an event
+   * happened on is the one open when it was emitted, not the one that was open
+   * when the module's frame was mounted.
+   */
+  const kehikkoRef = useRef(kehikko)
+  kehikkoRef.current = kehikko
 
   const onTheme = useCallback(() => {
     setTheme((was) => {
@@ -322,8 +363,12 @@ export function App() {
          "nothing is selected" is a state they all have to handle anyway. */
       showEpic: (epic) => change({ epic, selection: [] }),
       select: (refs) => change({ selection: refs }),
+      /* `from` arrives already decided — `makeAsk` supplies it out of the
+         registration the conversation was built on, and nothing the frame said
+         can reach it. This end only adds where the canvas is. */
+      emit: (from, extension, payload) => bus.emit(from, extension, payload, kehikkoRef.current),
     }),
-    [change],
+    [change, bus],
   )
 
   const onPlace = useCallback(
@@ -671,6 +716,7 @@ export function App() {
           framings={framings}
           context={context}
           canvas={controls}
+          bus={bus}
           watcherFor={watcherFor}
           moving={moving}
         />

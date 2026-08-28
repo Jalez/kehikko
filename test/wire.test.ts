@@ -391,3 +391,91 @@ describe('goto is the one place the host waits, so it always stops waiting', () 
     expect(await walk).toEqual({ found: false, why: 'the frame was taken off the canvas' })
   })
 })
+
+describe('an event goes into the frame and is never answered', () => {
+  const event = {
+    type: MESSAGE.EVENT,
+    protocol: PROTOCOL,
+    extension: 'roadmap.notifications@1',
+    payload: { epic: 'modes-are-modules', message: 'the tests passed', level: 'info', refs: [] },
+    from: 'roadmap.checklist',
+    at: '2026-08-28T09:00:00.000Z',
+    kehikko: { id: 1, name: 'workbench' },
+  }
+
+  test('after the greeting it is posted, whole, with no correlation id on it', () => {
+    const { frame, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    conversation.greet(context)
+    sent.length = 0
+
+    conversation.sendEvent(event)
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.message).toEqual(event)
+    /* No `id`, and nothing waiting on one. A module that ignores every event it
+       is sent is a conforming module, so there is nothing here to correlate and
+       nothing for a silent pane to hang. */
+    expect(sent[0]!.message.id).toBeUndefined()
+    conversation.close()
+  })
+
+  test('before the greeting it is dropped, which is what best-effort means', () => {
+    const { frame, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+
+    conversation.sendEvent(event)
+
+    /* Unlike a context, there is no second chance: a context that arrives too
+       early is carried in the greeting instead, and an event simply goes. That
+       is exactly why a module needing history keeps its own. */
+    expect(sent).toHaveLength(0)
+    conversation.close()
+  })
+
+  test('a closed conversation posts nothing, so a frame taken off the canvas is not written to', () => {
+    const { frame, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    conversation.greet(context)
+    conversation.close()
+    sent.length = 0
+
+    conversation.sendEvent(event)
+
+    expect(sent).toHaveLength(0)
+  })
+})
+
+describe('the context says which kehikko is being looked at', () => {
+  test('the open canvas travels in hello, so a module knows where it is standing', () => {
+    const { frame, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    const here = toWireContext({ epic: null, project: null }, 'dark', [], { id: 7, name: 'workbench' })
+
+    conversation.greet(here)
+
+    expect((sent[0]!.message.context as { kehikko: unknown }).kehikko).toEqual({ id: 7, name: 'workbench' })
+    conversation.close()
+  })
+
+  test('a host with no canvas open says null rather than leaving the field off', () => {
+    /* Null is a state a module must be able to move into, and the protocol says
+       so: it can still show everything it is sent, it simply cannot sort near
+       from far. A missing field would be a module reading `undefined` and
+       having no way to tell that from a host that is broken. */
+    expect(toWireContext({ epic: null, project: null }, 'dark').kehikko).toBeNull()
+  })
+
+  test('an epic slug the schema refuses does not cost the module its bearings', () => {
+    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: null }, 'light', ['gh#1'], {
+      id: 2,
+      name: 'reading',
+    })
+    /* The subject and the selection go, because the refs were picked out of an
+       epic this context no longer names. Where the canvas IS has nothing to do
+       with what somebody typed into the epic box. */
+    expect(here.epic).toBeNull()
+    expect(here.selection).toEqual([])
+    expect(here.kehikko).toEqual({ id: 2, name: 'reading' })
+  })
+})

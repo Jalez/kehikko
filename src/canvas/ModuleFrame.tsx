@@ -3,6 +3,7 @@ import type { ModuleContext } from 'roadmap-module-protocol'
 
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
+import type { EventBus } from '@/host/events.ts'
 import type { FramedModule } from '@/host/registry.ts'
 
 /**
@@ -31,6 +32,7 @@ export function ModuleFrame({
   module: framed,
   context,
   canvas,
+  bus,
   watcher,
   state,
   pinned,
@@ -39,6 +41,11 @@ export function ModuleFrame({
   module: FramedModule
   context: ModuleContext
   canvas: CanvasControls
+  /**
+   * Where events are delivered from, and where this frame signs up to hear
+   * them. One bus for the whole canvas; see `host/events.ts`.
+   */
+  bus: EventBus
   watcher: ConversationWatcher
   /**
    * Whatever the host is keeping for this module, or null when it keeps
@@ -88,6 +95,13 @@ export function ModuleFrame({
   watcherRef.current = watcher
   const canvasRef = useRef(canvas)
   canvasRef.current = canvas
+  /* What this module says it consumes, read through a ref for the same reason
+     as everything else here: a manifest re-read that changed the array identity
+     must not tear down the conversation and reload the page. The bus reads it
+     on every emit rather than holding a copy, so a module whose manifest
+     changed under a running frame is heard about the moment the sweep lands. */
+  const consumesRef = useRef(framed.extensions.consumes)
+  consumesRef.current = framed.extensions.consumes
 
   /*
    * A module that asked for storage gets its own origin back, and is therefore
@@ -114,6 +128,7 @@ export function ModuleFrame({
       makeAsk(framed.id, {
         showEpic: (epic) => canvasRef.current.showEpic(epic),
         select: (refs) => canvasRef.current.select(refs),
+        emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
       }),
       {
         ready: (p) => watcherRef.current.ready(p),
@@ -137,13 +152,38 @@ export function ModuleFrame({
     const onLoad = () => conversation.greet(contextRef.current, stateRef.current)
     frame.addEventListener('load', onLoad)
 
+    /*
+     * Signed up for events for as long as this conversation exists, and on the
+     * SAME lifetime as the conversation rather than in an effect of its own.
+     *
+     * The two must be created and destroyed together for the reason the whole
+     * component exists: a receiver registered without a live conversation is an
+     * entry in the bus posting into a window that has gone, and a conversation
+     * without a receiver is a module the host greeted and then never delivered
+     * anything to. Splitting them into two effects made both states reachable
+     * for one render, which is long enough for an event to be lost.
+     *
+     * Joining regardless of whether this pane is on the OPEN canvas is
+     * deliberate. Its page is loaded, its conversation is live, and the event
+     * says which kehikko it happened on — so a module on another canvas can
+     * still record it and decide for itself whether it is near or far. Hiding
+     * it here would turn the module's filter into the host's rule.
+     */
+    bus.join(framed.id, {
+      get consumes() {
+        return consumesRef.current
+      },
+      send: (event) => conversation.sendEvent(event),
+    })
+
     return () => {
+      bus.leave(framed.id)
       frame.removeEventListener('load', onLoad)
       window.removeEventListener('message', onMessage)
       conversation.close()
       conversationRef.current = null
     }
-  }, [framed.id, framed.name, framed.entry, origin])
+  }, [framed.id, framed.name, framed.entry, origin, bus])
 
   /**
    * Context, re-sent whenever it changes — unless this pane is pinned.

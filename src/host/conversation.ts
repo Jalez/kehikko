@@ -199,6 +199,39 @@ export class Conversation {
   }
 
   /**
+   * Hand this frame one event another module emitted.
+   *
+   * ## Not answered, and therefore not correlated
+   *
+   * Every other message this class sends either expects a reply or IS one, and
+   * each carries an id to match the two ends up. This one carries none, and the
+   * absence is the design rather than an omission: the protocol's essay on
+   * `eventSchema` is explicit that a module which ignores every event it is
+   * sent is a conforming module. So there is nothing to wait for, nothing to
+   * time out, and nothing in `pending` — which also means a canvas holding a
+   * frame that has quietly stopped listening is not accumulating promises about
+   * it. A host that waited for acknowledgement here could be hung by a pane
+   * nobody is looking at.
+   *
+   * ## Only after the greeting, and that is where events are lost
+   *
+   * Guarded on `greeted` like `sendContext`, and unlike the context there is no
+   * second chance: a context that arrives too early is carried in the greeting
+   * instead, and an event that arrives before the greeting is simply gone. That
+   * is best-effort delivery meaning what it says, and it is why the consuming
+   * module keeps its own store — see the protocol's note that a receiver
+   * needing history should keep it rather than expect the wire to hold it.
+   *
+   * The message is composed by `events.ts` rather than here, because the fields
+   * a receiver may trust — `from`, `at`, `kehikko` — are the host's own words
+   * and belong where the host decides them, not where it posts them.
+   */
+  sendEvent(event: unknown): void {
+    if (!this.greeted || this.closed) return
+    this.post(event)
+  }
+
+  /**
    * Ask the module to walk to a reference, and wait — briefly — to hear whether
    * it found anything.
    *

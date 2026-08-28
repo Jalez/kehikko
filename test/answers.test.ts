@@ -64,8 +64,17 @@ describe('not mine to say', () => {
   })
 })
 
-describe('events.emit: valid, and undeliverable', () => {
-  test('a payload matching a known format is still refused, and told why', () => {
+describe('events.emit is no longer this half\'s to answer', () => {
+  /*
+   * These three tests used to assert a refusal, and the refusal was right for
+   * as long as the wire had no message that carried an event. It has one now,
+   * and delivery needs a frame — which this half of the host does not have. So
+   * what is worth testing here is no longer WHAT the server says about an
+   * event, it is that the server no longer claims the call at all and says so
+   * in a sentence naming the other half. The checks these tests used to cover
+   * moved with the delivery and are covered in `events.test.ts`.
+   */
+  test('the server hands it back to the canvas rather than refusing it on the merits', () => {
     const given = answer(
       ME,
       'events.emit',
@@ -77,35 +86,44 @@ describe('events.emit: valid, and undeliverable', () => {
     )
     expect(given.ok).toBe(false)
     if (given.ok) return
-    /* The host validated it and has no message on the wire that carries it. The
-       sentence has to say both, or a module author concludes their payload was
-       wrong and rewrites a payload that was right. */
-    expect(given.error).toContain('valid')
-    expect(given.error).toContain('not delivered')
+    /* Naming the canvas, because this refusal is only ever reached when the
+       host has forwarded something to the wrong side of itself — a fault in the
+       host, and the sentence has to send whoever reads it to the right file. */
+    expect(given.error).toContain('canvas')
+    expect(given.error).toContain('events.emit')
   })
 
-  test('an extension this host does not know is refused before the payload is looked at', () => {
-    const given = answer(
+  test('a valid payload gets the same answer as an invalid one, because neither is looked at', () => {
+    const good = answer(
+      ME,
+      'events.emit',
+      { extension: 'roadmap.notifications@1', payload: { epic: 'x', message: 'hi' } },
+      registered,
+    )
+    const bad = answer(
       ME,
       'events.emit',
       { extension: 'somebody.else@7', payload: { anything: true } },
       registered,
     )
-    expect(given.ok).toBe(false)
-    if (given.ok) return
-    expect(given.error).toContain('does not know')
+    expect(good.ok).toBe(false)
+    expect(bad.ok).toBe(false)
+    if (good.ok || bad.ok) return
+    /* Identical, and that is the point: a half of the host that does not answer
+       a method must not half-answer it either. A server that still validated
+       the payload would be a second implementation of a check that lives
+       somewhere else, and two copies of a check are two answers waiting to
+       disagree. */
+    expect(good.error).toBe(bad.error)
   })
 
-  test('a payload that does not match its own format says which field', () => {
-    const given = answer(
-      ME,
-      'events.emit',
-      { extension: 'roadmap.notifications@1', payload: { message: '' } },
-      registered,
-    )
+  test('it is not reported as unknown-method, which would mean never', () => {
+    const given = answer(ME, 'events.emit', { extension: 'roadmap.calls@1', payload: {} }, registered)
     expect(given.ok).toBe(false)
     if (given.ok) return
-    expect(given.error).toContain('format')
+    /* `unknown-method` is the protocol's word for "this does not exist, now or
+       later", and it would be a lie here: the host answers this, elsewhere. */
+    expect(given.reason).toBe('failed')
   })
 })
 

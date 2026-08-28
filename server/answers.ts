@@ -1,9 +1,7 @@
 import {
-  known,
   LIMITS,
   METHOD_NAMES,
   methodParams,
-  schemaFor,
   type ResponseFailureReason,
 } from 'roadmap-module-protocol'
 import {
@@ -49,12 +47,17 @@ import { holdingsDir, listEpics, readEpic, readLive, readSteps } from './holding
  *
  * ## Writes are refused rather than absorbed
  *
- * `stage.report` and `events.emit` ask this host to record or to deliver
- * something. It can do neither. The tempting answer is `ok: true` — nothing
- * breaks, the module's button turns green, everybody is happy — and it is the
- * worst answer available, because the module now believes a report exists that
- * does not. Every write this host cannot perform is refused, with a sentence
- * saying what did not happen.
+ * `stage.report` asks this host to record something. It cannot. The tempting
+ * answer is `ok: true` — nothing breaks, the module's button turns green,
+ * everybody is happy — and it is the worst answer available, because the module
+ * now believes a report exists that does not. Every write this host cannot
+ * perform is refused, with a sentence saying what did not happen.
+ *
+ * `events.emit` used to be the second of those and is no longer refused by
+ * anybody: the protocol grew a message that carries an event into a frame, and
+ * the call moved to the half of the host that HAS frames. The note where it
+ * used to stand, further down, says what changed and why the answer did not
+ * simply appear here.
  */
 
 /** What one answer looks like before it becomes a `roadmap.response`. */
@@ -295,40 +298,45 @@ export function answer(
     )
 
   /**
-   * The interesting refusal, and the one worth reading the protocol against.
+   * The refusal that was answered, and the one worth reading the protocol
+   * against. It is not here any more, and this note is what it left behind.
+   *
+   * ## What it used to say, because the reasoning was right
    *
    * `events.emit` is how a module sends a notification or a report of its own
-   * calls to whichever other module consumes that format. This host can do
-   * every part of that except the last: it can check the extension is one it
-   * knows, it can validate the payload against the format's own schema, it
-   * knows from each manifest which modules `consume` the name — and then there
-   * is no message to deliver it with. The wire has eight messages and none of
-   * them carries an extension payload from the host to a module. `hello`,
-   * `context`, `response` and `goto` are the whole of what a host may say.
+   * calls to whichever other module consumes that format. This host could do
+   * every part of that except the last: it could check the extension was one it
+   * knew, it could validate the payload against the format's own schema, it
+   * knew from each manifest which modules `consume` the name — and then there
+   * was no message to deliver it with. The wire had eight messages and none of
+   * them carried an extension payload from a host to a module. So the honest
+   * answer was a refusal that said what had not happened, and it stood here as
+   * this host's principal piece of feedback on the protocol itself.
    *
-   * So the honest answer is a refusal that says what did not happen, and this
-   * is the host's principal piece of feedback on the protocol itself.
+   * ## What changed
+   *
+   * The protocol grew the ninth message. `roadmap.event` carries an extension
+   * payload from the host into a frame — unanswered, with no correlation id,
+   * because a host that waited for acknowledgement could be hung by a pane
+   * nobody is looking at. The gap this refusal named is closed, and the refusal
+   * is gone rather than being left in place with a comment saying it is stale.
+   *
+   * ## Why the answer did not simply appear here instead
+   *
+   * Because delivery is not a thing this half of the host can do. Every frame
+   * on this canvas is a window in the browser, and the server has never held a
+   * window handle. `events.emit` therefore moved to the VIEW — see
+   * `ANSWERED_BY_THE_VIEW` in `src/host/division.ts`, and `src/host/events.ts`
+   * for the deciding — and it is answered in the same place and for the same
+   * reason as `selection.set`: the canvas is what has the frames.
+   *
+   * The two checks moved with it, unchanged, because they were correct. They
+   * travel WITH the sending rather than being left behind as a server-side
+   * pre-flight, so that the thing that validates and the thing that delivers
+   * are one thing and cannot drift into disagreeing about what is deliverable.
+   * A call arriving here now is the canvas having forwarded something it should
+   * have kept, and the guard at the top of this function says exactly that.
    */
-  case 'events.emit': {
-    const { extension, payload } = parsed.data as { extension: string; payload: unknown }
-    if (!known(extension)) {
-      return notMineToSay(
-        'This host does not know that extension format, so it cannot check the payload and will not carry it.',
-      )
-    }
-    const format = schemaFor(extension)
-    const checked = format?.safeParse(payload)
-    if (!checked?.success) {
-      const issue = checked?.error.issues[0]
-      const where = issue?.path.length ? issue.path.join('.') : 'payload'
-      return notMineToSay(
-        `The payload does not match that extension's format: ${where} — ${clip(issue?.message ?? 'malformed')}.`,
-      )
-    }
-    return notMineToSay(
-      'This host has nowhere to deliver an extension payload: the wire carries hello, context, response and goto from a host, and none of them carries an event. The payload was valid and was not delivered.',
-    )
-  }
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the

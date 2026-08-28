@@ -2,6 +2,7 @@ import type { ModuleContext } from 'roadmap-module-protocol'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
+import type { EventBus } from '@/host/events.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame } from './ModuleFrame.tsx'
 
@@ -84,12 +85,23 @@ export function Frames({
   framings,
   context,
   canvas,
+  bus,
   watcherFor,
   moving,
 }: {
   framings: readonly Framing[]
   context: ModuleContext
   canvas: CanvasControls
+  /**
+   * The one bus every frame on this page joins.
+   *
+   * It belongs to this layer for the same reason the pages do: the layer
+   * outlives the grid, so a module framed on a kehikko nobody is currently
+   * looking at is still joined and still hears. A bus owned by the pane would
+   * come and go with the pane, and a module would fall silent the moment
+   * somebody switched canvases.
+   */
+  bus: EventBus
   watcherFor(id: string): ConversationWatcher
   /**
    * The pane being dragged or resized right now, if any.
@@ -139,6 +151,7 @@ export function Frames({
             module={module}
             context={context}
             canvas={canvas}
+            bus={bus}
             watcher={watcherFor(module.id)}
             state={state}
             pinned={pinned}
