@@ -197,6 +197,26 @@ export function ModuleFrame({
        * origin string, so the wire is addressed by window handle. With it, the
        * module gets its storage back and an origin the host can check as a
        * second condition.
+       *
+       * ## No `allow-modals`, and it costs a module author an afternoon
+       *
+       * `alert`, `confirm` and `prompt` are absent, deliberately. They block the
+       * whole browser — not the pane, the browser — so one module could freeze
+       * a canvas holding five other people's programs, and a host that let a
+       * pane do that would not be a host.
+       *
+       * The reason it is written down here is the FAILURE MODE. A blocked
+       * `confirm()` does not throw and does not warn: it returns `false`, which
+       * is the same value a person clicking Cancel produces. The checklist
+       * module guarded withdrawing an agreement behind one, and the button
+       * simply did nothing, forever, with nothing in the console — a bug that
+       * looks entirely like the module's own and is found only by measuring.
+       *
+       * A module wanting to confirm something builds it in its own page: a
+       * two-press arm, an inline are-you-sure. Those are better anyway, since
+       * they can say what will happen in the module's own words rather than in
+       * a browser chrome dialog. And anything that must be BIGGER than a pane
+       * belongs to the host — see `Prompts.tsx`.
        */
       sandbox={
         wantsOrigin
