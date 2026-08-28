@@ -85,7 +85,33 @@ export function Pane({
     <div className="pointer-events-none flex h-full flex-col overflow-hidden rounded-lg border">
       <header className="pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none">
         <ConditionDot condition={condition} />
-        <span className="truncate text-xs font-medium">{name}</span>
+        {/*
+         * The name, and the module's own description behind it.
+         *
+         * Every module used to print its name and its one-line summary at the
+         * top of its own page, directly under this header, which said the name
+         * again. Two costs: the name twice, and — the one that matters — a
+         * fixed strip of prose at the top of a pane that is often only three
+         * hundred pixels tall. In a short pane the description was competing
+         * with the thing a person opened the module to look at.
+         *
+         * The host already has that sentence. `summary` is a manifest field and
+         * this host reads it on every sweep, so nothing new crosses the wire and
+         * no module has to be asked. It goes here, on the name, where a title
+         * attribute belongs.
+         *
+         * Hover-only would be a real loss, so it is deliberately not the only
+         * route: the modules list in the strip above shows every module's
+         * sentence in full, always, next to its name. This is the convenience;
+         * that is the place it is guaranteed to be readable.
+         */}
+        {presence.module?.summary ? (
+          <Hint label={presence.module.summary} side="bottom" align="start">
+            <span className="cursor-default truncate text-xs font-medium">{name}</span>
+          </Hint>
+        ) : (
+          <span className="truncate text-xs font-medium">{name}</span>
+        )}
         {presence.module?.version ? (
           <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
             {presence.module.version}
