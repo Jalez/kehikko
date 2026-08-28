@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
@@ -42,6 +42,8 @@ export function Pane({
   fault,
   settled,
   body,
+  grow,
+  onGrow,
   onRemove,
 }: {
   presence: Presence
@@ -60,6 +62,9 @@ export function Pane({
   settled: boolean
   /** Where the module's page goes. Handed to the canvas so it can be measured. */
   body: (element: HTMLElement | null) => void
+  /** Whether this pane follows the height its module asks for. */
+  grow: boolean
+  onGrow(grow: boolean): void
   onRemove(): void
 }) {
   const name = presence.name ?? presence.id
@@ -87,6 +92,47 @@ export function Pane({
           </span>
         ) : null}
         <span className="flex-1" />
+
+        {/*
+         * Whether this pane follows the height its module asks for.
+         *
+         * Per pane rather than a setting somewhere, because it is a question
+         * about how you want to read THIS thing: a list you scan wants to hold
+         * its size and scroll, a summary you want all of wants to fit. The host
+         * has no way to know which this is, so it asks by putting the switch on
+         * the pane itself.
+         *
+         * It shows only when the module is actually speaking. Offering to
+         * follow the height of a program that is not running would be offering
+         * something that cannot happen.
+         */}
+        {condition === 'ready' ? (
+          <Hint
+            label={
+              grow
+                ? 'following the module’s height — press to keep this size instead'
+                : 'holding the size you set — press to follow the module’s height'
+            }
+            side="left"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={grow ? 'stop following the module’s height' : 'follow the module’s height'}
+              aria-pressed={grow}
+              className={
+                grow
+                  ? 'text-foreground size-6 cursor-default'
+                  : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
+              }
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={() => onGrow(!grow)}
+            >
+              {grow ? <ChevronsDownUp className="size-3" /> : <ChevronsUpDown className="size-3" />}
+            </Button>
+          </Hint>
+        ) : null}
+
         <Hint label="take it off this kehikko — the program keeps running" side="left">
           <Button
             variant="ghost"

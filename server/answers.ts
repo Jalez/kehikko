@@ -12,6 +12,7 @@ import {
   assertEveryMethodIsAnswered,
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
+import { holdingsDir, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
 
 /**
  * What this host answers, and — much more of the file — what it does not.
@@ -171,23 +172,31 @@ export function answer(
     }
   }
 
+  /**
+   * Where this host's holdings are, if it has any.
+   *
+   * Read per call rather than once at startup, because a refresh rewrites those
+   * files underneath a running host — and because "do I hold anything" should
+   * be able to become yes without restarting anything.
+   */
+  const dir = holdingsDir()
+
   switch (method) {
   /**
-   * Nothing to show. This host holds no epics, so the list of epics it holds
-   * is empty, and the empty list is true rather than evasive. A module can
-   * draw "no epics" from it and be right.
+   * The list, from the holdings when there are any.
+   *
+   * `{ epics: [] }` rather than `[]`, because the package gives this one answer
+   * a shape and this is it. A host with nowhere to read from still answers the
+   * empty list, and that is still true — it holds no epics, so the list of
+   * epics it holds is empty. This is the one question where emptiness is honest
+   * without a source, and a module can draw "no epics" from it and be right
+   * either way.
    */
   case 'epics.list':
-    /* `{ epics: [] }` rather than `[]`, because the package gives this one
-       answer a shape and this is it. The empty list is the true answer: this
-       host holds no epics, so the list of epics it holds is empty, and a module
-       can draw "no epics" from it and be right. */
-    return nothingToShow('epics.list', { epics: [] })
+    return nothingToShow('epics.list', { epics: dir ? listEpics(dir) : [] })
 
   /**
-   * Not found, rather than not mine: `epics.list` already said the host holds
-   * none, so a named one not being here is the consistent answer and not a new
-   * claim.
+   * One epic, or a refusal that does not describe its neighbours.
    *
    * The slug is not quoted back, and that is the protocol package's argument
    * rather than a bound: a refusal that names what it could not find is one
@@ -195,22 +204,54 @@ export function answer(
    * epic" lists the epics that do exist has enumerated its holdings in an error
    * message. The habit of not quoting is what keeps that from being written.
    */
-  case 'epic.get':
-    return notMineToSay('This host holds no epics of its own, so there is nothing here under that name.')
+  case 'epic.get': {
+    if (!dir) {
+      return notMineToSay('This host holds no epics of its own, so there is nothing here under that name.')
+    }
+    const { epic } = parsed.data as { epic: string }
+    const found = readEpic(dir, epic)
+    if (!found) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('epic.get', found)
+  }
 
-  case 'steps.list':
-    return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
+  case 'steps.list': {
+    if (!dir) {
+      return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
+    }
+    const { epic } = parsed.data as { epic: string }
+    const steps = readSteps(dir, epic)
+    if (steps === null) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('steps.list', { steps })
+  }
 
   /**
-   * Not mine to say, and the clearest case of it. An empty answer here would
-   * mean "the trackers reported nothing about this epic", which is a claim
-   * about GitHub and GitLab that this host is in no position to make. It does
-   * not refresh anything and never has.
+   * What the trackers last reported.
+   *
+   * Answered out of `data/state/`, which a refresh writes and nobody edits by
+   * hand — so this host relays a reading rather than making a claim of its own.
+   * `generated` travels with it and is the most important field in the answer:
+   * tracker state with no date on it is last week presented as now.
+   *
+   * With nowhere to read from this stays a refusal rather than becoming an
+   * empty answer. "The trackers reported nothing about this epic" is a claim
+   * about GitHub and GitLab that a host reading no trackers cannot make.
    */
-  case 'live.get':
-    return notMineToSay(
-      'This host does not read the trackers, so what they last reported is not this host\'s to say.',
-    )
+  case 'live.get': {
+    if (!dir) {
+      return notMineToSay(
+        'This host does not read the trackers, so what they last reported is not this host\'s to say.',
+      )
+    }
+    const { epic } = parsed.data as { epic: string }
+    const live = readLive(dir, epic)
+    if (!live) {
+      /* The epic may be real and simply never refreshed. Either way nothing
+         here has read a tracker about it, and empty bags would say they were
+         read and found nothing. */
+      return notMineToSay('Nothing has been read from the trackers for that epic.')
+    }
+    return nothingToShow('live.get', live)
+  }
 
   /**
    * A write, refused. `ok: true` would cost nothing today and would mean a

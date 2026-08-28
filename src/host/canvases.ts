@@ -18,6 +18,14 @@ const placementSchema = z.object({
   y: z.number().int().min(0).max(10_000),
   w: z.number().int().min(1).max(200),
   h: z.number().int().min(1).max(400),
+  /**
+   * Whether this pane follows the height its module asks for.
+   *
+   * Defaulted rather than required, so a canvas stored before this existed
+   * still reads. A missing flag is off, which is what those panes were doing
+   * anyway.
+   */
+  grow: z.boolean().default(false),
 })
 export type Placement = z.infer<typeof placementSchema>
 
@@ -160,7 +168,9 @@ export function place(placements: readonly Placement[], id: string): Placement[]
   const y = beside ? bottom : placements.reduce((low, p) => Math.max(low, p.y + p.h), 0)
   const x = beside ? usedToTheRight : 0
 
-  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H }]
+  /* Off. A new pane is the size this host chose and stays there until somebody
+     says otherwise — either by dragging its corner or by turning this on. */
+  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false }]
 }
 
 /** Take one off. */

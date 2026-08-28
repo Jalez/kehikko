@@ -74,11 +74,9 @@ const Grid = WidthProvider(Responsive)
  */
 const MEASURE_FIRST = false
 
-/** Grid geometry. One row is small enough that a resize request lands close. */
+/** Grid geometry. A small row is a fine-grained resize. */
 const ROW_HEIGHT = 24
 const MARGIN: [number, number] = [8, 8]
-/** The pane header, which a module's requested height does not include. */
-const HEADER_PX = 32
 
 /**
  * What the canvas currently believes about one module, which is not always what
@@ -295,55 +293,86 @@ export function App() {
   )
 
   /**
-   * A module asking to be taller.
+   * A module saying how tall it would like to be. Acted on only where asked.
    *
-   * ## Why this is allowed at most once, and never after a person has resized
+   * ## Why this is opt-in per pane
    *
-   * The obvious rule — "grow whenever a module asks for more" — has a runaway
-   * in it, and it is not subtle once seen. A module measures its own document.
-   * Its document is as tall as the frame the host gave it. So the host grows the
-   * pane, the frame gets taller, the document gets taller, the module reports a
-   * larger height, and the host grows the pane again. It does not oscillate; it
-   * climbs. One pane here reached eighty rows — two and a half thousand pixels —
-   * pushing its own resize handle so far down the canvas that it could not be
-   * reached, which is a very odd-looking bug for what is really a loop with no
-   * exit.
+   * Honouring it everywhere was tried twice and fought the person both times.
    *
-   * Nothing in the protocol can prevent that from the module's side: reporting
-   * `scrollHeight` is the correct and obvious thing for a module to do, and any
-   * page whose content fills the space it is given will report the space it was
-   * given. The brake has to be here.
+   * *Grow whenever asked* has a runaway in it. A module measures its own
+   * document; its document is as tall as the frame the host gave it; so growing
+   * the pane grows the document, which asks for more. It does not oscillate, it
+   * climbs — one pane here reached eighty rows, two and a half thousand pixels,
+   * pushing its own resize handle off the bottom of the canvas where nothing
+   * could reach it.
    *
-   * So a request is honoured once per module per page load — enough for a page
-   * that opens shorter than its content to be given room — and not at all once
-   * the person has taken hold of the pane themselves. Their size is an
-   * instruction; the module's is a suggestion, and a suggestion does not get to
-   * repeat itself until it wins.
+   * *Grow once per load* bounds the runaway and keeps the argument, just
+   * slower: a pane smaller than its module's content is grown again on every
+   * refresh. You size a pane, reload, and it is bigger. A disagreement that
+   * resumes each time the page opens is not a compromise.
+   *
+   * What was wrong in both is that the host was deciding. Whether a pane should
+   * fit its contents or hold its size is a question about how somebody wants to
+   * read this particular thing, and there is no answer that is right for every
+   * pane — a list you scan wants to stay put and scroll; a summary you want to
+   * see all of wants to fit. So it is a switch on the pane, off by default,
+   * remembered with the arrangement.
+   *
+   * ## The brake stays even when it is on
+   *
+   * Opting in must not opt into the runaway. Two things prevent it. The pane
+   * only ever GROWS towards the requested height and never past `MOST_ROWS`, so
+   * the worst case is bounded and reachable. And growth stops as soon as the
+   * request is no longer meaningfully larger than the pane — a page that fills
+   * whatever frame it is given reports the frame's own height, which after one
+   * step is the height it already has, and the climb ends there instead of
+   * continuing by a rounding error a step.
    */
-  const grown = useRef(new Set<string>())
-  const sized = useRef(new Set<string>())
   /** Forty rows is a tall pane on any screen and nowhere near a runaway. */
   const MOST_ROWS = 40
+  /** Below this, a request is agreement rather than a request. */
+  const WORTH_GROWING_PX = 12
 
   const onHeight = useCallback(
     (id: string, px: number) => {
-      if (grown.current.has(id) || sized.current.has(id)) return
-      const rows = Math.min(
-        MOST_ROWS,
-        Math.ceil((px + HEADER_PX + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])),
-      )
-      const placements = (open?.placements ?? []).map((p) =>
-        p.i === id && rows > p.h ? { ...p, h: rows } : p,
-      )
-      grown.current.add(id)
-      if (!same(open?.placements ?? [], placements)) change({ placements })
+      const placements = open?.placements ?? []
+      const pane = placements.find((p) => p.i === id)
+      if (!pane?.grow) return
+
+      const isNow = pane.h * ROW_HEIGHT + (pane.h - 1) * MARGIN[1]
+      if (px <= isNow + WORTH_GROWING_PX) return
+
+      const rows = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
+      if (rows <= pane.h) return
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, h: rows } : p)) })
+    },
+    [change, open?.placements],
+  )
+
+  /** Turn following-the-module's-height on or off for one pane. */
+  const onGrow = useCallback(
+    (id: string, grow: boolean) => {
+      const placements = (open?.placements ?? []).map((p) => (p.i === id ? { ...p, grow } : p))
+      change({ placements })
     },
     [change, open?.placements],
   )
 
   const onLayoutChange = useCallback(
     (next: Layout[]) => {
-      const placements = next.map((item) => ({ i: item.i, x: item.x, y: item.y, w: item.w, h: item.h }))
+      /* `grow` is carried across from what is already stored, because the grid
+         has never heard of it: `next` is react-grid-layout's own idea of the
+         arrangement, and anything of ours not in its vocabulary would be
+         dropped here on the first drag. */
+      const was = open?.placements ?? []
+      const placements = next.map((item) => ({
+        i: item.i,
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h,
+        grow: was.find((p) => p.i === item.i)?.grow ?? false,
+      }))
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
          and `Writer` merges what does get through, so a whole gesture is one
@@ -577,11 +606,7 @@ export function App() {
           }}
           onResizeStart={(_all, _old, item) => setMoving(item.i)}
           onResize={() => remeasure()}
-          onResizeStop={(_all, _old, item) => {
-            /* From here on this pane is the person's. A module may not ask for
-               height again — see `onHeight` for the loop that rule exists to
-               stop, and for why a person's size outranks a module's. */
-            sized.current.add(item.i)
+          onResizeStop={() => {
             setMoving(null)
             settle()
           }}
@@ -610,6 +635,8 @@ export function App() {
                      because the manifest read, not because the page answered. */
                   settled={found !== undefined}
                   body={body(presence.id)}
+                  grow={placement.grow}
+                  onGrow={(grow) => onGrow(presence.id, grow)}
                   onRemove={() => onUnplace(presence.id)}
                 />
               </div>

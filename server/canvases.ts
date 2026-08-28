@@ -51,6 +51,18 @@ export interface Placement {
   y: number
   w: number
   h: number
+  /**
+   * Whether this pane follows the height its module asks for.
+   *
+   * Off by default, and off is the honest default: a pane is the size the
+   * person dragged it to. When it is on they have said, for this pane, that
+   * they would rather it fitted its contents than stayed where they put it.
+   *
+   * Stored per placement rather than per module, because it is a property of
+   * this pane on this kehikko — the same module can be a fixed strip on one and
+   * grow to fit on another.
+   */
+  grow: boolean
 }
 
 export interface Canvas {
@@ -62,12 +74,22 @@ export interface Canvas {
   placements: Placement[]
 }
 
+/**
+ * A placement as it ARRIVES, which is not quite a placement.
+ *
+ * Everything in it came over HTTP from a page and is checked before it is
+ * written; the type says so by making the one field that has a sensible default
+ * optional. A canvas sent by an older page, or by anything hand-written, has no
+ * `grow` in it, and that is not an error — it is off.
+ */
+export type PlacementInput = Omit<Placement, 'grow'> & { grow?: boolean }
+
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
 export interface CanvasEdit {
   name?: string
   epic?: string | null
   project?: string | null
-  placements?: Placement[]
+  placements?: PlacementInput[]
 }
 
 const NAME_MAX = 60
@@ -107,7 +129,27 @@ export function open(file = databaseFile()): Database {
     );
     create index if not exists placements_by_module on placements (module);
   `)
+  add(db, 'placements', 'grow', 'integer not null default 0')
   return db
+}
+
+/**
+ * Add a column that a database made by an older version will not have.
+ *
+ * `create table if not exists` only builds tables that are absent; it does
+ * nothing to one that already exists with fewer columns, and there are
+ * databases on people's machines from before this column was thought of. So
+ * every column added after the first release is added here, guarded by what the
+ * database actually reports rather than by a version number this would also
+ * have to keep.
+ *
+ * `alter table add column` with a default is cheap and rewrites nothing, and
+ * asking `pragma table_info` first means running it twice is not an error.
+ */
+function add(db: Database, table: string, column: string, definition: string): void {
+  const columns = db.query<{ name: string }, []>(`pragma table_info(${table})`).all()
+  if (columns.some((c) => c.name === column)) return
+  db.exec(`alter table ${table} add column ${column} ${definition}`)
 }
 
 /**
@@ -126,14 +168,18 @@ export function listCanvases(db: Database): Canvas[] {
     .all()
 
   const placements = db
-    .query<{ canvas: number; i: string; x: number; y: number; w: number; h: number }, []>(
-      'select canvas, module as i, x, y, w, h from placements order by canvas, module',
-    )
+    .query<
+      { canvas: number; i: string; x: number; y: number; w: number; h: number; grow: number },
+      []
+    >('select canvas, module as i, x, y, w, h, grow from placements order by canvas, module')
     .all()
 
   const byCanvas = new Map<number, Placement[]>()
   for (const row of placements) {
-    const { canvas, ...placement } = row
+    const { canvas, grow, ...rest } = row
+    /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
+       here, at the edge, so nothing above this line has to remember. */
+    const placement: Placement = { ...rest, grow: grow === 1 }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
     else byCanvas.set(canvas, [placement])
@@ -184,9 +230,9 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h) values (?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow) values (?, ?, ?, ?, ?, ?, ?)',
       )
-      for (const p of cleaned(edit.placements)) insert.run(id, p.i, p.x, p.y, p.w, p.h)
+      for (const p of cleaned(edit.placements)) insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0)
     }
     return true
   })
@@ -254,7 +300,7 @@ function subject(value: string | null | undefined): string | null {
  * one no version of this host can lay out, and the id shape is what stops a row
  * keyed by something that is not a module.
  */
-function cleaned(placements: Placement[]): Placement[] {
+function cleaned(placements: PlacementInput[]): Placement[] {
   const seen = new Set<string>()
   const kept: Placement[] = []
   for (const p of placements) {
@@ -267,6 +313,10 @@ function cleaned(placements: Placement[]): Placement[] {
       y: bounded(p.y, 0, 10_000),
       w: bounded(p.w, 1, 200),
       h: bounded(p.h, 1, 400),
+      /* Anything but a literal `true` is off. A flag arriving from a page as a
+         string, a number or nothing at all should not switch on a behaviour
+         that resizes somebody's pane. */
+      grow: p.grow === true,
     })
   }
   return kept
