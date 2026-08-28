@@ -503,6 +503,22 @@ export function App() {
 
   const placements = useMemo(() => open?.placements ?? [], [open?.placements])
   const prompted = placements.find((p) => p.i === prompting) ?? null
+
+  /*
+   * What each module on this canvas says its presence implies, from its own
+   * manifest. Only modules that are actually ANSWERING have one — a registered
+   * program that is not running has no manifest to have said anything in, and
+   * telling an agent about a module that is not there would be telling it about
+   * a thing it cannot use.
+   */
+  const guidance = useMemo(() => {
+    const said = new Map<string, string>()
+    for (const presence of registry?.presences ?? []) {
+      const line = presence.module?.guidance?.trim()
+      if (line) said.set(presence.id, line)
+    }
+    return said
+  }, [registry])
   const panes = placements.filter((p) => byId.has(p.i))
   const placed = placements.map((p) => p.i)
 
@@ -552,7 +568,7 @@ export function App() {
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
-          prompt: promptFor(placements, id),
+          prompt: promptFor(placements, id, guidance),
         }
       })
       .filter((framing): framing is Framing => framing !== null)

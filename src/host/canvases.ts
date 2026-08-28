@@ -52,12 +52,42 @@ const placementSchema = z.object({
  * whole of what a module was told needs to know which pane said what, or a
  * contradiction between two of them is unattributable.
  */
-export function promptFor(placements: readonly Placement[], module: string): string | null {
-  const aimed = [...placements]
+export function promptFor(
+  placements: readonly Placement[],
+  module: string,
+  /**
+   * What each module on this canvas says its presence implies.
+   *
+   * Keyed by module id. Supplied by the caller rather than read here, because
+   * it comes from manifests — which the server sweeps and this file has never
+   * touched. Absent for a module that is registered but not answering, which is
+   * correct: a program that is not running implies nothing.
+   */
+  guidance: ReadonlyMap<string, string> = new Map(),
+): string | null {
+  const here = [...placements].sort((a, b) => a.y - b.y || a.x - b.x)
+
+  /*
+   * Standing notes first, written instructions after, and the order is the
+   * argument. Guidance is context — what is on this canvas and what that means
+   * — and instructions are orders about a particular piece of work. An agent
+   * that read the orders first would be deciding what to do before it knew what
+   * it had to hand.
+   *
+   * A module's own guidance is left out of its own prompt. It already knows
+   * what it is; repeating it back would be the host explaining a module to
+   * itself, and it would cost a paragraph in the one place that is bounded.
+   */
+  const notes = here
+    .filter((p) => p.i !== module && (guidance.get(p.i) ?? '').trim())
+    .map((p) => `## ${p.i} is on this kehikko\n\n${guidance.get(p.i)!.trim()}`)
+
+  const aimed = here
     .filter((p) => p.promptFor === module && p.prompt.trim())
-    .sort((a, b) => a.y - b.y || a.x - b.x)
-  if (!aimed.length) return null
-  return aimed.map((p) => `## from ${p.i}\n\n${p.prompt.trim()}`).join('\n\n')
+    .map((p) => `## from ${p.i}\n\n${p.prompt.trim()}`)
+
+  const all = [...notes, ...aimed]
+  return all.length ? all.join('\n\n') : null
 }
 export type Placement = z.infer<typeof placementSchema>
 

@@ -16,6 +16,8 @@ export interface FramedModule {
   name: string
   version: string
   summary: string
+  /** What this module says its presence implies for an agent. */
+  guidance?: string
   entry: string
   icon: string | null
   health: string | null
