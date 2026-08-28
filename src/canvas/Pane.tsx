@@ -5,6 +5,7 @@ import type { Presence } from '@/host/registry.ts'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
+import { Start } from './Start.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -48,6 +49,7 @@ export function Pane({
   pinned,
   onPin,
   onPrompts,
+  onStarted,
   onRemove,
 }: {
   presence: Presence
@@ -74,6 +76,8 @@ export function Pane({
   onPin(pinned: boolean): void
   /** Open the host's prompt dialog for this pane. */
   onPrompts(): void
+  /** Look again, after this module has been started. */
+  onStarted(): void
   onRemove(): void
 }) {
   const name = presence.name ?? presence.id
@@ -247,7 +251,13 @@ export function Pane({
               line={line}
               at={presence.at}
               protocols={presence.protocols}
-            />
+            >
+              {/* Only for silence. An incompatible module is running and
+                  answering — starting it again would change nothing, and the
+                  panel already says which protocol each side speaks, which is
+                  the thing to act on. */}
+              {condition === 'silent' ? <Start module={presence.id} onStarted={onStarted} /> : null}
+            </ConditionPanel>
           </div>
         )}
       </div>

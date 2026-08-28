@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { LIMITS, PROTOCOL } from 'roadmap-module-protocol'
+import { LIMITS, PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
 import { answer } from './answers.ts'
 import {
   createCanvas,
@@ -13,6 +13,7 @@ import {
   type CanvasEdit,
 } from './canvases.ts'
 import { look, type Presence } from './discover.ts'
+import { answered, start, startable } from './launch.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
 
 /**
@@ -52,6 +53,16 @@ const db = open()
  */
 const callers = new Map<string, string>()
 
+/**
+ * The last sweep's registrations, kept so a Start can find a module's directory.
+ *
+ * Rebuilt on every sweep rather than accumulated, for the same reason `callers`
+ * is: a registration somebody deleted must stop being startable, and a map that
+ * only ever grew would keep offering to run a program whose registration is
+ * gone.
+ */
+const registered = new Map<string, import('./registrations.ts').Registration>()
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -75,7 +86,11 @@ async function sweep(): Promise<{
   const presences = await Promise.all(found.registrations.map((registration) => look(registration)))
 
   callers.clear()
-  for (const registration of found.registrations) callers.set(registration.id, registration.url)
+  registered.clear()
+  for (const registration of found.registrations) {
+    callers.set(registration.id, registration.url)
+    registered.set(registration.id, registration)
+  }
 
   return {
     /*
@@ -248,6 +263,42 @@ const server = Bun.serve({
         }
         return json({ deleted: canvas })
       }
+    }
+
+    /*
+     * Start a module that is not running.
+     *
+     * A press, never anything else. There is no autostart and no retry: see the
+     * essay in `launch.ts` for why a host that ran programs when a canvas
+     * loaded would be a host that runs programs.
+     *
+     * The module is looked up in the registry — a directory can only come from
+     * a registration file somebody wrote, never from the request. What arrives
+     * over the wire is one module id, and if it names nothing registered the
+     * answer is a refusal.
+     */
+    if (url.pathname === '/host/start' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { module?: unknown } | null
+      if (!body || typeof body.module !== 'string' || body.module.length > 64) {
+        return json({ ok: false, why: 'A start names one module.' }, 400)
+      }
+
+      if (!registered.size) await sweep()
+
+      const can = startable(registered.get(body.module) ?? null)
+      if (!can.ok) return json({ ok: false, why: can.why }, 409)
+
+      const ran = start(can.run)
+      /* Started is not running, so the module is given a moment to come up and
+         is then asked. Sweeping immediately reported every successful start as
+         a failure: the spawn worked, the module answered a second later, and
+         the sweep had already run before the dev server bound its port. */
+      if (ran.ok) await answered(registered.get(body.module)!.url, WELL_KNOWN)
+      const after = ran.ok ? await sweep() : null
+      return json({
+        ...ran,
+        presence: after?.presences.find((p) => p.id === body.module) ?? null,
+      })
     }
 
     if (url.pathname.startsWith('/host/')) {

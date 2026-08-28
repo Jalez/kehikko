@@ -731,6 +731,7 @@ export function App() {
                   pinned={placement.pinned}
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   onPrompts={() => setPrompting(presence.id)}
+                  onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
                 />
               </div>

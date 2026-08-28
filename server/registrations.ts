@@ -27,6 +27,21 @@ export interface Registration {
   id: string
   /** The origin the module answers on. Loopback only — see `readRegistrations`. */
   url: string
+  /**
+   * The directory the module lives in, when the registration names one.
+   *
+   * Optional, and its absence is not a fault: a module somebody starts
+   * themselves is a perfectly ordinary module, and the host simply cannot offer
+   * to start that one. What it must not do is guess — a directory inferred from
+   * a port would be the host deciding which program on the disk it is about to
+   * run.
+   *
+   * This is why the ability to start a module lives HERE rather than in a
+   * manifest. A manifest is served by a module that is running, and the moment
+   * you need to start one is exactly the moment there is no manifest to read.
+   * The registration file is the only thing the host has when a module is down.
+   */
+  dir?: string
   /** Where the file came from, so a complaint can name it. */
   file: string
 }
@@ -162,7 +177,15 @@ export function readRegistration(
     }
   }
 
-  return { ok: true, registration: { id, url: parsed.origin } }
+  /* The directory, when there is one. Not resolved or checked here — this
+     function decides whether a registration is READABLE, and whether a
+     directory can be started from is a different question with different
+     answers ("no such script", "not executable"). `launch.ts` asks it, at the
+     moment somebody presses the button, so the answer is about the disk as it
+     is then rather than as it was at the last sweep. */
+  const dir = typeof fields.dir === 'string' && fields.dir.trim() ? fields.dir.trim() : undefined
+
+  return { ok: true, registration: { id, url: parsed.origin, ...(dir ? { dir } : {}) } }
 }
 
 /** localhost, 127.0.0.0/8, and ::1, written out rather than guessed at. */
