@@ -49,6 +49,22 @@ export const ANSWERED_BY_THE_SERVER = [
  * nothing is lost if the write lands a moment later, and the person is looking
  * at the result either way.
  *
+ * ## `passage.set` is here for exactly the reason `selection.set` is
+ *
+ * A passage — a file, a page, a byte range, and the words that were there —
+ * goes into `roadmap.context`, and the context is the canvas's to compose.
+ * There is no second argument to make and no first one to weaken: the server
+ * holds no view, has no frames, and would have to push the composed context
+ * back to the page over a channel invented for the purpose, whose entire cargo
+ * would be contexts the page then re-posts.
+ *
+ * It differs from `selection.set` in one way that does NOT move it, and the
+ * difference is worth writing down because it looks like it might: a passage is
+ * never written down. It is not stored with the arrangement, so there is no
+ * "the storing happens afterwards" half to the paragraph above. See the essay
+ * on `passage` in `src/App.tsx` for why a remembered passage would be a claim
+ * about a file that nothing on the canvas is in a position to renew.
+ *
  * ## `events.emit` moved here, and the move is the interesting part
  *
  * It sat in the server's list for as long as the server's answer was a refusal,
@@ -64,7 +80,7 @@ export const ANSWERED_BY_THE_SERVER = [
  * It is "answering it requires something only the canvas has", and a live frame
  * is such a thing. `src/host/events.ts` is where the deciding lives.
  */
-export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set', 'events.emit'] as const
+export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set', 'passage.set', 'events.emit'] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */
 export function unanswered(): string[] {

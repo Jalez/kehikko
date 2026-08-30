@@ -128,6 +128,7 @@ export function ModuleFrame({
       makeAsk(framed.id, {
         showEpic: (epic) => canvasRef.current.showEpic(epic),
         select: (refs) => canvasRef.current.select(refs),
+        point: (passage) => canvasRef.current.point(passage),
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),
       }),

@@ -1,4 +1,4 @@
-import { methodParams } from 'roadmap-module-protocol'
+import { methodParams, type Passage } from 'roadmap-module-protocol'
 import type { Emitted } from './events.ts'
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
@@ -27,11 +27,11 @@ assertEveryMethodIsAnswered()
  * see, then pushing the answer back to the screen over a channel that would
  * have to be invented for the purpose.
  *
- * **`selection.set` and `events.emit` are answered here for the same reason,
- * one step further on.** Neither is about a screen exactly; both are about
- * something only this half of the host possesses. A selection becomes part of
- * the context every framed module is told, and the context is composed by the
- * canvas. An event has to arrive INSIDE a frame, and every frame is a window in
+ * **`selection.set`, `passage.set` and `events.emit` are answered here for the
+ * same reason, one step further on.** None is about a screen exactly; all are
+ * about something only this half of the host possesses. A selection and a
+ * passage both become part of the context every framed module is told, and the
+ * context is composed by the canvas. An event has to arrive INSIDE a frame, and every frame is a window in
  * this page — the server has never held one and could not be given one. The
  * channel-invented-for-the-purpose argument above is the same argument, and it
  * bites harder here: that channel's entire cargo would be events the page then
@@ -56,6 +56,23 @@ export interface CanvasControls {
    * to say. See the essay on `selection` in the protocol's `wire.ts`.
    */
   select(refs: string[]): void
+  /**
+   * Say where in a document somebody is pointing, and tell every module.
+   *
+   * The canvas checks nothing about it and could not: it has not opened the
+   * file, cannot say the path exists, cannot say the offsets are inside it, and
+   * cannot say the quote is what is there now — or ever was. What it can vouch
+   * for is that a module on this canvas reported somebody pointing here, which
+   * is exactly what it goes on to say. The protocol's `passage` essay is
+   * unusually blunt that this field is a claim by the pointing module rather
+   * than the host's own knowledge, and the honest thing for the host to do
+   * about that is relay it unchanged rather than dress it up with checks it
+   * would have to invent.
+   *
+   * `null` clears it, and is a real call rather than an absence: "no document
+   * is open" is a state every consumer has to be able to move into.
+   */
+  point(passage: Passage | null): void
   /**
    * Carry one module's event to whoever consumes the format.
    *
@@ -175,6 +192,28 @@ function answerInTheView(
     const { refs } = parsed.data as { refs: string[] }
     canvas.select(refs)
     return succeeded(method, { selection: refs })
+  }
+
+  /*
+   * A passage, which is the same act on a different kind of thing.
+   *
+   * Answered here for the reason `selection.set` is — it changes the context,
+   * and the context is the canvas's to compose — and it succeeds plainly for
+   * the same reason: the canvas is not being asked to FIND anything, only to
+   * hold what it was handed and repeat it, so it has no grounds to decline.
+   *
+   * `parsed.data` and never `rawParams`. The schema is the protocol's own, it
+   * fills `page`, `from`, `to` and `quoted` with their defaults, and it is the
+   * thing that refuses a half-range — a `from` with no `to` — which the essay
+   * on `passageSchema` calls a malformed answer rather than a coarser one.
+   * Relaying the raw object would put a passage on the wire that the context
+   * schema will later drop, silently, one layer further from anybody who could
+   * fix it.
+   */
+  if (method === 'passage.set') {
+    const { passage } = parsed.data as { passage: Passage | null }
+    canvas.point(passage)
+    return succeeded(method, { passage })
   }
 
   /*

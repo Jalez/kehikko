@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import type { ModuleCondition } from 'roadmap-module-protocol'
+import type { ModuleCondition, Passage } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -515,9 +515,99 @@ export function App() {
     () => (open ? { id: open.id, name: open.name } : null),
     [open?.id, open?.name],
   )
+  /**
+   * Where somebody is pointing inside a document, per canvas, in memory only.
+   *
+   * ## Per-canvas, and not per-host
+   *
+   * The subject is per-canvas and the selection is per-canvas, and a passage is
+   * the same kind of fact one step narrower: it is what THIS arrangement of
+   * panes is looking at. The consumer it exists for is another pane beside the
+   * one that pointed — a paper on the left, its notes on the right — and both
+   * of those are on one canvas. A passage held per-host would mean a highlight
+   * made in a paper on one canvas narrowing a notes pane on another, where the
+   * paper is not even open; the reader would see a pane filter itself down to a
+   * paragraph they cannot see, on a canvas they are not on, and nothing on
+   * screen would explain it. So it is keyed by canvas, and switching canvases
+   * shows what that canvas was pointing at.
+   *
+   * ## Not written down, which is the one place it differs from the selection
+   *
+   * The selection is stored in the canvases table and survives a reload. This
+   * is not, and the reason is what the two things ARE. A ref is an identifier:
+   * `gh#131` means the same thing tomorrow, and the module that reads it looks
+   * it up afresh. A passage is a claim about a mutable file — these bytes, in
+   * that file, said this — made by a module that had the document open at the
+   * moment it said so.
+   *
+   * Restore one and there is nobody to renew it. The reader comes back an hour
+   * later, the frames reload, and the canvas asserts to every pane that
+   * somebody is pointing at bytes 4120–4380 of a chapter that has been edited
+   * twice since, quoting words no longer at that offset — with no pointing
+   * module in a position to notice, because the module that made the claim may
+   * not even be on the canvas any more. The protocol's own essay says a
+   * consumer can tell a good anchor from a rotten one by comparing the quote,
+   * and a host storing this would be manufacturing rotten anchors on purpose.
+   *
+   * Nothing is lost by letting it die with the page: the pointing module is
+   * loaded, shows its document, and points again. That is a passage somebody is
+   * actually making, which is the only kind this field is meant to carry.
+   */
+  const [passages, setPassages] = useState<Record<number, Passage | null>>({})
+
+  /**
+   * Moving to a different PROJECT clears every passage. Moving to a different
+   * EPIC does not, and the difference is the whole of the decision.
+   *
+   * The selection is dropped on an epic change because a ref was picked out of
+   * one epic's references and means nothing in another. Run the same test on a
+   * passage and it comes out the other way: a passage names a file and a range
+   * of bytes in it, and neither of those belongs to an epic. A reader with
+   * chapter three of a thesis open and a paragraph highlighted has not stopped
+   * reading that paragraph because the bar now says a different epic — the
+   * document is still on screen, the highlight is still on it, and clearing the
+   * passage would make the host contradict what the reader can see.
+   *
+   * A PROJECT is different, and it is different for a reason that only exists
+   * now that projects do: a path belongs to one. `projectPath` is the folder
+   * every module takes its root from, and switching it re-roots all of them at
+   * once. A passage carried across would name a file in the tree they have all
+   * just stopped working in — every consumer resolving it would either fail to
+   * find it or, worse, find a same-named file in the new project and quietly
+   * describe the wrong document. So it goes, whole, for every canvas: canvases
+   * can be moved between projects, so "the ones in the old project" is not a
+   * set this can be sure of.
+   */
+  const wasInProject = useRef<number | null>(null)
+  useEffect(() => {
+    if (wasInProject.current === projectId) return
+    wasInProject.current = projectId
+    setPassages((was) => (Object.keys(was).length === 0 ? was : {}))
+  }, [projectId])
+
+  const passage = openId === null ? null : (passages[openId] ?? null)
+
+  /**
+   * The passage as a VALUE, for the same reason `picked` is a joined string.
+   *
+   * `toWireContext` runs the protocol's schema and hands back a fresh object
+   * every time, so a memo depending on the passage by identity would rebuild
+   * the context — and post a `roadmap.context` into every frame on the canvas —
+   * on every render that happened to produce an equal passage. There is a
+   * measured history of exactly this here: seventeen identical contexts during
+   * startup, because a `.map` over the canvases made a new selection array each
+   * time and nobody checked. A passage is worse to get wrong than a selection
+   * was, because a highlight changes on every pointer move during a drag.
+   */
+  const pointing = passage === null ? '' : JSON.stringify(passage)
+
   const context = useMemo(
-    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko),
-    [subject, theme, picked, kehikko],
+    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage),
+    /* `pointing` and not `passage`: the value, not the identity. `passage` is
+       intentionally absent from the list and the lint rule that would ask for
+       it is wrong here — see the essay on `pointing` above. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subject, theme, picked, kehikko, pointing],
   )
 
   /**
@@ -561,6 +651,15 @@ export function App() {
   const projectRef = useRef<number | null>(projectId)
   projectRef.current = projectId
 
+  /* Which canvas a passage belongs to, read when the call is MADE. A ref for
+     the reason `kehikkoRef` and `projectRef` are refs: `controls` is the object
+     every module's conversation was built with, and rebuilding it whenever
+     somebody switches canvas would rebuild every module's `ask`. */
+  const openRef = useRef<number | null>(openId)
+  openRef.current = openId
+  const setPassagesRef = useRef(setPassages)
+  setPassagesRef.current = setPassages
+
   const onFocus = useCallback(() => {
     setFocus((was) => {
       const next = otherFocus(was)
@@ -586,6 +685,20 @@ export function App() {
          "nothing is selected" is a state they all have to handle anyway. */
       showEpic: (epic) => change({ epic, selection: [] }),
       select: (refs) => change({ selection: refs }),
+      /* Held for the canvas that is open, and only when it actually CHANGED.
+         A module that points on every pointer move during a drag would
+         otherwise put a `roadmap.context` into every frame on the canvas per
+         event; the sender is asked not to do that, and this is the half of the
+         bargain the host can keep on its own — a host cannot make somebody
+         else's program debounce, and it can refuse to repeat itself. */
+      point: (next) =>
+        setPassagesRef.current((was) => {
+          const id = openRef.current
+          if (id === null) return was
+          const had = was[id] ?? null
+          if (JSON.stringify(had ?? null) === JSON.stringify(next ?? null)) return was
+          return { ...was, [id]: next }
+        }),
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */

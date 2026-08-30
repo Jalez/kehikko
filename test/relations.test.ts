@@ -62,6 +62,9 @@ const REFERENCES = presence('roadmap.references', 'References', {
 const PAPER = presence('roadmap.paper', 'Paper', {
   declares: { protocol: '>=2', uses: ['epics:read'], storage: false },
 })
+const POINTER = presence('roadmap.pointer', 'Pointer', {
+  declares: { protocol: '>=2', uses: ['passage:set'], storage: false },
+})
 
 describe('an event between two modules', () => {
   test('names both ends, in both directions', () => {
@@ -200,6 +203,27 @@ describe('the indirect kinds', () => {
     expect(relationship?.kind).toBe('selection')
     expect(relationship?.direct).toBe(false)
     expect(sentenceFor('References', relationship!)).toContain('in no manifest')
+  })
+
+  test('a passage is drawn from passage:set and is not folded into the selection', () => {
+    /* Two modules, one that can broadcast refs and one that can broadcast a
+       file, a place in it and a paragraph of what was there. Those are not the
+       same offer, and a person deciding whether to place either is entitled to
+       read which one they are being made. */
+    const found = relate([REFERENCES, POINTER], {
+      onCanvas: new Set(['roadmap.references', 'roadmap.pointer']),
+      elsewhere: new Map(),
+    })
+    const relationship = found.get('roadmap.pointer')?.[0]
+    expect(relationship?.kind).toBe('passage')
+    expect(relationship?.direct).toBe(false)
+    const said = sentenceFor('Pointer', relationship!)
+    expect(said).toContain('where in a document')
+    /* The same honest half-answer the selection gives: there is no
+       `passage:read`, so the sending end is nameable and the receiving end is
+       not. */
+    expect(said).toContain('in no manifest')
+    expect(labelFor(relationship!)).toBe('points at a passage')
   })
 
   test('an empty kehikko is said to be empty rather than counted as one', () => {

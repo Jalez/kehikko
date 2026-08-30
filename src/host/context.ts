@@ -1,4 +1,4 @@
-import { contextSchema, type ModuleContext } from 'roadmap-module-protocol'
+import { contextSchema, passageSchema, type ModuleContext, type Passage } from 'roadmap-module-protocol'
 
 import type { Project } from './projects.ts'
 
@@ -134,7 +134,42 @@ export function toWireContext(
    * it. The subject is per-canvas for the same reason.
    */
   kehikko: { id: number; name: string } | null = null,
+  /**
+   * Where somebody is pointing inside a document, or null.
+   *
+   * A fourth argument rather than a third field on `Subject`, and for a sharper
+   * version of the reason the selection is one. A subject is what the canvas is
+   * ABOUT; a selection is what somebody has their finger on; a passage is where
+   * inside a document that finger is. Each is narrower than the one before it
+   * and each changes on a different gesture — the subject when a person picks
+   * from the bar, the selection when they click a ref, the passage when they
+   * drag over a paragraph — and folding the fastest of the three into the
+   * slowest would make every highlight look like a change of subject.
+   *
+   * Passed through unchanged, deliberately. The host did not open the file and
+   * cannot say the path exists, that the offsets are inside it, or that the
+   * quote is what is there now. See `point` on `CanvasControls` in `ask.ts`.
+   */
+  passage: Passage | null = null,
 ): ModuleContext {
+  /**
+   * The passage, checked on its own before anything else is composed.
+   *
+   * The fallbacks below exist for ONE bad field — an epic slug the schema will
+   * not take — and they work by rebuilding the context without it. A second
+   * field that can fail breaks that: a passage past `LIMITS.QUOTE` would make
+   * the first parse fail, then make the fallback fail for the same reason, and
+   * the last resort would blank the project as well. One module sending a
+   * chapter as a quote would cost every pane on the canvas the folder it works
+   * in, and nothing anywhere would say why.
+   *
+   * So each doubtful thing is failed separately, close to itself. A passage
+   * that will not parse becomes no passage — which is a state every consumer
+   * already handles, and the true one: nothing the host can vouch for is being
+   * pointed at.
+   */
+  const pointing = passage === null || passageSchema.safeParse(passage).success ? passage : null
+
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     /* Name and path, filled in from one project in one expression. Two nullable
@@ -146,6 +181,7 @@ export function toWireContext(
     theme,
     selection,
     kehikko,
+    passage: pointing,
   })
   if (parsed.success) return parsed.data
 
@@ -179,6 +215,13 @@ export function toWireContext(
      something that is not in front of them. Where the canvas IS has nothing to
      do with what the person typed into the epic box, and blanking it would turn
      a bad slug into every module losing its ability to tell near from far. */
+  /* The passage survives the fallback, and it is the third answer in a row
+     where the reason is "what did this actually depend on".
+     A selection is refs picked out of an epic this context no longer names, so
+     it goes. A passage names a FILE and a byte range in it. A person reading
+     chapter three of a paper is still reading chapter three when the epic slug
+     stored against this canvas turns out not to parse, and dropping it would
+     make one bad row in a table close somebody's document. */
   const bare = contextSchema.safeParse({
     epic: null,
     project: subject.project?.name ?? null,
@@ -186,6 +229,7 @@ export function toWireContext(
     theme,
     selection: [],
     kehikko,
+    passage: pointing,
   })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
@@ -198,5 +242,9 @@ export function toWireContext(
     theme,
     selection: [],
     kehikko: null,
+    /* Not here, and it cannot be needed: a passage that would not parse was
+       already turned into null at the top of this function. This branch must
+       not throw — it is called during render — so it names only fields that
+       cannot fail. */
   })
 }

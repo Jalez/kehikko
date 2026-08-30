@@ -25,6 +25,17 @@ import type { Presence } from './registry.ts'
  * emit and posts the message into the consumer's frame. The host performs the
  * delivery, so the host may state it, and may name both ends.
  *
+ * **The passage, and it is INDIRECT in exactly the same way.** A module
+ * declaring `passage:set` calls `passage.set`, the canvas holds it, and it goes
+ * into the `roadmap.context` every framed module receives. Everything the
+ * paragraph below says about the selection holds here with the noun swapped,
+ * including the honest half-answer: there is no `passage:read`, so the sending
+ * end is nameable and the receiving end is not. It is drawn as its own kind
+ * rather than folded into the selection because what travels is different in
+ * size and in kind — a file, a place in it, and a paragraph of somebody's
+ * document — and a person reading a pane's relationships is entitled to know
+ * which of those two things a module can broadcast.
+ *
  * **The selection, and it is INDIRECT.** A module declaring `selection:set`
  * calls `selection.set`, the canvas holds the refs, and they go into the
  * `roadmap.context` every framed module receives. The sending half is
@@ -94,7 +105,7 @@ export interface Counterpart {
 }
 
 export interface Relationship {
-  kind: 'emits' | 'consumes' | 'selection' | 'navigation'
+  kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'navigation'
   /**
    * Whether the host itself carries something between two named programs.
    *
@@ -200,6 +211,15 @@ export function relate(
     if (module.declares.uses.includes('selection:set')) {
       relationships.push({ kind: 'selection', direct: false, with: [], told: others })
     }
+    /* The same shape as the selection and named separately, because it is not
+       the same fact. A selection is refs; a passage is a file, a place in it
+       and a paragraph of what was there — which is a great deal more of
+       somebody's material to put in front of every pane on the canvas, and a
+       person deciding whether to place this module is entitled to read that
+       rather than infer it from a word they may take to mean the same thing. */
+    if (module.declares.uses.includes('passage:set')) {
+      relationships.push({ kind: 'passage', direct: false, with: [], told: others })
+    }
 
     if (relationships.length) found.set(presence.id, relationships)
   }
@@ -261,6 +281,12 @@ export function sentenceFor(name: string, relationship: Relationship): string {
       : `${name} can ask this kehikko to show a different epic. The canvas would move its subject and tell every module on it; nothing else is on this one.`
   }
 
+  if (kind === 'passage') {
+    return relationship.told > 0
+      ? `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on this kehikko is told, ${count(relationship.told)} beside this one right now. Which of them does anything about a passage is in no manifest, so this does not name one.`
+      : `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on the kehikko is told; nothing else is on this one. Which module reacts to a passage is in no manifest.`
+  }
+
   return relationship.told > 0
     ? `${name} can say which references somebody has picked out, and the host puts them in the context every module on this kehikko is told — ${count(relationship.told)} beside this one right now. Which of them does anything about a selection is in no manifest, so this does not name one.`
     : `${name} can say which references somebody has picked out, and the host puts them in the context every module on the kehikko is told; nothing else is on this one. Which module reacts to a selection is in no manifest.`
@@ -270,6 +296,7 @@ export function sentenceFor(name: string, relationship: Relationship): string {
 export function labelFor(relationship: Relationship): string {
   if (relationship.kind === 'navigation') return 'moves the epic'
   if (relationship.kind === 'selection') return 'sets the selection'
+  if (relationship.kind === 'passage') return 'points at a passage'
   const others = relationship.with
   return others.length === 1 ? (others[0]?.name ?? '') : `${others.length} modules`
 }
