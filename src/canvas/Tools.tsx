@@ -287,6 +287,25 @@ export function ToolsDialog({
             ) : null}
 
             <ToolList tools={door.tools} name={name} at={door.url} />
+
+            {/* The other half of NEXT_SESSION, and it only exists for `told`.
+                NEXT_SESSION says a config change waits for the next session;
+                this says the list itself can drift inside one. The list above
+                was read from the module at the moment this window opened. An
+                agent mid-session is holding whatever the module answered when
+                that session started — and these are dev servers, which restart
+                on every save of the file the tools live in, so the two lists
+                diverging is the normal case here rather than an edge. Nothing
+                at this layer can push the new list into a running session; the
+                honest sentence says so instead of implying the window and the
+                agent are looking at the same thing. */}
+            {door.agent.kind === 'told' && door.tools.ok && door.tools.tools.length > 0 ? (
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                This list was read from {name} just now. An agent mid-session is using the list from
+                when its session started — if the module has reloaded since, the two can differ, and
+                only a new session catches the agent up.
+              </p>
+            ) : null}
           </div>
         ) : asking ? (
           <p className="text-muted-foreground text-sm">Asking {name} what it offers…</p>
