@@ -3,7 +3,7 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { agentConfigFile, agentKnows, awarenessOf } from '../server/agents.ts'
+import { agentConfigFile, agentKnows, awarenessOf, scopeOf } from '../server/agents.ts'
 
 /**
  * Whether the agent has been told about a module's tools.
@@ -113,5 +113,49 @@ describe('where the config is', () => {
   test('the environment can move it, which is what makes this testable', () => {
     expect(agentConfigFile({ CLAUDE_CONFIG: '/tmp/x.json' })).toBe('/tmp/x.json')
     expect(agentConfigFile({})).toMatch(/\.claude\.json$/)
+  })
+})
+
+/**
+ * The un-flattening.
+ *
+ * Reading flattens the scopes on purpose — "has the agent been told" has one
+ * answer whichever scope it was arranged in. A button that WRITES cannot be
+ * equally relaxed: it puts the entry somewhere specific, and a person letting a
+ * host edit their agent's configuration is owed the where before the press.
+ */
+describe('which scope a configured server actually sits in', () => {
+  test('the root mcpServers is user scope', () => {
+    const file = config({ mcpServers: { checklist: { url: 'http://a/mcp' } } })
+    expect(scopeOf('checklist', file)).toEqual({ scope: 'user' })
+  })
+
+  test('a project’s own servers are local scope, and the project is named', () => {
+    const file = config({ projects: { '/here': { mcpServers: { paper: { url: 'http://b/mcp' } } } } })
+    expect(scopeOf('paper', file)).toEqual({ scope: 'local', project: '/here' })
+  })
+
+  test('global wins when a name is in both, in the order agentKnows reads them', () => {
+    /* Otherwise the scope reported would be whichever this happened to look at
+       second, which is a different answer from the one reading gave. */
+    const file = config({
+      mcpServers: { paper: { url: 'http://a/mcp' } },
+      projects: { '/here': { mcpServers: { paper: { url: 'http://b/mcp' } } } },
+    })
+    expect(scopeOf('paper', file)).toEqual({ scope: 'user' })
+  })
+
+  test('a name that is configured nowhere is null, not a guess', () => {
+    expect(scopeOf('checklist', config({ mcpServers: {} }))).toBeNull()
+    expect(scopeOf('checklist', config('{ not json'))).toBeNull()
+  })
+
+  test('a name that only exists on Object.prototype is not configured', () => {
+    /* `constructor` and `toString` are ordinary lowercase words and a module
+       could plausibly be called either. `in` would answer true for both on a
+       plain object, and the host would report a scope for a server nobody has. */
+    const file = config({ mcpServers: {} })
+    expect(scopeOf('constructor', file)).toBeNull()
+    expect(scopeOf('toString', file)).toBeNull()
   })
 })

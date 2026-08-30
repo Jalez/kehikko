@@ -20,6 +20,8 @@ const pane = (i: string, at: [number, number], prompt = '', promptFor: string | 
   pinned: false,
   prompt,
   promptFor,
+  collapsed: false,
+  openH: null,
 })
 
 describe('nothing aimed at a module is null, not an empty string', () => {

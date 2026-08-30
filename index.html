@@ -89,6 +89,38 @@
         }
       })()
     </script>
+    <!--
+      Focus mode, decided in the same breath and for the same reason.
+
+      It drops the pane headers out of the layout — see `src/host/focus.ts` for
+      what it is, and for why the headers come back on hover rather than being
+      gone. What matters HERE is only that it is decided before the first paint,
+      exactly like the theme: a mode applied by React has already let one frame
+      be painted without it, and that frame is a row of headers appearing and
+      then vanishing while every pane on the canvas jumps up thirty-two pixels.
+      Same defect as the light flash, same fix.
+
+      Off unless the person has chosen it, which is the opposite default from
+      the theme's and deliberately so. Dark is what this host is designed as;
+      headerless is something you ask for once you know what a header does.
+      Somebody opening this for the first time should be able to read the name
+      of what they are looking at.
+
+      `src/host/focus.ts` reads back what this decided rather than working it
+      out again. Only the cookie's name is duplicated, and only because an
+      inline blocking script cannot import anything.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var match = document.cookie.match(/(?:^|;\s*)kehikko\.focus=(on|off)(?:;|$)/)
+          if (match && match[1] === 'on') document.documentElement.classList.add('focus-mode')
+        } catch (_) {
+          /* Cookies refused. Headers drawn, like everybody who has not said
+             otherwise — the state in which nothing is unreachable. */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,4 +1,4 @@
-import { LayoutGrid, Moon, RotateCw, Sun } from 'lucide-react'
+import { LayoutGrid, Moon, PanelTop, PanelTopClose, Sun } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Presence, RegistryView } from '@/host/registry.ts'
+import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { ConditionDot } from './Conditions.tsx'
@@ -17,8 +18,8 @@ import { Hint } from './Hint.tsx'
  * The whole of the host's own interface.
  *
  * One hairline strip, thirty-two pixels tall. On the left, which canvas this is
- * and what it is about; on the right, a way to look again and a way to put a
- * module on it. There is no dashboard, no home screen, no activity summary and
+ * and what it is about; on the right, a way to change how the canvas is drawn
+ * and a way to put a module on it. There is no dashboard, no home screen, no activity summary and
  * no marketplace, because the host has nothing to put on one — it holds no data
  * about anybody's work, installs nothing, and updates nothing. A host that drew
  * a home screen would be drawing one about somebody else's programs.
@@ -49,8 +50,8 @@ export function Bar({
   onSubject,
   onPlace,
   onUnplace,
-  onLookAgain,
-  looking,
+  focus,
+  onFocus,
   theme,
   onTheme,
 }: {
@@ -66,8 +67,9 @@ export function Bar({
   onSubject(subject: Subject): void
   onPlace(id: string): void
   onUnplace(id: string): void
-  onLookAgain(): void
-  looking: boolean
+  /** Whether the pane headers are out of the layout. See `host/focus.ts`. */
+  focus: Focus
+  onFocus(): void
   theme: Theme
   onTheme(): void
 }) {
@@ -133,6 +135,41 @@ export function Bar({
          * The theme goes out to every module in `roadmap.context` as well, so
          * a page inside a pane is not left bright inside a dark canvas.
          */}
+        {/*
+         * Focus mode: the pane headers out of the layout, and back on hover.
+         *
+         * Beside the theme rather than in a menu, because it is the same kind
+         * of thing — a statement about how you want the canvas drawn while you
+         * look at it, kept in a cookie, and true of the whole application
+         * rather than of one kehikko.
+         *
+         * The label says what it does to the headers rather than naming the
+         * mode. "Focus mode" is a phrase that means something different in
+         * every program that has one, and this control has room for a sentence.
+         */}
+        <Hint
+          label={
+            focus === 'on'
+              ? 'pane headers are out of the way — they appear when you reach for them. Press to keep them drawn'
+              : 'drop the pane headers, and show one when the pointer is near the top of its pane'
+          }
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={focus === 'on' ? 'keep the pane headers drawn' : 'drop the pane headers'}
+            aria-pressed={focus === 'on'}
+            className={
+              focus === 'on'
+                ? 'text-foreground size-6'
+                : 'text-muted-foreground hover:text-foreground size-6'
+            }
+            onClick={onFocus}
+          >
+            {focus === 'on' ? <PanelTopClose className="size-3" /> : <PanelTop className="size-3" />}
+          </Button>
+        </Hint>
+
         <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>
           <Button
             variant="ghost"
@@ -145,18 +182,25 @@ export function Bar({
           </Button>
         </Hint>
 
-        <Hint label="ask every registered program again what it is">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="look again"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={onLookAgain}
-            disabled={looking}
-          >
-            <RotateCw className={looking ? 'size-3 animate-spin' : 'size-3'} />
-          </Button>
-        </Hint>
+        {/*
+         * There used to be a ↻ here, and it is worth writing down why it went.
+         *
+         * It swept the registry: it asked every registered program again what
+         * it is, without reloading the page. That capability is NOT redundant
+         * and has not been removed — see `App.tsx`, which now does it on its
+         * own. A reload would sweep too, and would also destroy every module's
+         * document: a terminal session mid-command, a half-typed item, every
+         * scroll position on the canvas. The whole persistent-iframe design in
+         * `Frames.tsx` exists to prevent exactly that, and the button was the
+         * only thing that could re-read the registry without it.
+         *
+         * What was wrong with it was the button, not the sweep. Its purpose was
+         * not guessable from an icon in a strip — the person who owns this asked
+         * what it was for — and a control nobody can name is a control that gets
+         * pressed by accident or never. The sweep now happens when the window
+         * comes back to the front and after anything that changes what is
+         * registered, which are the two moments somebody would have pressed it.
+         */}
 
         <Popover>
           <Hint label="what is registered, and what is on this kehikko" align="end">

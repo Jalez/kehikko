@@ -216,3 +216,91 @@
   border-right-color: var(--muted-foreground);
   border-bottom-color: var(--muted-foreground);
 }
+
+/*
+ * Focus mode: the headers come out of the layout, and come back on hover.
+ *
+ * `src/host/focus.ts` has the argument for the mode. This is how it is drawn,
+ * and the interesting part is not the hiding — it is the reveal, because the
+ * obvious way to write it does not work in this program.
+ *
+ * ## Why `:hover` on the pane is not available
+ *
+ * A grid item and the pane inside it are `pointer-events: none`, so that the
+ * module's page underneath can be clicked — see the essay a few rules up. An
+ * element that is not a hit target never matches `:hover`, so `.pane:hover`
+ * matches nothing, ever. Nor could JavaScript do better: the pointer spends its
+ * time over an iframe, and a document does not receive pointer events that
+ * happen inside one — the same fact that makes `moving` necessary in
+ * `Frames.tsx`.
+ *
+ * So the reveal needs one element that IS a hit target, and every pixel of that
+ * element is a pixel of the module underneath that cannot be clicked. That is
+ * the entire cost of this feature and it is paid here, in eight pixels along
+ * the top edge of a pane, which is where a module is least likely to have put
+ * something you press.
+ *
+ * ## How the eight pixels become thirty-two
+ *
+ * `.pane-reveal` is that hit target. It is eight pixels tall at rest and a
+ * header tall when hovered, with the header itself overflowing it visibly the
+ * rest of the time. Growing on hover is what stops the flicker: at eight pixels
+ * forever, moving the pointer down onto the header it had just revealed would
+ * leave the strip, un-match the rule, and hide the header out from under the
+ * pointer — the classic reveal that cannot be reached.
+ *
+ * The header keeps `pointer-events: none` until it is actually shown. Without
+ * that, the invisible strip would still carry the header's buttons, and the
+ * top-right eight pixels of every module would be an unlabelled control that
+ * takes the pane off the canvas.
+ *
+ * `:focus-within` is there for the same reason the hover is, for somebody not
+ * using a pointer. Pin, prompts, tools and remove live only in this header; a
+ * reveal that answered to the mouse alone would put all four out of a keyboard
+ * user's reach, and nothing on screen would say so.
+ *
+ * ## A folded pane keeps its header, in focus mode too
+ *
+ * `[data-collapsed]` is the exemption, and it is deliberate rather than an
+ * oversight. Focus mode gives space back to the modules; a folded pane is not
+ * showing a module, so there is no space to give — and hiding its header would
+ * leave a pane with nothing visible at all, its program still running,
+ * indistinguishable from a pane that had been taken off the canvas. The one
+ * thing on screen saying "this is folded and still here" is the header, so in
+ * focus mode it is the one header that stays drawn.
+ */
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 8px;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]) > .pane-grip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):hover,
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):focus-within {
+  height: 2rem;
+}
+
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):hover > .pane-grip,
+.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):focus-within > .pane-grip {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* No fade while a pane is being dragged. The gesture starts on the header, so
+   the header is by definition already revealed, and animating it during a drag
+   is one more thing repainting on every frame of a movement that is already
+   measuring every pane on the canvas. */
+.react-grid-item.react-draggable-dragging .pane-reveal > .pane-grip {
+  transition: none;
+}

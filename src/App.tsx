@@ -5,6 +5,7 @@ import type { ModuleCondition } from 'roadmap-module-protocol'
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
+import { ToolsDialog } from './canvas/Tools.tsx'
 import { Pane } from './canvas/Pane.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
@@ -29,6 +30,7 @@ import type { ConversationWatcher } from './host/conversation.ts'
 import { toWireContext, type Subject } from './host/context.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
 
@@ -82,6 +84,21 @@ const ROW_HEIGHT = 24
 const MARGIN: [number, number] = [8, 8]
 
 /**
+ * How tall a folded pane is, in grid rows.
+ *
+ * Two, because a header is thirty-two pixels and one row is twenty-four. The
+ * grid's heights are quantised — `h` rows is `h * 24 + (h - 1) * 8` pixels — so
+ * one row cannot hold a header and two rows, at fifty-six, is the first that
+ * can.
+ *
+ * The pane does not fill those fifty-six pixels. `Pane.tsx` draws a folded pane
+ * at its own height and leaves the remainder transparent, so what a person sees
+ * is a header and nothing else; the extra twenty-two pixels are grid space,
+ * spent to keep folded panes on the same grid as everything around them.
+ */
+const COLLAPSED_ROWS = 2
+
+/**
  * What the canvas currently believes about one module, which is not always what
  * the server last said.
  *
@@ -106,6 +123,18 @@ interface Live {
   fault: string | null
 }
 
+/**
+ * How long after a sweep the canvas stops re-sweeping on focus.
+ *
+ * Three seconds, and the number is chosen for one behaviour: a person moving
+ * between an editor and the canvas and back again in the same breath. Without a
+ * floor, every one of those passes is another round of manifest requests to
+ * every registered program, none of which can have changed in the second since
+ * the last round. It is deliberately short — long enough to absorb a flurry of
+ * window switching, far too short to make "I just started a module" wait.
+ */
+const QUIET_BETWEEN_SWEEPS_MS = 3000
+
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -122,6 +151,11 @@ export function App() {
      implementation of that decision is a second thing that can be wrong — see
      `host/theme.ts`. */
   const [theme, setTheme] = useState<Theme>(() => current())
+  /* Whether the pane headers are out of the layout. Read from the document for
+     the same reason the theme is: a blocking script in `index.html` already
+     decided this before anything was painted, and a second implementation of
+     that decision is a second thing that can be wrong. See `host/focus.ts`. */
+  const [focus, setFocus] = useState<Focus>(() => focused())
   /* Whether the grid is still finding its width. While it is, its own
      transitions are off — see `.settling` in `index.css` for the slide that
      otherwise happens on every load. */
@@ -130,6 +164,11 @@ export function App() {
      host rather than to a module — see `Prompts.tsx` for why a modal inside an
      iframe is not a modal. */
   const [prompting, setPrompting] = useState<string | null>(null)
+  /* Which module's tools are being looked at, if any. The host's window for the
+     same reason the prompt one is: a module cannot open a modal bigger than its
+     own pane, and what this window shows is not the module's material anyway —
+     it is what the AGENT has been told. See `Tools.tsx`. */
+  const [toolsFor, setToolsFor] = useState<string | null>(null)
 
   /* Where each pane's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the panes. */
@@ -184,7 +223,22 @@ export function App() {
     if (openId !== null) writeOpen(window.localStorage, openId)
   }, [openId])
 
+  /*
+   * One sweep at a time, and a record of when the last one finished.
+   *
+   * Refs rather than state, because neither of these should cause a render:
+   * they exist to stop a second sweep starting, and a component that re-rendered
+   * every time it decided NOT to do something would be doing the thing it is
+   * avoiding. A sweep asks every registered module for its manifest — eleven
+   * localhost requests here — so two of them overlapping is eleven wasted
+   * requests and two answers racing to be the one that lands.
+   */
+  const sweeping = useRef(false)
+  const sweptAt = useRef(0)
+
   const look = useCallback(async () => {
+    if (sweeping.current) return
+    sweeping.current = true
     setLooking(true)
     try {
       const view = await fetchRegistry()
@@ -206,12 +260,64 @@ export function App() {
         `This host's own server did not answer: ${(error as Error).message}. Nothing is known about what is registered until it does.`,
       )
     } finally {
+      sweeping.current = false
+      sweptAt.current = Date.now()
       setLooking(false)
     }
   }, [])
 
   useEffect(() => {
     void look()
+  }, [look])
+
+  /**
+   * Look again when the window comes back to the front.
+   *
+   * ## Why this is here and why there is no longer a button
+   *
+   * There was a ↻ in the strip and it was the only thing in the program that
+   * could re-read the registry. That capability is not redundant, and this is
+   * not its removal — it is the same sweep, moved to the moment somebody would
+   * have pressed it.
+   *
+   * The sweep matters because the alternative is a reload, and a reload of this
+   * page destroys every module's document: a terminal mid-command, a half-typed
+   * item, every scroll position on the canvas. `Frames.tsx` exists in the shape
+   * it does entirely to prevent that, and re-asking eleven programs what they
+   * are without touching their pages is the whole point of having a host.
+   *
+   * What was wrong was the button. Its purpose was not guessable from an icon —
+   * the person who owns this asked what it was for — and a control nobody can
+   * name is one that is pressed by accident or never pressed at all. Meanwhile
+   * the thing it fixed happens on a schedule anybody could predict: you start a
+   * module in a terminal, you come back to the canvas, and it should simply be
+   * right.
+   *
+   * ## Why focus and not an interval
+   *
+   * A sweep is N requests to N localhost programs. Cheap, not free, and paid
+   * forever by a canvas nobody is looking at. Tying it to attention means the
+   * cost is paid when somebody is there to benefit from it, and a canvas left
+   * open overnight makes no requests at all.
+   *
+   * Both events are listened for because neither covers the case alone:
+   * `visibilitychange` fires for a tab switch and not for another window taking
+   * focus over the top of this one, and `focus` fires for the second and not
+   * reliably for the first. The floor below is what keeps a person alt-tabbing
+   * between an editor and the canvas from sweeping on every pass.
+   */
+  useEffect(() => {
+    const maybe = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - sweptAt.current < QUIET_BETWEEN_SWEEPS_MS) return
+      void look()
+    }
+    window.addEventListener('focus', maybe)
+    document.addEventListener('visibilitychange', maybe)
+    return () => {
+      window.removeEventListener('focus', maybe)
+      document.removeEventListener('visibilitychange', maybe)
+    }
   }, [look])
 
   /**
@@ -346,6 +452,14 @@ export function App() {
   const kehikkoRef = useRef(kehikko)
   kehikkoRef.current = kehikko
 
+  const onFocus = useCallback(() => {
+    setFocus((was) => {
+      const next = otherFocus(was)
+      applyFocus(next)
+      return next
+    })
+  }, [])
+
   const onTheme = useCallback(() => {
     setTheme((was) => {
       const next = other(was)
@@ -428,6 +542,24 @@ export function App() {
       const pane = placements.find((p) => p.i === id)
       if (!pane?.grow) return
 
+      /*
+       * A collapsed pane does not grow, and the request is not thrown away.
+       *
+       * `roadmap.resize` is a module saying how tall its document is. A module
+       * has not been told its pane is folded — deliberately; see `onCollapse` —
+       * so it goes on measuring and asking, and honouring that here would let a
+       * module force a pane open that a person folded shut. The person's press
+       * wins. What the module asked for is remembered as the height to unfold
+       * to, so a module that grew while folded is the right size when it comes
+       * back rather than the size it was when it was put away.
+       */
+      if (pane.collapsed) {
+        const wanted = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
+        if (wanted <= (pane.openH ?? 0)) return
+        change({ placements: placements.map((p) => (p.i === id ? { ...p, openH: wanted } : p)) })
+        return
+      }
+
       const isNow = pane.h * ROW_HEIGHT + (pane.h - 1) * MARGIN[1]
       if (px <= isNow + WORTH_GROWING_PX) return
 
@@ -471,6 +603,53 @@ export function App() {
     [change, open?.placements],
   )
 
+  /**
+   * Fold a pane down to its header, or unfold it.
+   *
+   * ## What is kept, and why the height is remembered
+   *
+   * Folding writes the pane's current height into `openH` and sets `h` to two
+   * rows, which is the smallest the grid can be while still holding a
+   * thirty-two pixel header. Unfolding puts `openH` back.
+   *
+   * Remembered rather than recomputed, and the difference matters more than it
+   * sounds: a pane that unfolded to a default height would move everything
+   * below it on the canvas, and nothing the person did asked for that. They
+   * folded a pane and unfolded it; the arrangement they built should be the
+   * arrangement they get back.
+   *
+   * ## The module keeps running, and is not told
+   *
+   * Folding is not removing. The module's document stays in the frames layer
+   * with everything in it — a scroll position, a half-typed line, a shell
+   * session — for exactly the reason `Frames.tsx` exists: an iframe that leaves
+   * the DOM is a document that has been destroyed, and there is no way to get
+   * it back. A folded pane's page is hidden the same way a pane on another
+   * canvas is hidden, which is a path this program has had since the beginning.
+   *
+   * Nothing goes out on the wire, and `roadmap.context` does not grow a field.
+   * This is a real judgement call rather than an oversight: one could argue a
+   * module ought to know it is not visible so it can stop polling. It should
+   * not learn it from HERE, because it could not act on it correctly — from
+   * inside, a folded pane is indistinguishable from a pane on a kehikko nobody
+   * is looking at, and the protocol deliberately does not report that either.
+   * A module that stopped work on the strength of this would stop work in a
+   * case it cannot detect and resume in a case it cannot detect. Whether the
+   * host drew a pane at full height is the host's business.
+   */
+  const onCollapse = useCallback(
+    (id: string, collapsed: boolean) => {
+      const placements = (open?.placements ?? []).map((p) => {
+        if (p.i !== id) return p
+        return collapsed
+          ? { ...p, collapsed: true, openH: p.h, h: COLLAPSED_ROWS }
+          : { ...p, collapsed: false, h: p.openH ?? p.h, openH: null }
+      })
+      change({ placements })
+    },
+    [change, open?.placements],
+  )
+
   /** Turn following-the-module's-height on or off for one pane. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -501,6 +680,8 @@ export function App() {
         pinned: was.find((p) => p.i === item.i)?.pinned ?? false,
         prompt: was.find((p) => p.i === item.i)?.prompt ?? '',
         promptFor: was.find((p) => p.i === item.i)?.promptFor ?? null,
+        collapsed: was.find((p) => p.i === item.i)?.collapsed ?? false,
+        openH: was.find((p) => p.i === item.i)?.openH ?? null,
       }))
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
@@ -607,7 +788,16 @@ export function App() {
         return {
           module,
           rect: rects[id] ?? null,
-          shown: onOpen.has(id) && (found?.condition ?? byId.get(id)?.condition) === 'ready' && !!found,
+          /* A folded pane's page is HIDDEN, by the same path a page on another
+             kehikko is hidden — kept at its size, kept running, and not shown.
+             `Frames.tsx` has the argument: unmounting it would destroy the
+             document, and there is no getting one of those back. Folding a pane
+             with a shell in it must not kill the shell. */
+          shown:
+            onOpen.has(id) &&
+            !placements.find((p) => p.i === id)?.collapsed &&
+            (found?.condition ?? byId.get(id)?.condition) === 'ready' &&
+            !!found,
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
           /* Composed here rather than in the module, because only the host
@@ -682,8 +872,8 @@ export function App() {
         onSubject={setSubject}
         onPlace={onPlace}
         onUnplace={onUnplace}
-        onLookAgain={() => void look()}
-        looking={looking}
+        focus={focus}
+        onFocus={onFocus}
         theme={theme}
         onTheme={onTheme}
       />
@@ -792,7 +982,10 @@ export function App() {
                   onGrow={(grow) => onGrow(presence.id, grow)}
                   pinned={placement.pinned}
                   onPin={(pinned) => onPin(presence.id, pinned)}
+                  collapsed={placement.collapsed}
+                  onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
                   onPrompts={() => setPrompting(presence.id)}
+                  onTools={() => setToolsFor(presence.id)}
                   onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
                 />
@@ -813,6 +1006,21 @@ export function App() {
           presences={registry?.presences ?? []}
           placements={placements}
           onWrite={(text, aimedAt) => onWritePrompt(prompted.i, text, aimedAt)}
+        />
+      ) : null}
+
+      {/* The tools window, owned by the host for the same reason. It asks the
+          host's server what the module's door offers at the moment it opens —
+          never on a sweep; see the essay in `server/tools.ts`. `onChanged` is a
+          sweep, so the mark on the pane catches up with a connect or a
+          disconnect without anybody pressing "look again". */}
+      {toolsFor ? (
+        <ToolsDialog
+          open
+          onOpenChange={(isOpen) => setToolsFor(isOpen ? toolsFor : null)}
+          module={toolsFor}
+          name={byId.get(toolsFor)?.name ?? toolsFor}
+          onChanged={() => void look()}
         />
       ) : null}
     </div>

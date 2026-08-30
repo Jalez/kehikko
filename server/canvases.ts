@@ -93,6 +93,28 @@ export interface Placement {
    */
   prompt: string
   promptFor: string | null
+  /**
+   * Whether this pane is collapsed to its header.
+   *
+   * Per placement, like `grow` and `pinned` and for the same reason: it is a
+   * statement about this pane on this kehikko. The same module can be a
+   * full-height panel on one canvas and a folded title bar on another, and
+   * which it is is the arrangement's business.
+   *
+   * The module is NOT told, and that is a decision rather than an omission —
+   * see the essay on `onCollapse` in `App.tsx`.
+   */
+  collapsed: boolean
+  /**
+   * The height this pane had before it was collapsed, in grid rows.
+   *
+   * Remembered rather than recomputed. A pane that expanded to a default height
+   * would be a pane that rearranged somebody's canvas for them — everything
+   * below it moves, and nothing they did asked for that. `null` for a pane that
+   * has never been collapsed, which is every pane in every database written
+   * before this existed.
+   */
+  openH: number | null
 }
 
 export interface Canvas {
@@ -123,11 +145,16 @@ export interface Canvas {
  * optional. A canvas sent by an older page, or by anything hand-written, has no
  * `grow` in it, and that is not an error — it is off.
  */
-export type PlacementInput = Omit<Placement, 'grow' | 'pinned' | 'prompt' | 'promptFor'> & {
+export type PlacementInput = Omit<
+  Placement,
+  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH'
+> & {
   grow?: boolean
   pinned?: boolean
   prompt?: string
   promptFor?: string | null
+  collapsed?: boolean
+  openH?: number | null
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -198,6 +225,8 @@ export function open(file = databaseFile()): Database {
   add(db, 'placements', 'pinned', 'integer not null default 0')
   add(db, 'placements', 'prompt', "text not null default ''")
   add(db, 'placements', 'prompt_for', 'text')
+  add(db, 'placements', 'collapsed', 'integer not null default 0')
+  add(db, 'placements', 'open_h', 'integer')
   add(db, 'canvases', 'selection', 'text')
   return db
 }
@@ -250,19 +279,29 @@ export function listCanvases(db: Database): Canvas[] {
         pinned: number
         prompt: string
         prompt_for: string | null
+        collapsed: number
+        open_h: number | null
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h from placements order by canvas, module',
     )
     .all()
 
   const byCanvas = new Map<number, Placement[]>()
   for (const row of placements) {
-    const { canvas, grow, pinned, prompt, prompt_for: promptFor, ...rest } = row
+    const { canvas, grow, pinned, prompt, prompt_for: promptFor, collapsed, open_h: openH, ...rest } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
        here, at the edge, so nothing above this line has to remember. */
-    const placement: Placement = { ...rest, grow: grow === 1, pinned: pinned === 1, prompt, promptFor }
+    const placement: Placement = {
+      ...rest,
+      grow: grow === 1,
+      pinned: pinned === 1,
+      prompt,
+      promptFor,
+      collapsed: collapsed === 1,
+      openH,
+    }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
     else byCanvas.set(canvas, [placement])
@@ -323,10 +362,23 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
-        insert.run(id, p.i, p.x, p.y, p.w, p.h, p.grow ? 1 : 0, p.pinned ? 1 : 0, p.prompt, p.promptFor)
+        insert.run(
+          id,
+          p.i,
+          p.x,
+          p.y,
+          p.w,
+          p.h,
+          p.grow ? 1 : 0,
+          p.pinned ? 1 : 0,
+          p.prompt,
+          p.promptFor,
+          p.collapsed ? 1 : 0,
+          p.openH,
+        )
       }
     }
     return true
@@ -488,6 +540,13 @@ function cleaned(placements: PlacementInput[]): Placement[] {
       prompt: typeof p.prompt === 'string' ? p.prompt.slice(0, LIMITS.PROMPT) : '',
       promptFor:
         typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
+      /* Same rule again: anything but a literal `true` is off. */
+      collapsed: p.collapsed === true,
+      /* Bounded exactly like `h`, because it BECOMES `h` the moment somebody
+         expands the pane. A remembered height that no version of this host
+         could lay out is the same stored-unlayoutable-arrangement problem one
+         press later. */
+      openH: p.openH === null || p.openH === undefined ? null : bounded(p.openH, 1, 400),
     })
   }
   return kept

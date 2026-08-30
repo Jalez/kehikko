@@ -12,10 +12,12 @@ import {
   readState,
   type CanvasEdit,
 } from './canvases.ts'
-import { agentKnows, awarenessOf, type AgentAwareness } from './agents.ts'
+import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
 import { answered, start, startable } from './launch.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
+import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
+import { toolsAt } from './tools.ts'
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -145,6 +147,11 @@ function elsewhere(): Response {
 function canvasId(pathname: string): number | null {
   const match = /^\/host\/canvases\/(\d{1,15})$/.exec(pathname)
   return match ? Number(match[1]) : null
+}
+
+/** The module id out of a request, bounded before it is looked at. */
+function moduleIn(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
 }
 
 const server = Bun.serve({
@@ -316,6 +323,118 @@ const server = Bun.serve({
         ...ran,
         presence: after?.presences.find((p) => p.id === body.module) ?? null,
       })
+    }
+
+    /*
+     * What one module's door offers, and what the agent has been told about it.
+     *
+     * Asked when a modal opens and at no other time. See the essay in
+     * `tools.ts`: a sweep that handshakes with eleven MCP servers is a host that
+     * hangs whenever somebody asks it to look again, and the person pressing
+     * "look again" would have no way to know that is what they were waiting for.
+     *
+     * Everything acted on here is derived from the id — see `doorFor`.
+     */
+    if (url.pathname === '/host/tools' && request.method === 'GET') {
+      const id = moduleIn(url.searchParams.get('module'))
+      if (!id) return json({ ok: false, why: 'A request for tools names one module.' }, 400)
+
+      const found = await doorFor(id)
+      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      const door = found.door
+
+      const agent = awarenessOf(door.url, id, agentKnows())
+      /* Which scope the EXISTING entry is in, when there is one. The name to ask
+         about is the one that was found, not the one this host would write —
+         a server pointing here may be called anything at all. */
+      const existing = agent.kind === 'told' || agent.kind === 'elsewhere' ? agent.as : null
+
+      return json({
+        ok: true,
+        module: id,
+        as: door.as,
+        url: door.url,
+        transport: door.transport,
+        agent,
+        /* Named before anything is written, which is the whole reason it is in
+           the answer rather than only in the code. */
+        writesTo: SCOPE,
+        configuredIn: existing ? scopeOf(existing) : null,
+        command: `claude ${addArgs(door).join(' ')}`,
+        tools: await toolsAt(door.url),
+      })
+    }
+
+    /*
+     * Tell the agent about a module's door, or stop telling it.
+     *
+     * The press `agents.ts` said would be a separate decision. It is a POST
+     * because it changes something, and it changes something on the person's
+     * own machine outside this host — so it happens on an explicit press, and
+     * the answer says exactly what was run.
+     *
+     * The host does not edit `~/.claude.json`. It runs `claude mcp add` and
+     * `claude mcp remove`, for the reasons set out in `register.ts`: the CLI
+     * owns that file's format, it knows what a scope is, and that file holds
+     * far more of a person's state than MCP servers.
+     */
+    if (url.pathname === '/host/agent' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as {
+        module?: unknown
+        press?: unknown
+      } | null
+
+      const id = moduleIn(body?.module)
+      const press = body?.press
+      if (!id || (press !== 'connect' && press !== 'disconnect' && press !== 'repoint')) {
+        return json({ ok: false, why: 'A press names one module and one of connect, disconnect or repoint.' }, 400)
+      }
+
+      const found = await doorFor(id)
+      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      const door = found.door
+
+      /* Read the configuration again at the moment of the press rather than
+         trusting what the modal was shown. The window may have been open for a
+         while, and `claude mcp add` in another terminal is exactly the sort of
+         thing that happens in between. The NAME being removed comes from this
+         read — never from the request. */
+      const before = awarenessOf(door.url, id, agentKnows())
+
+      let ran
+      if (press === 'connect') {
+        if (before.kind === 'told') {
+          return json({ ok: false, why: `The agent has already been told about this door, as "${before.as}".` }, 409)
+        }
+        if (before.kind === 'elsewhere') {
+          return json(
+            {
+              ok: false,
+              why: `A server called "${before.as}" already exists and points at ${before.pointsAt}. Repointing it is a different press, because it rewrites an entry this host did not create.`,
+            },
+            409,
+          )
+        }
+        ran = await connect(door)
+      } else if (press === 'repoint') {
+        if (before.kind !== 'elsewhere') {
+          return json(
+            { ok: false, why: 'There is no entry of that name pointing somewhere else, so there is nothing to repoint.' },
+            409,
+          )
+        }
+        ran = await repoint(before.as, door)
+      } else {
+        if (before.kind !== 'told' && before.kind !== 'elsewhere') {
+          return json({ ok: false, why: 'The agent has not been told about this door, so there is nothing to remove.' }, 409)
+        }
+        ran = await disconnect(before.as)
+      }
+
+      /* Read back rather than assume. The CLI is the thing that decides whether
+         it worked, and reporting the awareness this host can now READ is the
+         only claim it is in a position to make. */
+      return json({ ...ran, agent: awarenessOf(door.url, id, agentKnows()) })
     }
 
     if (url.pathname.startsWith('/host/')) {

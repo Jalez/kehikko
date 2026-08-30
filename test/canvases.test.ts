@@ -39,8 +39,8 @@ describe('a canvas is a name and an arrangement', () => {
     editCanvas(db, made.id, {
       epic: 'modes-are-modules',
       placements: [
-        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null },
-        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null },
+        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
+        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
       ],
     })
 
@@ -48,8 +48,8 @@ describe('a canvas is a name and an arrangement', () => {
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.epic).toBe('modes-are-modules')
     expect(canvas?.placements).toEqual([
-      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null },
-      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null },
+      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
+      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
     ])
   })
 
@@ -130,7 +130,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: -5, y: 0, w: 0, h: 1e9 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false, prompt: '', promptFor: null })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null })
   })
 
   test('a number that is not one does not become NaN in the database', () => {
@@ -138,7 +138,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: 'over there', y: null, w: undefined, h: 5 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false, prompt: '', promptFor: null })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null })
   })
 })
 
@@ -154,7 +154,7 @@ describe('following the module’s height is a property of one pane', () => {
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: true }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(true)
 
-    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null }] })
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(false)
   })
 
@@ -174,7 +174,7 @@ describe('following the module’s height is a property of one pane', () => {
     const one = createCanvas(db, 'one')
     const two = createCanvas(db, 'two')
     editCanvas(db, one.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: true }] })
-    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null }] })
 
     const canvases = listCanvases(db)
     expect(canvases[0]?.placements[0]?.grow).toBe(true)
@@ -316,7 +316,7 @@ describe('a database written before a column existed still opens', () => {
     const after = open(file)
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null })
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null })
 
     /* And opening it a second time is not an error. */
     after.close()
@@ -471,6 +471,69 @@ describe('canvases are shown in the order they were made', () => {
     createCanvas(db, 'two')
     createCanvas(db, 'three')
     expect(listCanvases(db).map((canvas) => canvas.name)).toEqual(['one', 'two', 'three'])
+  })
+})
+
+/**
+ * A folded pane.
+ *
+ * The two things worth storing are that it IS folded and what height it had
+ * before it was, and the second is the one with an argument behind it: a pane
+ * that unfolded to a default height would move everything below it on somebody's
+ * canvas, having been asked only to come back.
+ */
+describe('a pane folded down to its header', () => {
+  test('both facts survive a round trip', () => {
+    const made = createCanvas(db, 'folded')
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 2, collapsed: true, openH: 14 }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({
+      i: 'a.one',
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 2,
+      grow: false,
+      pinned: false,
+      prompt: '',
+      promptFor: null,
+      collapsed: true,
+      openH: 14,
+    })
+  })
+
+  test('an arrangement written before folding existed reads as open', () => {
+    /* Every pane in every database on somebody's machine today. A missing flag
+       is not an error; it is what those panes have been doing all along. */
+    const made = createCanvas(db, 'older')
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    const placement = listCanvases(db)[0]?.placements[0]
+    expect(placement?.collapsed).toBe(false)
+    expect(placement?.openH).toBeNull()
+  })
+
+  test('anything but a literal true leaves the pane open', () => {
+    /* The same rule `grow` and `pinned` are held to. A flag arriving from a page
+       as a string or a number must not fold somebody's pane. */
+    const made = createCanvas(db, 'sloppy')
+    editCanvas(db, made.id, {
+      placements: [
+        { i: 'a.one', x: 0, y: 0, w: 6, h: 10, collapsed: 'yes' as unknown as boolean },
+      ],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.collapsed).toBe(false)
+  })
+
+  test('a remembered height is bounded exactly like a real one', () => {
+    /* It BECOMES `h` the moment somebody unfolds the pane, so a remembered
+       height no version of this host could lay out is the stored-unlayoutable-
+       arrangement problem one press later. */
+    const made = createCanvas(db, 'silly')
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 2, collapsed: true, openH: 99_999 }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.openH).toBe(400)
   })
 })
 

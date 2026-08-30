@@ -1,4 +1,12 @@
-import { ChevronsDownUp, ChevronsUpDown, Pin, PinOff, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  ChevronUp,
+  Pin,
+  PinOff,
+  X,
+} from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
@@ -6,7 +14,7 @@ import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
-import { Tools } from './Tools.tsx'
+import { ToolsMark } from './Tools.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -49,7 +57,10 @@ export function Pane({
   onGrow,
   pinned,
   onPin,
+  collapsed,
+  onCollapse,
   onPrompts,
+  onTools,
   onStarted,
   onRemove,
 }: {
@@ -75,8 +86,19 @@ export function Pane({
   /** Whether this pane is pinned, and stops hearing about the canvas. */
   pinned: boolean
   onPin(pinned: boolean): void
+  /**
+   * Whether this pane is folded down to its header.
+   *
+   * The module keeps running and its page keeps its document; it is simply not
+   * drawn. See the essay on `onCollapse` in `App.tsx`, and `Frames.tsx` for why
+   * hiding a page and destroying one are nowhere near the same thing.
+   */
+  collapsed: boolean
+  onCollapse(collapsed: boolean): void
   /** Open the host's prompt dialog for this pane. */
   onPrompts(): void
+  /** Open the host's tools window for this module. */
+  onTools(): void
   /** Look again, after this module has been started. */
   onStarted(): void
   onRemove(): void
@@ -96,7 +118,38 @@ export function Pane({
      * The border stays, because the border is the pane. It is the only thing
      * that says where one module ends and the next begins.
      */
-    <div className="pointer-events-none flex h-full flex-col overflow-hidden rounded-lg border">
+    <div
+      /*
+       * A folded pane is as tall as its header and no taller.
+       *
+       * The grid gives it two rows — fifty-six pixels, the smallest that can
+       * hold a thirty-two pixel header, because grid heights are quantised. If
+       * this filled that, a folded pane would be a header with twenty-two
+       * pixels of empty card beneath it, which reads as a pane that failed to
+       * load rather than one that was put away. So it takes its own height and
+       * the rest of the row stays canvas.
+       */
+      className={
+        collapsed
+          ? 'pointer-events-none relative flex flex-col overflow-hidden rounded-lg border'
+          : 'pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border'
+      }
+    >
+      {/*
+       * The header, inside a wrapper that does nothing at all most of the time.
+       *
+       * In focus mode the wrapper becomes the thing that detects a pointer
+       * near the top of this pane, and the header lifts out of the layout and
+       * hangs from it — see the `.focus-mode` rules in `index.css` for why the
+       * reveal has to be an element with `pointer-events: auto` rather than a
+       * `:hover` on the pane, and for the eight pixels that costs.
+       *
+       * Outside focus mode this div is a plain block in the column and changes
+       * nothing. It is not conditional on the mode: a wrapper that appeared and
+       * disappeared would remount the header, and remounting a drag handle
+       * mid-canvas is a good way to lose a gesture.
+       */}
+      <div className="pane-reveal shrink-0" data-collapsed={collapsed ? 'true' : undefined}>
       <header className="pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none">
         <ConditionDot condition={condition} />
         {/*
@@ -133,9 +186,11 @@ export function Pane({
         ) : null}
         <span className="flex-1" />
 
-        {/* Only when the agent has not been told about this module's tools. See
-            `Tools.tsx`: silence is the good news. */}
-        <Tools agent={presence.agent} name={name} />
+        {/* Whenever this module has an MCP door at all — loud when nothing is
+            configured for it, quiet when something is. It opens the host's tools
+            window; see the essay in `Tools.tsx` for why the quiet one exists now
+            and why there is still no green tick. */}
+        <ToolsMark agent={presence.agent} name={name} onOpen={onTools} />
 
         {/*
          * Whether this pane follows the height its module asks for.
@@ -150,7 +205,7 @@ export function Pane({
          * follow the height of a program that is not running would be offering
          * something that cannot happen.
          */}
-        {condition === 'ready' ? (
+        {condition === 'ready' && !collapsed ? (
           <Hint
             label={
               grow
@@ -176,6 +231,44 @@ export function Pane({
             </Button>
           </Hint>
         ) : null}
+
+        {/*
+         * Fold this pane down to its header, or open it again.
+         *
+         * Shown whatever the condition, like the pin and unlike the height
+         * toggle. Folding is a fact about the pane rather than a conversation
+         * with the program, and a pane whose module is not running is exactly
+         * one somebody might want out of the way.
+         *
+         * The tooltip says what happens to the MODULE, because that is the
+         * question a person actually has: a control sitting beside a close
+         * button has to say, before it is pressed, that nothing is being
+         * stopped.
+         */}
+        <Hint
+          label={
+            collapsed
+              ? 'folded — the module is still running. Press to put it back at the height it had'
+              : 'fold it down to this header. The module keeps running and keeps what is in it'
+          }
+          side="left"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={collapsed ? 'unfold this pane' : 'fold this pane down to its header'}
+            aria-expanded={!collapsed}
+            className={
+              collapsed
+                ? 'text-foreground size-6 cursor-default'
+                : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
+            }
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => onCollapse(!collapsed)}
+          >
+            {collapsed ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
+          </Button>
+        </Hint>
 
         <PromptButton wanted={presence.module?.declares.prompt === true} onOpen={onPrompts} />
 
@@ -237,7 +330,19 @@ export function Pane({
           </Button>
         </Hint>
       </header>
+      </div>
 
+      {/*
+        Everything below the header, and it is absent entirely when folded.
+
+        Not merely empty: a zero-height body would still be measured, and the
+        module's page would be positioned over a one-pixel rectangle and told it
+        had been resized to nothing. The page is hidden in the frames layer
+        instead — the same path a page on another kehikko takes — so the
+        document is untouched and comes back exactly as it was.
+      */}
+      {collapsed ? null : (
+      <>
       {/* The hollow part. Its only jobs are to be measured — the page is
           positioned to match it — and to stay out of the way of what is
           showing through it. A notice, when there is one, is opaque and takes
@@ -279,6 +384,8 @@ export function Pane({
           {fault}
         </p>
       ) : null}
+      </>
+      )}
     </div>
   )
 }

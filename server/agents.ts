@@ -18,13 +18,23 @@ import { join } from 'node:path'
  * module is running, the manifest is right, the door answers, and the tools are
  * simply absent from the conversation. Nothing errors.
  *
- * ## Read, never written
+ * ## Read here, and never written here
  *
- * This reads the agent's configuration and does not touch it. A host that
- * quietly edited a person's agent config would be a host that reaches outside
+ * This file reads the agent's configuration and does not touch it. A host that
+ * QUIETLY edited a person's agent config would be a host that reaches outside
  * itself — the same line `launch.ts` draws around starting a program. Telling
  * somebody their agent has not been told is useful on its own; doing something
  * about it is a press, and a separate decision.
+ *
+ * That press now exists, and it deliberately lives somewhere else —
+ * `server/register.ts` — which is the shape the sentence above asked for. What
+ * stays true is the word "quietly": nothing writes on a sweep, on a page load,
+ * or because the host noticed something missing. A write happens when somebody
+ * presses a button in a window that has already named the server, the address
+ * and the scope it will use, and it goes through the `claude` CLI rather than
+ * through this file's parser. Keeping the two apart is what makes that
+ * checkable: everything in HERE runs on every sweep, and everything in here can
+ * only read.
  *
  * ## Why the file and not `claude mcp list`
  *
@@ -138,4 +148,45 @@ function urlOf(value: unknown): string | null {
 /** Trailing slashes are not a difference anybody means. */
 function normalise(url: string): string {
   return url.replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * Which scope a configured server actually sits in.
+ *
+ * `agentKnows` flattens the two on purpose, and for the question it answers —
+ * has the agent been told? — flattening is right. The moment a person is about
+ * to press a button that CHANGES one of these, the flattening stops being
+ * helpful: "a server called checklist points somewhere else" is a different
+ * sentence depending on whether it is global or belongs to one directory, and
+ * somebody deciding whether to let the host rewrite it is owed the difference.
+ *
+ * So this is the un-flattening. It is read by the modal and by nothing on the
+ * sweep. `null` when no server of that name is configured anywhere.
+ */
+export type ConfiguredIn = { scope: 'user' } | { scope: 'local'; project: string }
+
+export function scopeOf(name: string, file = agentConfigFile()): ConfiguredIn | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const root = parsed as { mcpServers?: unknown; projects?: unknown }
+  const global = (root.mcpServers ?? {}) as Record<string, unknown>
+  if (Object.prototype.hasOwnProperty.call(global, name)) return { scope: 'user' }
+
+  /* Global first, then projects, in the same order `agentKnows` reads them, so
+     the scope reported is the scope of the entry that reading found. A name in
+     both would otherwise be described as living in whichever this happened to
+     look at second. */
+  for (const [project, value] of Object.entries(
+    (root.projects ?? {}) as Record<string, { mcpServers?: unknown }>,
+  )) {
+    const servers = (value?.mcpServers ?? {}) as Record<string, unknown>
+    if (Object.prototype.hasOwnProperty.call(servers, name)) return { scope: 'local', project }
+  }
+  return null
 }

@@ -36,6 +36,21 @@ const placementSchema = z.object({
   /** What this pane says to another module, and which one it says it to. */
   prompt: z.string().default(''),
   promptFor: z.string().nullable().default(null),
+  /**
+   * Whether this pane is folded down to its header.
+   *
+   * Defaulted, so an arrangement stored before folding existed reads as open —
+   * which is what every pane in it has been all along.
+   */
+  collapsed: z.boolean().default(false),
+  /**
+   * The height it had before it was folded, in rows, or `null`.
+   *
+   * Remembered rather than recomputed, so that unfolding puts the pane back
+   * where it was rather than at a size somebody never chose. See the essay on
+   * `onCollapse` in `App.tsx`.
+   */
+  openH: z.number().int().min(1).max(400).nullable().default(null),
 })
 
 /**
@@ -235,7 +250,22 @@ export function place(placements: readonly Placement[], id: string): Placement[]
 
   /* Off. A new pane is the size this host chose and stays there until somebody
      says otherwise — either by dragging its corner or by turning this on. */
-  return [...placements, { i: id, x, y, w: NEW_W, h: NEW_H, grow: false, pinned: false, prompt: '', promptFor: null }]
+  return [
+    ...placements,
+    {
+      i: id,
+      x,
+      y,
+      w: NEW_W,
+      h: NEW_H,
+      grow: false,
+      pinned: false,
+      prompt: '',
+      promptFor: null,
+      collapsed: false,
+      openH: null,
+    },
+  ]
 }
 
 /** Take one off. */
