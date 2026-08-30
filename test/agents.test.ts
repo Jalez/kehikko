@@ -57,7 +57,7 @@ describe('the three answers, kept apart', () => {
   const door = 'http://127.0.0.1:7860/mcp'
 
   test('a module with no MCP door is not a problem and must not be drawn as one', () => {
-    expect(awarenessOf(null, 'roadmap.atlas', new Map())).toEqual({ kind: 'none' })
+    expect(awarenessOf(null, 'roadmap.mapmaker', new Map())).toEqual({ kind: 'none' })
   })
 
   test('nothing configured is untold', () => {

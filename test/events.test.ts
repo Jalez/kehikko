@@ -49,7 +49,7 @@ describe('who hears an event', () => {
     const otherFormat = listener(['roadmap.calls@1'])
     bus.join('roadmap.notifications', shower)
     bus.join('roadmap.journeys', bystander)
-    bus.join('roadmap.atlas', otherFormat)
+    bus.join('roadmap.mapmaker', otherFormat)
 
     const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
 

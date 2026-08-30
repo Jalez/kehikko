@@ -53,7 +53,7 @@ const CHECKLIST = presence('roadmap.checklist', 'Checklist', {
 const NOTIFICATIONS = presence('roadmap.notifications', 'Notifications', {
   extensions: { emits: [], consumes: ['roadmap.notifications@1'] },
 })
-const ATLAS = presence('roadmap.atlas', 'Atlas', {
+const ATLAS = presence('roadmap.mapmaker', 'Atlas', {
   declares: { protocol: '>=2', uses: ['epics:read', 'view:navigate', 'state:keep'], storage: false },
 })
 const REFERENCES = presence('roadmap.references', 'References', {
@@ -171,24 +171,24 @@ describe('what it refuses to draw', () => {
 describe('the indirect kinds', () => {
   test('navigation is drawn from view:navigate and names nobody', () => {
     const found = relate([ATLAS, PAPER], {
-      onCanvas: new Set(['roadmap.atlas', 'roadmap.paper']),
+      onCanvas: new Set(['roadmap.mapmaker', 'roadmap.paper']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.atlas')?.[0]
+    const relationship = found.get('roadmap.mapmaker')?.[0]
     expect(relationship?.kind).toBe('navigation')
     expect(relationship?.direct).toBe(false)
     expect(relationship?.with).toEqual([])
     expect(relationship?.told).toBe(1)
-    expect(sentenceFor('Atlas', relationship!)).toContain('one module beside this one')
+    expect(sentenceFor('Mapmaker', relationship!)).toContain('one module beside this one')
   })
 
   test('the count is of the modules that would actually be told', () => {
     const silent = { ...PAPER, condition: 'silent' as const }
     const found = relate([ATLAS, silent, presence('roadmap.tests', 'Tests')], {
-      onCanvas: new Set(['roadmap.atlas', 'roadmap.paper', 'roadmap.tests']),
+      onCanvas: new Set(['roadmap.mapmaker', 'roadmap.paper', 'roadmap.tests']),
       elsewhere: new Map(),
     })
-    expect(found.get('roadmap.atlas')?.[0]?.told).toBe(1)
+    expect(found.get('roadmap.mapmaker')?.[0]?.told).toBe(1)
   })
 
   test('selection is drawn from selection:set and says who reacts is unknowable', () => {
@@ -204,24 +204,23 @@ describe('the indirect kinds', () => {
 
   test('an empty kehikko is said to be empty rather than counted as one', () => {
     const found = relate([ATLAS], NOWHERE)
-    const relationship = found.get('roadmap.atlas')?.[0]
+    const relationship = found.get('roadmap.mapmaker')?.[0]
     expect(relationship?.told).toBe(0)
-    expect(sentenceFor('Atlas', relationship!)).toContain('nothing else is on this one')
+    expect(sentenceFor('Mapmaker', relationship!)).toContain('nothing else is on this one')
   })
 
   test('the badge itself carries no prose', () => {
     const found = relate([ATLAS, REFERENCES], NOWHERE)
-    expect(labelFor(found.get('roadmap.atlas')![0]!)).toBe('moves the epic')
+    expect(labelFor(found.get('roadmap.mapmaker')![0]!)).toBe('moves the epic')
     expect(labelFor(found.get('roadmap.references')![0]!)).toBe('sets the selection')
   })
 })
 
-describe('the eleven modules on this machine', () => {
+describe('the ten modules on this machine', () => {
   /* The real declarations, read off the running host, so that a change in what
      a module says about itself shows up here as a change in what the list would
      draw rather than as a surprise in a popover. */
   const live: Presence[] = [
-    ATLAS,
     CHECKLIST,
     presence('roadmap.citations', 'Citations'),
     presence('roadmap.diff', 'Diff'),
@@ -234,14 +233,30 @@ describe('the eleven modules on this machine', () => {
     presence('roadmap.tests', 'Tests'),
   ]
 
-  test('four of eleven have anything to show, and the rest honestly have none', () => {
+  test('three of ten have anything to show, and the rest honestly have none', () => {
     const found = relate(live, NOWHERE)
     expect([...found.keys()].sort()).toEqual([
-      'roadmap.atlas',
       'roadmap.checklist',
       'roadmap.notifications',
       'roadmap.references',
     ])
+  })
+
+  test('nothing on this machine declares view:navigate any more', () => {
+    /* Atlas did, and Atlas was retired when the project and epic pickers moved
+       into the host's own header — a module that picks the epic is duplicating
+       chrome once the chrome can do it.
+
+       The capability did not go with it. `view.goto` is still a protocol method
+       and this host still answers it, so the derivation above must keep working
+       for a module that declares it; the fixture tests earlier in this file are
+       what keep that true. What changed is only that nobody currently does, and
+       the badge correctly stops being drawn rather than being special-cased
+       away. */
+    const found = relate(live, NOWHERE)
+    for (const [, relationships] of found) {
+      expect(relationships.some((r) => r.kind === 'navigation')).toBe(false)
+    }
   })
 
   test('the paper and the citations over one corpus are not among them', () => {

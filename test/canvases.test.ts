@@ -39,7 +39,7 @@ describe('a canvas is a name and an arrangement', () => {
     editCanvas(db, made.id, {
       epic: 'modes-are-modules',
       placements: [
-        { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
+        { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
         { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
       ],
     })
@@ -48,7 +48,7 @@ describe('a canvas is a name and an arrangement', () => {
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.epic).toBe('modes-are-modules')
     expect(canvas?.placements).toEqual([
-      { i: 'roadmap.atlas', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
+      { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
       { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, openH: null },
     ])
   })
