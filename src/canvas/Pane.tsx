@@ -123,17 +123,26 @@ export function Pane({
        * A folded pane is as tall as its header and no taller.
        *
        * The grid gives it two rows — fifty-six pixels, the smallest that can
-       * hold a thirty-two pixel header, because grid heights are quantised. If
-       * this filled that, a folded pane would be a header with twenty-two
-       * pixels of empty card beneath it, which reads as a pane that failed to
-       * load rather than one that was put away. So it takes its own height and
-       * the rest of the row stays canvas.
+       * hold a thirty-two pixel header. The first version of this folded to TWO
+       * rows and drew only its own thirty-four pixels, leaving the rest of the
+       * row as canvas — on the reasoning that a header with twenty-two pixels
+       * of empty card under it reads as a pane that failed to load.
+       *
+       * That reasoning was right about the card and wrong about the space. The
+       * emptiness did not go away; it moved outside the pane, where the grid
+       * was still holding fifty-six pixels for something drawing thirty-four.
+       * The person folding a pane to reclaim space got twenty-two pixels of
+       * nothing between it and its neighbour, which is the same waste with a
+       * transparent background — and it looked, in their words, weird.
+       *
+       * So a folded pane is ONE row, and the header fills it exactly. Nothing
+       * is reserved that is not drawn. One row is twenty-four pixels against a
+       * header that wants thirty-two, so the header goes dense when folded
+       * rather than the grid going coarse: the controls shrink, which is a
+       * change to one CSS rule, instead of every pane on every canvas getting
+       * taller to make room for the folded case.
        */
-      className={
-        collapsed
-          ? 'pointer-events-none relative flex flex-col overflow-hidden rounded-lg border'
-          : 'pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border'
-      }
+      className="pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border"
     >
       {/*
        * The header, inside a wrapper that does nothing at all most of the time.
@@ -149,8 +158,18 @@ export function Pane({
        * disappeared would remount the header, and remounting a drag handle
        * mid-canvas is a good way to lose a gesture.
        */}
-      <div className="pane-reveal shrink-0" data-collapsed={collapsed ? 'true' : undefined}>
-      <header className="pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none">
+      <div
+        className={collapsed ? 'pane-reveal min-h-0 flex-1' : 'pane-reveal shrink-0'}
+        data-collapsed={collapsed ? 'true' : undefined}
+      >
+      <header
+        data-dense={collapsed ? 'true' : undefined}
+        className={
+          collapsed
+            ? 'pane-grip bg-card pointer-events-auto flex h-full cursor-move items-center gap-1.5 px-2 select-none'
+            : 'pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none'
+        }
+      >
         <ConditionDot condition={condition} />
         {/*
          * The name, and the module's own description behind it.

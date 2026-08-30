@@ -96,7 +96,7 @@ const MARGIN: [number, number] = [8, 8]
  * is a header and nothing else; the extra twenty-two pixels are grid space,
  * spent to keep folded panes on the same grid as everything around them.
  */
-const COLLAPSED_ROWS = 2
+const COLLAPSED_ROWS = 1
 
 /**
  * What the canvas currently believes about one module, which is not always what

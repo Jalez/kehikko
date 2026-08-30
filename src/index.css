@@ -304,3 +304,32 @@
 .react-grid-item.react-draggable-dragging .pane-reveal > .pane-grip {
   transition: none;
 }
+
+/*
+ * A folded pane's header, dense enough to fit one grid row.
+ *
+ * One row is twenty-four pixels and an open header is thirty-two, so the
+ * controls shrink rather than the grid growing. The alternative was raising
+ * `ROW_HEIGHT` until a header fitted in one row, which would have made every
+ * pane on every canvas taller to accommodate the folded case — paying for a
+ * state a pane is rarely in, everywhere, forever.
+ *
+ * Written as one rule over the header's descendants instead of a `dense` prop
+ * threaded through six buttons, because the buttons are the same buttons: they
+ * do the same things and answer the same tooltips, they are simply smaller. A
+ * prop would have invited them to diverge.
+ */
+.pane-grip[data-dense='true'] {
+  font-size: 0.6875rem;
+}
+
+.pane-grip[data-dense='true'] button,
+.pane-grip[data-dense='true'] [role='button'] {
+  block-size: 1.125rem;
+  inline-size: 1.125rem;
+}
+
+.pane-grip[data-dense='true'] svg {
+  block-size: 0.625rem;
+  inline-size: 0.625rem;
+}
