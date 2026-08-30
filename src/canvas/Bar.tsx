@@ -1,4 +1,14 @@
-import { LayoutGrid, Moon, PanelTop, PanelTopClose, Sun } from 'lucide-react'
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Compass,
+  LayoutGrid,
+  Moon,
+  MousePointerClick,
+  PanelTop,
+  PanelTopClose,
+  Sun,
+} from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -9,6 +19,13 @@ import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Presence, RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
+import {
+  labelFor,
+  relate,
+  sentenceFor,
+  type Placings,
+  type Relationship,
+} from '@/host/relations.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { ConditionDot } from './Conditions.tsx'
@@ -216,7 +233,14 @@ export function Bar({
             </PopoverTrigger>
           </Hint>
           <PopoverContent align="end" className="w-96 p-0">
-            <ModuleList registry={registry} onCanvas={onCanvas} onPlace={onPlace} onUnplace={onUnplace} />
+            <ModuleList
+              registry={registry}
+              onCanvas={onCanvas}
+              canvases={canvases}
+              open={open}
+              onPlace={onPlace}
+              onUnplace={onUnplace}
+            />
           </PopoverContent>
         </Popover>
       </header>
@@ -236,11 +260,15 @@ export function Bar({
 function ModuleList({
   registry,
   onCanvas,
+  canvases,
+  open,
   onPlace,
   onUnplace,
 }: {
   registry: RegistryView | null
   onCanvas: Set<string>
+  canvases: readonly Canvas[]
+  open: Canvas | null
   onPlace(id: string): void
   onUnplace(id: string): void
 }) {
@@ -265,6 +293,27 @@ function ModuleList({
     )
   }
 
+  /*
+   * Which module touches which, out of what each of them declared.
+   *
+   * Derived here rather than carried on the presence, because half the answer
+   * is about the CANVASES — where the other end is right now — and the server
+   * that reads manifests knows nothing about those. The whole derivation is a
+   * pure function in `host/relations.ts`, with the argument for each kind of
+   * relationship and, more importantly, for the ones it refuses to draw.
+   */
+  const elsewhere = new Map<string, string[]>()
+  for (const canvas of canvases) {
+    if (open && canvas.id === open.id) continue
+    for (const placement of canvas.placements) {
+      const already = elsewhere.get(placement.i)
+      if (already) already.push(canvas.name)
+      else elsewhere.set(placement.i, [canvas.name])
+    }
+  }
+  const placings: Placings = { onCanvas, elsewhere }
+  const relationships = relate(presences, placings)
+
   return (
     <div className="max-h-[70vh] overflow-auto">
       <ul className="divide-y">
@@ -273,6 +322,7 @@ function ModuleList({
             key={presence.id}
             presence={presence}
             placed={onCanvas.has(presence.id)}
+            relationships={relationships.get(presence.id) ?? []}
             onPlace={() => onPlace(presence.id)}
             onUnplace={() => onUnplace(presence.id)}
           />
@@ -289,11 +339,14 @@ function ModuleList({
 function ModuleRow({
   presence,
   placed,
+  relationships,
   onPlace,
   onUnplace,
 }: {
   presence: Presence
   placed: boolean
+  /** What this module touches, and how. Empty for most of them, honestly. */
+  relationships: readonly Relationship[]
   onPlace(): void
   onUnplace(): void
 }) {
@@ -315,6 +368,31 @@ function ModuleRow({
             what to put on the canvas is deciding about a program that may not be
             running, and finding that out after placing it is a worse order. */}
         <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{presence.line}</p>
+        {/*
+         * What it touches. Absent entirely when it touches nothing, which is
+         * seven of the eleven modules on this machine — and that absence is the
+         * feature. A row of marks on every module is a row of marks nobody
+         * reads; `Tools.tsx` has the long version of the argument, and it is
+         * why nothing here marks the thing almost every module has in common.
+         *
+         * `min-w-0` on the wrapper because a badge is `whitespace-nowrap` in
+         * shadcn's base, and a nowrap child sets a min-content floor under
+         * everything above it. A sibling module put a sentence in one and gave
+         * a two-hundred pixel pane an eleven-hundred pixel floor. Nothing in a
+         * badge here is longer than a module's name; the sentence is in the
+         * tooltip, where there is room for it.
+         */}
+        {relationships.length ? (
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+            {relationships.map((relationship) => (
+              <RelationBadge
+                key={`${relationship.kind}:${relationship.extension ?? ''}`}
+                relationship={relationship}
+                module={presence.name ?? presence.id}
+              />
+            ))}
+          </div>
+        ) : null}
         {presence.module?.mcp ? (
           <p className="text-muted-foreground mt-1 font-mono text-[11px] break-all">
             agents: {presence.module.mcp.url}
@@ -339,6 +417,70 @@ function ModuleRow({
         </Button>
       </Hint>
     </li>
+  )
+}
+
+/**
+ * One relationship, in as few words as it can be said.
+ *
+ * ## Two families, because the user asked about two things
+ *
+ * They asked whether a module that uses another, "indirectly or directly",
+ * should show something. Both do, and they must not look alike.
+ *
+ * A DIRECT one is an event: the host itself takes a payload from one named
+ * program and posts it into another named program's frame, and `host/events.ts`
+ * is the thing that does it. So it gets an arrow, pointing the way the message
+ * goes, and it names the other end — the strongest claim in the list, drawn as
+ * the strongest badge.
+ *
+ * An INDIRECT one names nobody, because there is nobody to name. A module that
+ * can move the canvas's subject, or set the selection, changes what everything
+ * else is told without any of them being its correspondent; the host can vouch
+ * for the sending half and there is no declared receiving half to vouch for.
+ * That gets a dashed outline and a muted word, which reads as weaker at a
+ * glance and is weaker.
+ *
+ * A direct relationship whose other end is on no kehikko keeps the arrow — it
+ * is still that kind of claim — and goes muted, because at this moment nothing
+ * is being carried. The tooltip says which of the two it is.
+ */
+function RelationBadge({ relationship, module }: { relationship: Relationship; module: string }) {
+  const carrying = relationship.with.some(
+    (one) => one.reach.where === 'here' || one.reach.where === 'elsewhere',
+  )
+  const Icon =
+    relationship.kind === 'emits'
+      ? ArrowUpRight
+      : relationship.kind === 'consumes'
+        ? ArrowDownLeft
+        : relationship.kind === 'navigation'
+          ? Compass
+          : MousePointerClick
+
+  return (
+    /* The sentence is bounded rather than left to `w-fit`, which would draw one
+       very long line across the window. Radix balances the text; it does not
+       decide how wide is sensible. */
+    <Hint
+      label={<span className="block max-w-[22rem] leading-relaxed">{sentenceFor(module, relationship)}</span>}
+      side="bottom"
+      align="start"
+    >
+      <Badge
+        variant={relationship.direct && carrying ? 'secondary' : 'outline'}
+        className={
+          relationship.direct
+            ? carrying
+              ? 'max-w-[13rem] cursor-default gap-1 px-1.5 py-0 text-[11px] font-normal'
+              : 'text-muted-foreground max-w-[13rem] cursor-default gap-1 px-1.5 py-0 text-[11px] font-normal'
+            : 'text-muted-foreground max-w-[13rem] cursor-default gap-1 border-dashed px-1.5 py-0 text-[11px] font-normal'
+        }
+      >
+        <Icon className="shrink-0" />
+        <span className="min-w-0 truncate">{labelFor(relationship)}</span>
+      </Badge>
+    </Hint>
   )
 }
 
