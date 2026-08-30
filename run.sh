@@ -45,6 +45,45 @@ if [ ! -d node_modules ]; then
   bun install >&2
 fi
 
+# ---------------------------------------------------------------------------
+# Where the roadmap's own data lives.
+#
+# `server/holdings.ts` answers `epics.list` out of `$KEHIKKO_ROADMAP_DIR/data/
+# epics`, and answers it with an EMPTY LIST when the variable is unset — because
+# a host that holds nothing is a real and ordinary state, not an error.
+#
+# That honesty has a failure mode, and it has now happened: the host was
+# restarted by something that did not know this variable existed, `holdingsDir()`
+# returned null, and Atlas drew "the host answered: it has no epics yet". Which
+# was TRUE. Thirteen epics were sitting on disk the whole time, and every part of
+# the system reported correctly — the module said what the host said, and the
+# host said what its environment told it. Nothing was broken and nothing could be
+# grepped for.
+#
+# So the default lives here, in the script that starts this host, rather than in
+# whoever's shell happens to run it. An explicit `KEHIKKO_ROADMAP_DIR` still
+# wins; this only fills in the silence.
+#
+# Note this is the OPPOSITE of the rule `kehikko-orchestrator/scope.ts` argues
+# for, which refuses to default a directory at all — and the difference is what
+# the directory is FOR. There, a guessed path is an agent editing the wrong
+# repository: a write, and an irreversible one. Here it is a read of a roadmap's
+# own epics, where a wrong guess shows the wrong list and a missing guess shows
+# no list, and only one of those two announces itself.
+if [ -z "${KEHIKKO_ROADMAP_DIR:-}" ] && [ -d "$HOME/Projects/roadmap/data/epics" ]; then
+  KEHIKKO_ROADMAP_DIR="$HOME/Projects/roadmap"
+fi
+export KEHIKKO_ROADMAP_DIR
+
+if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ] && [ -d "$KEHIKKO_ROADMAP_DIR/data/epics" ]; then
+  echo "kehikko: epics from $KEHIKKO_ROADMAP_DIR/data/epics" >&2
+else
+  # Said out loud, at start, in the terminal somebody is looking at — because
+  # the alternative is finding out from a module drawing an empty map twenty
+  # minutes later and blaming the module.
+  echo "kehikko: KEHIKKO_ROADMAP_DIR names no data/epics directory, so epics.list will answer empty and Atlas will draw nothing." >&2
+fi
+
 # The API first, in the background, because Vite's proxy has nowhere to send
 # `/host` until it is up. Stopping this script stops both: the trap fires on the
 # way out however we leave, so a Ctrl-C does not leave an orphan holding 4180 —
