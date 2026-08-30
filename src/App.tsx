@@ -16,6 +16,7 @@ import {
   editCanvas,
   everyPlaced,
   fetchCanvases,
+  inProject,
   place,
   promptFor,
   readOpen,
@@ -27,6 +28,16 @@ import {
   type Placement,
 } from './host/canvases.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
+import {
+  addProject,
+  chooseProject,
+  fetchEpics,
+  fetchProjects,
+  readOpenProject,
+  writeOpenProject,
+  type Epics as HeldEpics,
+  type Project,
+} from './host/projects.ts'
 import { toWireContext, type Subject } from './host/context.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
@@ -141,6 +152,25 @@ export function App() {
   const [looking, setLooking] = useState(true)
   const [canvases, setCanvases] = useState<Canvas[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
+  /**
+   * The projects, and which one is open.
+   *
+   * Every canvas from every project is held in `canvases`; this is what the
+   * header shows a slice of. Keeping the whole set is what makes switching
+   * project free — see `fetchCanvases`, and `Frames.tsx` on why a module's page
+   * must outlive the pane that asked for it.
+   */
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectId, setProjectId] = useState<number | null>(null)
+  /**
+   * What the open project holds, or null while it is being read.
+   *
+   * Null is "not known yet" and is not the same as `{ holds: false }`, which is
+   * "this project has no data/epics". The epic picker draws a different
+   * sentence for each — see `Epics.tsx` — because an empty box is what a
+   * project with none and a read that failed both look like.
+   */
+  const [held, setHeld] = useState<HeldEpics | null>(null)
   const [live, setLive] = useState<Record<string, Live>>({})
   /* Which pane is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
@@ -202,8 +232,15 @@ export function App() {
         if (cancelled) return
         const remembered = readOpen(window.localStorage)
         firstVisit.current = remembered === null
-        setCanvases(found)
-        setOpenId(chooseOpen(found, remembered))
+        const project = chooseProject(found.projects, readOpenProject(window.localStorage))
+        setProjects(found.projects)
+        setProjectId(project)
+        setCanvases(found.canvases)
+        /* Within the project, and only within it. A remembered kehikko that
+           belongs to another project is not the one to open: the switcher
+           beside it would not list it, and a canvas its own switcher cannot see
+           is one nobody can get back to. */
+        setOpenId(chooseOpen(found.canvases, remembered, project))
         loaded.current = true
       } catch (error) {
         if (cancelled) return
@@ -222,6 +259,52 @@ export function App() {
   useEffect(() => {
     if (openId !== null) writeOpen(window.localStorage, openId)
   }, [openId])
+
+  /* Which project is open, remembered the same way and for the same reason: two
+     windows on two screens showing two projects is a reasonable thing to do,
+     and a server storing "the current project" would make them fight over it. */
+  useEffect(() => {
+    if (projectId !== null) writeOpenProject(window.localStorage, projectId)
+  }, [projectId])
+
+  const project = useMemo(
+    () => projects.find((one) => one.id === projectId) ?? null,
+    [projects, projectId],
+  )
+
+  /**
+   * The open project's epics, re-read whenever the project changes.
+   *
+   * Cleared to null first, so the picker says "reading epics…" rather than
+   * showing the previous project's list for as long as the request takes. A
+   * picker that briefly offers epics from somewhere else is a picker somebody
+   * can click during that moment.
+   *
+   * Not cached per project. `data/epics` is rewritten underneath a running host
+   * by anything that refreshes the roadmap, and a cache here would be this page
+   * showing what was on disk when the project was first opened.
+   */
+  useEffect(() => {
+    if (projectId === null) {
+      setHeld(null)
+      return
+    }
+    const stop = new AbortController()
+    setHeld(null)
+    void (async () => {
+      try {
+        const found = await fetchEpics(projectId, stop.signal)
+        if (!stop.signal.aborted) setHeld(found)
+      } catch {
+        if (stop.signal.aborted) return
+        /* The picker stays at "reading epics…", which is honest: nothing was
+           read. It is not turned into `{ holds: false }`, because that sentence
+           — "this project has no epics" — is a claim, and a failed read is not
+           grounds for making it. */
+      }
+    })()
+    return () => stop.abort()
+  }, [projectId])
 
   /*
    * One sweep at a time, and a record of when the last one finished.
@@ -355,7 +438,7 @@ export function App() {
     (edit: {
       name?: string
       epic?: string | null
-      project?: string | null
+      project?: number | null
       selection?: string[]
       placements?: Placement[]
     }) => {
@@ -367,15 +450,27 @@ export function App() {
     [openId, writer],
   )
 
+  /**
+   * What the canvas is about: one epic, and the project it is standing in.
+   *
+   * The project comes from `project` rather than from the open canvas's own
+   * `project` id, and they are the same thing said twice on purpose — the
+   * canvas holds the key, the header holds the row, and the subject wants the
+   * row because both of its fields go out on the wire. Split by value rather
+   * than by identity, like the selection and the kehikko below it, so that a
+   * re-render for any other reason does not look like a context change and
+   * re-point every frame.
+   */
   const subject = useMemo<Subject>(
-    () => ({ epic: open?.epic ?? null, project: open?.project ?? null }),
-    [open?.epic, open?.project],
+    () => ({ epic: open?.epic ?? null, project }),
+    [open?.epic, project],
   )
 
-  const setSubject = useCallback(
-    (next: Subject) => change({ epic: next.epic, project: next.project }),
-    [change],
-  )
+  /* The epic only. The project is not a property of the subject a person edits
+     here — it is where the whole kehikko is, changed by opening a project, and
+     changing it from this direction would mean the epic picker could move a
+     kehikko between projects. */
+  const setSubject = useCallback((next: Subject) => change({ epic: next.epic }), [change])
 
   /* What every module on the canvas is told. One object, memoised, so that a
      re-render caused by anything else does not look like a context change and
@@ -452,6 +547,20 @@ export function App() {
   const kehikkoRef = useRef(kehikko)
   kehikkoRef.current = kehikko
 
+  /**
+   * Which project the canvas is standing in, for a call that is about to be
+   * made. A ref for the same reason `kehikkoRef` is one: `controls` is the
+   * object every conversation was built with, and rebuilding it on every
+   * project switch would rebuild every module's `ask`.
+   *
+   * Read at call time, which is also the honest reading — a module's page is
+   * loaded once and shown on whichever kehikko asks for it, so the project a
+   * question is about is the one open when it was asked, not the one that was
+   * open when the frame was mounted.
+   */
+  const projectRef = useRef<number | null>(projectId)
+  projectRef.current = projectId
+
   const onFocus = useCallback(() => {
     setFocus((was) => {
       const next = otherFocus(was)
@@ -481,6 +590,10 @@ export function App() {
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
       emit: (from, extension, payload) => bus.emit(from, extension, payload, kehikkoRef.current),
+      /* An id, read now. The server turns it into a folder out of its own
+         table — see `project` on `CanvasControls` for why a path must not come
+         from this side. */
+      project: () => projectRef.current,
     }),
     [change, bus],
   )
@@ -694,13 +807,73 @@ export function App() {
 
   const onCreate = useCallback(async () => {
     try {
-      const made = await createCanvas()
+      /* In the project that is open. A kehikko in no project is one no
+         dropdown lists, which is work nobody can get back to. */
+      const made = await createCanvas(undefined, projectId)
       setCanvases((was) => [...was, made])
       setOpenId(made.id)
     } catch (error) {
       setTrouble(`A canvas could not be made: ${(error as Error).message}.`)
     }
-  }, [])
+  }, [projectId])
+
+  /**
+   * Open another project.
+   *
+   * ## What this does NOT do
+   *
+   * It does not reload anything. VS Code restarts its extension host when the
+   * workspace folder changes, and the user chose against that here for the
+   * reason this whole architecture exists: reloading destroys every module's
+   * document — a terminal mid-command, a half-typed line, every scroll position
+   * — and a running shell dies with it. See `Frames.tsx`.
+   *
+   * So switching a project is exactly two state changes: which project is open,
+   * and which kehikko. Every frame stays mounted, keeps its document, and is
+   * TOLD — `roadmap.context` goes out with the new project's name and path, and
+   * a module re-reads. A module that ignores the new context is no worse off
+   * than it was before this existed, which is the bar an addition has to clear.
+   *
+   * The kehikko is chosen from the new project's own, honouring what this
+   * browser remembers only when it belongs there.
+   */
+  const onProject = useCallback(
+    (id: number) => {
+      if (id === projectId) return
+      /* Sent before the switch, or an arrangement still in flight for the
+         kehikko being left would land after the page has moved on. */
+      writer.flushAll()
+      setProjectId(id)
+      setOpenId(chooseOpen(canvases, readOpen(window.localStorage), id))
+    },
+    [canvases, projectId, writer],
+  )
+
+  /**
+   * Add a folder as a project, and go and stand in it.
+   *
+   * The canvases are re-read rather than patched, because adding a project also
+   * makes its first kehikko — see `addProject` in `server/projects.ts` — and
+   * the page has no way to know its id without asking.
+   */
+  const onAddProject = useCallback(
+    async (path: string) => {
+      try {
+        const added = await addProject(path)
+        const [found, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
+        setProjects(everyProject)
+        setCanvases(found.canvases)
+        setProjectId(added.id)
+        setOpenId(chooseOpen(found.canvases, null, added.id))
+        setTrouble(null)
+      } catch (error) {
+        /* The server's own sentence. "That is a file. A project is a folder."
+           is something a person can act on; a status code is not. */
+        setTrouble(`That folder was not added: ${(error as Error).message}`)
+      }
+    },
+    [],
+  )
 
   const onDelete = useCallback(
     async (id: number) => {
@@ -726,6 +899,9 @@ export function App() {
     for (const presence of registry?.presences ?? []) map.set(presence.id, presence)
     return map
   }, [registry])
+
+  /** The kehikot of the open project, which is what the header lists. */
+  const here = useMemo(() => inProject(canvases, projectId), [canvases, projectId])
 
   const placements = useMemo(() => open?.placements ?? [], [open?.placements])
   const prompted = placements.find((p) => p.i === prompting) ?? null
@@ -861,10 +1037,18 @@ export function App() {
     <div className="flex h-screen flex-col overflow-hidden">
       <Bar
         registry={registry}
-        canvases={canvases}
+        /* This project's kehikot, and no others. The rest are still held in
+           `canvases` — see `fetchCanvases` — because the frames layer needs the
+           union of every kehikko to know which pages to keep alive. */
+        canvases={here}
         open={open}
         placed={placed}
         subject={subject}
+        projects={projects}
+        project={project}
+        held={held}
+        onProject={onProject}
+        onAddProject={(path) => void onAddProject(path)}
         onOpen={setOpenId}
         onRename={(name) => change({ name })}
         onCreate={() => void onCreate()}

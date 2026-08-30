@@ -1,5 +1,7 @@
 import { contextSchema, type ModuleContext } from 'roadmap-module-protocol'
 
+import type { Project } from './projects.ts'
+
 /**
  * What the canvas is about, and why that is a harder question here than the
  * protocol expects.
@@ -25,6 +27,14 @@ import { contextSchema, type ModuleContext } from 'roadmap-module-protocol'
  * The canvas has a SUBJECT: one epic and one project, set by the person, in the
  * host's own bar, and by nothing else. Every epic-scoped mode on the canvas is
  * told the same one.
+ *
+ * The two halves of it are not the same kind of fact any more, and the
+ * difference is worth being precise about. The PROJECT is where the whole
+ * kehikko is — a folder on disk, the same for every pane, and the thing modules
+ * will eventually take their root from. The EPIC is one of the things inside
+ * it. So the project is picked first and the epic is picked from the project's
+ * own list, which is why they are two selects in that order rather than a field
+ * you type into.
  *
  * The move is to stop reading `context` as "the document you have open" and
  * start reading it as "what this workspace is about". Under that reading the
@@ -63,7 +73,17 @@ import { contextSchema, type ModuleContext } from 'roadmap-module-protocol'
 
 export interface Subject {
   epic: string | null
-  project: string | null
+  /**
+   * The project this kehikko is in, whole, or null when there is none open.
+   *
+   * The project OBJECT rather than its id, because both of its fields go out on
+   * the wire and they must go out together. A subject holding an id would make
+   * `toWireContext` look one up, which means it could fail to, which means a
+   * context could go out naming a project and not saying where it is — the
+   * exact disagreement `projectPath`'s own comment in the protocol says a host
+   * should make impossible by composing both in one place. This is that place.
+   */
+  project: Project | null
 }
 
 export const NO_SUBJECT: Subject = { epic: null, project: null }
@@ -117,30 +137,66 @@ export function toWireContext(
 ): ModuleContext {
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
-    project: subject.project,
+    /* Name and path, filled in from one project in one expression. Two nullable
+       fields on the wire that can disagree — see `projectPath` in the
+       protocol's `wire.ts` — and the way a host stops them disagreeing is to
+       have exactly one place that writes them. */
+    project: subject.project?.name ?? null,
+    projectPath: subject.project?.path ?? null,
     theme,
     selection,
     kehikko,
   })
   if (parsed.success) return parsed.data
 
-  /* An epic slug the person typed that the schema will not take. The context
-     still goes out — a module that is told nothing shows the last epic it heard
-     about forever, which is a page quietly describing the wrong work — and it
-     goes out empty, which is a state a module is required to be able to move
-     into. The selection goes with it: it was picked out of an epic that this
-     context no longer names, so keeping it would point every module at
-     something in a place they are no longer looking. */
+  /* An epic slug the schema will not take.
+   *
+   * It used to be a slug the person had TYPED — the bar had a free-text field —
+   * and it is not any more: the epic is picked from a list the host read off
+   * the project's own disk. That does not retire this branch, it changes what
+   * it guards. Two things still reach here:
+   *
+   *   - A slug persisted in the database from before the picker existed, or
+   *     from a hand-edited row, which no list ever vetted.
+   *   - A kehikko whose remembered epic is no longer in its project. The file
+   *     was renamed or deleted, or the kehikko was moved to another project,
+   *     and the stored slug is now a name for nothing.
+   *
+   * The context still goes out — a module that is told nothing shows the last
+   * epic it heard about forever, which is a page quietly describing the wrong
+   * work — and it goes out empty, which is a state a module is required to be
+   * able to move into. The selection goes with it: it was picked out of an epic
+   * that this context no longer names, so keeping it would point every module
+   * at something in a place they are no longer looking.
+   *
+   * The PROJECT survives, for the reason the kehikko does. Where the canvas is
+   * standing has nothing to do with whether an epic slug parses, and blanking
+   * it would turn one bad slug into every module losing the folder it works in.
+   */
   /* The kehikko survives the fallback, and the selection does not. They fail
      for different reasons: a selection is refs picked out of an epic this
      context no longer names, so keeping it would point every module at
      something that is not in front of them. Where the canvas IS has nothing to
      do with what the person typed into the epic box, and blanking it would turn
      a bad slug into every module losing its ability to tell near from far. */
-  const bare = contextSchema.safeParse({ epic: null, project: null, theme, selection: [], kehikko })
+  const bare = contextSchema.safeParse({
+    epic: null,
+    project: subject.project?.name ?? null,
+    projectPath: subject.project?.path ?? null,
+    theme,
+    selection: [],
+    kehikko,
+  })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
      and a host that white-screens because somebody named a canvas something the
      schema dislikes would be a host taking every module down with it. */
-  return contextSchema.parse({ epic: null, project: null, theme, selection: [], kehikko: null })
+  return contextSchema.parse({
+    epic: null,
+    project: null,
+    projectPath: null,
+    theme,
+    selection: [],
+    kehikko: null,
+  })
 }

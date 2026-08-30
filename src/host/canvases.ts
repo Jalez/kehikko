@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { MODULE_ID } from 'roadmap-module-protocol'
 
+import { projectSchema, type Project } from './projects.ts'
+
 /**
  * The page's side of the canvases.
  *
@@ -112,32 +114,49 @@ const canvasSchema = z.object({
   /** What has been picked out here. Defaulted, so a canvas stored before this reads. */
   selection: z.array(z.string()).max(64).default([]),
   epic: z.string().nullable(),
-  project: z.string().nullable(),
+  /**
+   * Which project this kehikko is in, as a project id.
+   *
+   * It used to be a project's NAME, typed onto the canvas, and it was null on
+   * every canvas that ever existed — see the essay on `project` in
+   * `server/canvases.ts` for why that was the relationship the wrong way round.
+   * A project is the container; this is the key into it.
+   */
+  project: z.number().int().nullable(),
   placements: z.array(placementSchema).max(64),
 })
 export type Canvas = z.infer<typeof canvasSchema>
 
-/** What the canvas is about, in the shape `context.ts` wants it. */
-export interface Subject {
-  epic: string | null
-  project: string | null
-}
-
 /** Which canvas this browser had open. See below for why this one thing is local. */
 export const OPEN_KEY = 'roadmap.frame.open.v1'
 
-export async function fetchCanvases(signal?: AbortSignal): Promise<Canvas[]> {
+/**
+ * Every kehikko, from every project, and the projects themselves.
+ *
+ * Both in one call because both are read at exactly the same moment and a
+ * header drawn from two answers that arrived separately is a header that flashes
+ * a project with no kehikot in it.
+ *
+ * ALL the kehikot, deliberately. The page shows one project's worth and keeps
+ * the rest, because a module's page is loaded once and kept for as long as it is
+ * on any kehikko — see `everyPlaced` and `Frames.tsx`. Filtering here would
+ * shrink that union on every project switch and unmount every frame that is not
+ * on the new project, which is the reload the user chose re-pointing over.
+ */
+export async function fetchCanvases(signal?: AbortSignal): Promise<{ canvases: Canvas[]; projects: Project[] }> {
   const response = await fetch('/host/canvases', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = await response.json()
-  return z.object({ canvases: z.array(canvasSchema) }).parse(body).canvases
+  return z
+    .object({ canvases: z.array(canvasSchema), projects: z.array(projectSchema).default([]) })
+    .parse(body)
 }
 
-export async function createCanvas(name?: string): Promise<Canvas> {
+export async function createCanvas(name?: string, project?: number | null): Promise<Canvas> {
   const response = await fetch('/host/canvases', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, project }),
   })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   return z.object({ canvas: canvasSchema }).parse(await response.json()).canvas
@@ -146,7 +165,7 @@ export async function createCanvas(name?: string): Promise<Canvas> {
 export interface CanvasEdit {
   name?: string
   epic?: string | null
-  project?: string | null
+  project?: number | null
   selection?: string[]
   placements?: Placement[]
 }
@@ -215,9 +234,29 @@ export function writeOpen(storage: Pick<Storage, 'setItem'>, id: number): void {
  * likely — falls back to the first rather than to nothing. There is always at
  * least one canvas; the server guarantees it.
  */
-export function chooseOpen(canvases: readonly Canvas[], remembered: number | null): number | null {
-  if (remembered !== null && canvases.some((canvas) => canvas.id === remembered)) return remembered
-  return canvases[0]?.id ?? null
+export function chooseOpen(
+  canvases: readonly Canvas[],
+  remembered: number | null,
+  /**
+   * Which project's kehikot are on offer, or null for "any".
+   *
+   * A remembered kehikko in ANOTHER project is not the one to open: the header
+   * shows one project at a time, and opening a kehikko the dropdown beside it
+   * does not list would be a canvas whose own switcher cannot see it. So the
+   * memory is honoured only when it belongs here, and otherwise the first
+   * kehikko of this project is opened — which is where a person starts anyway.
+   */
+  project: number | null = null,
+): number | null {
+  const here = project === null ? canvases : canvases.filter((canvas) => canvas.project === project)
+  if (remembered !== null && here.some((canvas) => canvas.id === remembered)) return remembered
+  return here[0]?.id ?? null
+}
+
+/** The kehikot of one project, in the order they were made. What the header lists. */
+export function inProject(canvases: readonly Canvas[], project: number | null): Canvas[] {
+  if (project === null) return []
+  return canvases.filter((canvas) => canvas.project === project)
 }
 
 /** The grid is twelve columns wide, and a new pane takes half of it. */

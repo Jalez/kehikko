@@ -12,6 +12,9 @@ import {
   readState,
   type CanvasEdit,
 } from './canvases.ts'
+import { adopt, addProject, listProjects, projectById } from './projects.ts'
+import { browse, rootsFor } from './folders.ts'
+import { epicsIn, listEpics } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
 import { answered, start, startable } from './launch.ts'
@@ -43,6 +46,23 @@ const PORT = Number(process.env.PORT ?? 4180)
  * not a page that loads, looks fine, and cannot save anything.
  */
 const db = open()
+
+/**
+ * The projects, settled before a single request is served.
+ *
+ * Once, at startup, and never again on demand: `adopt` seeds the first project
+ * from `KEHIKKO_ROADMAP_DIR` and files every kehikko written before projects
+ * existed into it. Doing that lazily, on the first request that noticed, would
+ * mean two requests arriving together both deciding to migrate, and the whole
+ * point of a migration is that it happens once and is then simply true.
+ */
+const settled = adopt(db)
+
+/** The open project's folder, when the call named a project this host has. */
+function rootOf(project: unknown): string | null {
+  if (typeof project !== 'number' || !Number.isInteger(project)) return null
+  return projectById(db, project)?.path ?? null
+}
 
 /**
  * Who may currently call. A `Map`, and the reason is the protocol package's.
@@ -195,6 +215,13 @@ const server = Bun.serve({
         module?: unknown
         method?: unknown
         params?: unknown
+        /* Which project the frame that asked is standing in. Supplied by the
+           page, which is the only thing that knows — a module's page is loaded
+           once and shown on whichever kehikko asks for it, so the frame itself
+           genuinely cannot say. It is an id and not a path: a path arriving
+           here from a page would be a way to name any folder on the disk, and
+           this is the endpoint every framed module can reach. */
+        project?: unknown
       } | null
 
       if (!body || typeof body.module !== 'string' || typeof body.method !== 'string') {
@@ -220,6 +247,7 @@ const server = Bun.serve({
           body.params,
           (id) => callers.has(id),
           (module, state) => keepState(db, module, state),
+          rootOf(body.project),
         ),
       )
     }
@@ -234,13 +262,84 @@ const server = Bun.serve({
      * server listens on loopback only, holds nothing but names and rectangles,
      * and belongs to the same person as everything it talks to. */
     if (url.pathname === '/host/canvases' && request.method === 'GET') {
-      return json({ canvases: ensureCanvases(db) })
+      /* Every kehikko, from every project, and the page shows one project's
+         worth. See `listCanvases`: the union is what keeps a module's page
+         alive across a project switch, which is the whole reason switching
+         re-points modules instead of reloading them. */
+      const projects = listProjects(db)
+      return json({ projects, canvases: ensureCanvases(db, projects[0]?.id ?? null) })
     }
 
     if (url.pathname === '/host/canvases' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { name?: unknown } | null
+      const body = (await request.json().catch(() => null)) as { name?: unknown; project?: unknown } | null
       const name = typeof body?.name === 'string' ? body.name : undefined
-      return json({ canvas: createCanvas(db, name) }, 201)
+      /* Which project it goes in. A new kehikko belongs where the person was
+         standing when they pressed new; a kehikko in no project is one no
+         dropdown lists. */
+      const project =
+        typeof body?.project === 'number' && Number.isInteger(body.project) ? body.project : null
+      if (project !== null && !projectById(db, project)) {
+        return json({ error: 'There is no project with that id.' }, 404)
+      }
+      return json({ canvas: createCanvas(db, name, project) }, 201)
+    }
+
+    /* The projects: what is open, and one more.
+     *
+     * A project is a name and a folder. Adding one is the only write on this
+     * host that turns a string from a page into a path files are later read
+     * under, and every check on that string is in `addProject` rather than
+     * here — one place, so a second endpoint cannot grow a weaker copy. */
+    if (url.pathname === '/host/projects' && request.method === 'GET') {
+      return json({ projects: listProjects(db) })
+    }
+
+    if (url.pathname === '/host/projects' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { path?: unknown; name?: unknown } | null
+      if (!body || typeof body.path !== 'string') {
+        return json({ error: 'A project is added by naming one folder.' }, 400)
+      }
+      const added = addProject(db, body.path, typeof body.name === 'string' ? body.name : undefined)
+      if (!added.ok) return json({ error: added.why }, added.status)
+      return json({ project: added.project, already: added.already }, added.already ? 200 : 201)
+    }
+
+    /*
+     * The folders under one folder, so a person can pick a project.
+     *
+     * A browser cannot hand a page a real path — `showDirectoryPicker` returns
+     * an opaque handle — and a path is exactly what a module needs. So the
+     * server lists and the page draws. Every refusal is in `folders.ts`, with
+     * the four rules and what each one is for; this end only supplies the roots,
+     * which are home plus the folders already opened as projects.
+     */
+    if (url.pathname === '/host/folders' && request.method === 'GET') {
+      const roots = rootsFor(listProjects(db).map((project) => project.path))
+      const browsed = browse(url.searchParams.get('path'), roots)
+      if (!browsed.ok) return json({ error: browsed.why }, browsed.status)
+      return json({ listing: browsed.listing, roots })
+    }
+
+    /*
+     * One project's epics, for the host's own header.
+     *
+     * The same reading `epics.list` gives a framed module, asked for by the
+     * page rather than through `/host/call` — because the page is the host and
+     * is not a module: it has no registration, so `answer` would refuse it with
+     * `unknown-module`, and inventing a registration for the host inside its
+     * own host would be worse than a second route.
+     *
+     * `holds` is the field that matters and it is why this is not just a list.
+     * A project with no `data/epics` and a project whose `data/epics` is empty
+     * both answer with no epics, and only one of those should make the header
+     * say "this project has none". See `Epics.tsx`.
+     */
+    if (url.pathname === '/host/epics' && request.method === 'GET') {
+      const asked = Number(url.searchParams.get('project') ?? '')
+      const project = Number.isInteger(asked) ? projectById(db, asked) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      const dir = epicsIn(project.path)
+      return json({ holds: dir !== null, epics: dir ? listEpics(dir) : [] })
     }
 
     const canvas = canvasId(url.pathname)
@@ -257,8 +356,11 @@ const server = Bun.serve({
         const edited = editCanvas(db, canvas, {
           ...(body.name !== undefined ? { name: String(body.name) } : {}),
           ...(body.epic !== undefined ? { epic: body.epic === null ? null : String(body.epic) } : {}),
+          /* A project id, or nothing. It used to be `String(body.project)` —
+             a name typed onto a canvas — and that is the field this whole
+             change replaces; see the essay on `project` in `canvases.ts`. */
           ...(body.project !== undefined
-            ? { project: body.project === null ? null : String(body.project) }
+            ? { project: typeof body.project === 'number' ? body.project : null }
             : {}),
           ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
           ...(Array.isArray(body.placements) ? { placements: body.placements } : {}),
@@ -449,3 +551,16 @@ console.log(`the canvas is at http://127.0.0.1:${server.port}`)
 console.log(`registrations are read from ${registryDir()}`)
 console.log(`canvases are kept in ${databaseFile()}`)
 console.log(`this host speaks protocol ${PROTOCOL}`)
+/* Said out loud at start, in the terminal somebody is looking at, for the same
+   reason `run.sh` says where the epics come from: a host that migrated three
+   kehikot into a project silently would be a host whose one irreversible-
+   looking act left no trace anybody could find afterwards. */
+if (settled.seeded) {
+  console.log(
+    `projects are folders; the first is ${settled.seeded.name} at ${settled.seeded.path}` +
+      (settled.seeded.epics ? '' : ' (which holds no data/epics, so kehikot there have no epics to pick)'),
+  )
+}
+if (settled.adopted) {
+  console.log(`${settled.adopted} kehikko(t) written before projects existed were filed under it`)
+}

@@ -120,9 +120,32 @@ export interface Placement {
 export interface Canvas {
   id: number
   name: string
-  /** What the canvas is about — see `src/host/context.ts`. Either may be null. */
+  /** Which epic this kehikko is about — see `src/host/context.ts`. Null when none is picked. */
   epic: string | null
-  project: string | null
+  /**
+   * Which project this kehikko belongs to, as a project id.
+   *
+   * ## This used to be a name, and the name was the bug
+   *
+   * The column was `project text`, holding a project's name as a property of
+   * one canvas. It was NULL on every canvas that has ever existed here, and
+   * that is not because nobody filled it in — it is because it was the wrong
+   * way round. A project is not a thing a canvas HAS; it is the thing a canvas
+   * is IN. Three kehikot on this machine all showed epics out of
+   * `~/Projects/roadmap` and not one of them said so, because saying so was a
+   * label somebody had to remember to type rather than a fact about where they
+   * were standing.
+   *
+   * So a project is a row of its own — a name and a folder — and this is a
+   * foreign key into it. The hierarchy the user asked for is the one VS Code
+   * has: a project is a folder you open, and a kehikko is a saved layout
+   * inside it. One project, many kehikot, one per purpose.
+   *
+   * Nullable at the type level and, after `adopt()` has run, never null in
+   * practice: a kehikko belonging to no project is a kehikko no project's
+   * dropdown lists, which is work a person cannot reach. See `projects.ts`.
+   */
+  project: number | null
   /**
    * What has been picked out on this canvas, as refs.
    *
@@ -161,7 +184,8 @@ export type PlacementInput = Omit<
 export interface CanvasEdit {
   name?: string
   epic?: string | null
-  project?: string | null
+  /** Which project this kehikko is in, as an id. Moving one between projects is a real edit. */
+  project?: number | null
   selection?: string[]
   placements?: PlacementInput[]
 }
@@ -185,6 +209,31 @@ export function open(file = databaseFile()): Database {
   db.exec('pragma journal_mode = WAL')
   db.exec('pragma foreign_keys = ON')
   db.exec(`
+    /*
+     * The projects, which are the containers everything else sits in.
+     *
+     * A project is a NAME and a FOLDER, and that is the whole of it. The user's
+     * own framing: "a project can have one or many kehikkos — one kehikko can
+     * focus on writing documentation, another on design, another on coding."
+     * So the folder is the identity and the name is what goes on screen.
+     *
+     * The path is unique, because two rows pointing at the same folder are two
+     * names for one project and every list that showed both would be lying
+     * about how many there are. The name is NOT unique: two folders may
+     * reasonably be called "roadmap", and refusing the second would be this
+     * host having an opinion about somebody's disk.
+     *
+     * A git worktree gets no special column and needs none. A worktree is a
+     * folder; opening one is opening a folder; the browser in folders.ts says
+     * which folders are worktrees so a person can tell them apart, and nothing
+     * downstream has to know.
+     */
+    create table if not exists projects (
+      id   integer primary key autoincrement,
+      name text    not null,
+      path text    not null unique,
+      rank integer not null
+    );
     create table if not exists canvases (
       id      integer primary key autoincrement,
       name    text    not null,
@@ -228,6 +277,32 @@ export function open(file = databaseFile()): Database {
   add(db, 'placements', 'collapsed', 'integer not null default 0')
   add(db, 'placements', 'open_h', 'integer')
   add(db, 'canvases', 'selection', 'text')
+  /*
+   * Which project a kehikko is in, added to databases written before projects
+   * existed. Every canvas in one of those has NULL here until `adopt()` files
+   * it — see `projects.ts`, and the essay on `project` above for why the text
+   * column it replaces was the wrong shape rather than an unfilled one.
+   *
+   * `on delete cascade`, which SQLite honours because `foreign_keys` is on
+   * above: removing a project removes its kehikot, because a kehikko in a
+   * project that is gone is a layout of panes over a folder that is not there.
+   */
+  add(db, 'canvases', 'project_id', 'integer references projects(id) on delete cascade')
+  /*
+   * And the text column it replaces, taken out.
+   *
+   * Dropping is not this file's habit — every other schema change here is an
+   * `add`, because a database on somebody's machine must open — and this one
+   * earns the exception. Leaving `project text` in place would leave two
+   * columns called nearly the same thing, one of which is a name and one of
+   * which is an id, in a table two programs both write to. The next person to
+   * type `project` in a query would get the dead one, which still contains
+   * NULL on every row, and nothing would fail.
+   *
+   * Nothing is lost by dropping it: it is NULL on every canvas that has ever
+   * been written, which is the whole reason this change is happening.
+   */
+  drop(db, 'canvases', 'project')
   return db
 }
 
@@ -244,10 +319,33 @@ export function open(file = databaseFile()): Database {
  * `alter table add column` with a default is cheap and rewrites nothing, and
  * asking `pragma table_info` first means running it twice is not an error.
  */
-function add(db: Database, table: string, column: string, definition: string): void {
+export function add(db: Database, table: string, column: string, definition: string): void {
   const columns = db.query<{ name: string }, []>(`pragma table_info(${table})`).all()
   if (columns.some((c) => c.name === column)) return
   db.exec(`alter table ${table} add column ${column} ${definition}`)
+}
+
+/**
+ * Take a column out, when the database is one that can.
+ *
+ * `alter table drop column` arrived in SQLite 3.35 and every Bun in use here is
+ * far past it. The `try` is not scepticism about the version — it is about the
+ * one thing SQLite refuses to drop, a column named in an index or a constraint,
+ * which is a shape somebody could add later without thinking about this line.
+ *
+ * A drop that does not happen is harmless HERE and only here, because the
+ * column being removed is dead: nothing reads it, nothing writes it, and it
+ * holds NULL on every row. That is the condition under which this helper may be
+ * used at all, and it is not a general licence to drop things quietly.
+ */
+export function drop(db: Database, table: string, column: string): void {
+  const columns = db.query<{ name: string }, []>(`pragma table_info(${table})`).all()
+  if (!columns.some((c) => c.name === column)) return
+  try {
+    db.exec(`alter table ${table} drop column ${column}`)
+  } catch {
+    /* Left in place, unread. See above for why that is survivable. */
+  }
 }
 
 /**
@@ -259,11 +357,23 @@ function add(db: Database, table: string, column: string, definition: string): v
  * arrives in pieces is a list that can be half-read.
  */
 export function listCanvases(db: Database): Canvas[] {
+  /*
+   * All of them, from every project, and the page filters.
+   *
+   * This is deliberate and it is what makes switching project free. The canvas
+   * layer loads a module's page ONCE and keeps it for as long as the module is
+   * on ANY kehikko — see `everyPlaced` and `Frames.tsx`. If this answered with
+   * one project's kehikot, then switching project would shrink that union, and
+   * every frame not on the new project's canvases would be unmounted: a
+   * terminal mid-command killed, a half-typed line gone, every scroll position
+   * lost. The user chose re-pointing over reloading precisely to avoid that, so
+   * the server hands over everything and the header shows one project's worth.
+   */
   const rows = db
     .query<
-      { id: number; name: string; epic: string | null; project: string | null; selection: string | null },
+      { id: number; name: string; epic: string | null; project: number | null; selection: string | null },
       []
-    >('select id, name, epic, project, selection from canvases order by rank, id')
+    >('select id, name, epic, project_id as project, selection from canvases order by rank, id')
     .all()
 
   const placements = db
@@ -315,15 +425,15 @@ export function listCanvases(db: Database): Canvas[] {
 }
 
 /** Make one. It goes at the end, because that is where a person looks for a thing they just made. */
-export function createCanvas(db: Database, name?: string): Canvas {
+export function createCanvas(db: Database, name?: string, project: number | null = null): Canvas {
   const clean = tidyName(name) ?? 'canvas'
   const row = db
-    .query<{ id: number }, [string]>(
-      'insert into canvases (name, rank) values (?, (select coalesce(max(rank), 0) + 1 from canvases)) returning id',
+    .query<{ id: number }, [string, number | null]>(
+      'insert into canvases (name, rank, project_id) values (?, (select coalesce(max(rank), 0) + 1 from canvases), ?) returning id',
     )
-    .get(clean)
+    .get(clean, project)
   if (!row) throw new Error('the canvas was not written')
-  return { id: row.id, name: clean, epic: null, project: null, selection: [], placements: [] }
+  return { id: row.id, name: clean, epic: null, project, selection: [], placements: [] }
 }
 
 /**
@@ -351,7 +461,13 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
       db.query('update canvases set epic = ? where id = ?').run(subject(edit.epic), id)
     }
     if (edit.project !== undefined) {
-      db.query('update canvases set project = ? where id = ?').run(subject(edit.project), id)
+      /* An id or nothing. A project id that names no project is refused by the
+         foreign key rather than by a check written here, which is the point of
+         having turned this from a name into a key. */
+      db.query('update canvases set project_id = ? where id = ?').run(
+        typeof edit.project === 'number' && Number.isInteger(edit.project) ? edit.project : null,
+        id,
+      )
     }
     if (edit.selection !== undefined) {
       db.query('update canvases set selection = ? where id = ?').run(
@@ -397,10 +513,30 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
  * canvas — which is the empty canvas, spelled worse.
  */
 export function deleteCanvas(db: Database, id: number): 'deleted' | 'no-such-canvas' | 'the-last-one' {
-  const total = db.query<{ n: number }, []>('select count(*) as n from canvases').get()?.n ?? 0
-  const exists = db.query<{ id: number }, [number]>('select id from canvases where id = ?').get(id)
+  const exists = db
+    .query<{ project: number | null }, [number]>('select project_id as project from canvases where id = ?')
+    .get(id)
   if (!exists) return 'no-such-canvas'
-  if (total <= 1) return 'the-last-one'
+
+  /*
+   * The last one IN ITS PROJECT, which is a narrower rule than the one this
+   * used to have and a truer one.
+   *
+   * It used to count every canvas on the machine, and that was right when there
+   * was one list of them. Now that a project shows its own kehikot and no
+   * others, a project emptied of them is a project whose header has nothing to
+   * open — the same nothing-to-be-in state the old rule was protecting, one
+   * level down. Counting globally would let somebody empty the project they are
+   * standing in as long as another project still had one, and they would be
+   * looking at a header with no kehikko in it and no explanation.
+   */
+  const siblings =
+    exists.project === null
+      ? (db.query<{ n: number }, []>('select count(*) as n from canvases where project_id is null').get()?.n ?? 0)
+      : (db
+          .query<{ n: number }, [number]>('select count(*) as n from canvases where project_id = ?')
+          .get(exists.project)?.n ?? 0)
+  if (siblings <= 1) return 'the-last-one'
   db.query('delete from canvases where id = ?').run(id)
   return 'deleted'
 }
@@ -412,10 +548,12 @@ export function deleteCanvas(db: Database, id: number): 'deleted' | 'no-such-can
  * canvases, make one" has asked a person to do something the program could have
  * done itself.
  */
-export function ensureCanvases(db: Database): Canvas[] {
+export function ensureCanvases(db: Database, project: number | null = null): Canvas[] {
   const canvases = listCanvases(db)
-  if (canvases.length) return canvases
-  return [createCanvas(db, 'canvas')]
+  const here = project === null ? canvases : canvases.filter((canvas) => canvas.project === project)
+  if (here.length) return canvases
+  createCanvas(db, 'kehikko', project)
+  return listCanvases(db)
 }
 
 /** Which canvases hold a module. The reason placements are rows. */
@@ -498,6 +636,7 @@ function tidyName(name: string | undefined): string | null {
   return trimmed || null
 }
 
+/** An epic slug as it arrives, trimmed and bounded. Nothing else uses this now. */
 function subject(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().slice(0, 80)

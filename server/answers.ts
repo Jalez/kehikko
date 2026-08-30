@@ -10,7 +10,7 @@ import {
   assertEveryMethodIsAnswered,
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
-import { holdingsDir, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
+import { epicsIn, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
 
 /**
  * What this host answers, and — much more of the file — what it does not.
@@ -126,6 +126,22 @@ export function answer(
    * for the sake of one branch.
    */
   keep: (module: string, state: string) => void = () => {},
+  /**
+   * Which project folder this call is about, or null.
+   *
+   * A parameter, and never an environment variable read in here. It used to be
+   * the latter — `holdingsDir()` off `KEHIKKO_ROADMAP_DIR` — and that made
+   * every epic answer be about one folder for the life of the process, however
+   * many projects the person had open and whichever one they were looking at.
+   * The host would have shown them the thesis and answered `epics.list` out of
+   * the roadmap, correctly, with no symptom.
+   *
+   * Null is the ordinary state and not a failure: a host with no project open,
+   * a call from a frame on a project that has no `data/epics`, or a test that
+   * has deliberately given it nothing. Every branch below already had to answer
+   * for a host holding nothing, so null needs no new sentence.
+   */
+  root: string | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -185,13 +201,15 @@ export function answer(
   }
 
   /**
-   * Where this host's holdings are, if it has any.
+   * Where this call's holdings are, if there are any.
    *
-   * Read per call rather than once at startup, because a refresh rewrites those
-   * files underneath a running host — and because "do I hold anything" should
-   * be able to become yes without restarting anything.
+   * Checked per call rather than once at startup, because a refresh rewrites
+   * those files underneath a running host, because `data/epics` can appear
+   * under a project that did not have it a minute ago, and because which
+   * project is being asked about is now a property of the call rather than of
+   * the process.
    */
-  const dir = holdingsDir()
+  const dir = epicsIn(root)
 
   switch (method) {
   /**

@@ -129,6 +129,7 @@ export function ModuleFrame({
         showEpic: (epic) => canvasRef.current.showEpic(epic),
         select: (refs) => canvasRef.current.select(refs),
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
+        project: () => canvasRef.current.project(),
       }),
       {
         ready: (p) => watcherRef.current.ready(p),

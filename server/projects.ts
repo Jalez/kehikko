@@ -1,0 +1,285 @@
+import type { Database } from 'bun:sqlite'
+import { existsSync, realpathSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, resolve, sep } from 'node:path'
+
+import { LIMITS } from 'roadmap-module-protocol'
+
+import { createCanvas, listCanvases } from './canvases.ts'
+
+/**
+ * Projects: the containers, and the thing this host had the wrong way round.
+ *
+ * ## What was wrong
+ *
+ * `canvases` had a `project text` column. A project was a LABEL you could type
+ * onto a canvas, and every canvas on this machine had it set to NULL — not
+ * through neglect, but because a label nobody has to fill in is a label nobody
+ * fills in, and because the relationship it was modelling runs the other way.
+ * Three kehikot here all read their epics out of `~/Projects/roadmap` and not
+ * one of them said so.
+ *
+ * The user's own framing settled it: *"a project can have one or many kehikkos
+ * — one kehikko can focus on writing documentation, another on design, another
+ * on coding. Project and their epics can have one or many kehikkos."* So:
+ *
+ *     project (a folder on disk)
+ *       ├── epics      (data/epics under it, when it has any)
+ *       └── kehikot    (many; one per purpose)
+ *
+ * ## Why a folder, and why that is the whole of it
+ *
+ * They asked for the VS Code way explicitly, and the mapping holds all the way
+ * down: a kehikko is a saved layout, a module is an extension, and a project is
+ * `workspaceFolders`. The useful consequence is what it makes UNNECESSARY. A
+ * git worktree is a folder, so "pick the worktree" needs no concept of its own;
+ * a repository is a folder; a directory of LaTeX chapters with no git in it at
+ * all is a folder. This host does not have to know which it got.
+ *
+ * ## Why a path is the identity and a name is not
+ *
+ * The path is unique. Two rows on one folder are two names for one project, and
+ * every count of "how many projects" would then disagree with the disk. The
+ * name is not unique and must not be: two folders may both reasonably be called
+ * `roadmap`, and a host refusing the second would be a host with an opinion
+ * about somebody else's filing.
+ */
+
+export interface Project {
+  id: number
+  name: string
+  /** Absolute, and real: the path as the filesystem resolved it. */
+  path: string
+  /** Whether `data/epics` exists under it. Read now, never cached — see below. */
+  epics: boolean
+}
+
+/** How many projects a person may have open. Far above anybody, low enough to bound a list. */
+const PROJECTS_MAX = 200
+const NAME_MAX = 60
+
+/**
+ * Every project, in the order they were added.
+ *
+ * `epics` is computed on every read rather than stored, and that is the same
+ * decision `holdings.ts` makes about epic files: a directory can appear under a
+ * project between one call and the next — somebody runs the roadmap's own
+ * tooling, or clones something — and a stored boolean would be this host
+ * reporting what was true when the project was added. It is one `statSync` per
+ * project against a local disk.
+ */
+export function listProjects(db: Database): Project[] {
+  return db
+    .query<{ id: number; name: string; path: string }, []>(
+      'select id, name, path from projects order by rank, id',
+    )
+    .all()
+    .map((row) => ({ ...row, epics: holdsEpics(row.path) }))
+}
+
+/** One project by id, or null. */
+export function projectById(db: Database, id: number): Project | null {
+  const row = db
+    .query<{ id: number; name: string; path: string }, [number]>(
+      'select id, name, path from projects where id = ?',
+    )
+    .get(id)
+  return row ? { ...row, epics: holdsEpics(row.path) } : null
+}
+
+/** Whether a folder brings its own epics. Not every project does — see `addProject`. */
+export function holdsEpics(root: string): boolean {
+  try {
+    return statSync(resolve(root, 'data', 'epics')).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+export type Added =
+  | { ok: true; project: Project; already: boolean }
+  | { ok: false; why: string; status: number }
+
+/**
+ * Add a project, given a folder.
+ *
+ * ## The refusals
+ *
+ * This is where a string from a page becomes a path this host will later read
+ * files under, so the string is made absolute, resolved by the filesystem, and
+ * checked to BE a directory before it is stored — and what is stored is what it
+ * resolved to, not what was typed. A path that does not exist is refused rather
+ * than remembered hopefully: a project pointing at nothing would report no
+ * epics, and "no epics" is a sentence this host works hard to keep honest.
+ *
+ * ## A project with no epics is not an error
+ *
+ * The user's thesis lives in a folder with `main.tex`, `chapters/` and
+ * `references.bib` and no `data/epics` anywhere in it. A kehikko there is a
+ * perfectly good kehikko — it is where the writing modules go — and it honestly
+ * has no epics to pick. Refusing that folder would be this host insisting that
+ * work it cannot index is not work. So `epics` is reported and never required,
+ * and the header says there are none rather than drawing an empty picker that
+ * looks broken.
+ *
+ * ## It comes with a kehikko
+ *
+ * A project with no kehikot has nothing to open, and the header would show an
+ * empty dropdown over a blank canvas. Somebody who has just pressed "add a
+ * project" has said what they want; making them press "new kehikko" as well is
+ * a step the program could take itself. Nothing is PLACED on it — see `App.tsx`
+ * on why a registration appearing is never a licence to arrange a canvas for
+ * somebody.
+ */
+export function addProject(
+  db: Database,
+  asked: string,
+  name?: string,
+  /**
+   * Whether to make it a first kehikko as well.
+   *
+   * True for every press of "add a project", which is the case the paragraph
+   * above is about. False in exactly one place: `adopt`, seeding the first
+   * project on a database that already has kehikot waiting to be filed into it.
+   * Those three ARE its kehikot; adding a fourth empty one beside them would be
+   * the migration leaving a stray behind, and the person would open their
+   * project to find a blank canvas in front of the work they had arranged.
+   */
+  alsoAKehikko = true,
+): Added {
+  if (typeof asked !== 'string' || !asked || asked.length > LIMITS.PATH || asked.includes('\0')) {
+    return { ok: false, why: 'A project is named by one absolute path.', status: 400 }
+  }
+  if (!isAbsolute(asked)) {
+    return {
+      ok: false,
+      why: 'A project is an absolute path. A relative one would be resolved against wherever this server happens to have been started, which is not a place anybody chose.',
+      status: 400,
+    }
+  }
+
+  let real: string
+  try {
+    real = realpathSync(resolve(asked))
+  } catch {
+    return { ok: false, why: 'There is no folder at that path.', status: 400 }
+  }
+  try {
+    if (!statSync(real).isDirectory()) {
+      return { ok: false, why: 'That is a file. A project is a folder.', status: 400 }
+    }
+  } catch {
+    return { ok: false, why: 'There is no folder at that path.', status: 400 }
+  }
+
+  /* Already open. Not an error and not a second row: the person picked the
+     folder they are already in, most likely because they could not tell from
+     the browser that it was already a project. They get the one that exists. */
+  const standing = db.query<{ id: number }, [string]>('select id from projects where path = ?').get(real)
+  if (standing) {
+    const project = projectById(db, standing.id)
+    if (project) return { ok: true, project, already: true }
+  }
+
+  const total = db.query<{ n: number }, []>('select count(*) as n from projects').get()?.n ?? 0
+  if (total >= PROJECTS_MAX) {
+    return {
+      ok: false,
+      why: `This host holds ${PROJECTS_MAX} projects, which is already more than anybody meant.`,
+      status: 409,
+    }
+  }
+
+  /* The folder's own name unless the person typed one. `basename` of a real
+     directory is empty only at the filesystem root, which is the one path
+     nobody opens as a project — and if they do, it falls back to the path. */
+  const label = tidy(name) ?? (basename(real) || real)
+
+  const row = db
+    .query<{ id: number }, [string, string]>(
+      'insert into projects (name, path, rank) values (?, ?, (select coalesce(max(rank), 0) + 1 from projects)) returning id',
+    )
+    .get(label, real)
+  if (!row) return { ok: false, why: 'The project was not written.', status: 500 }
+
+  if (alsoAKehikko) createCanvas(db, 'kehikko', row.id)
+  const project = projectById(db, row.id)
+  if (!project) return { ok: false, why: 'The project was not written.', status: 500 }
+  return { ok: true, project, already: false }
+}
+
+/**
+ * Make sure there is a project, and that no kehikko is orphaned outside one.
+ *
+ * Run once at startup, before anything is served. Two jobs, and the second is
+ * the migration.
+ *
+ * ## The seed
+ *
+ * `KEHIKKO_ROADMAP_DIR` still means what it meant: where this host's epics come
+ * from. `run.sh` defaults it and says so in the terminal, and an existing setup
+ * has to keep starting — a host that suddenly had no projects would be a
+ * regression a person meets before they meet the feature. So on a database with
+ * no projects in it, that directory becomes the first one.
+ *
+ * With no `KEHIKKO_ROADMAP_DIR` and no projects, the seed is the person's home
+ * folder. That is a guess and it is deliberately a visible one: home certainly
+ * exists, it holds no `data/epics`, so the header says there are no epics here
+ * — which is true — and "add a project" is one press away. The alternative was
+ * leaving canvases in no project at all, and a kehikko no dropdown lists is
+ * work somebody cannot reach.
+ *
+ * ## The adoption
+ *
+ * Every canvas written before projects existed has `project_id` NULL. There are
+ * three of them on this machine and all three show epics out of
+ * `~/Projects/roadmap`, which is exactly where the seed points — so filing them
+ * there loses nothing and writes down something that was already true. They go
+ * to the FIRST project, because on the run where this matters there is only
+ * one.
+ */
+export function adopt(
+  db: Database,
+  env: Record<string, string | undefined> = process.env,
+): { seeded: Project | null; adopted: number } {
+  let projects = listProjects(db)
+  /* Read BEFORE the seed is added, because whether the seed needs a kehikko of
+     its own depends on whether these are about to become its kehikot. */
+  const orphans = listCanvases(db).filter((canvas) => canvas.project === null)
+
+  if (!projects.length) {
+    const named = env.KEHIKKO_ROADMAP_DIR
+    const seed = named && existsSync(named) ? named : homedir()
+    /* A seed that cannot be added is not fatal. The host starts, the header
+       says there is no project, and "add a project" still works — a far better
+       state than refusing to serve a page. */
+    if (addProject(db, seed, undefined, orphans.length === 0).ok) projects = listProjects(db)
+  }
+
+  const first = projects[0] ?? null
+  if (!first) return { seeded: null, adopted: 0 }
+
+  for (const orphan of orphans) {
+    db.query('update canvases set project_id = ? where id = ?').run(first.id, orphan.id)
+  }
+  return { seeded: first, adopted: orphans.length }
+}
+
+/**
+ * Whether a path is inside one of a set of roots.
+ *
+ * Exported because two callers need the same answer and a second implementation
+ * of a containment check is a second thing that can be wrong. Compared with a
+ * trailing separator, because `/Users/x/Projects-old` starts with
+ * `/Users/x/Projects` and is not inside it — the off-by-one that turns a prefix
+ * check into a way out.
+ */
+export function within(path: string, roots: readonly string[]): boolean {
+  return roots.some((root) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep))
+}
+
+function tidy(name: string | undefined): string | null {
+  if (typeof name !== 'string') return null
+  const trimmed = name.trim().slice(0, NAME_MAX)
+  return trimmed || null
+}

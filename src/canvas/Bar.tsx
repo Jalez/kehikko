@@ -12,11 +12,11 @@ import {
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { Input } from '@/components/ui/input.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
+import type { Epics as HeldEpics, Project } from '@/host/projects.ts'
 import type { Presence, RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import {
@@ -29,14 +29,25 @@ import {
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { ConditionDot } from './Conditions.tsx'
+import { Epics } from './Epics.tsx'
 import { Hint } from './Hint.tsx'
+import { Projects } from './Projects.tsx'
 
 /**
  * The whole of the host's own interface.
  *
- * One hairline strip, thirty-two pixels tall. On the left, which canvas this is
- * and what it is about; on the right, a way to change how the canvas is drawn
- * and a way to put a module on it. There is no dashboard, no home screen, no activity summary and
+ * One hairline strip, thirty-two pixels tall. On the left, three controls in
+ * the order the things themselves nest in — the PROJECT you are in, the EPIC
+ * inside it, and then the KEHIKKO, which is a layout over both. On the right, a
+ * way to change how the canvas is drawn and a way to put a module on it.
+ *
+ * The order is the argument. A project is a folder, its epics live inside it,
+ * and a kehikko is one arrangement of panes over that pair — so reading the
+ * strip left to right is reading the hierarchy outward-in, and changing a
+ * control changes everything to its right and nothing to its left. Putting the
+ * kehikko first, which is where it used to be, meant the narrowest thing on
+ * screen was also the first, and the two selects that decide what it CONTAINS
+ * came after it or, in the epic's case, was a box you typed a slug into. There is no dashboard, no home screen, no activity summary and
  * no marketplace, because the host has nothing to put on one — it holds no data
  * about anybody's work, installs nothing, and updates nothing. A host that drew
  * a home screen would be drawing one about somebody else's programs.
@@ -60,6 +71,11 @@ export function Bar({
   open,
   placed,
   subject,
+  projects,
+  project,
+  held,
+  onProject,
+  onAddProject,
   onOpen,
   onRename,
   onCreate,
@@ -73,10 +89,17 @@ export function Bar({
   onTheme,
 }: {
   registry: RegistryView | null
+  /** This project's kehikot, and no others. See `inProject`. */
   canvases: readonly Canvas[]
   open: Canvas | null
   placed: readonly string[]
   subject: Subject
+  projects: readonly Project[]
+  project: Project | null
+  /** What this project holds, or null while it is still being read. */
+  held: HeldEpics | null
+  onProject(id: number): void
+  onAddProject(path: string): void
   onOpen(id: number): void
   onRename(name: string): void
   onCreate(): void
@@ -102,6 +125,34 @@ export function Bar({
        readable in one pass rather than four. */
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
       <header className="bg-background flex h-8 shrink-0 items-center gap-1 px-2">
+        {/*
+         * The project. Everything else on this strip is inside it, so it comes
+         * first — see `Projects.tsx`, and the essay above on why the order is
+         * an argument rather than a preference.
+         */}
+        <Projects projects={projects} open={project} onOpen={onProject} onAdd={onAddProject} />
+
+        {/*
+         * What the canvas is about. One epic, for the whole kehikko, and the
+         * argument for there being exactly one is in `host/context.ts`: a canvas
+         * has no open document, so the honest reading of `roadmap.context` here
+         * is "what this workspace is about", and six modules around one epic are
+         * six views of one thing.
+         *
+         * A select over the project's own epics rather than the field you used
+         * to type a slug into. The host could not offer a list before, because
+         * it had no project to read one from; now it has, and a field next to a
+         * list of what exists is a way to make a typo authoritative.
+         */}
+        <Epics
+          epic={subject.epic}
+          held={held}
+          hasProject={project !== null}
+          onPick={(epic) => onSubject({ ...subject, epic })}
+        />
+
+        <span className="bg-border mx-1 h-4 w-px shrink-0" />
+
         <Canvases
           canvases={canvases}
           open={open}
@@ -110,25 +161,6 @@ export function Bar({
           onCreate={onCreate}
           onDelete={onDelete}
         />
-
-        <span className="bg-border mx-1 h-4 w-px shrink-0" />
-
-        {/*
-         * What the canvas is about. One field, and the argument for there being
-         * exactly one is in `host/context.ts`: a canvas has no open document, so
-         * the honest reading of `roadmap.context` here is "what this workspace is
-         * about", and six modules around one epic are six views of one thing.
-         */}
-        <Hint label="the epic every module on this kehikko is shown" align="start">
-          <Input
-            value={subject.epic ?? ''}
-            onChange={(event) => onSubject({ ...subject, epic: event.target.value.trim() || null })}
-            placeholder="what this kehikko is about"
-            aria-label="the epic this kehikko is about"
-            spellCheck={false}
-            className="hover:border-input focus-visible:border-ring h-6 w-56 border-transparent bg-transparent font-mono text-xs"
-          />
-        </Hint>
 
         <span className="flex-1" />
 

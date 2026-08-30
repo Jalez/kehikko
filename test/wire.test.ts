@@ -93,7 +93,10 @@ describe('the host greets first', () => {
     const { frame, sent } = frameAndWindow()
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, quiet())
     conversation.greet(context)
-    conversation.sendContext(toWireContext({ epic: 'modes-are-modules', project: 'roadmap' }, 'dark'))
+    conversation.sendContext(toWireContext(
+      { epic: 'modes-are-modules', project: { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true } },
+      'dark',
+    ))
     expect(sent[1]!.message).toMatchObject({ type: MESSAGE.CONTEXT, protocol: PROTOCOL })
     conversation.close()
   })
@@ -467,15 +470,64 @@ describe('the context says which kehikko is being looked at', () => {
   })
 
   test('an epic slug the schema refuses does not cost the module its bearings', () => {
-    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: null }, 'light', ['gh#1'], {
+    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true }
+    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: roadmap }, 'light', ['gh#1'], {
       id: 2,
       name: 'reading',
     })
-    /* The subject and the selection go, because the refs were picked out of an
-       epic this context no longer names. Where the canvas IS has nothing to do
-       with what somebody typed into the epic box. */
+    /* The epic and the selection go, because the refs were picked out of an
+       epic this context no longer names. Where the canvas IS — which kehikko,
+       and which project — has nothing to do with whether a slug parses, and
+       blanking either would turn one bad slug into every module losing the
+       folder it works in. */
     expect(here.epic).toBeNull()
     expect(here.selection).toEqual([])
     expect(here.kehikko).toEqual({ id: 2, name: 'reading' })
+    expect(here.project).toBe('roadmap')
+    expect(here.projectPath).toBe('/Users/x/Projects/roadmap')
+  })
+})
+
+describe('the context says which project the kehikko is in, and where it is', () => {
+  test('a name to print and a path to open, filled in from one project', () => {
+    /* Two nullable fields on the wire that could disagree — see `projectPath`
+       in the protocol's `wire.ts`. The way a host stops them disagreeing is to
+       have exactly one place that writes them, and this is that place. */
+    const here = toWireContext(
+      {
+        epic: 'modes-are-modules',
+        project: { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false },
+      },
+      'dark',
+    )
+    expect(here.project).toBe('thesis_latex')
+    expect(here.projectPath).toBe('/Users/x/Claude/thesis_latex')
+  })
+
+  test('no project open is null in both, not an empty string in either', () => {
+    /* "There is no project" is a state a module has to be able to move INTO —
+       the same rule the epic is nullable for. An empty string is a project
+       whose name is nothing, which is a different and untrue sentence. */
+    const here = toWireContext({ epic: null, project: null }, 'light')
+    expect(here.project).toBeNull()
+    expect(here.projectPath).toBeNull()
+  })
+
+  test('switching project changes what every module is told, and nothing else', () => {
+    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true }
+    const thesis = { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false }
+    const kehikko = { id: 7, name: 'writing' }
+
+    const before = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], kehikko)
+    const after = toWireContext({ epic: 'modes-are-modules', project: thesis }, 'dark', [], kehikko)
+
+    expect(before.projectPath).not.toBe(after.projectPath)
+    /* Everything else is the same object's worth of facts. A module is
+       RE-POINTED, not reloaded — which is the choice the user made over VS
+       Code's extension-host restart, because a restart destroys every module's
+       document and a running terminal dies with it. */
+    expect(after.epic).toBe(before.epic)
+    expect(after.theme).toBe(before.theme)
+    expect(after.kehikko).toEqual(before.kehikko)
   })
 })

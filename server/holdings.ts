@@ -8,14 +8,33 @@ import { join } from 'node:path'
  *
  * Every answer in `answers.ts` was an answer about emptiness, and the essay
  * there is still right about why the two kinds of emptiness must be told apart.
- * What has changed is only that there is now something to read: a roadmap
- * directory on this machine, named by `KEHIKKO_ROADMAP_DIR`.
+ * What changed first is that there was something to read: a roadmap directory
+ * on this machine, named by `KEHIKKO_ROADMAP_DIR`.
  *
- * Unset, nothing here reports anything and the host answers exactly as it did
- * before — which is the important property. A host with no holdings says "not
- * mine to say" and means it; it does not say "no epics" and quietly mean "I was
- * not configured". Those are the two sentences the whole design exists to keep
- * apart, and a misconfiguration must land on the honest side of the line.
+ * ## And then that one directory turned out to be one project's
+ *
+ * `$KEHIKKO_ROADMAP_DIR/data/epics` is not "the host's epics". It is the epics
+ * of one folder — `~/Projects/roadmap` — which is one project among however
+ * many a person has. A host that read epics from a variable set at startup
+ * could show a person a second project and go on answering `epics.list` out of
+ * the first, correctly, with nothing to indicate it.
+ *
+ * So the root is a PARAMETER now and never an environment lookup. Every
+ * function here takes the project folder it is to read under, and the caller —
+ * `server.ts`, which knows which project the call was made from — is the one
+ * that decides. `KEHIKKO_ROADMAP_DIR` survives as the seed for the first
+ * project and nothing else reads it; see `adopt()` in `projects.ts`.
+ *
+ * ## Not every project has any
+ *
+ * The user's thesis folder has `main.tex`, `chapters/` and `references.bib` and
+ * no `data/epics` at all. `epicsIn` answers null for it, every question below
+ * refuses rather than inventing an empty answer, and the header says there are
+ * no epics here. A host with no holdings says "not mine to say" and means it;
+ * it does not say "no epics" and quietly mean "I was not configured". Those are
+ * the two sentences the whole design exists to keep apart, and both a
+ * misconfiguration and a project that genuinely has none must land on the
+ * honest side of the line.
  *
  * ## Two directories, and the split between them is not ours
  *
@@ -35,11 +54,17 @@ import { join } from 'node:path'
  * nothing worth having.
  */
 
-/** Where the roadmap's own data lives, or null when this host holds nothing. */
-export function holdingsDir(env: Record<string, string | undefined> = process.env): string | null {
-  const dir = env.KEHIKKO_ROADMAP_DIR
-  if (!dir) return null
-  return existsSync(join(dir, 'data', 'epics')) ? dir : null
+/**
+ * The project folder to read epics under, or null when there are none there.
+ *
+ * Null covers two different situations on purpose, because from here they are
+ * the same one: no project is open, and the open project brings no epics. Both
+ * mean this host has nothing under that name to hand over, and `answers.ts`
+ * turns both into the same refusal — which is the truthful one either way.
+ */
+export function epicsIn(root: string | null | undefined): string | null {
+  if (!root) return null
+  return existsSync(join(root, 'data', 'epics')) ? root : null
 }
 
 /**

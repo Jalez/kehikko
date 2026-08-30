@@ -66,6 +66,23 @@ export interface CanvasControls {
    * name onto a panel whose whole job is attribution.
    */
   emit(from: string, extension: string, payload: unknown): Emitted
+  /**
+   * Which project the canvas is standing in, as an id, read at call time.
+   *
+   * A function rather than a value because it is read when the call is MADE,
+   * not when the conversation was built. A module's page is loaded once and
+   * shown on whichever kehikko asks for it, and a person switches project under
+   * it without the frame being told anything — so a project captured at mount
+   * would send every epic question to the project that happened to be open the
+   * first time the module appeared, forever, and answer it correctly out of the
+   * wrong folder.
+   *
+   * An id and never a path. This value ends up in the body of `/host/call`,
+   * which is the one endpoint every framed module can reach; a path there would
+   * be a way to name any folder on the disk. The server turns the id into a
+   * folder out of its own table.
+   */
+  project(): number | null
 }
 
 /**
@@ -83,7 +100,15 @@ export function makeAsk(moduleId: string, canvas: CanvasControls): Ask {
       const response = await fetch('/host/call', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ module: moduleId, method, params: rawParams ?? {} }),
+        body: JSON.stringify({
+          module: moduleId,
+          method,
+          params: rawParams ?? {},
+          /* Where the canvas is standing, so the server reads this project's
+             epics and not the one directory a variable named at startup. Read
+             now rather than captured — see `project` on `CanvasControls`. */
+          project: canvas.project(),
+        }),
       })
       const body = (await response.json()) as Answer
       if (typeof body !== 'object' || body === null || typeof (body as Answer).ok !== 'boolean') {
