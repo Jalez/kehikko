@@ -1439,15 +1439,6 @@ export function App() {
          * through, and `index.css` for the grid item that does the same while
          * keeping its handle live.
          */}
-        <Frames
-          framings={framings}
-          context={context}
-          canvas={controls}
-          bus={bus}
-          watcherFor={watcherFor}
-          moving={moving}
-        />
-
         <Grid
           /* Above the pages, so the container's own chrome — its header, its edge,
              and the resize handle in its corner — is never underneath one. */
@@ -1532,6 +1523,36 @@ export function App() {
             )
           })}
         </Grid>
+
+        {/*
+         * The frames layer comes AFTER the grid, and that is a tab order rather
+         * than a stacking order.
+         *
+         * The pages still sit beneath the containers: `Grid` below is
+         * positioned with `zIndex: 1` and this layer is not, so painting is
+         * decided by z-index and is indifferent to which of them is written
+         * first. What DOM order decides is where the keyboard goes.
+         *
+         * Written first, this layer put every module's entire interior ahead of
+         * every container's own controls. Tabbing across a canvas of five
+         * modules meant traversing a paper reader, a diff and a live terminal —
+         * which swallows tab stops by the dozen — before reaching the first
+         * fold, pin or remove. Those controls are frequent and small, and they
+         * were effectively unreachable by keyboard on any busy canvas.
+         *
+         * So the chrome is reachable first and each module's interior after it,
+         * which is also the order a person would describe the canvas in: the
+         * containers, and then what is inside them.
+         */}
+
+        <Frames
+          framings={framings}
+          context={context}
+          canvas={controls}
+          bus={bus}
+          watcherFor={watcherFor}
+          moving={moving}
+        />
       </main>
 
       {/* The prompt dialog, owned by the host. A module cannot open one: its
