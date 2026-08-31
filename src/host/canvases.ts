@@ -53,6 +53,20 @@ const placementSchema = z.object({
    * `onCollapse` in `App.tsx`.
    */
   openH: z.number().int().min(1).max(400).nullable().default(null),
+  /**
+   * Whether this container is picked out as a target on this kehikko.
+   *
+   * Defaulted, so an arrangement stored before selection existed reads as not
+   * selected — which is what every container in it has been all along.
+   *
+   * A third axis, and deliberately not either of the two beside it: `selection`
+   * on the canvas is REFS somebody picked out of a tracker, a passage is a
+   * place inside a document, and this is which of the containers arranged here
+   * are the ones being aimed at. See the essay on `selected` in
+   * `server/canvases.ts` for why it is a field on the placement rather than a
+   * second list on the canvas.
+   */
+  selected: z.boolean().default(false),
 })
 
 /**
@@ -198,6 +212,94 @@ async function reason(response: Response): Promise<string> {
 }
 
 /**
+ * Which page this is, so the server can tell one tab's report from another's.
+ *
+ * In `sessionStorage`, which is per tab and survives a reload — so a page that
+ * reloads REPLACES its own report rather than adding a second one beside it.
+ * Minted fresh when there is none, and falling back to a value that lives only
+ * in this module when storage refuses, which is the private-browsing case: a
+ * report that cannot be replaced across a reload is worse than none only if it
+ * disagrees with the new one, and the withdrawal on `pagehide` covers that.
+ *
+ * It is not a credential and there is nothing behind it. See `/host/open` in
+ * `server/server.ts`.
+ */
+const PAGE_KEY = 'roadmap.frame.page.v1'
+let minted: string | null = null
+export function pageId(): string {
+  if (minted) return minted
+  try {
+    const had = window.sessionStorage.getItem(PAGE_KEY)
+    if (had) {
+      minted = had
+      return had
+    }
+    const made = crypto.randomUUID()
+    window.sessionStorage.setItem(PAGE_KEY, made)
+    minted = made
+    return made
+  } catch {
+    minted = crypto.randomUUID()
+    return minted
+  }
+}
+
+/**
+ * Tell the server which kehikko this page has open, or that it has none.
+ *
+ * The one fact this host keeps in the browser rather than on the server, said
+ * OUT LOUD to the server anyway — and the difference matters. It is not stored
+ * there: it is held in memory, per page, for as long as the process lives, and
+ * it exists so that an agent at the host's MCP door can be told which kehikko
+ * somebody is looking at instead of guessing. See `server/open.ts`.
+ *
+ * `null` withdraws, which is what a page sends on its way out.
+ *
+ * Failures are swallowed. A report that did not land costs an agent a refusal
+ * naming the kehikot, which is a sentence it can act on; an exception in an
+ * effect would cost the person their canvas.
+ */
+export function reportOpen(kehikko: number | null): void {
+  const body = JSON.stringify({ page: pageId(), kehikko })
+  void fetch('/host/open', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => {
+    /* See above. */
+  })
+}
+
+/**
+ * Listen for a kehikko that changed under this page, and re-read when one does.
+ *
+ * The other half of `server/wake.ts`. What arrives is an id and nothing else,
+ * so the caller re-reads the kehikot the ordinary way — this stream is
+ * deliberately not a second route by which a canvas can arrive, because a
+ * second route is a second shape to keep in step.
+ *
+ * `EventSource` reconnects on its own when the server restarts, which is worth
+ * having: a person editing this host restarts its server constantly, and a page
+ * that stopped hearing about changes at the first restart would be a mechanism
+ * that works only until it is first tested.
+ */
+export function watchCanvases(woke: (kehikko: number) => void): () => void {
+  const stream = new EventSource('/host/watch')
+  stream.onmessage = (event) => {
+    try {
+      const parsed: unknown = JSON.parse(event.data)
+      const id = (parsed as { kehikko?: unknown })?.kehikko
+      if (typeof id === 'number' && Number.isInteger(id)) woke(id)
+    } catch {
+      /* Not something this page understands. A malformed wake is a wake that
+         does not happen, and the page is no worse off than before this existed. */
+    }
+  }
+  return () => stream.close()
+}
+
+/**
  * Which canvas was open, remembered per browser rather than per person.
  *
  * The canvases themselves are on the server, and this one fact is not, on
@@ -303,6 +405,10 @@ export function place(placements: readonly Placement[], id: string): Placement[]
       promptFor: null,
       collapsed: false,
       openH: null,
+      /* Off. A container arriving on the canvas has not been picked out by
+         anybody, and a host that selected what it just added would be aiming an
+         agent at a container the person has not even looked at yet. */
+      selected: false,
     },
   ]
 }

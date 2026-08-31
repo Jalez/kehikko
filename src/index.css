@@ -268,8 +268,20 @@
  * indistinguishable from a container that had been taken off the canvas. The one
  * thing on screen saying "this is folded and still here" is the header, so in
  * focus mode it is the one header that stays drawn.
+ *
+ * ## And a SELECTED container keeps its header too
+ *
+ * `[data-selected]` is the second exemption and it is the same shape of
+ * argument. A pin or a fold is a thing the person did and can see they did; a
+ * selection is a state something else can change — an agent through the host's
+ * MCP door names two containers and they become the targets. The container's
+ * own ring says so from across the canvas whatever mode it is in, because the
+ * ring is on the container and not in the header. What the exemption buys is
+ * the BOX: the one control that takes the selection back, kept reachable on
+ * exactly the containers where somebody is likely to reach for it, instead of
+ * being a hover away on a header that is hidden.
  */
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]) {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) {
   position: absolute;
   top: 0;
   left: 0;
@@ -280,19 +292,19 @@
   pointer-events: auto;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]) > .container-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):hover,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):focus-within {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within {
   height: 2rem;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):hover > .container-grip,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):focus-within > .container-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover > .container-grip,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within > .container-grip {
   opacity: 1;
   pointer-events: auto;
 }

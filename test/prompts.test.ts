@@ -22,6 +22,7 @@ const container = (i: string, at: [number, number], prompt = '', promptFor: stri
   promptFor,
   collapsed: false,
   openH: null,
+  selected: false,
 })
 
 describe('nothing aimed at a module is null, not an empty string', () => {

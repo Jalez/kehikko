@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Presence } from '@/host/registry.ts'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
@@ -59,6 +60,8 @@ export function Container({
   onPin,
   collapsed,
   onCollapse,
+  selected,
+  onSelect,
   onPrompts,
   onTools,
   onStarted,
@@ -95,6 +98,14 @@ export function Container({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
+  /**
+   * Whether this container has been picked out as a target on this kehikko.
+   *
+   * A fact about the canvas, not about the module: nothing crosses the wire and
+   * the program inside is not told. See the essay on `onSelect` in `App.tsx`.
+   */
+  selected: boolean
+  onSelect(selected: boolean): void
   /** Open the host's prompt dialog for this container. */
   onPrompts(): void
   /** Open the host's tools window for this module. */
@@ -142,7 +153,25 @@ export function Container({
        * change to one CSS rule, instead of every container on every canvas getting
        * taller to make room for the folded case.
        */
-      className="pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border"
+      /*
+       * The ring is the selection, and the checkbox is only how you set it.
+       *
+       * A tick in a thirty-two pixel header is legible when you are reading
+       * that header and invisible from across a canvas of eight containers,
+       * which is exactly the distance the question "which ones did I pick?" is
+       * asked from. So the border of the selected container changes colour and
+       * grows a ring — the border being, as the essay above says, the one thing
+       * that says where one module ends and the next begins.
+       *
+       * `ring-inset`, because a ring drawn outside the border would be painted
+       * over the eight pixels of margin the grid puts between containers and
+       * would touch its neighbour.
+       */
+      className={
+        selected
+          ? 'border-primary ring-primary/60 pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
+          : 'pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border'
+      }
     >
       {/*
        * The header, inside a wrapper that does nothing at all most of the time.
@@ -161,6 +190,26 @@ export function Container({
       <div
         className={collapsed ? 'container-reveal min-h-0 flex-1' : 'container-reveal shrink-0'}
         data-collapsed={collapsed ? 'true' : undefined}
+        /*
+         * A SELECTED container keeps its header in focus mode, exactly as a
+         * folded one does, and the reason is a cousin of that one.
+         *
+         * Focus mode hides headers to give space back to the modules, and the
+         * cost it accepts is that a control is a hover away. That is a fair
+         * trade for a control — you know you have a pin because you pressed it,
+         * and it is where you left it. It is not a fair trade for a STATE
+         * somebody else can change: an agent selects two containers through the
+         * MCP door, and in focus mode the person watching would see nothing at
+         * all happen. Worse in the other direction — a selection you cannot see
+         * is a selection you will forget you made, and the next tool call you
+         * ask for lands on containers you no longer meant.
+         *
+         * The ring is drawn either way, because the ring is on the container
+         * and not in the header. So this exemption is not what makes the
+         * selection visible; it is what keeps the box you untick it with
+         * reachable, on the one container where reaching for it is likely.
+         */
+        data-selected={selected ? 'true' : undefined}
       >
       <header
         data-dense={collapsed ? 'true' : undefined}
@@ -170,6 +219,52 @@ export function Container({
             : 'container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none'
         }
       >
+        {/*
+         * The box that says this container is one of the ones being aimed at.
+         *
+         * ## Leftmost, before the dot
+         *
+         * Everything else in this header is a control that does something to
+         * this container — grow it, fold it, pin it, take it off — and they are
+         * gathered on the right. This is not one of those. It marks the row,
+         * the way the box at the start of a table row does, and a person
+         * scanning a canvas for what they picked reads down a column of them.
+         *
+         * ## Why it cannot start a drag
+         *
+         * The header IS the drag handle — `draggableHandle=".container-grip"`
+         * — so a press that reaches the grid begins a gesture, and a checkbox
+         * that moved the container instead of ticking would be a control that
+         * looks broken. `onMouseDown` is stopped here for the same reason every
+         * button in this header stops it.
+         *
+         * ## Why it does not squeeze the row
+         *
+         * `shrink-0` on the box and `truncate` on the name: the name is the one
+         * thing in this header that gives way, which it already did for six
+         * controls. Measured at a 220px container, folded and unfolded, the row
+         * does not wrap — a flex row does not wrap by default and nothing here
+         * asks it to; what a narrow container costs is letters off the end of a
+         * name, and the name is in a tooltip and in the modules list besides.
+         */}
+        <Hint
+          label={
+            selected
+              ? 'picked out as a target on this kehikko — press to unpick it'
+              : 'pick this container out as a target on this kehikko'
+          }
+          side="bottom"
+          align="start"
+        >
+          <Checkbox
+            checked={selected}
+            aria-label={selected ? `unpick ${name}` : `pick ${name} out as a target`}
+            className="shrink-0 cursor-default"
+            onMouseDown={(event) => event.stopPropagation()}
+            onCheckedChange={(next) => onSelect(next === true)}
+          />
+        </Hint>
+
         <ConditionDot condition={condition} />
         {/*
          * The name, and the module's own description behind it.

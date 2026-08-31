@@ -21,6 +21,9 @@ import { answered, start, startable } from './launch.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
 import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
 import { toolsAt } from './tools.ts'
+import { mcp } from './mcp.ts'
+import { Openness } from './open.ts'
+import { Wakes } from './wake.ts'
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -37,6 +40,10 @@ import { toolsAt } from './tools.ts'
  */
 
 const PORT = Number(process.env.PORT ?? 4180)
+
+/** What this host calls itself at its own MCP door. See `server/mcp.ts`. */
+const HOST_ID = 'kehikko'
+const HOST_VERSION = '0.1.0'
 
 /**
  * The canvases, opened once for the life of the process.
@@ -57,6 +64,22 @@ const db = open()
  * point of a migration is that it happens once and is then simply true.
  */
 const settled = adopt(db)
+
+/**
+ * Which kehikko each open page has, so the MCP door can answer a call that
+ * named none. In memory, and it dies with this process — see `open.ts` for why
+ * that is right rather than a shortcut.
+ */
+const openness = new Openness()
+
+/**
+ * The pages listening for a kehikko that changed under them.
+ *
+ * An agent's tool call changes what somebody is looking at, and the existing
+ * sweep-on-focus in `App.tsx` cannot catch it: the tab stays focused the whole
+ * time, so no event fires. See `wake.ts`.
+ */
+const wakes = new Wakes()
 
 /** The open project's folder, when the call named a project this host has. */
 function rootOf(project: unknown): string | null {
@@ -539,8 +562,116 @@ const server = Bun.serve({
       return json({ ...ran, agent: awarenessOf(door.url, id, agentKnows()) })
     }
 
+    /*
+     * A page saying which kehikko it has open, or that it has gone away.
+     *
+     * The one fact this server deliberately does not store — see the essay at
+     * the top of `canvases.ts` — and it is still not stored: this is held in
+     * memory, per page, and dies with the process. What it is FOR is the MCP
+     * door, which has to answer "which kehikko did you mean" without guessing.
+     *
+     * The page id is the page's own, minted per tab. It is not a credential and
+     * there is nothing behind it: the worst a second program on this machine
+     * can do by posting one is make the door refuse, by claiming a second
+     * kehikko is open — which is a refusal with both ids in it and not a wrong
+     * answer, and is exactly what the door does when two windows really are
+     * open.
+     */
+    if (url.pathname === '/host/open' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as {
+        page?: unknown
+        kehikko?: unknown
+      } | null
+      const page = typeof body?.page === 'string' && body.page.length > 0 && body.page.length <= 64 ? body.page : null
+      if (!page) return json({ ok: false, error: 'A report of what is open names the page making it.' }, 400)
+      const kehikko =
+        typeof body?.kehikko === 'number' && Number.isInteger(body.kehikko) && body.kehikko > 0
+          ? body.kehikko
+          : null
+      openness.reported(page, kehikko)
+      return json({ ok: true })
+    }
+
+    /*
+     * The stream a page listens on to hear that a kehikko changed under it.
+     *
+     * Server-sent events, one id per message, and nothing else on it — see
+     * `wake.ts` for why what travels is that there IS news rather than the news
+     * itself.
+     *
+     * The comment sent on connect is not decoration: it flushes the headers, so
+     * a proxy in the middle — Vite's, here — hands the stream to the page
+     * immediately instead of holding it until the first real event, which might
+     * be an hour away.
+     */
+    if (url.pathname === '/host/watch' && request.method === 'GET') {
+      const encoder = new TextEncoder()
+      let stop: (() => void) | null = null
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(': listening\n\n'))
+          stop = wakes.listen((kehikko) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko })}\n\n`))
+          })
+        },
+        cancel() {
+          stop?.()
+        },
+      })
+      return new Response(stream, {
+        headers: {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-store',
+          connection: 'keep-alive',
+        },
+      })
+    }
+
     if (url.pathname.startsWith('/host/')) {
       return json({ ok: false, reason: 'unknown-method', error: 'No such endpoint.' }, 404)
+    }
+
+    /*
+     * The host's own door, for an agent.
+     *
+     * Not under `/host/` — that prefix is the page's own vocabulary, proxied by
+     * Vite so the page talks to one origin. This is spoken to directly, on this
+     * port, by something that is not a browser. `/mcp` is where every module in
+     * this workspace puts its door and an agent's configuration is one line
+     * shorter for the host's being in the same place.
+     */
+    if (url.pathname === '/mcp') {
+      if (request.method !== 'POST') {
+        return json({ ok: false, error: 'the MCP door takes POST' }, 405)
+      }
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+      if (!body || typeof body.method !== 'string') {
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'not a request' } }, 400)
+      }
+      const answered = await mcp(
+        body,
+        {
+          db,
+          which: () => openness.open(),
+          wake: (kehikko) => wakes.woke(kehikko),
+          /* A sweep, so that an agent reading a canvas is told which of the
+             containers on it hold a program that is actually answering. It is
+             the same sweep the page asks for on load — N requests to N
+             localhost programs — and unlike `/host/tools` it handshakes with
+             nobody's MCP server, so the objection in `tools.ts` does not
+             apply. */
+          seen: async () =>
+            (await sweep()).presences.map((presence) => ({
+              id: presence.id,
+              name: presence.name ?? null,
+              condition: presence.condition,
+            })),
+        },
+        { name: HOST_ID, version: HOST_VERSION },
+      )
+      return answered.body === null
+        ? new Response(null, { status: answered.status })
+        : json(answered.body, answered.status)
     }
 
     return elsewhere()
@@ -551,6 +682,7 @@ console.log(`the canvas is at http://127.0.0.1:${server.port}`)
 console.log(`registrations are read from ${registryDir()}`)
 console.log(`canvases are kept in ${databaseFile()}`)
 console.log(`this host speaks protocol ${PROTOCOL}`)
+console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`)
 /* Said out loud at start, in the terminal somebody is looking at, for the same
    reason `run.sh` says where the epics come from: a host that migrated three
    kehikot into a project silently would be a host whose one irreversible-

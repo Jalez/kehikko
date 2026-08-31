@@ -115,6 +115,47 @@ export interface Placement {
    * before this existed.
    */
   openH: number | null
+  /**
+   * Whether this container has been picked out as a target on this kehikko.
+   *
+   * ## A third axis, and it is not either of the other two
+   *
+   * `Canvas.selection` below is REFS — `gh#105`, `!44` — somebody picked out of
+   * a tracker, and a passage is a place inside a document. Neither is this.
+   * This says which of the containers arranged here are the ones being aimed
+   * at: "work on these two", said about the canvas rather than about the work.
+   *
+   * ## Why it is a field on the placement rather than a list on the canvas
+   *
+   * The selection of refs is a JSON column on `canvases` because a ref is a
+   * name for something outside this host, and nothing here can check it. A
+   * container is not like that: it is a row in this table, and the only
+   * containers that can be selected are the ones on the canvas. Putting the
+   * flag ON the row makes that a fact of the schema rather than a rule somebody
+   * has to enforce — a module taken off a kehikko takes its selection with it,
+   * because the row is deleted, and there is no second list left holding the
+   * name of a container that is not there.
+   *
+   * ## Why it is stored at all, when a passage is not
+   *
+   * A passage is not written down because it is a claim about a mutable file
+   * that nobody is left to renew — see the essay in `src/App.tsx`. Run the same
+   * test here and it comes out the other way. This is a claim about the
+   * canvas's OWN arrangement, and the arrangement is the thing this database
+   * exists to remember. A person who ticks three containers, closes the tab and
+   * comes back has not stopped meaning those three; the containers are still
+   * there, still in the same places, and a selection that evaporated overnight
+   * would be the one part of their arrangement that did not survive being
+   * looked away from.
+   *
+   * Per placement for the reason `pinned` and `collapsed` are: the same module
+   * can be the target on one kehikko and a bystander on another, and which it
+   * is, is that kehikko's business.
+   *
+   * The module is NOT told, and that is a decision rather than an omission —
+   * see the essay on `onSelect` in `src/App.tsx`.
+   */
+  selected: boolean
 }
 
 export interface Canvas {
@@ -170,7 +211,7 @@ export interface Canvas {
  */
 export type PlacementInput = Omit<
   Placement,
-  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH'
+  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH' | 'selected'
 > & {
   grow?: boolean
   pinned?: boolean
@@ -178,6 +219,7 @@ export type PlacementInput = Omit<
   promptFor?: string | null
   collapsed?: boolean
   openH?: number | null
+  selected?: boolean
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -276,6 +318,10 @@ export function open(file = databaseFile()): Database {
   add(db, 'placements', 'prompt_for', 'text')
   add(db, 'placements', 'collapsed', 'integer not null default 0')
   add(db, 'placements', 'open_h', 'integer')
+  /* Whether a container is picked out as a target. Added to every database
+     written before there was such a thing, where nothing is selected — which is
+     what every container in them has been all along. */
+  add(db, 'placements', 'selected', 'integer not null default 0')
   add(db, 'canvases', 'selection', 'text')
   /*
    * Which project a kehikko is in, added to databases written before projects
@@ -391,16 +437,27 @@ export function listCanvases(db: Database): Canvas[] {
         prompt_for: string | null
         collapsed: number
         open_h: number | null
+        selected: number
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected from placements order by canvas, module',
     )
     .all()
 
   const byCanvas = new Map<number, Placement[]>()
   for (const row of placements) {
-    const { canvas, grow, pinned, prompt, prompt_for: promptFor, collapsed, open_h: openH, ...rest } = row
+    const {
+      canvas,
+      grow,
+      pinned,
+      prompt,
+      prompt_for: promptFor,
+      collapsed,
+      open_h: openH,
+      selected,
+      ...rest
+    } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
        here, at the edge, so nothing above this line has to remember. */
     const placement: Placement = {
@@ -411,6 +468,7 @@ export function listCanvases(db: Database): Canvas[] {
       promptFor,
       collapsed: collapsed === 1,
       openH,
+      selected: selected === 1,
     }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
@@ -478,7 +536,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -494,6 +552,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.promptFor,
           p.collapsed ? 1 : 0,
           p.openH,
+          p.selected ? 1 : 0,
         )
       }
     }
@@ -686,6 +745,11 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          could lay out is the same stored-unlayoutable-arrangement problem one
          press later. */
       openH: p.openH === null || p.openH === undefined ? null : bounded(p.openH, 1, 400),
+      /* Same rule again: anything but a literal `true` is off. This one is what
+         an agent reads to decide which containers it was pointed at, and a flag
+         that switched on because the string "false" arrived would aim it at
+         something nobody picked. */
+      selected: p.selected === true,
     })
   }
   return kept

@@ -22,7 +22,9 @@ import {
   readOpen,
   reconcile,
   removeCanvas,
+  reportOpen,
   unplace,
+  watchCanvases,
   writeOpen,
   type Canvas,
   type Placement,
@@ -259,6 +261,65 @@ export function App() {
   useEffect(() => {
     if (openId !== null) writeOpen(window.localStorage, openId)
   }, [openId])
+
+  /**
+   * And said out loud to the server, which is not the same as storing it there.
+   *
+   * The paragraph above is still true: which kehikko is open belongs to this
+   * tab, and a server that STORED it would make two windows fight over it. What
+   * the server keeps is a report, per page, in memory, withdrawn when this page
+   * goes away — and the only thing that reads it is the host's own MCP door,
+   * which has to answer "which kehikko did you mean" for an agent that named
+   * none. Two pages reporting two kehikot is not a fight; it is a refusal with
+   * both ids in it. See `server/open.ts`.
+   *
+   * Withdrawn on `pagehide` rather than only on unmount, because a tab being
+   * closed does not unmount anything — and a report left standing by a browser
+   * that is no longer running would have an agent told a kehikko is on somebody's
+   * screen when there is no screen.
+   */
+  useEffect(() => {
+    reportOpen(openId)
+    const gone = () => reportOpen(null)
+    window.addEventListener('pagehide', gone)
+    return () => {
+      window.removeEventListener('pagehide', gone)
+    }
+  }, [openId])
+
+  /**
+   * Something other than this page changed a kehikko: read it again.
+   *
+   * The sweep-on-focus below is deliberately tied to attention, and that is
+   * exactly why it cannot serve here. An agent selecting containers through the
+   * host's MCP door does it while somebody WATCHES — the tab is focused the
+   * whole time, no `focus` or `visibilitychange` ever fires, and the ring on the
+   * container would appear whenever the person next happened to alt-tab away and
+   * back. The one moment that mechanism cannot catch is the only moment this
+   * needs, so it gets its own path: see `server/wake.ts`.
+   *
+   * Everything is re-read rather than the one kehikko patched, and pending
+   * writes are flushed first. The flush is the ordering that matters: an
+   * arrangement still sitting in the `Writer` would be sent AFTER this re-read
+   * and would overwrite it with what the page thought a moment ago, which is
+   * the tool call being silently undone half a second later.
+   */
+  useEffect(() => {
+    const stop = watchCanvases(() => {
+      void (async () => {
+        if (!loaded.current) return
+        writer.flushAll()
+        try {
+          const found = await fetchCanvases()
+          setCanvases(found.canvases)
+        } catch {
+          /* The next wake, or the next load, will do. A canvas that could not
+             be re-read is the arrangement the person already has on screen. */
+        }
+      })()
+    })
+    return stop
+  }, [writer])
 
   /* Which project is open, remembered the same way and for the same reason: two
      windows on two screens showing two projects is a reasonable thing to do,
@@ -876,6 +937,70 @@ export function App() {
     [change, open?.placements],
   )
 
+  /**
+   * Pick a container out as a target on this kehikko, or unpick it.
+   *
+   * ## Which axis this is
+   *
+   * There are now three things on this canvas that could all be called a
+   * selection, and they are three different facts:
+   *
+   *   - `canvas.selection` is REFS — `gh#105`, `!44` — what somebody picked out
+   *     of a tracker. It goes out in `roadmap.context` and every module is told.
+   *   - `passage` is a place inside a document: a path, a page, a byte range.
+   *   - This is which of the CONTAINERS arranged here are being aimed at. It is
+   *     a fact about the canvas's own arrangement and about nothing else.
+   *
+   * The first two are claims about somebody's work and are answered by asking
+   * what the work is. This one is answered by looking at the screen.
+   *
+   * ## It is written down, and the passage is not
+   *
+   * The passage essay a few hundred lines up argues transience, and the
+   * argument is that a passage is a claim about a mutable file with nobody left
+   * to renew it. Run the same test here and it comes out the other way: this is
+   * a claim about the arrangement, the arrangement is exactly what this host
+   * stores, and a container that has been picked out is still on the canvas
+   * tomorrow. So it rides with the placement — see `selected` in
+   * `server/canvases.ts` for why it is a field on the row rather than a second
+   * list beside it, which is what stops it ever naming a container that is not
+   * there.
+   *
+   * ## The module is NOT told, and this is a decision
+   *
+   * The obvious objection is that a module that knew it was selected could show
+   * it, and the answer is the one `onCollapse` gives about folding, sharpened
+   * by what happened with the pin.
+   *
+   * The pin went on the wire because the host CHANGES WHAT IT SAYS to a pinned
+   * module: it stops telling it about the canvas, and a module that was not
+   * told would describe a remembered epic as the open one. Silence there
+   * manufactures a disagreement between what the module says and what is true.
+   * Nothing of the kind happens here. A selected container is sent exactly the
+   * same context as an unselected one, is asked exactly the same questions, and
+   * has exactly the same material. There is no disagreement for the field to
+   * prevent.
+   *
+   * And a module could not act on it correctly if it had it. Being selected is
+   * a fact about somebody else's aim — an agent was pointed here — not about
+   * the module's own work, and from inside there is no telling "an agent is
+   * about to work on me" from "a person ticked a box last Tuesday and forgot".
+   * A module that changed its behaviour on the strength of it would change
+   * behaviour in a case it cannot detect the end of.
+   *
+   * So there is no protocol change, no version bump, and no essay in
+   * `wire.ts` — and this paragraph is the host saying why in its own code,
+   * which is the price of not putting it on the wire. If a module ever needs
+   * this, what it needs is a way to ASK, not a field it is handed.
+   */
+  const onSelect = useCallback(
+    (id: string, selected: boolean) => {
+      const placements = (open?.placements ?? []).map((p) => (p.i === id ? { ...p, selected } : p))
+      change({ placements })
+    },
+    [change, open?.placements],
+  )
+
   /** Turn following-the-module's-height on or off for one container. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -908,6 +1033,7 @@ export function App() {
         promptFor: was.find((p) => p.i === item.i)?.promptFor ?? null,
         collapsed: was.find((p) => p.i === item.i)?.collapsed ?? false,
         openH: was.find((p) => p.i === item.i)?.openH ?? null,
+        selected: was.find((p) => p.i === item.i)?.selected ?? false,
       }))
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
@@ -1281,6 +1407,8 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
+                  selected={placement.selected}
+                  onSelect={(selected) => onSelect(presence.id, selected)}
                   onPrompts={() => setPrompting(presence.id)}
                   onTools={() => setToolsFor(presence.id)}
                   onStarted={() => void look()}

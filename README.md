@@ -103,6 +103,36 @@ greppable and hand-editable. That folder is gitignored by default, because it is
 one person's working material and not the project's. Remove the line to share
 it.
 
+## Picking a module out, and the host's own door for an agent
+
+Every container header has a checkbox. Ticking it picks that container out as a
+target on this kehikko — the container grows a ring, so which ones are picked is
+legible from across a canvas of eight. It is a fact about the arrangement and
+nothing else: no program is told, started, stopped or asked anything, and the
+selection is stored with the layout, so it is still there tomorrow.
+
+The host answers MCP on its own API port, at `http://127.0.0.1:4180/mcp`, with
+two tools:
+
+| tool | what it does |
+|---|---|
+| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic |
+| `select_modules` | pick containers out, replacing what was picked before |
+
+Both take an optional `kehikko` id and, without one, act on the kehikko a page
+of this host says it has open — refusing, with the list, when no page has said
+or when two browser windows have two different ones open. Neither tool can add,
+remove or move anything: the arrangement belongs to the person looking at it.
+
+A tool call is visible immediately on the page, without a refresh — the server
+says a kehikko changed over `/host/watch` and the page re-reads.
+
+Tell your agent about it with:
+
+```
+claude mcp add kehikko --transport http http://127.0.0.1:4180/mcp
+```
+
 ## The modules
 
 | | | |
