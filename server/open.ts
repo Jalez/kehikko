@@ -59,8 +59,35 @@ const PAGES_MAX = 32
 
 export type WhichKehikko = { ok: true; id: number } | { ok: false; why: string }
 
+/**
+ * Which connection a report came from, so a stale withdrawal can be refused.
+ *
+ * Reports are keyed by PAGE, deliberately — a reload replacing its own report
+ * rather than adding a second one is the whole reason for that. But a page has
+ * more than one connection over its life: it reopens `/host/watch` whenever the
+ * open kehikko changes, and for a moment the old stream and the new one both
+ * exist under the same page id.
+ *
+ * The old stream's cancel then arrives AFTER the new stream's start and deletes
+ * the LIVE stream's report. Nothing errors. The page is still on screen, still
+ * streaming, still showing its modules — and the server now believes nobody has
+ * anything open, so five minutes later the lifecycle policy stops every module
+ * the host started for a canvas somebody is looking at.
+ *
+ * A token per connection is enough to tell those apart. Whoever wrote last owns
+ * the entry, and a cancel that no longer matches is a cancel for a connection
+ * that has already been replaced: it has nothing left to withdraw.
+ */
+let connections = 0
+
+/** A fresh identity for one stream, to be handed back when it closes. */
+export function nextConnection(): string {
+  connections += 1
+  return `c${connections}`
+}
+
 export class Openness {
-  #reports = new Map<string, { kehikko: number; at: number }>()
+  #reports = new Map<string, { kehikko: number; at: number; by: string | null }>()
 
   /**
    * One page saying what it has open, or that it has nothing open any more.
@@ -68,8 +95,13 @@ export class Openness {
    * `null` withdraws. A page sends it on the way out, so that closing a tab
    * stops it answering for a screen that is not there — which is the difference
    * between this and a cache.
+   *
+   * `by` names the connection the report came from, when there is one. A report
+   * with no connection — the `/host/open` POST — deliberately clears it: the
+   * page has spoken more recently than any stream, and a stream that closes
+   * afterwards must not undo what the page just said.
    */
-  reported(page: string, kehikko: number | null, now = Date.now()): void {
+  reported(page: string, kehikko: number | null, now = Date.now(), by: string | null = null): void {
     if (kehikko === null) {
       this.#reports.delete(page)
       return
@@ -81,7 +113,26 @@ export class Openness {
       const oldest = [...this.#reports.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) this.#reports.delete(oldest[0])
     }
-    this.#reports.set(page, { kehikko, at: now })
+    this.#reports.set(page, { kehikko, at: now, by })
+  }
+
+  /**
+   * One STREAM saying it has closed.
+   *
+   * Refused unless the report is still the one this connection wrote. See the
+   * essay above `nextConnection`: a page that reopened its stream has two of
+   * them alive for a moment, and the one that closes is not always the one
+   * holding the report.
+   *
+   * Not the same act as `reported(page, null)`, which is a page saying it is
+   * going away and is believed unconditionally — the page is the authority on
+   * that, and a connection is only ever evidence.
+   */
+  withdrew(page: string, by: string): void {
+    const held = this.#reports.get(page)
+    if (!held) return
+    if (held.by !== by) return
+    this.#reports.delete(page)
   }
 
   /** Every kehikko a live page says it has open, without duplicates. */

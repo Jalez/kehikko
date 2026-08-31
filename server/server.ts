@@ -34,7 +34,7 @@ import { readRegistrations, registryDir, type RegistrationSweep } from './regist
 import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
-import { Openness } from './open.ts'
+import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 
 /**
@@ -955,10 +955,15 @@ const server = Bun.serve({
       const page = said && said.length > 0 && said.length <= 64 ? said : null
       const asked = Number(url.searchParams.get('kehikko'))
       const kehikko = Number.isInteger(asked) && asked > 0 ? asked : null
+      /* This connection's own identity, so its withdrawal cannot land on a
+         report a later connection wrote. The page reopens this stream every
+         time the open kehikko changes, and the old one's cancel arrives after
+         the new one's start — see `nextConnection` in `open.ts`. */
+      const connection = nextConnection()
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
-          if (page) openness.reported(page, kehikko)
+          if (page) openness.reported(page, kehikko, Date.now(), connection)
           stop = wakes.listen((woken) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko: woken })}\n\n`))
           })
@@ -966,8 +971,9 @@ const server = Bun.serve({
         cancel() {
           stop?.()
           /* The browser went away. Withdrawn rather than left to go stale,
-             which is the whole reason the page identifies itself here. */
-          if (page) openness.reported(page, null)
+             which is the whole reason the page identifies itself here — but
+             only if this connection is still the one being believed. */
+          if (page) openness.withdrew(page, connection)
         },
       })
       return new Response(stream, {

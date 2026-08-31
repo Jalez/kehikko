@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { Openness, STALE_MS } from '../server/open.ts'
+import { nextConnection, Openness, STALE_MS } from '../server/open.ts'
 
 /**
  * Which kehikko is open, which the server only knows because pages say so.
@@ -81,5 +81,52 @@ describe('one page, one kehikko, one answer', () => {
        is being checked is that a map keyed by a string off a request has a
        ceiling. */
     expect(openness.open()).toEqual({ ok: true, id: 1 })
+  })
+  /*
+   * The page reopens its stream whenever the open kehikko changes, so for a
+   * moment two connections exist under one page id. The old one's cancel
+   * arrives after the new one's start, and it used to delete the LIVE stream's
+   * report -- after which the server believed nobody had anything open, and the
+   * lifecycle policy stopped every module on the canvas somebody was watching.
+   */
+  test('a replaced stream closing does not withdraw the live one', () => {
+    const openness = new Openness()
+    const first = nextConnection()
+    const second = nextConnection()
+
+    openness.reported('page-a', 1, Date.now(), first)
+    openness.reported('page-a', 1, Date.now(), second)
+    openness.withdrew('page-a', first)
+
+    expect(openness.open()).toEqual({ ok: true, id: 1 })
+    expect(openness.every()).toEqual([1])
+  })
+
+  test('the stream still holding the report withdraws it', () => {
+    const openness = new Openness()
+    const only = nextConnection()
+    openness.reported('page-a', 1, Date.now(), only)
+    openness.withdrew('page-a', only)
+    expect(openness.open().ok).toBe(false)
+  })
+
+  /* A page saying it is going away is believed whatever any stream thinks: the
+     page is the authority on that, and a connection is only ever evidence. */
+  test('a page withdrawing outranks a stream that is still open', () => {
+    const openness = new Openness()
+    const live = nextConnection()
+    openness.reported('page-a', 1, Date.now(), live)
+    openness.reported('page-a', null)
+    expect(openness.open().ok).toBe(false)
+  })
+
+  /* And a stream closing after the page has spoken must not undo what it said. */
+  test('a stale stream cannot undo a fresh page report', () => {
+    const openness = new Openness()
+    const old = nextConnection()
+    openness.reported('page-a', 1, Date.now(), old)
+    openness.reported('page-a', 2)
+    openness.withdrew('page-a', old)
+    expect(openness.open()).toEqual({ ok: true, id: 2 })
   })
 })
