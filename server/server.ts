@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { LIMITS, PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
 import { answer } from './answers.ts'
+import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
 import {
   createCanvas,
   databaseFile,
@@ -75,6 +76,7 @@ const db = open()
  * point of a migration is that it happens once and is then simply true.
  */
 const settled = adopt(db)
+ensureKnown(db)
 
 /**
  * Which kehikko each open page has, so the MCP door can answer a call that
@@ -149,6 +151,29 @@ async function survey(): Promise<{
     callers.set(registration.id, registration.url)
     registered.set(registration.id, registration)
   }
+
+  /*
+   * A name for the ones that could not give one.
+   *
+   * A module's name comes from the manifest it serves, so a module that is
+   * asleep has none, and the page falls back to the id — a canvas labelled
+   * `roadmap.checklist` and `roadmap.paper`. That was invisible until modules
+   * started sleeping; now it is most of them.
+   *
+   * Only the NAME is remembered, and only for a presence that has none. What a
+   * module currently offers — its summary, its tools, its protocol range — is a
+   * claim about a running program, and the host does not make those on behalf
+   * of something that is not answering. See `known.ts`.
+   */
+  const remembered = known(db)
+  for (const presence of presences) {
+    if (presence.name) remember(db, presence.id, presence.name)
+    else {
+      const was = remembered.get(presence.id)
+      if (was) presence.name = was
+    }
+  }
+  forgetUnregistered(db, found.registrations.map((r) => r.id))
 
   return {
     /*
