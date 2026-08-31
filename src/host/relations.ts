@@ -17,6 +17,37 @@ import type { Presence } from './registry.ts'
  * position to make". A badge saying two modules interact when they merely
  * could is exactly the same error, at the same cost.
  *
+ * ## There are exactly two channels, and everything here rides on them
+ *
+ * This file is a reading of a pipeline rather than a taxonomy invented beside
+ * one, and the distinction matters because the failure it is guarding against
+ * is cheap to fall into: fourteen modules each growing a private wire to the
+ * one other module they care about, and a list like this one describing the
+ * tangle afterwards as though it were a design.
+ *
+ * There are two general channels in this workspace and there should never be a
+ * third without a very good reason written down beside it:
+ *
+ * - **The canvas context.** A module calls `passage.set` or `selection.set`,
+ *   the host holds the value, and `context.ts` broadcasts it to every framed
+ *   module. Broadcast, one subject at a time, addressed to nobody.
+ * - **Events.** `extensions.emits` and `extensions.consumes` name a format
+ *   string and `host/events.ts` posts the payload into the consuming module's
+ *   frame. Addressed by format, many-to-many.
+ *
+ * The relationship that prompted the "Consumes / Provides to" question is
+ * already one of these, and it is worth stating because it is the pattern
+ * working rather than an exception to it: a learning question that points at
+ * the passage of the paper it was written from is `passage.set`, and nothing
+ * else. It needed no channel, no pair-specific message and no new machinery —
+ * only a capability the learning module's manifest had not yet declared, and,
+ * now, a `reacts` line saying it does something when a passage arrives.
+ *
+ * The consequence for what a module may WRITE is in the essay on `standingOf`
+ * below and is the same argument from the other end: a manifest names a thing
+ * that travels and a channel it travels on, never another module. The host does
+ * the matching, which is the only reason the matching can be believed.
+ *
  * ## What is derivable, and it is only these
  *
  * **An event, and it is the one DIRECT link.** `extensions.emits` on one
@@ -29,8 +60,8 @@ import type { Presence } from './registry.ts'
  * declaring `passage:set` calls `passage.set`, the canvas holds it, and it goes
  * into the `roadmap.context` every framed module receives. Everything the
  * paragraph below says about the selection holds here with the noun swapped,
- * including the honest half-answer: there is no `passage:read`, so the sending
- * end is nameable and the receiving end is not. It is drawn as its own kind
+ * including what may and may not be said about the receiving end. It is drawn
+ * as its own kind
  * rather than folded into the selection because what travels is different in
  * size and in kind — a file, a place in it, and a paragraph of somebody's
  * document — and a person reading a container's relationships is entitled to know
@@ -38,13 +69,53 @@ import type { Presence } from './registry.ts'
  *
  * **The selection, and it is INDIRECT.** A module declaring `selection:set`
  * calls `selection.set`, the canvas holds the refs, and they go into the
- * `roadmap.context` every framed module receives. The sending half is
- * vouchable. The receiving half is NOT: there is no `selection:read`, no
- * capability, no manifest field and no message by which a module says it
- * reacts to one — see `CAPABILITIES` in the protocol's `methods.ts`, where
- * every entry is a thing a module ASKS the host for, and reading the context is
- * not asked for because it is simply handed over. So this relationship names
- * one end and honestly cannot name the other.
+ * `roadmap.context` every framed module receives. The sending half has always
+ * been vouchable. The receiving half was not, and the section below is about
+ * what changed.
+ *
+ * ## The receiving half, which this file used to say was unnameable
+ *
+ * What stood here was: "The receiving half is NOT vouchable: there is no
+ * `selection:read`, no capability, no manifest field and no message by which a
+ * module says it reacts to one." That was true of the protocol as it was, and
+ * it is the reason a registry could say who SENDS and could not say who
+ * RECEIVES — so the sentence somebody wanted, "Consumes: X, Y. Provides to: Z,
+ * W", could only ever be written half way.
+ *
+ * The protocol now has `reacts`, a top-level manifest array naming the context
+ * kinds a module says it does something about. Read the essay on it in the
+ * protocol's `manifest.ts` before touching anything here, because the shape of
+ * what this file may claim follows directly from what that field is:
+ *
+ * **It is not a capability, and the distinction is the whole design.** There is
+ * still no `selection:read`. A context is broadcast to every framed module,
+ * unchanged, whether or not it declared a word — `context.ts` composes one per
+ * canvas and this host will not compose a different one per container. So
+ * `reacts` grants nothing, withholds nothing, and routes nothing. A module
+ * that declares it is not privileged; a module that lies about it is wrong in a
+ * list. If a future change here begins filtering the broadcast on this field,
+ * that change has invented a permission over material the host was already
+ * sending, and it should be refused on that ground alone.
+ *
+ * **So it is weaker evidence than an event, and stays drawn as weaker.** An
+ * emit-and-consume pair is two manifests plus `host/events.ts` doing the
+ * carrying: the host performs the delivery and may state it. A set-and-react
+ * pair is two manifests and a broadcast the host would have sent anyway: both
+ * ends said something about themselves, and neither one's word is checked
+ * against behaviour. `direct` therefore stays FALSE for these, and the badge
+ * stays the weaker one, even though `with` is now populated. Naming both ends
+ * is not the same claim as carrying something between them.
+ *
+ * **A declared reaction with nothing to react to is not drawn.** The rule
+ * "half a relationship is not one" applies here as it does to events, and it
+ * applies asymmetrically on purpose. A `selection:set` badge is drawn with
+ * nobody declared opposite it, because the host itself will broadcast what that
+ * module sets to every frame on the canvas — that half is the host's own fact.
+ * A `reacts: ['selection']` with no registered setter is only a stranger's
+ * sentence about a thing nothing on this machine produces, and repeating it
+ * would be the host asserting a link out of one manifest. It also disposes of
+ * unknown words for free: a module reacting to `weather` has no counterpart,
+ * so nothing is drawn and nothing has to be special-cased.
  *
  * **Navigation, also INDIRECT, and the widest.** A module declaring
  * `view:navigate` can call `view.goto` with an epic; the canvas makes it the
@@ -104,8 +175,26 @@ export interface Counterpart {
   reach: Reach
 }
 
+/** The context kinds a module can declare a reaction to, and the capability that produces each. */
+const SETS: Record<string, string> = { selection: 'selection:set', passage: 'passage:set' }
+
 export interface Relationship {
   kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'navigation'
+  /**
+   * Which end of a context kind this module is.
+   *
+   * Only on `selection` and `passage`, because only they have two ends to be.
+   * `emits` and `consumes` say their direction in the kind itself, and
+   * `navigation` genuinely has one end — moving the canvas is felt by whatever
+   * is on it, and nothing declares that it follows the subject beyond the mode
+   * scope it already declared.
+   *
+   * A separate field rather than five more kinds, so that everything that
+   * reasons about WHAT travels — the icon, the noun in the sentence, the
+   * argument for drawing a passage apart from a selection — keeps reading one
+   * word, and only the two places that care about direction read two.
+   */
+  role?: 'sets' | 'reacts'
   /**
    * Whether the host itself carries something between two named programs.
    *
@@ -117,7 +206,13 @@ export interface Relationship {
   direct: boolean
   /** The format, for the event kinds. */
   extension?: string
-  /** The other ends, for the direct kinds. Never empty when present. */
+  /**
+   * The other ends, when both halves were declared. Never empty when present.
+   *
+   * Populated for the event kinds, where the host carries the payload, and for
+   * the context kinds, where it does not — see the header. `direct` is what
+   * separates those two, not this.
+   */
   with: Counterpart[]
   /**
    * How many OTHER modules on the open kehikko are told, for the indirect
@@ -153,11 +248,26 @@ export function relate(
 ): Map<string, Relationship[]> {
   const emitters = new Map<string, string[]>()
   const consumers = new Map<string, string[]>()
+  /* The two halves of a context kind, indexed the same way the event halves
+     are. `setters` comes from a CAPABILITY the module declared and `reactors`
+     from a DESCRIPTION it wrote, which is why the two are read out of two
+     different fields and why nothing below ever treats them as equivalent
+     evidence — see the header. */
+  const setters = new Map<string, string[]>()
+  const reactors = new Map<string, string[]>()
   for (const presence of presences) {
-    const extensions = presence.module?.extensions
-    if (!extensions) continue
-    for (const extension of extensions.emits) push(emitters, extension, presence.id)
-    for (const extension of extensions.consumes) push(consumers, extension, presence.id)
+    const module = presence.module
+    if (!module) continue
+    for (const extension of module.extensions.emits) push(emitters, extension, presence.id)
+    for (const extension of module.extensions.consumes) push(consumers, extension, presence.id)
+    for (const [kind, capability] of Object.entries(SETS)) {
+      if (module.declares.uses.includes(capability)) push(setters, kind, presence.id)
+    }
+    /* `?? []` because this arrives as JSON from a server that may be older than
+       the page. Unknown words are kept rather than filtered: they simply find
+       no setter opposite them and are never drawn, which is the same refusal a
+       known word with no setter gets and needs no separate rule. */
+    for (const kind of module.reacts ?? []) push(reactors, kind, presence.id)
   }
 
   const named = new Map<string, Presence>()
@@ -209,7 +319,13 @@ export function relate(
       relationships.push({ kind: 'navigation', direct: false, with: [], told: others })
     }
     if (module.declares.uses.includes('selection:set')) {
-      relationships.push({ kind: 'selection', direct: false, with: [], told: others })
+      relationships.push({
+        kind: 'selection',
+        role: 'sets',
+        direct: false,
+        with: reactorsOf('selection', presence.id, reactors, named, placings),
+        told: others,
+      })
     }
     /* The same shape as the selection and named separately, because it is not
        the same fact. A selection is refs; a passage is a file, a place in it
@@ -218,12 +334,57 @@ export function relate(
        person deciding whether to place this module is entitled to read that
        rather than infer it from a word they may take to mean the same thing. */
     if (module.declares.uses.includes('passage:set')) {
-      relationships.push({ kind: 'passage', direct: false, with: [], told: others })
+      relationships.push({
+        kind: 'passage',
+        role: 'sets',
+        direct: false,
+        with: reactorsOf('passage', presence.id, reactors, named, placings),
+        told: others,
+      })
+    }
+
+    /* The receiving half, and the only half of this file that is drawn out of a
+       module's description of itself rather than out of a capability. It is
+       drawn ONLY when something registered can produce the thing: a reaction to
+       what nothing on this machine sets is a sentence the host has no part in
+       and would be repeating on trust. `told` is zero here rather than the
+       audience count — a reactor has no audience, it IS one. */
+    for (const kind of module.reacts ?? []) {
+      if (kind !== 'selection' && kind !== 'passage') continue
+      const from = (setters.get(kind) ?? []).filter((id) => id !== presence.id)
+      if (!from.length) continue
+      relationships.push({
+        kind,
+        role: 'reacts',
+        direct: false,
+        with: from.map((id) => counterpart(id, named, placings)),
+        told: 0,
+      })
     }
 
     if (relationships.length) found.set(presence.id, relationships)
   }
   return found
+}
+
+/**
+ * Who says they react to this kind, other than the module that sets it.
+ *
+ * Self excluded for the reason a module that consumes what it emits is not its
+ * own counterpart: a program telling itself something is not a relationship
+ * between two programs, and a row saying so would be on almost every module
+ * that both points and follows.
+ */
+function reactorsOf(
+  kind: string,
+  self: string,
+  reactors: Map<string, string[]>,
+  named: Map<string, Presence>,
+  placings: Placings,
+): Counterpart[] {
+  return (reactors.get(kind) ?? [])
+    .filter((id) => id !== self)
+    .map((id) => counterpart(id, named, placings))
 }
 
 function push(index: Map<string, string[]>, key: string, id: string): void {
@@ -281,22 +442,48 @@ export function sentenceFor(name: string, relationship: Relationship): string {
       : `${name} can ask this kehikko to show a different epic. The canvas would move its subject and tell every module on it; nothing else is on this one.`
   }
 
+  /*
+   * The receiving half, and the sentence works hard because the claim is weak.
+   *
+   * Both halves of it are things two modules wrote about themselves. The host
+   * checked neither, carries nothing between them, and would broadcast the
+   * context to this module whether or not it had said a word — so the sentence
+   * says all three of those out loud rather than letting "X reacts to what Y
+   * sets" be read as a wire between them.
+   */
+  if (relationship.role === 'reacts') {
+    const noun = kind === 'passage' ? 'a passage' : 'a selection'
+    const what =
+      kind === 'passage'
+        ? 'where in a document somebody is pointing'
+        : 'which references somebody has picked out'
+    return `${name} says it reacts to ${noun}, and ${names(relationship.with)} ${relationship.with.length === 1 ? 'says it can say' : 'say they can say'} ${what}. Both are what the modules say about themselves — the host broadcasts the context to every module on the kehikko in any case, and it carries nothing between these two.`
+  }
+
+  const reacting = relationship.with.length
+    ? `${names(relationship.with)} ${relationship.with.length === 1 ? 'says it' : 'say they'} react${relationship.with.length === 1 ? 's' : ''} to ${kind === 'passage' ? 'a passage' : 'a selection'}, in ${relationship.with.length === 1 ? 'its own manifest' : 'their own manifests'}.`
+    : `None of them says in its manifest that it reacts to ${kind === 'passage' ? 'a passage' : 'a selection'}, so this does not name one.`
+
   if (kind === 'passage') {
     return relationship.told > 0
-      ? `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on this kehikko is told, ${count(relationship.told)} beside this one right now. Which of them does anything about a passage is in no manifest, so this does not name one.`
-      : `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on the kehikko is told; nothing else is on this one. Which module reacts to a passage is in no manifest.`
+      ? `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on this kehikko is told, ${count(relationship.told)} beside this one right now. ${reacting}`
+      : `${name} can say where in a document somebody is pointing — which file, which page, which bytes, and what they said — and the host puts it in the context every module on the kehikko is told; nothing else is on this one. ${reacting}`
   }
 
   return relationship.told > 0
-    ? `${name} can say which references somebody has picked out, and the host puts them in the context every module on this kehikko is told — ${count(relationship.told)} beside this one right now. Which of them does anything about a selection is in no manifest, so this does not name one.`
-    : `${name} can say which references somebody has picked out, and the host puts them in the context every module on the kehikko is told; nothing else is on this one. Which module reacts to a selection is in no manifest.`
+    ? `${name} can say which references somebody has picked out, and the host puts them in the context every module on this kehikko is told — ${count(relationship.told)} beside this one right now. ${reacting}`
+    : `${name} can say which references somebody has picked out, and the host puts them in the context every module on the kehikko is told; nothing else is on this one. ${reacting}`
 }
 
 /** The short thing that fits in a badge. Never prose — see the essay in `Bar.tsx`. */
 export function labelFor(relationship: Relationship): string {
   if (relationship.kind === 'navigation') return 'moves the epic'
-  if (relationship.kind === 'selection') return 'sets the selection'
-  if (relationship.kind === 'passage') return 'points at a passage'
+  if (relationship.kind === 'selection') {
+    return relationship.role === 'reacts' ? 'follows the selection' : 'sets the selection'
+  }
+  if (relationship.kind === 'passage') {
+    return relationship.role === 'reacts' ? 'follows a passage' : 'points at a passage'
+  }
   const others = relationship.with
   return others.length === 1 ? (others[0]?.name ?? '') : `${others.length} modules`
 }
@@ -346,4 +533,98 @@ function kehikkoList(kehikkos: readonly string[]): string {
   if (quoted.length === 1) return `the kehikko ${quoted[0] ?? ''}`
   const last = quoted.pop()
   return `the kehikkos ${quoted.join(', ')} and ${last}`
+}
+
+/**
+ * Both halves of a module's place in the registry, for the list.
+ *
+ * ## What the two lists are, and what they are not
+ *
+ * Somebody browsing every registered module asked for the sentence in its
+ * plainest form: "Consumes: X, Y, Z. Provides to: Z, W, A." That is a question
+ * about MODULES, so the two lists here are names of other programs — the same
+ * `Counterpart`s the badges use, deduplicated, because one module can be on the
+ * other end of three relationships and belongs in the sentence once.
+ *
+ * Every one of those names is DERIVED. No manifest anywhere names another
+ * module, and none may: a module that wrote "I consume Paper" would be making a
+ * claim about a program it cannot see, would be wrong the day that program is
+ * renamed or replaced, and would have to be believed because there is nothing
+ * to check it against. What a module writes is what it takes and what it puts
+ * out — a passage, a selection, a named event format — and the host does the
+ * matching. That is why the two lists can be trusted at all, and it is why the
+ * two of them are computed here rather than read off anything.
+ *
+ * `providesTo` therefore holds only the ends that were actually declared
+ * opposite. A module that emits a format nobody consumes, or sets a passage
+ * nobody says they follow, has an empty list and still gets its badge — see
+ * below. That is the same refusal `relate` makes and for the same reason:
+ * naming an audience the host cannot see would be inventing one, and the badge
+ * already says the module provides without pretending to know to whom.
+ *
+ * ## Why the badges are read off the manifest and the lists off the pairs
+ *
+ * They answer two different questions and it would be a mistake to derive both
+ * the same way. "Is this a provider?" is a fact about the module alone: it says
+ * it emits something, or it declared a capability that puts something in front
+ * of every pane on a canvas. That stays true on a machine where nothing else is
+ * installed, and a person browsing a registry to decide what to install needs
+ * it to. "Who does it provide to?" is a fact about this machine's population
+ * and changes the moment somebody registers another program.
+ *
+ * So a module can be badged a provider with nothing after "Provides to", and
+ * that pair of facts is the true one rather than an inconsistency to smooth
+ * over. The row that would be dishonest is the opposite: a name in a list with
+ * no declaration behind it.
+ *
+ * Nothing here gates anything. These are two lists and two words on a screen.
+ */
+export interface Standing {
+  /** Says, in its own manifest, that it takes something in. */
+  consumer: boolean
+  /** Says, in its own manifest, that it puts something out. */
+  provider: boolean
+  /** The modules something reaches it from, named once each. */
+  consumes: Counterpart[]
+  /** The modules that said they take something from it, named once each. */
+  providesTo: Counterpart[]
+}
+
+/** The capabilities that make a module a provider of something shared. */
+const OFFERS = ['events:emit', 'selection:set', 'passage:set', 'view:navigate']
+
+export function standingOf(presence: Presence, relationships: readonly Relationship[]): Standing {
+  const module = presence.module
+  const consumes = new Map<string, Counterpart>()
+  const providesTo = new Map<string, Counterpart>()
+  for (const relationship of relationships) {
+    /* Which map a relationship lands in is exactly the direction question, and
+       the two channels answer it in two different fields: an event says it in
+       `kind`, a context kind says it in `role`. Navigation lands in neither,
+       deliberately — it moves the canvas and names nobody, so it has no other
+       end to put in a list. */
+    const into =
+      relationship.kind === 'consumes' || relationship.role === 'reacts'
+        ? consumes
+        : relationship.kind === 'emits' || relationship.role === 'sets'
+          ? providesTo
+          : null
+    if (!into) continue
+    for (const one of relationship.with) if (!into.has(one.id)) into.set(one.id, one)
+  }
+
+  /* `events:emit` is checked as well as `extensions.emits`, because they are
+     two different admissions and a module can make either without the other:
+     one names a FORMAT it will send, the other is the capability it needs to
+     send anything at all. A module with the capability and no format is still
+     offering to put payloads on the bus. */
+  const provider = Boolean(
+    module &&
+      (module.extensions.emits.length > 0 || module.declares.uses.some((one) => OFFERS.includes(one))),
+  )
+  const consumer = Boolean(
+    module && (module.extensions.consumes.length > 0 || (module.reacts ?? []).length > 0),
+  )
+
+  return { consumer, provider, consumes: [...consumes.values()], providesTo: [...providesTo.values()] }
 }

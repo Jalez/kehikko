@@ -24,6 +24,19 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: { id: string; label: string; scope: 'epic' | 'global' }[]
   extensions: { emits: string[]; consumes: string[] }
+  /**
+   * The context kinds this module says it reacts to.
+   *
+   * Optional here where it is required on the server, and the asymmetry is the
+   * point of declaring these shapes twice rather than importing one. This
+   * arrives as JSON from a server that may be older than the page — a module
+   * left running across an upgrade, a bundle cached in a tab — and a page that
+   * typed a missing array as a present one would iterate `undefined` on the one
+   * machine where it mattered. Read it through `?? []`.
+   *
+   * The page never gates on it. It is drawn, and only drawn.
+   */
+  reacts?: string[]
   declares: { protocol: string; uses: string[]; storage: boolean; prompt?: boolean }
 }
 

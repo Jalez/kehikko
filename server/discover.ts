@@ -101,6 +101,17 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: Manifest['modes']
   extensions: Manifest['extensions']
+  /**
+   * What the module says it REACTS to, out of the context every frame is sent.
+   *
+   * Carried, and carried for one purpose: the page draws it in the modules
+   * list. Nothing in this server or in the page reads it to decide anything —
+   * see the essay on `reacts` in the protocol's `manifest.ts`. The context is
+   * composed once per canvas and broadcast whole, and a host that narrowed it
+   * to the frames which had declared an interest would have turned a line of
+   * documentation into a permission over something it was already sending.
+   */
+  reacts: Manifest['reacts']
   declares: Manifest['declares']
 }
 
@@ -346,6 +357,7 @@ export async function look(
         : null,
       modes: manifest.modes,
       extensions: manifest.extensions,
+      reacts: manifest.reacts,
       declares: manifest.declares,
     },
   }

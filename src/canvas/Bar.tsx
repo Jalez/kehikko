@@ -2,6 +2,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Compass,
+  Eye,
   LayoutGrid,
   Moon,
   MousePointerClick,
@@ -23,8 +24,10 @@ import {
   labelFor,
   relate,
   sentenceFor,
+  standingOf,
   type Placings,
   type Relationship,
+  type Standing,
 } from '@/host/relations.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
@@ -382,6 +385,7 @@ function ModuleRow({
   onPlace(): void
   onUnplace(): void
 }) {
+  const standing = standingOf(presence, relationships)
   return (
     <li className="flex items-start gap-2.5 p-3">
       <span className="mt-1.5">
@@ -399,6 +403,7 @@ function ModuleRow({
               {presence.lifecycle ?? presence.condition}
             </Badge>
           ) : null}
+          <Standings standing={standing} />
         </div>
         {/* The sentence, in the list as well as in the container. A person deciding
             what to put on the canvas is deciding about a program that may not be
@@ -422,13 +427,18 @@ function ModuleRow({
           <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
             {relationships.map((relationship) => (
               <RelationBadge
-                key={`${relationship.kind}:${relationship.extension ?? ''}`}
+                /* The role is in the key because a module can be both ends of
+                   one context kind — a notes pane that follows a passage and
+                   points at one when somebody presses a note — and those are
+                   two rows, not one drawn twice. */
+                key={`${relationship.kind}:${relationship.role ?? ''}:${relationship.extension ?? ''}`}
                 relationship={relationship}
                 module={presence.name ?? presence.id}
               />
             ))}
           </div>
         ) : null}
+        <Halves standing={standing} />
         {presence.module?.mcp ? (
           <p className="text-muted-foreground mt-1 font-mono text-[11px] break-all">
             agents: {presence.module.mcp.url}
@@ -453,6 +463,127 @@ function ModuleRow({
         </Button>
       </Hint>
     </li>
+  )
+}
+
+/**
+ * Consumer, provider, or both, in a word the host chose.
+ *
+ * ## Why the word is fixed, and why that is not a small point
+ *
+ * Every string in these two badges is a literal in this file. Nothing from a
+ * manifest gets in. A badge is `whitespace-nowrap` in shadcn's base, and a
+ * nowrap child puts a min-content floor under every flex and grid ancestor it
+ * has: a sibling module in this workspace put a variable string in one and gave
+ * a 220-pixel container an 1187-pixel floor, which does not look like a badge
+ * bug — it looks like the whole window refusing to be narrow. `Tools.tsx` has
+ * the long version. Module names in this row go in the prose lines below, which
+ * can truncate; the badges get words nobody else writes.
+ *
+ * ## What the two words claim, which is less than it looks
+ *
+ * They are read off this module's own manifest, not off who else is installed.
+ * "Provider" means it says it emits a format or declared a capability that puts
+ * something in front of every pane on a canvas; "consumer" means it says it
+ * shows a format or reacts to something in the context. Both stay true on a
+ * machine where nothing else is registered, which is what somebody browsing to
+ * decide what to install actually wants to read.
+ *
+ * Neither is a permission and neither is checked. A module is not stopped from
+ * consuming a context it never declared — it is sent the context regardless —
+ * and the badge is a description that can be wrong without anything else being
+ * different. See the essay on `reacts` in the protocol's `manifest.ts`.
+ *
+ * Nothing at all when a module is neither, which is most of them, and the
+ * silence is the feature: a mark on every row is a mark nobody reads.
+ */
+function Standings({ standing }: { standing: Standing }) {
+  if (!standing.consumer && !standing.provider) return null
+  return (
+    <>
+      {standing.consumer ? (
+        <Hint
+          label={
+            <span className="block max-w-[22rem] leading-relaxed">
+              It says in its own manifest that it shows an event format, or that it reacts to
+              something the canvas broadcasts. Nothing here is checked or enforced — every framed
+              module is sent the whole context in any case.
+            </span>
+          }
+        >
+          <Badge variant="outline" className="shrink-0 cursor-default px-1.5 py-0 text-[10px] font-normal">
+            consumer
+          </Badge>
+        </Hint>
+      ) : null}
+      {standing.provider ? (
+        <Hint
+          label={
+            <span className="block max-w-[22rem] leading-relaxed">
+              It says in its own manifest that it emits an event format, or it declared a capability
+              that puts something in front of every module on the canvas.
+            </span>
+          }
+        >
+          <Badge variant="outline" className="shrink-0 cursor-default px-1.5 py-0 text-[10px] font-normal">
+            provider
+          </Badge>
+        </Hint>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * "Consumes: X, Y, Z" and "Provides to: Z, W, A", one line each.
+ *
+ * ## One line each, and it stays one line however many there are
+ *
+ * The standing complaint about this workspace is prose in a narrow column, and
+ * a module with six relationships is exactly where a summary turns into a
+ * paragraph. So each half is a single row that TRUNCATES: `min-w-0` on the
+ * container, `truncate` on the names, and the whole list in the tooltip where
+ * there is room. Six counterparts produce two lines, the same as one does.
+ *
+ * The names are a stranger's strings, so they are here in ordinary text rather
+ * than in a badge — see `Standings` above for what a variable string inside a
+ * nowrap badge did to a container in this workspace.
+ *
+ * ## Absent rather than empty
+ *
+ * A half with nothing in it draws nothing. "Provides to: —" would be a row
+ * asserting that this module provides to nobody, and the host does not know
+ * that: what it knows is that no registered module has DECLARED that it takes
+ * anything from this one, which is a fact about who is installed today. The
+ * badge above already says the module provides. `relations.ts` has the argument
+ * in full, and it is the same one that keeps half a relationship from being
+ * drawn as one.
+ */
+function Halves({ standing }: { standing: Standing }) {
+  if (!standing.consumes.length && !standing.providesTo.length) return null
+  return (
+    <div className="mt-1 min-w-0 space-y-0.5">
+      {standing.consumes.length ? (
+        <Half label="Consumes" who={standing.consumes.map((one) => one.name)} />
+      ) : null}
+      {standing.providesTo.length ? (
+        <Half label="Provides to" who={standing.providesTo.map((one) => one.name)} />
+      ) : null}
+    </div>
+  )
+}
+
+function Half({ label, who }: { label: string; who: readonly string[] }) {
+  const all = who.join(', ')
+  return (
+    <Hint label={<span className="block max-w-[22rem] leading-relaxed">{`${label}: ${all}`}</span>} side="bottom" align="start">
+      <p className="text-muted-foreground min-w-0 text-[11px] leading-relaxed">
+        {/* The label is the host's own word and never wraps away from the names
+            it introduces; the names are the part allowed to run out of room. */}
+        <span className="text-foreground/70 font-medium">{label}:</span>{' '}
+        <span className="inline-block max-w-full truncate align-bottom">{all}</span>
+      </p>
+    </Hint>
   )
 }
 
@@ -485,6 +616,9 @@ function RelationBadge({ relationship, module }: { relationship: Relationship; m
   const carrying = relationship.with.some(
     (one) => one.reach.where === 'here' || one.reach.where === 'elsewhere',
   )
+  /* A reaction gets the eye rather than the pointer, and it is the only mark in
+     the row that stands for something nobody performs: the module says it
+     watches the context go by. The pointer belongs to the half that acts. */
   const Icon =
     relationship.kind === 'emits'
       ? ArrowUpRight
@@ -492,7 +626,9 @@ function RelationBadge({ relationship, module }: { relationship: Relationship; m
         ? ArrowDownLeft
         : relationship.kind === 'navigation'
           ? Compass
-          : MousePointerClick
+          : relationship.role === 'reacts'
+            ? Eye
+            : MousePointerClick
 
   return (
     /* The sentence is bounded rather than left to `w-fit`, which would draw one
