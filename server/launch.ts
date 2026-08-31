@@ -211,6 +211,41 @@ export async function answered(origin: string, wellKnown: string): Promise<boole
 }
 
 /**
+ * Wait for a stopped module to actually let go of its port.
+ *
+ * The mirror of `answered`, and needed for the same reason in reverse. A
+ * SIGTERM returns immediately; the process then has to run its own shutdown,
+ * close its listener and let the socket go. A replacement started inside that
+ * window finds the old one still listening, decides a copy of itself is already
+ * running -- which is exactly what `roadmap-module-protocol/serve` is supposed
+ * to conclude -- and exits without starting anything.
+ *
+ * So the restart waits to see the address go quiet before asking for it. Bounded
+ * the same way `answered` is bounded: a module that will not release its port is
+ * a module that has not stopped, and the caller is better told that by trying
+ * and failing visibly than by this waiting forever.
+ *
+ * `true` means the address is free. `false` means it never went quiet, and the
+ * start that follows will report whatever it finds -- which is the honest
+ * outcome rather than one this function invented.
+ */
+export async function gone(origin: string, wellKnown: string): Promise<boolean> {
+  const until = Date.now() + ANSWERS_WITHIN_MS
+  while (Date.now() < until) {
+    try {
+      await fetch(new URL(wellKnown, origin), { signal: AbortSignal.timeout(ASK_EVERY_MS * 2) })
+      /* Something answered, so it is still there. */
+    } catch {
+      /* Refused, reset, or timed out. All of them mean nothing is serving that
+         address any more, which is the whole question being asked. */
+      return true
+    }
+    await new Promise((wake) => setTimeout(wake, ASK_EVERY_MS))
+  }
+  return false
+}
+
+/**
  * Run it, and do not pretend to know more than that.
  *
  * `detached` and unref'd, because the module outlives the request that started

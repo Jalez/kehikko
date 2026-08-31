@@ -19,7 +19,7 @@ import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
-import { answered, Nursery, start, startable } from './launch.ts'
+import { answered, gone, Nursery, start, startable } from './launch.ts'
 import {
   asleepLine,
   Idleness,
@@ -733,8 +733,65 @@ const server = Bun.serve({
          the answer is about the disk as it is at the moment of the press. It is
          one small directory read; the honesty is worth more than the map. */
       const now = await readRegistrations(registryDir())
-      const can = startable(now.registrations.find((r) => r.id === body.module) ?? null)
+      const registration = now.registrations.find((r) => r.id === body.module) ?? null
+      const can = startable(registration)
       if (!can.ok) return json({ ok: false, why: can.why }, 409)
+
+      /*
+       * A module that is already answering must be RESTARTED, not started again.
+       *
+       * ## Start had quietly become a no-op
+       *
+       * Modules now claim their own port — see `roadmap-module-protocol/serve`
+       * — and a module finding its own copy already there says so and exits 0.
+       * That is right for a person typing `./run.sh`, and it turned this button
+       * into a lie: the spawn succeeded, the child exited immediately having
+       * done nothing, the sweep afterwards found the same broken module, and the
+       * page reported exactly what it had before.
+       *
+       * The press that exposed it was somebody whose container was drawing
+       * nothing because its page held addresses from before a dependency
+       * rebuild. Start was the only control offered, they pressed it several
+       * times, and it could not have worked on any of them. A restart WOULD have
+       * fixed it — a Vite server coming back up pushes a reload to the page it
+       * is framed in, and the module recovers in a few seconds unattended.
+       *
+       * ## Which is why this refuses rather than guesses when it cannot
+       *
+       * Stopping is only ever something this host may do to a program it
+       * started, and `keep` is how somebody says not even then — see the essay
+       * in `lifecycle.ts` for why stopping is not the mirror image of starting.
+       * A module somebody is running in their own terminal is theirs, and the
+       * honest answer names where it is rather than pretending the button did
+       * something.
+       */
+      const standing = registration ? await look(registration) : null
+      if (standing?.reached) {
+        if (registration?.keep === true) {
+          return json({
+            ok: false,
+            why:
+              `${body.module} is already running at ${can.run.url}, and its registration says to keep it. `
+              + 'This host will not stop it — that flag exists so nothing reaps a program holding live work. '
+              + 'Stop it where you started it if you want it restarted.',
+          }, 409)
+        }
+        const stopped = nursery.stop(body.module)
+        if (stopped === 'not-ours') {
+          return json({
+            ok: false,
+            why:
+              `${body.module} is already running at ${can.run.url} and this host did not start it, so it cannot `
+              + 'restart it. Stop it where you started it and press this again — or reload this page, which is '
+              + 'enough when the module is fine and this container is holding a stale copy of its page.',
+          }, 409)
+        }
+        /* Its own port has to come free before the replacement asks for it, or
+           the new process finds the old one still listening, decides a copy of
+           itself is already running, and exits — which is the very thing this
+           branch exists to get past. */
+        await gone(can.run.url, WELL_KNOWN)
+      }
 
       const ran = start(can.run)
       /* A press is a start like any other, so its child goes into the nursery
