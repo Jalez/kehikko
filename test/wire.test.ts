@@ -532,3 +532,91 @@ describe('the context says which project the kehikko is in, and where it is', ()
     expect(after.kehikko).toEqual(before.kehikko)
   })
 })
+
+describe('a module can hand the host a control it cannot draw itself', () => {
+  test('an offer reaches the canvas, unread', () => {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const offers: unknown[] = []
+    const conversation = new Conversation(frame, 'example.notifications', null, async () => nothing, {
+      ...quiet(),
+      filters: (groups) => offers.push(groups),
+    })
+    conversation.greet(context)
+    sent.length = 0
+
+    conversation.receive({
+      source: contentWindow,
+      origin: 'null',
+      data: {
+        type: MESSAGE.FILTERS,
+        groups: [
+          {
+            id: 'scope',
+            label: 'which kehikko',
+            fallback: 'all',
+            options: [
+              { id: 'all', label: 'everything' },
+              { id: 'here', label: 'this kehikko' },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(offers).toHaveLength(1)
+    /* Nothing goes back. It is fire and forget, like `resize`: what returns is
+       a `roadmap.context` when somebody presses something, and only then. */
+    expect(sent).toHaveLength(0)
+  })
+
+  /*
+   * An empty offer is a module WITHDRAWING the control, not a module saying
+   * nothing. A merge could never take a group away, so a module that stopped
+   * offering something would leave a control behind that a person could press
+   * and nothing would answer.
+   */
+  test('an empty offer is a message and not a silence', () => {
+    const { frame, contentWindow } = frameAndWindow()
+    const offers: unknown[] = []
+    const conversation = new Conversation(frame, 'example.notifications', null, async () => nothing, {
+      ...quiet(),
+      filters: (groups) => offers.push(groups),
+    })
+    conversation.greet(context)
+
+    conversation.receive({
+      source: contentWindow,
+      origin: 'null',
+      data: { type: MESSAGE.FILTERS, groups: [] },
+    })
+    expect(offers).toEqual([[]])
+  })
+
+  /*
+   * A group whose fallback names nothing would turn the recovery path — "that
+   * option is gone, go back to the resting one" — into a second broken state.
+   * The schema refuses it, and the host reports a fault rather than drawing it.
+   */
+  test('an offer the schema will not take is a fault, not a control', () => {
+    const { frame, contentWindow } = frameAndWindow()
+    const offers: unknown[] = []
+    const faults: string[] = []
+    const conversation = new Conversation(frame, 'example.notifications', null, async () => nothing, {
+      ...quiet(),
+      fault: (line) => faults.push(line),
+      filters: (groups) => offers.push(groups),
+    })
+    conversation.greet(context)
+
+    conversation.receive({
+      source: contentWindow,
+      origin: 'null',
+      data: {
+        type: MESSAGE.FILTERS,
+        groups: [{ id: 'scope', label: 'scope', fallback: 'nowhere', options: [{ id: 'all', label: 'all' }] }],
+      },
+    })
+    expect(offers).toEqual([])
+    expect(faults).toHaveLength(1)
+  })
+})

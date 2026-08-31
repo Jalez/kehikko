@@ -205,7 +205,12 @@ describe('a module’s label cannot widen anything', () => {
    * no FUTURE call site does it — a rendering test can only see the call sites
    * that exist.
    */
+  /* Comments stripped, because both words below are discussed at length in this
+     file's own essays — a check that could be satisfied by editing a paragraph
+     is not a check. What is left is the code. */
   const source = readFileSync(new URL('../src/canvas/Filters.tsx', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
 
   test('no badge anywhere near a module’s words', () => {
     expect(source).not.toContain('Badge')

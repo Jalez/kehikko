@@ -103,6 +103,51 @@ greppable and hand-editable. That folder is gitignored by default, because it is
 one person's working material and not the project's. Remove the line to share
 it.
 
+## The filter a module offers and the host draws
+
+Modules kept building the same control. Five of them had a toggle inside their
+own page — `hide resolved`, `show 3 ignored`, `hide preamble comments`, `all /
+this kehikko / no kehikko` — each spelled its own way, each taking a row of
+chrome in a column that is often 220 pixels wide and under 300 tall. None of
+them could put it anywhere else, because the strip around a module belongs to
+the host.
+
+So a module can hand over the values instead. It sends `roadmap.filters` with
+the axes it can be narrowed along, and the host draws one button in the
+container header; a press comes back in `context.filters`.
+
+- **Absent by default.** A module that offers nothing gets no control, no empty
+  menu and no reserved pixels. That is most modules, and their headers are
+  unchanged.
+- **The host does not know what a filter means.** An option is an id and a short
+  label the module wrote. There is nowhere in this host where `resolved` differs
+  from `ignored`, and there must not be.
+- **The choice is remembered per container**, in this host's database, beside
+  `collapsed` and `pinned` — so it survives quitting the app, restarting the
+  host, and the module being stopped and started again hours later. Per
+  container rather than per module, because two containers of the same module on
+  two kehikot are two things you are looking at in two different ways.
+- **A remembered choice cannot become a lie.** It is reconciled against what the
+  module is offering right now, every time. A value naming an option a newer
+  version of the module no longer has degrades to that module's own default
+  instead of narrowing by something nobody can see or clear.
+- **No module string is laid out in the header.** The button is an icon. Every
+  label the module wrote is inside the menu, truncated, with the whole of it in
+  a `title` — a `whitespace-nowrap` element carrying a variable string once gave
+  a 220-pixel container an 1187-pixel min-content floor here, and `Tools.tsx`
+  has the long version.
+
+The icon is the always-visible signal: foreground weight when something is
+narrowed, muted when nothing is. It says THAT a module is showing less than
+everything, not how much less — the host sees rows it does not render, in a
+document it cannot read, in a frame on another origin. A module that wants the
+exact number always visible should go on drawing that number in its own page.
+
+It is not a permission and not a declaration. `declares.uses` and `reacts` are
+manifest fields, read before a program runs, by somebody deciding whether to run
+it. This is a running module saying what it is showing, nothing is checked
+against it, and nothing is gated on it.
+
 ## Picking a module out, and the host's own door for an agent
 
 Every container header has a checkbox. Ticking it picks that container out as a

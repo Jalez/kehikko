@@ -545,3 +545,92 @@ describe('where the file is', () => {
     expect(databaseFile({})).toMatch(/\.roadmap\/frame\.sqlite$/)
   })
 })
+
+/**
+ * A filter choice is part of the arrangement, and that is a decision.
+ *
+ * The requirement is that a chosen filter survives quitting the app, and the
+ * two other places it could have lived cannot do it: a module that has been
+ * stopped remembers nothing, and `localStorage` is per browser rather than per
+ * container — which is a live bug in the one module that already tried, where
+ * every container of it on every canvas shares one choice and overwrites the
+ * others. So it goes on the row, beside `collapsed` and `pinned`.
+ *
+ * The host never learns what any of it means. What is tested here is that a
+ * string it does not understand is stored, comes back, and cannot be used to
+ * put something in this database that a reader would not expect.
+ */
+describe('a filter choice is part of the arrangement', () => {
+  test('what was chosen comes back', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.notifications', x: 0, y: 0, w: 6, h: 10, filters: { scope: 'here' } }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({ scope: 'here' })
+  })
+
+  test('an arrangement written before filters existed reads as nothing chosen', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({})
+  })
+
+  /*
+   * Per CONTAINER, which is the whole reason it is here rather than in
+   * `module_state`. Two containers of the same module on two kehikot are two
+   * things a person is looking at in two different ways, and a store keyed by
+   * module would make them fight.
+   */
+  test('two kehikot showing the same module keep different choices', () => {
+    const one = createCanvas(db, 'one')
+    const two = createCanvas(db, 'two')
+    editCanvas(db, one.id, {
+      placements: [{ i: 'a.notifications', x: 0, y: 0, w: 6, h: 10, filters: { scope: 'here' } }],
+    })
+    editCanvas(db, two.id, {
+      placements: [{ i: 'a.notifications', x: 0, y: 0, w: 6, h: 10, filters: { scope: 'none' } }],
+    })
+    const canvases = listCanvases(db)
+    expect(canvases.find((c) => c.id === one.id)?.placements[0]?.filters).toEqual({ scope: 'here' })
+    expect(canvases.find((c) => c.id === two.id)?.placements[0]?.filters).toEqual({ scope: 'none' })
+  })
+
+  /*
+   * Everything in here was invented by a framed module and passed through a
+   * page. The protocol refuses these at the wire; this is the same refusal at
+   * the other door, because a value in this column did not necessarily come
+   * through that one.
+   */
+  test('the three ids that are not really keys never reach the column', () => {
+    const made = createCanvas(db, 'one')
+    const nasty = JSON.parse('{"__proto__": "x", "constructor": "y", "scope": "here"}') as Record<
+      string,
+      string
+    >
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, filters: nasty }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({ scope: 'here' })
+  })
+
+  test('a choice wider than any offer could have been is cut down', () => {
+    const made = createCanvas(db, 'one')
+    const wide: Record<string, string> = {}
+    for (let n = 0; n < 40; n += 1) wide[`g${n}`] = 'x'
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, filters: wide }],
+    })
+    const kept = listCanvases(db)[0]?.placements[0]?.filters ?? {}
+    expect(Object.keys(kept).length).toBeLessThanOrEqual(4)
+  })
+
+  test('anything that is not a record of strings is no choice at all', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [
+        { i: 'a.one', x: 0, y: 0, w: 6, h: 10, filters: ['scope'] as unknown as Record<string, string> },
+      ],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({})
+  })
+})

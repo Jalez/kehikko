@@ -2,9 +2,26 @@
 #
 # Start the host: its small server, and Vite serving the page beside it.
 #
-# No arguments. `PORT` from the environment, or 4180. `exec` so the process that
-# ends up serving is the process whoever started this is holding — a script that
-# forked and returned would leave them with a pid that stops nothing.
+# No arguments. `PORT` from the environment, or 4180.
+#
+# This script STAYS, and does not `exec`. It used to, on the argument that the
+# process whoever started this is holding should be the process that serves —
+# "a script that forked and returned would leave them with a pid that stops
+# nothing". The goal was right and `exec` was the wrong way to it: the API is
+# started in the background just below, so `exec` replaced this shell with Vite
+# and left the API with no parent at all. Holding that pid stopped the page and
+# orphaned the server.
+#
+# Worse, `exec` discards traps. The trap below says it fires "however we leave"
+# and, with an `exec` after it, it could never fire once — a comment describing
+# a fix the code did not perform.
+#
+# What that produced was a half of a host: an API answering on 4180 with
+# nothing serving the page on 4181, so a browser pointed at it showed a white
+# screen. And `server/claim.ts` then found a Kehikot API on the port and said
+# "already running", which made this script refuse to start the very thing that
+# was missing. Both halves are checked now (see `claimPair`), and this end of it
+# is fixed here: one script, holding both, leaving with both.
 #
 # ## Why there is no build here any more, and no `dist`
 #
@@ -149,10 +166,44 @@ fi
 # it once.
 bun run server/server.ts &
 API=$!
-trap 'kill $API 2>/dev/null || true' EXIT INT TERM
 
 # `$PAGE` rather than `$((PORT + 1))`, because the pair was claimed together and
 # this is the half that was checked to be free. `--strictPort` stays: the page
 # moving on its own would put it on a port the API's claim never covered, which
 # is the desync the pair exists to prevent.
-exec bunx vite --host 127.0.0.1 --port "$PAGE" --strictPort
+#
+# Both halves in the background, and this shell waiting on the page.
+#
+# Not `exec`, and not a foreground Vite either — both were tried and both leave
+# half a host behind.
+#
+# `exec` replaced this shell with Vite, so the API had no parent and no trap
+# could run: killing the pid somebody was holding stopped the page and orphaned
+# the server on 4180.
+#
+# Running Vite in the FOREGROUND fixed the parent and broke the signal. A shell
+# blocked on a foreground child does not act on a trapped signal until that
+# child ends, so a TERM aimed at this script sat queued behind the very process
+# it was meant to stop. Measured: `kill` on the script's own pid left the
+# script, the API and the page all running.
+#
+# So the page goes to the background too and this shell `wait`s on it, which is
+# interruptible. A signal reaches the trap immediately, the trap takes both
+# halves down, and there is no state where one is serving without the other.
+bunx vite --host 127.0.0.1 --port "$PAGE" --strictPort &
+PAGE_PID=$!
+
+# Whichever way this ends -- Ctrl-C, a TERM from whoever started it, or Vite
+# exiting on its own -- both processes go. An orphan holding 4180 is its own
+# afternoon of "address already in use" for anybody who has met it once, and a
+# live API with a dead page is a white screen that `claim.ts` used to describe
+# as "already running".
+trap 'kill $API $PAGE_PID 2>/dev/null; exit 143' INT TERM
+trap 'kill $API 2>/dev/null' EXIT
+
+wait $PAGE_PID
+PAGE_STATUS=$?
+
+# Exiting with the page's own status keeps whoever started this able to tell a
+# clean stop from a crash.
+exit $PAGE_STATUS
