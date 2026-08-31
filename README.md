@@ -187,8 +187,57 @@ other, they had to agree on contracts. If they shared a process the shortest
 path would always have been to import the other module's store, and there would
 be a tangle where there is now a protocol.
 
-The costs are known: modules run whether or not a canvas is showing them, and
-each has written the same wire client by hand. Both are being paid down.
+The costs are known, and one of them has been paid down. Every module used to
+run whether or not a canvas was showing it — thirteen servers and a little over
+a gigabyte resident, for four kehikot holding seven, five, one and zero
+containers between them. See the next section. The other cost, each module
+having written the same wire client by hand, is still being paid down.
+
+## Modules start when a kehikko needs them, and stop when none does
+
+The host starts a module when a kehikko somebody has open has it on it, and
+stops one it started once no open kehikko has had it for five minutes. Nothing
+starts at boot. It is the lever VS Code pulls with activation events, and the
+activation event here is *"this module is on the kehikko I am looking at"*.
+
+Five minutes because the two bounds are far apart: switching kehikko is a click
+and reloading is a second, so anything above about thirty seconds never
+thrashes — while an hour would mean a canvas used all morning releases nothing,
+which is the eager boot again wearing a timer.
+
+Three restraints matter more than the saving:
+
+- **The host stops only what the host started.** Every module on a working
+  machine was started by hand in a terminal, and that process is somebody's
+  foreground job with a log they are reading. The host holds a pid for each
+  module it spawned, and there is no other path from anything to a signal — no
+  looking up a port, no killing whatever answers. A module you restart yourself
+  stops belonging to the host the moment its old pid dies.
+- **`keep: true` in a registration means never.** Stopping a program destroys
+  what it was holding, and Terminal has a live shell in it. The exemption lives
+  in the registration rather than the manifest because it says what the HOST may
+  do, and a module able to exempt itself would be granting itself a permission.
+  It is also, conveniently, not a protocol change.
+- **A stopped module reads as asleep and not as broken.** Different sentence,
+  different icon: the host says it stopped the module on purpose and will start
+  it again when a kehikko with it on is opened. The start button is still there
+  for silence nobody asked for, which is where all of this began.
+
+A started module inherits the host's whole environment, which matters for one
+variable: modules read `ROADMAP_ORIGIN` to decide who may frame them, and a
+Tauri window is `tauri://localhost` rather than the browser default. The desktop
+shell sets it on the host it launches; passing the environment through is all
+that has to happen for every module the host starts to be framed correctly.
+Nothing here names the variable.
+
+Nothing waits, either. Starting is a spawn and the answer says `starting`
+immediately — a cold host with six down modules on the open kehikko answers in
+under a tenth of a second and every container says what is happening.
+
+The policy — who may be stopped, when, and what is exempt — is a pure function
+in `server/lifecycle.ts`, tested without anything being spawned. What the host
+started is held in memory only: a new host process holds nothing and so can stop
+nothing, which is the right answer after a restart or a crash.
 
 ## Things worth knowing before changing anything
 

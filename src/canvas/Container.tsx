@@ -265,7 +265,7 @@ export function Container({
           />
         </Hint>
 
-        <ConditionDot condition={condition} />
+        <ConditionDot condition={condition} lifecycle={presence.lifecycle} />
         {/*
          * The name, and the module's own description behind it.
          *
@@ -472,6 +472,7 @@ export function Container({
           <div className="bg-card pointer-events-auto absolute inset-0">
             <ConditionPanel
               condition={condition}
+              lifecycle={presence.lifecycle}
               line={line}
               at={presence.at}
               protocols={presence.protocols}
@@ -479,8 +480,17 @@ export function Container({
               {/* Only for silence. An incompatible module is running and
                   answering — starting it again would change nothing, and the
                   panel already says which protocol each side speaks, which is
-                  the thing to act on. */}
-              {condition === 'silent' ? <Start module={presence.id} onStarted={onStarted} /> : null}
+                  the thing to act on.
+
+                  And not while the host is already starting it. The button
+                  would offer to do the thing being done, and pressing it would
+                  spawn a second copy racing the first for the port. `asleep`
+                  keeps the button: the host will start it when this kehikko
+                  next asks, and somebody who would rather not wait for that has
+                  every right to say so now. */}
+              {condition === 'silent' && presence.lifecycle !== 'starting' ? (
+                <Start module={presence.id} onStarted={onStarted} />
+              ) : null}
             </ConditionPanel>
           </div>
         )}

@@ -277,12 +277,30 @@ export function App() {
    * closed does not unmount anything — and a report left standing by a browser
    * that is no longer running would have an agent told a kehikko is on somebody's
    * screen when there is no screen.
+   *
+   * The report is followed by a sweep, and the ORDER is the whole of that. The
+   * server now decides which modules to have running from what pages say they
+   * have open — see `server/lifecycle.ts` — so a sweep sent before the report
+   * is a sweep asking about a kehikko the server has not heard of yet. The two
+   * requests are otherwise unordered, so they are ordered here rather than
+   * hoped about. Switching kehikko is exactly the moment "which modules matter"
+   * changes, which makes it exactly the moment worth asking again — the same
+   * argument the sweep-on-focus below makes, about a different act of attention.
+   *
+   * `lookRef` rather than `look` itself, because `look` is declared further down
+   * and this effect is where the report belongs. What is wanted is "whatever
+   * looking means right now", which is what a ref holds and a stale closure
+   * does not.
    */
   useEffect(() => {
-    reportOpen(openId)
-    const gone = () => reportOpen(null)
+    let here = true
+    void reportOpen(openId).then(() => {
+      if (here) void lookRef.current?.()
+    })
+    const gone = () => void reportOpen(null)
     window.addEventListener('pagehide', gone)
     return () => {
+      here = false
       window.removeEventListener('pagehide', gone)
     }
   }, [openId])
@@ -305,7 +323,7 @@ export function App() {
    * the tool call being silently undone half a second later.
    */
   useEffect(() => {
-    const stop = watchCanvases(() => {
+    const stop = watchCanvases(openId, () => {
       void (async () => {
         if (!loaded.current) return
         writer.flushAll()
@@ -319,7 +337,11 @@ export function App() {
       })()
     })
     return stop
-  }, [writer])
+    /* `openId` too, so the stream is reopened when the open kehikko changes.
+       The stream's URL carries what this page has open — see `watchCanvases` —
+       and a socket left open on a stale kehikko would tell the server the wrong
+       thing for as long as it lived. Reopening it costs one request. */
+  }, [writer, openId])
 
   /* Which project is open, remembered the same way and for the same reason: two
      windows on two screens showing two projects is a reasonable thing to do,
@@ -379,6 +401,8 @@ export function App() {
    */
   const sweeping = useRef(false)
   const sweptAt = useRef(0)
+  /** The current `look`, for the effects declared above it. See `reportOpen`. */
+  const lookRef = useRef<(() => Promise<void>) | null>(null)
 
   const look = useCallback(async () => {
     if (sweeping.current) return
@@ -409,6 +433,8 @@ export function App() {
       setLooking(false)
     }
   }, [])
+
+  lookRef.current = look
 
   useEffect(() => {
     void look()
@@ -463,6 +489,35 @@ export function App() {
       document.removeEventListener('visibilitychange', maybe)
     }
   }, [look])
+
+  /**
+   * Look again while the host is starting something.
+   *
+   * The host starts a module when a kehikko that has it is opened — see
+   * `server/lifecycle.ts` — and a start takes a second or two of a dev server
+   * binding a port. Without this, the container would say "starting" and stay
+   * that way until somebody happened to alt-tab, which is the same complaint
+   * `wake.ts` was written about: the one moment the focus mechanism cannot
+   * catch is the only moment this needs.
+   *
+   * It is a loop and it is bounded, which is the pair of properties that makes
+   * it allowed at all. It runs only while some presence says `starting`; the
+   * server stops saying that after `STARTING_FOR_MS` whatever happens, so the
+   * loop has an end even if the module never comes up — and the end is a
+   * container saying the module was run and did not answer, with the button on
+   * it. The same argument `ConnectingPanel` makes: it may move because it
+   * resolves, both ways, on its own.
+   */
+  useEffect(() => {
+    const starting = (registry?.presences ?? []).some((presence) => presence.lifecycle === 'starting')
+    if (!starting) return
+    /* An interval rather than one timeout, because `look` declines to run while
+       another sweep is in flight — and a single dropped retry would leave the
+       container saying "starting" with nothing left to ask again. An interval
+       simply asks at the next tick instead. */
+    const again = setInterval(() => void look(), 1500)
+    return () => clearInterval(again)
+  }, [registry, look])
 
   /**
    * Reconcile every canvas against what is registered.

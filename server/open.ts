@@ -85,6 +85,20 @@ export class Openness {
   }
 
   /** Every kehikko a live page says it has open, without duplicates. */
+  /**
+   * Every kehikko a live page says it has open.
+   *
+   * The same list `open` refuses to collapse into a single answer, handed over
+   * uncollapsed — and that is the point. A tool asking "which kehikko did you
+   * mean" must not be given a guess between two screens. The lifecycle policy
+   * is asking a different question, "which modules is anybody looking at", and
+   * for that one two open kehikot are not an ambiguity; they are two.
+   * See `server/lifecycle.ts`.
+   */
+  every(now = Date.now()): number[] {
+    return this.#fresh(now)
+  }
+
   #fresh(now: number): number[] {
     const ids = new Set<number>()
     for (const [page, report] of this.#reports) {

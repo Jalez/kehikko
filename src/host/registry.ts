@@ -32,6 +32,20 @@ export interface Presence {
   at: string
   condition: ModuleCondition
   line: string
+  /**
+   * What the host has lately done to this program, when it has done anything.
+   *
+   * Not a fourth condition, deliberately: `ready`, `incompatible` and `silent`
+   * are what the host found out by ASKING, and this is what the host itself
+   * DID. It arrives only on a module that is not answering, because that is the
+   * only time it changes what a person should read — and `line` has already
+   * been changed to match, saying asleep or starting rather than "not running".
+   *
+   * The page uses it for the icon and the dot, and to know that offering a
+   * press to start would be offering to do what is already happening. See
+   * `server/lifecycle.ts`.
+   */
+  lifecycle?: 'starting' | 'asleep'
   /** What the module calls itself, when the host read a manifest at all. */
   name?: string
   module?: FramedModule

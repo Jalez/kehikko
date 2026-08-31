@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { RUN_SCRIPT, startable } from '../server/launch.ts'
+import { RUN_SCRIPT, start, startable } from '../server/launch.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -158,5 +158,45 @@ describe('the script is one name, and it stays inside', () => {
     expect(can.ok).toBe(true)
     if (!can.ok) return
     expect(can.run.script).toBe(join(root, RUN_SCRIPT))
+  })
+})
+
+describe('what a module the host started is given', () => {
+  test("the host's own environment, and the port it is registered on", async () => {
+    /*
+     * The one test in this file that runs a process, and it earns it.
+     *
+     * Every module in this workspace decides who may frame it from
+     * `ROADMAP_ORIGIN`, defaulting to the browser's origin. The desktop shell's
+     * window is `tauri://localhost` and it sets that variable on the host it
+     * launches — so a module the host starts is framed correctly only if this
+     * spawn passes the environment through. Get it wrong and the failure is a
+     * blank container and one line in a console nobody has open, which is
+     * exactly the kind of thing worth holding still.
+     */
+    const root = dir()
+    const wrote = join(root, 'env.txt')
+    writeFileSync(
+      join(root, RUN_SCRIPT),
+      `#!/bin/sh\nprintf '%s %s' "\${ROADMAP_ORIGIN:-none}" "\${PORT:-none}" > ${wrote}\n`,
+    )
+    chmodSync(join(root, RUN_SCRIPT), 0o755)
+
+    const before = process.env.ROADMAP_ORIGIN
+    process.env.ROADMAP_ORIGIN = 'tauri://localhost'
+    try {
+      const can = startable(registration({ dir: root }))
+      expect(can.ok).toBe(true)
+      if (!can.ok) return
+      expect(start(can.run).ok).toBe(true)
+
+      for (let waited = 0; waited < 60 && !existsSync(wrote); waited += 1) {
+        await new Promise((wake) => setTimeout(wake, 50))
+      }
+      expect(readFileSync(wrote, 'utf8')).toBe('tauri://localhost 7999')
+    } finally {
+      if (before === undefined) delete process.env.ROADMAP_ORIGIN
+      else process.env.ROADMAP_ORIGIN = before
+    }
   })
 })

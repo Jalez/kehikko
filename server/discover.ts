@@ -7,6 +7,7 @@ import {
   type Manifest,
   type ModuleCondition,
 } from 'roadmap-module-protocol'
+import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
 
 /**
@@ -44,6 +45,31 @@ export interface Presence {
   condition: ModuleCondition
   /** The sentence the host puts on screen. Written here so there is one of it. */
   line: string
+  /**
+   * Whether anything at all was there — a socket that accepted, at minimum.
+   *
+   * Not shown anywhere and not a fourth condition. It exists because three
+   * different failures are spelled `silent` and only ONE of them means the
+   * address is empty: a program answering 404, a program serving something that
+   * is not a manifest, and a program that calls itself by another name are all
+   * `silent` and all of them are a process holding that port.
+   *
+   * The lifecycle policy needs the distinction and nothing else does. Starting
+   * a module whose port has been taken by its neighbour would spawn a server
+   * that cannot bind and dies, once per sweep, forever — a host quietly running
+   * programs in a loop, which is the exact failure `launch.ts` was written to
+   * make impossible. See `server/lifecycle.ts`.
+   */
+  reached: boolean
+  /**
+   * What this host has lately DONE to the program — started it, or stopped it.
+   *
+   * Never set in this file, and that is the point of it being separate from
+   * `condition`. A condition is what the host found out by asking; this is what
+   * the host itself did, and only `server.ts` knows. See `lifecycle.ts` for
+   * why it is not a fourth condition.
+   */
+  lifecycle?: Lifecycle
   /**
    * What the module calls itself, when the host got far enough to find out.
    *
@@ -96,7 +122,7 @@ export async function fetchManifest(
   origin: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = MANIFEST_TIMEOUT_MS,
-): Promise<{ ok: true; text: string } | { ok: false; why: string }> {
+): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean }> {
   const url = new URL(WELL_KNOWN, origin).toString()
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
@@ -106,18 +132,22 @@ export async function fetchManifest(
       headers: { accept: 'application/json' },
       redirect: 'error',
     })
-    if (!response.ok) return { ok: false, why: `answered ${response.status} at ${WELL_KNOWN}` }
+    if (!response.ok) return { ok: false, why: `answered ${response.status} at ${WELL_KNOWN}`, reached: true }
     const text = await response.text()
     if (text.length > LIMITS.MANIFEST_BYTES) {
-      return { ok: false, why: `served more than ${LIMITS.MANIFEST_BYTES} bytes at ${WELL_KNOWN}` }
+      return { ok: false, why: `served more than ${LIMITS.MANIFEST_BYTES} bytes at ${WELL_KNOWN}`, reached: true }
     }
     return { ok: true, text }
   } catch (error) {
     const name = (error as Error)?.name
+    /* A connection that opened and then went quiet. Something IS there: it took
+       the socket. Reported as reached for the same reason the sentence says
+       "did not answer within" rather than "nothing is answering" — see
+       `Presence.reached` for what turns on the difference. */
     if (name === 'AbortError' || name === 'TimeoutError') {
-      return { ok: false, why: `did not answer within ${timeoutMs}ms` }
+      return { ok: false, why: `did not answer within ${timeoutMs}ms`, reached: true }
     }
-    return { ok: false, why: 'nothing is answering' }
+    return { ok: false, why: 'nothing is answering', reached: false }
   } finally {
     clearTimeout(timer)
   }
@@ -169,6 +199,7 @@ export async function look(
       id,
       at,
       condition: 'silent',
+      reached: got.reached,
       line: `${id} is registered at ${at} and ${got.why}. It is not running — it has not gone missing.`,
     }
   }
@@ -189,6 +220,7 @@ export async function look(
       id,
       at,
       condition: 'silent',
+      reached: true,
       line: `Something is answering at ${at}, but what it served at ${WELL_KNOWN} is not JSON. No module here answers as ${id}.`,
     }
   }
@@ -201,6 +233,7 @@ export async function look(
       id,
       at,
       condition: 'silent',
+      reached: true,
       line: `Something is answering at ${at}, but its manifest is not one this host can read: ${where} — ${first?.message ?? 'malformed'}. No module here answers as ${id}.`,
     }
   }
@@ -218,6 +251,7 @@ export async function look(
       id,
       at,
       condition: 'incompatible',
+      reached: true,
       name: manifest.name,
       line: `${manifest.name} was built against protocol ${manifest.protocol}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
@@ -229,6 +263,7 @@ export async function look(
       id,
       at,
       condition: 'incompatible',
+      reached: true,
       name: manifest.name,
       line: `${manifest.name} speaks protocol ${range}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
@@ -245,6 +280,7 @@ export async function look(
       id,
       at,
       condition: 'silent',
+      reached: true,
       line: `The program at ${at} calls itself ${manifest.id}, and the registration here is for ${id}. Nothing answers as ${id}.`,
     }
   }
@@ -255,6 +291,7 @@ export async function look(
       id,
       at,
       condition: 'silent',
+      reached: true,
       line: `${manifest.name} points its page at ${manifest.entry}, which is not on ${at}. A module may describe itself and not somebody else, so there is nothing here to frame.`,
     }
   }
@@ -263,6 +300,7 @@ export async function look(
     id,
     at,
     condition: 'ready',
+    reached: true,
     name: manifest.name,
     line: manifest.summary || `${manifest.name} ${manifest.version}`,
     protocols: { host: PROTOCOL, module: manifest.protocol, range },

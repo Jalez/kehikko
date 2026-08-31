@@ -144,6 +144,28 @@ export interface Started {
   /** What was run, so the page can show it whether or not it worked. */
   command: string
   why?: string
+  /**
+   * The process this host created, when it created one.
+   *
+   * A handle and not a number, and that distinction is the whole of the safety
+   * — see the essay on `Nursery` below. A pid is a name that gets reused; this
+   * is the child itself, which knows whether it has exited because the runtime
+   * told it so.
+   */
+  child?: Child
+}
+
+/**
+ * A process this host started, as the only thing that may later be signalled.
+ *
+ * `alive()` is not "does a process with this number exist". It is "has MY child
+ * exited", answered from the `exit` event the runtime delivers for a child this
+ * process spawned — so a pid that has died and been reused answers false, which
+ * is the answer that matters.
+ */
+export interface Child {
+  readonly pid: number
+  alive(): boolean
 }
 
 /**
@@ -200,6 +222,32 @@ export async function answered(origin: string, wellKnown: string): Promise<boole
  *
  * The script is spawned directly rather than through a shell — no `sh -c`, no
  * string interpolation — so nothing in a registration can become shell.
+ *
+ * ## The child gets the host's whole environment, and that is load-bearing
+ *
+ * `{ ...process.env }`, with `PORT` added and nothing removed. It reads like a
+ * default and it is a decision, because of one variable in particular.
+ *
+ * Every module in this workspace decides who may frame it from
+ * `ROADMAP_ORIGIN`, falling back to `http://127.0.0.1:4181` — the browser. A
+ * Tauri window's origin is `tauri://localhost`, which that fallback does not
+ * include, so a module started under the desktop shell without the variable
+ * serves a `frame-ancestors` header that refuses the very window framing it.
+ * The container draws blank and the reason is one line in a console nobody has
+ * open.
+ *
+ * The desktop shell sets `ROADMAP_ORIGIN` on the host process it launches. So
+ * inheriting the environment is the whole of what has to happen: a module the
+ * host starts is framed correctly by whatever started the host, and nothing
+ * here names the variable, reads it, or has an opinion about it. A person
+ * running `./run.sh` in a terminal passes nothing and their modules take the
+ * browser default, which is what they want.
+ *
+ * Nothing is filtered out either, and that is deliberate rather than lazy: the
+ * host does not know which of a person's variables a module of theirs needs,
+ * and a script started by hand in a terminal would have had all of them. A
+ * module started by the host should be the same program in the same
+ * environment, or "start it yourself and see" stops being useful advice.
  */
 export function start(run: Runnable): Started {
   try {
@@ -210,9 +258,206 @@ export function start(run: Runnable): Started {
       stdio: 'ignore',
       shell: false,
     })
+    /* Its death, noticed. `unref` below stops the child holding this process
+       open; it does not stop `exit` arriving, because reaping a child is
+       something the runtime does for every child it has whether or not anybody
+       is waiting. This listener is the whole of how the host knows that the
+       process it started is the process still wearing that pid. */
+    let gone = child.pid === undefined
+    child.on('exit', () => {
+      gone = true
+    })
+    child.on('error', () => {
+      gone = true
+    })
     child.unref()
-    return { ok: true, command: run.command }
+
+    if (child.pid === undefined) return { ok: true, command: run.command }
+    const pid = child.pid
+    return {
+      ok: true,
+      command: run.command,
+      child: { pid, alive: () => !gone && child.exitCode === null && child.signalCode === null },
+    }
   } catch (error) {
     return { ok: false, command: run.command, why: (error as Error).message }
+  }
+}
+
+/**
+ * What this host started, and the only thing it is allowed to stop.
+ *
+ * ## Why an object holding pids rather than a rule about ports
+ *
+ * The obvious implementation of "stop the module on 7920" is to find whatever
+ * is listening there and kill it. That is not a smaller version of this; it is
+ * a different and much larger claim. Every module on this machine right now was
+ * started by hand in somebody's terminal — a foreground job, in a tab, with a
+ * log they are reading. A host that could look up a port and kill its owner
+ * could kill any of those, and the only thing between it and doing so would be
+ * a policy in another file being right every single time.
+ *
+ * So the ability does not exist. `stop` takes a module id, looks it up in a map
+ * written in exactly one place — `keep`, called immediately after this process
+ * spawned the child — and refuses anything it does not find. There is no path
+ * from a port, a url, a registration or a request to a signal. A module this
+ * host did not start cannot be stopped by it, not because a check says no but
+ * because there is nothing for the pid to be looked up in.
+ *
+ * ## A pid is a name that gets reused, so a pid is not what is held
+ *
+ * This is the failure that would be worst and quietest, and it is not
+ * hypothetical: while this was being written another agent restarted eleven of
+ * the thirteen modules on this machine, one at a time. Every pid the host had
+ * for those is now a number belonging to nothing — and on a busy machine, a
+ * number that something else will eventually be given. A host that checked
+ * "does a process with this number exist" and then signalled would one day kill
+ * a stranger, and the stranger would be whatever happened to inherit the
+ * number: somebody's build, somebody's editor, somebody's shell.
+ *
+ * So what is held is a `Child` and not a number. `alive()` answers from the
+ * `exit` event the runtime delivers for a child THIS PROCESS spawned, which is
+ * a fact about identity and not about a number being in use. A module whose
+ * process died — killed, crashed, restarted by hand — answers false from that
+ * moment, and its entry is dropped the next time anything asks. The pid is used
+ * once, to aim a signal, and only after `alive()` has said the process behind
+ * it is still ours.
+ *
+ * ## Why the whole group
+ *
+ * `start` spawns detached, which on a POSIX system makes the child a process
+ * GROUP leader. A `run.sh` is a shell that runs a dev server that spawns
+ * workers, so signalling the shell alone would leave the server up and the port
+ * held — the memory this whole exercise is about would not come back. The
+ * signal therefore goes to `-pid`, the group; and since `alive()` has just said
+ * our child is the process wearing that pid, the group named by it is ours.
+ *
+ * ## Why SIGTERM, then SIGKILL, and not one or the other
+ *
+ * SIGTERM first, because a dev server given the chance closes its sockets and
+ * flushes; killed outright it can leave a port that its own restart then fails
+ * to bind. SIGKILL after a pause, because a module that ignores SIGTERM would
+ * otherwise be "stopped" in this map and still resident — the one outcome that
+ * would make every memory number in this work a lie.
+ */
+export interface Held {
+  /** The child itself, which knows whether it is still the process it was. */
+  child: Child
+  /** When the host spawned it, which is where idleness is measured from. */
+  at: number
+  /** The origin it was started to answer on, so a log line can name it. */
+  url: string
+}
+
+/** How long a module gets to leave on its own before it is killed outright. */
+export const TERM_GRACE_MS = 5000
+
+export type Stopped = 'stopped' | 'not-ours' | 'already-gone'
+
+export class Nursery {
+  #held = new Map<string, Held>()
+  readonly #signal: (pid: number, signal: NodeJS.Signals | 0) => void
+  readonly #after: (ms: number, run: () => void) => void
+
+  /**
+   * The signal and the timer are injected so that the whole of this — including
+   * the refusal to stop somebody else's process — can be tested without a
+   * single process being created. Nothing else about it is configurable.
+   */
+  constructor(
+    signal: (pid: number, sig: NodeJS.Signals | 0) => void = (pid, sig) => {
+      process.kill(pid, sig)
+    },
+    after: (ms: number, run: () => void) => void = (ms, run) => {
+      setTimeout(run, ms).unref()
+    },
+  ) {
+    this.#signal = signal
+    this.#after = after
+  }
+
+  /** Written in one place, immediately after a spawn this process performed. */
+  keep(id: string, held: Held): void {
+    this.#held.set(id, held)
+  }
+
+  /** When the host started it, or `null` if the host did not. */
+  startedAt(id: string): number | null {
+    return this.#alive(id)?.at ?? null
+  }
+
+  /** Whether this host holds a live process for that module. */
+  holds(id: string): boolean {
+    return this.#alive(id) !== null
+  }
+
+  /** Every module this host currently holds a live process for. */
+  get ids(): string[] {
+    return [...this.#held.keys()].filter((id) => this.#alive(id) !== null)
+  }
+
+  /**
+   * Stop it, if it is ours.
+   *
+   * `already-gone` and `not-ours` are separate answers on purpose. The first
+   * means the host started it and something else has since ended it — the
+   * ordinary case while somebody restarts a module by hand — and the entry is
+   * dropped, so the host stops believing it owns whatever next takes that port.
+   * The second means the host never started it, and must never touch it.
+   */
+  stop(id: string): Stopped {
+    const held = this.#held.get(id)
+    if (!held) return 'not-ours'
+    /* Not "is that number in use". Our child, still running. A process that
+       died and whose number was handed to somebody else answers false here, and
+       that is the entire reason a `Child` is held rather than a `pid`. */
+    if (!held.child.alive()) {
+      this.#held.delete(id)
+      return 'already-gone'
+    }
+    this.#held.delete(id)
+    try {
+      this.#signal(-held.child.pid, 'SIGTERM')
+    } catch {
+      return 'already-gone'
+    }
+    this.#after(TERM_GRACE_MS, () => {
+      /* Asked again, of the same handle, for the same reason: between the two
+         signals the child may have exited and its number been reused, and the
+         second signal must not follow the number. */
+      if (!held.child.alive()) return
+      try {
+        this.#signal(-held.child.pid, 'SIGKILL')
+      } catch {
+        /* Gone between the check and the signal, which is the wanted outcome. */
+      }
+    })
+    return 'stopped'
+  }
+
+  /** Forget one — its registration is gone, so nothing here refers to it. */
+  forget(id: string): void {
+    this.#held.delete(id)
+  }
+
+  /**
+   * The entry, if the process behind it is still there; otherwise nothing, and
+   * the stale entry is dropped as it is found.
+   *
+   * This is what makes a module restarted by hand behave correctly, and it
+   * happens constantly: while this was being written, eleven of the thirteen
+   * modules here were stopped and started again by somebody else. The host's
+   * child died, somebody started the module afresh in a terminal, the port
+   * answers again — and from the moment the child exited the host holds nothing
+   * for it and will not stop it. A module vanishing and coming back leaves
+   * ownership with whoever last actually started it, which is the only honest
+   * answer available and, conveniently, the safe one.
+   */
+  #alive(id: string): Held | null {
+    const held = this.#held.get(id)
+    if (!held) return null
+    if (held.child.alive()) return held
+    this.#held.delete(id)
+    return null
   }
 }

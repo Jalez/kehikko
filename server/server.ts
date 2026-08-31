@@ -8,6 +8,7 @@ import {
   editCanvas,
   ensureCanvases,
   keepState,
+  listCanvases,
   open,
   readState,
   type CanvasEdit,
@@ -17,7 +18,17 @@ import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
-import { answered, start, startable } from './launch.ts'
+import { answered, Nursery, start, startable } from './launch.ts'
+import {
+  asleepLine,
+  Idleness,
+  startingLine,
+  STARTING_FOR_MS,
+  toStart,
+  toStop,
+  type Lifecycle,
+  type Standing,
+} from './lifecycle.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
 import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
 import { toolsAt } from './tools.ts'
@@ -123,7 +134,7 @@ const json = (body: unknown, status = 200) =>
  * modules would be twelve seconds of a person watching an empty canvas, and the
  * one thing this host must not do is make "not running" look like "broken".
  */
-async function sweep(): Promise<{
+async function survey(): Promise<{
   presences: (Presence & { state: string | null; agent: AgentAwareness })[]
   sweep: RegistrationSweep
   protocol: number
@@ -161,6 +172,260 @@ async function sweep(): Promise<{
     protocol: PROTOCOL,
   }
 }
+
+type Swept = Awaited<ReturnType<typeof survey>>
+
+/**
+ * The sweep, with two of them never running at once.
+ *
+ * A sweep is one HTTP request to every registered program. Two overlapping ones
+ * are twice that for one answer, and there are now three things that can ask
+ * for a sweep at nearly the same moment: the page on load, the page on focus,
+ * and a person switching kehikko — which reports what is open and then wants to
+ * know what is running there. Whoever asks second gets the answer the first is
+ * already waiting for.
+ *
+ * Safe to share because a sweep is a question about the disk and the ports and
+ * about nothing the caller brought with it. What each caller does with the
+ * answer differs; the answer does not.
+ */
+let sweeping: Promise<Swept> | null = null
+function sweep(): Promise<Swept> {
+  if (sweeping) return sweeping
+  const running = survey().finally(() => {
+    sweeping = null
+    seen = running
+  })
+  sweeping = running
+  return running
+}
+
+/**
+ * The last sweep, kept so that stopping does not need a new one.
+ *
+ * The reaper runs on a timer and the whole point of it is to run when NOBODY is
+ * looking — so it must not sweep, because a sweep is thirteen requests, and a
+ * host making thirteen requests a minute forever to save memory would be
+ * spending the saving on the saving. What it needs from a sweep is one bit per
+ * module: is anything there. That bit going stale costs at most one tick of
+ * delay in either direction, and `Nursery` refuses anything whose process has
+ * since died, so a stale belief cannot become a wrong signal.
+ */
+let seen: Promise<Swept> | null = null
+
+/**
+ * The programs the host started, and when.
+ *
+ * The only thing in this process that can name a process. See the essay on
+ * `Nursery` in `launch.ts` for why stopping is a lookup in a map this file
+ * writes exactly once, and not a rule about ports.
+ */
+const nursery = new Nursery()
+
+/** When each module was last on a kehikko somebody had open. */
+const idleness = new Idleness()
+
+/** When the host last ran a module's script, for as long as that is news. */
+const starting = new Map<string, number>()
+
+/** When the host stopped a module, until something starts it again. */
+const sleeping = new Map<string, number>()
+
+/**
+ * Which modules are on a kehikko that a live page says it has open.
+ *
+ * The whole activation rule, and it is one sentence: a module is needed when
+ * somebody is looking at a canvas that has it. Two windows on two kehikot need
+ * the union — `open.ts` refuses to collapse those into one answer for an agent
+ * and hands them over uncollapsed here, because two screens is not an ambiguity
+ * when the question is "is anybody looking at this".
+ *
+ * Local: a sqlite read and a map in memory, no network at all. That is what
+ * lets the reaper run on a timer without the timer costing anything.
+ */
+function neededNow(now = Date.now()): Set<string> {
+  const openIds = new Set(openness.every(now))
+  const needed = new Set<string>()
+  for (const canvas of listCanvases(db)) {
+    if (!openIds.has(canvas.id)) continue
+    for (const placement of canvas.placements) needed.add(placement.i)
+  }
+  return needed
+}
+
+/** Whether a start the host asked for is still recent enough to be called one. */
+function isStarting(id: string, now: number): boolean {
+  const at = starting.get(id)
+  if (at === undefined) return false
+  if (now - at < STARTING_FOR_MS) return true
+  starting.delete(id)
+  return false
+}
+
+/**
+ * Every fact the policy is allowed to consider, gathered in one place.
+ *
+ * Gathering and deciding are deliberately separate functions in separate files.
+ * Everything here reads a map, a database or a directory; everything in
+ * `lifecycle.ts` is arithmetic over what this returns. That is what lets the
+ * policy — which module may be stopped, when, and what is exempt — be tested
+ * exhaustively without a process ever being created.
+ */
+function standings(presences: readonly Presence[], now: number): Standing[] {
+  const needed = neededNow(now)
+  idleness.noted(needed, now)
+
+  /* A module whose registration is gone stops being remembered anywhere here.
+     Not housekeeping for its own sake: an entry left in `sleeping` would keep
+     the host saying "asleep" about a program nobody has registered any more,
+     and one left in the nursery would have it holding a pid for a name it can
+     no longer look up a directory for. The registry is the list of what exists
+     — see `readRegistrations` — so it is also the list of what these may hold. */
+  const here = new Set(presences.map((presence) => presence.id))
+  idleness.forgetAllBut(here)
+  for (const id of [...starting.keys()]) if (!here.has(id)) starting.delete(id)
+  for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
+  for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
+
+  return presences.map((presence) => {
+    const registration = registered.get(presence.id) ?? null
+    /* `startedAt` is null for every module this host did not start, and asking
+       the nursery is also what drops a pid whose process has died — so a module
+       somebody restarted by hand stops being ours at the moment we look. */
+    const startedAt = nursery.startedAt(presence.id)
+    return {
+      id: presence.id,
+      needed: needed.has(presence.id),
+      answering: presence.reached,
+      startable: startable(registration).ok,
+      ours: startedAt !== null,
+      keep: registration?.keep === true,
+      idleSince: idleness.since(presence.id, startedAt),
+      starting: isStarting(presence.id, now),
+    }
+  })
+}
+
+/**
+ * Run one module's script because a kehikko somebody has open needs it.
+ *
+ * The one place in this program that starts something nobody pressed a button
+ * for, and it is worth saying exactly why that is not the autostart `launch.ts`
+ * refuses. That essay's objection is to a host that runs programs on a guess —
+ * everything registered, at boot, because it might be wanted. This runs one
+ * named program because a person is at this moment looking at a container for
+ * it, on a canvas they arranged, from a registration they wrote naming a
+ * directory they chose. The press has not disappeared; it has moved from a
+ * button on the container to the act of opening the kehikko the container is on.
+ *
+ * Nothing is started that is not on an open kehikko. There is no warming, no
+ * prediction and no retry loop: a start that does not take is a container that
+ * says so, with the button on it, which is where this began.
+ */
+function begin(id: string): void {
+  const can = startable(registered.get(id) ?? null)
+  if (!can.ok) return
+  const ran = start(can.run)
+  if (!ran.ok || !ran.child) return
+  const at = Date.now()
+  nursery.keep(id, { child: ran.child, at, url: can.run.url })
+  starting.set(id, at)
+  sleeping.delete(id)
+  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko has it (pid ${ran.child.pid})`)
+}
+
+/**
+ * Decide and act, from a sweep already in hand.
+ *
+ * Never sweeps: the caller has just done that, or is deliberately working from
+ * the last one. Never awaits either — a start is a spawn and the moment after
+ * it the module is `starting`, which is a thing the container can say straight
+ * away. Waiting here would make every canvas switch pause for a dev server.
+ */
+function govern(presences: readonly Presence[], mayStart = true): void {
+  const now = Date.now()
+  const standing = standings(presences, now)
+
+  if (mayStart) for (const id of toStart(standing)) begin(id)
+
+  for (const id of toStop(standing, now)) {
+    const was = nursery.stop(id)
+    if (was !== 'stopped') continue
+    sleeping.set(id, now)
+    starting.delete(id)
+    console.log(`kehikko: stopped ${id} — no open kehikko has had it for the grace period`)
+  }
+}
+
+/**
+ * What the host has done to a module lately, for the container to say.
+ *
+ * Only ever attached to a module that is not answering, because that is the
+ * only time it changes what a person should read: a module that is up needs no
+ * explanation, and one that is down needs the right one. A module that has come
+ * back — however it came back — stops being described as asleep here, which is
+ * how a module the other agent restarted by hand loses the word.
+ */
+function lifecycleOf(presence: Presence, now: number): Lifecycle | undefined {
+  if (presence.condition !== 'silent') {
+    starting.delete(presence.id)
+    sleeping.delete(presence.id)
+    return undefined
+  }
+  if (isStarting(presence.id, now)) return 'starting'
+  return sleeping.has(presence.id) ? 'asleep' : undefined
+}
+
+/** A sweep as the page receives it, with the host's own lifecycle words on it. */
+function told(view: Swept): Swept {
+  const now = Date.now()
+  return {
+    ...view,
+    presences: view.presences.map((presence) => {
+      const lifecycle = lifecycleOf(presence, now)
+      if (!lifecycle) return presence
+      /* The line is replaced, not appended to. `discover.ts` wrote a good
+         sentence about a program that is not running and does not know why;
+         this host DOES know why, and showing both would be the container saying
+         two things about one fact. See `lifecycle.ts` for the two sentences. */
+      return {
+        ...presence,
+        lifecycle,
+        line:
+          lifecycle === 'starting'
+            ? startingLine(presence.id, presence.at)
+            : asleepLine(presence.id, presence.at),
+      }
+    }),
+  }
+}
+
+/**
+ * The reaper: stop what nothing has needed for long enough.
+ *
+ * On a timer and not on a request, because the moment worth reclaiming memory
+ * is the moment nobody is looking — a canvas closed for the night makes no
+ * requests at all, and a policy that only ran when the page asked would save
+ * exactly nothing overnight, which is most of the day.
+ *
+ * It costs a sqlite read and some arithmetic. No sweep, no manifest, no
+ * network — see `seen` above. Every thirty seconds, so the effective grace is
+ * five minutes and a bit, and the "and a bit" does not matter to anything.
+ */
+const REAP_EVERY_MS = 30_000
+setInterval(() => {
+  void (async () => {
+    try {
+      /* No sweep has happened yet, so the host knows nothing about what is
+         running — and a host that knows nothing must not decide anything. It
+         also cannot have started anything, so there is nothing to stop. */
+      if (!seen) return
+      govern((await seen).presences, false)
+    } catch {
+      /* A failed sweep is not a reason to kill anything. */
+    }
+  })()
+}, REAP_EVERY_MS).unref()
 
 /**
  * Where the page is, which is not here.
@@ -213,7 +478,15 @@ const server = Bun.serve({
        no polling, because a host that re-swept every second would be a host
        hammering somebody's own machine to tell them nothing changed. */
     if (url.pathname === '/host/modules' && request.method === 'GET') {
-      return json(await sweep())
+      const view = await sweep()
+      /* And then act on it. A sweep is the only moment the host knows both what
+         is running and what is wanted, so it is where a module on the open
+         kehikko that nothing answers for gets started. Synchronous — it spawns
+         and returns — so the answer below already says `starting` about
+         whatever was just run, and the container says so instead of sitting on
+         a sentence about a program that is not running. */
+      govern(view.presences)
+      return json(told(view))
     }
 
     /* One question from one framed module.
@@ -438,14 +711,30 @@ const server = Bun.serve({
       if (!can.ok) return json({ ok: false, why: can.why }, 409)
 
       const ran = start(can.run)
+      /* A press is a start like any other, so its child goes into the nursery
+         beside the ones the policy asked for. Held to the same rule afterwards:
+         the host started it, so the host may stop it when nothing has needed it
+         for the grace period. The alternative — a pressed module living forever
+         — would make the button a way to opt out of the whole policy by
+         accident, and nobody pressing it is asking for that. */
+      if (ran.ok && ran.child) {
+        nursery.keep(body.module, { child: ran.child, at: Date.now(), url: can.run.url })
+        starting.set(body.module, Date.now())
+        sleeping.delete(body.module)
+      }
       /* Started is not running, so the module is given a moment to come up and
          is then asked. Sweeping immediately reported every successful start as
          a failure: the spawn worked, the module answered a second later, and
          the sweep had already run before the dev server bound its port. */
       if (ran.ok) await answered(can.run.url, WELL_KNOWN)
-      const after = ran.ok ? await sweep() : null
+      const after = ran.ok ? told(await sweep()) : null
+      /* The child stays on this side. It is what makes the module stoppable —
+         see `Nursery` — and the page has no use for it; a handle the answer
+         carried only because the spawn produced it is not something to serialise
+         into JSON and hand to a browser. */
+      const { child: _held, ...outcome } = ran
       return json({
-        ...ran,
+        ...outcome,
         presence: after?.presences.find((p) => p.id === body.module) ?? null,
       })
     }
@@ -589,6 +878,17 @@ const server = Bun.serve({
           ? body.kehikko
           : null
       openness.reported(page, kehikko)
+      /* A kehikko was just opened, so the set of modules anybody is looking at
+         has just changed — which is the whole trigger this design runs on. The
+         page sweeps too, and the two coalesce into one (see `sweep`); this one
+         exists so the decision does not depend on which of the two requests the
+         browser happened to send first. Not awaited: the page asked to report
+         what it has open and is owed nothing but an acknowledgement. */
+      void sweep()
+        .then((view) => govern(view.presences))
+        .catch(() => {
+          /* A sweep that failed is a decision not made, which is the safe one. */
+        })
       return json({ ok: true })
     }
 
@@ -603,19 +903,46 @@ const server = Bun.serve({
      * a proxy in the middle — Vite's, here — hands the stream to the page
      * immediately instead of holding it until the first real event, which might
      * be an hour away.
+     *
+     * ## It is also how a page stops saying it has a kehikko open
+     *
+     * `/host/open` is a page SAYING what it has open, and it has one hole: a
+     * page that dies without running `pagehide` — a crashed tab, a force-quit
+     * browser, a headless one closed abruptly — never withdraws, and `open.ts`
+     * deliberately keeps believing it for half a day rather than make the page
+     * poll. Nothing was harmed by that while only an agent read the report. Now
+     * the lifecycle policy reads it too, and a report nobody is behind is a
+     * kehikko's worth of modules kept running for a screen that stopped
+     * existing.
+     *
+     * A socket is the honest answer, because it costs nothing per tick and it
+     * ends exactly when the browser does. So this URL carries the same two
+     * facts `/host/open` carries and is treated the same way: the report stands
+     * while the stream is open and is withdrawn when it closes. The page puts
+     * the kehikko on the url rather than sending it once, because `EventSource`
+     * reconnects on its own and a reconnection that said nothing would withdraw
+     * a report it then never restored.
      */
     if (url.pathname === '/host/watch' && request.method === 'GET') {
       const encoder = new TextEncoder()
       let stop: (() => void) | null = null
+      const said = url.searchParams.get('page')
+      const page = said && said.length > 0 && said.length <= 64 ? said : null
+      const asked = Number(url.searchParams.get('kehikko'))
+      const kehikko = Number.isInteger(asked) && asked > 0 ? asked : null
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
-          stop = wakes.listen((kehikko) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko })}\n\n`))
+          if (page) openness.reported(page, kehikko)
+          stop = wakes.listen((woken) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko: woken })}\n\n`))
           })
         },
         cancel() {
           stop?.()
+          /* The browser went away. Withdrawn rather than left to go stale,
+             which is the whole reason the page identifies itself here. */
+          if (page) openness.reported(page, null)
         },
       })
       return new Response(stream, {

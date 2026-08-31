@@ -385,14 +385,18 @@ function ModuleRow({
   return (
     <li className="flex items-start gap-2.5 p-3">
       <span className="mt-1.5">
-        <ConditionDot condition={presence.condition} />
+        <ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{presence.name ?? presence.id}</span>
           {presence.condition !== 'ready' ? (
+            /* The badge says asleep when that is what it is. This list is the
+               one place a person sees every registered module at once, and so
+               the only place they would notice that most of them are down —
+               which reads as a row of faults unless the word says otherwise. */
             <Badge variant="outline" className="text-muted-foreground shrink-0">
-              {presence.condition}
+              {presence.lifecycle ?? presence.condition}
             </Badge>
           ) : null}
         </div>

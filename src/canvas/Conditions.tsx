@@ -1,4 +1,4 @@
-import { CircleSlash, PlugZap, Unplug } from 'lucide-react'
+import { CircleSlash, Moon, PlugZap, Unplug } from 'lucide-react'
 import type { ModuleCondition } from 'roadmap-module-protocol'
 
 import { cn } from '@/lib/utils'
@@ -29,7 +29,28 @@ import { cn } from '@/lib/utils'
  * `src/host/conversation.ts` for a page that was greeted and did not answer —
  * because a sentence written next to the fact stays true when the fact changes,
  * and one written in a component drifts into being decoration.
+ *
+ * ## The fourth word that is not a fourth condition
+ *
+ * The host now stops a module nothing has needed for a while, and starts one
+ * when a kehikko that has it is opened — see `server/lifecycle.ts`. Both leave
+ * the module `silent`, because nothing is answering at its address, and both
+ * would read as a fault if nothing else were said.
+ *
+ * They must not. "I stopped this on purpose and it comes back when you open a
+ * canvas with it on" and "this is not running and I do not know why" are
+ * different sentences leading to different actions, and a person who cannot
+ * tell them apart goes looking for a fault that does not exist.
+ *
+ * So `lifecycle` travels beside `condition` rather than inside it. The
+ * vocabulary a person learns stays at three words; what is added is not a new
+ * kind of program state but a fact about what the HOST did, which is a
+ * different sort of thing and is drawn like one — a moon rather than an unplugged
+ * cable, and no offer to start something that is already starting.
  */
+
+/** What the host has lately done, when it has done anything. See the essay above. */
+export type Lifecycle = 'starting' | 'asleep'
 
 const dots: Record<ModuleCondition, string> = {
   ready: 'bg-emerald-400',
@@ -37,13 +58,28 @@ const dots: Record<ModuleCondition, string> = {
   silent: 'bg-neutral-500',
 }
 
-export function ConditionDot({ condition }: { condition: ModuleCondition }) {
+/**
+ * The dot for a module the host put to sleep or has just run.
+ *
+ * Dimmer than `silent` for asleep, because it is the one state on this canvas
+ * that is working as intended, and a pulse for starting, because it is the one
+ * that is about to change on its own. Neither is a colour: `silent` is already
+ * the absence of one, and asleep is less than that rather than other than it.
+ */
+const lifecycles: Record<Lifecycle, string> = {
+  starting: 'bg-neutral-400 animate-pulse',
+  asleep: 'bg-neutral-600',
+}
+
+export function ConditionDot({ condition, lifecycle }: { condition: ModuleCondition; lifecycle?: Lifecycle }) {
+  const said = lifecycle ?? condition
   return (
     <span
-      title={condition}
-      aria-label={condition}
+      title={said}
+      aria-label={said}
       data-condition={condition}
-      className={cn('size-1.5 shrink-0 rounded-full', dots[condition])}
+      data-lifecycle={lifecycle ?? undefined}
+      className={cn('size-1.5 shrink-0 rounded-full', lifecycle ? lifecycles[lifecycle] : dots[condition])}
     />
   )
 }
@@ -59,18 +95,31 @@ export function ConditionDot({ condition }: { condition: ModuleCondition }) {
  */
 export function ConditionPanel({
   condition,
+  lifecycle,
   line,
   at,
   protocols,
   children,
 }: {
   condition: ModuleCondition
+  lifecycle?: Lifecycle
   line: string
   at: string
   protocols?: { host: number; module: number | null; range: string }
   children?: React.ReactNode
 }) {
-  const Icon = condition === 'incompatible' ? PlugZap : condition === 'silent' ? Unplug : CircleSlash
+  /* A moon for a module the host put down, a pulsing cable for one it has just
+     run, and the unplugged cable only for silence nobody asked for. The icon is
+     what a person reads before the sentence — a container that shows the fault
+     symbol and then explains it is fine has already said the wrong thing. */
+  const Icon =
+    lifecycle === 'asleep'
+      ? Moon
+      : condition === 'incompatible'
+        ? PlugZap
+        : condition === 'silent'
+          ? Unplug
+          : CircleSlash
   return (
     /* Centred on both axes, and held to a column narrower than the container.
        A container can be dragged to any width, and a sentence set flush to both
@@ -81,7 +130,15 @@ export function ConditionPanel({
        a single statement about why the container is empty. */
     <div className="flex h-full flex-col items-center justify-center gap-3 overflow-auto px-6 py-8 text-center">
       <Icon
-        className={cn('size-6', condition === 'incompatible' ? 'text-amber-400' : 'text-neutral-500')}
+        className={cn(
+          'size-6',
+          condition === 'incompatible' ? 'text-amber-400' : 'text-neutral-500',
+          /* One slow pulse while a start is in flight, and the same argument
+             `ConnectingPanel` makes below: it may move because it resolves,
+             both ways, quickly, and without implying that waiting is progress
+             being measured. Asleep does not move, because nothing is happening. */
+          lifecycle === 'starting' ? 'animate-pulse' : '',
+        )}
         aria-hidden
       />
       {/* The sentence, at the size of prose rather than of a caption. It is the

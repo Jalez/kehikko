@@ -258,17 +258,27 @@ export function pageId(): string {
  * Failures are swallowed. A report that did not land costs an agent a refusal
  * naming the kehikot, which is a sentence it can act on; an exception in an
  * effect would cost the person their canvas.
+ *
+ * It hands back a promise, which it did not need to while only an agent read
+ * the report. Now the host also decides which modules to have running from it —
+ * see `server/lifecycle.ts` — and the page's next sweep must be the one that
+ * comes AFTER the server knows what is open, or the sweep asks about a kehikko
+ * the server has not heard of yet and nothing starts until something else
+ * happens to look. The promise resolves whether the report landed or not: a
+ * failed report is a sweep that finds nothing new, not a page that stops.
  */
-export function reportOpen(kehikko: number | null): void {
+export function reportOpen(kehikko: number | null): Promise<void> {
   const body = JSON.stringify({ page: pageId(), kehikko })
-  void fetch('/host/open', {
+  return fetch('/host/open', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
     keepalive: true,
-  }).catch(() => {
-    /* See above. */
   })
+    .then(() => undefined)
+    .catch(() => {
+      /* See above. */
+    })
 }
 
 /**
@@ -284,8 +294,31 @@ export function reportOpen(kehikko: number | null): void {
  * that stopped hearing about changes at the first restart would be a mechanism
  * that works only until it is first tested.
  */
-export function watchCanvases(woke: (kehikko: number) => void): () => void {
-  const stream = new EventSource('/host/watch')
+export function watchCanvases(kehikko: number | null, woke: (kehikko: number) => void): () => void {
+  /*
+   * Which page this is and what it has open, on the URL of the stream itself.
+   *
+   * The report `reportOpen` makes above is the page SAYING what it has open,
+   * and it has one hole: a page that dies without running `pagehide` — a
+   * crashed tab, a force-quit browser — never withdraws, and the server has to
+   * keep believing it for half a day rather than poll. That hole is what stops
+   * the host reclaiming any memory at all after a browser is killed.
+   *
+   * This stream closes when the browser does, with no heartbeat and no request
+   * per tick: it is a connection the page already holds for another reason, and
+   * its lifetime is exactly the lifetime of the screen. So the server treats
+   * this URL as a report and the socket closing as its withdrawal.
+   *
+   * The kehikko has to be ON the url rather than reported once, because
+   * `EventSource` reconnects on its own — after a server restart, after a
+   * sleep — and a reconnection that did not say what it had open would withdraw
+   * the report and never restore it. Carrying it means every reconnect
+   * re-asserts, which is why this hook is re-run when the open kehikko changes.
+   */
+  const where = new URL('/host/watch', window.location.origin)
+  where.searchParams.set('page', pageId())
+  if (kehikko !== null) where.searchParams.set('kehikko', String(kehikko))
+  const stream = new EventSource(where.pathname + where.search)
   stream.onmessage = (event) => {
     try {
       const parsed: unknown = JSON.parse(event.data)

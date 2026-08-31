@@ -42,6 +42,42 @@ export interface Registration {
    * The registration file is the only thing the host has when a module is down.
    */
   dir?: string
+  /**
+   * Whether the owner has said this module is never to be stopped.
+   *
+   * The host stops a module it started once nothing on an open kehikko has
+   * needed it for a while — see `server/lifecycle.ts`. Stopping a program
+   * destroys whatever it was holding, and for some of them that holding is the
+   * whole point: a terminal holds a live shell, and killing its server kills
+   * somebody's session mid-command. `keep: true` says so, once, in the file.
+   *
+   * ## Why it is here rather than in the manifest
+   *
+   * Three reasons, and the first two settle it.
+   *
+   * It would be the wrong program saying it. A manifest is a module describing
+   * ITSELF; this describes what the host may DO to the module. A module able to
+   * exempt itself from being stopped would be a module granting itself a
+   * permission, and every module's honest answer to "may I be stopped" is no.
+   * The exemption has to come from the person, in a file the person wrote.
+   *
+   * It would also be a protocol change — a version bump, a field in the shared
+   * schema, and every module in the workspace re-released before the host could
+   * lean on it. That is a large bill for one boolean only the host reads.
+   *
+   * And this is already where the rest of that faculty lives. The essay above
+   * on `dir` argues that the ability to START a module cannot be a manifest
+   * field, because a manifest is served by a running module and the moment you
+   * want one is the moment there is none. Starting and stopping are one
+   * capability. The file that says the host may run this program is the file
+   * that says it may not stop it, and a person reads both in the same four
+   * lines.
+   *
+   * Absent means false, which is the right default: a module that has said
+   * nothing has an author who has not thought about being stopped, and the host
+   * will only ever stop one it started itself in any case.
+   */
+  keep?: boolean
   /** Where the file came from, so a complaint can name it. */
   file: string
 }
@@ -89,7 +125,11 @@ export function parseRegistrationBody(text: string, file: string): Record<string
     }
     const out: Record<string, string> = Object.create(null)
     for (const [k, v] of Object.entries(value)) {
-      if (typeof v === 'string' || typeof v === 'number') out[k] = String(v)
+      /* Booleans as well as strings and numbers, because JSON has a `true` and
+         the flat YAML above does not — `keep: true` written in a .json file is
+         a boolean and written in a .yaml file is the word. Both arrive here as
+         the same string and are read once, in one place. */
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
     }
     return out
   }
@@ -185,7 +225,19 @@ export function readRegistration(
      is then rather than as it was at the last sweep. */
   const dir = typeof fields.dir === 'string' && fields.dir.trim() ? fields.dir.trim() : undefined
 
-  return { ok: true, registration: { id, url: parsed.origin, ...(dir ? { dir } : {}) } }
+  /* And whether the owner has forbidden stopping it.
+
+     Only the explicit noes are read as no; anything else somebody troubled to
+     write is a yes. That is the opposite of how the rest of this file reads a
+     field, and the asymmetry is on purpose, because the two mistakes are not
+     the same size. A `keep` misread as true wastes some memory. A `keep`
+     misread as false kills the shell somebody was working in. So `keep: ture`
+     protects the module, and only `false`, `no` and `0` — the things a person
+     writes MEANING no — take the protection away. */
+  const said = typeof fields.keep === 'string' ? fields.keep.trim().toLowerCase() : ''
+  const keep = said !== '' && said !== 'false' && said !== 'no' && said !== '0'
+
+  return { ok: true, registration: { id, url: parsed.origin, ...(dir ? { dir } : {}), ...(keep ? { keep } : {}) } }
 }
 
 /** localhost, 127.0.0.0/8, and ::1, written out rather than guessed at. */

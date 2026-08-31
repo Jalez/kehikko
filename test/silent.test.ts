@@ -86,6 +86,21 @@ describe('a program that is not running', () => {
     expect(presence.line).toContain(WELL_KNOWN)
     expect(readsAsAbsent(presence.line)).toBe(false)
   })
+
+  test('an empty address and a taken one are the same word and not the same fact', async () => {
+    /* Both are `silent`, and they should be: three words a person can learn are
+       worth more than a taxonomy they cannot. But the lifecycle policy has to
+       tell them apart, because starting a module whose port a neighbour has
+       taken would spawn a server that cannot bind, once per sweep, forever.
+       See `Presence.reached` and `server/lifecycle.ts`. */
+    const refuses = (async () => {
+      throw new TypeError('Unable to connect')
+    }) as unknown as typeof fetch
+    const somethingElse = (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch
+
+    expect((await look(registration, refuses)).reached).toBe(false)
+    expect((await look(registration, somethingElse)).reached).toBe(true)
+  })
 })
 
 describe('a page that loads and never speaks', () => {
