@@ -1,17 +1,17 @@
 # Kehikot
 
 **A local-first workbench where you and your coding agent look at the same
-project through the same panes.**
+project through the same containers.**
 
 You arrange small independent programs — a paper reader, a checklist, a diff, a
 real terminal — on a canvas. Each one shows you something. Each one also serves
 an MCP server, so the agent in your terminal can use it. Putting a module on the
 canvas tells both of you what this work is about.
 
-Each program sits in a **pane**: a box with a thin header (its name, and the
-controls to pin, fold or remove it) and the program's own page filling the rest.
-A canvas is an arrangement of panes, and you can have several canvases per
-project — one for writing, one for reviewing, one for code.
+Each program sits in a **container**: a box with a thin header (its name, and
+the controls to pin, fold or remove it) and the program's own page filling the
+rest. A canvas is an arrangement of containers, and you can have several
+canvases per project — one for writing, one for reviewing, one for code.
 
 Everything runs on your own machine. Nothing is hosted, nothing phones home, and
 your data lives in your project as plain JSON.
@@ -92,7 +92,7 @@ project  (a repository or worktree — a folder on disk)
 ```
 
 A **project** is the container. A **kehikko** is one named canvas inside it:
-which panes, arranged where, and what they are about. An **epic** is what a
+which containers, arranged where, and what they are about. An **epic** is what a
 kehikko is currently about. Not every
 project has epics, and one that does not says so rather than showing an empty
 picker.
@@ -115,7 +115,7 @@ it.
 | [diff](https://github.com/Jalez/kehikko-diff) | the diff of whichever change is selected | 7890 |
 | [tests](https://github.com/Jalez/kehikko-tests) | what was actually run against the change you are looking at | 7900 |
 | [notifications](https://github.com/Jalez/kehikko-notifications) | what happened, and on which kehikko | 7910 |
-| [terminal](https://github.com/Jalez/kehikko-terminal) | a real shell, in a pane | 7920 |
+| [terminal](https://github.com/Jalez/kehikko-terminal) | a real shell, in a container | 7920 |
 | [citations](https://github.com/Jalez/kehikko-citations) | what the paper cites, and what it cites that does not exist | 7930 |
 | [notes](https://github.com/Jalez/kehikko-notes) | notes anchored to a passage, including the author's own | 7940 |
 | [learning](https://github.com/Jalez/kehikko-learning) | questions about what you are reading | 7950 |
@@ -162,10 +162,10 @@ each has written the same wire client by hand. Both are being paid down.
 
 ## Things worth knowing before changing anything
 
-**The frames outlive the panes.** An iframe that moves in the DOM has its
+**The frames outlive the containers.** An iframe that moves in the DOM has its
 document destroyed — a running terminal, a half-typed note, every scroll
 position. So the frames live in their own layer under the grid and are shown or
-hidden, never re-parented. Folding a pane, switching kehikko and changing
+hidden, never re-parented. Folding a container, switching kehikko and changing
 project all leave the document alone; a test asserts no `load` event fires
 across a fold.
 
@@ -187,7 +187,7 @@ the console. Destructive actions use a two-press arm.
 server/      the API on 4180 — registry, canvases, projects, and the methods a
              module's question is relayed to
 src/host/    the wire, the division of who answers what, the event bus
-src/canvas/  the panes, the frames layer, the header, the dialogs
+src/canvas/  the containers, the frames layer, the header, the dialogs
 ```
 
 `bun test` for the suite, `bun run typecheck` for the types.
