@@ -306,6 +306,31 @@ export function ModuleFrame({
           ? 'allow-scripts allow-forms allow-popups allow-same-origin'
           : 'allow-scripts allow-forms allow-popups'
       }
+      /**
+       * The one permission this host delegates, and why it has to be said here.
+       *
+       * `clipboard-write` has a default allowlist of `self`, which means the
+       * page and same-origin frames. Every module is on its own port, so every
+       * module frame is CROSS-origin, so `navigator.clipboard.writeText` in a
+       * module resolves to a permission failure — not an exception a person
+       * would see, just a promise that rejects while the menu item they pressed
+       * appears to have worked. That is the silent-failure shape this workspace
+       * keeps finding, and it is one attribute away.
+       *
+       * Granted rather than refused because writing is not reading. There is no
+       * `clipboard-read` here and there should not be: reading the clipboard
+       * would let a module see whatever a person last copied anywhere on their
+       * machine, which is a genuine secret and none of a module's business.
+       * Writing needs a user gesture, cannot observe anything, and its worst
+       * outcome is a clipboard holding something the person did not want —
+       * annoying, and recoverable by copying again.
+       *
+       * It is here rather than per-module because a permission a module could
+       * ask for would be a permission every module asks for, and the person
+       * approving them would learn to press yes without reading. A module that
+       * does not copy anything is not harmed by being able to.
+       */
+      allow="clipboard-write"
       referrerPolicy="no-referrer"
     />
   )
