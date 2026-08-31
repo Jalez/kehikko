@@ -298,9 +298,45 @@ export function App() {
     })
     const gone = () => void reportOpen(null)
     window.addEventListener('pagehide', gone)
+
+    /*
+     * And said AGAIN whenever this page comes back.
+     *
+     * `pagehide` withdraws unconditionally, which is right for a tab that is
+     * closing — the page is the authority on its own going away. But macOS does
+     * not fire it only for that. Switching to a full-screen app occludes this
+     * window, the webview hides the page, and the report is withdrawn for a
+     * screen that still exists and is still showing its containers. Nothing
+     * restored it: `openId` had not changed, so this effect never re-ran.
+     *
+     * What that cost is the whole of `server/lifecycle.ts`. The host decides
+     * which modules to keep running from these reports, so a withdrawn report
+     * makes every container on the canvas unneeded, and five minutes later
+     * everything the host started is stopped — while somebody is looking at it.
+     * The only modules that survived were the ones the host cannot stop because
+     * it did not start them, which made it look like one module was special
+     * rather than like the report was gone.
+     *
+     * Re-asserting is one POST on the same events the sweep below uses, and
+     * deliberately NOT behind that sweep's quiet floor. A sweep is N requests to
+     * N programs and is worth rate-limiting; this is one request that decides
+     * whether those programs keep running at all, and a saved request that
+     * stops a module somebody is looking at is not a saving.
+     */
+    const back = () => {
+      if (document.visibilityState !== 'visible') return
+      void reportOpen(openId)
+    }
+    window.addEventListener('pageshow', back)
+    window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
+
     return () => {
       here = false
       window.removeEventListener('pagehide', gone)
+      window.removeEventListener('pageshow', back)
+      window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
     }
   }, [openId])
 

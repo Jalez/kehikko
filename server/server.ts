@@ -955,25 +955,25 @@ const server = Bun.serve({
       const page = said && said.length > 0 && said.length <= 64 ? said : null
       const asked = Number(url.searchParams.get('kehikko'))
       const kehikko = Number.isInteger(asked) && asked > 0 ? asked : null
-      /* This connection's own identity, so its withdrawal cannot land on a
-         report a later connection wrote. The page reopens this stream every
-         time the open kehikko changes, and the old one's cancel arrives after
-         the new one's start — see `nextConnection` in `open.ts`. */
+      /* This connection's own identity. A stream is evidence that a screen
+         exists, and it is kept under the connection rather than the page
+         because a page has several of these over its life — see the essay at
+         the top of `open.ts`. */
       const connection = nextConnection()
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
-          if (page) openness.reported(page, kehikko, Date.now(), connection)
+          if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
           stop = wakes.listen((woken) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko: woken })}\n\n`))
           })
         },
         cancel() {
           stop?.()
-          /* The browser went away. Withdrawn rather than left to go stale,
-             which is the whole reason the page identifies itself here — but
-             only if this connection is still the one being believed. */
-          if (page) openness.withdrew(page, connection)
+          /* This stream's own evidence, withdrawn rather than left to go stale
+             — which is the whole reason the page identifies itself here. What
+             any other connection or the page itself has said is untouched. */
+          openness.closed(connection)
         },
       })
       return new Response(stream, {

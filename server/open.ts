@@ -60,79 +60,100 @@ const PAGES_MAX = 32
 export type WhichKehikko = { ok: true; id: number } | { ok: false; why: string }
 
 /**
- * Which connection a report came from, so a stale withdrawal can be refused.
+ * A page speaks twice, and the two claims do not have the same lifetime.
  *
- * Reports are keyed by PAGE, deliberately — a reload replacing its own report
- * rather than adding a second one is the whole reason for that. But a page has
- * more than one connection over its life: it reopens `/host/watch` whenever the
- * open kehikko changes, and for a moment the old stream and the new one both
- * exist under the same page id.
+ * The POST to `/host/open` is the page SAYING what it has open. It is the
+ * page's own word, it is believed while it stands, and the page withdraws it on
+ * the way out. Its weakness is the one this file has always admitted: a tab
+ * that is killed never withdraws, and nothing here polls.
  *
- * The old stream's cancel then arrives AFTER the new stream's start and deletes
- * the LIVE stream's report. Nothing errors. The page is still on screen, still
- * streaming, still showing its modules — and the server now believes nobody has
- * anything open, so five minutes later the lifecycle policy stops every module
- * the host started for a canvas somebody is looking at.
+ * The `/host/watch` stream is EVIDENCE that a screen exists. Nobody has to
+ * remember to end it; it ends when the browser does. Its weakness is that a
+ * page has many streams over its life — it reopens one whenever the open
+ * kehikko changes — so a stream is not a page and must not be mistaken for one.
  *
- * A token per connection is enough to tell those apart. Whoever wrote last owns
- * the entry, and a cancel that no longer matches is a cancel for a connection
- * that has already been replaced: it has nothing left to withdraw.
+ * Keying both by page is what went wrong, twice.
+ *
+ * Once because two streams overlap during a switch: the old one's cancel
+ * arrives after the new one's start and deleted the live stream's report.
+ *
+ * And once because `pagehide` fires when macOS occludes a window for a
+ * full-screen app, so the page withdrew for a screen that was still there —
+ * with the stream still open and unable to say so, because the POST had taken
+ * ownership of the entry.
+ *
+ * Both disappear if each claim is keyed by the thing that actually owns it: a
+ * post by its page, a stream by its connection. Then a stream closing removes
+ * exactly its own evidence and nothing else's, a page withdrawing removes
+ * exactly its own word, and neither can silence the other. There is no token to
+ * match and no last-writer-wins to reason about.
+ *
+ * What a page has open is then its most RECENT claim across the two, which is
+ * what keeps a kehikko switch from briefly looking like two open kehikot: the
+ * post lands first and the stream reopens a moment later, and at every instant
+ * the newest claim is the right one.
  */
 let connections = 0
 
-/** A fresh identity for one stream, to be handed back when it closes. */
+/** A fresh identity for one stream, handed back when it closes. */
 export function nextConnection(): string {
   connections += 1
   return `c${connections}`
 }
 
+interface Claim {
+  page: string
+  kehikko: number
+  at: number
+}
+
 export class Openness {
-  #reports = new Map<string, { kehikko: number; at: number; by: string | null }>()
+  /** What each page last SAID, keyed by page. */
+  #posts = new Map<string, Claim>()
+  /** What each open stream is EVIDENCE of, keyed by connection. */
+  #streams = new Map<string, Claim>()
 
   /**
    * One page saying what it has open, or that it has nothing open any more.
    *
-   * `null` withdraws. A page sends it on the way out, so that closing a tab
-   * stops it answering for a screen that is not there — which is the difference
-   * between this and a cache.
-   *
-   * `by` names the connection the report came from, when there is one. A report
-   * with no connection — the `/host/open` POST — deliberately clears it: the
-   * page has spoken more recently than any stream, and a stream that closes
-   * afterwards must not undo what the page just said.
+   * `null` withdraws, and is believed: the page is the authority on its own
+   * going away. It withdraws only the page's word — a stream that is still open
+   * still says a screen is there, which is exactly the case `pagehide` on an
+   * occluded window used to get wrong.
    */
-  reported(page: string, kehikko: number | null, now = Date.now(), by: string | null = null): void {
+  reported(page: string, kehikko: number | null, now = Date.now()): void {
     if (kehikko === null) {
-      this.#reports.delete(page)
+      this.#posts.delete(page)
       return
     }
-    /* Not an unbounded map keyed by whatever a caller put in the field. The
-       oldest report goes, which is the one least likely to be a tab somebody is
-       looking at. */
-    if (!this.#reports.has(page) && this.#reports.size >= PAGES_MAX) {
-      const oldest = [...this.#reports.entries()].sort((a, b) => a[1].at - b[1].at)[0]
-      if (oldest) this.#reports.delete(oldest[0])
-    }
-    this.#reports.set(page, { kehikko, at: now, by })
+    this.#bound(this.#posts)
+    this.#posts.set(page, { page, kehikko, at: now })
+  }
+
+  /** One stream, open, as evidence that a screen exists. */
+  streamed(connection: string, page: string, kehikko: number, now = Date.now()): void {
+    this.#bound(this.#streams)
+    this.#streams.set(connection, { page, kehikko, at: now })
   }
 
   /**
-   * One STREAM saying it has closed.
+   * One stream, closed.
    *
-   * Refused unless the report is still the one this connection wrote. See the
-   * essay above `nextConnection`: a page that reopened its stream has two of
-   * them alive for a moment, and the one that closes is not always the one
-   * holding the report.
-   *
-   * Not the same act as `reported(page, null)`, which is a page saying it is
-   * going away and is believed unconditionally — the page is the authority on
-   * that, and a connection is only ever evidence.
+   * Its own evidence and nothing else's — which is the whole reason streams are
+   * keyed by connection. A page that reopened its stream has two alive for a
+   * moment, and the one that closes is not the one to believe.
    */
-  withdrew(page: string, by: string): void {
-    const held = this.#reports.get(page)
-    if (!held) return
-    if (held.by !== by) return
-    this.#reports.delete(page)
+  closed(connection: string): void {
+    this.#streams.delete(connection)
+  }
+
+  /* Neither map may grow without bound: both are keyed by a string that came
+     off a request. The oldest goes, being the one least likely to be a screen
+     somebody is looking at. */
+  #bound(map: Map<string, Claim>): void {
+    if (map.size < PAGES_MAX) return
+    const oldest = [...map.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+    if (oldest) map.delete(oldest[0])
   }
 
   /** Every kehikko a live page says it has open, without duplicates. */
@@ -150,15 +171,31 @@ export class Openness {
     return this.#fresh(now)
   }
 
+  /**
+   * What each page has open, one answer per page, newest claim winning.
+   *
+   * Per PAGE and not per claim, because a page mid-switch holds a post for the
+   * kehikko it moved to and a stream for the one it moved from, and counting
+   * both would make one screen look like two — which `open` would then refuse
+   * to answer for, having been told there was an ambiguity that does not exist.
+   */
   #fresh(now: number): number[] {
-    const ids = new Set<number>()
-    for (const [page, report] of this.#reports) {
-      if (now - report.at > STALE_MS) {
-        this.#reports.delete(page)
-        continue
+    const newest = new Map<string, Claim>()
+    const consider = (map: Map<string, Claim>) => {
+      for (const [key, claim] of map) {
+        if (now - claim.at > STALE_MS) {
+          map.delete(key)
+          continue
+        }
+        const held = newest.get(claim.page)
+        if (!held || claim.at >= held.at) newest.set(claim.page, claim)
       }
-      ids.add(report.kehikko)
     }
+    consider(this.#posts)
+    consider(this.#streams)
+
+    const ids = new Set<number>()
+    for (const claim of newest.values()) ids.add(claim.kehikko)
     return [...ids].sort((a, b) => a - b)
   }
 
