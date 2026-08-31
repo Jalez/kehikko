@@ -25,7 +25,31 @@
 set -eu
 cd "$(dirname "$0")"
 
-PORT="${PORT:-4180}"
+# Where this host goes, decided before anything binds anything.
+#
+# Three parties can start this program -- the desktop app, a person, an agent
+# doing something else -- and until now nothing arbitrated between them. Two
+# hosts racing for 4180 produced a half-started pair: an API with no page, or a
+# page proxying to somebody else's API and reading their canvases. And a person
+# running this while their app was up got a stack trace rather than the address
+# of the host they already had.
+#
+# `server/claim.ts` asks who is on the ports first and answers in its exit code:
+#
+#   0  it claimed a pair, printed on stdout as "<api> <page>"
+#   3  a host is already running; it printed where, and there is nothing to do
+#   4  nowhere free to put one
+#
+# 3 is a success as far as a person is concerned, so this exits 0 on it. They
+# asked for a host and there is one.
+CLAIMED="$(bun run server/claim.ts)" || {
+  code=$?
+  [ "$code" = "3" ] && exit 0
+  exit "$code"
+}
+
+PORT="${CLAIMED% *}"
+PAGE="${CLAIMED#* }"
 export PORT
 
 # The port Vite proxies `/host` to, which is this API's.
@@ -127,4 +151,8 @@ bun run server/server.ts &
 API=$!
 trap 'kill $API 2>/dev/null || true' EXIT INT TERM
 
-exec bunx vite --host 127.0.0.1 --port "$((PORT + 1))" --strictPort
+# `$PAGE` rather than `$((PORT + 1))`, because the pair was claimed together and
+# this is the half that was checked to be free. `--strictPort` stays: the page
+# moving on its own would put it on a port the API's claim never covered, which
+# is the desync the pair exists to prevent.
+exec bunx vite --host 127.0.0.1 --port "$PAGE" --strictPort

@@ -962,6 +962,23 @@ const server = Bun.serve({
      * that could name any origin and have this host fetch it would be a request
      * forgery door in a program whose whole job is talking to loopback ports.
      */
+    /**
+     * Who is on this port.
+     *
+     * The one endpoint that exists to be asked by another copy of this program
+     * rather than by a page. A host starting up needs to tell three things
+     * apart on the address it wants — nothing, a stranger, and itself — and
+     * without a way to say "I am a Kehikot host" the third is indistinguishable
+     * from the second. See `server/ports.ts`.
+     *
+     * Deliberately tiny and deliberately unauthenticated: it says only what any
+     * program that connected could already infer, and it must be answerable
+     * before this host has decided anything at all.
+     */
+    if (url.pathname === '/host/hello' && request.method === 'GET') {
+      return json({ ok: true, kehikko: true, version: HOST_VERSION, api: PORT, page: PORT + 1 })
+    }
+
     if (url.pathname === '/host/quiet' && request.method === 'GET') {
       const id = url.searchParams.get('id') ?? ''
       const registration = registered.get(id)
