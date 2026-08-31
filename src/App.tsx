@@ -27,8 +27,7 @@ import {
   watchCanvases,
   writeOpen,
   type Canvas,
-  type Placement,
-} from './host/canvases.ts'
+  type Placement, unfoldedByResize } from './host/canvases.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
   addProject,
@@ -1072,7 +1071,28 @@ export function App() {
          arrangement, and anything of ours not in its vocabulary would be
          dropped here on the first drag. */
       const was = open?.placements ?? []
-      const placements = next.map((item) => ({
+      const placements = next.map((item) => {
+        const before = was.find((p) => p.i === item.i)
+        /*
+         * Dragging a folded container taller unfolds it.
+         *
+         * Without this the grid took the new height and the container kept
+         * `collapsed`, so the row grew and the container went on drawing nothing
+         * but its header — a person pulling the corner made a gap appear and
+         * concluded the handle was broken. Refusing the resize outright would be
+         * worse: a handle that does not move is a handle somebody keeps pulling.
+         *
+         * Reaching for the corner of a folded container is a person saying "I want
+         * to see this", which is the same sentence the fold control says. So it
+         * is honoured as one, and the height they dragged to becomes the height
+         * it opens at — better than `openH`, which is where it was folded FROM
+         * and not where they have just asked it to be.
+         *
+         * Only a taller drag counts. `h` also arrives unchanged on every drag
+         * of a neighbour, and equal-or-smaller cannot be a request to see more.
+         */
+        const unfolding = unfoldedByResize(before, item.h, COLLAPSED_ROWS)
+        return {
         i: item.i,
         x: item.x,
         y: item.y,
@@ -1082,14 +1102,17 @@ export function App() {
            carried across from what is stored. `next` is its idea of the
            arrangement, so anything not in its vocabulary is dropped here on the
            first drag unless it is copied over deliberately. */
-        grow: was.find((p) => p.i === item.i)?.grow ?? false,
-        pinned: was.find((p) => p.i === item.i)?.pinned ?? false,
-        prompt: was.find((p) => p.i === item.i)?.prompt ?? '',
-        promptFor: was.find((p) => p.i === item.i)?.promptFor ?? null,
-        collapsed: was.find((p) => p.i === item.i)?.collapsed ?? false,
-        openH: was.find((p) => p.i === item.i)?.openH ?? null,
-        selected: was.find((p) => p.i === item.i)?.selected ?? false,
-      }))
+        grow: before?.grow ?? false,
+        pinned: before?.pinned ?? false,
+        prompt: before?.prompt ?? '',
+        promptFor: before?.promptFor ?? null,
+        collapsed: unfolding ? false : (before?.collapsed ?? false),
+        /* Cleared with the fold, so a later fold remembers where it was folded
+           from rather than a height from two gestures ago. */
+        openH: unfolding ? null : (before?.openH ?? null),
+        selected: before?.selected ?? false,
+      }
+      })
       /* react-grid-layout fires this during a drag as well as at the end. Doing
          nothing when nothing changed keeps the write out of the drag loop —
          and `Writer` merges what does get through, so a whole gesture is one

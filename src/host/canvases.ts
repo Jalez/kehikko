@@ -480,3 +480,31 @@ export function everyPlaced(canvases: readonly Canvas[]): string[] {
   for (const canvas of canvases) for (const p of canvas.placements) ids.add(p.i)
   return [...ids].sort()
 }
+
+/**
+ * Has a drag of the corner asked a folded container to open?
+ *
+ * ## Why a resize is an unfold and not an error
+ *
+ * A folded container is one grid row and draws only its header. When somebody
+ * pulled its corner, the grid took the new height and the container kept
+ * `collapsed` — so the row grew, the container went on drawing its header, and a
+ * gap appeared where the module should be. The handle looked broken.
+ *
+ * Refusing the resize would be worse. A handle that does not move is a handle
+ * somebody pulls again, harder, and then reports. Reaching for the corner of a
+ * folded container is a person saying "I want to see this", which is the same
+ * sentence the fold control says — so it is honoured as one.
+ *
+ * Only a TALLER drag counts. `h` arrives unchanged for every container on every
+ * drag of a neighbour, and a height equal to or smaller than the folded one
+ * cannot be a request to see more.
+ */
+export function unfoldedByResize(
+  before: { collapsed?: boolean } | undefined,
+  height: number,
+  foldedRows: number,
+): boolean {
+  if (!before?.collapsed) return false
+  return height > foldedRows
+}
