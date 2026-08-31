@@ -186,10 +186,19 @@ export function Container({
        * over the eight pixels of margin the grid puts between containers and
        * would touch its neighbour.
        */
+      /*
+       * `@container/container` so the header can ask how wide THIS container is.
+       *
+       * Not a media query, because the question is not how big the screen is —
+       * it is how many of six controls fit in a column somebody dragged to two
+       * grid columns while the window is 1400 pixels wide. Every module in this
+       * workspace already sizes itself this way; the host's own chrome did not,
+       * and this is what that cost.
+       */
       className={
         selected
-          ? 'border-primary ring-primary/60 pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
-          : 'pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border'
+          ? 'border-primary ring-primary/60 pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
+          : 'pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border'
       }
     >
       {/*
@@ -230,12 +239,55 @@ export function Container({
          */
         data-selected={selected ? 'true' : undefined}
       >
+      {/*
+       * The gaps close before the controls do.
+       *
+       * ## The measurement that produced this line
+       *
+       * A container two grid columns wide is 224 pixels. Its header holds a
+       * twelve-pixel checkbox, a six-pixel dot, a name, a version, and six
+       * twenty-four-pixel buttons, separated by ten eight-pixel gaps — which is
+       * 282 pixels of content in 222 of room. The name is `truncate`, so it
+       * gives way to nothing and then stops helping; nothing else in the row can
+       * shrink at all. The surplus spills to the right, where the container's
+       * own `overflow-hidden` clips it, and what gets clipped is the last two
+       * buttons in the row.
+       *
+       * Measured on this canvas, at 224 pixels: the pin's right edge at 259 and
+       * the remove button's at 291, against a container edge at 224. Both were
+       * off the end and unpressable — not merely tight, GONE, with nothing on
+       * screen to say so.
+       *
+       * That was true before the filter button existed: without it the remove
+       * button still ended at 259. The filter did not cause this and it would
+       * have made it worse, which is why this is fixed here rather than
+       * reported. A control that a person cannot reach at the width they
+       * actually use their canvas at is a control that is not there.
+       *
+       * ## Why the gaps, and why not something else
+       *
+       * Ten gaps at eight pixels is eighty pixels — more than three of the six
+       * buttons. Halving them under 300 pixels recovers forty, and dropping the
+       * version string (see below) recovers another thirty-four, which brings
+       * 282 down to 208 and fits with room for a few letters of the name. The
+       * alternatives were all worse: shrinking the buttons makes six targets
+       * harder to hit at exactly the width where hitting them is already hard;
+       * dropping a control means deciding which of fold, pin, prompt and remove
+       * a person in a narrow container does not need; and letting the header
+       * scroll sideways is the horizontal-scroll failure this workspace has a
+       * standing rule against.
+       *
+       * The threshold is 300 rather than 224 so that the change happens before
+       * the clipping does, not at the moment of it — a container dragged
+       * narrower tightens up and then stays legible, instead of appearing to
+       * work until the last few pixels.
+       */}
       <header
         data-dense={collapsed ? 'true' : undefined}
         className={
           collapsed
-            ? 'container-grip bg-card pointer-events-auto flex h-full cursor-move items-center gap-1.5 px-2 select-none'
-            : 'container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none'
+            ? 'container-grip bg-card pointer-events-auto flex h-full cursor-move items-center gap-1.5 px-2 select-none @max-[300px]/container:gap-1'
+            : 'container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none @max-[300px]/container:gap-1'
         }
       >
         {/*
@@ -312,8 +364,18 @@ export function Container({
         ) : (
           <span className="truncate text-xs font-medium">{name}</span>
         )}
+        {/*
+         * The version, and the first thing to go when the container is narrow.
+         *
+         * Thirty pixels of monospace plus its gap, and the least load-bearing
+         * text in the row: it is a string this protocol never parses, shown to
+         * a person, and it is also in the modules list in the strip above,
+         * always, beside the name. Nothing a person does at 220 pixels depends
+         * on reading it, and every other thing in this header is either an
+         * identity or a control.
+         */}
         {presence.module?.version ? (
-          <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
+          <span className="text-muted-foreground shrink-0 font-mono text-[10px] @max-[300px]/container:hidden">
             {presence.module.version}
           </span>
         ) : null}
