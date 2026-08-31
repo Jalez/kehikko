@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 
 /**
- * The button on a silent pane.
+ * The button on a silent container.
  *
  * ## Why it is here and not in the strip
  *
  * A module is silent when its address answered nothing. That is the one moment
- * a person is looking straight at the problem, and the pane is where they are
+ * a person is looking straight at the problem, and the container is where they are
  * looking — so the offer to fix it goes there, beside the sentence explaining
  * what is wrong, rather than in a menu they would have to know to open.
  *

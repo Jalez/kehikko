@@ -72,7 +72,7 @@ export type Emitted =
  * emits on every MCP call, wired to an agent that calls it in a loop — would
  * therefore not merely fill somebody's notification list; it would fill the
  * host's task queue, and a canvas that cannot get a frame in is a canvas that
- * has stopped repainting. The pane nobody is looking at takes the whole screen
+ * has stopped repainting. The container nobody is looking at takes the whole screen
  * down with it. That is not a hypothetical failure mode of postMessage; it is
  * what "the canvas froze" means every time it has been reported here.
  *

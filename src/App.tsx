@@ -6,7 +6,7 @@ import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
-import { Pane } from './canvas/Pane.tsx'
+import { Container } from './canvas/Container.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import {
@@ -60,7 +60,7 @@ import { Writer } from './host/writer.ts'
  * On the server, in a small database — see the essay in `server/canvases.ts`
  * for what changed and why. This component is the optimistic side of that: an
  * edit lands in local state immediately and is written a beat later by
- * `Writer`, because a canvas that waited for a round trip before showing a pane
+ * `Writer`, because a canvas that waited for a round trip before showing a container
  * where it was dropped would feel broken on a machine that is not busy at all.
  */
 
@@ -72,13 +72,13 @@ const Grid = WidthProvider(Responsive)
  * It is tempting, and it was on for an hour. `WidthProvider` renders once at a
  * hardcoded default of 1280 pixels, measures the element it rendered into, and
  * renders again with the real width — so the first paint of every load places
- * the panes with the wrong column width. `measureBeforeMount` is the library's
+ * the containers with the wrong column width. `measureBeforeMount` is the library's
  * own answer: render nothing until the measurement exists.
  *
  * With it on, the measurement never arrives. The grid stays at 1280 for the
  * life of the page, on a canvas of any other width, and the damage is not a
  * subtle misalignment — column six lands at four pixels instead of seven
- * hundred, so a pane placed beside another is drawn on top of it, and a pane
+ * hundred, so a container placed beside another is drawn on top of it, and a container
  * cannot be dragged to a column that is not where it appears to be. Widths
  * computed from `1280` and positions from a container of some other size do not
  * merely look wrong, they make the grid unusable.
@@ -95,17 +95,17 @@ const ROW_HEIGHT = 24
 const MARGIN: [number, number] = [8, 8]
 
 /**
- * How tall a folded pane is, in grid rows.
+ * How tall a folded container is, in grid rows.
  *
  * Two, because a header is thirty-two pixels and one row is twenty-four. The
  * grid's heights are quantised — `h` rows is `h * 24 + (h - 1) * 8` pixels — so
  * one row cannot hold a header and two rows, at fifty-six, is the first that
  * can.
  *
- * The pane does not fill those fifty-six pixels. `Pane.tsx` draws a folded pane
+ * The container does not fill those fifty-six pixels. `Container.tsx` draws a folded container
  * at its own height and leaves the remainder transparent, so what a person sees
  * is a header and nothing else; the extra twenty-two pixels are grid space,
- * spent to keep folded panes on the same grid as everything around them.
+ * spent to keep folded containers on the same grid as everything around them.
  */
 const COLLAPSED_ROWS = 1
 
@@ -124,10 +124,10 @@ interface Live {
   /**
    * The sentence the conversation itself produced, or `null` when it has not
    * produced one — a module that simply answered has nothing to say about
-   * itself, and the pane falls back to what discovery wrote.
+   * itself, and the container falls back to what discovery wrote.
    *
    * Null rather than an empty string, because an empty string is a sentence as
-   * far as `??` is concerned, and the pane would show nothing where it meant to
+   * far as `??` is concerned, and the container would show nothing where it meant to
    * show the server's line.
    */
   line: string | null
@@ -158,7 +158,7 @@ export function App() {
    * Every canvas from every project is held in `canvases`; this is what the
    * header shows a slice of. Keeping the whole set is what makes switching
    * project free — see `fetchCanvases`, and `Frames.tsx` on why a module's page
-   * must outlive the pane that asked for it.
+   * must outlive the container that asked for it.
    */
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
@@ -172,7 +172,7 @@ export function App() {
    */
   const [held, setHeld] = useState<HeldEpics | null>(null)
   const [live, setLive] = useState<Record<string, Live>>({})
-  /* Which pane is being dragged or resized, if any — see `Frames.tsx` for why
+  /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
   const [moving, setMoving] = useState<string | null>(null)
@@ -181,7 +181,7 @@ export function App() {
      implementation of that decision is a second thing that can be wrong — see
      `host/theme.ts`. */
   const [theme, setTheme] = useState<Theme>(() => current())
-  /* Whether the pane headers are out of the layout. Read from the document for
+  /* Whether the container headers are out of the layout. Read from the document for
      the same reason the theme is: a blocking script in `index.html` already
      decided this before anything was painted, and a second implementation of
      that decision is a second thing that can be wrong. See `host/focus.ts`. */
@@ -190,18 +190,18 @@ export function App() {
      transitions are off — see `.settling` in `index.css` for the slide that
      otherwise happens on every load. */
   const [settling, setSettling] = useState(true)
-  /* Which pane's prompts are being written, if any. The dialog belongs to the
+  /* Which container's prompts are being written, if any. The dialog belongs to the
      host rather than to a module — see `Prompts.tsx` for why a modal inside an
      iframe is not a modal. */
   const [prompting, setPrompting] = useState<string | null>(null)
   /* Which module's tools are being looked at, if any. The host's window for the
      same reason the prompt one is: a module cannot open a modal bigger than its
-     own pane, and what this window shows is not the module's material anyway —
+     own container, and what this window shows is not the module's material anyway —
      it is what the AGENT has been told. See `Tools.tsx`. */
   const [toolsFor, setToolsFor] = useState<string | null>(null)
 
-  /* Where each pane's body ended up, measured. The module pages are positioned
-     over these from a layer that outlives the panes. */
+  /* Where each container's body ended up, measured. The module pages are positioned
+     over these from a layer that outlives the containers. */
   const { rects, surface, body, measure, remeasure, settle } = useRects()
 
   /* Whether the canvases have been read from the server yet. Nothing is written
@@ -522,11 +522,11 @@ export function App() {
    *
    * The subject is per-canvas and the selection is per-canvas, and a passage is
    * the same kind of fact one step narrower: it is what THIS arrangement of
-   * panes is looking at. The consumer it exists for is another pane beside the
+   * containers is looking at. The consumer it exists for is another container beside the
    * one that pointed — a paper on the left, its notes on the right — and both
    * of those are on one canvas. A passage held per-host would mean a highlight
-   * made in a paper on one canvas narrowing a notes pane on another, where the
-   * paper is not even open; the reader would see a pane filter itself down to a
+   * made in a paper on one canvas narrowing a notes container on another, where the
+   * paper is not even open; the reader would see a container filter itself down to a
    * paragraph they cannot see, on a canvas they are not on, and nothing on
    * screen would explain it. So it is keyed by canvas, and switching canvases
    * shows what that canvas was pointing at.
@@ -541,7 +541,7 @@ export function App() {
    * moment it said so.
    *
    * Restore one and there is nobody to renew it. The reader comes back an hour
-   * later, the frames reload, and the canvas asserts to every pane that
+   * later, the frames reload, and the canvas asserts to every container that
    * somebody is pointing at bytes 4120–4380 of a chapter that has been edited
    * twice since, quoting words no longer at that offset — with no pointing
    * module in a position to notice, because the module that made the claim may
@@ -724,40 +724,40 @@ export function App() {
   /**
    * A module saying how tall it would like to be. Acted on only where asked.
    *
-   * ## Why this is opt-in per pane
+   * ## Why this is opt-in per container
    *
    * Honouring it everywhere was tried twice and fought the person both times.
    *
    * *Grow whenever asked* has a runaway in it. A module measures its own
    * document; its document is as tall as the frame the host gave it; so growing
-   * the pane grows the document, which asks for more. It does not oscillate, it
-   * climbs — one pane here reached eighty rows, two and a half thousand pixels,
+   * the container grows the document, which asks for more. It does not oscillate, it
+   * climbs — one container here reached eighty rows, two and a half thousand pixels,
    * pushing its own resize handle off the bottom of the canvas where nothing
    * could reach it.
    *
    * *Grow once per load* bounds the runaway and keeps the argument, just
-   * slower: a pane smaller than its module's content is grown again on every
-   * refresh. You size a pane, reload, and it is bigger. A disagreement that
+   * slower: a container smaller than its module's content is grown again on every
+   * refresh. You size a container, reload, and it is bigger. A disagreement that
    * resumes each time the page opens is not a compromise.
    *
-   * What was wrong in both is that the host was deciding. Whether a pane should
+   * What was wrong in both is that the host was deciding. Whether a container should
    * fit its contents or hold its size is a question about how somebody wants to
    * read this particular thing, and there is no answer that is right for every
-   * pane — a list you scan wants to stay put and scroll; a summary you want to
-   * see all of wants to fit. So it is a switch on the pane, off by default,
+   * container — a list you scan wants to stay put and scroll; a summary you want to
+   * see all of wants to fit. So it is a switch on the container, off by default,
    * remembered with the arrangement.
    *
    * ## The brake stays even when it is on
    *
-   * Opting in must not opt into the runaway. Two things prevent it. The pane
+   * Opting in must not opt into the runaway. Two things prevent it. The container
    * only ever GROWS towards the requested height and never past `MOST_ROWS`, so
    * the worst case is bounded and reachable. And growth stops as soon as the
-   * request is no longer meaningfully larger than the pane — a page that fills
+   * request is no longer meaningfully larger than the container — a page that fills
    * whatever frame it is given reports the frame's own height, which after one
    * step is the height it already has, and the climb ends there instead of
    * continuing by a rounding error a step.
    */
-  /** Forty rows is a tall pane on any screen and nowhere near a runaway. */
+  /** Forty rows is a tall container on any screen and nowhere near a runaway. */
   const MOST_ROWS = 40
   /** Below this, a request is agreement rather than a request. */
   const WORTH_GROWING_PX = 12
@@ -765,42 +765,42 @@ export function App() {
   const onHeight = useCallback(
     (id: string, px: number) => {
       const placements = open?.placements ?? []
-      const pane = placements.find((p) => p.i === id)
-      if (!pane?.grow) return
+      const container = placements.find((p) => p.i === id)
+      if (!container?.grow) return
 
       /*
-       * A collapsed pane does not grow, and the request is not thrown away.
+       * A collapsed container does not grow, and the request is not thrown away.
        *
        * `roadmap.resize` is a module saying how tall its document is. A module
-       * has not been told its pane is folded — deliberately; see `onCollapse` —
+       * has not been told its container is folded — deliberately; see `onCollapse` —
        * so it goes on measuring and asking, and honouring that here would let a
-       * module force a pane open that a person folded shut. The person's press
+       * module force a container open that a person folded shut. The person's press
        * wins. What the module asked for is remembered as the height to unfold
        * to, so a module that grew while folded is the right size when it comes
        * back rather than the size it was when it was put away.
        */
-      if (pane.collapsed) {
+      if (container.collapsed) {
         const wanted = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
-        if (wanted <= (pane.openH ?? 0)) return
+        if (wanted <= (container.openH ?? 0)) return
         change({ placements: placements.map((p) => (p.i === id ? { ...p, openH: wanted } : p)) })
         return
       }
 
-      const isNow = pane.h * ROW_HEIGHT + (pane.h - 1) * MARGIN[1]
+      const isNow = container.h * ROW_HEIGHT + (container.h - 1) * MARGIN[1]
       if (px <= isNow + WORTH_GROWING_PX) return
 
       const rows = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
-      if (rows <= pane.h) return
+      if (rows <= container.h) return
       change({ placements: placements.map((p) => (p.i === id ? { ...p, h: rows } : p)) })
     },
     [change, open?.placements],
   )
 
   /**
-   * Pin a pane, or let it go.
+   * Pin a container, or let it go.
    *
-   * A pinned pane keeps whatever it was last told and hears nothing further
-   * about this canvas — which is how two panes end up on two different epics,
+   * A pinned container keeps whatever it was last told and hears nothing further
+   * about this canvas — which is how two containers end up on two different epics,
    * side by side, to be compared.
    *
    * The module is TOLD, in `roadmap.context`. This host refused to pin at all
@@ -818,7 +818,7 @@ export function App() {
     [change, open?.placements],
   )
 
-  /** Write what one pane says, and who it says it to. */
+  /** Write what one container says, and who it says it to. */
   const onWritePrompt = useCallback(
     (id: string, prompt: string, aimedAt: string | null) => {
       const placements = (open?.placements ?? []).map((p) =>
@@ -830,18 +830,18 @@ export function App() {
   )
 
   /**
-   * Fold a pane down to its header, or unfold it.
+   * Fold a container down to its header, or unfold it.
    *
    * ## What is kept, and why the height is remembered
    *
-   * Folding writes the pane's current height into `openH` and sets `h` to two
+   * Folding writes the container's current height into `openH` and sets `h` to two
    * rows, which is the smallest the grid can be while still holding a
    * thirty-two pixel header. Unfolding puts `openH` back.
    *
    * Remembered rather than recomputed, and the difference matters more than it
-   * sounds: a pane that unfolded to a default height would move everything
+   * sounds: a container that unfolded to a default height would move everything
    * below it on the canvas, and nothing the person did asked for that. They
-   * folded a pane and unfolded it; the arrangement they built should be the
+   * folded a container and unfolded it; the arrangement they built should be the
    * arrangement they get back.
    *
    * ## The module keeps running, and is not told
@@ -850,18 +850,18 @@ export function App() {
    * with everything in it — a scroll position, a half-typed line, a shell
    * session — for exactly the reason `Frames.tsx` exists: an iframe that leaves
    * the DOM is a document that has been destroyed, and there is no way to get
-   * it back. A folded pane's page is hidden the same way a pane on another
+   * it back. A folded container's page is hidden the same way a container on another
    * canvas is hidden, which is a path this program has had since the beginning.
    *
    * Nothing goes out on the wire, and `roadmap.context` does not grow a field.
    * This is a real judgement call rather than an oversight: one could argue a
    * module ought to know it is not visible so it can stop polling. It should
    * not learn it from HERE, because it could not act on it correctly — from
-   * inside, a folded pane is indistinguishable from a pane on a kehikko nobody
+   * inside, a folded container is indistinguishable from a container on a kehikko nobody
    * is looking at, and the protocol deliberately does not report that either.
    * A module that stopped work on the strength of this would stop work in a
    * case it cannot detect and resume in a case it cannot detect. Whether the
-   * host drew a pane at full height is the host's business.
+   * host drew a container at full height is the host's business.
    */
   const onCollapse = useCallback(
     (id: string, collapsed: boolean) => {
@@ -876,7 +876,7 @@ export function App() {
     [change, open?.placements],
   )
 
-  /** Turn following-the-module's-height on or off for one pane. */
+  /** Turn following-the-module's-height on or off for one container. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
       const placements = (open?.placements ?? []).map((p) => (p.i === id ? { ...p, grow } : p))
@@ -1034,7 +1034,7 @@ export function App() {
     }
     return said
   }, [registry])
-  const panes = placements.filter((p) => byId.has(p.i))
+  const containers = placements.filter((p) => byId.has(p.i))
   const placed = placements.map((p) => p.i)
 
   /**
@@ -1077,10 +1077,10 @@ export function App() {
         return {
           module,
           rect: rects[id] ?? null,
-          /* A folded pane's page is HIDDEN, by the same path a page on another
+          /* A folded container's page is HIDDEN, by the same path a page on another
              kehikko is hidden — kept at its size, kept running, and not shown.
              `Frames.tsx` has the argument: unmounting it would destroy the
-             document, and there is no getting one of those back. Folding a pane
+             document, and there is no getting one of those back. Folding a container
              with a shell in it must not kill the shell. */
           shown:
             onOpen.has(id) &&
@@ -1099,8 +1099,8 @@ export function App() {
   }, [byId, canvases, live, placements, rects])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
-     every pane in one commit, and a page positioned over where the last
-     canvas's pane used to be — even for a single frame — is a visible jump. */
+     every container in one commit, and a page positioned over where the last
+     canvas's container used to be — even for a single frame — is a visible jump. */
   /* A load, and every switch between kehikot, gets a moment with no animation
      while `WidthProvider` measures and the grid re-places everything at the
      real width. Long enough to cover that correction, short enough that a drag
@@ -1113,12 +1113,12 @@ export function App() {
 
   useLayoutEffect(() => {
     measure()
-    /* And again for a moment afterwards. Adding a pane, removing one, or
+    /* And again for a moment afterwards. Adding a container, removing one, or
        switching canvases all reflow the grid, and the grid reflows by
        animating — so the position that is correct now is not the one that will
        be correct in a fifth of a second. */
     settle()
-  }, [measure, settle, openId, placements, panes.length])
+  }, [measure, settle, openId, placements, containers.length])
 
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
@@ -1180,22 +1180,22 @@ export function App() {
       ) : null}
 
       <main ref={surface} className="relative flex-1 overflow-auto">
-        {panes.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
+        {containers.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
 
         {/*
          * Every module's page, loaded once and positioned to line up with the
-         * pane that asked for it. Outside the grid, because the grid is what
+         * container that asked for it. Outside the grid, because the grid is what
          * comes and goes when somebody switches kehikko — see `Frames.tsx`.
          *
          * UNDER the grid, and that is a correction. It used to be painted on
-         * top, which put an iframe over the bottom-right corner of every pane —
+         * top, which put an iframe over the bottom-right corner of every container —
          * exactly where `react-grid-layout` puts its resize handle. The handle
-         * was still there and still worked; nothing could reach it. Panes could
+         * was still there and still worked; nothing could reach it. Containers could
          * not be resized at all, which is also why they ended up stuck at
          * whatever width they last had.
          *
-         * So the pages sit beneath and the panes are transparent over them:
-         * see `Pane.tsx` for the body that lets both light and the pointer
+         * So the pages sit beneath and the containers are transparent over them:
+         * see `Container.tsx` for the body that lets both light and the pointer
          * through, and `index.css` for the grid item that does the same while
          * keeping its handle live.
          */}
@@ -1209,36 +1209,36 @@ export function App() {
         />
 
         <Grid
-          /* Above the pages, so the pane's own chrome — its header, its edge,
+          /* Above the pages, so the container's own chrome — its header, its edge,
              and the resize handle in its corner — is never underneath one. */
           style={{ position: 'relative', zIndex: 1 }}
           /* Keyed by the canvas, so switching them is a new grid rather than
-             the same grid being told every pane moved at once — which it would
+             the same grid being told every container moved at once — which it would
              animate, one canvas melting into the next. */
           key={openId ?? 'none'}
           measureBeforeMount={MEASURE_FIRST}
           className={settling ? 'min-h-full settling' : 'min-h-full'}
-          layouts={{ lg: panes as Layout[] }}
+          layouts={{ lg: containers as Layout[] }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
           rowHeight={ROW_HEIGHT}
           margin={MARGIN}
           containerPadding={MARGIN}
-          draggableHandle=".pane-grip"
+          draggableHandle=".container-grip"
           onLayoutChange={onLayoutChange}
-          /* A pane in motion moves by CSS transform, which resizes nothing and
+          /* A container in motion moves by CSS transform, which resizes nothing and
              so tells a `ResizeObserver` nothing. Every move is therefore a
-             measurement asked for explicitly, or the pages sit where the panes
+             measurement asked for explicitly, or the pages sit where the containers
              used to be and slide out from under them. `remeasure` is capped at
              once a frame, so a drag costs one measuring pass per painted frame
              and not one per mouse event. */
           onDragStart={(_all, _old, item) => setMoving(item.i)}
           onDrag={() => remeasure()}
           /* `settle`, not one more measurement, and the difference is the whole
-             bug. A dropped pane does not stay where it was dropped — the grid
+             bug. A dropped container does not stay where it was dropped — the grid
              decides where it goes and then GLIDES it there. Measuring once on
              drop reads the spot the hand let go of, and the page is left
-             standing there while its pane slides away to the spot the grid
+             standing there while its container slides away to the spot the grid
              chose. */
           onDragStop={() => {
             setMoving(null)
@@ -1250,20 +1250,20 @@ export function App() {
             setMoving(null)
             settle()
           }}
-          /* A pane cannot be dropped into another pane's space; the grid pushes
+          /* A container cannot be dropped into another container's space; the grid pushes
              instead. Free placement would let one module hide another, and a
              module a person cannot find is worse than one they have to arrange
              around. */
           compactType="vertical"
           resizeHandles={['se']}
         >
-          {panes.map((placement) => {
+          {containers.map((placement) => {
             const presence = byId.get(placement.i)
             if (!presence) return null
             const found = live[presence.id]
             return (
               <div key={placement.i}>
-                <Pane
+                <Container
                   presence={presence}
                   condition={found?.condition ?? presence.condition}
                   line={found?.line ?? presence.line}
@@ -1294,12 +1294,12 @@ export function App() {
 
       {/* The prompt dialog, owned by the host. A module cannot open one: its
           page is in an iframe, so a modal it rendered would be clipped to the
-          pane. See `Prompts.tsx`. */}
+          container. See `Prompts.tsx`. */}
       {prompted ? (
         <Prompts
           open
           onOpenChange={(isOpen) => setPrompting(isOpen ? prompting : null)}
-          pane={prompted}
+          container={prompted}
           presences={registry?.presences ?? []}
           placements={placements}
           onWrite={(text, aimedAt) => onWritePrompt(prompted.i, text, aimedAt)}
@@ -1309,7 +1309,7 @@ export function App() {
       {/* The tools window, owned by the host for the same reason. It asks the
           host's server what the module's door offers at the moment it opens —
           never on a sweep; see the essay in `server/tools.ts`. `onChanged` is a
-          sweep, so the mark on the pane catches up with a connect or a
+          sweep, so the mark on the container catches up with a connect or a
           disconnect without anybody pressing "look again". */}
       {toolsFor ? (
         <ToolsDialog

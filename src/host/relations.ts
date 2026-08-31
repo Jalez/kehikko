@@ -33,7 +33,7 @@ import type { Presence } from './registry.ts'
  * end is nameable and the receiving end is not. It is drawn as its own kind
  * rather than folded into the selection because what travels is different in
  * size and in kind — a file, a place in it, and a paragraph of somebody's
- * document — and a person reading a pane's relationships is entitled to know
+ * document — and a person reading a container's relationships is entitled to know
  * which of those two things a module can broadcast.
  *
  * **The selection, and it is INDIRECT.** A module declaring `selection:set`
@@ -81,7 +81,7 @@ import type { Presence } from './registry.ts'
  *
  * It qualifies every direct relationship, because the events bus deliberately
  * delivers across canvases — see `ModuleFrame.tsx`, which joins a module to the
- * bus whether or not its pane is on the open kehikko, so that "near or far" is
+ * bus whether or not its container is on the open kehikko, so that "near or far" is
  * the module's comparison rather than the host's rule. A counterpart on another
  * kehikko is therefore genuinely reachable, and one that is on no kehikko at
  * all genuinely is not: it has no frame, so there is nothing to post into.
@@ -123,7 +123,7 @@ export interface Relationship {
    * How many OTHER modules on the open kehikko are told, for the indirect
    * kinds — that being the whole of what the host can say about who feels it.
    * The context goes to every frame on the canvas; `context.ts` is explicit
-   * that this host does not compose a different one per pane.
+   * that this host does not compose a different one per container.
    */
   told: number
 }
@@ -165,7 +165,7 @@ export function relate(
 
   /* Who would feel a move of the canvas: the ready modules on the open kehikko.
      Counted once rather than per relationship, and "ready" is part of it —
-     a pane whose program is not answering is not being told anything. */
+     a container whose program is not answering is not being told anything. */
   const here = presences.filter(
     (presence) => presence.condition === 'ready' && placings.onCanvas.has(presence.id),
   ).length
@@ -214,7 +214,7 @@ export function relate(
     /* The same shape as the selection and named separately, because it is not
        the same fact. A selection is refs; a passage is a file, a place in it
        and a paragraph of what was there — which is a great deal more of
-       somebody's material to put in front of every pane on the canvas, and a
+       somebody's material to put in front of every container on the canvas, and a
        person deciding whether to place this module is entitled to read that
        rather than infer it from a word they may take to mean the same thing. */
     if (module.declares.uses.includes('passage:set')) {

@@ -418,7 +418,7 @@ describe('an event goes into the frame and is never answered', () => {
     expect(sent[0]!.message).toEqual(event)
     /* No `id`, and nothing waiting on one. A module that ignores every event it
        is sent is a conforming module, so there is nothing here to correlate and
-       nothing for a silent pane to hang. */
+       nothing for a silent container to hang. */
     expect(sent[0]!.message.id).toBeUndefined()
     conversation.close()
   })

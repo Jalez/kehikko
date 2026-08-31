@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  * The three conditions, made distinguishable at a glance.
  *
  * A dot in a header and a panel where the module's page would be. The dot is
- * for scanning six panes at once; the panel is for the one that is wrong. They
+ * for scanning six containers at once; the panel is for the one that is wrong. They
  * carry the same fact, which is the whole idea — the design brief was "almost
  * absent while you are working in a module, completely legible when something
  * is wrong with one", and a host that whispered about a stopped program would
@@ -49,7 +49,7 @@ export function ConditionDot({ condition }: { condition: ModuleCondition }) {
 }
 
 /**
- * What fills a pane when there is no page to frame.
+ * What fills a container when there is no page to frame.
  *
  * Deliberately not styled as an error. An amber panel with a warning triangle
  * would say "something has gone wrong with your computer"; what has actually
@@ -72,20 +72,20 @@ export function ConditionPanel({
 }) {
   const Icon = condition === 'incompatible' ? PlugZap : condition === 'silent' ? Unplug : CircleSlash
   return (
-    /* Centred on both axes, and held to a column narrower than the pane.
-       A pane can be dragged to any width, and a sentence set flush to both
+    /* Centred on both axes, and held to a column narrower than the container.
+       A container can be dragged to any width, and a sentence set flush to both
        edges of a wide one is a sentence nobody finishes — so the text is capped
        at a readable measure and the whole block sits in the middle of whatever
        room it was given. Centred rather than top-aligned because there is one
        thing here: this is not a page with a heading and content below it, it is
-       a single statement about why the pane is empty. */
+       a single statement about why the container is empty. */
     <div className="flex h-full flex-col items-center justify-center gap-3 overflow-auto px-6 py-8 text-center">
       <Icon
         className={cn('size-6', condition === 'incompatible' ? 'text-amber-400' : 'text-neutral-500')}
         aria-hidden
       />
       {/* The sentence, at the size of prose rather than of a caption. It is the
-          only thing in this pane worth reading and the layout should say so.
+          only thing in this container worth reading and the layout should say so.
           `text-balance` so a two-line sentence breaks into two even lines
           instead of a long one and an orphan. */}
       <p className="text-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{line}</p>
@@ -132,7 +132,7 @@ export function ConditionPanel({
  *
  * The rule is that nothing moves on a timer nobody asked for, and that no
  * spinner is shown which cannot resolve. This one resolves both ways and
- * quickly: the module answers and the pane becomes its page, or the greeting
+ * quickly: the module answers and the container becomes its page, or the greeting
  * goes unanswered and the conversation's own timeout turns this into the silent
  * notice, which says so in a sentence. There is no third outcome and no path
  * where this stays on screen.

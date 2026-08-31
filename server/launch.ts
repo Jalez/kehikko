@@ -68,7 +68,7 @@ export type Startable = { ok: true; run: Runnable } | { ok: false; why: string }
  *
  * Every no is a sentence naming what to fix. A module registered without a
  * directory is the commonest case and is NOT a fault: it is a module somebody
- * starts themselves, and the pane should say so rather than offering a button
+ * starts themselves, and the container should say so rather than offering a button
  * that cannot work.
  */
 export function startable(registration: Registration | null): Startable {

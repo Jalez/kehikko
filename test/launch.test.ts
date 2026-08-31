@@ -71,7 +71,7 @@ describe('every no is a sentence naming what to fix', () => {
   })
 
   test('registered without a directory is not a fault', () => {
-    /* The commonest case: a module somebody starts themselves. The pane should
+    /* The commonest case: a module somebody starts themselves. The container should
        say so rather than offering a button that cannot work. */
     const can = startable(registration())
     expect(can.ok).toBe(false)

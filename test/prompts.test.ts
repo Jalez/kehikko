@@ -10,7 +10,7 @@ import { promptFor, type Placement } from '@/host/canvases.ts'
  * composition the host's decision, and a decision is a thing to test.
  */
 
-const pane = (i: string, at: [number, number], prompt = '', promptFor: string | null = null): Placement => ({
+const container = (i: string, at: [number, number], prompt = '', promptFor: string | null = null): Placement => ({
   i,
   x: at[0],
   y: at[1],
@@ -30,25 +30,25 @@ describe('nothing aimed at a module is null, not an empty string', () => {
   })
 
   test('prompts aimed elsewhere are not this module’s', () => {
-    const canvas = [pane('a.one', [0, 0], 'for somebody else', 'a.other')]
+    const canvas = [container('a.one', [0, 0], 'for somebody else', 'a.other')]
     expect(promptFor(canvas, 'a.target')).toBeNull()
   })
 
   test('a prompt aimed at nobody reaches nobody', () => {
     /* Written down, and going nowhere until a target is chosen. The dialog says
        so in words; this is the half that makes it true. */
-    expect(promptFor([pane('a.one', [0, 0], 'unaimed', null)], 'a.target')).toBeNull()
+    expect(promptFor([container('a.one', [0, 0], 'unaimed', null)], 'a.target')).toBeNull()
   })
 
   test('whitespace is not a prompt', () => {
-    const canvas = [pane('a.one', [0, 0], '   \n  ', 'a.target')]
+    const canvas = [container('a.one', [0, 0], '   \n  ', 'a.target')]
     expect(promptFor(canvas, 'a.target')).toBeNull()
   })
 })
 
 describe('what a module is told', () => {
-  test('one prompt arrives with the pane that wrote it named', () => {
-    const canvas = [pane('a.author', [0, 0], 'be terse', 'a.target')]
+  test('one prompt arrives with the container that wrote it named', () => {
+    const canvas = [container('a.author', [0, 0], 'be terse', 'a.target')]
     expect(promptFor(canvas, 'a.target')).toBe('## from a.author\n\nbe terse')
   })
 
@@ -57,9 +57,9 @@ describe('what a module is told', () => {
        arrangement in, and therefore the order they will expect. Any other rule
        is one they cannot see. */
     const canvas = [
-      pane('a.lower', [0, 5], 'third', 'a.target'),
-      pane('a.right', [6, 0], 'second', 'a.target'),
-      pane('a.left', [0, 0], 'first', 'a.target'),
+      container('a.lower', [0, 5], 'third', 'a.target'),
+      container('a.right', [6, 0], 'second', 'a.target'),
+      container('a.left', [0, 0], 'first', 'a.target'),
     ]
     const told = promptFor(canvas, 'a.target')
     expect(told).toBe(
@@ -68,14 +68,14 @@ describe('what a module is told', () => {
   })
 
   test('a prompt is trimmed, so a stray newline does not become a blank heading', () => {
-    const canvas = [pane('a.author', [0, 0], '\n\n  mind the gap  \n\n', 'a.target')]
+    const canvas = [container('a.author', [0, 0], '\n\n  mind the gap  \n\n', 'a.target')]
     expect(promptFor(canvas, 'a.target')).toBe('## from a.author\n\nmind the gap')
   })
 
-  test('a pane can aim at a module that is not on this canvas without breaking anything', () => {
-    /* A pane can be taken off and put back; throwing the text away in between
+  test('a container can aim at a module that is not on this canvas without breaking anything', () => {
+    /* A container can be taken off and put back; throwing the text away in between
        would lose something somebody typed. */
-    const canvas = [pane('a.author', [0, 0], 'still here', 'a.gone')]
+    const canvas = [container('a.author', [0, 0], 'still here', 'a.gone')]
     expect(promptFor(canvas, 'a.target')).toBeNull()
     expect(promptFor(canvas, 'a.gone')).toBe('## from a.author\n\nstill here')
   })

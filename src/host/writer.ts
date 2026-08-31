@@ -5,7 +5,7 @@ import type { CanvasEdit } from './canvases.ts'
  *
  * ## Why this is not just a `setTimeout` at the call site
  *
- * Dragging a pane across a twelve-column grid produces a layout change on every
+ * Dragging a container across a twelve-column grid produces a layout change on every
  * mouse move that crosses a column boundary — tens of them in one gesture, each
  * a complete arrangement. Sending each one is a request storm for a result
  * nobody sees, and the intermediate ones are not merely wasteful: they are
@@ -23,7 +23,7 @@ import type { CanvasEdit } from './canvases.ts'
  * It does not retry, and it does not tell the caller when the write landed.
  * A failed write is reported once, through `onTrouble`, and the arrangement on
  * screen is left exactly as the person left it. Reconciling a failed write by
- * moving somebody's panes back would be the host taking a position on which of
+ * moving somebody's containers back would be the host taking a position on which of
  * the two arrangements was meant, and it does not have one.
  */
 export class Writer {

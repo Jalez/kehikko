@@ -15,18 +15,18 @@ import type { Presence } from '@/host/registry.ts'
 import { Hint } from './Hint.tsx'
 
 /**
- * What one pane says to another module, and what is being said to it.
+ * What one container says to another module, and what is being said to it.
  *
  * ## Why this is the host's dialog and not the module's
  *
  * A module cannot open a modal over the canvas. Its page is inside an iframe,
- * so a dialog it renders is clipped by the frame's own box: a pane 220 pixels
+ * so a dialog it renders is clipped by the frame's own box: a container 220 pixels
  * wide gets a 220-pixel modal, which is not a modal at all — it is a cramped
  * panel with a backdrop over one twentieth of the screen. Anything that has to
- * be bigger than a pane belongs to the program that owns the whole window.
+ * be bigger than a container belongs to the program that owns the whole window.
  *
  * There is a second reason and it is the stronger one. A prompt is aimed from
- * one pane AT another, and a module has no way to name its neighbours — it does
+ * one container AT another, and a module has no way to name its neighbours — it does
  * not know what else is on the canvas and must not, or modularity is over. The
  * host is the only thing that knows what is here. So the host owns the writing
  * of prompts, and a module's part is to declare it has a use for one and to
@@ -34,12 +34,12 @@ import { Hint } from './Hint.tsx'
  *
  * ## Two halves, and they are not symmetrical
  *
- * **What this pane says** is editable: a person writes it here and picks who it
- * is for. **What this pane is told** is read-only, because it was composed by
- * the host out of what OTHER panes wrote — editing it here would be editing
+ * **What this container says** is editable: a person writes it here and picks who it
+ * is for. **What this container is told** is read-only, because it was composed by
+ * the host out of what OTHER containers wrote — editing it here would be editing
  * somebody else's sentence in a window that does not say whose it is.
  *
- * The second half is shown even when empty, and shown to every pane rather than
+ * The second half is shown even when empty, and shown to every container rather than
  * only to modules that declared a use for one. A module that never asked for a
  * prompt still gets the courtesy of a screen saying nothing is aimed at it,
  * because the alternative is a person wondering whether the prompt they wrote
@@ -48,26 +48,26 @@ import { Hint } from './Hint.tsx'
 export function Prompts({
   open,
   onOpenChange,
-  pane,
+  container,
   presences,
   placements,
   onWrite,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
-  /** The pane whose prompt is being written. */
-  pane: Placement
+  /** The container whose prompt is being written. */
+  container: Placement
   /** Everything registered, so a target can be named and described. */
   presences: readonly Presence[]
   /** The whole arrangement, because a prompt is aimed at something on it. */
   placements: readonly Placement[]
   onWrite(prompt: string, promptFor: string | null): void
 }) {
-  const me = presences.find((p) => p.id === pane.i)
-  const mine = me?.name ?? pane.i
+  const me = presences.find((p) => p.id === container.i)
+  const mine = me?.name ?? container.i
 
   /*
-   * Who a prompt can be aimed at: the other panes on this kehikko whose modules
+   * Who a prompt can be aimed at: the other containers on this kehikko whose modules
    * said they have a use for one.
    *
    * Filtered by the DECLARATION rather than offered to everything, because a
@@ -75,12 +75,12 @@ export function Prompts({
    * void with no way to find out. `declares.prompt` exists precisely so a host
    * can offer this honestly — see the manifest schema in the protocol package.
    *
-   * A pane cannot aim at itself. A module that wanted to tell itself something
+   * A container cannot aim at itself. A module that wanted to tell itself something
    * would be a module with a settings screen, which is its own business and not
    * something the host should be relaying in a circle.
    */
   const targets = placements
-    .filter((p) => p.i !== pane.i)
+    .filter((p) => p.i !== container.i)
     .map((p) => presences.find((presence) => presence.id === p.i))
     .filter((p): p is Presence => !!p?.module?.declares.prompt)
 
@@ -90,18 +90,18 @@ export function Prompts({
    * stored value means a reply landing mid-sentence replaces what somebody is
    * still typing. A prompt is longer than a name, so there is more to lose.
    */
-  const [draft, setDraft] = useState(pane.prompt)
-  const [aimedAt, setAimedAt] = useState<string | null>(pane.promptFor)
-  const belongsTo = useRef(pane.i)
+  const [draft, setDraft] = useState(container.prompt)
+  const [aimedAt, setAimedAt] = useState<string | null>(container.promptFor)
+  const belongsTo = useRef(container.i)
 
   useEffect(() => {
-    if (belongsTo.current === pane.i) return
-    belongsTo.current = pane.i
-    setDraft(pane.prompt)
-    setAimedAt(pane.promptFor)
-  }, [pane.i, pane.prompt, pane.promptFor])
+    if (belongsTo.current === container.i) return
+    belongsTo.current = container.i
+    setDraft(container.prompt)
+    setAimedAt(container.promptFor)
+  }, [container.i, container.prompt, container.promptFor])
 
-  const told = promptFor(placements, pane.i)
+  const told = promptFor(placements, container.i)
 
   const commit = (text: string, target: string | null) => {
     setDraft(text)
@@ -115,7 +115,7 @@ export function Prompts({
         <DialogHeader>
           <DialogTitle>Prompts for {mine}</DialogTitle>
           <DialogDescription>
-            What this pane says to another module on this kehikko, and what this one is being told.
+            What this container says to another module on this kehikko, and what this one is being told.
           </DialogDescription>
         </DialogHeader>
 
@@ -126,7 +126,7 @@ export function Prompts({
             </label>
             <span className="flex-1" />
             {/* A plain select. There is nothing to search and rarely more than a
-                handful of panes, and a combobox would be three interactions
+                handful of containers, and a combobox would be three interactions
                 where one will do. */}
             <label className="text-muted-foreground text-xs" htmlFor="prompt-target">
               aimed at
@@ -191,14 +191,14 @@ export function Prompts({
   )
 }
 
-/** The button on a pane header that opens the dialog above. */
+/** The button on a container header that opens the dialog above. */
 export function PromptButton({ wanted, onOpen }: { wanted: boolean; onOpen(): void }) {
   return (
     <Hint
       label={
         wanted
           ? 'prompts — this module uses one, and this is where it is written'
-          : 'prompts — what this pane says to another module, and what it is told'
+          : 'prompts — what this container says to another module, and what it is told'
       }
       side="left"
     >

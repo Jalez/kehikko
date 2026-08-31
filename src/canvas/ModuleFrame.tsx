@@ -52,7 +52,7 @@ export function ModuleFrame({
    * nothing. Handed straight into the greeting and never read here.
    */
   state: string | null
-  /** Whether this pane is pinned. See the context effect below. */
+  /** Whether this container is pinned. See the context effect below. */
   pinned: boolean
   /** What this kehikko says to this module, composed by the host. */
   prompt: string | null
@@ -67,7 +67,7 @@ export function ModuleFrame({
      whatever they had typed in it. */
   /* The pin travels with the context, because to a module it IS part of the
      context: it says whether what it has just been told is the last it will
-     hear. Merged here rather than upstream because the pin is per pane and the
+     hear. Merged here rather than upstream because the pin is per container and the
      context is one object shared by every frame on the canvas.
 
      Memoised, and that is not a performance nicety. This object is the
@@ -165,7 +165,7 @@ export function ModuleFrame({
      * anything to. Splitting them into two effects made both states reachable
      * for one render, which is long enough for an event to be lost.
      *
-     * Joining regardless of whether this pane is on the OPEN canvas is
+     * Joining regardless of whether this container is on the OPEN canvas is
      * deliberate. Its page is loaded, its conversation is live, and the event
      * says which kehikko it happened on — so a module on another canvas can
      * still record it and decide for itself whether it is near or far. Hiding
@@ -188,7 +188,7 @@ export function ModuleFrame({
   }, [framed.id, framed.name, framed.entry, origin, bus])
 
   /**
-   * Context, re-sent whenever it changes — unless this pane is pinned.
+   * Context, re-sent whenever it changes — unless this container is pinned.
    *
    * `sendContext` is a no-op before the greeting, so a change arriving while the
    * page is still loading is dropped here and carried in the greeting instead,
@@ -196,8 +196,8 @@ export function ModuleFrame({
    *
    * ## The pin, and the one message that still goes out after it
    *
-   * A pinned pane keeps what it was last told and hears nothing more about this
-   * canvas. That is the whole feature: two panes on two epics, side by side.
+   * A pinned container keeps what it was last told and hears nothing more about this
+   * canvas. That is the whole feature: two containers on two epics, side by side.
    *
    * But the pin itself is sent, in both directions, and that is not a
    * contradiction. The message announcing the freeze is the last one through and
@@ -243,9 +243,9 @@ export function ModuleFrame({
        * ## No `allow-modals`, and it costs a module author an afternoon
        *
        * `alert`, `confirm` and `prompt` are absent, deliberately. They block the
-       * whole browser — not the pane, the browser — so one module could freeze
+       * whole browser — not the container, the browser — so one module could freeze
        * a canvas holding five other people's programs, and a host that let a
-       * pane do that would not be a host.
+       * container do that would not be a host.
        *
        * The reason it is written down here is the FAILURE MODE. A blocked
        * `confirm()` does not throw and does not warn: it returns `false`, which
@@ -257,7 +257,7 @@ export function ModuleFrame({
        * A module wanting to confirm something builds it in its own page: a
        * two-press arm, an inline are-you-sure. Those are better anyway, since
        * they can say what will happen in the module's own words rather than in
-       * a browser chrome dialog. And anything that must be BIGGER than a pane
+       * a browser chrome dialog. And anything that must be BIGGER than a container
        * belongs to the host — see `Prompts.tsx`.
        */
       sandbox={

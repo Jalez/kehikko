@@ -50,7 +50,7 @@ export interface Presence {
    * Carried separately from `module`, which exists only for a module that will
    * actually be framed. An incompatible module has a name — the host read its
    * manifest, that is HOW it knows the module is incompatible — and putting the
-   * registration id on the pane instead would mean the header and the sentence
+   * registration id on the container instead would mean the header and the sentence
    * under it naming the same program two different ways.
    */
   name?: string

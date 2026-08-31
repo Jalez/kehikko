@@ -142,7 +142,7 @@ describe('what arrives over HTTP is not what is written', () => {
   })
 })
 
-describe('following the module’s height is a property of one pane', () => {
+describe('following the module’s height is a property of one container', () => {
   test('it is off unless it was asked for', () => {
     const made = createCanvas(db, 'one')
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
@@ -160,7 +160,7 @@ describe('following the module’s height is a property of one pane', () => {
 
   test('anything that is not exactly true is off', () => {
     /* It arrives over HTTP. A string, a number or a missing field must not
-       switch on something that resizes somebody's pane. */
+       switch on something that resizes somebody's container. */
     const made = createCanvas(db, 'one')
     for (const grow of ['true', 1, {}, [], 'yes']) {
       editCanvas(db, made.id, {
@@ -182,7 +182,7 @@ describe('following the module’s height is a property of one pane', () => {
   })
 })
 
-describe('pinning a pane is a fact about the pane, not about the module', () => {
+describe('pinning a container is a fact about the container, not about the module', () => {
   test('it is off unless asked for, and is written and read back', () => {
     const made = createCanvas(db, 'one')
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
@@ -205,7 +205,7 @@ describe('pinning a pane is a fact about the pane, not about the module', () => 
   })
 
   test('the same module can be pinned on one canvas and following on another', () => {
-    /* The entire use: two panes on two epics, side by side, to compare. It is
+    /* The entire use: two containers on two epics, side by side, to compare. It is
        per placement for exactly this, where a module's kept state is not. */
     const one = createCanvas(db, 'one')
     const two = createCanvas(db, 'two')
@@ -228,7 +228,7 @@ describe('pinning a pane is a fact about the pane, not about the module', () => 
   })
 })
 
-describe('a prompt is written on one pane and aimed at another', () => {
+describe('a prompt is written on one container and aimed at another', () => {
   test('what is written comes back, with its target', () => {
     const made = createCanvas(db, 'one')
     editCanvas(db, made.id, {
@@ -236,17 +236,17 @@ describe('a prompt is written on one pane and aimed at another', () => {
         { i: 'a.author', x: 0, y: 0, w: 6, h: 10, prompt: 'be terse', promptFor: 'a.reader' },
       ],
     })
-    const [pane] = listCanvases(db)[0]!.placements
-    expect(pane?.prompt).toBe('be terse')
-    expect(pane?.promptFor).toBe('a.reader')
+    const [container] = listCanvases(db)[0]!.placements
+    expect(container?.prompt).toBe('be terse')
+    expect(container?.promptFor).toBe('a.reader')
   })
 
   test('nothing written is an empty string and nobody aimed at is null', () => {
     const made = createCanvas(db, 'one')
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
-    const [pane] = listCanvases(db)[0]!.placements
-    expect(pane?.prompt).toBe('')
-    expect(pane?.promptFor).toBeNull()
+    const [container] = listCanvases(db)[0]!.placements
+    expect(container?.prompt).toBe('')
+    expect(container?.promptFor).toBeNull()
   })
 
   test('a target that is not a module id is nobody, rather than a row keyed to nonsense', () => {
@@ -475,14 +475,14 @@ describe('canvases are shown in the order they were made', () => {
 })
 
 /**
- * A folded pane.
+ * A folded container.
  *
  * The two things worth storing are that it IS folded and what height it had
- * before it was, and the second is the one with an argument behind it: a pane
+ * before it was, and the second is the one with an argument behind it: a container
  * that unfolded to a default height would move everything below it on somebody's
  * canvas, having been asked only to come back.
  */
-describe('a pane folded down to its header', () => {
+describe('a container folded down to its header', () => {
   test('both facts survive a round trip', () => {
     const made = createCanvas(db, 'folded')
     editCanvas(db, made.id, {
@@ -504,8 +504,8 @@ describe('a pane folded down to its header', () => {
   })
 
   test('an arrangement written before folding existed reads as open', () => {
-    /* Every pane in every database on somebody's machine today. A missing flag
-       is not an error; it is what those panes have been doing all along. */
+    /* Every container in every database on somebody's machine today. A missing flag
+       is not an error; it is what those containers have been doing all along. */
     const made = createCanvas(db, 'older')
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
     const placement = listCanvases(db)[0]?.placements[0]
@@ -513,9 +513,9 @@ describe('a pane folded down to its header', () => {
     expect(placement?.openH).toBeNull()
   })
 
-  test('anything but a literal true leaves the pane open', () => {
+  test('anything but a literal true leaves the container open', () => {
     /* The same rule `grow` and `pinned` are held to. A flag arriving from a page
-       as a string or a number must not fold somebody's pane. */
+       as a string or a number must not fold somebody's container. */
     const made = createCanvas(db, 'sloppy')
     editCanvas(db, made.id, {
       placements: [
@@ -526,7 +526,7 @@ describe('a pane folded down to its header', () => {
   })
 
   test('a remembered height is bounded exactly like a real one', () => {
-    /* It BECOMES `h` the moment somebody unfolds the pane, so a remembered
+    /* It BECOMES `h` the moment somebody unfolds the container, so a remembered
        height no version of this host could lay out is the stored-unlayoutable-
        arrangement problem one press later. */
     const made = createCanvas(db, 'silly')

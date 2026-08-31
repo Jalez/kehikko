@@ -1,9 +1,9 @@
 /**
- * Focus mode: the canvas without its pane headers.
+ * Focus mode: the canvas without its container headers.
  *
  * ## What it is
  *
- * A pane's header is a thin strip carrying the module's name, its condition
+ * A container's header is a thin strip carrying the module's name, its condition
  * dot, and five controls. Useful, and on a canvas being READ rather than
  * arranged it is thirty-two pixels of chrome above every module, repeated eight
  * or eleven times. Focus mode takes those rows out of the layout and gives the
@@ -13,18 +13,18 @@
  *
  * The header is not decoration and two things in it are load-bearing.
  *
- * It IS the drag handle — `.pane-grip`, named as such in the grid's
- * configuration and argued for at the top of `Pane.tsx`. A header permanently
+ * It IS the drag handle — `.container-grip`, named as such in the grid's
+ * configuration and argued for at the top of `Container.tsx`. A header permanently
  * gone is a canvas that cannot be rearranged, with nothing on screen saying
  * why, which is the same class of failure as the resize handle that spent a
  * week underneath an iframe: present, correct, unreachable.
  *
  * And it is the ONLY place a module's name appears. Modules were deliberately
  * stripped of their own titles and one-line descriptions, because a fixed strip
- * of prose at the top of a three-hundred-pixel pane competes with the thing
+ * of prose at the top of a three-hundred-pixel container competes with the thing
  * somebody opened the module to look at; the host's header carries the name and
  * the summary instead. So a permanently hidden header is a canvas where nothing
- * says which pane is which.
+ * says which container is which.
  *
  * Hover — and focus — put both back at the moment somebody reaches for them.
  * See `index.css` for how, and for the eight pixels that reveal costs.
@@ -34,7 +34,7 @@
  * The same reason the theme is, and the same mechanism rather than a second
  * one: a preference that is applied by React has already let one frame be
  * painted without it. For the theme that frame is a white flash; here it is a
- * row of headers that appear and then vanish, and every pane on the canvas
+ * row of headers that appear and then vanish, and every container on the canvas
  * jumping up thirty-two pixels as they go. That is the same defect wearing
  * different clothes, so it gets the same fix — a blocking script in
  * `index.html` puts the class on `<html>` before the body exists, and this file

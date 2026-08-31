@@ -42,7 +42,7 @@ import { Projects } from './Projects.tsx'
  * way to change how the canvas is drawn and a way to put a module on it.
  *
  * The order is the argument. A project is a folder, its epics live inside it,
- * and a kehikko is one arrangement of panes over that pair — so reading the
+ * and a kehikko is one arrangement of containers over that pair — so reading the
  * strip left to right is reading the hierarchy outward-in, and changing a
  * control changes everything to its right and nothing to its left. Putting the
  * kehikko first, which is where it used to be, meant the narrowest thing on
@@ -62,7 +62,7 @@ import { Projects } from './Projects.tsx'
  * It carries no rule under it either. A border would draw a line between the
  * host and the work, and there is nothing on this side of that line worth
  * separating off -- the strip is the same colour as the canvas, so a rule would
- * be the only thing announcing that the host is a place. The panes have edges
+ * be the only thing announcing that the host is a place. The containers have edges
  * of their own and those edges are the ones that mean something.
  */
 export function Bar({
@@ -107,7 +107,7 @@ export function Bar({
   onSubject(subject: Subject): void
   onPlace(id: string): void
   onUnplace(id: string): void
-  /** Whether the pane headers are out of the layout. See `host/focus.ts`. */
+  /** Whether the container headers are out of the layout. See `host/focus.ts`. */
   focus: Focus
   onFocus(): void
   theme: Theme
@@ -182,10 +182,10 @@ export function Bar({
          * settles it, and this control has room for one.
          *
          * The theme goes out to every module in `roadmap.context` as well, so
-         * a page inside a pane is not left bright inside a dark canvas.
+         * a page inside a container is not left bright inside a dark canvas.
          */}
         {/*
-         * Focus mode: the pane headers out of the layout, and back on hover.
+         * Focus mode: the container headers out of the layout, and back on hover.
          *
          * Beside the theme rather than in a menu, because it is the same kind
          * of thing — a statement about how you want the canvas drawn while you
@@ -199,14 +199,14 @@ export function Bar({
         <Hint
           label={
             focus === 'on'
-              ? 'pane headers are out of the way — they appear when you reach for them. Press to keep them drawn'
-              : 'drop the pane headers, and show one when the pointer is near the top of its pane'
+              ? 'container headers are out of the way — they appear when you reach for them. Press to keep them drawn'
+              : 'drop the container headers, and show one when the pointer is near the top of its container'
           }
         >
           <Button
             variant="ghost"
             size="icon"
-            aria-label={focus === 'on' ? 'keep the pane headers drawn' : 'drop the pane headers'}
+            aria-label={focus === 'on' ? 'keep the container headers drawn' : 'drop the container headers'}
             aria-pressed={focus === 'on'}
             className={
               focus === 'on'
@@ -396,7 +396,7 @@ function ModuleRow({
             </Badge>
           ) : null}
         </div>
-        {/* The sentence, in the list as well as in the pane. A person deciding
+        {/* The sentence, in the list as well as in the container. A person deciding
             what to put on the canvas is deciding about a program that may not be
             running, and finding that out after placing it is a worse order. */}
         <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{presence.line}</p>
@@ -410,7 +410,7 @@ function ModuleRow({
          * `min-w-0` on the wrapper because a badge is `whitespace-nowrap` in
          * shadcn's base, and a nowrap child sets a min-content floor under
          * everything above it. A sibling module put a sentence in one and gave
-         * a two-hundred pixel pane an eleven-hundred pixel floor. Nothing in a
+         * a two-hundred pixel container an eleven-hundred pixel floor. Nothing in a
          * badge here is longer than a module's name; the sentence is in the
          * tooltip, where there is room for it.
          */}

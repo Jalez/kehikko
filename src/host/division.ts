@@ -8,7 +8,7 @@ import { METHOD_NAMES } from 'roadmap-module-protocol'
  * that is the canvas. Most methods a module can call are about the host's
  * material and are answered by the server. Three are about the host's VIEW —
  * `view.goto` asks the host to show something, `selection.set` changes what
- * every pane is told, and `events.emit` has to reach a frame — and none of
+ * every container is told, and `events.emit` has to reach a frame — and none of
  * those is a thing a server has. So the canvas answers those, in the browser,
  * where the frames are.
  *
@@ -45,7 +45,7 @@ export const ANSWERED_BY_THE_SERVER = [
  * ORDER is what makes it a view method: the canvas changes, every module is
  * told, and the storing happens afterwards through the same debounced path that
  * stores an arrangement. A selection that waited for a round trip before the
- * other panes heard about it would put a visible delay on a click for no gain —
+ * other containers heard about it would put a visible delay on a click for no gain —
  * nothing is lost if the write lands a moment later, and the person is looking
  * at the result either way.
  *

@@ -92,12 +92,12 @@
     <!--
       Focus mode, decided in the same breath and for the same reason.
 
-      It drops the pane headers out of the layout — see `src/host/focus.ts` for
+      It drops the container headers out of the layout — see `src/host/focus.ts` for
       what it is, and for why the headers come back on hover rather than being
       gone. What matters HERE is only that it is decided before the first paint,
       exactly like the theme: a mode applied by React has already let one frame
       be painted without it, and that frame is a row of headers appearing and
-      then vanishing while every pane on the canvas jumps up thirty-two pixels.
+      then vanishing while every container on the canvas jumps up thirty-two pixels.
       Same defect as the light flash, same fix.
 
       Off unless the person has chosen it, which is the opposite default from

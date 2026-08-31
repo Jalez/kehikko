@@ -52,24 +52,24 @@ export interface Placement {
   w: number
   h: number
   /**
-   * Whether this pane follows the height its module asks for.
+   * Whether this container follows the height its module asks for.
    *
-   * Off by default, and off is the honest default: a pane is the size the
-   * person dragged it to. When it is on they have said, for this pane, that
+   * Off by default, and off is the honest default: a container is the size the
+   * person dragged it to. When it is on they have said, for this container, that
    * they would rather it fitted its contents than stayed where they put it.
    *
    * Stored per placement rather than per module, because it is a property of
-   * this pane on this kehikko — the same module can be a fixed strip on one and
+   * this container on this kehikko — the same module can be a fixed strip on one and
    * grow to fit on another.
    */
   grow: boolean
   /**
-   * Whether this pane has been pinned, and stops hearing about the canvas.
+   * Whether this container has been pinned, and stops hearing about the canvas.
    *
    * Per placement rather than per module, unlike `state` and for the opposite
-   * reason: a pin is a fact about one pane on one kehikko. Holding a module
+   * reason: a pin is a fact about one container on one kehikko. Holding a module
    * still here while another kehikko moves it around is the entire use — two
-   * panes on two epics, side by side, to compare.
+   * containers on two epics, side by side, to compare.
    *
    * The module is told, in `roadmap.context`. A host that pinned silently would
    * leave a module describing itself as showing the open epic while it showed a
@@ -79,25 +79,25 @@ export interface Placement {
    */
   pinned: boolean
   /**
-   * What somebody wrote on this pane for another module to work from.
+   * What somebody wrote on this container for another module to work from.
    *
-   * A pane AUTHORS a prompt and aims it at a module; the module it is aimed at
+   * A container AUTHORS a prompt and aims it at a module; the module it is aimed at
    * RECEIVES the composition of everything aimed at it. Both halves are stored
-   * here because both are facts about this pane on this kehikko: the same
+   * here because both are facts about this container on this kehikko: the same
    * module can carry different instructions on two different canvases, which is
    * most of the point of writing them per canvas rather than per module.
    *
    * Empty means nothing was written. `promptFor` naming a module that is not on
-   * this canvas is not an error — a pane can be taken off and put back, and
+   * this canvas is not an error — a container can be taken off and put back, and
    * throwing the prompt away in between would lose something a person typed.
    */
   prompt: string
   promptFor: string | null
   /**
-   * Whether this pane is collapsed to its header.
+   * Whether this container is collapsed to its header.
    *
    * Per placement, like `grow` and `pinned` and for the same reason: it is a
-   * statement about this pane on this kehikko. The same module can be a
+   * statement about this container on this kehikko. The same module can be a
    * full-height panel on one canvas and a folded title bar on another, and
    * which it is is the arrangement's business.
    *
@@ -106,12 +106,12 @@ export interface Placement {
    */
   collapsed: boolean
   /**
-   * The height this pane had before it was collapsed, in grid rows.
+   * The height this container had before it was collapsed, in grid rows.
    *
-   * Remembered rather than recomputed. A pane that expanded to a default height
-   * would be a pane that rearranged somebody's canvas for them — everything
-   * below it moves, and nothing they did asked for that. `null` for a pane that
-   * has never been collapsed, which is every pane in every database written
+   * Remembered rather than recomputed. A container that expanded to a default height
+   * would be a container that rearranged somebody's canvas for them — everything
+   * below it moves, and nothing they did asked for that. `null` for a container that
+   * has never been collapsed, which is every container in every database written
    * before this existed.
    */
   openH: number | null
@@ -285,7 +285,7 @@ export function open(file = databaseFile()): Database {
    *
    * `on delete cascade`, which SQLite honours because `foreign_keys` is on
    * above: removing a project removes its kehikot, because a kehikko in a
-   * project that is gone is a layout of panes over a folder that is not there.
+   * project that is gone is a layout of containers over a folder that is not there.
    */
   add(db, 'canvases', 'project_id', 'integer references projects(id) on delete cascade')
   /*
@@ -667,7 +667,7 @@ function cleaned(placements: PlacementInput[]): Placement[] {
       h: bounded(p.h, 1, 400),
       /* Anything but a literal `true` is off. A flag arriving from a page as a
          string, a number or nothing at all should not switch on a behaviour
-         that resizes somebody's pane. */
+         that resizes somebody's container. */
       grow: p.grow === true,
       /* Same rule as `grow`: anything but a literal `true` is off. This one
          decides whether a module stops hearing about the canvas, which is not a
@@ -682,7 +682,7 @@ function cleaned(placements: PlacementInput[]): Placement[] {
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
       /* Bounded exactly like `h`, because it BECOMES `h` the moment somebody
-         expands the pane. A remembered height that no version of this host
+         expands the container. A remembered height that no version of this host
          could lay out is the same stored-unlayoutable-arrangement problem one
          press later. */
       openH: p.openH === null || p.openH === undefined ? null : bounded(p.openH, 1, 400),

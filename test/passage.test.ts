@@ -61,7 +61,7 @@ describe('what the canvas does when a module points', () => {
 
   test('null is a real call and clears it', async () => {
     /* "No document is open" is a state every consumer has to be able to move
-       INTO. A module that could not send this would leave a notes pane showing
+       INTO. A module that could not send this would leave a notes container showing
        the notes on a chapter nobody has open. */
     const { controls, pointed } = canvasThatRemembers()
     const ask = makeAsk('roadmap.paper', controls)
@@ -155,7 +155,7 @@ describe('the passage travels in the context every module is told', () => {
   test('a passage the schema will not take does not white-screen the host', () => {
     /* `toWireContext` runs during render. A quote past `LIMITS.QUOTE` arriving
        from a module must cost that module its passage and must not take every
-       other pane on the canvas down with it. */
+       other container on the canvas down with it. */
     const here = toWireContext({ epic: null, project: roadmap }, 'light', [], null, {
       ...paragraph,
       quoted: 'x'.repeat(5000),

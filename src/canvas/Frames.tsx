@@ -7,12 +7,12 @@ import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame } from './ModuleFrame.tsx'
 
 /**
- * Every module's page, loaded once, positioned over the pane that asked for it.
+ * Every module's page, loaded once, positioned over the container that asked for it.
  *
  * ## The problem this solves, and why SSR does not solve it
  *
  * A module on two canvases used to be two loads. Switching canvases unmounted
- * the panes, unmounting the panes destroyed the iframes, and coming back was a
+ * the containers, unmounting the containers destroyed the iframes, and coming back was a
  * cold start: the page fetched again, the handshake ran again, and whatever the
  * person had scrolled to or typed into was gone. For a module that takes a
  * second to wake up, moving between two canvases became something you avoid.
@@ -28,7 +28,7 @@ import { ModuleFrame } from './ModuleFrame.tsx'
  * moving the element to a new parent does not carry the document across either;
  * a reparented iframe reloads from its `src`, which is specified behaviour and
  * not a bug anybody can route around. Server rendering the HOST would change
- * which process wrote the canvas markup, and the module inside the pane would
+ * which process wrote the canvas markup, and the module inside the container would
  * still be a fresh document every time, because it is a different origin
  * fetching its own page over HTTP either way. The host would be marginally
  * faster to first paint and every module would still reload.
@@ -39,11 +39,11 @@ import { ModuleFrame } from './ModuleFrame.tsx'
  * ## What that costs, which is the interesting part
  *
  * The pages cannot live inside the grid, because the grid is what comes and
- * goes. So the panes in the grid are CHROME — a header, a border, and a hollow
+ * goes. So the containers in the grid are CHROME — a header, a border, and a hollow
  * body — and every module's page lives here instead, in one flat layer that is
  * a sibling of the grid and outlives it. Each page is positioned over the body
- * of its pane, measured from the DOM rather than computed from the grid's own
- * arithmetic, so that changing the padding on a pane cannot silently put every
+ * of its container, measured from the DOM rather than computed from the grid's own
+ * arithmetic, so that changing the padding on a container cannot silently put every
  * module four pixels out of place.
  *
  * Two consequences follow and both are deliberate:
@@ -69,13 +69,13 @@ export interface Rect {
 
 export interface Framing {
   module: FramedModule
-  /** Where its pane's body is, or `null` if that pane is not on screen. */
+  /** Where its container's body is, or `null` if that container is not on screen. */
   rect: Rect | null
   /** On the open canvas, greeted, and answering. Anything else is hidden. */
   shown: boolean
   /** Whatever the host keeps for this module, carried into its greeting. */
   state: string | null
-  /** Whether this pane is pinned, and stops hearing about the canvas. */
+  /** Whether this container is pinned, and stops hearing about the canvas. */
   pinned: boolean
   /** What this kehikko has to say to this module, composed by the host. */
   prompt: string | null
@@ -97,26 +97,26 @@ export function Frames({
    *
    * It belongs to this layer for the same reason the pages do: the layer
    * outlives the grid, so a module framed on a kehikko nobody is currently
-   * looking at is still joined and still hears. A bus owned by the pane would
-   * come and go with the pane, and a module would fall silent the moment
+   * looking at is still joined and still hears. A bus owned by the container would
+   * come and go with the container, and a module would fall silent the moment
    * somebody switched canvases.
    */
   bus: EventBus
   watcherFor(id: string): ConversationWatcher
   /**
-   * The pane being dragged or resized right now, if any.
+   * The container being dragged or resized right now, if any.
    *
    * It turns the pointer off — for every page, not only the one being moved.
    * A drag is tracked by listeners on the host's own document, and a document
    * does not receive pointer events that happen over an iframe; they go to the
-   * framed document instead. So a pane dragged across another module's page
+   * framed document instead. So a container dragged across another module's page
    * would stick to the pointer the moment it crossed it, which reads as the
    * canvas freezing. Handing those events back for the duration costs a module
-   * nothing: nobody clicks inside a pane they are in the middle of moving.
+   * nothing: nobody clicks inside a container they are in the middle of moving.
    *
    * It does NOT hide anything, and an earlier version did. The reasoning then
    * was that a page positioned from a measurement is always a frame behind a
-   * pane positioned by the pointer, so the honest thing was to show an empty
+   * container positioned by the pointer, so the honest thing was to show an empty
    * box while you moved it. That traded a barely visible lag for a very visible
    * blank, which is the wrong way round: a module that goes blank whenever you
    * touch it looks like a module that crashed. Everything is measured on every
@@ -126,7 +126,7 @@ export function Frames({
 }) {
   return (
     /* `pointer-events-none` on the layer and `auto` on each page, so that the
-       gaps between panes belong to the canvas underneath rather than to an
+       gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
       {framings.map(({ module, rect, shown, state, pinned, prompt }) => {

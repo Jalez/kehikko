@@ -119,7 +119,7 @@ export class Conversation {
   /**
    * The name for a sentence, which is not the id for a lookup.
    *
-   * A pane headed "Mute" whose sentence underneath says `example.mute` is one
+   * A container headed "Mute" whose sentence underneath says `example.mute` is one
    * program named two ways in two inches, and a person reading it has to work
    * out that they are the same thing. The id stays the identity everywhere it
    * is a key; this is only ever printed.
@@ -187,7 +187,7 @@ export class Conversation {
     this.readyTimer = setTimeout(() => {
       if (this.answered || this.closed) return
       this.watcher.silent(
-        `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this pane is not speaking.`,
+        `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this container is not speaking.`,
       )
     }, this.readyTimeoutMs)
   }
@@ -210,7 +210,7 @@ export class Conversation {
    * sent is a conforming module. So there is nothing to wait for, nothing to
    * time out, and nothing in `pending` — which also means a canvas holding a
    * frame that has quietly stopped listening is not accumulating promises about
-   * it. A host that waited for acknowledgement here could be hung by a pane
+   * it. A host that waited for acknowledgement here could be hung by a container
    * nobody is looking at.
    *
    * ## Only after the greeting, and that is where events are lost

@@ -20,7 +20,7 @@ import { Hint } from './Hint.tsx'
  * This used to be a mark and nothing else — a `<span>` with `cursor-default` and
  * no click handler — drawn only when the agent had NOT been told. The argument
  * was that silence is the good news: a module the agent already knows about is
- * working, and a green tick beside every working pane would be decoration that
+ * working, and a green tick beside every working container would be decoration that
  * makes the one real warning harder to find.
  *
  * Half of that argument survives and half of it was wrong, and it is worth
@@ -28,7 +28,7 @@ import { Hint } from './Hint.tsx'
  *
  * **What survives** is the reason there is still no tick: a canvas full of
  * warnings teaches people to stop reading warnings, and the loud mark is only
- * loud because almost nothing else on a pane is. That constraint governs every
+ * loud because almost nothing else on a container is. That constraint governs every
  * decision below, and it is why a connected module gets the quietest control on
  * the header rather than a badge, a count, or a colour.
  *
@@ -44,12 +44,12 @@ import { Hint } from './Hint.tsx'
  * So the mark is now a control, and it is drawn whenever there is a door:
  *
  *   - **`untold` and `elsewhere` keep the loud mark.** An unplugged icon at full
- *     foreground weight. Something is wrong and the pane says so from across the
+ *     foreground weight. Something is wrong and the container says so from across the
  *     canvas, exactly as before.
  *   - **`told` gets a quiet one.** A plugged icon at the same weight as every
  *     other idle button on the header — the pin, the height toggle, the prompt.
  *     It reads as one more thing you can open, which is what it is, and it does
- *     not compete for attention with the loud mark on the pane beside it.
+ *     not compete for attention with the loud mark on the container beside it.
  *   - **`none` still draws nothing.** A module with no MCP door has no tools and
  *     no configuration; a control that opens a window saying "there is nothing
  *     here" wastes a press every time it is pressed.
@@ -64,7 +64,7 @@ import { Hint } from './Hint.tsx'
  * ## Why the window belongs to the host
  *
  * The same reason `Prompts.tsx` gives, and it applies harder here. A module's
- * page is in an iframe, so a dialog it rendered would be clipped to its pane —
+ * page is in an iframe, so a dialog it rendered would be clipped to its container —
  * a 220-pixel modal is not a modal. The sandbox has no `allow-modals` either,
  * so it could not fall back to `window.confirm`. And the subject of this window
  * is not the module at all: it is what the AGENT has been told, which is a fact
@@ -72,7 +72,7 @@ import { Hint } from './Hint.tsx'
  * a way to write.
  */
 
-/** The control on the pane header. It opens the window below. */
+/** The control on the container header. It opens the window below. */
 export function ToolsMark({
   agent,
   name,
@@ -105,9 +105,9 @@ export function ToolsMark({
               ? 'tools configured elsewhere'
               : 'tools, connected'
         }
-        /* `pointer-events-auto` explicitly. The pane is `pointer-events-none` so
+        /* `pointer-events-auto` explicitly. The container is `pointer-events-none` so
            the module's page shows through it, and every part that has to be
-           pressed opts back in one at a time — see the essay in `Pane.tsx`. A
+           pressed opts back in one at a time — see the essay in `Container.tsx`. A
            control that forgot this looks perfectly normal and is dead. */
         className={
           wrong
@@ -166,7 +166,7 @@ export function ToolsDialog({
   onOpenChange(open: boolean): void
   module: string
   name: string
-  /** Look again, so the mark on the pane catches up with the press. */
+  /** Look again, so the mark on the container catches up with the press. */
   onChanged(): void
 }) {
   const [door, setDoor] = useState<AtTheDoor | null>(null)
@@ -258,7 +258,7 @@ export function ToolsDialog({
       {/* `min-w-0` on everything that holds a tool description. A description is
           a paragraph somebody else wrote and it can be any length at all; a
           flex or grid child without it takes its min-content width from the
-          longest unbreakable run, which is how a 220-pixel pane elsewhere in
+          longest unbreakable run, which is how a 220-pixel container elsewhere in
           this workspace ended up with a 1187-pixel floor under it. */}
       <DialogContent className="max-h-[80vh] overflow-y-auto">
         <DialogHeader>

@@ -335,7 +335,7 @@ export function answer(
    *
    * The protocol grew the ninth message. `roadmap.event` carries an extension
    * payload from the host into a frame — unanswered, with no correlation id,
-   * because a host that waited for acknowledgement could be hung by a pane
+   * because a host that waited for acknowledgement could be hung by a container
    * nobody is looking at. The gap this refusal named is closed, and the refusal
    * is gone rather than being left in place with a comment saying it is stale.
    *

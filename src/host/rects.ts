@@ -3,7 +3,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { Rect } from '@/canvas/Frames.tsx'
 
 /**
- * Where each pane's body is, in the canvas's own coordinates.
+ * Where each container's body is, in the canvas's own coordinates.
  *
  * ## Why this is measured rather than calculated
  *
@@ -12,9 +12,9 @@ import type { Rect } from '@/canvas/Frames.tsx'
  * here would give exact numbers with no DOM reads at all, and it was tempting.
  *
  * It is the wrong answer, because the number this needs is not where the ITEM
- * is — it is where the pane's BODY is, which is the item minus a header, a
+ * is — it is where the container's BODY is, which is the item minus a header, a
  * border and whatever rounding the card has. Calculating that means encoding
- * `Pane.tsx`'s padding in a second file, and the day somebody makes the header
+ * `Container.tsx`'s padding in a second file, and the day somebody makes the header
  * a pixel taller, every module on the canvas is a pixel out of place and
  * nothing in either file looks wrong. Measuring asks the browser where the
  * element actually ended up, and the answer stays right through any restyling.
@@ -30,19 +30,19 @@ export function useRects(): {
   rects: Record<string, Rect>
   /** Give the surface — the scrolling element the layer sits inside. */
   surface: (element: HTMLElement | null) => void
-  /** Give one pane's body, or `null` when that pane goes away. */
+  /** Give one container's body, or `null` when that container goes away. */
   body: (id: string) => (element: HTMLElement | null) => void
   /** Measure now, before the next paint. */
   measure: () => void
   /**
    * Measure on the next frame, at most once per frame.
    *
-   * For things that move a pane without resizing it — a drag, mainly. A grid
+   * For things that move a container without resizing it — a drag, mainly. A grid
    * item being dragged is moved with a CSS transform, and a transform changes
    * nothing a `ResizeObserver` watches: the element is the same size, so
-   * nothing fires, so the page stays where the pane used to be while the pane
-   * slides out from under it. Compaction makes it worse than one stray pane,
-   * because dragging one pane pushes the others and every one of them moves
+   * nothing fires, so the page stays where the container used to be while the container
+   * slides out from under it. Compaction makes it worse than one stray container,
+   * because dragging one container pushes the others and every one of them moves
    * without resizing too.
    */
   remeasure: () => void
@@ -50,15 +50,15 @@ export function useRects(): {
    * Keep measuring for a moment, because the layout is still moving.
    *
    * For everything that ENDS a gesture rather than continuing one. Dropping a
-   * pane does not put it where it was dropped: the grid decides where it
+   * container does not put it where it was dropped: the grid decides where it
    * actually goes, and then it glides there over about a fifth of a second, on
-   * a CSS transition of `transform`. Panes that were pushed out of the way
+   * a CSS transition of `transform`. Containers that were pushed out of the way
    * glide too.
    *
    * A transform is invisible to a `ResizeObserver` — nothing resized — so
-   * measuring once when the drag ends reads the position the pane was dropped
+   * measuring once when the drag ends reads the position the container was dropped
    * at and never the one it settles into. The page then sits at the dropped
-   * spot while its own pane slides out from under it and stops somewhere else,
+   * spot while its own container slides out from under it and stops somewhere else,
    * which is precisely the wrong half of "the module stayed where I put it".
    *
    * So this measures every frame for a window comfortably longer than the
@@ -72,7 +72,7 @@ export function useRects(): {
   const [rects, setRects] = useState<Record<string, Rect>>({})
   const surfaceRef = useRef<HTMLElement | null>(null)
   const bodies = useRef(new Map<string, HTMLElement>())
-  /* One observer for every pane body and the surface itself. A pane resized by
+  /* One observer for every container body and the surface itself. A container resized by
      anything at all — a drag, a window, a module asking to be taller — is a
      measurement, and there is no list of causes worth maintaining. */
   const observer = useRef<ResizeObserver | null>(null)

@@ -13,7 +13,7 @@ import {
 } from '@/host/canvases.ts'
 
 /**
- * The page's half of the canvases: where a pane lands, what comes off, and
+ * The page's half of the canvases: where a container lands, what comes off, and
  * which canvas opens.
  *
  * The arrangement itself is the server's to keep — see `canvases.test.ts`.

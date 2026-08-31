@@ -269,7 +269,7 @@ describe('the bound, and what it says about what it drops', () => {
     bus.join('roadmap.notifications', listener(['roadmap.notifications@1']))
     for (let i = 0; i < BURST + 5; i += 1) bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
 
-    /* The bucket is per sender. A shared one would mean the noisiest pane on
+    /* The bucket is per sender. A shared one would mean the noisiest container on
        the canvas deciding whether anybody else is heard, which is the same
        failure the limit exists to prevent, one level up. */
     expect(bus.emit('roadmap.quiet', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(true)

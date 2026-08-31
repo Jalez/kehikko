@@ -40,7 +40,7 @@
   --background: oklch(1 0 0);
   --foreground: oklch(0.2 0 0);
 
-  /* A pane. Barely darker than the canvas, so a module's own page is what you
+  /* A container. Barely darker than the canvas, so a module's own page is what you
      look at and its frame is not. The dark palette makes the same move in the
      other direction. */
   --card: oklch(0.98 0 0);
@@ -134,9 +134,9 @@
  * react-grid-layout's own behaviour, dressed for a black canvas.
  *
  * Its stylesheet is imported in `main.tsx`; what follows only changes how the
- * moving parts LOOK. The placeholder is the shape a pane will take when
+ * moving parts LOOK. The placeholder is the shape a container will take when
  * dropped, and it is drawn as an outline rather than a filled block because a
- * filled block on black reads as a new pane appearing rather than as a space
+ * filled block on black reads as a new container appearing rather than as a space
  * being made.
  */
 .react-grid-item.react-grid-placeholder {
@@ -153,19 +153,19 @@
  * The module's page is painted underneath the grid rather than inside it — see
  * the essay in `Frames.tsx` — so a grid item that captured the pointer across
  * its whole rectangle would swallow every click meant for the page beneath it.
- * `Pane.tsx` hands it back to its header, its fault line and its notices; this
- * hands it back to the one part of the item that `Pane` does not own.
+ * `Container.tsx` hands it back to its header, its fault line and its notices; this
+ * hands it back to the one part of the item that `Container` does not own.
  *
  * That handle is the reason any of this is written down. It lives in the
  * bottom-right corner of the item, which is exactly where the page sat when the
- * page was on top — so it was covered, on every pane, and no pane could be
+ * page was on top — so it was covered, on every container, and no container could be
  * resized at all. Nothing looked broken: the handle was drawn, in the right
  * place, doing nothing.
  *
  * The CONTAINER needs the same treatment as the items, and forgetting it looked
  * like the fix had not worked. `.react-grid-layout` is one div stretched across
  * the whole canvas; making every item transparent to the pointer while leaving
- * it opaque just moves the blockage up one element. Panes could be resized
+ * it opaque just moves the blockage up one element. Containers could be resized
  * again and no module would take a click, which is a confusing pair of symptoms
  * for a single missing selector.
  */
@@ -179,9 +179,9 @@
  *
  * `WidthProvider` renders once at a hardcoded 1280 pixels, measures, and
  * renders again at the real width. On any canvas that is not exactly 1280 wide
- * that means every pane is first placed wrongly and then corrected — and
+ * that means every container is first placed wrongly and then corrected — and
  * `react-grid-layout` transitions `transform`, so the correction is animated.
- * The result is that on every single load the panes visibly slide from
+ * The result is that on every single load the containers visibly slide from
  * somewhere they never were into place, which reads as the arrangement being
  * rebuilt in front of you rather than restored.
  *
@@ -203,9 +203,9 @@
   pointer-events: auto;
 }
 
-/* While a pane is being dragged or resized, the pages stop receiving the
+/* While a container is being dragged or resized, the pages stop receiving the
    pointer — otherwise a module's page swallows the gesture halfway through and
-   the pane sticks to the cursor. The host sets this on the layer as well; this
+   the container sticks to the cursor. The host sets this on the layer as well; this
    is the same rule stated where a stylesheet can enforce it. */
 .react-grid-item.react-draggable-dragging iframe,
 .react-grid-item.resizing iframe {
@@ -224,11 +224,11 @@
  * and the interesting part is not the hiding — it is the reveal, because the
  * obvious way to write it does not work in this program.
  *
- * ## Why `:hover` on the pane is not available
+ * ## Why `:hover` on the container is not available
  *
- * A grid item and the pane inside it are `pointer-events: none`, so that the
+ * A grid item and the container inside it are `pointer-events: none`, so that the
  * module's page underneath can be clicked — see the essay a few rules up. An
- * element that is not a hit target never matches `:hover`, so `.pane:hover`
+ * element that is not a hit target never matches `:hover`, so `.container:hover`
  * matches nothing, ever. Nor could JavaScript do better: the pointer spends its
  * time over an iframe, and a document does not receive pointer events that
  * happen inside one — the same fact that makes `moving` necessary in
@@ -237,12 +237,12 @@
  * So the reveal needs one element that IS a hit target, and every pixel of that
  * element is a pixel of the module underneath that cannot be clicked. That is
  * the entire cost of this feature and it is paid here, in eight pixels along
- * the top edge of a pane, which is where a module is least likely to have put
+ * the top edge of a container, which is where a module is least likely to have put
  * something you press.
  *
  * ## How the eight pixels become thirty-two
  *
- * `.pane-reveal` is that hit target. It is eight pixels tall at rest and a
+ * `.container-reveal` is that hit target. It is eight pixels tall at rest and a
  * header tall when hovered, with the header itself overflowing it visibly the
  * rest of the time. Growing on hover is what stops the flicker: at eight pixels
  * forever, moving the pointer down onto the header it had just revealed would
@@ -252,24 +252,24 @@
  * The header keeps `pointer-events: none` until it is actually shown. Without
  * that, the invisible strip would still carry the header's buttons, and the
  * top-right eight pixels of every module would be an unlabelled control that
- * takes the pane off the canvas.
+ * takes the container off the canvas.
  *
  * `:focus-within` is there for the same reason the hover is, for somebody not
  * using a pointer. Pin, prompts, tools and remove live only in this header; a
  * reveal that answered to the mouse alone would put all four out of a keyboard
  * user's reach, and nothing on screen would say so.
  *
- * ## A folded pane keeps its header, in focus mode too
+ * ## A folded container keeps its header, in focus mode too
  *
  * `[data-collapsed]` is the exemption, and it is deliberate rather than an
- * oversight. Focus mode gives space back to the modules; a folded pane is not
+ * oversight. Focus mode gives space back to the modules; a folded container is not
  * showing a module, so there is no space to give — and hiding its header would
- * leave a pane with nothing visible at all, its program still running,
- * indistinguishable from a pane that had been taken off the canvas. The one
+ * leave a container with nothing visible at all, its program still running,
+ * indistinguishable from a container that had been taken off the canvas. The one
  * thing on screen saying "this is folded and still here" is the header, so in
  * focus mode it is the one header that stays drawn.
  */
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]) {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]) {
   position: absolute;
   top: 0;
   left: 0;
@@ -280,56 +280,56 @@
   pointer-events: auto;
 }
 
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]) > .pane-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]) > .container-grip {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):hover,
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):focus-within {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):hover,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):focus-within {
   height: 2rem;
 }
 
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):hover > .pane-grip,
-.focus-mode .react-grid-item .pane-reveal:not([data-collapsed]):focus-within > .pane-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):hover > .container-grip,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):focus-within > .container-grip {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* No fade while a pane is being dragged. The gesture starts on the header, so
+/* No fade while a container is being dragged. The gesture starts on the header, so
    the header is by definition already revealed, and animating it during a drag
    is one more thing repainting on every frame of a movement that is already
-   measuring every pane on the canvas. */
-.react-grid-item.react-draggable-dragging .pane-reveal > .pane-grip {
+   measuring every container on the canvas. */
+.react-grid-item.react-draggable-dragging .container-reveal > .container-grip {
   transition: none;
 }
 
 /*
- * A folded pane's header, dense enough to fit one grid row.
+ * A folded container's header, dense enough to fit one grid row.
  *
  * One row is twenty-four pixels and an open header is thirty-two, so the
  * controls shrink rather than the grid growing. The alternative was raising
  * `ROW_HEIGHT` until a header fitted in one row, which would have made every
- * pane on every canvas taller to accommodate the folded case — paying for a
- * state a pane is rarely in, everywhere, forever.
+ * container on every canvas taller to accommodate the folded case — paying for a
+ * state a container is rarely in, everywhere, forever.
  *
  * Written as one rule over the header's descendants instead of a `dense` prop
  * threaded through six buttons, because the buttons are the same buttons: they
  * do the same things and answer the same tooltips, they are simply smaller. A
  * prop would have invited them to diverge.
  */
-.pane-grip[data-dense='true'] {
+.container-grip[data-dense='true'] {
   font-size: 0.6875rem;
 }
 
-.pane-grip[data-dense='true'] button,
-.pane-grip[data-dense='true'] [role='button'] {
+.container-grip[data-dense='true'] button,
+.container-grip[data-dense='true'] [role='button'] {
   block-size: 1.125rem;
   inline-size: 1.125rem;
 }
 
-.pane-grip[data-dense='true'] svg {
+.container-grip[data-dense='true'] svg {
   block-size: 0.625rem;
   inline-size: 0.625rem;
 }

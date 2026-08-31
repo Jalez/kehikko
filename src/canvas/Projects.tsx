@@ -76,7 +76,7 @@ export function Projects({
                * `min-w-0` and `truncate`, and this is the trap the house rules
                * name. A project's PATH is exactly the sort of long unbreakable
                * string that has already set an eleven-hundred pixel min-content
-               * floor under a narrow pane elsewhere here. The name is short and
+               * floor under a narrow container elsewhere here. The name is short and
                * the path is in the tooltip, where there is room for it.
                */}
               <span className="min-w-0 truncate">{open?.name ?? 'no project'}</span>
@@ -280,7 +280,7 @@ function Row({
         {/* Plain words rather than badges. A shadcn `Badge` is
             `whitespace-nowrap` in its base, and a nowrap child sets a
             min-content floor under everything above it — which has already
-            given a two-hundred pixel pane an eleven-hundred pixel floor once in
+            given a two-hundred pixel container an eleven-hundred pixel floor once in
             this codebase. Nothing here needs to be a badge. */}
         {entry.git ? (
           <span className="text-muted-foreground inline-flex shrink-0 items-center gap-0.5 text-[10px]">

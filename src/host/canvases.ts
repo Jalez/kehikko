@@ -21,34 +21,34 @@ const placementSchema = z.object({
   w: z.number().int().min(1).max(200),
   h: z.number().int().min(1).max(400),
   /**
-   * Whether this pane follows the height its module asks for.
+   * Whether this container follows the height its module asks for.
    *
    * Defaulted rather than required, so a canvas stored before this existed
-   * still reads. A missing flag is off, which is what those panes were doing
+   * still reads. A missing flag is off, which is what those containers were doing
    * anyway.
    */
   grow: z.boolean().default(false),
   /**
-   * Whether this pane is pinned, and stops hearing about the canvas.
+   * Whether this container is pinned, and stops hearing about the canvas.
    *
    * Defaulted, so an arrangement stored before pinning existed reads as not
-   * pinned — which is what those panes have been doing all along.
+   * pinned — which is what those containers have been doing all along.
    */
   pinned: z.boolean().default(false),
-  /** What this pane says to another module, and which one it says it to. */
+  /** What this container says to another module, and which one it says it to. */
   prompt: z.string().default(''),
   promptFor: z.string().nullable().default(null),
   /**
-   * Whether this pane is folded down to its header.
+   * Whether this container is folded down to its header.
    *
    * Defaulted, so an arrangement stored before folding existed reads as open —
-   * which is what every pane in it has been all along.
+   * which is what every container in it has been all along.
    */
   collapsed: z.boolean().default(false),
   /**
    * The height it had before it was folded, in rows, or `null`.
    *
-   * Remembered rather than recomputed, so that unfolding puts the pane back
+   * Remembered rather than recomputed, so that unfolding puts the container back
    * where it was rather than at a size somebody never chose. See the essay on
    * `onCollapse` in `App.tsx`.
    */
@@ -56,7 +56,7 @@ const placementSchema = z.object({
 })
 
 /**
- * What one module is being told, composed from every pane aiming at it.
+ * What one module is being told, composed from every container aiming at it.
  *
  * The host does the composing rather than handing a module a list of fragments
  * — see the essay on `prompt` in the protocol's `wire.ts`. Ordering is the
@@ -65,8 +65,8 @@ const placementSchema = z.object({
  * instructions to have been assembled in. Anything else would be a rule they
  * cannot see.
  *
- * Each fragment is labelled with the pane it came from. A person reading the
- * whole of what a module was told needs to know which pane said what, or a
+ * Each fragment is labelled with the container it came from. A person reading the
+ * whole of what a module was told needs to know which container said what, or a
  * contradiction between two of them is unattributable.
  */
 export function promptFor(
@@ -259,7 +259,7 @@ export function inProject(canvases: readonly Canvas[], project: number | null): 
   return canvases.filter((canvas) => canvas.project === project)
 }
 
-/** The grid is twelve columns wide, and a new pane takes half of it. */
+/** The grid is twelve columns wide, and a new container takes half of it. */
 export const COLUMNS = 12
 const NEW_W = 6
 const NEW_H = 10
@@ -271,7 +271,7 @@ const NEW_H = 10
  * not. Left to right, top to bottom, like words.
  *
  * Deliberately not a packing algorithm. Something that hunted for the largest
- * gap would put a new pane somewhere a person cannot predict, and then finding
+ * gap would put a new container somewhere a person cannot predict, and then finding
  * it is a step before moving it — two gestures where there should be one. This
  * rule is small enough to hold in your head, which is the only property that
  * matters: you press add, and you already know where to look.
@@ -287,7 +287,7 @@ export function place(placements: readonly Placement[], id: string): Placement[]
   const y = beside ? bottom : placements.reduce((low, p) => Math.max(low, p.y + p.h), 0)
   const x = beside ? usedToTheRight : 0
 
-  /* Off. A new pane is the size this host chose and stays there until somebody
+  /* Off. A new container is the size this host chose and stays there until somebody
      says otherwise — either by dragging its corner or by turning this on. */
   return [
     ...placements,
@@ -316,7 +316,7 @@ export function unplace(placements: readonly Placement[], id: string): Placement
  * Reconcile a stored arrangement with what is actually registered.
  *
  * A module whose registration file is gone is not `silent` — it is genuinely
- * not here, because somebody deleted the file that said it was, and a pane for
+ * not here, because somebody deleted the file that said it was, and a container for
  * it would be the host inventing a program. It comes off the canvas.
  *
  * Nothing is ADDED here, and that asymmetry is the point: a new registration

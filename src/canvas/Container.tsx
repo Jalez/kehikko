@@ -22,14 +22,14 @@ import { ToolsMark } from './Tools.tsx'
  * A hairline border, a header thin enough to be a grip rather than a title bar,
  * and then a body that is either empty or filled with the sentence explaining
  * why there is nothing in it. The header is the drag handle and the body is
- * not: a pane whose body dragged would be a pane a person cannot click inside,
+ * not: a container whose body dragged would be a container a person cannot click inside,
  * and clicking inside is the entire point of the thing.
  *
  * ## The module's page is not in here
  *
  * The body is hollow, and its only job is to be somewhere the canvas can
  * measure. The page itself is positioned over it from a layer that outlives
- * every pane — see the essay in `Frames.tsx` for why a module's document has to
+ * every container — see the essay in `Frames.tsx` for why a module's document has to
  * be created once and never moved, and why switching canvases would otherwise
  * reload everything on both of them.
  *
@@ -39,14 +39,14 @@ import { ToolsMark } from './Tools.tsx'
  *
  * ## Why a notice can sit over a page that is still loading
  *
- * When a module's manifest answered but its page has not spoken yet, the pane
+ * When a module's manifest answered but its page has not spoken yet, the container
  * shows a panel and the page keeps loading behind it. Unmounting would destroy
  * a document that is, as far as anyone knows, still on its way, and would make
  * "did not answer in four seconds" a death sentence rather than an observation.
  * A module that answers late simply clears the panel and appears, which is what
  * a person expects of something that was merely slow.
  */
-export function Pane({
+export function Container({
   presence,
   condition,
   line,
@@ -80,14 +80,14 @@ export function Pane({
   settled: boolean
   /** Where the module's page goes. Handed to the canvas so it can be measured. */
   body: (element: HTMLElement | null) => void
-  /** Whether this pane follows the height its module asks for. */
+  /** Whether this container follows the height its module asks for. */
   grow: boolean
   onGrow(grow: boolean): void
-  /** Whether this pane is pinned, and stops hearing about the canvas. */
+  /** Whether this container is pinned, and stops hearing about the canvas. */
   pinned: boolean
   onPin(pinned: boolean): void
   /**
-   * Whether this pane is folded down to its header.
+   * Whether this container is folded down to its header.
    *
    * The module keeps running and its page keeps its document; it is simply not
    * drawn. See the essay on `onCollapse` in `App.tsx`, and `Frames.tsx` for why
@@ -95,7 +95,7 @@ export function Pane({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
-  /** Open the host's prompt dialog for this pane. */
+  /** Open the host's prompt dialog for this container. */
   onPrompts(): void
   /** Open the host's tools window for this module. */
   onTools(): void
@@ -107,7 +107,7 @@ export function Pane({
 
   return (
     /*
-     * No background on the pane itself, and no pointer either.
+     * No background on the container itself, and no pointer either.
      *
      * The module's page is painted UNDERNEATH this — see `App.tsx` — so
      * anything opaque here would hide it, and anything that takes the pointer
@@ -115,31 +115,31 @@ export function Pane({
      * and pressed opt back in one at a time: the header, the fault line, and
      * whichever notice is standing in for a page that is not there.
      *
-     * The border stays, because the border is the pane. It is the only thing
+     * The border stays, because the border is the container. It is the only thing
      * that says where one module ends and the next begins.
      */
     <div
       /*
-       * A folded pane is as tall as its header and no taller.
+       * A folded container is as tall as its header and no taller.
        *
        * The grid gives it two rows — fifty-six pixels, the smallest that can
        * hold a thirty-two pixel header. The first version of this folded to TWO
        * rows and drew only its own thirty-four pixels, leaving the rest of the
        * row as canvas — on the reasoning that a header with twenty-two pixels
-       * of empty card under it reads as a pane that failed to load.
+       * of empty card under it reads as a container that failed to load.
        *
        * That reasoning was right about the card and wrong about the space. The
-       * emptiness did not go away; it moved outside the pane, where the grid
+       * emptiness did not go away; it moved outside the container, where the grid
        * was still holding fifty-six pixels for something drawing thirty-four.
-       * The person folding a pane to reclaim space got twenty-two pixels of
+       * The person folding a container to reclaim space got twenty-two pixels of
        * nothing between it and its neighbour, which is the same waste with a
        * transparent background — and it looked, in their words, weird.
        *
-       * So a folded pane is ONE row, and the header fills it exactly. Nothing
+       * So a folded container is ONE row, and the header fills it exactly. Nothing
        * is reserved that is not drawn. One row is twenty-four pixels against a
        * header that wants thirty-two, so the header goes dense when folded
        * rather than the grid going coarse: the controls shrink, which is a
-       * change to one CSS rule, instead of every pane on every canvas getting
+       * change to one CSS rule, instead of every container on every canvas getting
        * taller to make room for the folded case.
        */
       className="pointer-events-none relative flex h-full flex-col overflow-hidden rounded-lg border"
@@ -148,10 +148,10 @@ export function Pane({
        * The header, inside a wrapper that does nothing at all most of the time.
        *
        * In focus mode the wrapper becomes the thing that detects a pointer
-       * near the top of this pane, and the header lifts out of the layout and
+       * near the top of this container, and the header lifts out of the layout and
        * hangs from it — see the `.focus-mode` rules in `index.css` for why the
        * reveal has to be an element with `pointer-events: auto` rather than a
-       * `:hover` on the pane, and for the eight pixels that costs.
+       * `:hover` on the container, and for the eight pixels that costs.
        *
        * Outside focus mode this div is a plain block in the column and changes
        * nothing. It is not conditional on the mode: a wrapper that appeared and
@@ -159,15 +159,15 @@ export function Pane({
        * mid-canvas is a good way to lose a gesture.
        */}
       <div
-        className={collapsed ? 'pane-reveal min-h-0 flex-1' : 'pane-reveal shrink-0'}
+        className={collapsed ? 'container-reveal min-h-0 flex-1' : 'container-reveal shrink-0'}
         data-collapsed={collapsed ? 'true' : undefined}
       >
       <header
         data-dense={collapsed ? 'true' : undefined}
         className={
           collapsed
-            ? 'pane-grip bg-card pointer-events-auto flex h-full cursor-move items-center gap-1.5 px-2 select-none'
-            : 'pane-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none'
+            ? 'container-grip bg-card pointer-events-auto flex h-full cursor-move items-center gap-1.5 px-2 select-none'
+            : 'container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none'
         }
       >
         <ConditionDot condition={condition} />
@@ -177,8 +177,8 @@ export function Pane({
          * Every module used to print its name and its one-line summary at the
          * top of its own page, directly under this header, which said the name
          * again. Two costs: the name twice, and — the one that matters — a
-         * fixed strip of prose at the top of a pane that is often only three
-         * hundred pixels tall. In a short pane the description was competing
+         * fixed strip of prose at the top of a container that is often only three
+         * hundred pixels tall. In a short container the description was competing
          * with the thing a person opened the module to look at.
          *
          * The host already has that sentence. `summary` is a manifest field and
@@ -212,13 +212,13 @@ export function Pane({
         <ToolsMark agent={presence.agent} name={name} onOpen={onTools} />
 
         {/*
-         * Whether this pane follows the height its module asks for.
+         * Whether this container follows the height its module asks for.
          *
-         * Per pane rather than a setting somewhere, because it is a question
+         * Per container rather than a setting somewhere, because it is a question
          * about how you want to read THIS thing: a list you scan wants to hold
          * its size and scroll, a summary you want all of wants to fit. The host
          * has no way to know which this is, so it asks by putting the switch on
-         * the pane itself.
+         * the container itself.
          *
          * It shows only when the module is actually speaking. Offering to
          * follow the height of a program that is not running would be offering
@@ -252,11 +252,11 @@ export function Pane({
         ) : null}
 
         {/*
-         * Fold this pane down to its header, or open it again.
+         * Fold this container down to its header, or open it again.
          *
          * Shown whatever the condition, like the pin and unlike the height
-         * toggle. Folding is a fact about the pane rather than a conversation
-         * with the program, and a pane whose module is not running is exactly
+         * toggle. Folding is a fact about the container rather than a conversation
+         * with the program, and a container whose module is not running is exactly
          * one somebody might want out of the way.
          *
          * The tooltip says what happens to the MODULE, because that is the
@@ -275,7 +275,7 @@ export function Pane({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={collapsed ? 'unfold this pane' : 'fold this pane down to its header'}
+            aria-label={collapsed ? 'unfold this container' : 'fold this container down to its header'}
             aria-expanded={!collapsed}
             className={
               collapsed
@@ -292,9 +292,9 @@ export function Pane({
         <PromptButton wanted={presence.module?.declares.prompt === true} onOpen={onPrompts} />
 
         {/*
-         * Pin: hold this pane where it is and stop telling it about the canvas.
+         * Pin: hold this container where it is and stop telling it about the canvas.
          *
-         * What it is for is two panes on two epics, side by side, to compare —
+         * What it is for is two containers on two epics, side by side, to compare —
          * move the canvas and the pinned one keeps what it had.
          *
          * The module is told it is pinned, which is the whole reason this host
@@ -305,7 +305,7 @@ export function Pane({
          * for it. See `pinned` in the protocol's `wire.ts`.
          *
          * Shown whatever the condition, unlike the height toggle: pinning is a
-         * fact about the pane rather than a conversation with the program, and
+         * fact about the container rather than a conversation with the program, and
          * a module that is not answering yet can still be pinned before it
          * does.
          */}
@@ -320,7 +320,7 @@ export function Pane({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={pinned ? 'let this pane follow the kehikko again' : 'pin this pane'}
+            aria-label={pinned ? 'let this container follow the kehikko again' : 'pin this container'}
             aria-pressed={pinned}
             className={
               pinned
@@ -392,7 +392,7 @@ export function Pane({
       </div>
 
       {/* A fault is not a condition. The module is working; it did one thing the
-          host could not make sense of, and a line under the pane is the right
+          host could not make sense of, and a line under the container is the right
           size for that — visible to whoever is looking at this module, invisible
           from across the canvas. */}
       {fault ? (

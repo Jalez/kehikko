@@ -305,7 +305,7 @@ describe('a kehikko belongs to a project', () => {
     if (!one.ok || !two.ok) throw new Error('the projects were not added')
 
     db.query('delete from projects where id = ?').run(two.project.id)
-    /* A kehikko in a project that is gone is a layout of panes over a folder
+    /* A kehikko in a project that is gone is a layout of containers over a folder
        that is not there. `on delete cascade` is what says so. */
     expect(listCanvases(db).some((canvas) => canvas.project === two.project.id)).toBe(false)
     expect(listCanvases(db).some((canvas) => canvas.project === one.project.id)).toBe(true)

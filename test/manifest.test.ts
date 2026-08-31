@@ -74,7 +74,7 @@ describe('a protocol version the host cannot honour', () => {
       range: `>=${PROTOCOL}`,
     })
     /* Both numbers in the sentence, not only in the data beside it. A person
-       reading the pane has to be able to tell which of the two programs to
+       reading the container has to be able to tell which of the two programs to
        update, and that decision is entirely in the two numbers. */
     expect(presence.line).toContain(String(PROTOCOL + 1))
     expect(presence.line).toContain(String(PROTOCOL))
@@ -115,7 +115,7 @@ describe('a document that is not a manifest', () => {
     expect(presence.line).toContain('answering')
   })
 
-  test('a manifest without the kind word cannot become a pane by accident', async () => {
+  test('a manifest without the kind word cannot become a container by accident', async () => {
     const { kind, ...withoutKind } = good
     expect(kind).toBe('roadmap.module')
     const presence = await look(registration, serving(withoutKind))

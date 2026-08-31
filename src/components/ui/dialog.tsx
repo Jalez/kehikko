@@ -8,11 +8,11 @@ import { cn } from '@/lib/utils'
  * shadcn's dialog, and the reason the host has one at all.
  *
  * A module cannot open a modal over the canvas. Its page is in an iframe, and a
- * dialog rendered inside one is clipped by the frame's own box — a pane 220
+ * dialog rendered inside one is clipped by the frame's own box — a container 220
  * pixels wide would show a 220-pixel modal, which is not a modal, it is a
  * cramped panel with a backdrop over one twentieth of the screen.
  *
- * So anything that has to be BIGGER than a pane belongs to the host, and this
+ * So anything that has to be BIGGER than a container belongs to the host, and this
  * is the component it uses for that. See `Prompts.tsx` for the first such thing.
  */
 

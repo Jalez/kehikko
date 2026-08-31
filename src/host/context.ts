@@ -30,7 +30,7 @@ import type { Project } from './projects.ts'
  *
  * The two halves of it are not the same kind of fact any more, and the
  * difference is worth being precise about. The PROJECT is where the whole
- * kehikko is — a folder on disk, the same for every pane, and the thing modules
+ * kehikko is — a folder on disk, the same for every container, and the thing modules
  * will eventually take their root from. The EPIC is one of the things inside
  * it. So the project is picked first and the epic is picked from the project's
  * own list, which is why they are two selects in that order rather than a field
@@ -59,7 +59,7 @@ import type { Project } from './projects.ts'
  *
  * ## What this host cannot express, and it is a real want
  *
- * A person may genuinely want two panes on two different epics: last quarter's
+ * A person may genuinely want two containers on two different epics: last quarter's
  * beside this one, to compare. The canvas can do that — nothing stops the host
  * sending a different `roadmap.context` to a different frame, and it is two
  * lines. What is missing is on the other side. A module has no way to say "I am
@@ -116,7 +116,7 @@ export function toWireContext(
    *
    * The host has to fill this in and no module can work it out for itself: a
    * module's page is loaded ONCE and shown on whichever canvas asks for it — see
-   * `Frames.tsx` on why the iframes outlive the panes — so a module genuinely
+   * `Frames.tsx` on why the iframes outlive the containers — so a module genuinely
    * cannot tell where it is standing. It only starts to matter now that
    * something else on the wire says where IT came from: a `roadmap.event`
    * carries the kehikko it happened on, this says the one being looked at, and
@@ -160,7 +160,7 @@ export function toWireContext(
    * field that can fail breaks that: a passage past `LIMITS.QUOTE` would make
    * the first parse fail, then make the fallback fail for the same reason, and
    * the last resort would blank the project as well. One module sending a
-   * chapter as a quote would cost every pane on the canvas the folder it works
+   * chapter as a quote would cost every container on the canvas the folder it works
    * in, and nothing anywhere would say why.
    *
    * So each doubtful thing is failed separately, close to itself. A passage
