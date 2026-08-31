@@ -248,3 +248,43 @@ export function toWireContext(
        cannot fail. */
   })
 }
+
+/**
+ * What a PINNED container should be sent, if anything.
+ *
+ * A pin freezes the subject — the epic, the project, the passage, the
+ * selection, what this container is about. It was implemented as freezing the
+ * whole context, which also froze the one field in there that is not about
+ * anything: `theme`.
+ *
+ * That was reported as two modules "not having light mode". Somebody switched
+ * the host from dark to light and the pinned containers stayed dark, for as
+ * long as they stayed pinned — which is indefinitely, since a pin is what you
+ * press on the containers you want held still. Nothing errored, and the two
+ * modules involved were simply the two that happened to be pinned, so it read
+ * as a fault in them. Both were checked first; both apply the theme correctly
+ * and had never been told it changed.
+ *
+ * The theme is not a fact about this canvas. It is how the page is drawn, and a
+ * pinned container is on the same screen as everything else. A person who makes
+ * the room light and is left with one dark rectangle in it has not been shown a
+ * frozen subject.
+ *
+ * So: the container's OWN last context with the current theme substituted, and
+ * `null` when there is nothing to say. Never the live context — every field the
+ * pin froze must stay frozen.
+ */
+export function whileFrozen(
+  held: ModuleContext | null,
+  told: ModuleContext,
+): ModuleContext | null {
+  /* Nothing has gone out yet, so there is no frozen subject to preserve and
+     nothing this could be substituted into. */
+  if (!held) return null
+  /* Silence is the default while pinned. This is asked on every context the
+     canvas produces, and answering with the held context each time would be the
+     host repeating itself — the identical-broadcast problem `told` is memoised
+     to avoid. */
+  if (held.theme === told.theme) return null
+  return { ...held, theme: told.theme }
+}

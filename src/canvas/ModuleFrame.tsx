@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { ModuleContext } from 'roadmap-module-protocol'
 
+import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import type { EventBus } from '@/host/events.ts'
@@ -211,13 +212,53 @@ export function ModuleFrame({
    * So: while pinned, send only when the pin itself changed. The ref remembers
    * what was last SENT rather than what is current, which is the distinction
    * that makes "the transition, and only the transition" expressible.
+   *
+   * ## And the theme, which is not part of what was pinned
+   *
+   * A pin freezes the SUBJECT: the epic, the project, the passage, the
+   * selection — what this container is about. It was implemented as freezing the
+   * whole context, which also froze the one field in there that is not about
+   * anything: `theme`.
+   *
+   * What that cost was reported as two modules having no light mode. Somebody
+   * switched the host from dark to light and the pinned containers stayed dark,
+   * for as long as they stayed pinned — which is forever, since a pin is what
+   * you press on the containers you want held still. Nothing errored, and the
+   * two modules involved were the two the person happened to have pinned, so it
+   * read as a fault in them. Both were checked first, and both apply the theme
+   * correctly; they had simply never been told.
+   *
+   * The theme is not a fact about this canvas. It is how the page is being
+   * drawn, and a pinned container is still on the same screen as everything
+   * else. A person who makes the room light and is left with one dark rectangle
+   * in it has not been shown a frozen subject; they have been shown a bug.
+   *
+   * So a pinned container is sent its OWN last context with the current theme
+   * substituted, rather than the live one. That is the distinction the pin is
+   * for, kept exactly: every field the pin froze stays frozen, and the field it
+   * never had any business freezing gets through.
    */
   const sentPinned = useRef<boolean | null>(null)
+  /* What went out last, so a pinned container can be re-sent ITS context rather
+     than the canvas's. Not `told`, which is where the canvas has moved on to. */
+  const sentContext = useRef<ModuleContext | null>(null)
+
   useEffect(() => {
     const froze = sentPinned.current !== pinned
     sentPinned.current = pinned
-    if (pinned && !froze) return
-    conversationRef.current?.sendContext(told)
+
+    if (!pinned || froze) {
+      sentContext.current = told
+      conversationRef.current?.sendContext(told)
+      return
+    }
+
+    /* Pinned, and not the transition. What may pass is decided in one place and
+       tested there; see `whileFrozen`. */
+    const relit = whileFrozen(sentContext.current, told)
+    if (!relit) return
+    sentContext.current = relit
+    conversationRef.current?.sendContext(relit)
   }, [told, pinned])
 
   return (
