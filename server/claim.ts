@@ -18,6 +18,7 @@
  *   0  the pair is on stdout; go and start
  *   3  a host is already running; its address has been printed, stop here
  *   4  nowhere to go
+ *   5  half a host is here — an API with no page — and it must be stopped first
  *
  * `3` rather than `1` because this is not a failure. Somebody asked for a host
  * and there is one — the request has been satisfied by something that happened
@@ -64,6 +65,14 @@ const claimed = await claimPair(ask, Number.isInteger(prefer) && prefer > 0 ? pr
 if (claimed.kind === 'already') {
   console.error(`kehikko: ${claimed.why}`)
   process.exit(3)
+}
+
+if (claimed.kind === 'half') {
+  /* Not 3. A half-started host is a fault a person has to act on, and exiting
+     successfully would let `run.sh` report nothing wrong while the screen stays
+     blank. See `claimPair`. */
+  console.error(`kehikko: ${claimed.why}`)
+  process.exit(5)
 }
 
 if (claimed.kind === 'nowhere') {

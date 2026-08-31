@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import type { ModuleCondition, Passage } from 'roadmap-module-protocol'
+import type { FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -40,6 +40,10 @@ import {
   type Project,
 } from './host/projects.ts'
 import { toWireContext, type Subject } from './host/context.ts'
+/* `settle` is imported under another name: this file already has a `settle`,
+   which is the measuring pass after a grid animation, and two of them would be
+   one of the least readable name collisions available. */
+import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
@@ -133,6 +137,20 @@ interface Live {
    */
   line: string | null
   fault: string | null
+  /**
+   * What this module last said it can be narrowed by, or nothing.
+   *
+   * Here rather than in the arrangement, and the split is the point: the OFFER
+   * belongs to a running program and dies with it, while the CHOICE belongs to
+   * a container on a canvas and outlives everything — see `filters` on the
+   * placement schema. A module that is stopped stops offering, its control
+   * disappears, and what somebody chose is still in the database waiting for it
+   * to come back.
+   *
+   * Absent for every module that has never said anything, which is almost all
+   * of them, and absence is what draws no control at all.
+   */
+  filters?: FilterGroup[]
 }
 
 /**
@@ -969,6 +987,83 @@ export function App() {
     [change, open?.placements],
   )
 
+  /**
+   * A module has said what it can be narrowed by.
+   *
+   * Two things happen, and they are deliberately not the same thing.
+   *
+   * The offer is remembered against the CONVERSATION, because it belongs to a
+   * running program: it changes when the module's own words change (a count in
+   * a label), and it should vanish when the module does.
+   *
+   * And the stored choice is pruned against it, which is the only moment this
+   * host is in a position to do that. Anything the module is no longer offering
+   * stops being carried — see `settle` in `host/filters.ts` for why reconciling
+   * on read alone would leave a dead value in the database forever, invisible,
+   * ready to come back to life under the same spelling two versions later.
+   *
+   * Written only when it would actually change something. A module that
+   * re-announces the same offer twenty times a minute — which is the ordinary
+   * case, since a label with a count in it changes whenever the count does —
+   * must not be twenty writes to the arrangement.
+   */
+  const onOffer = useCallback(
+    (id: string, groups: FilterGroup[]) => {
+      setLive((was) => ({
+        ...was,
+        [id]: {
+          condition: was[id]?.condition ?? 'ready',
+          line: was[id]?.line ?? null,
+          fault: was[id]?.fault ?? null,
+          filters: groups,
+        },
+      }))
+
+      const placements = open?.placements ?? []
+      const container = placements.find((p) => p.i === id)
+      if (!container) return
+      const kept = settleFilters(groups, container.filters)
+      if (sameChoice(kept, container.filters)) return
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, filters: kept } : p)) })
+    },
+    [change, open?.placements],
+  )
+
+  /**
+   * Somebody chose a value in one of a module's filter groups.
+   *
+   * Stored as the press, and reconciled on the way back out. `settle` drops a
+   * group that is on its module's own resting option rather than writing it
+   * down, because a store that recorded "this one is at its default" could not
+   * tell somebody who chose the default from somebody who never chose anything
+   * — and only one of those should survive the module changing its mind about
+   * what the default is.
+   *
+   * The host has no idea what was chosen and never finds out. It writes a
+   * string it was handed under a key it was handed, and the module reads both
+   * back out of the next `roadmap.context`.
+   */
+  const onChooseFilter = useCallback(
+    (id: string, group: string, option: string) => {
+      const placements = open?.placements ?? []
+      const container = placements.find((p) => p.i === id)
+      if (!container) return
+      const offer = live[id]?.filters ?? []
+      const kept = settleFilters(offer, { ...container.filters, [group]: option })
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, filters: kept } : p)) })
+    },
+    [change, live, open?.placements],
+  )
+
+  /** Everything back. One press, and the empty record is how "nothing chosen" is spelled. */
+  const onEverything = useCallback(
+    (id: string) => {
+      const placements = open?.placements ?? []
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, filters: {} } : p)) })
+    },
+    [change, open?.placements],
+  )
+
   /** Write what one container says, and who it says it to. */
   const onWritePrompt = useCallback(
     (id: string, prompt: string, aimedAt: string | null) => {
@@ -1147,6 +1242,9 @@ export function App() {
            from rather than a height from two gestures ago. */
         openH: unfolding ? null : (before?.openH ?? null),
         selected: before?.selected ?? false,
+        /* Carried across for the same reason as everything above it. A drag is
+           not a change of mind about what a container is showing. */
+        filters: before?.filters ?? {},
       }
       })
       /* react-grid-layout fires this during a drag as well as at the end. Doing
@@ -1333,6 +1431,14 @@ export function App() {
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
           prompt: promptFor(placements, id, guidance),
+          /* Reconciled against what the module is offering RIGHT NOW rather
+             than sent as stored, so that a value from a version of the module
+             that no longer exists degrades to that module's own default instead
+             of narrowing by something nobody can see or clear. A module that
+             has offered nothing yet — including one that has not been greeted —
+             is told `{}`, which is the truth: this host has nothing for it that
+             it has said it can use. See `host/filters.ts`. */
+          filters: chosen(found?.filters ?? [], placements.find((p) => p.i === id)?.filters ?? {}),
         }
       })
       .filter((framing): framing is Framing => framing !== null)
@@ -1365,11 +1471,14 @@ export function App() {
       ready: () =>
         setLive((was) => ({
           ...was,
-          [id]: { condition: 'ready', line: null, fault: was[id]?.fault ?? null },
+          [id]: { condition: 'ready', line: null, fault: was[id]?.fault ?? null, filters: was[id]?.filters },
         })),
       silent: (sentence) =>
         setLive((was) => ({
           ...was,
+          /* The offer goes with the silence. A module that stopped answering is
+             not offering anything, and a control left standing over a program
+             that is not there is a press that does nothing and says nothing. */
           [id]: { condition: 'silent', line: sentence, fault: was[id]?.fault ?? null },
         })),
       fault: (sentence) =>
@@ -1379,11 +1488,13 @@ export function App() {
             condition: was[id]?.condition ?? 'ready',
             line: was[id]?.line ?? null,
             fault: sentence,
+            filters: was[id]?.filters,
           },
         })),
       height: (px) => onHeight(id, px),
+      filters: (groups) => onOffer(id, groups),
     }),
-    [onHeight],
+    [onHeight, onOffer],
   )
 
   return (
@@ -1512,6 +1623,12 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
+                  /* The offer is the conversation's — it dies with the program —
+                     and the choice is the arrangement's. See `Live` above. */
+                  filters={found?.filters ?? []}
+                  chosen={chosen(found?.filters ?? [], placement.filters)}
+                  onChoose={(group, option) => onChooseFilter(presence.id, group, option)}
+                  onEverything={() => onEverything(presence.id)}
                   selected={placement.selected}
                   onSelect={(selected) => onSelect(presence.id, selected)}
                   onPrompts={() => setPrompting(presence.id)}

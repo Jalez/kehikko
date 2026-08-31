@@ -32,10 +32,43 @@ describe('claiming a pair', () => {
      is its address, and a second host would be a second program writing the
      same canvases. */
   test('a host already there is reported, not competed with', async () => {
-    const { ask } = machine({ [PREFERRED_API]: host })
+    /* Both halves up, which is what "already running" now requires — see the
+       half-a-host tests below. */
+    const { ask } = machine({ [PREFERRED_API]: host, [PREFERRED_API + 1]: stranger })
     const got = await claimPair(ask)
     expect(got.kind).toBe('already')
     expect(got.why).toContain(`http://127.0.0.1:${PREFERRED_API + 1}`)
+  })
+
+  /*
+   * The one that cost somebody a white screen.
+   *
+   * This host is two processes: `run.sh` starts the API in the background and
+   * `exec`s the page, so the page dying leaves the API alive and answering.
+   * Asking only the API called that "already running" and exited 0 — so the one
+   * command a person reaches for to fix a blank window was the one command
+   * guaranteed not to. The more broken the host, the more confidently it
+   * refused to start.
+   */
+  test('an api answering with no page is half a host, not a running one', async () => {
+    const { ask } = machine({ [PREFERRED_API]: host })
+    const got = await claimPair(ask)
+    expect(got.kind).toBe('half')
+    expect(got.why).toContain(String(PREFERRED_API))
+  })
+
+  test('and it is only "already running" when the page is up too', async () => {
+    const { ask } = machine({ [PREFERRED_API]: host, [PREFERRED_API + 1]: stranger })
+    const got = await claimPair(ask)
+    expect(got.kind).toBe('already')
+  })
+
+  /* Half a host is a fault to act on, so it must not be confused with the
+     benign case: a person is told what to stop, not that all is well. */
+  test('the half answer says what holds the port', async () => {
+    const { ask } = machine({ [PREFERRED_API]: host })
+    const got = await claimPair(ask)
+    expect(got.why).toContain('lsof')
   })
 
   test('a stranger on the api port moves the pair', async () => {

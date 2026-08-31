@@ -5,6 +5,7 @@ import {
   MESSAGE,
   moduleMessageSchema,
   PROTOCOL,
+  type FilterGroup,
   type ModuleContext,
 } from 'roadmap-module-protocol'
 
@@ -77,6 +78,20 @@ export interface ConversationWatcher {
   /** Something the module did that is worth a line but is not a condition. */
   fault(line: string): void
   height(px: number): void
+  /**
+   * What this module says it can be narrowed by, right now.
+   *
+   * The whole offer every time, replacing whatever was last said — including an
+   * empty one, which is a module WITHDRAWING the control rather than a module
+   * saying nothing. A merge could never take a group away, so a module that
+   * stopped offering something would leave a control behind that a person could
+   * press and nothing would answer.
+   *
+   * Reported like `height` rather than answered like a request, because it is
+   * the same kind of thing: a module saying something about itself that the
+   * host may act on, with no reply and nothing waiting on it.
+   */
+  filters(groups: FilterGroup[]): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -387,6 +402,17 @@ export class Conversation {
          already refused a non-finite height; the clamp is what keeps a module
          from being two pixels tall or taller than the screen. */
       this.watcher.height(clampHeight(message.height))
+      return true
+    }
+
+    case MESSAGE.FILTERS: {
+      /* Handed on exactly as parsed, and nothing here looks inside it. The
+         schema has already bounded every string, refused the three ids that are
+         not really keys, and checked that each group's fallback names one of
+         its own options — which is all the host is entitled to know about
+         somebody else's vocabulary. What to DRAW is the canvas's business and
+         what any of it MEANS is the module's; see `host/filters.ts`. */
+      this.watcher.filters(message.groups)
       return true
     }
 

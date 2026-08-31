@@ -156,6 +156,46 @@ export interface Placement {
    * see the essay on `onSelect` in `src/App.tsx`.
    */
   selected: boolean
+  /**
+   * Which of the filters this module offers are chosen for this container.
+   *
+   * A record of group id to option id, as the module named them. The host does
+   * not know what any of it means — see the essay on `filterOptionSchema` in
+   * the protocol — and stores it the way it stores `module_state`: because
+   * somebody has to, and not because it can read it.
+   *
+   * ## Why here, and not in `module_state` or in the module
+   *
+   * `module_state` is keyed by module and by nothing else, deliberately, and
+   * that is exactly wrong for this. Two containers showing the same module on
+   * two different kehikot are two things a person is looking at in two
+   * different ways: one narrowed to this file, one showing everything. Keyed by
+   * module they would share a value and fight over it, which is not a
+   * hypothetical — the notifications module keeps its scope in `localStorage`
+   * today, which is per BROWSER, and every notifications container in every
+   * canvas already shares one choice for that reason.
+   *
+   * The module remembering it for itself has a second problem on top of that
+   * one. A module that is not running remembers nothing, and this host stops
+   * modules and starts them again; a choice that only exists while the program
+   * is up is a choice that does not survive quitting the app, which is the one
+   * thing it has to do. And it would only work for modules that hold state at
+   * all — several of the ones with filters do not, and a facility that covered
+   * two thirds of the population would not have been worth building.
+   *
+   * So it goes where `collapsed`, `pinned` and `selected` go: on the row, in
+   * this database, as a fact about how this container on this kehikko is being
+   * looked at. It survives a restart, a reaped module, and closing the laptop.
+   *
+   * ## What is NOT promised
+   *
+   * That any of it still means anything. A module that changes its options
+   * between one run and the next leaves values here naming things it no longer
+   * offers, and this table cannot know: it never knew what they meant. Deciding
+   * what to do about that is the page's, at the moment it has the live offer in
+   * front of it — see `src/host/filters.ts`. What is stored is what was pressed.
+   */
+  filters: Record<string, string>
 }
 
 export interface Canvas {
@@ -211,7 +251,7 @@ export interface Canvas {
  */
 export type PlacementInput = Omit<
   Placement,
-  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH' | 'selected'
+  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH' | 'selected' | 'filters'
 > & {
   grow?: boolean
   pinned?: boolean
@@ -220,6 +260,7 @@ export type PlacementInput = Omit<
   collapsed?: boolean
   openH?: number | null
   selected?: boolean
+  filters?: Record<string, string>
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -322,6 +363,13 @@ export function open(file = databaseFile()): Database {
      written before there was such a thing, where nothing is selected — which is
      what every container in them has been all along. */
   add(db, 'placements', 'selected', 'integer not null default 0')
+  /* Which filter values a container is on, as JSON. Text rather than a table of
+     its own for the reason `selection` on a canvas is text: it is read whole,
+     written whole, and never queried by its contents — the host has no query it
+     could write, since it does not know what any of the words mean. Empty
+     object for every container written before this existed, which is what all
+     of them were doing. */
+  add(db, 'placements', 'filters', "text not null default '{}'")
   add(db, 'canvases', 'selection', 'text')
   /*
    * Which project a kehikko is in, added to databases written before projects
@@ -438,10 +486,11 @@ export function listCanvases(db: Database): Canvas[] {
         collapsed: number
         open_h: number | null
         selected: number
+        filters: string
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters from placements order by canvas, module',
     )
     .all()
 
@@ -456,6 +505,7 @@ export function listCanvases(db: Database): Canvas[] {
       collapsed,
       open_h: openH,
       selected,
+      filters,
       ...rest
     } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
@@ -469,6 +519,7 @@ export function listCanvases(db: Database): Canvas[] {
       collapsed: collapsed === 1,
       openH,
       selected: selected === 1,
+      filters: filtersFrom(filters),
     }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
@@ -536,7 +587,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -553,6 +604,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.collapsed ? 1 : 0,
           p.openH,
           p.selected ? 1 : 0,
+          JSON.stringify(p.filters),
         )
       }
     }
@@ -640,6 +692,57 @@ function refsFrom(raw: string | null): string[] {
   } catch {
     return []
   }
+}
+
+/**
+ * A container's filter choice, read back out of its column.
+ *
+ * The same shape of function as `refsFrom` above and for the same reason: the
+ * column is JSON this host wrote, so in practice it parses, and a database on
+ * somebody's own disk can still be hand-edited, restored from an older version,
+ * or corrupted. Nothing chosen is a state the whole design already handles —
+ * every group falls back to whatever the module says its resting option is — so
+ * a column that will not read costs a person their filter and never a canvas.
+ */
+function filtersFrom(raw: string | null): Record<string, string> {
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return filtersIn(parsed)
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * A filter choice, bounded before it is written.
+ *
+ * Every string here was invented by a framed module and passed through a page,
+ * and the host has never known what any of it means. `LIMITS.FILTER_ID` and
+ * `LIMITS.FILTER_GROUPS` are the protocol's own numbers, applied here as well
+ * as at the wire because this is also what a hand-edited column goes through on
+ * the way back out.
+ *
+ * `Object.hasOwn` rather than `in`, and the three reserved names refused
+ * outright: a record is a plain object, and `__proto__` as a key does not store
+ * anything — it re-parents the object. The protocol refuses these ids at the
+ * wire; this is the second half of the same defence, at the other door, because
+ * a value in this column did not necessarily come through that one.
+ */
+function filtersIn(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const kept: Record<string, string> = {}
+  let count = 0
+  for (const group of Object.keys(value as Record<string, unknown>)) {
+    if (count >= LIMITS.FILTER_GROUPS) break
+    if (group === '__proto__' || group === 'constructor' || group === 'prototype') continue
+    if (!group || group.length > LIMITS.FILTER_ID) continue
+    const chosen = (value as Record<string, unknown>)[group]
+    if (typeof chosen !== 'string' || !chosen || chosen.length > LIMITS.FILTER_ID) continue
+    kept[group] = chosen
+    count += 1
+  }
+  return kept
 }
 
 /**
@@ -750,6 +853,11 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          that switched on because the string "false" arrived would aim it at
          something nobody picked. */
       selected: p.selected === true,
+      /* Bounded here as well as at the wire, and the bounds are the protocol's
+         own. This is the door a page posts through, and a page is a program on
+         somebody's machine like any other — the fact that this host ships the
+         one that normally posts here is not a reason to trust what arrives. */
+      filters: filtersIn(p.filters),
     })
   }
   return kept

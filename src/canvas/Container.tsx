@@ -10,8 +10,11 @@ import {
 
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
+import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
+import type { FilterGroup } from 'roadmap-module-protocol'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
+import { FilterButton } from './Filters.tsx'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
@@ -60,6 +63,10 @@ export function Container({
   onPin,
   collapsed,
   onCollapse,
+  filters,
+  chosen,
+  onChoose,
+  onEverything,
   selected,
   onSelect,
   onPrompts,
@@ -98,6 +105,18 @@ export function Container({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
+  /**
+   * What this module says it can be narrowed by, right now.
+   *
+   * Empty for almost every module, and empty is not a state that draws
+   * anything: see `Filters.tsx`. A module that never sends an offer has exactly
+   * the header it had before this existed.
+   */
+  filters: readonly FilterGroup[]
+  /** Which option is current in each group, already reconciled against `filters`. */
+  chosen: Choice
+  onChoose(group: string, option: string): void
+  onEverything(): void
   /**
    * Whether this container has been picked out as a target on this kehikko.
    *
@@ -344,6 +363,33 @@ export function Container({
               {grow ? <ChevronsDownUp className="size-3" /> : <ChevronsUpDown className="size-3" />}
             </Button>
           </Hint>
+        ) : null}
+
+        {/*
+         * What this module shows, when it has said there is a choice about it.
+         *
+         * Between the height toggle and the fold, and the position is an
+         * argument rather than an accident. Everything to the right of here —
+         * fold, prompts, pin, remove — is something the HOST does to a
+         * container, and is on every container whatever is inside it. This is
+         * the one control in the row that belongs to the program, appears only
+         * because that program asked for it, and disappears when it stops
+         * asking. It sits at the boundary, on the module's side of it, next to
+         * the other control that is only drawn when the module is speaking.
+         *
+         * Not shown while folded. A folded container is a header and nothing
+         * else, and narrowing a list nobody can see is a press with no visible
+         * effect — the same reason the height toggle is hidden there. The
+         * choice is kept; unfolding brings the control back exactly as it was.
+         */}
+        {condition === 'ready' && !collapsed ? (
+          <FilterButton
+            groups={filters}
+            chosen={chosen}
+            name={name}
+            onChoose={onChoose}
+            onEverything={onEverything}
+          />
         ) : null}
 
         {/*

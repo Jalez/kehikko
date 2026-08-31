@@ -55,6 +55,8 @@ export type Occupant =
 export type Claim =
   | { kind: 'take'; api: number; page: number; moved: boolean; why: string }
   | { kind: 'already'; api: number; page: number; why: string }
+  /** An API answering with no page behind it: half a host, and a white screen. */
+  | { kind: 'half'; api: number; page: number; why: string }
   | { kind: 'nowhere'; why: string }
 
 /**
@@ -88,6 +90,38 @@ export async function claimPair(ask: Ask, prefer = PREFERRED_API): Promise<Claim
          here first, and the honest response is to keep looking rather than to
          report their host as the answer to this request. */
       if (step === 0) {
+        /*
+         * An answering API is not a working host, and believing it was cost
+         * somebody a white screen.
+         *
+         * This host is two processes. `run.sh` starts the API in the background
+         * and `exec`s the page, so the page dying leaves the API alive and
+         * reparented — a half of a host, answering here, serving nothing a
+         * person can look at. The webview points at the page's port and gets
+         * nothing.
+         *
+         * The first version of this function asked only the API and returned
+         * `already`, so `run.sh` printed "Kehikot is already running" and exited
+         * 0. Which meant the one command a person would reach for to fix a
+         * white screen was the one command guaranteed not to: the more broken
+         * the host, the more confidently it refused to start.
+         *
+         * So both halves are checked before claiming either is up, and a host
+         * with a dead page is its own answer rather than a kind of success.
+         */
+        const alsoPage = await ask(page)
+        if (alsoPage.kind === 'free') {
+          return {
+            kind: 'half',
+            api,
+            page,
+            why:
+              `A Kehikot API is answering on ${api} but nothing is serving its page on ${page}, so there is `
+              + 'half a host here and a browser pointed at it sees nothing. This script will not start a second '
+              + `API beside it. Stop whatever holds ${api} — \`lsof -nP -iTCP:${api} -sTCP:LISTEN\` names it — `
+              + 'and run this again.',
+          }
+        }
         return {
           kind: 'already',
           api,

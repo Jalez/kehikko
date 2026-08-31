@@ -35,6 +35,7 @@ const quiet = () => ({
   silent: () => {},
   fault: () => {},
   height: () => {},
+  filters: () => {},
 })
 
 const nothing: Answer = { ok: true, data: null }

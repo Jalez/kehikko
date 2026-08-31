@@ -1,5 +1,6 @@
 import { contextSchema, passageSchema, type ModuleContext, type Passage } from 'roadmap-module-protocol'
 
+import { sameChoice } from './filters.ts'
 import type { Project } from './projects.ts'
 
 /**
@@ -270,9 +271,25 @@ export function toWireContext(
  * the room light and is left with one dark rectangle in it has not been shown a
  * frozen subject.
  *
- * So: the container's OWN last context with the current theme substituted, and
- * `null` when there is nothing to say. Never the live context — every field the
- * pin froze must stay frozen.
+ * ## And the filter, which is not part of what was pinned either
+ *
+ * The same test, run on a second field, and it comes out the same way. A pin
+ * freezes what a container is ABOUT. A filter is not about anything — it is how
+ * this one container is being looked at, and the person setting it is pressing
+ * a control on that container's own header, at that moment, while looking
+ * straight at it.
+ *
+ * A pinned container that swallowed the press would be worse than the frozen
+ * theme was, because a theme at least changed for a reason somewhere else on
+ * screen. Here the person presses a thing, the menu closes, and nothing
+ * happens — with no error, and with the control still reading as if the press
+ * landed, since the host stores the choice whether or not the module was told.
+ * The two halves would then quietly disagree: the header says "narrowed" and
+ * the module is showing everything.
+ *
+ * So: the container's OWN last context with the current theme and the current
+ * filter substituted, and `null` when there is nothing to say. Never the live
+ * context — every field the pin froze must stay frozen.
  */
 export function whileFrozen(
   held: ModuleContext | null,
@@ -285,6 +302,11 @@ export function whileFrozen(
      canvas produces, and answering with the held context each time would be the
      host repeating itself — the identical-broadcast problem `told` is memoised
      to avoid. */
-  if (held.theme === told.theme) return null
-  return { ...held, theme: told.theme }
+  const relit = held.theme !== told.theme
+  /* Compared by content. The canvas rebuilds this record on every render out of
+     a stored choice and a live offer, so identity says nothing about whether
+     anybody pressed anything. */
+  const refiltered = !sameChoice(held.filters, told.filters)
+  if (!relit && !refiltered) return null
+  return { ...held, theme: told.theme, filters: told.filters }
 }

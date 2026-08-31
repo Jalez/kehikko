@@ -67,6 +67,33 @@ const placementSchema = z.object({
    * second list on the canvas.
    */
   selected: z.boolean().default(false),
+  /**
+   * Which of the filters this container's module offers are chosen for it.
+   *
+   * Group id to option id, in the module's own words, and the host knows what
+   * none of them mean — see `src/host/filters.ts`, which is the whole of what
+   * this host does with them.
+   *
+   * ## A fourth axis, and it is per CONTAINER for a reason with a bug behind it
+   *
+   * The other place this could have lived is `module_state`, which is keyed by
+   * module and by nothing else. That is right for what it holds — a module's
+   * page is loaded once and shown wherever it is asked for, so one module is
+   * one document — and wrong for this, because a filter is not a fact about the
+   * document. It is a fact about how one container is being looked at, and two
+   * containers showing the same module on two kehikot are two ways of looking.
+   *
+   * The failure is not hypothetical. One module in this workspace keeps its
+   * filter in `localStorage`, which is per BROWSER, so every container of it on
+   * every canvas already shares one choice and overwrites the others. Storing
+   * it here is what stops this facility inheriting that.
+   *
+   * Defaulted, so an arrangement stored before filters existed reads as nothing
+   * chosen — which is what every container in it has been all along, and which
+   * means every group falls back to whatever its module says its resting option
+   * is.
+   */
+  filters: z.record(z.string(), z.string()).default({}),
 })
 
 /**
@@ -442,6 +469,10 @@ export function place(placements: readonly Placement[], id: string): Placement[]
          anybody, and a host that selected what it just added would be aiming an
          agent at a container the person has not even looked at yet. */
       selected: false,
+      /* Nothing chosen. Every group falls back to whatever its module says its
+         resting option is, which is what a container nobody has pressed this
+         on should be showing. */
+      filters: {},
     },
   ]
 }

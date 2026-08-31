@@ -38,6 +38,7 @@ export function ModuleFrame({
   state,
   pinned,
   prompt,
+  filters,
 }: {
   module: FramedModule
   context: ModuleContext
@@ -57,6 +58,15 @@ export function ModuleFrame({
   pinned: boolean
   /** What this kehikko says to this module, composed by the host. */
   prompt: string | null
+  /**
+   * Which filter values are chosen for this container, group id to option id.
+   *
+   * Per container like the pin, and merged into the context here for the same
+   * reason: a module's page is loaded once and shown on whichever canvas asks
+   * for it, so anything that differs between two places the same module appears
+   * has to ride on the channel the host re-sends when the canvas moves.
+   */
+  filters: Record<string, string>
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -79,9 +89,15 @@ export function ModuleFrame({
      it was still the host saying the same thing seventeen times, and the first
      module to react to context ARRIVING rather than to context CHANGING would
      have inherited a bug that looked like its own. */
+  /* Compared by content rather than by identity, because the caller builds a
+     fresh record on every render out of the stored choice and the live offer.
+     A new object each time would be a `roadmap.context` each time — the
+     seventeen-identical-broadcasts problem this memo exists to prevent, in a
+     new field. */
+  const filtersKey = JSON.stringify(filters)
   const told: ModuleContext = useMemo(
-    () => ({ ...context, pinned, prompt }),
-    [context, pinned, prompt],
+    () => ({ ...context, pinned, prompt, filters: JSON.parse(filtersKey) as Record<string, string> }),
+    [context, pinned, prompt, filtersKey],
   )
 
   const contextRef = useRef(told)
@@ -138,6 +154,10 @@ export function ModuleFrame({
         silent: (line) => watcherRef.current.silent(line),
         fault: (line) => watcherRef.current.fault(line),
         height: (px) => watcherRef.current.height(px),
+        /* Straight through to the canvas, which is the only thing that can
+           draw it. Read via the ref like every other handler here, so a
+           re-render cannot tear down the conversation. */
+        filters: (groups) => watcherRef.current.filters(groups),
       },
       { name: framed.name },
     )

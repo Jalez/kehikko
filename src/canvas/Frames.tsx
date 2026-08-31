@@ -79,6 +79,14 @@ export interface Framing {
   pinned: boolean
   /** What this kehikko has to say to this module, composed by the host. */
   prompt: string | null
+  /**
+   * Which of the filters this module offered are chosen for this container.
+   *
+   * Reconciled against what the module is offering right now before it gets
+   * here — see `host/filters.ts` — so a module is never told about a group or
+   * an option it does not currently have.
+   */
+  filters: Record<string, string>
 }
 
 export function Frames({
@@ -129,7 +137,7 @@ export function Frames({
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, rect, shown, state, pinned, prompt }) => {
+      {framings.map(({ module, rect, shown, state, pinned, prompt, filters }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -156,6 +164,7 @@ export function Frames({
             state={state}
             pinned={pinned}
             prompt={prompt}
+            filters={filters}
           />
         </div>
         )
