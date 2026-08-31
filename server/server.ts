@@ -34,6 +34,7 @@ import { readRegistrations, registryDir, type RegistrationSweep } from './regist
 import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
+import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 
@@ -891,6 +892,36 @@ const server = Bun.serve({
      * answer, and is exactly what the door does when two windows really are
      * open.
      */
+    /**
+     * Why a module that loaded its page said nothing.
+     *
+     * Asked by the page, on the greeting deadline, because the page CANNOT ask
+     * the module itself: a framed module is cross-origin and sets no CORS
+     * headers, on purpose. This server has no such limit — it fetches every
+     * module's manifest on every sweep — so the question comes here and the
+     * looking happens with the same eyes `discover.ts` uses.
+     *
+     * The registration is the source of the address, never the caller. A page
+     * that could name any origin and have this host fetch it would be a request
+     * forgery door in a program whose whole job is talking to loopback ports.
+     */
+    if (url.pathname === '/host/quiet' && request.method === 'GET') {
+      const id = url.searchParams.get('id') ?? ''
+      const registration = registered.get(id)
+      if (!registration) {
+        return json({ ok: false, error: 'No module is registered under that id.' }, 404)
+      }
+      const presence = await look(registration)
+      if (presence.condition !== 'ready' || !presence.module) {
+        /* It is not answering at all any more, which `discover.ts` already has
+           a careful sentence for. Hand that back rather than inventing a second
+           reading of the same fact. */
+        return json({ ok: true, kind: 'gone', line: presence.line })
+      }
+      const said = await whyQuiet(presence.module.name, presence.module.entry)
+      return json({ ok: true, kind: said.kind, line: said.line })
+    }
+
     if (url.pathname === '/host/open' && request.method === 'POST') {
       const body = (await request.json().catch(() => null)) as {
         page?: unknown

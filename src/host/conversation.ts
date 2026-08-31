@@ -186,10 +186,57 @@ export class Conversation {
     if (this.readyTimer) clearTimeout(this.readyTimer)
     this.readyTimer = setTimeout(() => {
       if (this.answered || this.closed) return
+      /*
+       * Said immediately, then improved on.
+       *
+       * The general sentence goes up at the deadline because the container has
+       * been drawing nothing for `readyTimeoutMs` and a person is owed an
+       * answer now rather than after another round trip. Then the host asks its
+       * own server what it can see and replaces the line with the specific
+       * reading if there is one — see `server/quiet.ts` for what it can tell
+       * apart and why the SERVER is the one asking.
+       *
+       * The general sentence is the fallback in both directions: if the probe
+       * fails, times out, or this conversation ends first, what stands is what
+       * this host has always said, which was never wrong — only unspecific.
+       */
       this.watcher.silent(
         `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this container is not speaking.`,
       )
+      void this.diagnose()
     }, this.readyTimeoutMs)
+  }
+
+  /**
+   * Ask the host's server why this module is quiet, and say so if it knows.
+   *
+   * The page cannot look for itself. A module is framed cross-origin and sets
+   * no CORS headers on purpose, so `fetch` from here to a module's origin is
+   * refused before it leaves. The server has no such limit and already fetches
+   * every module's manifest on every sweep, so it does the looking.
+   *
+   * Everything here is best-effort by construction. A module that answers while
+   * this is in flight has stopped being quiet and must not have a stale
+   * explanation dropped on top of it, which is what the `answered` and `closed`
+   * checks after the await are for.
+   */
+  private async diagnose(): Promise<void> {
+    try {
+      const response = await fetch(`/host/quiet?id=${encodeURIComponent(this.moduleId)}`, {
+        headers: { accept: 'application/json' },
+      })
+      if (!response.ok) return
+      const said = (await response.json()) as { ok?: boolean; line?: unknown }
+      /* It answered while the host was asking, or the container went away. Either
+         way the sentence below would be describing a moment that has passed. */
+      if (this.answered || this.closed) return
+      if (said?.ok && typeof said.line === 'string' && said.line.length > 0) {
+        this.watcher.silent(said.line)
+      }
+    } catch {
+      /* The general sentence already stands. A host that threw while explaining
+         a quiet module would be a worse failure than the one being explained. */
+    }
   }
 
   /** Which epic the canvas is about now. Sent on every change. */
