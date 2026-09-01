@@ -10,6 +10,7 @@ import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
+import { Presses } from './host/presses.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -47,7 +48,8 @@ import { toWireContext, type Subject } from './host/context.ts'
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
-import { CANVAS_ROWS, roomBelow, rowHeightFor } from './host/fit.ts'
+import { mostFor, pay } from './host/columns.ts'
+import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
@@ -172,6 +174,26 @@ interface Live {
    * of them, and absence is what draws no control at all.
    */
   filters?: FilterGroup[]
+  /**
+   * What this module last said could be cleared of what it is showing, in its
+   * own words — or `null`, which is the module saying there is nothing on
+   * screen to clear right now.
+   *
+   * Here beside the filter offer and for the same reason: it belongs to a
+   * running program and dies with it. Unlike the filter, there is no matching
+   * CHOICE stored anywhere, because there is nothing to remember — a press is
+   * an event, not a state, and a container does not carry "somebody once
+   * cleared this" from one day to the next.
+   *
+   * Three values and they are three different things. Absent is a module that
+   * has never said anything, which is almost all of them and draws no control.
+   * `null` is a module that HAS said something and is currently offering
+   * nothing, which also draws no control but arrived there deliberately. A
+   * string is an offer. The host draws the same nothing for the first two, and
+   * the distinction is kept because `Live` is what a person reads when working
+   * out why a control is missing.
+   */
+  clear?: string | null
 }
 
 /**
@@ -837,6 +859,20 @@ export function App() {
   const bus = useMemo(() => new EventBus(), [])
 
   /**
+   * The frames a header control can press, for the one control that presses.
+   *
+   * Built once and never rebuilt, exactly like the bus and for the same reason:
+   * it is the dependency of the effect that joins each frame, and a fresh one
+   * per render would be every module leaving and rejoining constantly, with a
+   * window of one render in which a press reaches nothing.
+   *
+   * It holds no state of its own beyond who is standing — see `presses.ts` for
+   * why a destructive message travels as a CALL rather than as a prop that
+   * changes, and what `StrictMode` does to the alternative.
+   */
+  const presses = useMemo(() => new Presses(), [])
+
+  /**
    * Where the canvas is, for an event that is about to be sent.
    *
    * A ref rather than a dependency of `controls`, because `controls` is the
@@ -968,20 +1004,25 @@ export function App() {
    * after one step is the height it already has, and the climb ends there instead
    * of continuing by a rounding error a step.
    *
-   * ## The ceiling is now the canvas, and it used to be a number
+   * ## A module cannot do what a person cannot
    *
-   * It was `MOST_ROWS = 40` — "a tall container on any screen and nowhere near a
-   * runaway" — which was a sensible invention when a canvas had no bottom. It
-   * has one now: a canvas is `CANVAS_ROWS` tall, exactly as it is twelve columns
-   * wide, so forty was both too generous (it would put a container past the
-   * bottom of a canvas that is supposed to have no past-the-bottom) and beside
-   * the point.
+   * The ceiling used to be `MOST_ROWS = 40` — "a tall container on any screen
+   * and nowhere near a runaway" — which was a sensible invention when a canvas
+   * had no bottom. It has one now, and more than that, growing has a PRICE:
+   * `pay` in `columns.ts` takes the rows out of the column, from the free space
+   * under it first and then from the nearest containers below, down to a floor.
    *
-   * So the ceiling is the room actually left below this container's top —
-   * `roomBelow` — and a module that asks for more than that does not get it. Its
-   * container stops at the edge and its own page scrolls, which is precisely
-   * what a container already sitting at the bottom does today, and the vertical
-   * twin of a container that cannot be widened past column twelve.
+   * A module asking to grow goes through exactly that, so a request from a
+   * program does the same thing to a canvas that a hand on the resize handle
+   * would. The alternative — a separate ceiling here — would have meant a
+   * module could quietly do what a person is not allowed to do, on a canvas the
+   * person is looking at, which is the wrong way round for the one path where
+   * nobody is holding the mouse.
+   *
+   * What a module that asks for more than the column can pay gets is the part
+   * that was payable, and its own page scrolls for the rest. That is what a
+   * container already at the bottom of a full column does today, and the
+   * vertical twin of a container that cannot be widened past column twelve.
    *
    * ## And the arithmetic uses the DRAWN row, which it could not before
    *
@@ -1002,10 +1043,10 @@ export function App() {
       const container = placements.find((p) => p.i === id)
       if (!container?.grow) return
 
-      /* How many rows hold `px`, at the height rows are actually drawn at, and
-         never more than there is canvas left below this container. */
-      const rowsFor = (wanted: number) =>
-        Math.min(roomBelow(container.y), Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1])))
+      /* How many rows hold `px`, at the height rows are actually drawn at.
+         What the column will actually GRANT of that is `pay`'s answer, below;
+         this is only the conversion. */
+      const rowsFor = (wanted: number) => Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1]))
 
       /*
        * A collapsed container does not grow, and the request is not thrown away.
@@ -1019,7 +1060,11 @@ export function App() {
        * back rather than the size it was when it was put away.
        */
       if (container.collapsed) {
-        const wanted = rowsFor(px)
+        /* Bounded by what the column could pay if it were unfolded RIGHT NOW,
+           which is the honest ceiling for a height it will be opened at later.
+           A remembered `openH` that no column could ever grant is the
+           stored-unlayoutable-arrangement problem one press away. */
+        const wanted = Math.min(rowsFor(px), mostFor(placements, id))
         if (wanted <= (container.openH ?? 0)) return
         change({ placements: placements.map((p) => (p.i === id ? { ...p, openH: wanted } : p)) })
         return
@@ -1028,9 +1073,19 @@ export function App() {
       const isNow = container.h * rowHeight + (container.h - 1) * MARGIN[1]
       if (px <= isNow + WORTH_GROWING_PX) return
 
-      const rows = rowsFor(px)
-      if (rows <= container.h) return
-      change({ placements: placements.map((p) => (p.i === id ? { ...p, h: rows } : p)) })
+      /* Through the same rule a hand on the resize handle goes through: the
+         free rows under the column first, then the nearest containers below,
+         each down to a floor, and then it stops. `pay` answers with every
+         height that changes — the module's container and whoever paid for it —
+         and an empty answer is a column that had nothing to give. */
+      const settled = pay(placements, id, rowsFor(px))
+      if (settled.size === 0) return
+      change({
+        placements: placements.map((p) => {
+          const height = settled.get(p.i)
+          return height === undefined ? p : { ...p, h: height }
+        }),
+      })
     },
     [change, open?.placements, rowHeight],
   )
@@ -1086,6 +1141,7 @@ export function App() {
           line: was[id]?.line ?? null,
           fault: was[id]?.fault ?? null,
           filters: groups,
+          clear: was[id]?.clear,
         },
       }))
 
@@ -1098,6 +1154,37 @@ export function App() {
     },
     [change, open?.placements],
   )
+
+  /**
+   * A module has said that what it is showing can be cleared, or that it cannot.
+   *
+   * Half of what `onOffer` does, and the missing half is the interesting part.
+   * A filter offer has to be reconciled against a stored CHOICE, because a
+   * filter is true for as long as it is on and outlives the program that
+   * offered it. A clear offer has nothing stored against it and never will: a
+   * press is an event, and there is no state for a container to carry from one
+   * day to the next saying that somebody once pressed it. So this writes to the
+   * conversation and touches the arrangement not at all — no placement changes,
+   * nothing reaches the database, and a module that re-announces forty times a
+   * minute because its count is moving costs exactly forty re-renders and zero
+   * writes.
+   *
+   * `null` is kept rather than turned into an absence, because the two are
+   * different things worth telling apart when somebody is working out why a
+   * control is missing. See `clear` on `Live`.
+   */
+  const onClearable = useCallback((id: string, label: string | null) => {
+    setLive((was) => ({
+      ...was,
+      [id]: {
+        condition: was[id]?.condition ?? 'ready',
+        line: was[id]?.line ?? null,
+        fault: was[id]?.fault ?? null,
+        filters: was[id]?.filters,
+        clear: label,
+      },
+    }))
+  }, [])
 
   /**
    * Somebody chose a value in one of a module's filter groups.
@@ -1444,6 +1531,31 @@ export function App() {
   }, [registry])
   const containers = placements.filter((p) => byId.has(p.i))
 
+  /*
+   * The arrangement as the grid is given it, with one thing added: how tall
+   * each container is allowed to become.
+   *
+   * `maxH` is what makes the bottom of a column something a person FEELS. The
+   * resize handle is constrained by it — `calcWH` clamps `h` to `maxH` and the
+   * handle's travel is bounded by `mixinResizable` — so pulling a container
+   * down past what its column can pay simply does not move any further, which
+   * is exactly what happens when you pull one past column twelve. The
+   * alternative is a handle that travels, a container that grows, and a snap
+   * back to a smaller size on release: the same rule, discovered instead of
+   * felt.
+   *
+   * It agrees with `onResize` by construction rather than by care, because
+   * `mostFor` is `pay` asked for everything — see `columns.ts`. A `maxH`
+   * computed separately would eventually stop somewhere nothing happens.
+   *
+   * Recomputed whenever the arrangement changes, which is what it is a fact
+   * about. It is never written down: `onLayoutChange` builds its placements
+   * field by field, so nothing of this reaches the database.
+   */
+  const laid = useMemo(
+    () => containers.map((one) => ({ ...one, maxH: mostFor(containers, one.i) }) as Layout),
+    [containers],
+  )
   const placed = placements.map((p) => p.i)
 
   /**
@@ -1542,14 +1654,23 @@ export function App() {
       ready: () =>
         setLive((was) => ({
           ...was,
-          [id]: { condition: 'ready', line: null, fault: was[id]?.fault ?? null, filters: was[id]?.filters },
+          [id]: {
+            condition: 'ready',
+            line: null,
+            fault: was[id]?.fault ?? null,
+            filters: was[id]?.filters,
+            clear: was[id]?.clear,
+          },
         })),
       silent: (sentence) =>
         setLive((was) => ({
           ...was,
-          /* The offer goes with the silence. A module that stopped answering is
+          /* Both offers go with the silence. A module that stopped answering is
              not offering anything, and a control left standing over a program
-             that is not there is a press that does nothing and says nothing. */
+             that is not there is a press that does nothing and says nothing.
+             That matters more for the clear control than for the filter: a
+             delete button over a dead module is a press somebody would make
+             twice, believing the first had failed. */
           [id]: { condition: 'silent', line: sentence, fault: was[id]?.fault ?? null },
         })),
       fault: (sentence) =>
@@ -1560,12 +1681,14 @@ export function App() {
             line: was[id]?.line ?? null,
             fault: sentence,
             filters: was[id]?.filters,
+            clear: was[id]?.clear,
           },
         })),
       height: (px) => onHeight(id, px),
       filters: (groups) => onOffer(id, groups),
+      clearable: (label) => onClearable(id, label),
     }),
-    [onHeight, onOffer],
+    [onHeight, onOffer, onClearable],
   )
 
   return (
@@ -1661,7 +1784,7 @@ export function App() {
           key={openId ?? 'none'}
           measureBeforeMount={MEASURE_FIRST}
           className={settling ? 'min-h-full settling' : 'min-h-full'}
-          layouts={{ lg: containers as Layout[] }}
+          layouts={{ lg: laid }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
           rowHeight={rowHeight}
@@ -1710,7 +1833,54 @@ export function App() {
             settle()
           }}
           onResizeStart={(_all, _old, item) => setMoving(item.i)}
-          onResize={() => remeasure()}
+          /*
+           * The column pays for the growth, and it pays WHILE the handle is
+           * moving rather than when it is let go.
+           *
+           * ## Why this can be done here at all
+           *
+           * Read `onResize` in `react-grid-layout/build/ReactGridLayout.js`: it
+           * calls `this.props.onResize(finalLayout, …)` and then, on the very
+           * next statement, runs `compact(finalLayout, …)` over the same array
+           * and puts the result in its state. The items in that array are the
+           * same objects it is about to compact. So a height written here is a
+           * height the compaction sees, on this frame, and the neighbours give
+           * up their rows as the pointer moves.
+           *
+           * This is a mutation of somebody else's array, which is not a thing
+           * to do lightly, and the alternatives were each worse. The library's
+           * answer to a collision is to PUSH — there is no configuration for
+           * "take it from the thing below" — so a rule that ran anywhere else
+           * would have to let the grid shove a column-mate off the bottom of
+           * the canvas first and then correct it. Correcting it in
+           * `onLayoutChange` means the correction lands on RELEASE, because
+           * `getDerivedStateFromProps` returns `null` for the whole of an
+           * `activeDrag`: the person would drag, watch the wrong thing happen,
+           * let go, and see it snap. That is the edge discovered afterwards
+           * instead of felt, which is the thing this was asked not to be.
+           *
+           * ## Computed from what is STORED, not from what the grid is holding
+           *
+           * `open?.placements` does not move during a gesture — the grid only
+           * reports a layout change once the drag is over — so every frame of
+           * this recomputes the same answer from the same base, and the result
+           * is the same whether the pointer moved one pixel or forty. Feeding
+           * it the grid's own in-flight layout would be feeding it a value this
+           * function had already written, which is how a squeeze compounds into
+           * a container that shrinks while you watch.
+           *
+           * `maxH` below means `item.h` has already been clamped to what the
+           * column can pay, so in practice `pay` grants all of it; the guard
+           * matters for the frame after a fold, when the two disagree briefly.
+           */
+          onResize={(layout, _old, item) => {
+            const settled = pay(open?.placements ?? [], item.i, item.h)
+            for (const one of layout) {
+              const height = settled.get(one.i)
+              if (height !== undefined) one.h = height
+            }
+            remeasure()
+          }}
           onResizeStop={() => {
             setMoving(null)
             settle()
@@ -1752,6 +1922,16 @@ export function App() {
                   chosen={chosen(found?.filters ?? [], placement.filters)}
                   onChoose={(group, option) => onChooseFilter(presence.id, group, option)}
                   onEverything={() => onEverything(presence.id)}
+                  /* `?? null` folds "never said anything" and "said there is
+                     nothing to clear" into the one thing the header draws for
+                     both, which is nothing. `Live.clear` keeps them apart for
+                     whoever is working out why a control is missing. */
+                  clear={found?.clear ?? null}
+                  /* The press, made at the moment of the press, on whichever
+                     frame is standing — see `presses.ts`. Nothing is stored and
+                     nothing is replayed: a press at a module that has gone does
+                     nothing at all, which is the only correct answer. */
+                  onClear={() => presses.press(presence.id)}
                   selected={placement.selected}
                   onSelect={(selected) => onSelect(presence.id, selected)}
                   onPrompts={() => setPrompting(presence.id)}
@@ -1790,6 +1970,7 @@ export function App() {
           context={context}
           canvas={controls}
           bus={bus}
+          presses={presses}
           watcherFor={watcherFor}
           moving={moving}
         />

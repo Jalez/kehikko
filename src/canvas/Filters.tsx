@@ -95,9 +95,12 @@ import { Hint } from './Hint.tsx'
  * foreground when narrowed. That is a departure now, and the departure is the
  * point rather than an oversight.
  *
- * The difference is what "off" means. A pin, a fold and a height toggle are on
- * EVERY container, in one of two states, so their weight is the only thing
- * distinguishing the states and muted is the right way to say "not on". This
+ * The difference is what "off" means. The fold is on EVERY container, in one of
+ * two states, so its weight is the only thing distinguishing them and muted is
+ * the right way to say "not on". That was equally true of the pin and the
+ * height toggle when this was written, and both of those buttons have since
+ * been taken out of the strip — which leaves the fold making the argument on
+ * its own, and makes the argument no weaker. This
  * button is on almost no containers: its presence is itself the message, and
  * the message is "this module can be narrowed", which is a thing a person
  * cannot know any other way. Drawn muted, that message was delivered as the
@@ -248,10 +251,14 @@ export function FilterButton({
  *
  * ## Why the name changes but the verb does not
  *
- * The pin and the height toggle name the ACTION and swap it round — "pin this
- * container" becomes "let this container follow the kehikko again" — because
- * pressing them does the opposite of what they are doing. Pressing this one
- * does the same thing either way: it opens a menu. So the verb is fixed and
+ * The fold names the ACTION and swaps it round — "fold this container down to
+ * its header" becomes "unfold this container" — because pressing it does the
+ * opposite of what it is doing. So does the delete control beside this one,
+ * where the two presses do two entirely different things and the name has to
+ * say which is about to happen; see `saying` in `Clearing.tsx`.
+ *
+ * Pressing this one does the same thing either way: it opens a menu. So the
+ * verb is fixed and
  * only the state is appended, which is also what `aria-pressed` says on the
  * element. Saying it twice is deliberate: `aria-pressed` is a state a screen
  * reader may or may not announce with the name, and "— narrowed" is four

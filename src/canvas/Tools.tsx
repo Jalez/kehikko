@@ -47,7 +47,9 @@ import { Hint } from './Hint.tsx'
  *     foreground weight. Something is wrong and the container says so from across the
  *     canvas, exactly as before.
  *   - **`told` gets a quiet one.** A plugged icon at the same weight as every
- *     other idle button on the header — the pin, the height toggle, the prompt.
+ *     other idle button on the header — the fold, the prompt, the remove. (The
+ *     pin and the height toggle were two more when this was written; both have
+ *     since been taken out of the strip.)
  *     It reads as one more thing you can open, which is what it is, and it does
  *     not compete for attention with the loud mark on the container beside it.
  *   - **`none` still draws nothing.** A module with no MCP door has no tools and

@@ -3,6 +3,7 @@ import type { ModuleContext } from 'roadmap-module-protocol'
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
 import type { EventBus } from '@/host/events.ts'
+import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame } from './ModuleFrame.tsx'
 
@@ -94,6 +95,7 @@ export function Frames({
   context,
   canvas,
   bus,
+  presses,
   watcherFor,
   moving,
 }: {
@@ -110,6 +112,15 @@ export function Frames({
    * somebody switched canvases.
    */
   bus: EventBus
+  /**
+   * The register of frames a header control can press.
+   *
+   * Here for the same reason the bus is: this layer outlives the grid, so what
+   * has to be reachable is the FRAME and not the container. A register owned by
+   * a container would come and go with the container, and a press would land on
+   * nothing the moment somebody switched canvases and came back.
+   */
+  presses: Presses
   watcherFor(id: string): ConversationWatcher
   /**
    * The container being dragged or resized right now, if any.
@@ -161,6 +172,7 @@ export function Frames({
             context={context}
             canvas={canvas}
             bus={bus}
+            presses={presses}
             watcher={watcherFor(module.id)}
             state={state}
             pinned={pinned}

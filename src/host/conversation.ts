@@ -92,6 +92,18 @@ export interface ConversationWatcher {
    * host may act on, with no reply and nothing waiting on it.
    */
   filters(groups: FilterGroup[]): void
+  /**
+   * What this module says can be cleared of what it is showing, right now.
+   *
+   * A label in the module's own words, or `null` — which is a module saying
+   * there is nothing on screen to clear, and is the reason the host takes the
+   * control away rather than leaving a button that deletes nothing. Reported
+   * like `filters` and `height`, with no reply and nothing waiting on it.
+   *
+   * The host never learns what is behind the label and never asks. See
+   * `sendClear` for the other half.
+   */
+  clearable(label: string | null): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -294,6 +306,44 @@ export class Conversation {
   }
 
   /**
+   * Tell this module to clear what it is showing. The only destructive thing
+   * this host ever says.
+   *
+   * ## What it does not carry, and why each absence matters
+   *
+   * No ids, because the host does not know what is on the page and must not
+   * find out — it sees rows it does not render, in a document it cannot read,
+   * in a frame on another origin. No copy of the filter choice, because the
+   * module already has that from `roadmap.context` and a second copy would be a
+   * second answer to one question, disagreeing after any race. No correlation
+   * id, because there is no answer: the only thing this host could do with an
+   * acknowledgement is display it, and displaying it would mean reporting a
+   * number it did not count about data it cannot see.
+   *
+   * What comes back instead is a new `roadmap.clearable` with a smaller count
+   * in its label, or with `null` because there is nothing left. That is the
+   * module reporting on its own work in its own words, which is the only
+   * reporting anybody here is entitled to.
+   *
+   * ## Guarded on `greeted`, and it must be
+   *
+   * Like `sendEvent`, and here the guard is doing more than tidiness. The host
+   * only draws this control for a module that announced `clearable`, and a
+   * module can only have announced it after being greeted — so a press before
+   * the greeting is a press on a button that should not exist. Dropping it is
+   * the right answer to a state that should be unreachable.
+   *
+   * The arm that decides WHEN this is called is in `Clearing.tsx`. It has to be
+   * on this side of the frame: `confirm()` in a sandbox without `allow-modals`
+   * returns `false` silently, so a module guarding its own deletion would have
+   * built a guard that always says no.
+   */
+  sendClear(): void {
+    if (!this.greeted || this.closed) return
+    this.post({ type: MESSAGE.CLEAR, protocol: PROTOCOL })
+  }
+
+  /**
    * Ask the module to walk to a reference, and wait — briefly — to hear whether
    * it found anything.
    *
@@ -413,6 +463,15 @@ export class Conversation {
          somebody else's vocabulary. What to DRAW is the canvas's business and
          what any of it MEANS is the module's; see `host/filters.ts`. */
       this.watcher.filters(message.groups)
+      return true
+    }
+
+    case MESSAGE.CLEARABLE: {
+      /* Handed on exactly as parsed, like the filter offer, and for the same
+         reason: the schema has bounded the one string in it and there is
+         nothing else here the host is entitled to know. What the label counts,
+         and what pressing the control would destroy, are the module's. */
+      this.watcher.clearable(message.label)
       return true
     }
 

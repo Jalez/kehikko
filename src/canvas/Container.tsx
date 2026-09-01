@@ -1,7 +1,5 @@
 import {
   ChevronDown,
-  ChevronsDownUp,
-  ChevronsUpDown,
   ChevronUp,
   X,
 } from 'lucide-react'
@@ -11,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup } from 'roadmap-module-protocol'
+import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { FilterButton } from './Filters.tsx'
 import { Hint } from './Hint.tsx'
@@ -65,6 +64,8 @@ export function Container({
   chosen,
   onChoose,
   onEverything,
+  clear,
+  onClear,
   selected,
   onSelect,
   onPrompts,
@@ -115,6 +116,17 @@ export function Container({
   chosen: Choice
   onChoose(group: string, option: string): void
   onEverything(): void
+  /**
+   * What this module says it can clear of what it is showing, in its own words.
+   *
+   * `null` for almost every module — including every module that has never
+   * mentioned the idea — and `null` draws nothing at all: see `Clearing.tsx`. A
+   * paper cannot delete a paper, and a header full of controls that cannot work
+   * is a header nobody reads.
+   */
+  clear: string | null
+  /** Send the press. The host arms; this is called only by the second press. */
+  onClear(): void
   /**
    * Whether this container has been picked out as a target on this kehikko.
    *
@@ -270,7 +282,7 @@ export function Container({
        * 282 down to 208 and fits with room for a few letters of the name. The
        * alternatives were all worse: shrinking the buttons makes six targets
        * harder to hit at exactly the width where hitting them is already hard;
-       * dropping a control means deciding which of fold, pin, prompt and remove
+       * dropping a control means deciding which of fold, prompt and remove
        * a person in a narrow container does not need; and letting the header
        * scroll sideways is the horizontal-scroll failure this workspace has a
        * standing rule against.
@@ -294,7 +306,8 @@ export function Container({
          * ## Leftmost, before the dot
          *
          * Everything else in this header is a control that does something to
-         * this container — grow it, fold it, pin it, take it off — and they are
+         * this container or to what is inside it — narrow it, clear it, fold
+         * it, take it off — and they are
          * gathered on the right. This is not one of those. It marks the row,
          * the way the box at the start of a table row does, and a person
          * scanning a canvas for what they picked reads down a column of them.
@@ -386,61 +399,50 @@ export function Container({
         <ToolsMark agent={presence.agent} name={name} onOpen={onTools} />
 
         {/*
-         * Whether this container follows the height its module asks for.
+         * There is no height toggle here any more, and the mechanism underneath
+         * it is still built — the same disposal the pin got, for the same
+         * reasons, and with the same check run first.
          *
-         * Per container rather than a setting somewhere, because it is a question
-         * about how you want to read THIS thing: a list you scan wants to hold
-         * its size and scroll, a summary you want all of wants to fit. The host
-         * has no way to know which this is, so it asks by putting the switch on
-         * the container itself.
+         * It said whether this container followed the height its module asked
+         * for: a list you scan wants to hold its size and scroll, a summary you
+         * want all of wants to fit, and the host cannot know which this is. The
+         * owner asked for the icon to go, to make room in a 32px strip for a
+         * control that does something a person cannot do any other way. That
+         * trade is the whole argument: the height toggle's job can be done by
+         * dragging the corner, and clearing a module's items cannot be done at
+         * all without a button.
          *
-         * It shows only when the module is actually speaking. Offering to
-         * follow the height of a program that is not running would be offering
-         * something that cannot happen.
+         * What stays: `grow` is a column on the placement, `onGrow` is still in
+         * `App.tsx`, `onHeight` still refuses to act on `roadmap.resize` unless
+         * the container has it, and `onLayoutChange` still carries it across a
+         * drag. So it can be set by anything that writes a placement — the
+         * host's canvas endpoint, or a future control — and a container that has
+         * it on still follows its module. Ripping it out would have been a
+         * migration to remove a capability nobody objected to.
+         *
+         * Verified before removing, and this was the one thing it could have got
+         * wrong: `select count(*), sum(grow) from placements` on the live
+         * database answered 17 and 0. No container on any kehikko is following
+         * its module's height, so nothing is left following a height it can no
+         * longer stop following — which is the mirror of the hazard the pin
+         * removal checked for, and the one that would have had no way out.
          */}
-        {condition === 'ready' && !collapsed ? (
-          <Hint
-            label={
-              grow
-                ? 'following the module’s height — press to keep this size instead'
-                : 'holding the size you set — press to follow the module’s height'
-            }
-            side="left"
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={grow ? 'stop following the module’s height' : 'follow the module’s height'}
-              aria-pressed={grow}
-              className={
-                grow
-                  ? 'text-foreground size-6 cursor-default'
-                  : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
-              }
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={() => onGrow(!grow)}
-            >
-              {grow ? <ChevronsDownUp className="size-3" /> : <ChevronsUpDown className="size-3" />}
-            </Button>
-          </Hint>
-        ) : null}
 
         {/*
          * What this module shows, when it has said there is a choice about it.
          *
-         * Between the height toggle and the fold, and the position is an
-         * argument rather than an accident. Everything to the right of here —
-         * fold, prompts, pin, remove — is something the HOST does to a
-         * container, and is on every container whatever is inside it. This is
-         * the one control in the row that belongs to the program, appears only
-         * because that program asked for it, and disappears when it stops
-         * asking. It sits at the boundary, on the module's side of it, next to
-         * the other control that is only drawn when the module is speaking.
+         * Before the fold, and the position is an argument rather than an
+         * accident. Everything to the right of here — fold, prompts, remove —
+         * is something the HOST does to a container, and is on every container
+         * whatever is inside it. The two controls here belong to the PROGRAM:
+         * they appear only because it asked for them and disappear when it
+         * stops asking. They sit together at the boundary, on the module's side
+         * of it, where the height toggle used to be the thing marking the line.
          *
          * Not shown while folded. A folded container is a header and nothing
          * else, and narrowing a list nobody can see is a press with no visible
-         * effect — the same reason the height toggle is hidden there. The
-         * choice is kept; unfolding brings the control back exactly as it was.
+         * effect. The choice is kept; unfolding brings the control back exactly
+         * as it was.
          */}
         {condition === 'ready' && !collapsed ? (
           <FilterButton
@@ -450,6 +452,31 @@ export function Container({
             onChoose={onChoose}
             onEverything={onEverything}
           />
+        ) : null}
+
+        {/*
+         * And the one that DELETES what the module is showing.
+         *
+         * Beside the filter deliberately, and that adjacency is the feature
+         * rather than a tidy arrangement of icons. The two compose: what "shown"
+         * means is whatever the filter has left, so narrowing to one thing and
+         * pressing clear means that thing. Putting this behind a menu would hide
+         * the composition — a person would have to remember that the two were
+         * related — and putting it anywhere else on the canvas would be a
+         * delete control that does not sit next to what decides its scope.
+         *
+         * The module decides all of that: the host relays a press and never
+         * learns what went. See `Clearing.tsx` for the two-press arm, and the
+         * protocol's `MESSAGE.CLEAR` for why the message carries nothing.
+         *
+         * Hidden while folded, like the filter, and here the reason is
+         * stronger. A destructive control on a container drawn as a bare strip
+         * is a press somebody makes while aiming at the fold beside it — which
+         * is exactly the failure the arm exists for, and it costs nothing to
+         * not offer it in the one state where the mistake is most likely.
+         */}
+        {condition === 'ready' && !collapsed ? (
+          <ClearButton label={clear} name={name} onClear={onClear} />
         ) : null}
 
         {/*

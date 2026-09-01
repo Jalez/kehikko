@@ -5,6 +5,7 @@ import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import type { EventBus } from '@/host/events.ts'
+import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
 
 /**
@@ -34,6 +35,7 @@ export function ModuleFrame({
   context,
   canvas,
   bus,
+  presses,
   watcher,
   state,
   pinned,
@@ -48,6 +50,16 @@ export function ModuleFrame({
    * them. One bus for the whole canvas; see `host/events.ts`.
    */
   bus: EventBus
+  /**
+   * Where this frame signs up to be PRESSED, as opposed to told.
+   *
+   * Joined and left on the conversation's own lifetime, in the same effect as
+   * the bus — see the essay on that below, which is about a receiver and a
+   * conversation being reachable only together, and applies here word for word.
+   * `presses.ts` has why a destructive message travels this way at all rather
+   * than as a prop that changes.
+   */
+  presses: Presses
   watcher: ConversationWatcher
   /**
    * Whatever the host is keeping for this module, or null when it keeps
@@ -158,6 +170,9 @@ export function ModuleFrame({
            draw it. Read via the ref like every other handler here, so a
            re-render cannot tear down the conversation. */
         filters: (groups) => watcherRef.current.filters(groups),
+        /* Straight through like the filter offer. What the label counts is the
+           module's, and what to draw for it is the canvas's. */
+        clearable: (label) => watcherRef.current.clearable(label),
       },
       { name: framed.name },
     )
@@ -199,14 +214,21 @@ export function ModuleFrame({
       send: (event) => conversation.sendEvent(event),
     })
 
+    /* And the register of frames a header control can press, on exactly the
+       same lifetime and in exactly the same effect, for exactly the reason
+       above. A frame registered as pressable without a live conversation is a
+       delete button posting into a window that has gone. */
+    presses.join(framed.id, { clear: () => conversation.sendClear() })
+
     return () => {
+      presses.leave(framed.id)
       bus.leave(framed.id)
       frame.removeEventListener('load', onLoad)
       window.removeEventListener('message', onMessage)
       conversation.close()
       conversationRef.current = null
     }
-  }, [framed.id, framed.name, framed.entry, origin, bus])
+  }, [framed.id, framed.name, framed.entry, origin, bus, presses])
 
   /**
    * Context, re-sent whenever it changes — unless this container is pinned.
