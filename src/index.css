@@ -254,6 +254,19 @@
  * top-right eight pixels of every module would be an unlabelled control that
  * takes the container off the canvas.
  *
+ * ## A tooltip must not outlive the header it was on
+ *
+ * The header being FADED rather than unmounted has one consequence worth
+ * naming here, next to the rule that causes it: a tooltip opened on one of
+ * these controls used to stay on screen after the header had gone, floating
+ * over the canvas with nothing to press to dismiss it. Not because the trigger
+ * missed the `pointerleave` — it receives one — but because a Radix tooltip is
+ * hoverable by default and owes its dismissal to a later `pointermove`, and
+ * the thing below a container header is an iframe this document gets no
+ * pointer events from. `Hint.tsx` has the argument and sets
+ * `disableHoverableContent`; `dev/tooltips.mjs` measures it. Anyone changing
+ * how the header hides should run that probe.
+ *
  * `:focus-within` is there for the same reason the hover is, for somebody not
  * using a pointer. Pin, prompts, tools and remove live only in this header; a
  * reveal that answered to the mouse alone would put all four out of a keyboard
