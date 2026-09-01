@@ -47,7 +47,7 @@ import { toWireContext, type Subject } from './host/context.ts'
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
-import { rowHeightFor } from './host/fit.ts'
+import { CANVAS_ROWS, roomBelow, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
@@ -97,22 +97,41 @@ const Grid = WidthProvider(Responsive)
  */
 const MEASURE_FIRST = false
 
-/** Grid geometry. A small row is a fine-grained resize. */
-const ROW_HEIGHT = 24
+/*
+ * Grid geometry. The gaps, and only the gaps.
+ *
+ * There is no `ROW_HEIGHT` here any more. A row is not a size this file
+ * chooses; it is `room / CANVAS_ROWS`, decided in `fit.ts` for the same reason
+ * a column is `room / 12` — see the essay there, and the two wrong answers it
+ * records. What is left in this constant is the one piece of vertical geometry
+ * that really is fixed: the eight pixels of air between rows, above the first
+ * and below the last, which the fit has to subtract before it divides.
+ */
 const MARGIN: [number, number] = [8, 8]
 
 /**
  * How tall a folded container is, in grid rows.
  *
- * Two, because a header is thirty-two pixels and one row is twenty-four. The
- * grid's heights are quantised — `h` rows is `h * 24 + (h - 1) * 8` pixels — so
- * one row cannot hold a header and two rows, at fifty-six, is the first that
- * can.
+ * One, and the point of it is that nothing is reserved that is not drawn — see
+ * the essay on the folded container in `Container.tsx`, which is where the two-row
+ * version was measured and rejected: the emptiness did not go away, it moved
+ * outside the container, and a person folding something to reclaim space got
+ * twenty-two pixels of nothing between it and its neighbour.
  *
- * The container does not fill those fifty-six pixels. `Container.tsx` draws a folded container
- * at its own height and leaves the remainder transparent, so what a person sees
- * is a header and nothing else; the extra twenty-two pixels are grid space,
- * spent to keep folded containers on the same grid as everything around them.
+ * ## What a row is worth, now that it is not twenty-four pixels
+ *
+ * This used to reason in absolute pixels — "a header is thirty-two and a row is
+ * twenty-four" — and it cannot any more. A row is `room / CANVAS_ROWS`, so one
+ * row is 24 pixels on the canvas these arrangements were built for, 34 on a
+ * tall monitor, and 12 at the floor. The header goes dense when folded, which
+ * is a change to one CSS rule rather than to the grid, and that is what keeps a
+ * folded container legible across that range.
+ *
+ * It is deliberately still a count and not a computed number of rows. A folded
+ * container is ONE of whatever a row is here, in the same sense that a full
+ * width container is twelve of whatever a column is; making it depend on the
+ * drawn height would put the arrangement back in the business of reading its
+ * own scale, which is the loop `fit.ts` exists to keep shut.
  */
 const COLLAPSED_ROWS = 1
 
@@ -224,6 +243,27 @@ export function App() {
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
   const { rects, room, surface, body, measure, remeasure, settle } = useRects()
+
+  /*
+   * How tall a row is DRAWN: the room, divided into `CANVAS_ROWS` of them.
+   *
+   * A canvas is twelve columns wide and twenty-eight rows tall, and both are
+   * COUNTS rather than pixel sizes. That is the whole of it, and `fit.ts` has
+   * the argument — including the two versions of this that were wrong: one that
+   * shrank every container on the canvas whenever any container grew, and one
+   * that fixed that by letting the canvas overflow again.
+   *
+   * `room` and a constant are the ONLY inputs, and nothing about the
+   * arrangement may ever join them. The moment it does, growing one container
+   * starts resizing the others again and the feedback loop `fit.ts` warns about
+   * has somewhere to close.
+   *
+   * Up here, rather than beside the grid it is handed to, because `onHeight`
+   * converts a module's requested pixels into rows with it — which is safe now
+   * that this depends on nothing the layout can change, and is the only
+   * conversion that gives a module the height it actually asked for.
+   */
+  const rowHeight = useMemo(() => rowHeightFor({ room, gap: MARGIN[1] }), [room])
 
   /* Whether the canvases have been read from the server yet. Nothing is written
      before they have been, or the first render would save an empty canvas over
@@ -921,15 +961,38 @@ export function App() {
    * ## The brake stays even when it is on
    *
    * Opting in must not opt into the runaway. Two things prevent it. The container
-   * only ever GROWS towards the requested height and never past `MOST_ROWS`, so
-   * the worst case is bounded and reachable. And growth stops as soon as the
-   * request is no longer meaningfully larger than the container — a page that fills
-   * whatever frame it is given reports the frame's own height, which after one
-   * step is the height it already has, and the climb ends there instead of
-   * continuing by a rounding error a step.
+   * only ever GROWS towards the requested height and never past the bottom of the
+   * canvas, so the worst case is bounded and reachable. And growth stops as soon
+   * as the request is no longer meaningfully larger than the container — a page
+   * that fills whatever frame it is given reports the frame's own height, which
+   * after one step is the height it already has, and the climb ends there instead
+   * of continuing by a rounding error a step.
+   *
+   * ## The ceiling is now the canvas, and it used to be a number
+   *
+   * It was `MOST_ROWS = 40` — "a tall container on any screen and nowhere near a
+   * runaway" — which was a sensible invention when a canvas had no bottom. It
+   * has one now: a canvas is `CANVAS_ROWS` tall, exactly as it is twelve columns
+   * wide, so forty was both too generous (it would put a container past the
+   * bottom of a canvas that is supposed to have no past-the-bottom) and beside
+   * the point.
+   *
+   * So the ceiling is the room actually left below this container's top —
+   * `roomBelow` — and a module that asks for more than that does not get it. Its
+   * container stops at the edge and its own page scrolls, which is precisely
+   * what a container already sitting at the bottom does today, and the vertical
+   * twin of a container that cannot be widened past column twelve.
+   *
+   * ## And the arithmetic uses the DRAWN row, which it could not before
+   *
+   * `fit.ts` used to forbid exactly this: converting pixels to rows with the
+   * drawn height closed a loop — shorter rows, more rows for the same pixels, a
+   * taller arrangement, shorter rows again. The loop needed the row height to
+   * depend on the arrangement, and it no longer does; it depends on the window
+   * and a constant. With that gone, using the nominal 24 would be plainly wrong:
+   * on a small window a module asking for 300 pixels would be given rows that
+   * draw 160, ask again, and be refused for asking for what it did not get.
    */
-  /** Forty rows is a tall container on any screen and nowhere near a runaway. */
-  const MOST_ROWS = 40
   /** Below this, a request is agreement rather than a request. */
   const WORTH_GROWING_PX = 12
 
@@ -938,6 +1001,11 @@ export function App() {
       const placements = open?.placements ?? []
       const container = placements.find((p) => p.i === id)
       if (!container?.grow) return
+
+      /* How many rows hold `px`, at the height rows are actually drawn at, and
+         never more than there is canvas left below this container. */
+      const rowsFor = (wanted: number) =>
+        Math.min(roomBelow(container.y), Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1])))
 
       /*
        * A collapsed container does not grow, and the request is not thrown away.
@@ -951,20 +1019,20 @@ export function App() {
        * back rather than the size it was when it was put away.
        */
       if (container.collapsed) {
-        const wanted = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
+        const wanted = rowsFor(px)
         if (wanted <= (container.openH ?? 0)) return
         change({ placements: placements.map((p) => (p.i === id ? { ...p, openH: wanted } : p)) })
         return
       }
 
-      const isNow = container.h * ROW_HEIGHT + (container.h - 1) * MARGIN[1]
+      const isNow = container.h * rowHeight + (container.h - 1) * MARGIN[1]
       if (px <= isNow + WORTH_GROWING_PX) return
 
-      const rows = Math.min(MOST_ROWS, Math.ceil((px + MARGIN[1]) / (ROW_HEIGHT + MARGIN[1])))
+      const rows = rowsFor(px)
       if (rows <= container.h) return
       change({ placements: placements.map((p) => (p.i === id ? { ...p, h: rows } : p)) })
     },
-    [change, open?.placements],
+    [change, open?.placements, rowHeight],
   )
 
   /**
@@ -1376,31 +1444,6 @@ export function App() {
   }, [registry])
   const containers = placements.filter((p) => byId.has(p.i))
 
-  /*
-   * How tall a row is DRAWN, so an arrangement fits the height it has.
-   *
-   * The canvas has always fitted its width and never its height, and the reason
-   * was one line: twelve columns make a column a proportion of the room, while
-   * `rowHeight` was a fixed 24 pixels. So a container six wide was half the
-   * canvas on any screen and a container ten tall was 240 pixels on every
-   * screen — and an arrangement built on a large display overflowed a small one
-   * downward, forever, with scrolling as the only remedy.
-   *
-   * The extent is the bottom edge of the lowest container rather than the
-   * number of containers: a canvas of three containers stacked twelve rows
-   * apart is thirty-six rows tall, and counting the containers would say three.
-   *
-   * The answer only ever shrinks — see `fit.ts` for why it deliberately does
-   * not grow to fill a tall screen, and for the floor it stops at.
-   */
-  const extent = useMemo(
-    () => containers.reduce((lowest, one) => Math.max(lowest, one.y + one.h), 0),
-    [containers],
-  )
-  const rowHeight = useMemo(
-    () => rowHeightFor({ room, extent, gap: MARGIN[1] }, ROW_HEIGHT),
-    [room, extent],
-  )
   const placed = placements.map((p) => p.i)
 
   /**
@@ -1622,6 +1665,28 @@ export function App() {
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
           rowHeight={rowHeight}
+          /*
+           * The canvas has a bottom, the way it has always had a right-hand
+           * edge, and this is the line that gives it one.
+           *
+           * `cols` and `maxRows` are the same kind of statement: the axis has a
+           * fixed number of divisions and nothing may exceed them. That is what
+           * makes a column's width `room / 12` regardless of the content, and
+           * with this it is what makes a row's height `room / 28` regardless of
+           * the content — which is the whole of the fix in `fit.ts`.
+           *
+           * Verified in the library rather than assumed: `maxRows` reaches
+           * `calcXY` and `calcWH` in `calculateUtils.js`, which clamp a DRAG to
+           * `maxRows - h` and a RESIZE to `maxRows - y`. So a person feels the
+           * bottom of the canvas while dragging, rather than discovering
+           * afterwards that something was clipped.
+           *
+           * What it does NOT reach is the compaction that runs when the host
+           * writes a placement itself, which is why `roomBelow` exists and why
+           * `onHeight` calls it. A module asking to grow is the host writing a
+           * placement, and this prop would not have stopped it.
+           */
+          maxRows={CANVAS_ROWS}
           margin={MARGIN}
           containerPadding={MARGIN}
           draggableHandle=".container-grip"
