@@ -36,6 +36,7 @@ import {
   chooseProject,
   fetchEpics,
   fetchProjects,
+  forgetProject,
   shareProject,
   readOpenProject,
   writeOpenProject,
@@ -1610,6 +1611,36 @@ export function App() {
     }
   }, [])
 
+  /**
+   * Stop holding a folder as a project. Nothing on disk is deleted.
+   *
+   * The canvases are re-read rather than filtered here, because forgetting a
+   * project takes its kehikot with it by `on delete cascade` and this page has
+   * no way to know which ones without asking. If the project being forgotten is
+   * the open one, the page moves to whatever is left — the alternative is a
+   * header naming a project that no longer exists over a canvas that went with
+   * it.
+   */
+  const onForgetProject = useCallback(
+    async (id: number) => {
+      try {
+        await forgetProject(id)
+        const [found, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
+        setProjects(everyProject)
+        setCanvases(found.canvases)
+        if (id === projectId) {
+          const next = chooseProject(everyProject, null)
+          setProjectId(next)
+          setOpenId(chooseOpen(found.canvases, null, next))
+        }
+        setTrouble(null)
+      } catch (error) {
+        setTrouble(`That project was not forgotten: ${(error as Error).message}`)
+      }
+    },
+    [projectId],
+  )
+
   const onAddProject = useCallback(
     async (path: string) => {
       try {
@@ -1854,6 +1885,7 @@ export function App() {
         onProject={onProject}
         onAddProject={(path) => void onAddProject(path)}
         onShareProject={(id, shared) => void onShareProject(id, shared)}
+        onForgetProject={(id) => void onForgetProject(id)}
         onOpen={setOpenId}
         onRename={(name) => change({ name })}
         onCreate={() => void onCreate()}

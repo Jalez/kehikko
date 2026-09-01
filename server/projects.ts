@@ -100,7 +100,7 @@ export function listProjects(db: Database): Project[] {
       'select id, name, path from projects order by rank, id',
     )
     .all()
-    .map((row) => ({ ...row, epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }))
+    .map((row) => ({ ...row, name: named(row.path), epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }))
 }
 
 /** One project by id, or null. */
@@ -111,8 +111,41 @@ export function projectById(db: Database, id: number): Project | null {
     )
     .get(id)
   return row
-    ? { ...row, epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }
+    ? { ...row, name: named(row.path), epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }
     : null
+}
+
+/**
+ * What a project is called: the name of its folder.
+ *
+ * Read off the path on every list, never out of the row, and the `name` column
+ * is now written once at insert and never read. That is the same decision
+ * `epics`, `git` and `shared` make, for the reason this host keeps arriving at:
+ * the disk is the truth and a stored copy is this host reporting what was true
+ * when the project was added.
+ *
+ * ## Why a typed name is gone rather than merely defaulted
+ *
+ * It already defaulted to the folder. What it also allowed was a name that had
+ * drifted from it — a project on this machine reads "Community portal" over a
+ * folder called `hippos-portal`, and every sentence a module writes about that
+ * project names one of the two while the person is looking at the other. The
+ * user's ask was that they be the same thing, and the only way two things stay
+ * the same is for there to be one of them.
+ *
+ * A renamed folder now renames the project, with nothing to keep in step.
+ *
+ * ## The cost, said out loud
+ *
+ * Two projects whose folders are both called `app` are two rows called `app`.
+ * They were always allowed to share a name — a host refusing the second would
+ * be a host with an opinion about somebody's filing — and the picker puts the
+ * full path in the tooltip beside each one. `basename` is empty only at the
+ * filesystem root, which is the one path nobody opens as a project, and that
+ * falls back to the path itself.
+ */
+export function named(path: string): string {
+  return basename(path) || path
 }
 
 /** Whether a folder brings its own epics. Not every project does — see `addProject`. */
@@ -190,6 +223,53 @@ export function sharesKehikot(root: string): boolean {
 
 /** The file this host will write, and the only one it will. */
 const GITIGNORE = '.gitignore'
+
+export type Forgotten =
+  | { ok: true; project: Project; canvases: number }
+  | { ok: false; why: string; status: number }
+
+/**
+ * Stop holding a folder as a project.
+ *
+ * ## It deletes nothing on disk, and that is the whole design
+ *
+ * The ask was "deleting should only erase the `.kehikot` folder from that
+ * particular folder". It does not, and the reason is a change made an hour
+ * before it was asked for: papers moved INTO `.kehikot/`. Erasing that folder
+ * now deletes the person's thesis along with their checklists — a `main.tex`,
+ * its chapters and its figures, from a control whose label says "project".
+ *
+ * That is not a refusal to build it. It is a refusal to put it behind THIS
+ * word. Forgetting a project and erasing a project's material are two different
+ * decisions with two different worst cases, and the one that cannot be undone
+ * does not get to ride along with the one that can. What this does is undo the
+ * add: the folder stops being a project, and everything in it — `.kehikot/`
+ * included — is exactly as it was.
+ *
+ * ## What it DOES delete
+ *
+ * The project's kehikot, by `on delete cascade`, and their placements with
+ * them. That is the arrangement of containers on a canvas, which somebody
+ * built by hand and cannot get back, so this is destructive enough to be armed
+ * rather than pressed — see the header control — and the count comes back so
+ * the page can say how many before anyone commits to it.
+ *
+ * Adding the folder again gives a project with no kehikot and every module's
+ * material still in place, which is the honest shape of "undo": what was on
+ * disk survives, what this host was keeping does not.
+ */
+export function forgetProject(db: Database, id: number): Forgotten {
+  const project = projectById(db, id)
+  if (!project) return { ok: false, why: 'There is no project by that id.', status: 404 }
+
+  /* Counted before the delete, because after it there is nothing to count and a
+     number read afterwards would always be zero. */
+  const canvases =
+    db.query<{ n: number }, [number]>('select count(*) as n from canvases where project_id = ?').get(id)?.n ?? 0
+
+  db.query('delete from projects where id = ?').run(id)
+  return { ok: true, project, canvases }
+}
 
 export type Shared = { ok: true; project: Project } | { ok: false; why: string; status: number }
 
@@ -355,10 +435,11 @@ export function addProject(
     }
   }
 
-  /* The folder's own name unless the person typed one. `basename` of a real
-     directory is empty only at the filesystem root, which is the one path
-     nobody opens as a project — and if they do, it falls back to the path. */
-  const label = tidy(name) ?? (basename(real) || real)
+  /* Written so the column is never null, and never read again: `named` answers
+     that question off the path, on every list. The `name` argument is still
+     accepted and still tidied, because a caller passing one is not an error and
+     refusing it would break a door over a field nothing depends on. */
+  const label = tidy(name) ?? named(real)
 
   const row = db
     .query<{ id: number }, [string, string]>(

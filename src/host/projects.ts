@@ -67,6 +67,24 @@ export async function fetchProjects(signal?: AbortSignal): Promise<Project[]> {
   return z.object({ projects: z.array(projectSchema) }).parse(await response.json()).projects
 }
 
+/**
+ * Stop holding a folder as a project. Nothing on disk is touched.
+ *
+ * The count that comes back is how many kehikot went with it — the one thing
+ * this does destroy, and the reason the control is armed rather than pressed.
+ * See `forgetProject` on the server, and the paragraph there about why erasing
+ * `.kehikot/` is deliberately not what this word does now that papers are in it.
+ */
+export async function forgetProject(id: number): Promise<{ project: Project; canvases: number }> {
+  const response = await fetch('/host/projects', {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ project: projectSchema, canvases: z.number().int() }).parse(await response.json())
+}
+
 /** Add a folder as a project. The server decides whether the folder is one. */
 export async function addProject(path: string, name?: string): Promise<Project> {
   const response = await fetch('/host/projects', {

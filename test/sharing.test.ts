@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 
 import { KEHIKOT_IGNORE, ignoresKehikot } from 'roadmap-module-protocol'
 
-import { addProject, listProjects, shareKehikot } from '../server/projects.ts'
+import { addProject, forgetProject, listProjects, named, shareKehikot } from '../server/projects.ts'
 import { open as openDb } from '../server/canvases.ts'
 
 /*
@@ -138,6 +138,70 @@ describe('whether a project keeps its .kehikot out of git', () => {
 
   test('a project that is not there is a 404 rather than a thrown host', () => {
     const said = shareKehikot(db(), 4321, true)
+    expect(said.ok).toBe(false)
+    if (!said.ok) expect(said.status).toBe(404)
+  })
+})
+
+describe('what a project is called', () => {
+  test('is the name of its folder, read on every list rather than stored', () => {
+    const store = db()
+    const dir = project(true)
+    const one = added(store, dir)
+    expect(one.name).toBe(dir.split('/').at(-1)!)
+    expect(named(dir)).toBe(one.name)
+  })
+
+  /* The case this replaced: a row reading "Community portal" over a folder
+     called `hippos-portal`, so every sentence a module wrote about that project
+     named one of the two while the person was looking at the other. A typed
+     name is still accepted at the door — refusing one would break a caller over
+     a field nothing depends on — and it is not what anybody is shown. */
+  test('a typed name is not what the project is called', () => {
+    const store = db()
+    const dir = project(true)
+    const out = addProject(store, dir, 'Something Else Entirely')
+    if (!out.ok) throw new Error(out.why)
+    expect(out.project.name).toBe(dir.split('/').at(-1)!)
+    expect(listProjects(store)[0]?.name).not.toBe('Something Else Entirely')
+  })
+})
+
+describe('forgetting a project', () => {
+  /*
+   * The ask was that deleting a project erased the `.kehikot` folder from it.
+   * It does not, and the reason is that papers moved into that folder an hour
+   * before: erasing it would delete a thesis from a control labelled "project".
+   * Forgetting and erasing are two decisions with two different worst cases,
+   * and the one that cannot be undone does not ride along with the one that can.
+   */
+  test('leaves every file exactly where it was, .kehikot included', () => {
+    const store = db()
+    const dir = project(true, 'dist\n')
+    mkdirSync(join(dir, '.kehikot', 'paper', 'thesis'), { recursive: true })
+    writeFileSync(join(dir, '.kehikot', 'paper', 'thesis', 'main.tex'), '\\begin{document}\\end{document}')
+    const one = added(store, dir)
+
+    const said = forgetProject(store, one.id)
+    expect(said.ok).toBe(true)
+    expect(listProjects(store).map((p) => p.id)).not.toContain(one.id)
+
+    expect(existsSync(join(dir, '.kehikot', 'paper', 'thesis', 'main.tex'))).toBe(true)
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('dist\n')
+  })
+
+  /* What it does delete, and why the count comes back: the arrangement of
+     containers on a canvas is something somebody built by hand, so the page can
+     say how many before anybody commits to it. */
+  test('says how many kehikot go with it, counted before they are gone', () => {
+    const store = db()
+    const one = added(store, project(true))
+    const said = forgetProject(store, one.id)
+    expect(said.ok && said.canvases).toBe(1)
+  })
+
+  test('a project that is not there is a 404 rather than a silent success', () => {
+    const said = forgetProject(db(), 9876)
     expect(said.ok).toBe(false)
     if (!said.ok) expect(said.status).toBe(404)
   })

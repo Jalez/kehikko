@@ -80,6 +80,7 @@ export function Bar({
   onProject,
   onAddProject,
   onShareProject,
+  onForgetProject,
   onOpen,
   onRename,
   onCreate,
@@ -106,6 +107,8 @@ export function Bar({
   onAddProject(path: string): void
   /** Whether the open project's `.kehikot/` is committed with it. */
   onShareProject(id: number, shared: boolean): void
+  /** Stop holding a folder as a project. Nothing on disk is deleted. */
+  onForgetProject(id: number): void
   onOpen(id: number): void
   onRename(name: string): void
   onCreate(): void
@@ -142,6 +145,7 @@ export function Bar({
           onOpen={onProject}
           onAdd={onAddProject}
           onShare={onShareProject}
+          onForget={onForgetProject}
         />
 
         {/*

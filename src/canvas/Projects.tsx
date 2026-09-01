@@ -1,4 +1,4 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, Layers } from 'lucide-react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, Layers, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -45,6 +45,7 @@ export function Projects({
   onOpen,
   onAdd,
   onShare,
+  onForget,
 }: {
   projects: readonly Project[]
   open: Project | null
@@ -59,7 +60,20 @@ export function Projects({
    * the only writer of, where four modules used to each write it unasked.
    */
   onShare(id: number, shared: boolean): void
+  /**
+   * Stop holding this folder as a project. Nothing on disk is deleted.
+   *
+   * Named `onForget` and not `onDelete`, and the name is the argument. Papers
+   * live in `.kehikot/paper/` now, so a control that erased that folder would
+   * delete somebody's thesis from a menu item labelled with the word "project".
+   * This undoes the add and leaves every file where it is.
+   */
+  onForget(id: number): void
 }) {
+  /* Which project has been asked about but not yet confirmed. One at a time:
+     arming a second forgets the first, because two armed destructive controls
+     on one screen is a way to press the wrong one. */
+  const [arming, setArming] = useState<number | null>(null)
   const [browsing, setBrowsing] = useState(false)
 
   return (
@@ -95,9 +109,60 @@ export function Projects({
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel>projects</DropdownMenuLabel>
           {projects.map((project) => (
-            <DropdownMenuItem key={project.id} onSelect={() => onOpen(project.id)}>
+            <DropdownMenuItem
+              key={project.id}
+              onSelect={(event) => {
+                /* An armed row is asking a question, and answering it must not
+                   also switch project — which is what a press here otherwise
+                   does. `preventDefault` keeps the menu open for the answer. */
+                if (arming === project.id) {
+                  event.preventDefault()
+                  return
+                }
+                setArming(null)
+                onOpen(project.id)
+              }}
+            >
               <DropdownMenuCheck checked={project.id === open?.id} />
-              <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              <span className="min-w-0 truncate">{project.name}</span>
+              <span className="flex-1" />
+              {/*
+               * Forget this project, in two presses.
+               *
+               * Armed rather than confirmed, for the reason every destructive
+               * control in this workspace is: `confirm()` is unavailable inside
+               * a module frame and the host should not be less careful than its
+               * modules. The first press says what will happen and to what; the
+               * second does it.
+               *
+               * What it destroys is this project's kehikot — an arrangement
+               * somebody built by hand — and nothing else. No file is touched.
+               */}
+              {arming === project.id ? (
+                <button
+                  type="button"
+                  className="text-destructive shrink-0 text-[10px] font-medium"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setArming(null)
+                    onForget(project.id)
+                  }}
+                >
+                  forget it, and its kehikot?
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`forget ${project.name}`}
+                  className="text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setArming(project.id)
+                  }}
+                >
+                  <X className="size-3" />
+                </button>
+              )}
               {/* Whether a kehikko here would have epics to pick. Said in the
                   list rather than only after switching, because "this project
                   has none" is the difference between a picker worth opening and

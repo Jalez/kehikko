@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
 import { addProject } from '../server/projects.ts'
@@ -57,6 +57,8 @@ afterEach(() => {
 
 /** A kehikko in a project, with two containers on it. */
 function aCanvas(name = 'the wire') {
+  /* A name is still accepted at the door and is no longer what a project is
+     called: that is the folder's own name, read on every list. See `named`. */
   const added = addProject(db, folder, 'a project')
   const project = added.ok ? added.project.id : null
   const made = createCanvas(db, name, project)
@@ -167,7 +169,8 @@ describe('reading what is on a kehikko', () => {
     editCanvas(db, id, { placements: [{ ...at('a.one'), selected: true }, at('a.two', 6)] })
     const done = await call('read_canvas', { kehikko: id }, door())
 
-    expect(done.text).toContain('a project')
+    expect(done.text).toContain(basename(folder))
+    expect(done.text).not.toContain('a project')
     expect(done.text).toContain(folder)
     expect(done.text).toContain('epic: modes-are-modules')
     expect(done.text).toContain('selected containers (1 of 2): a.one')

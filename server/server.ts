@@ -14,7 +14,7 @@ import {
   readState,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, listProjects, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
@@ -631,6 +631,22 @@ const server = Bun.serve({
      * a person can also edit themselves, and a page that drew the value it had
      * just sent would agree with itself and possibly with nothing else.
      */
+    /*
+     * Stop holding a folder as a project.
+     *
+     * DELETE with the id in the body, for the reason the PATCH above gives: one
+     * flat path, and ids arrive by one road. It deletes nothing on disk — see
+     * `forgetProject`, and the paragraph there about why erasing `.kehikot/`
+     * is deliberately not what this word does now that papers live in it.
+     */
+    if (url.pathname === '/host/projects' && request.method === 'DELETE') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+      if (!body || typeof body.id !== 'number') return json({ error: 'Which project.' }, 400)
+      const said = forgetProject(db, body.id)
+      if (!said.ok) return json({ error: said.why }, said.status)
+      return json({ project: said.project, canvases: said.canvases })
+    }
+
     if (url.pathname === '/host/projects' && request.method === 'PATCH') {
       const body = (await request.json().catch(() => null)) as { id?: unknown; shared?: unknown } | null
       if (!body || typeof body.id !== 'number' || typeof body.shared !== 'boolean') {
