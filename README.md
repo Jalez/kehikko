@@ -119,6 +119,20 @@ container header; a press comes back in `context.filters`.
 - **Absent by default.** A module that offers nothing gets no control, no empty
   menu and no reserved pixels. That is most modules, and their headers are
   unchanged.
+- **It is called "filter what *Notifications* shows"**, and the first word is
+  load-bearing. It used to be called "what Notifications shows" — true, and
+  unfindable: the person who owns this host was told there was a filter, went
+  looking for one among seven unlabelled icons, and reported it missing. It was
+  in front of them. The module's name stays in the string because that is what
+  distinguishes six otherwise identical icon buttons from each other.
+- **It is drawn at full weight whenever it exists**, unlike the pin and the fold
+  beside it, which are dim when off. Those are on every container in one of two
+  states, so weight is how you read the state; this one is on almost no
+  containers, so its presence *is* the message — "this can be narrowed" — and a
+  fifth grey icon in a row of grey icons does not deliver it. Whether anything
+  is actually narrowed is said with fill instead: a hollow funnel when the
+  module is showing everything, a solid one when it is not. That costs no
+  pixels, which is the constraint — the header is tight at 220px.
 - **The host does not know what a filter means.** An option is an id and a short
   label the module wrote. There is nowhere in this host where `resolved` differs
   from `ignored`, and there must not be.
@@ -301,6 +315,31 @@ in will look dead.
 seeds the first project, and `epics.list` then honestly answers with nothing — a
 failure where every layer reports correctly and the map is simply empty.
 
+**The app is exactly one window tall.** A strip, a canvas, and a footer, in a
+column of `h-screen` with `overflow-hidden` on it. The document never scrolls;
+the *canvas* does, inside itself, when the arrangement is taller than the room
+left over. That distinction is the whole point — a scrolling document carries
+the footer off the bottom of the screen. `main` needs its `min-h-0` as much as
+its `flex-1`: without it a flex item refuses to shrink below its content, and
+the shell's `overflow-hidden` would then clip the bottom containers away rather
+than let anybody scroll to them. The footer is deliberately nearly empty;
+`src/canvas/Footer.tsx` has the argument, and `dev/viewport.mjs` measures it.
+
+**Nothing keeps a module's page on its container except arithmetic.** The pages
+are positioned from measured rectangles in the surface's own coordinates, with
+`scrollTop` added back (`src/host/rects.ts`). A scrolling canvas is therefore
+the event most likely to separate a page from the container it belongs to, and
+a page drawn somewhere its container is not is this workspace's recurring bug.
+`dev/viewport.mjs` scrolls to the middle and the end of the travel and asserts
+every page is within zero pixels of its container's body.
+
+**A tooltip's dismissal can be owed to an event that never arrives.** Radix
+tooltips are hoverable by default, which means they close on a later
+`pointermove` outside a grace area rather than on `pointerleave` — and below a
+container header is the module's iframe, from which this document gets no
+pointer events at all. `Hint.tsx` sets `disableHoverableContent` for that
+reason; `dev/tooltips.mjs` measures it in both the pointer and keyboard cases.
+
 **There are no modals.** The sandbox has no `allow-modals`, so `confirm()`
 silently returns `false` and the button does nothing, forever, with nothing in
 the console. Destructive actions use a two-press arm.
@@ -311,10 +350,21 @@ the console. Destructive actions use a two-press arm.
 server/      the API on 4180 — registry, canvases, projects, and the methods a
              module's question is relayed to
 src/host/    the wire, the division of who answers what, the event bus
-src/canvas/  the containers, the frames layer, the header, the dialogs
+src/canvas/  the containers, the frames layer, the header, the footer, the dialogs
+dev/         probes: browser measurements that back up an argument in a comment
 ```
 
 `bun test` for the suite, `bun run typecheck` for the types.
+
+The `dev/` probes are not part of either. They need a browser and a running
+host, they print numbers rather than passing or failing, and Playwright is
+deliberately not a dependency — point them at whatever copy is already on the
+machine:
+
+```
+PLAYWRIGHT=/path/to/playwright/index.mjs CHROME=/path/to/chrome-headless-shell \
+  node dev/viewport.mjs
+```
 
 ## Prior art it borrows from, and departs from
 

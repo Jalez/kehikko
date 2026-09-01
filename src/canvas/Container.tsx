@@ -569,7 +569,7 @@ export function Container({
           positioned to match it — and to stay out of the way of what is
           showing through it. A notice, when there is one, is opaque and takes
           the pointer again; there is no page behind it worth seeing. */}
-      <div ref={body} className="relative min-h-0 flex-1">
+      <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
         {condition === 'ready' && !settled ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
             <ConnectingPanel at={presence.at} />

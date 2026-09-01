@@ -142,6 +142,7 @@ export function Frames({
         return (
         <div
           key={module.id}
+          data-frame={module.id}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{
             transform: `translate(${rect?.x ?? 0}px, ${rect?.y ?? 0}px)`,

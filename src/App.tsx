@@ -3,6 +3,7 @@ import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import type { FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
+import { Footer } from './canvas/Footer.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
@@ -1526,11 +1527,41 @@ export function App() {
         onTheme={onTheme}
       />
 
-      {trouble ? (
-        <p className="text-destructive-foreground bg-destructive/80 shrink-0 px-3 py-1.5 text-xs">{trouble}</p>
-      ) : null}
-
-      <main ref={surface} className="relative flex-1 overflow-auto">
+      {/*
+       * The canvas, and the only row of the shell that gives.
+       *
+       * `flex-1` takes whatever the strip above and the footer below have not
+       * taken, and `overflow-auto` is what happens when the arrangement wants
+       * more than that: the CANVAS scrolls, and the window does not. Those are
+       * two different behaviours and only one of them is acceptable — a
+       * document that scrolls carries the footer off the bottom of the screen,
+       * which is the one thing an always-visible strip must not do.
+       *
+       * `min-h-0` is the load-bearing class and it looks redundant. A flex item
+       * defaults to `min-height: auto`, which means "never shrink below your
+       * content" — so `flex-1` alone would let a tall arrangement push this
+       * row past the bottom of the window, and the `overflow-hidden` on the
+       * shell would then CLIP the containers at the bottom rather than letting
+       * anybody scroll to them, which is worse than the scrolling page it was
+       * meant to prevent. `overflow-auto` happens to force the same `0` today,
+       * so this is belt and braces; it is written down because the day
+       * somebody changes the overflow the failure is silent and the missing
+       * pixels are at the bottom of the screen where nobody is looking.
+       *
+       * ## And the pages still line up after a scroll
+       *
+       * Worth being explicit about, because this is where it could have gone
+       * wrong. Every module's page is positioned from a measured rectangle
+       * rather than by being inside its container — see `Frames.tsx` — and
+       * `host/rects.ts` measures in the SURFACE's content coordinates, adding
+       * `scrollTop` back to a viewport-relative reading. That is exactly the
+       * arithmetic a scrolling canvas needs: the frames layer is inside this
+       * element and scrolls with its content, so a page and its container move
+       * together and the offset cancels. Measured rather than assumed —
+       * `dev/viewport.mjs` scrolls the canvas to the middle of its travel and
+       * asserts every page is within zero pixels of its container's body.
+       */}
+      <main ref={surface} className="relative min-h-0 flex-1 overflow-auto">
         {containers.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
 
         {/*
@@ -1700,6 +1731,14 @@ export function App() {
           onChanged={() => void look()}
         />
       ) : null}
+
+      {/* The floor of the window, and the reason the canvas has a definite
+          height to be `flex-1` of. `trouble` — the host's own error line —
+          lives here now rather than in a band above the canvas, which used to
+          take its height out of the arrangement and move every container the
+          moment anything went wrong. See `Footer.tsx` for what else was
+          considered for this strip and why none of it is here. */}
+      <Footer trouble={trouble} />
     </div>
   )
 }
