@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { LIMITS, MODULE_ID } from 'roadmap-module-protocol'
+import { LIMITS, MODULE_ID, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'roadmap-module-protocol'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -196,6 +196,34 @@ export interface Placement {
    * front of it — see `src/host/filters.ts`. What is stored is what was pressed.
    */
   filters: Record<string, string>
+  /**
+   * How often this container refreshes itself, in minutes, or `null` for "only
+   * when somebody presses it".
+   *
+   * ## The clock is the host's, and the interval is this row's
+   *
+   * A module says it CAN be refreshed and when it last was — its own fact about
+   * its own data, which no host can work out. How often to ask is the other
+   * half, and that half is not the module's at all: it is a person's setting
+   * about one container on one kehikko, in the same family as `filters`, stored
+   * for the same three reasons and against the same failures.
+   *
+   * It has to survive quitting the app, so it cannot live in a running program.
+   * It is per CONTAINER, so it cannot live in `module_state`, which is keyed by
+   * module and would give every container of one module the same interval —
+   * exactly the collision the essay on `filters` above describes. And a module
+   * holding it would have to be running for it to exist at all, while this host
+   * stops modules and starts them again.
+   *
+   * The module is never told the number. One that knew it would be tempted to
+   * run a second timer beside the host's, and two timers on one list is
+   * somebody's rate limit spent twice — see `MESSAGE.REFRESH` in the protocol.
+   *
+   * `null` rather than `0` is how "not on a clock" is said. Zero would be an
+   * interval of no length, which a program will one day divide by or loop on.
+   * The bounds are the protocol's `REFRESH_EVERY_MIN` and `REFRESH_EVERY_MAX`.
+   */
+  refreshEvery: number | null
 }
 
 export interface Canvas {
@@ -251,7 +279,15 @@ export interface Canvas {
  */
 export type PlacementInput = Omit<
   Placement,
-  'grow' | 'pinned' | 'prompt' | 'promptFor' | 'collapsed' | 'openH' | 'selected' | 'filters'
+  | 'grow'
+  | 'pinned'
+  | 'prompt'
+  | 'promptFor'
+  | 'collapsed'
+  | 'openH'
+  | 'selected'
+  | 'filters'
+  | 'refreshEvery'
 > & {
   grow?: boolean
   pinned?: boolean
@@ -261,6 +297,7 @@ export type PlacementInput = Omit<
   openH?: number | null
   selected?: boolean
   filters?: Record<string, string>
+  refreshEvery?: number | null
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -370,6 +407,12 @@ export function open(file = databaseFile()): Database {
      object for every container written before this existed, which is what all
      of them were doing. */
   add(db, 'placements', 'filters', "text not null default '{}'")
+  /* How often a container refreshes itself, in minutes. Nullable, because
+     `null` is the ordinary state and means "only when somebody presses it" —
+     which is what every container written before this existed was doing, and
+     what a column defaulting to 0 could not have said without inventing an
+     interval of no length. */
+  add(db, 'placements', 'refresh_every', 'integer')
   add(db, 'canvases', 'selection', 'text')
   /*
    * Which project a kehikko is in, added to databases written before projects
@@ -487,10 +530,11 @@ export function listCanvases(db: Database): Canvas[] {
         open_h: number | null
         selected: number
         filters: string
+        refresh_every: number | null
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters, refresh_every from placements order by canvas, module',
     )
     .all()
 
@@ -506,6 +550,7 @@ export function listCanvases(db: Database): Canvas[] {
       open_h: openH,
       selected,
       filters,
+      refresh_every: refreshEvery,
       ...rest
     } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
@@ -520,6 +565,11 @@ export function listCanvases(db: Database): Canvas[] {
       openH,
       selected: selected === 1,
       filters: filtersFrom(filters),
+      /* Bounded on the way out as well as on the way in, because this column is
+         on somebody's own disk and can be restored from an older version or
+         hand-edited. An interval of zero — or of a year — reaching the page
+         would be a timer nobody could reason about. */
+      refreshEvery: everyIn(refreshEvery),
     }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
@@ -587,7 +637,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters, refresh_every) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -605,6 +655,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.openH,
           p.selected ? 1 : 0,
           JSON.stringify(p.filters),
+          p.refreshEvery,
         )
       }
     }
@@ -858,9 +909,41 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          somebody's machine like any other — the fact that this host ships the
          one that normally posts here is not a reason to trust what arrives. */
       filters: filtersIn(p.filters),
+      /* And the interval, bounded to what the protocol says a person may set —
+         see `everyIn`. A page is a program on somebody's machine like any
+         other, and the fact that this host ships the one that normally posts
+         here is not a reason to trust what arrives. */
+      refreshEvery: everyIn(p.refreshEvery),
     })
   }
   return kept
+}
+
+/**
+ * How often a container refreshes itself, as far as it can be believed.
+ *
+ * `null` for everything that is not a usable interval, and `null` is the good
+ * state rather than a fallback: it means "only when somebody presses it", which
+ * is what every container does until somebody says otherwise.
+ *
+ * Clamped rather than rejected once it IS a number, on the same reasoning as
+ * `bounded` beside it: somebody who typed 5000 minutes meant "rarely", and a
+ * day is this protocol's word for that. What must not survive is a value no
+ * timer can act on sensibly — a zero, a fraction of a second, a year — because
+ * the thing on the other end of it spends a subprocess or somebody's rate limit
+ * every time it fires.
+ */
+function everyIn(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const raw = Number(value)
+  /* Tested BEFORE rounding, and the order is the whole of the difference
+     between "off" and "as fast as you will let me". Zero and below are off:
+     somebody who sent 0 said stop, and clamping that up to a minute would be
+     the loudest possible misreading of it. A twelfth of a minute is not off —
+     it is a request for something below the floor, and the floor is the
+     answer. Rounding first would have turned the second into the first. */
+  if (!Number.isFinite(raw) || raw <= 0) return null
+  return Math.min(REFRESH_EVERY_MAX, Math.max(REFRESH_EVERY_MIN, Math.round(raw)))
 }
 
 function bounded(value: unknown, low: number, high: number): number {

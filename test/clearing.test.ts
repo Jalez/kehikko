@@ -87,8 +87,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press reaches the module it names and no other', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('a') })
-    presses.join('b.two', { clear: () => said.push('b') })
+    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {} })
+    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {} })
 
     expect(presses.press('a.one')).toBe(true)
     expect(said).toEqual(['a'])
@@ -100,7 +100,7 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press at a module that has gone does nothing', () => {
     const presses = new Presses()
     let pressed = 0
-    presses.join('a.one', { clear: () => (pressed += 1) })
+    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {} })
     presses.leave('a.one')
 
     expect(presses.press('a.one')).toBe(false)
@@ -129,8 +129,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a frame that came back replaces the one that went', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('old') })
-    presses.join('a.one', { clear: () => said.push('new') })
+    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {} })
+    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {} })
 
     presses.press('a.one')
     expect(said).toEqual(['new'])

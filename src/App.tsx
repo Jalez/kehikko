@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'roadmap-module-protocol'
 import type { FilterChoice, FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
@@ -199,6 +200,26 @@ interface Live {
    * out why a control is missing.
    */
   clear?: string | null
+  /**
+   * What this module last said about being refreshed, or nothing.
+   *
+   * The third offer, held here beside the other two and for the same reason:
+   * all three belong to a running program and die with it, while what a person
+   * chose about the container outlives everything. For the filter that split is
+   * offer-here / choice-in-the-placement; for this it is state-here /
+   * INTERVAL-in-the-placement, which is the same split with different words.
+   *
+   * `at` is the part that could not have come from anywhere else. This host
+   * knows when it asked; it does not know whether the module answered out of a
+   * cache, whether the read failed over a reading still on screen, or whether
+   * the module refreshed itself for a reason nothing here can see. So the
+   * module says, and `null` — "I cannot say" — draws no time rather than a
+   * guess.
+   *
+   * Absent for every module that has never mentioned the idea, which is almost
+   * all of them, and absence draws no control at all.
+   */
+  refresh?: { can: boolean; at: string | null; busy: boolean }
 }
 
 /**
@@ -1324,9 +1345,150 @@ export function App() {
         fault: was[id]?.fault ?? null,
         filters: was[id]?.filters,
         clear: label,
+        refresh: was[id]?.refresh,
       },
     }))
   }, [])
+
+  /**
+   * A module has said whether it can be read again, and when it last was.
+   *
+   * Shaped like `onClearable` and not like `onOffer`, and the reason is the
+   * same one: there is a stored setting beside this — the INTERVAL — but
+   * nothing in this announcement reconciles against it. A filter offer has to
+   * be settled against a stored choice, because an option that goes away leaves
+   * a container narrowed by a value nobody can see. An interval cannot go stale
+   * that way: "every five minutes" means the same thing whatever the module
+   * ships next, and a module that stops being refreshable simply stops being
+   * asked. So this writes to the conversation and touches the arrangement not
+   * at all.
+   *
+   * Which matters here more than it did there, because of how often this
+   * arrives. A module announces at least twice per refresh — `busy` on the way
+   * in, a new `at` on the way out — and a container on a five-minute clock does
+   * that all day. Every one of those being a write to the arrangement would be
+   * a database row per tick per container, for a number nobody edited.
+   */
+  const onRefreshable = useCallback((id: string, state: { can: boolean; at: string | null; busy: boolean }) => {
+    setLive((was) => ({
+      ...was,
+      [id]: {
+        condition: was[id]?.condition ?? 'ready',
+        line: was[id]?.line ?? null,
+        fault: was[id]?.fault ?? null,
+        filters: was[id]?.filters,
+        clear: was[id]?.clear,
+        refresh: state,
+      },
+    }))
+  }, [])
+
+  /**
+   * Somebody set — or cleared — how often one container reads again.
+   *
+   * Written to the placement, which is where it has to live: it must survive
+   * quitting the app, it is about ONE container rather than about the module,
+   * and the module cannot hold it because it is not always running. The same
+   * three reasons as the filter choice, and the essay is on `refreshEvery` in
+   * `host/canvases.ts`.
+   *
+   * `null` clears it. Bounded here as well as at the server's door, because the
+   * thing on the other end of this number spends a subprocess or somebody's
+   * rate limit every time it fires, and a control that could be typed into is a
+   * control somebody can type `0` into.
+   */
+  const onRefreshEvery = useCallback(
+    (id: string, every: number | null) => {
+      const placements = open?.placements ?? []
+      const container = placements.find((p) => p.i === id)
+      if (!container) return
+      const kept =
+        every === null ? null : Math.min(REFRESH_EVERY_MAX, Math.max(REFRESH_EVERY_MIN, Math.round(every)))
+      if (kept === container.refreshEvery) return
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, refreshEvery: kept } : p)) })
+    },
+    [change, open?.placements],
+  )
+
+  /**
+   * The clock, which is the host's half of the refresh contract.
+   *
+   * ## One ticker, not one timer per container
+   *
+   * The obvious build is a `setInterval` per container inside an effect that
+   * depends on the placements. It is wrong in a way that only shows up in use:
+   * `placements` gets a new identity on every drag, every fold, every selection
+   * and every context, so the effect tears down and sets up constantly — and
+   * each teardown restarts the interval from zero. A container on a five-minute
+   * clock, on a canvas somebody is arranging, would never reach five minutes.
+   *
+   * So there is one thirty-second ticker for the whole page, and the deciding
+   * is done against a clock this component keeps. The ticker never restarts,
+   * because its effect depends on nothing.
+   *
+   * ## It counts from when the host last ASKED, not from the module's own `at`
+   *
+   * Those look interchangeable and are not. `at` is when the module last read
+   * something successfully, so a module whose reads keep failing would sit with
+   * an `at` from an hour ago and be asked again on every single tick — thirty
+   * seconds apart, forever, which is the opposite of what the interval means. A
+   * host asking every five minutes is a promise about how often it ASKS.
+   *
+   * The first tick after a setting is made is therefore one interval away, not
+   * immediate, because `asked` is stamped when the container is first seen.
+   *
+   * ## Four containers are skipped, and each is a rate limit not spent
+   *
+   * - not on the kehikko that is open — a module is one page shown wherever it
+   *   is asked for, and a clock on a canvas nobody has open is a subprocess
+   *   spent for a screen that does not exist;
+   * - folded — a container drawn as a bare header is a list nobody can see;
+   * - not offering, or offering `can: false` — there is nothing to read, and a
+   *   host that asked anyway would be asking a module that has said it cannot;
+   * - already reading — the module said `busy`, and two reads racing is two
+   *   subprocesses and one answer that wins for no reason anybody could
+   *   predict.
+   *
+   * A PINNED container is deliberately not on that list. A pin freezes what a
+   * container is told about the canvas; it says nothing about whether its own
+   * material should stay current, and a pinned reference list going stale on
+   * purpose would be a surprise nobody asked for.
+   */
+  const asked = useRef(new Map<string, number>())
+  const clockRef = useRef<{ placements: Placement[]; live: Record<string, Live> }>({ placements: [], live: {} })
+  clockRef.current = { placements: open?.placements ?? [], live }
+
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const now = Date.now()
+      const { placements, live: standing } = clockRef.current
+      const on = new Set<string>()
+      for (const container of placements) {
+        const every = container.refreshEvery
+        if (every === null) continue
+        on.add(container.i)
+        const state = own(standing, container.i)
+        if (!state?.refresh?.can) continue
+        const last = asked.current.get(container.i)
+        if (last === undefined) {
+          /* First seen. Stamped rather than fired, so that opening a canvas
+             does not refresh every container on it at once — which is both a
+             burst of subprocesses and a page that flickers on arrival. */
+          asked.current.set(container.i, now)
+          continue
+        }
+        if (container.collapsed || state.refresh.busy) continue
+        if (now - last < every * 60_000) continue
+        asked.current.set(container.i, now)
+        presses.refresh(container.i)
+      }
+      /* Forgotten when the clock is taken off, so that turning it on again a
+         week later starts from now rather than firing immediately on a stamp
+         from the last time anybody looked. */
+      for (const id of [...asked.current.keys()]) if (!on.has(id)) asked.current.delete(id)
+    }, 30_000)
+    return () => clearInterval(tick)
+  }, [presses])
 
   /**
    * Somebody chose a value in one of a module's filter groups.
@@ -1592,8 +1754,10 @@ export function App() {
         openH: unfolding ? null : (before?.openH ?? null),
         selected: before?.selected ?? false,
         /* Carried across for the same reason as everything above it. A drag is
-           not a change of mind about what a container is showing. */
+           not a change of mind about what a container is showing, nor about how
+           often it reads. */
         filters: before?.filters ?? {},
+        refreshEvery: before?.refreshEvery ?? null,
       }
       })
       /* react-grid-layout fires this during a drag as well as at the end. Doing
@@ -1944,17 +2108,21 @@ export function App() {
             fault: was[id]?.fault ?? null,
             filters: was[id]?.filters,
             clear: was[id]?.clear,
+            refresh: was[id]?.refresh,
           },
         })),
       silent: (sentence) =>
         setLive((was) => ({
           ...was,
-          /* Both offers go with the silence. A module that stopped answering is
-             not offering anything, and a control left standing over a program
-             that is not there is a press that does nothing and says nothing.
-             That matters more for the clear control than for the filter: a
-             delete button over a dead module is a press somebody would make
-             twice, believing the first had failed. */
+          /* All three offers go with the silence. A module that stopped
+             answering is not offering anything, and a control left standing
+             over a program that is not there is a press that does nothing and
+             says nothing. That matters most for the clear control — a delete
+             button over a dead module is a press somebody would make twice,
+             believing the first had failed — and it matters for the refresh in
+             a way the others do not: what goes with it is a TIME, and a "last
+             read 2 minutes ago" beside a module that has stopped answering is
+             the host asserting freshness on behalf of a program that is gone. */
           [id]: { condition: 'silent', line: sentence, fault: was[id]?.fault ?? null },
         })),
       fault: (sentence) =>
@@ -1966,13 +2134,15 @@ export function App() {
             fault: sentence,
             filters: was[id]?.filters,
             clear: was[id]?.clear,
+            refresh: was[id]?.refresh,
           },
         })),
       height: (px) => onHeight(id, px),
       filters: (groups) => onOffer(id, groups),
       clearable: (label) => onClearable(id, label),
+      refreshable: (state) => onRefreshable(id, state),
     }),
-    [onHeight, onOffer, onClearable],
+    [onHeight, onOffer, onClearable, onRefreshable],
   )
 
   return (
@@ -2219,6 +2389,18 @@ export function App() {
                      nothing is replayed: a press at a module that has gone does
                      nothing at all, which is the only correct answer. */
                   onClear={() => presses.press(presence.id)}
+                  /* Straight through, and never reconciled against anything the
+                     host knows: `at` is the module's statement about its own
+                     data. See `Refreshing.tsx`. */
+                  refresh={found?.refresh}
+                  /* And the setting beside it, which is the host's. The pair is
+                     the whole shape of this feature — the module owns the
+                     state, the container owns the clock. */
+                  refreshEvery={placement.refreshEvery}
+                  /* A press, like the clear, on whichever frame is standing.
+                     The interval in the effect above calls the same thing. */
+                  onRefresh={() => presses.refresh(presence.id)}
+                  onRefreshEvery={(every) => onRefreshEvery(presence.id, every)}
                   selected={placement.selected}
                   onSelect={(selected) => onSelect(presence.id, selected)}
                   onPrompts={() => setPrompting(presence.id)}

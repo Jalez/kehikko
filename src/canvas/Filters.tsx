@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from 'react'
 import { Filter } from 'lucide-react'
-import { own, type FilterGroup } from 'roadmap-module-protocol'
+import { LIMITS, own, type FilterGroup } from 'roadmap-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 import {
   DropdownMenu,
   DropdownMenuCheck,
@@ -196,17 +198,28 @@ export function FilterButton({
             </DropdownMenuLabel>
             {/* Items with a tick rather than Radix's own radio group, which is
                 what every other menu in this host uses — one vocabulary of menu
-                parts, and one place the tick is drawn. */}
-            {group.options.map((option) => (
-              <DropdownMenuItem
-                key={option.id}
-                className="min-w-0 cursor-default text-xs"
-                onSelect={() => onChoose(group.id, option.id)}
-              >
-                <DropdownMenuCheck checked={(own(chosen, group.id) ?? group.fallback) === option.id} />
-                <Label text={option.label} />
-              </DropdownMenuItem>
-            ))}
+                parts, and one place the tick is drawn. A `text` group has no
+                items: it is one input, and the argument for why that is
+                allowable HERE and was refused in the header strip is on
+                `LIMITS.FILTER_TEXT` in the protocol. */}
+            {group.kind === 'text' ? (
+              <Typed
+                value={own(chosen, group.id) ?? ''}
+                placeholder={group.label}
+                onType={(text) => onChoose(group.id, text)}
+              />
+            ) : (
+              group.options.map((option) => (
+                <DropdownMenuItem
+                  key={option.id}
+                  className="min-w-0 cursor-default text-xs"
+                  onSelect={() => onChoose(group.id, option.id)}
+                >
+                  <DropdownMenuCheck checked={(own(chosen, group.id) ?? group.fallback) === option.id} />
+                  <Label text={option.label} />
+                </DropdownMenuItem>
+              ))
+            )}
           </div>
         ))}
 
@@ -278,6 +291,91 @@ export function saying(name: string, narrowed: boolean): { name: string; hint: s
         name: `filter what ${name} shows`,
         hint: `filter: choose what ${name} shows`,
       }
+}
+
+/**
+ * The input a `text` group is drawn as, and the four things it has to get right.
+ *
+ * The protocol refused free text twice on the grounds that a text box in a
+ * container header needs room, focus and a keyboard. All three are true of the
+ * header STRIP and none of them is true here: this is inside a floating menu
+ * that already traps focus, already takes the keyboard, and already has a width
+ * of its own. What is left is the mechanics, and each of these is a way the
+ * control would be broken in a way that looks like the module's fault.
+ *
+ * **It is typed into locally and reported on a delay.** Every keystroke that
+ * reached `onChoose` would be a write to the arrangement, a row in the database
+ * and a `roadmap.context` to every frame on the canvas — thirteen of them for
+ * the word `notifications`, twelve describing a filter nobody ever had. So the
+ * value lives here while somebody is typing and is reported once they stop.
+ * 300ms: longer than the gap between two keystrokes, shorter than the gap
+ * between typing and looking at the result.
+ *
+ * **It follows the choice when the choice changes elsewhere.** The module can
+ * write this itself with `filters.set` — that is how a module's own "clear
+ * everything" reaches a filter the host is holding — and an input that ignored
+ * that would sit there showing a query nobody has any more. `useEffect` on the
+ * incoming value rather than a `key`, so that remounting does not steal focus
+ * mid-word.
+ *
+ * **Keys stay in it.** Radix menus treat typing as type-ahead and move the
+ * highlight to whichever item starts with that letter; arrow keys and space do
+ * the same kind of thing. `stopPropagation` on the field's own keydown is the
+ * whole fix, and without it typing `state` in a filter closes the menu on `e`.
+ *
+ * **Escape leaves the menu rather than the word.** A person who opened this by
+ * accident presses Escape once and the menu closes with nothing written, which
+ * is what Escape does everywhere else in this host — so it is deliberately NOT
+ * stopped, and the pending report is dropped on unmount instead.
+ */
+function Typed({
+  value,
+  placeholder,
+  onType,
+}: {
+  value: string
+  placeholder: string
+  onType(text: string): void
+}) {
+  const [typed, setTyped] = useState(value)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /* What the host settled on, whenever it changes for a reason that was not
+     this field: a press on "show everything", or the module writing its own
+     filters. Compared before it is written, so it cannot fight a person who is
+     mid-word. */
+  useEffect(() => {
+    setTyped((was) => (was === value ? was : value))
+  }, [value])
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  const say = (text: string) => {
+    setTyped(text)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => onType(text), 300)
+  }
+
+  return (
+    <div className="px-1 py-1">
+      <Input
+        value={typed}
+        placeholder={placeholder}
+        /* The module's own words name it, because the module is the only side
+           that knows what its search looks at — "filter by number, title, label
+           or person" is a sentence no host could have written. */
+        aria-label={placeholder}
+        title={placeholder}
+        maxLength={LIMITS.FILTER_TEXT}
+        className="h-7 min-w-0 text-xs"
+        onChange={(event) => say(event.target.value)}
+        onKeyDown={(event) => {
+          /* Everything except Escape, which belongs to the menu. See above. */
+          if (event.key !== 'Escape') event.stopPropagation()
+        }}
+      />
+    </div>
+  )
 }
 
 /**

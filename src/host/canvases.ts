@@ -94,6 +94,26 @@ const placementSchema = z.object({
    * is.
    */
   filters: z.record(z.string(), z.string()).default({}),
+  /**
+   * How often this container refreshes itself, in minutes, or `null`.
+   *
+   * A fifth axis, and the filter choice's sibling in every way that matters: a
+   * person's setting about ONE container, which has to survive quitting the
+   * app, which the module cannot hold because it is not always running, and
+   * which cannot go in `module_state` because that is keyed by module and every
+   * container of one module would then share it.
+   *
+   * The module is told what it can be narrowed by and is never told this. A
+   * module that knew the interval would be tempted to run a second timer beside
+   * the host's, and only the host knows the things that should stop a tick —
+   * that the container is folded, or pinned, or on a kehikko nobody has open.
+   *
+   * Defaulted to `null`, so an arrangement stored before this existed reads as
+   * "only when somebody presses it", which is what every container in it has
+   * been all along. The server bounds the number; see `everyIn` there and
+   * `REFRESH_EVERY_MIN`/`MAX` in the protocol.
+   */
+  refreshEvery: z.number().int().nullable().default(null),
 })
 
 /**
@@ -473,6 +493,10 @@ export function place(placements: readonly Placement[], id: string): Placement[]
          resting option is, which is what a container nobody has pressed this
          on should be showing. */
       filters: {},
+      /* Not on a clock. A container that arrived refreshing itself every five
+         minutes would be spending somebody's rate limit on a decision they
+         never made. */
+      refreshEvery: null,
     },
   ]
 }

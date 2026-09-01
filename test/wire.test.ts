@@ -37,6 +37,7 @@ const quiet = () => ({
   height: () => {},
   filters: () => {},
   clearable: () => {},
+  refreshable: () => {},
 })
 
 const nothing: Answer = { ok: true, data: null }

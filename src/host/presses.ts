@@ -40,6 +40,19 @@
 export interface Pressable {
   /** Tell this module to clear what it is showing. See `Conversation.sendClear`. */
   clear(): void
+  /**
+   * Tell this module to read its material again. See `Conversation.sendRefresh`.
+   *
+   * Here rather than as a prop for the reason `clear` is, and for one more of
+   * its own: this press has a second caller that is not a person. An interval
+   * fires it, and an interval encoded as a changing prop is a value that gets
+   * re-sent on every remount — which under `StrictMode` is a refresh on every
+   * mount in development, and after any reload of the canvas a burst of them
+   * for every container that had a clock. A call made from the timer to the
+   * frame standing right now cannot do that: where there is no frame there is
+   * no call.
+   */
+  refresh(): void
 }
 
 /**
@@ -79,6 +92,26 @@ export class Presses {
     const frame = this.frames.get(id)
     if (!frame) return false
     frame.clear()
+    return true
+  }
+
+  /**
+   * Ask one module to read again, if it is there.
+   *
+   * Separate from `press` rather than a parameter to it, because the two are
+   * not the same kind of act and one of them is destructive. A single method
+   * taking a verb would be one place where a wrong string deletes somebody's
+   * records instead of refreshing them, and the compiler would not be able to
+   * say so.
+   *
+   * Answers whether anything was asked, for the same reason `press` does: it is
+   * how a test tells "the tick reached the frame" from "the tick reached
+   * nothing", which is the whole of what the timer needs to be held to.
+   */
+  refresh(id: string): boolean {
+    const frame = this.frames.get(id)
+    if (!frame) return false
+    frame.refresh()
     return true
   }
 }

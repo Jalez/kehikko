@@ -120,6 +120,7 @@ describe('a page that loads and never speaks', () => {
         height: () => {},
         filters: () => {},
         clearable: () => {},
+        refreshable: () => {},
       },
       { readyTimeoutMs: 30 },
     )
@@ -157,6 +158,7 @@ describe('a page that loads and never speaks', () => {
         height: () => {},
         filters: () => {},
         clearable: () => {},
+        refreshable: () => {},
       },
       { readyTimeoutMs: 60 },
     )

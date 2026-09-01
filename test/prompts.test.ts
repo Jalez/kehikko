@@ -24,6 +24,7 @@ const container = (i: string, at: [number, number], prompt = '', promptFor: stri
   openH: null,
   selected: false,
   filters: {},
+  refreshEvery: null,
 })
 
 describe('nothing aimed at a module is null, not an empty string', () => {

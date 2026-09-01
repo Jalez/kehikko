@@ -174,6 +174,11 @@ export function ModuleFrame({
         /* Straight through like the filter offer. What the label counts is the
            module's, and what to draw for it is the canvas's. */
         clearable: (label) => watcherRef.current.clearable(label),
+        /* And the third offer. `at` in particular passes through untouched and
+           is never checked against anything this host knows: it is the module's
+           statement about its own data, and the one fact in this conversation a
+           host would otherwise be tempted to infer from when it last asked. */
+        refreshable: (state) => watcherRef.current.refreshable(state),
       },
       { name: framed.name },
     )
@@ -219,7 +224,14 @@ export function ModuleFrame({
        same lifetime and in exactly the same effect, for exactly the reason
        above. A frame registered as pressable without a live conversation is a
        delete button posting into a window that has gone. */
-    presses.join(framed.id, { clear: () => conversation.sendClear() })
+    presses.join(framed.id, {
+      clear: () => conversation.sendClear(),
+      /* The refresh press, and the refresh TICK, arrive the same way. A timer
+         holding a `Pressable` would be a timer posting into a window that has
+         gone; looking the frame up at the moment it fires is what makes a
+         container that was removed simply stop refreshing. */
+      refresh: () => conversation.sendRefresh(),
+    })
 
     return () => {
       presses.leave(framed.id)

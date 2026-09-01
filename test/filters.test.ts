@@ -7,7 +7,7 @@ import type { FilterGroup } from 'roadmap-module-protocol'
 import { Label, saying } from '../src/canvas/Filters.tsx'
 import { chosen, narrowed, sameChoice, settle } from '../src/host/filters.ts'
 import { whileFrozen } from '../src/host/context.ts'
-import { contextSchema } from 'roadmap-module-protocol'
+import { LIMITS, contextSchema } from 'roadmap-module-protocol'
 
 /**
  * What the host does with a filter, which is as close to nothing as it can be —
@@ -347,5 +347,84 @@ describe('a control has to say what it is', () => {
 
   test('and it fills in when something is', () => {
     expect(button).toContain('fill-current')
+  })
+})
+
+/**
+ * The second kind of group, which the host understands exactly as little of as
+ * the first.
+ *
+ * A typed value has no options to reconcile against and no fallback to fall to,
+ * and both absences are one fact: its resting state is empty, and empty is
+ * spelled by not being in the record. What is worth testing is that each of
+ * this file's three functions does the right nothing with one.
+ */
+describe('a group somebody types into', () => {
+  const search: FilterGroup = { id: 'search', label: 'search', kind: 'text', options: [] }
+  const kinds: FilterGroup = {
+    id: 'kind',
+    label: 'kind',
+    fallback: 'all',
+    options: [
+      { id: 'all', label: 'All 24' },
+      { id: 'issue', label: 'Issues 17' },
+    ],
+  }
+
+  test('what was typed is handed back to the module as it stands', () => {
+    expect(chosen([search], { search: 'rbac jaakko' })).toEqual({ search: 'rbac jaakko' })
+  })
+
+  /*
+   * The asymmetry with a choice group, and the reason for it. `chosen` fills in
+   * every choice group even when nobody has pressed it, because the module has
+   * to be told which option it is on. There is no equivalent for an input: the
+   * honest value for "nothing typed" is nothing, and a key with an empty string
+   * under it would be a module told it had been narrowed by the empty query.
+   */
+  test('an empty one is absent rather than an empty string', () => {
+    expect(chosen([search], {})).toEqual({})
+    expect(chosen([search], { search: '' })).toEqual({})
+    expect(chosen([kinds], {})).toEqual({ kind: 'all' })
+  })
+
+  test('a value nobody offers a menu for is still kept, because it is not a menu', () => {
+    /* The one place a text group must NOT behave like a choice group. A stored
+       option id that is in no menu is unreachable and is dropped; a stored
+       QUERY is right there in the input to be edited, and dropping it would
+       throw away what somebody typed every time a module restarted. */
+    expect(settle([search], { search: 'anything at all' })).toEqual({ search: 'anything at all' })
+    expect(settle([kinds], { kind: 'gone' })).toEqual({})
+  })
+
+  test('and an empty one is dropped, exactly as a group on its resting option is', () => {
+    expect(settle([search], { search: '' })).toEqual({})
+    expect(settle([kinds], { kind: 'all' })).toEqual({})
+  })
+
+  test('a long one is clipped rather than refused', () => {
+    const long = 'x'.repeat(LIMITS.FILTER_TEXT + 50)
+    expect(settle([search], { search: long }).search).toHaveLength(LIMITS.FILTER_TEXT)
+  })
+
+  /*
+   * The always-visible signal. The host cannot know what a query will match and
+   * does not need to: the claim it makes by filling the funnel is "something
+   * has been typed here", which is exactly as true as "something other than the
+   * resting option is pressed", and is the same thing a person needs to see
+   * when a list looks short.
+   */
+  test('anything typed counts as narrowed, and nothing typed does not', () => {
+    expect(narrowed([search], { search: 'rbac' })).toBe(true)
+    expect(narrowed([search], { search: '' })).toBe(false)
+    expect(narrowed([search], {})).toBe(false)
+  })
+
+  test('the two kinds compose in one offer, which is the case this was built for', () => {
+    expect(chosen([kinds, search], { kind: 'issue', search: 'rbac' })).toEqual({
+      kind: 'issue',
+      search: 'rbac',
+    })
+    expect(settle([kinds, search], { kind: 'all', search: 'rbac' })).toEqual({ search: 'rbac' })
   })
 })

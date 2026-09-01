@@ -74,8 +74,28 @@ export function chosen(offer: readonly FilterGroup[], stored: Choice): Choice {
   const settled: Choice = {}
   for (const group of offer.slice(0, LIMITS.FILTER_GROUPS)) {
     const wanted = own(stored, group.id)
+    if (group.kind === 'text') {
+      /*
+       * A typed group has no options to reconcile against and no fallback to
+       * fall to, and both absences are one fact: its resting state is empty,
+       * and empty is spelled by not being in the record at all.
+       *
+       * So there is nothing here to go stale in the way an option id does. A
+       * query typed against last month's version of a module is still a query,
+       * and the module either narrows by it or finds nothing — which is a state
+       * that says so on screen, in the module's own words, with a count beside
+       * it. That is not the failure this file guards. A value in no menu is
+       * unreachable; a value in an input is right there to be edited.
+       */
+      if (wanted !== undefined && wanted !== '') settled[group.id] = wanted
+      continue
+    }
     const known = wanted !== undefined && group.options.some((option) => option.id === wanted)
-    settled[group.id] = known ? wanted : group.fallback
+    /* `fallback` is optional on the type because a text group has none, and a
+       choice group without one cannot reach here — the protocol's own schema
+       refuses it. Defaulted rather than asserted, because "cannot" is a
+       property of a schema somebody may edit. */
+    settled[group.id] = known ? wanted : (group.fallback ?? '')
   }
   return settled
 }
@@ -104,7 +124,22 @@ export function settle(offer: readonly FilterGroup[], choice: Choice): Choice {
   const kept: Choice = {}
   for (const group of offer) {
     const wanted = own(choice, group.id)
-    if (wanted === undefined || wanted === group.fallback) continue
+    if (wanted === undefined) continue
+    if (group.kind === 'text') {
+      /* Empty is how a typed group says it is at rest, so it is dropped here
+         exactly as a choice group on its fallback is — and for the same reason:
+         a store that recorded "this input is empty" could not tell somebody who
+         cleared it from somebody who never typed in it.
+
+         Clipped rather than refused. The protocol bounds this at
+         `FILTER_TEXT`, and a value over it can only arrive from a module's own
+         `filters.set` or a hand-edited database; a query cut to length is still
+         a query, where dropping it is a filter that silently stops working the
+         first time somebody pastes something long. */
+      if (wanted !== '') kept[group.id] = wanted.slice(0, LIMITS.FILTER_TEXT)
+      continue
+    }
+    if (wanted === group.fallback) continue
     if (!group.options.some((option) => option.id === wanted)) continue
     kept[group.id] = wanted
   }
@@ -124,7 +159,14 @@ export function settle(offer: readonly FilterGroup[], choice: Choice): Choice {
 export function narrowed(offer: readonly FilterGroup[], choice: Choice): boolean {
   return offer.some((group) => {
     const wanted = own(choice, group.id)
-    return wanted !== undefined && wanted !== group.fallback
+    if (wanted === undefined || wanted === '') return false
+    /* A text group with anything in it is narrowing something, whatever it
+       says. The host cannot know what the module will match, and does not need
+       to: the claim this makes is "something has been typed here", which is
+       exactly as true as "something other than the resting option is pressed"
+       and is the same signal a person needs when a list looks short. */
+    if (group.kind === 'text') return true
+    return wanted !== group.fallback
   })
 }
 

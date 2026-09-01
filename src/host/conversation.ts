@@ -104,6 +104,24 @@ export interface ConversationWatcher {
    * `sendClear` for the other half.
    */
   clearable(label: string | null): void
+  /**
+   * What this module says about being refreshed: whether it can be, when it
+   * last was, and whether it is reading right now.
+   *
+   * Reported like `filters` and `clearable`, with no reply and nothing waiting
+   * on it. The middle field is the one that could not have come from anywhere
+   * else: this host knows when it ASKED, and when it asked is not when the data
+   * is from — the module may have answered out of a cache, the read may have
+   * failed over a reading it is still showing, or it may have refreshed itself
+   * for a reason nothing here can see. A freshness line that can be wrong is
+   * worse than no freshness line, so the host prints what it was told and never
+   * a guess of its own.
+   *
+   * `null` for `at` is a real answer meaning "I cannot say", and it is not the
+   * same as `can: false`, which is the withdrawal. See `sendRefresh` for the
+   * other half.
+   */
+  refreshable(state: { can: boolean; at: string | null; busy: boolean }): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -344,6 +362,41 @@ export class Conversation {
   }
 
   /**
+   * Tell this module to read its material again.
+   *
+   * `sendClear`'s twin in shape and its opposite in consequence: that one is
+   * the only destructive thing this host says, and this one is the only thing
+   * it says that a CLOCK can cause. Both carry nothing and neither is answered.
+   *
+   * ## Two callers, one message
+   *
+   * A person pressed the control, or the interval on this container elapsed.
+   * The module is not told which, deliberately — a flag saying "this one was
+   * automatic" would be used to behave differently, which is a module setting
+   * its own policy from a fact about somebody else's timer. See
+   * `MESSAGE.REFRESH` in the protocol.
+   *
+   * ## Guarded on `greeted`, and here the guard earns more than tidiness
+   *
+   * The press half is like `sendClear`: the control is drawn only for a module
+   * that announced `refreshable`, so a press before the greeting is a press on
+   * a button that should not exist. The TIMER half is different in kind, because
+   * nobody is watching it. An interval that went on posting into a frame that
+   * has gone away, or has not come back yet, would be this host quietly asking
+   * a dead conversation to spend a rate limit every five minutes for as long as
+   * the app is open. Dropping it here is where that stops.
+   *
+   * What comes back is not a reply but a new `roadmap.refreshable` — `busy`
+   * while it runs, then a new `at`, or the SAME `at` if the read failed and the
+   * module is still showing the old one. That last case is the whole reason
+   * this host does not date the data from this message.
+   */
+  sendRefresh(): void {
+    if (!this.greeted || this.closed) return
+    this.post({ type: MESSAGE.REFRESH, protocol: PROTOCOL })
+  }
+
+  /**
    * Ask the module to walk to a reference, and wait — briefly — to hear whether
    * it found anything.
    *
@@ -472,6 +525,17 @@ export class Conversation {
          nothing else here the host is entitled to know. What the label counts,
          and what pressing the control would destroy, are the module's. */
       this.watcher.clearable(message.label)
+      return true
+    }
+
+    case MESSAGE.REFRESHABLE: {
+      /* Handed on exactly as parsed, like the two offers above it. The schema
+         has already checked that `at` is a real instant with an offset, which
+         is the only thing the host is entitled to insist on: it is going to
+         format that into a sentence a person reads beside a list, and it can
+         only do that from an instant. What the reading contains, where it came
+         from and whether it was worth making are the module's. */
+      this.watcher.refreshable({ can: message.can, at: message.at, busy: message.busy })
       return true
     }
 

@@ -12,6 +12,7 @@ import type { FilterGroup } from 'roadmap-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { FilterButton } from './Filters.tsx'
+import { RefreshButton } from './Refreshing.tsx'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
@@ -66,6 +67,10 @@ export function Container({
   onEverything,
   clear,
   onClear,
+  refresh,
+  refreshEvery,
+  onRefresh,
+  onRefreshEvery,
   selected,
   onSelect,
   onPrompts,
@@ -127,6 +132,21 @@ export function Container({
   clear: string | null
   /** Send the press. The host arms; this is called only by the second press. */
   onClear(): void
+  /**
+   * What this module says about being read again: whether it can be, when it
+   * last was, and whether it is reading right now.
+   *
+   * `undefined` for almost every module — including every module that has never
+   * mentioned the idea — and that draws nothing at all, like the other two
+   * offers. The middle field is the module's own fact about its own data, which
+   * is why this is a state a module REPORTS rather than something the host works
+   * out from when it last asked; see `Refreshing.tsx`.
+   */
+  refresh: { can: boolean; at: string | null; busy: boolean } | undefined
+  /** How often this container reads on its own, in minutes, or `null`. The host's setting. */
+  refreshEvery: number | null
+  onRefresh(): void
+  onRefreshEvery(every: number | null): void
   /**
    * Whether this container has been picked out as a target on this kehikko.
    *
@@ -477,6 +497,30 @@ export function Container({
          */}
         {condition === 'ready' && !collapsed ? (
           <ClearButton label={clear} name={name} onClear={onClear} />
+        ) : null}
+
+        {/*
+         * And the one that asks the module to read its material again.
+         *
+         * Third in the module's own group, beside the filter and the clear,
+         * because it belongs to the PROGRAM like both of them: it appears only
+         * because the module asked for it and disappears when it stops asking.
+         *
+         * Hidden while folded, like the other two, and here the reason is the
+         * plainest of the three: a folded container is a header, refreshing a
+         * list nobody can see spends a subprocess and somebody's rate limit for
+         * nothing, and the clock in `App.tsx` skips folded containers for
+         * exactly the same reason. The setting is kept; unfolding brings the
+         * control back with the interval it had.
+         */}
+        {condition === 'ready' && !collapsed ? (
+          <RefreshButton
+            state={refresh}
+            every={refreshEvery}
+            name={name}
+            onRefresh={onRefresh}
+            onEvery={onRefreshEvery}
+          />
         ) : null}
 
         {/*
