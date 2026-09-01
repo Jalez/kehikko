@@ -1,4 +1,4 @@
-import { methodParams, type FilterChoice, type Passage } from 'roadmap-module-protocol'
+import { methodParams, type FilterChoice, type Passage, type ProjectPickResult } from 'roadmap-module-protocol'
 import type { Emitted } from './events.ts'
 
 /**
@@ -12,6 +12,18 @@ import type { Emitted } from './events.ts'
  * was asked for — see the handler.
  */
 export type Filtered = { ok: true; filters: FilterChoice } | { ok: false; error: string }
+
+/**
+ * What came of asking the person which project — as the canvas answers it.
+ *
+ * The protocol's own result, whole, rather than a shape of this host's own.
+ * There is nothing here for a host to have an opinion about: the three
+ * outcomes are the protocol's, `declined` is what a host with no projects
+ * answers, and inventing a fourth word on this side would mean translating it
+ * back into one of three at the door — which is where a "no projects" that the
+ * protocol refuses to say would leak out.
+ */
+export type Picked = ProjectPickResult
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
@@ -110,6 +122,30 @@ export interface CanvasControls {
    */
   filter(from: string, choice: FilterChoice): Filtered
   /**
+   * Ask the person to choose a project, and answer when they have.
+   *
+   * ## A promise, because the answer is a person
+   *
+   * Every other control here returns at once. This one opens a dialog and
+   * settles when somebody presses something, which may be a minute later — so
+   * it is the only `CanvasControls` member that is asynchronous, and the wire
+   * carries the wait without change: `request`/`response` correlates by id and
+   * has always allowed a slow host. What it does NOT carry unchanged is the
+   * module's clock, which is the caller's business and is why the protocol
+   * grew a per-call deadline rather than this host doing anything clever.
+   *
+   * ## `from` is supplied out of the registration, as it is for `emit`
+   *
+   * The dialog says who is asking, and it says it in the host's own words. A
+   * module that could name itself here — or write the sentence in the dialog —
+   * would be writing in the host's voice on the one screen where a person is
+   * deciding whether to hand over a folder. Nothing the frame said reaches it.
+   *
+   * The canvas may decline, and declining is also what it answers when it holds
+   * no projects at all: see `Picked`.
+   */
+  pickProject(from: string): Promise<Picked>
+  /**
    * Which project the canvas is standing in, as an id, read at call time.
    *
    * A function rather than a value because it is read when the call is MADE,
@@ -201,7 +237,7 @@ function answerInTheView(
   method: string,
   rawParams: unknown,
   canvas: CanvasControls,
-): Answer {
+): Answer | Promise<Answer> {
   const schema = params.get(method)
   if (!schema) return failed('The canvas claims to answer that method and has no shape for it.')
 
@@ -285,6 +321,26 @@ function answerInTheView(
     const { filters } = parsed.data as { filters: FilterChoice }
     const out = canvas.filter(moduleId, filters)
     return out.ok ? succeeded(method, { filters: out.filters }) : failed(out.error)
+  }
+
+  /*
+   * A module asking the person which project.
+   *
+   * The only answer in this file that is not settled by the time this function
+   * returns, and the `await` is the whole of the difference: `makeAsk` is
+   * already async and returns whatever this gives it, so a promise here is a
+   * response that goes out when the person has answered rather than when the
+   * call arrived.
+   *
+   * It cannot fail, only decline — which is why there is no `ok: false` branch.
+   * A host with no projects, a host that would rather not interrupt, and a
+   * person who closed the dialog all come back `ok: true` with an outcome,
+   * because every one of them is the host having understood the question and
+   * answered it. `ok: false` would tell the module its call went wrong and send
+   * its author looking for a fault in the params, of which there are none.
+   */
+  if (method === 'projects.pick') {
+    return canvas.pickProject(moduleId).then((picked) => succeeded(method, picked))
   }
 
   if (method === 'events.emit') {

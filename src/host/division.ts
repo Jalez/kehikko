@@ -87,6 +87,19 @@ export const ANSWERED_BY_THE_VIEW = [
   /* A container's own filters live in the canvas's placements, which only the
      page has. The server holds no opinion about what is narrowed. */
   'filters.set',
+  /*
+   * Asking the person which project — the canvas, because a person is here.
+   *
+   * The server holds the projects and would seem to be the half that answers.
+   * It is not, and the reason is the same one that moved `events.emit`: the
+   * rule is "answering it requires something only the canvas has", and what
+   * this requires is A PERSON LOOKING AT A DIALOG. A server answering it would
+   * have to open a window it does not have, or answer out of its own table
+   * without anybody being asked — which is exactly the enumeration this method
+   * is shaped to prevent. The projects still come from the server; the asking,
+   * the waiting and the answer are the page's.
+   */
+  'projects.pick',
   'events.emit',
 ] as const
 

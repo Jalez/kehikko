@@ -190,6 +190,32 @@ manifest fields, read before a program runs, by somebody deciding whether to run
 it. This is a running module saying what it is showing, nothing is checked
 against it, and nothing is gated on it.
 
+## A module can ask you which project, and can never ask what projects exist
+
+Every module here keeps its data inside the project it is about, in
+`.kehikot/<module>/`. So the first thing anybody wants once they have two
+projects is to move something between them — a checklist, a set of notes — and
+a module cannot do it on its own: it is told one `projectPath` and may read what
+this host named.
+
+The method that would have made it easy is `projects.list`, and it is the one
+that must not exist. A module holding it has been handed a listing of your disk.
+
+So `projects.pick` is the browser's file-picker shape instead. The module asks;
+this host draws a dialog out of its own projects, titled with the module's name
+from the registration rather than from anything the frame said; you press a row
+or you close it. What crosses back is one path, because you chose it. The module
+cannot name a project, cannot filter the list, cannot write a word of what is on
+that screen, and — this is the part worth stating — **cannot tell "you have no
+projects" from "I would rather not"**, because both come back as `declined`. A
+fourth outcome saying the shelf is empty is an enumeration with a count of zero.
+
+One ask at a time; a second is declined rather than queued. Escape, the overlay,
+the X and Cancel are all an answer, so nothing is left waiting on a dialog that
+is gone. It is answered by the canvas rather than the server, for the reason
+`events.emit` is: answering it requires something only this half has, and here
+that thing is a person.
+
 ## Picking a module out, and the host's own door for an agent
 
 Every container header has a checkbox. Ticking it picks that container out as a

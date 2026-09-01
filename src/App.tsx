@@ -6,6 +6,7 @@ import type { FilterChoice, FilterGroup, ModuleCondition, Passage } from 'roadma
 import { Bar } from './canvas/Bar.tsx'
 import { Footer } from './canvas/Footer.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
+import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
@@ -50,7 +51,7 @@ import { toWireContext, type Subject } from './host/context.ts'
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
-import type { Filtered } from './host/ask.ts'
+import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
@@ -1053,6 +1054,86 @@ export function App() {
    * the module is not currently offering is dropped. The module is told the
    * settled value so it never has to assume.
    */
+  /**
+   * A module asking the person which project — the ask, held while it waits.
+   *
+   * ## The one control here whose answer is a person
+   *
+   * Everything else a module may ask the canvas is settled by the time the
+   * handler returns. This opens a dialog and settles when somebody presses
+   * something, so what is held is the RESOLVER: the promise the module's
+   * response is waiting on, parked in state until `onPicked` or `onCancelled`
+   * calls it. Nothing else in this file works this way, and nothing else should
+   * — a second one would be a second modal fighting for the screen.
+   *
+   * Which is also why only one ask is entertained at a time. A module that
+   * asked while another dialog was open is `declined` rather than queued: a
+   * queue would mean a person answering a question they had forgotten being
+   * asked, and the protocol makes a decline survivable.
+   */
+  const [asking, setAsking] = useState<{ from: string; name: string; settle: (picked: Picked) => void } | null>(
+    null,
+  )
+  const askingRef = useRef(asking)
+  askingRef.current = asking
+
+  /**
+   * What the canvas does when a module asks for a project.
+   *
+   * Through a ref for the reason `filterRef` is: the work needs this render's
+   * projects and this render's registry, and rebuilding `controls` on every
+   * change to either would rebuild every conversation on the canvas.
+   *
+   * Three refusals and they are all `declined`, which is the protocol's word
+   * and carries no information about why beyond a sentence for whoever is
+   * reading a console. In particular **"this host holds no projects" is a
+   * decline and not an outcome of its own** — see the essay on
+   * `projectPickResult`: a fourth outcome saying so is an enumeration with a
+   * count of zero, and a module that could tell it from a refusal could learn
+   * something about the disk by asking.
+   */
+  const pickRef = useRef<(from: string) => Promise<Picked>>(() =>
+    Promise.resolve({ outcome: 'declined', project: null, why: 'This roadmap is not ready to ask anybody yet.' }),
+  )
+  pickRef.current = (from) => {
+    const declined = (why: string): Promise<Picked> =>
+      Promise.resolve({ outcome: 'declined' as const, project: null, why })
+    if (askingRef.current) {
+      return declined('Somebody is already being asked to choose a project.')
+    }
+    if (projects.length === 0) {
+      return declined('This roadmap will not ask right now.')
+    }
+    /* The name comes off the registration, never off anything the frame said.
+       Same rule as `emit`'s sender, and it bites harder here: this is the one
+       screen where a person decides whether to hand a program a folder. */
+    const name = byId.get(from)?.name ?? from
+    return new Promise<Picked>((settle) => setAsking({ from, name, settle }))
+  }
+
+  /* Pressed a row. The path is the one the server resolved, which is the same
+     string `context.projectPath` carries for the open project — a module has no
+     way to tell a picked project from the open one, and should not need one. */
+  const onPicked = useCallback(
+    (project: Project) => {
+      const ask = askingRef.current
+      if (!ask) return
+      setAsking(null)
+      ask.settle({ outcome: 'picked', project: { path: project.path, name: project.name }, why: '' })
+    },
+    [],
+  )
+
+  /* Escape, the overlay, the X and Cancel are one answer. A dialog dismissed
+     into silence would leave the module waiting on its own deadline for
+     something that is never coming. */
+  const onCancelled = useCallback(() => {
+    const ask = askingRef.current
+    if (!ask) return
+    setAsking(null)
+    ask.settle({ outcome: 'cancelled', project: null, why: '' })
+  }, [])
+
   const filterRef = useRef<(from: string, choice: FilterChoice) => Filtered>(() => ({
     ok: false,
     error: 'this host is not ready to hold a filter yet',
@@ -1117,6 +1198,11 @@ export function App() {
          looking through. Through a ref, because the work needs this render's
          placements — see `filterRef`. */
       filter: (from, choice) => filterRef.current(from, choice),
+      /* `from` out of the registration again, and for the sharpest version of
+         the reason: the dialog says who is asking, and a module that could name
+         itself would be signing somebody else's name to a request for a
+         folder. Through a ref — see `pickRef`. */
+      pickProject: (from) => pickRef.current(from),
     }),
     [change, bus],
   )
@@ -2458,6 +2544,19 @@ export function App() {
           onWrite={(text, aimedAt) => onWritePrompt(prompted.i, text, aimedAt)}
         />
       ) : null}
+
+      {/* The project picker a module gets instead of a listing. Owned by the
+          host for the reason every dialog here is — a modal inside a 220-pixel
+          frame is not a modal — and for a second reason that is only true of
+          this one: what it draws is the host's own material, and the program
+          that asked for it must not see any of it except the row somebody
+          pressed. See `Picking.tsx`. */}
+      <Picking
+        projects={projects}
+        asking={asking?.name ?? null}
+        onPick={onPicked}
+        onCancel={onCancelled}
+      />
 
       {/* The tools window, owned by the host for the same reason. It asks the
           host's server what the module's door offers at the moment it opens —

@@ -161,6 +161,7 @@ export function ModuleFrame({
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),
         filter: (from, choice) => canvasRef.current.filter(from, choice),
+        pickProject: (from) => canvasRef.current.pickProject(from),
       }),
       {
         ready: (p) => watcherRef.current.ready(p),

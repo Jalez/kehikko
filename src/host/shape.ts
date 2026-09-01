@@ -3,12 +3,20 @@ import { resultSchemaFor } from 'roadmap-module-protocol'
 /**
  * Hold the host's own answers to the shapes the protocol names.
  *
- * The package describes the answer to exactly two methods, and is careful about
- * why: most answers are a host's material and no two hosts hold the same
- * amount of it, but `epics.list` is the front door — every other question takes
- * a slug and this is the only place to get one — and `view.goto` reports the
- * outcome of an act the protocol itself defines, where "you are now looking at
- * it" and "there is nothing by that name" send a person to different places.
+ * The package describes the answer to a few methods, and is careful about why:
+ * most answers are a host's material and no two hosts hold the same amount of
+ * it, but `epics.list` is the front door — every other question takes a slug
+ * and this is the only place to get one — and `view.goto` and `projects.pick`
+ * report the outcome of an act the protocol itself defines, where "you are now
+ * looking at it" and "there is nothing by that name" send a person to different
+ * places.
+ *
+ * `projects.pick` is the one where parsing the host's own answer is more than
+ * hygiene. Its three outcomes are arranged so that a module cannot tell "this
+ * host holds no projects" from "I would rather not", and the schema is what
+ * enforces the arrangement: a host that filled in `project` beside a
+ * `cancelled`, or invented a fourth outcome, is refused here rather than
+ * teaching a framed program something about the disk.
  *
  * The package also says, correctly, that running its schema is a convenience
  * and not the check, because the check has to run on the deciding side. That is
