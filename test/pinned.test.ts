@@ -12,7 +12,7 @@ import { toWireContext, whileFrozen } from '@/host/context.ts'
  * simply the two that happened to be pinned.
  */
 
-const roadmap = { id: 1, name: 'roadmap', path: '/w/roadmap', epics: true }
+const roadmap = { id: 1, name: 'roadmap', path: '/w/roadmap', epics: true, git: true, shared: false }
 
 const held = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], null, null)
 

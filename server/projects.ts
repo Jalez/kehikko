@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite'
-import { existsSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, resolve, sep } from 'node:path'
 
-import { LIMITS } from 'roadmap-module-protocol'
+import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } from 'roadmap-module-protocol'
 
 import { createCanvas, listCanvases } from './canvases.ts'
 
@@ -52,6 +52,32 @@ export interface Project {
   path: string
   /** Whether `data/epics` exists under it. Read now, never cached — see below. */
   epics: boolean
+  /**
+   * Whether this folder has a git history at all.
+   *
+   * The question only exists to decide whether `shared` is a setting or a
+   * sentence. A project that is not a repository has no `.gitignore` worth
+   * writing and nothing to share it WITH, and offering a checkbox there would
+   * be offering a decision that changes nothing on disk.
+   */
+  git: boolean
+  /**
+   * Whether this project's `.kehikot/` goes into its history.
+   *
+   * `false` — the folder is ignored — is what every project has had until now,
+   * because the modules wrote that rule themselves the first time they made
+   * their folder. It stopped being obviously right when the papers moved in:
+   * ignoring a person's own writing because it sits beside a checklist is the
+   * opposite of what the rule was for.
+   *
+   * Computed on every read, like `epics` and for the same reason, with one
+   * extra: the `.gitignore` is a file in somebody's repository that they may
+   * edit by hand, another program may rewrite, and a checkout may replace. A
+   * stored boolean would be this host reporting what the file said when the
+   * project was added, and the first time the two disagreed the checkbox would
+   * be lying about a file the person could see.
+   */
+  shared: boolean
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -74,7 +100,7 @@ export function listProjects(db: Database): Project[] {
       'select id, name, path from projects order by rank, id',
     )
     .all()
-    .map((row) => ({ ...row, epics: holdsEpics(row.path) }))
+    .map((row) => ({ ...row, epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }))
 }
 
 /** One project by id, or null. */
@@ -84,7 +110,9 @@ export function projectById(db: Database, id: number): Project | null {
       'select id, name, path from projects where id = ?',
     )
     .get(id)
-  return row ? { ...row, epics: holdsEpics(row.path) } : null
+  return row
+    ? { ...row, epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }
+    : null
 }
 
 /** Whether a folder brings its own epics. Not every project does — see `addProject`. */
@@ -94,6 +122,124 @@ export function holdsEpics(root: string): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Whether this folder is under git at all.
+ *
+ * `.git` as either a directory or a file — the file form is a worktree or a
+ * submodule, both of which are real repositories, and a check that only knew
+ * about the directory would tell somebody working in a worktree that their
+ * project has no history. This host runs out of worktrees itself.
+ *
+ * It looks HERE and not upwards, which is a decision rather than an oversight.
+ * A project nested inside a repository — `05_drafts/thesis_latex` inside a
+ * degree repo is a real one on this machine — does have a history, and this
+ * answers `false` for it, so the setting is not offered. That is the safer of
+ * the two mistakes: the alternative is a checkbox that writes a `.gitignore`
+ * into a folder in the middle of somebody else's repository, affecting files
+ * this host has never been shown.
+ *
+ * The cost is that such a project cannot share its `.kehikot/` from here, and
+ * the way to say so is a sentence on the screen rather than a disabled control
+ * with no explanation.
+ */
+export function hasGit(root: string): boolean {
+  try {
+    statSync(resolve(root, '.git'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether this project's `.kehikot/` is in its history rather than ignored.
+ *
+ * The `.gitignore` is the truth and this reads it, so what the checkbox shows
+ * is what the file says. A missing or unreadable `.gitignore` is not ignoring
+ * anything, which is `true` — shared — and is the honest reading: git needs a
+ * rule to ignore a path, and the absence of a file is the absence of a rule.
+ */
+export function sharesKehikot(root: string): boolean {
+  try {
+    return !ignoresKehikot(readFileSync(resolve(root, GITIGNORE), 'utf8'))
+  } catch {
+    return true
+  }
+}
+
+/** The file this host will write, and the only one it will. */
+const GITIGNORE = '.gitignore'
+
+export type Shared = { ok: true; project: Project } | { ok: false; why: string; status: number }
+
+/**
+ * Put this project's `.kehikot/` into its history, or take it out again.
+ *
+ * ## Why the host does this and the modules no longer do
+ *
+ * Four modules used to write that rule — notes, checklist and journeys each
+ * called `withKehikotIgnored` the first time they created their folder, and
+ * learning's migration did it a fourth time. That is four programs with an
+ * opinion about one line in somebody else's repository, none of them able to
+ * take it back, and no way for the person to say otherwise. It was also
+ * invisible: the rule appeared the first time a module happened to save
+ * something, which is not a moment anybody witnesses.
+ *
+ * One writer, and it is the host, because the host is what knows the project.
+ * A module knows a `projectPath` it was handed; the host is where a project is
+ * added, named, opened and listed, and where a person is already looking when
+ * they want to decide something about it.
+ *
+ * ## What it refuses
+ *
+ * A folder with no git history. There is no `.gitignore` worth writing where
+ * there is no history to keep something out of, and writing one anyway would
+ * leave a file behind that does nothing and explains nothing.
+ *
+ * ## What it does NOT do
+ *
+ * It does not `git add` anything, and it does not touch the index. Turning
+ * sharing on makes the files visible to git; whether they are committed is the
+ * person's decision, made with their own tools, in their own history, under
+ * their own name. A host that committed on somebody's behalf would be writing
+ * that history for them.
+ */
+export function shareKehikot(db: Database, id: number, shared: boolean): Shared {
+  const project = projectById(db, id)
+  if (!project) return { ok: false, why: 'There is no project by that id.', status: 404 }
+  if (!project.git) {
+    return {
+      ok: false,
+      why: `${project.name} has no git history of its own, so there is nothing here to keep out of one.`,
+      status: 409,
+    }
+  }
+
+  const file = resolve(project.path, GITIGNORE)
+  let before = ''
+  try {
+    before = readFileSync(file, 'utf8')
+  } catch {
+    /* No `.gitignore` yet. Turning sharing ON has nothing to do — the absence
+       of a rule is already the absence of an ignore — and turning it OFF makes
+       the file, which is the one case where this host creates one. */
+    if (shared) return { ok: true, project: { ...project, shared: true } }
+  }
+
+  const after = shared ? withoutKehikotIgnored(before) : withKehikotIgnored(before)
+  /* Written only when it would change, so that pressing a checkbox that is
+     already in the position you pressed it into does not put a modified file in
+     somebody's `git status`. */
+  if (after !== before) {
+    try {
+      writeFileSync(file, after, 'utf8')
+    } catch (error) {
+      return { ok: false, why: `That .gitignore could not be written: ${(error as Error).message}`, status: 500 }
+    }
+  }
+  return { ok: true, project: { ...project, shared } }
 }
 
 export type Added =

@@ -25,8 +25,41 @@ export const projectSchema = z.object({
    * first looks broken.
    */
   epics: z.boolean(),
+  /**
+   * Whether this folder has a git history at all.
+   *
+   * What decides between a checkbox and a sentence. A project that is not a
+   * repository has nothing to keep out of a history, and a disabled control
+   * with no explanation is worse than a line of prose saying why.
+   */
+  git: z.boolean(),
+  /**
+   * Whether this project's `.kehikot/` goes into its history rather than being
+   * ignored.
+   *
+   * Read from the project's own `.gitignore` on every list, never stored — see
+   * `sharesKehikot` in `server/projects.ts`. The file is the truth, because it
+   * is a file the person can edit themselves.
+   */
+  shared: z.boolean(),
 })
 export type Project = z.infer<typeof projectSchema>
+
+/**
+ * Put a project's `.kehikot/` into its history, or take it out again.
+ *
+ * The whole project comes back, re-read from disk, so a caller replaces its row
+ * rather than patching the field it just sent. See the route.
+ */
+export async function shareProject(id: number, shared: boolean): Promise<Project> {
+  const response = await fetch('/host/projects', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id, shared }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ project: projectSchema }).parse(await response.json()).project
+}
 
 export async function fetchProjects(signal?: AbortSignal): Promise<Project[]> {
   const response = await fetch('/host/projects', { signal, cache: 'no-store' })

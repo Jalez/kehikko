@@ -96,7 +96,7 @@ describe('the host greets first', () => {
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, quiet())
     conversation.greet(context)
     conversation.sendContext(toWireContext(
-      { epic: 'modes-are-modules', project: { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true } },
+      { epic: 'modes-are-modules', project: { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false } },
       'dark',
     ))
     expect(sent[1]!.message).toMatchObject({ type: MESSAGE.CONTEXT, protocol: PROTOCOL })
@@ -472,7 +472,7 @@ describe('the context says which kehikko is being looked at', () => {
   })
 
   test('an epic slug the schema refuses does not cost the module its bearings', () => {
-    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true }
+    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
     const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: roadmap }, 'light', ['gh#1'], {
       id: 2,
       name: 'reading',
@@ -498,7 +498,7 @@ describe('the context says which project the kehikko is in, and where it is', ()
     const here = toWireContext(
       {
         epic: 'modes-are-modules',
-        project: { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false },
+        project: { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false, git: true, shared: false },
       },
       'dark',
     )
@@ -516,8 +516,8 @@ describe('the context says which project the kehikko is in, and where it is', ()
   })
 
   test('switching project changes what every module is told, and nothing else', () => {
-    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true }
-    const thesis = { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false }
+    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
+    const thesis = { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false, git: true, shared: false }
     const kehikko = { id: 7, name: 'writing' }
 
     const before = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], kehikko)

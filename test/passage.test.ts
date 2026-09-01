@@ -123,7 +123,7 @@ describe('what the canvas does when a module points', () => {
 })
 
 describe('the passage travels in the context every module is told', () => {
-  const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true }
+  const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
 
   test('it goes out whole, unchecked, because the host did not open the file', () => {
     const here = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], null, paragraph)

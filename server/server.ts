@@ -14,7 +14,7 @@ import {
   readState,
   type CanvasEdit,
 } from './canvases.ts'
-import { adopt, addProject, listProjects, projectById } from './projects.ts'
+import { addProject, adopt, listProjects, projectById, shareKehikot } from './projects.ts'
 import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
@@ -614,6 +614,31 @@ const server = Bun.serve({
      * here — one place, so a second endpoint cannot grow a weaker copy. */
     if (url.pathname === '/host/projects' && request.method === 'GET') {
       return json({ projects: listProjects(db) })
+    }
+
+    /*
+     * Whether one project's `.kehikot/` goes into its history.
+     *
+     * A PATCH on the collection with the id in the body rather than a route per
+     * project, because every other route on this host is a flat path and one
+     * that parsed an id out of a pathname would be the only place an id arrives
+     * by a different road. The check that it IS an id is in `shareKehikot`,
+     * with the rest of what that decision refuses.
+     *
+     * The whole project comes back rather than an acknowledgement, and it is
+     * re-read from disk on the way out. What the page draws is then what the
+     * file says, which matters here more than usual: this is a write to a file
+     * a person can also edit themselves, and a page that drew the value it had
+     * just sent would agree with itself and possibly with nothing else.
+     */
+    if (url.pathname === '/host/projects' && request.method === 'PATCH') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown; shared?: unknown } | null
+      if (!body || typeof body.id !== 'number' || typeof body.shared !== 'boolean') {
+        return json({ error: 'Which project, and shared or not.' }, 400)
+      }
+      const said = shareKehikot(db, body.id, body.shared)
+      if (!said.ok) return json({ error: said.why }, said.status)
+      return json({ project: said.project })
     }
 
     if (url.pathname === '/host/projects' && request.method === 'POST') {

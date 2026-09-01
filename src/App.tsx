@@ -36,6 +36,7 @@ import {
   chooseProject,
   fetchEpics,
   fetchProjects,
+  shareProject,
   readOpenProject,
   writeOpenProject,
   type Epics as HeldEpics,
@@ -1514,6 +1515,28 @@ export function App() {
    * makes its first kehikko — see `addProject` in `server/projects.ts` — and
    * the page has no way to know its id without asking.
    */
+  /**
+   * Put one project's `.kehikot/` into its history, or take it out again.
+   *
+   * The answer replaces the row rather than patching the field that was sent,
+   * because the server re-reads the `.gitignore` on the way out. That file is
+   * one a person can also edit themselves, and a page that drew back the value
+   * it had just sent would agree with itself and possibly with nothing else.
+   *
+   * The refusal is shown rather than swallowed: this writes a file in somebody's
+   * repository, and the one failure that must never be silent is the one where
+   * the checkbox moved and the file did not.
+   */
+  const onShareProject = useCallback(async (id: number, shared: boolean) => {
+    try {
+      const said = await shareProject(id, shared)
+      setProjects((was) => was.map((one) => (one.id === said.id ? said : one)))
+      setTrouble(null)
+    } catch (error) {
+      setTrouble(`That .gitignore was not changed: ${(error as Error).message}`)
+    }
+  }, [])
+
   const onAddProject = useCallback(
     async (path: string) => {
       try {
@@ -1757,6 +1780,7 @@ export function App() {
         held={held}
         onProject={onProject}
         onAddProject={(path) => void onAddProject(path)}
+        onShareProject={(id, shared) => void onShareProject(id, shared)}
         onOpen={setOpenId}
         onRename={(name) => change({ name })}
         onCreate={() => void onCreate()}

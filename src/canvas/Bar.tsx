@@ -79,6 +79,7 @@ export function Bar({
   held,
   onProject,
   onAddProject,
+  onShareProject,
   onOpen,
   onRename,
   onCreate,
@@ -103,6 +104,8 @@ export function Bar({
   held: HeldEpics | null
   onProject(id: number): void
   onAddProject(path: string): void
+  /** Whether the open project's `.kehikot/` is committed with it. */
+  onShareProject(id: number, shared: boolean): void
   onOpen(id: number): void
   onRename(name: string): void
   onCreate(): void
@@ -133,7 +136,13 @@ export function Bar({
          * first — see `Projects.tsx`, and the essay above on why the order is
          * an argument rather than a preference.
          */}
-        <Projects projects={projects} open={project} onOpen={onProject} onAdd={onAddProject} />
+        <Projects
+          projects={projects}
+          open={project}
+          onOpen={onProject}
+          onAdd={onAddProject}
+          onShare={onShareProject}
+        />
 
         {/*
          * What the canvas is about. One epic, for the whole kehikko, and the

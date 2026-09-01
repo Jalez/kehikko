@@ -44,12 +44,21 @@ export function Projects({
   open,
   onOpen,
   onAdd,
+  onShare,
 }: {
   projects: readonly Project[]
   open: Project | null
   onOpen(id: number): void
   /** Given an absolute folder. The server decides whether it is a project. */
   onAdd(path: string): void
+  /**
+   * Put the open project's `.kehikot/` into its history, or take it out.
+   *
+   * Named after what a person is deciding rather than after the file it writes.
+   * The `.gitignore` is an implementation of the decision — one this host is now
+   * the only writer of, where four modules used to each write it unasked.
+   */
+  onShare(id: number, shared: boolean): void
 }) {
   const [browsing, setBrowsing] = useState(false)
 
@@ -107,6 +116,59 @@ export function Projects({
             <FolderPlus className="text-muted-foreground size-3 shrink-0" />
             <span className="flex-1">add a project…</span>
           </DropdownMenuItem>
+
+          {/*
+           * Whether the open project's `.kehikot/` is committed with it.
+           *
+           * ## Why this is in the projects menu and not in a settings screen
+           *
+           * It is a decision about ONE project, and this is the one place a
+           * person is already looking at projects one at a time. A settings
+           * screen would be a second place that has to name every project again
+           * to say anything about one of them.
+           *
+           * ## Why it exists at all
+           *
+           * Nobody chose the old behaviour. Notes, checklist and journeys each
+           * called `withKehikotIgnored` the first time they created their
+           * folder, so the rule appeared in somebody's repository the first time
+           * a module happened to save something — four programs with an opinion
+           * about one line, none of them able to take it back, and no moment
+           * anybody witnessed. It stopped being defensible when the papers moved
+           * into that folder: ignoring a person's own writing because it sits
+           * beside a checklist is the opposite of what the rule was for.
+           *
+           * ## The two states, and the third
+           *
+           * Checked means the folder goes into the history. Unchecked means the
+           * `.gitignore` keeps it out. A project with no git history of its own
+           * gets neither — it gets the sentence, because a disabled checkbox
+           * says only that something is impossible and never why. `git` is read
+           * from the folder itself; see `hasGit`, which deliberately does not
+           * look upwards, so a project nested inside somebody else's repository
+           * lands here rather than writing a `.gitignore` into the middle of it.
+           */}
+          {open && (
+            <>
+              <DropdownMenuSeparator />
+              {open.git ? (
+                <DropdownMenuItem onSelect={() => onShare(open.id, !open.shared)}>
+                  <DropdownMenuCheck checked={open.shared} />
+                  <span className="min-w-0 flex-1">
+                    keep <span className="font-mono">.kehikot</span> in git
+                  </span>
+                </DropdownMenuItem>
+              ) : (
+                /* Not an item: there is nothing to press. A menu entry that
+                   answers a press by doing nothing is worse than a line of
+                   prose that says why there is nothing to press. */
+                <div className="text-muted-foreground px-2 py-1.5 text-[11px] leading-snug">
+                  <span className="font-mono">{open.name}</span> has no git history of its own, so there is
+                  nothing here to keep <span className="font-mono">.kehikot</span> out of.
+                </div>
+              )}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
