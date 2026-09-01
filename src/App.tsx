@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import type { FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
+import type { FilterChoice, FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Footer } from './canvas/Footer.tsx'
@@ -48,6 +48,7 @@ import { toWireContext, type Subject } from './host/context.ts'
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
+import type { Filtered } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
@@ -998,6 +999,65 @@ export function App() {
     })
   }, [])
 
+  /**
+   * A module asking where its own container's filters should go.
+   *
+   * ## Held in a ref, for the reason `point` reads `openRef`
+   *
+   * `controls` is memoised on purpose — a new object per render would be a new
+   * conversation per render — so it cannot close over `placements` or `live`,
+   * which change constantly. The work is written here, fresh every render, and
+   * `controls` calls through the ref. The same shape `setPassagesRef` uses.
+   *
+   * ## What it refuses, and why refusing is the honest half
+   *
+   * `filters.set` can be declined where `passage.set` cannot, because it asks
+   * to change something written down that outlives the module's next reload.
+   * Three refusals, each with a sentence the module's author can act on:
+   *
+   *  - **Not on the open kehikko.** A module's page is one frame shown on
+   *    whichever canvas asks for it. Writing filters for a container nobody is
+   *    looking at would be a setting that changed while the person was
+   *    elsewhere and was waiting for them when they came back.
+   *  - **Pinned.** A pin freezes what a container is told, so the write would
+   *    land and the module would never hear about it — it would ask, be told
+   *    yes, and draw the old thing forever. See `whileFrozen`.
+   *  - **Not offering filters.** A module that has sent no offer has nothing
+   *    for a choice to be about, and `settle` prunes against the offer, so the
+   *    write would silently be `{}` whatever was asked for.
+   *
+   * What comes back is what `settle` kept, which is deliberately not what was
+   * asked for: a group on its resting option is not written down, and a group
+   * the module is not currently offering is dropped. The module is told the
+   * settled value so it never has to assume.
+   */
+  const filterRef = useRef<(from: string, choice: FilterChoice) => Filtered>(() => ({
+    ok: false,
+    error: 'this host is not ready to hold a filter yet',
+  }))
+  filterRef.current = (from, choice) => {
+    const placements = open?.placements ?? []
+    const container = placements.find((p) => p.i === from)
+    if (!container) {
+      return { ok: false, error: `${from} is not on the kehikko that is open, so it has no filters here to move.` }
+    }
+    if (container.pinned) {
+      return {
+        ok: false,
+        error: `${from} is pinned, so it would not be told about the change it is asking for.`,
+      }
+    }
+    const offer = live[from]?.filters ?? []
+    if (offer.length === 0) {
+      return { ok: false, error: `${from} has not offered anything to be narrowed by, so there is nothing to set.` }
+    }
+    const kept = settleFilters(offer, choice)
+    if (!sameChoice(kept, container.filters)) {
+      change({ placements: placements.map((p) => (p.i === from ? { ...p, filters: kept } : p)) })
+    }
+    return { ok: true, filters: kept }
+  }
+
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
     () => ({
@@ -1029,6 +1089,12 @@ export function App() {
          table — see `project` on `CanvasControls` for why a path must not come
          from this side. */
       project: () => projectRef.current,
+      /* `from` arrives already decided, as it does for `emit`, and here it
+         matters more: a module that could name its own target would be able to
+         move another container's filters, and a filter is what somebody is
+         looking through. Through a ref, because the work needs this render's
+         placements — see `filterRef`. */
+      filter: (from, choice) => filterRef.current(from, choice),
     }),
     [change, bus],
   )

@@ -1,5 +1,17 @@
-import { methodParams, type Passage } from 'roadmap-module-protocol'
+import { methodParams, type FilterChoice, type Passage } from 'roadmap-module-protocol'
 import type { Emitted } from './events.ts'
+
+/**
+ * What came of asking for a container's filters to move.
+ *
+ * A refusal carries a sentence and not a code, for the reason every refusal in
+ * this file does: the reader is a program's author, and "the container showing
+ * this module is pinned" is something they can act on where a number is not.
+ *
+ * `filters` on success is what the canvas SETTLED on, which is not always what
+ * was asked for — see the handler.
+ */
+export type Filtered = { ok: true; filters: FilterChoice } | { ok: false; error: string }
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
@@ -84,6 +96,19 @@ export interface CanvasControls {
    * name onto a panel whose whole job is attribution.
    */
   emit(from: string, extension: string, payload: unknown): Emitted
+  /**
+   * Put one container's own filters somewhere, if the canvas will.
+   *
+   * `from` is supplied out of the registration this conversation was built on,
+   * exactly as it is for `emit`, and for a stronger reason: a module that could
+   * name its own target would be able to move ANOTHER container's filters, and
+   * a filter is what somebody is looking through. It reaches the container
+   * showing this module on the open kehikko, and nothing else.
+   *
+   * The canvas may decline — see `Filtered` — and a module has to keep working
+   * when it does. This is a request in the same sense `passage.set` is.
+   */
+  filter(from: string, choice: FilterChoice): Filtered
   /**
    * Which project the canvas is standing in, as an id, read at call time.
    *
@@ -239,6 +264,29 @@ function answerInTheView(
    * consumes that format. A module emitting into an empty room has not failed,
    * and telling it so would send its author looking for a bug in their payload.
    */
+  /*
+   * A module asking where its own filters should go.
+   *
+   * Unlike `selection.set` and `passage.set` above, this one CAN be declined,
+   * and the difference is what is being asked for. Those two hand the canvas a
+   * value to hold and repeat; this asks it to change a setting that belongs to
+   * a container, is written down, and outlives the module's next reload. The
+   * canvas has grounds — the container may be pinned, or not on the kehikko in
+   * front of anybody — and a refusal it can explain is worth more than a
+   * success that quietly did nothing.
+   *
+   * What comes back is what the canvas SETTLED on rather than what was asked
+   * for, because those differ: a group the module is not currently offering is
+   * dropped, and a group already on its resting option is not written down. A
+   * module that assumed it got what it asked for would draw one thing and be
+   * told another on the next context.
+   */
+  if (method === 'filters.set') {
+    const { filters } = parsed.data as { filters: FilterChoice }
+    const out = canvas.filter(moduleId, filters)
+    return out.ok ? succeeded(method, { filters: out.filters }) : failed(out.error)
+  }
+
   if (method === 'events.emit') {
     const { extension, payload } = parsed.data as { extension: string; payload: unknown }
     const out = canvas.emit(moduleId, extension, payload)

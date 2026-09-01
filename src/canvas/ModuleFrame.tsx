@@ -160,6 +160,7 @@ export function ModuleFrame({
         point: (passage) => canvasRef.current.point(passage),
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),
+        filter: (from, choice) => canvasRef.current.filter(from, choice),
       }),
       {
         ready: (p) => watcherRef.current.ready(p),

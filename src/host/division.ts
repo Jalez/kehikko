@@ -80,7 +80,15 @@ export const ANSWERED_BY_THE_SERVER = [
  * It is "answering it requires something only the canvas has", and a live frame
  * is such a thing. `src/host/events.ts` is where the deciding lives.
  */
-export const ANSWERED_BY_THE_VIEW = ['view.goto', 'selection.set', 'passage.set', 'events.emit'] as const
+export const ANSWERED_BY_THE_VIEW = [
+  'view.goto',
+  'selection.set',
+  'passage.set',
+  /* A container's own filters live in the canvas's placements, which only the
+     page has. The server holds no opinion about what is narrowed. */
+  'filters.set',
+  'events.emit',
+] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */
 export function unanswered(): string[] {

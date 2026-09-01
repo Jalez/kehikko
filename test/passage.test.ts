@@ -23,6 +23,7 @@ function canvasThatRemembers() {
     point: (passage) => pointed.push(passage),
     emit: () => ({ ok: true, delivered: 0 }),
     project: () => null,
+    filter: () => ({ ok: true as const, filters: {} }),
   }
   return { controls, pointed }
 }
