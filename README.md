@@ -422,14 +422,25 @@ dev/         probes: browser measurements that back up an argument in a comment
 
 `bun test` for the suite, `bun run typecheck` for the types.
 
-The `dev/` probes are not part of either. They need a browser and a running
-host, they print numbers rather than passing or failing, and Playwright is
-deliberately not a dependency — point them at whatever copy is already on the
-machine:
+The `dev/` probes are not part of either. They print what they found rather than
+passing or failing. The browser ones need a browser and a running host, and
+Playwright is deliberately not a dependency — point them at whatever copy is
+already on the machine:
 
 ```
 PLAYWRIGHT=/path/to/playwright/index.mjs CHROME=/path/to/chrome-headless-shell \
   node dev/viewport.mjs
+```
+
+`dev/watch.probe.ts` needs neither. It starts a whole host of its own on spare
+ports, with a temporary database and a temporary registrations directory, starts
+a fake module, kills it by pid, and then waits on the page's own stream to be
+told the module is gone — which is the one thing no test in `test/` can say,
+because the fault it is about was never in a decision but in nobody making one.
+It takes about a minute, for the same reason the check itself is slow:
+
+```
+bun run dev/watch.probe.ts
 ```
 
 ## Prior art it borrows from, and departs from

@@ -18,7 +18,7 @@ import { addProject, adopt, forgetProject, listProjects, projectById, shareKehik
 import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
-import { look, type Presence } from './discover.ts'
+import { fetchManifest, look, type Presence } from './discover.ts'
 import { answered, gone, Nursery, start, startable } from './launch.ts'
 import {
   asleepLine,
@@ -27,6 +27,8 @@ import {
   STARTING_FOR_MS,
   toStart,
   toStop,
+  toWatch,
+  WATCH_EVERY_MS,
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
@@ -370,8 +372,11 @@ function begin(id: string): void {
  */
 function govern(presences: readonly Presence[], mayStart = true): void {
   const now = Date.now()
-  const standing = standings(presences, now)
+  act(standings(presences, now), now, mayStart)
+}
 
+/** The same decision, from standings the caller already gathered. */
+function act(standing: readonly Standing[], now: number, mayStart: boolean): void {
   if (mayStart) for (const id of toStart(standing)) begin(id)
 
   for (const id of toStop(standing, now)) {
@@ -380,6 +385,86 @@ function govern(presences: readonly Presence[], mayStart = true): void {
     sleeping.set(id, now)
     starting.delete(id)
     console.log(`kehikko: stopped ${id} — no open kehikko has had it for the grace period`)
+  }
+}
+
+/** One watch at a time. A slow port must not have two rounds asking about it. */
+let watching = false
+
+/**
+ * Ask whether the modules somebody is looking at are still there.
+ *
+ * ## What this is for
+ *
+ * `Presence.condition` is documented as what the host found out by ASKING, and
+ * until this existed the host stopped asking the moment everything was `ready`.
+ * A module that died afterwards kept its green light until the person reloaded
+ * or alt-tabbed — while its own page, inside the frame, already said the
+ * connection had ended. Two halves of one screen disagreeing, which is this
+ * workspace's recurring failure shape. See `WATCH_EVERY_MS` in `lifecycle.ts`
+ * for why this is a check and not a heartbeat, and for the numbers.
+ *
+ * ## Why it asks for the manifest rather than something cheaper
+ *
+ * Because the question is the same question a sweep asks, and asking it a
+ * second, cheaper way would be a second definition of "there". `fetchManifest`
+ * already distinguishes the case that matters from the case that looks like it:
+ * a connection REFUSED is nothing running, while a connection accepted and then
+ * silent is something running badly, and only the first is worth restarting.
+ * One small localhost GET, bounded in time and size by the same constants the
+ * sweep uses.
+ *
+ * ## Why nothing here decides anything
+ *
+ * A changed bit is not a finding; it is a reason to make one. So this does no
+ * arithmetic on conditions, writes no line, and touches neither `starting` nor
+ * `sleeping`. It sweeps — the whole sweep, once, the same one the page would
+ * have asked for — and hands that to `govern`, which is where the policy lives
+ * and the only place that may start anything. A watch that had reasoned about
+ * reachability on its own would be a second, worse `discover.ts`.
+ */
+async function watch(standing: readonly Standing[]): Promise<void> {
+  if (watching) return
+  const ids = toWatch(standing)
+  if (ids.length === 0) return
+  const believed = new Map(standing.map((s) => [s.id, s.answering]))
+
+  watching = true
+  try {
+    const found = await Promise.all(
+      ids.map(async (id) => {
+        const registration = registered.get(id)
+        /* Unregistered since the standings were gathered. `standings` will
+           forget it on the next tick; there is nothing to ask. */
+        if (!registration) return null
+        const got = await fetchManifest(registration.url)
+        return { id, reached: got.ok ? true : got.reached }
+      }),
+    )
+
+    const changed = found.filter(
+      (one): one is { id: string; reached: boolean } => one !== null && believed.get(one.id) !== one.reached,
+    )
+    if (changed.length === 0) return
+    for (const one of changed) {
+      console.log(
+        `kehikko: ${one.id} is ${one.reached ? 'answering again' : 'no longer answering'} — `
+          + 'an open kehikko has it, so the host looked',
+      )
+    }
+
+    /* One sweep, then the policy, then the pages. The ORDER is the whole of it:
+       `govern` may start the module that just died, and a page told before that
+       would sweep, be told `silent`, and draw a start button for a start that
+       is already happening. Told after, it reads `starting` and says so. */
+    const view = await sweep()
+    govern(view.presences)
+    wakes.registryChanged()
+  } catch {
+    /* A watch that failed found nothing out, which is the safe outcome: nobody
+       is told, nothing is started, and the next tick asks again. */
+  } finally {
+    watching = false
   }
 }
 
@@ -437,6 +522,23 @@ function told(view: Swept): Swept {
  * It costs a sqlite read and some arithmetic. No sweep, no manifest, no
  * network — see `seen` above. Every thirty seconds, so the effective grace is
  * five minutes and a bit, and the "and a bit" does not matter to anything.
+ *
+ * ## And the watch, on the same tick, deliberately
+ *
+ * The two are opposite halves of one question — the reaper is about the modules
+ * NOBODY is looking at, the watch about the ones somebody is — and they read
+ * the same standings, from the same clock, on the same evidence about which
+ * screens exist. Running them on one timer means one place decides how often
+ * this host thinks about a module's life, and there is no second interval to
+ * fall out of step with the first.
+ *
+ * The watch is the half that costs anything: half a dozen localhost GETs while
+ * a canvas is open, and none at all when no page reports a kehikko. See
+ * `WATCH_EVERY_MS` in `lifecycle.ts` for the whole argument and the numbers,
+ * and `watch` above for what it does with what it finds. `REAP_EVERY_MS` is
+ * kept as its own name because the reaper's number is argued from the grace
+ * period and the watch's from how fast a dead module has to stop looking alive;
+ * they agree today, and neither is the reason for the other.
  */
 const REAP_EVERY_MS = 30_000
 setInterval(() => {
@@ -446,12 +548,21 @@ setInterval(() => {
          running — and a host that knows nothing must not decide anything. It
          also cannot have started anything, so there is nothing to stop. */
       if (!seen) return
-      govern((await seen).presences, false)
+      const now = Date.now()
+      const standing = standings((await seen).presences, now)
+      act(standing, now, false)
+      /* Not awaited: the reaper's decision is arithmetic and is already made,
+         and the watch is network. A tick that waited on half a dozen ports
+         before reaping would make reclaiming memory depend on a module being
+         slow to answer. */
+      void watch(standing)
     } catch {
       /* A failed sweep is not a reason to kill anything. */
     }
   })()
-}, REAP_EVERY_MS).unref()
+  /* The sooner of the two, so that either constant may be lowered on its own
+     argument without the other silently capping it. */
+}, Math.min(REAP_EVERY_MS, WATCH_EVERY_MS)).unref()
 
 /**
  * Where the page is, which is not here.
@@ -1139,8 +1250,11 @@ const server = Bun.serve({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
           if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
-          stop = wakes.listen((woken) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kehikko: woken })}\n\n`))
+          /* The news is written as it was given. `Wakes` decides what shapes
+             travel — see `News` there — and a server that rebuilt the object
+             here would be a second place for the two ends to disagree. */
+          stop = wakes.listen((news) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(news)}\n\n`))
           })
         },
         cancel() {

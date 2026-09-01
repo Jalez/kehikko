@@ -8,6 +8,8 @@ import {
   startingLine,
   toStart,
   toStop,
+  toWatch,
+  WATCH_EVERY_MS,
   type Standing,
 } from '../server/lifecycle.ts'
 import { readRegistration } from '../server/registrations.ts'
@@ -266,6 +268,80 @@ describe('the only processes the host may stop', () => {
     nursery.keep('b.module', b)
     b.child.living = false
     expect(nursery.ids).toEqual(['a.module'])
+  })
+})
+
+/**
+ * Which modules the host asks about after everything has gone quiet.
+ *
+ * The fault: a terminal module's server was gone, its page said the connection
+ * had ended, and its container still showed a green light. `Presence.condition`
+ * is what the host found out by ASKING, and after startup the host had stopped
+ * asking. These say what it now asks about, and — just as importantly — what it
+ * does not, because the whole defence of this check is its scope.
+ */
+describe('what the host keeps asking about', () => {
+  test('a module on a kehikko somebody has open, even a green one', () => {
+    /* The bug in one line. `answering: true` is what the host believes, and the
+       belief is exactly what has to be re-examined; filtering on it here would
+       reproduce the fault this exists to fix. */
+    expect(toWatch([standing({ needed: true, answering: true })])).toEqual(['roadmap.thing'])
+  })
+
+  test('and a silent one, because a person may have started it by hand', () => {
+    expect(toWatch([standing({ needed: true, answering: false })])).toEqual(['roadmap.thing'])
+  })
+
+  test('nothing, for a module no open kehikko has', () => {
+    /* The scope that makes this a check rather than a heartbeat. A host with no
+       page reporting a kehikko asks nobody anything. */
+    expect(toWatch([standing({ needed: false, answering: true })])).toEqual([])
+    expect(toWatch([standing({ needed: false, answering: false })])).toEqual([])
+  })
+
+  test('nothing, for a module already being started', () => {
+    /* `App.tsx` has a faster loop for exactly those seconds, and the answer
+       during them is "not yet", which the container is already saying. */
+    expect(toWatch([standing({ needed: true, answering: false, starting: true })])).toEqual([])
+  })
+
+  test('a kept module is asked about like any other', () => {
+    /* `keep` says the host may not STOP it. It has never said anything about
+       looking at it, and the module this fault was found on is a kept one. */
+    expect(toWatch([standing({ needed: true, answering: true, keep: true })])).toEqual([
+      'roadmap.thing',
+    ])
+  })
+
+  test('slowly enough to be a check and not a heartbeat', () => {
+    /* Not a magic-number test: the number is argued in `lifecycle.ts` and the
+       argument has a floor. Anything under a few seconds would be the
+       request-per-tick this host refuses everywhere else, and lowering this
+       constant without rewriting that essay should fail here first. */
+    expect(WATCH_EVERY_MS).toBeGreaterThanOrEqual(10_000)
+  })
+})
+
+/**
+ * The second half of the same fault, and the reason to check it separately.
+ *
+ * The terminal was the only module down while five were up, and its
+ * registration carries `keep: true`. If `keep` also stopped the host STARTING a
+ * dead module, the stale light would have been hiding a module that could never
+ * come back on its own — one symptom, two faults. It does not, and these say so
+ * in the one place that decides.
+ */
+describe('keep does not stop a module coming back', () => {
+  test('a kept module that has died is started like any other', () => {
+    expect(toStart([standing({ needed: true, answering: false, keep: true })])).toEqual([
+      'roadmap.thing',
+    ])
+  })
+
+  test('and is still never stopped', () => {
+    expect(
+      toStop([standing({ ours: true, keep: true, idleSince: NOW - GRACE_MS * 10 })], NOW),
+    ).toEqual([])
   })
 })
 

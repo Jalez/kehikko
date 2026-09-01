@@ -191,6 +191,90 @@ export function toStart(standings: readonly Standing[]): string[] {
 }
 
 /**
+ * How often the host checks whether the modules somebody is LOOKING AT are
+ * still there.
+ *
+ * ## The fault this number exists because of
+ *
+ * A terminal module's server process was gone — nothing listening on its port,
+ * its page saying "the connection ended" — and its container in the host still
+ * showed a green light. The page re-read the registry on load, on focus, on a
+ * kehikko being opened, and on an interval that ran only while something was
+ * `starting`. The person was doing none of those: they were sitting still,
+ * watching, with every module long since `ready`. So nothing asked again, and
+ * `Presence.condition` — documented as "what the host found out by ASKING" —
+ * went on reporting what had been true once.
+ *
+ * ## Why this is not the polling loop this host refuses
+ *
+ * The essays in `App.tsx` and at the top of this file refuse a particular
+ * thing, and it is worth naming precisely so this can be measured against it: a
+ * request per tick, per module, paid FOREVER, by a canvas NOBODY IS LOOKING AT,
+ * to be told that nothing has changed. Four properties, and this check has none
+ * of them.
+ *
+ *  - It is not per module registered. `toWatch` is scoped to `needed`, which is
+ *    "on a kehikko that a live page says it has open" — five or six containers
+ *    here, out of fifteen registrations, and the modules on the other three
+ *    kehikot are not asked about at all.
+ *  - It is not paid by a canvas nobody is looking at. `needed` is empty when no
+ *    page holds a stream, and the stream ends when the browser does, so a host
+ *    left running with no window makes zero of these requests. That is the same
+ *    evidence the reaper already runs on; nothing new is being believed.
+ *  - It is not paid by the page. The page adds no timer and no request: it is
+ *    told, over the socket it already holds, and only when something actually
+ *    changed. A tab open all day makes exactly as many requests as it does now.
+ *  - It is not a tick per fact. Nothing is sent, and no sweep happens, unless a
+ *    module's reachability came back different from what was believed.
+ *
+ * What is left is a server process asking half a dozen localhost ports, twice a
+ * minute, while somebody has a canvas of them open. That is the same order of
+ * cost as ONE focus sweep, spread over a minute — and the alternative that was
+ * rejected, widening the `starting` interval to run always, is five modules
+ * every 1.5 seconds, which is roughly forty times this and never stops.
+ *
+ * ## Why thirty seconds
+ *
+ * Bounded from both sides, and the bounds are far enough apart that one
+ * constant is honest — the same argument `GRACE_MS` makes.
+ *
+ * From below: what is being detected is a process that has died. The person's
+ * own recovery is a restart, and a module's dev server takes one to six seconds
+ * to come back, so a check every second would shorten a thirty-second wrong
+ * light to a one-second wrong light in exchange for thirty times the traffic —
+ * and would still be slower than the restart it triggers. There is nothing a
+ * person can do with the difference.
+ *
+ * From above: the host RESTARTS a needed module that is not answering, and the
+ * container says "starting" while it does. A check every five minutes would
+ * mean five minutes of a container claiming a program is fine while its page
+ * shows a dead connection, which is the fault this is for.
+ *
+ * It is deliberately the number the reaper already runs at, and they share one
+ * timer in `server.ts`. Two clocks in one process, thirty seconds apart in
+ * phase, would be two things to reason about and one more thing to get out of
+ * step for no benefit either could name.
+ */
+export const WATCH_EVERY_MS = 30_000
+
+/**
+ * Which modules to ask about, right now.
+ *
+ * Both directions matter, which is why this is not filtered on `answering`. A
+ * module that WAS answering and has died has to lose its green light. A module
+ * that was silent and has been started by hand in somebody's terminal has to
+ * gain one — and that person is exactly as unlikely to alt-tab as the first.
+ *
+ * `starting` is excluded because a module the host has just run is already
+ * being asked about, faster, by the loop in `App.tsx` that exists for it, and
+ * because the answer during those seconds is "not yet" — which is what the
+ * container is already saying.
+ */
+export function toWatch(standings: readonly Standing[]): string[] {
+  return standings.filter((s) => s.needed && !s.starting).map((s) => s.id)
+}
+
+/**
  * Which modules to stop, right now.
  *
  * Read the conditions as a list of things that must ALL be true, because that
