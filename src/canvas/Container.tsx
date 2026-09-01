@@ -3,8 +3,6 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   ChevronUp,
-  Pin,
-  PinOff,
   X,
 } from 'lucide-react'
 
@@ -495,47 +493,29 @@ export function Container({
         <PromptButton wanted={presence.module?.declares.prompt === true} onOpen={onPrompts} />
 
         {/*
-         * Pin: hold this container where it is and stop telling it about the canvas.
+         * There is no pin button here any more, and the pin itself is still
+         * built.
          *
-         * What it is for is two containers on two epics, side by side, to compare —
-         * move the canvas and the pinned one keeps what it had.
+         * It held a container where it was and stopped telling it about the
+         * canvas, for two containers on two epics side by side. The owner asked
+         * for the control to go: seven icons in a 32px strip is most of what a
+         * person sees of this host, and this was the one nobody reached for.
          *
-         * The module is told it is pinned, which is the whole reason this host
-         * is allowed to have the button at all. A silent pin leaves a module
-         * describing itself as showing the open epic while it shows a
-         * remembered one, unable to tell a person's pin from the canvas not
-         * having moved; this host refused to pin until the protocol grew a word
-         * for it. See `pinned` in the protocol's `wire.ts`.
+         * What is left standing underneath is deliberate rather than forgotten.
+         * `pinned` is a field of the protocol's context, the host still sends
+         * it, `whileFrozen` in `host/context.ts` still lets a theme through a
+         * frozen container, and a placement can still carry it. So a pin can be
+         * set by anything that edits a placement — the host's own MCP door, or
+         * a future control — and every module already understands being told it
+         * is pinned. Ripping the mechanism out would have been a protocol
+         * change and a migration to remove a capability nobody objected to.
          *
-         * Shown whatever the condition, unlike the height toggle: pinning is a
-         * fact about the container rather than a conversation with the program, and
-         * a module that is not answering yet can still be pinned before it
-         * does.
+         * Verified before removing: no container on any kehikko was pinned, so
+         * nothing was left frozen with no way to release it. That was the one
+         * thing this could have got wrong — a pinned container whose only
+         * unpin button had just been deleted would have been stuck describing a
+         * canvas it could no longer follow.
          */}
-        <Hint
-          label={
-            pinned
-              ? 'pinned — it keeps what it was last told, and is not hearing about this kehikko'
-              : 'pin it — it will keep what it has while the rest of the kehikko moves'
-          }
-          side="left"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={pinned ? 'let this container follow the kehikko again' : 'pin this container'}
-            aria-pressed={pinned}
-            className={
-              pinned
-                ? 'text-foreground size-6 cursor-default'
-                : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
-            }
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={() => onPin(!pinned)}
-          >
-            {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
-          </Button>
-        </Hint>
 
         <Hint label="take it off this kehikko — the program keeps running" side="left">
           <Button
