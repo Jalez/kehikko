@@ -102,8 +102,39 @@ describe('a fault does not resize the arrangement', () => {
    * nothing appearing and nothing going away.
    */
   test('the host’s error line is drawn in the footer and nowhere else', () => {
-    expect(shell).toContain('<Footer trouble={trouble} />')
+    expect(shell).toContain('<Footer trouble={trouble}')
     expect(shell).not.toContain('bg-destructive/80')
+  })
+
+  /*
+   * And the one control that has since earned a place beside it is `shrink-0`
+   * and shorter than the strip.
+   *
+   * Both are load-bearing and neither looks it. Without `shrink-0` the button
+   * is what gives way when the sentence is long, and a truncated word on a
+   * button is a button nobody can read — the sentence is the thing that should
+   * truncate, because the whole of it is in a `title` and the button's label is
+   * not. And a control taller than `h-6` makes the strip taller than the
+   * arithmetic the canvas's height is computed against, which is the one thing
+   * this footer must never do.
+   */
+  test('the control beside it cannot stretch the strip or be squeezed out of it', () => {
+    expect(floor).toContain('h-4 shrink-0')
+  })
+
+  /*
+   * And it is not drawn at all when nothing is wrong.
+   *
+   * The footer's own essay is four paragraphs about why an always-visible strip
+   * is the most expensive real estate on the screen. A control that is only
+   * meaningful while the host's server is silent must be absent the rest of the
+   * time, which is nearly always — so it hangs off `silent`, and `silent` comes
+   * from the module that wrote the sentence rather than from a string match
+   * here.
+   */
+  test('and it is absent unless the host’s own server is the thing that failed', () => {
+    expect(floor).toContain('{silent ? (')
+    expect(floor).toContain('isNotAnswering(trouble)')
   })
 
   /*

@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
 import type { Presence } from '@/host/registry.ts'
+import { notAnswering } from '@/host/reachable.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -203,7 +204,10 @@ export function ToolsDialog({
       setDoor(body)
     } catch (error) {
       setDoor(null)
-      setRefused(`The host's own server did not answer: ${(error as Error).message}.`)
+      /* One sentence, one place. See `host/reachable.ts`: this was one of four
+         hand-written wordings of the same fault, none of which said what a
+         person could do about it. */
+      setRefused(notAnswering(error))
     } finally {
       setAsking(false)
     }
@@ -249,7 +253,7 @@ export function ToolsDialog({
       await ask()
       onChanged()
     } catch (error) {
-      setSaid(`The host's own server did not answer: ${(error as Error).message}.`)
+      setSaid(notAnswering(error))
     } finally {
       setPressing(false)
     }

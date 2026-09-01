@@ -315,6 +315,18 @@ in will look dead.
 seeds the first project, and `epics.list` then honestly answers with nothing — a
 failure where every layer reports correctly and the map is simply empty.
 
+**This host is two processes, and one of them can die alone.** `run.sh` starts
+the API and Vite on adjacent ports, and `server/ports.ts` claims them together.
+The API dying leaves the page perfectly alive with every `/host/*` call refused —
+a fault a person meets as one line in the footer. It used to stay that way:
+`run.sh` backgrounded the API, blocked on Vite, and never noticed it had gone.
+It now supervises the API and starts it again, backing off when the same failure
+repeats, so a crash costs a second rather than a hand restart that destroys every
+module's document. The page says so in one sentence — `src/host/reachable.ts`,
+which four files used to write for themselves — retries on a widening interval,
+and offers to look again. It cannot offer to restart: the page's only route to
+that server is through that server.
+
 **The app is exactly one window tall.** A strip, a canvas, and a footer, in a
 column of `h-screen` with `overflow-hidden` on it. The document never scrolls;
 the *canvas* does, inside itself, when the arrangement is taller than the room

@@ -1,3 +1,5 @@
+import { isNotAnswering } from '@/host/reachable.ts'
+
 /**
  * The strip along the bottom of the window, and an argument for keeping it
  * nearly empty.
@@ -83,8 +85,47 @@
  * If something ever does earn a place here, it goes on the right, against
  * `justify-between`, and it should have to argue with the four paragraphs
  * above first.
+ *
+ * ## The fifth candidate, which did earn a place, and what it is not
+ *
+ * One thing has since argued its way in: a "look again" beside the sentence,
+ * for the one fault where looking again is an answer — the host's own server
+ * not answering the page in front of it. It passes the test the four above
+ * failed, and it passes it in the strongest way available: it is homeless
+ * because it is meaningless anywhere else, and it costs nothing at all times
+ * because it is not THERE at all times. It appears with that one sentence and
+ * goes with it, so the strip a person looks at while nothing is wrong is
+ * exactly the strip described above.
+ *
+ * It is deliberately not a restart, though a restart is what was asked for.
+ * The page cannot restart the host's server: its only route to that server is
+ * that server. `run.sh` supervises the API and starts it again when it dies —
+ * that is where the restart actually lives, and the essays in `run.sh` and in
+ * `host/reachable.ts` are the record of why it lives there and not here. What
+ * is left for a person to do from this strip is to stop waiting for the page's
+ * own backoff and look now, which is small, true, and occasionally what they
+ * want.
+ *
+ * It needs no arm. The two-press pattern in `Clearing.tsx` is for a press that
+ * destroys something; this one re-reads a registry, and a control that is safe
+ * to press twice must not be made to feel dangerous.
  */
-export function Footer({ trouble }: { trouble: string | null }) {
+export function Footer({
+  trouble,
+  onLookAgain,
+  looking,
+}: {
+  trouble: string | null
+  /** Sweep the registry now. The same `look` every other caller asks for. */
+  onLookAgain(): void
+  /** Whether a sweep is in flight, so the control says so rather than lying still. */
+  looking: boolean
+}) {
+  /* Asked of the module that wrote the sentence rather than matched here. The
+     footer must not grow an opinion about which faults are which — see
+     `host/reachable.ts`. */
+  const silent = isNotAnswering(trouble)
+
   return (
     <footer
       data-footer=""
@@ -116,6 +157,29 @@ export function Footer({ trouble }: { trouble: string | null }) {
         <span className="text-destructive ml-auto min-w-0 truncate" title={trouble} role="status">
           {trouble}
         </span>
+      ) : null}
+
+      {/* Only for that one fault, and `shrink-0` so the sentence beside it is
+          what gives way rather than the control — a truncated word on a button
+          is a button nobody can read, and the whole sentence is in the `title`
+          of the span anyway.
+
+          A plain `<button>` and not the shared `Button`. Every size that
+          component offers is taller than this strip, which is twenty-four
+          pixels by an arithmetic the canvas's height depends on; giving it one
+          more variant for one use would put the strip's height at the mercy of
+          a component nothing else here uses. `h-4` with `leading-none` keeps it
+          inside, and the strip's own `items-center` places it. */}
+      {silent ? (
+        <button
+          type="button"
+          onClick={onLookAgain}
+          disabled={looking}
+          title="Ask the host's server again, now, rather than waiting for the page to retry."
+          className="border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 h-4 shrink-0 rounded-sm border px-1.5 text-[10px] leading-none"
+        >
+          {looking ? 'looking…' : 'look again'}
+        </button>
       ) : null}
     </footer>
   )

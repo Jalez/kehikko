@@ -3,6 +3,7 @@ import type { Emitted } from './events.ts'
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
+import { CALL_NOT_MADE } from './reachable.ts'
 
 /* The same check the server runs, run here too, because a method that neither
    half answers is a bug that has to be loud on whichever side notices first. */
@@ -134,10 +135,17 @@ export function makeAsk(moduleId: string, canvas: CanvasControls): Ask {
       return body
     } catch {
       /* The host's own server is unreachable from the host's own page. Almost
-         always the server restarting under a page left open. `failed` rather
-         than `unknown-method`, because the protocol is explicit that the two
-         mean different futures and this one is worth retrying. */
-      return failed("The host's server did not answer. It may be restarting; the call was not made.")
+         always the server restarting under a page left open — and since `run.sh`
+         supervises the API, "it may be restarting" describes something that is
+         actually happening rather than a hopeful guess. `failed` rather than
+         `unknown-method`, because the protocol is explicit that the two mean
+         different futures and this one is worth retrying.
+
+         The words live in `host/reachable.ts` with the rest of this host's
+         sentences about the same fault. This one stays short and separate
+         there, because it is read by a PROGRAM and shown inside a container
+         that is not this host's to lay out. */
+      return failed(CALL_NOT_MADE)
     }
   }
 }

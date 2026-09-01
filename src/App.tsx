@@ -49,6 +49,7 @@ import { toWireContext, type Subject } from './host/context.ts'
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { mostFor, pay, unfolded } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
@@ -208,6 +209,32 @@ interface Live {
  * window switching, far too short to make "I just started a module" wait.
  */
 const QUIET_BETWEEN_SWEEPS_MS = 3000
+
+/**
+ * How long the page waits before looking again while its own server is silent.
+ *
+ * ## Why this is not the polling loop this host refuses everywhere else
+ *
+ * `look` is deliberately tied to attention — see the essay on the focus sweep
+ * below — because a sweep is N requests to N programs and paying for it while
+ * nobody is looking is paying for nothing. This is the one case that rule gets
+ * wrong, and it is wrong for the reason `server/wake.ts` was written about: the
+ * moment worth catching is a person SITTING and WATCHING while something
+ * changes underneath them. `run.sh` now starts the API again a second or two
+ * after it dies, and without this the canvas would go on saying the server is
+ * not answering until they happened to alt-tab away and back — a fault that has
+ * already fixed itself, still on screen, which is exactly as misleading as a
+ * fault that has not.
+ *
+ * Three properties keep it from becoming the request-per-tick this host argues
+ * against. It runs ONLY while the host's own server is silent, which is
+ * normally never. It DOUBLES to half a minute, so a host left broken overnight
+ * makes a couple of requests a minute rather than thousands. And it stops while
+ * the tab is not visible, which is the focus sweep's own argument: nobody is
+ * reading the line, so nothing is gained by clearing it.
+ */
+const FIRST_RETRY_MS = 2000
+const LONGEST_RETRY_MS = 30_000
 
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
@@ -542,9 +569,13 @@ export function App() {
         return kept
       })
     } catch (error) {
-      setTrouble(
-        `This host's own server did not answer: ${(error as Error).message}. Nothing is known about what is registered until it does.`,
-      )
+      /* The sentence, and the recognition of it, both come from
+         `host/reachable.ts`. Four places in this program used to write their own
+         wording of this one fault and none of them said what to do about it —
+         see the essay there. The extra clause is this caller's alone: a failed
+         sweep means the host knows nothing about what is registered, which is
+         not true of the other three. */
+      setTrouble(notAnswering(error, 'Nothing is known about what is registered until it does.'))
     } finally {
       sweeping.current = false
       sweptAt.current = Date.now()
@@ -607,6 +638,48 @@ export function App() {
       document.removeEventListener('visibilitychange', maybe)
     }
   }, [look])
+
+  /**
+   * Look again, on a widening interval, while the host's own server is silent.
+   *
+   * The exception to the rule directly above, and the argument for it is in
+   * `FIRST_RETRY_MS`. In short: the focus sweep is right about a canvas nobody
+   * is looking at and wrong about a person watching a fault that is in the
+   * middle of repairing itself, which is what this fault now is.
+   *
+   * ## Why the effect keys on the message
+   *
+   * `trouble` is what a failed sweep wrote, and `isNotAnswering` is the module
+   * that wrote it recognising its own line. Keying on it means the timer exists
+   * exactly while the fault does: the sweep that succeeds calls `setTrouble(null)`,
+   * this effect's cleanup runs, and the timer is gone without anything having to
+   * remember to cancel it.
+   *
+   * A retry that fails writes the SAME string again, so React bails out of the
+   * render, the effect is not torn down, and the backoff keeps widening —
+   * which is the behaviour wanted. A retry that fails DIFFERENTLY restarts the
+   * effect and the backoff with it. That is not ideal and it is not worth
+   * machinery: two different failures in a row means something is changing, and
+   * asking again sooner is the right response to that.
+   */
+  useEffect(() => {
+    if (!isNotAnswering(trouble)) return
+
+    let waiting = FIRST_RETRY_MS
+    let timer = 0
+
+    const again = () => {
+      /* Not while nobody is looking. The same argument the focus sweep makes,
+         and it matters more here: this is the one timer in the program that
+         would otherwise run forever on a canvas left open on a dead host. */
+      if (document.visibilityState === 'visible') void look()
+      waiting = Math.min(waiting * 2, LONGEST_RETRY_MS)
+      timer = window.setTimeout(again, waiting)
+    }
+
+    timer = window.setTimeout(again, waiting)
+    return () => window.clearTimeout(timer)
+  }, [trouble, look])
 
   /**
    * Look again while the host is starting something.
@@ -2084,8 +2157,13 @@ export function App() {
           lives here now rather than in a band above the canvas, which used to
           take its height out of the arrangement and move every container the
           moment anything went wrong. See `Footer.tsx` for what else was
-          considered for this strip and why none of it is here. */}
-      <Footer trouble={trouble} />
+          considered for this strip and why none of it is here.
+
+          `onLookAgain` is the same sweep every other caller asks for, and the
+          footer offers it only for the one fault where it means anything — see
+          `host/reachable.ts`. It is not a restart: nothing in this page can
+          restart a server it can only reach through that server. */}
+      <Footer trouble={trouble} onLookAgain={() => void look()} looking={looking} />
     </div>
   )
 }

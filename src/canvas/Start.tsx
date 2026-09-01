@@ -2,6 +2,7 @@ import { Play } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { notAnswering } from '@/host/reachable.ts'
 
 /**
  * The button on a silent container.
@@ -76,7 +77,9 @@ export function Start({
       )
       onStarted()
     } catch (error) {
-      setSaid(`The host's own server did not answer: ${(error as Error).message}.`)
+      /* The shared sentence — see `host/reachable.ts`. This was the fourth
+         hand-written copy of it. */
+      setSaid(notAnswering(error))
     } finally {
       setRunning(false)
     }

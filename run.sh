@@ -164,8 +164,51 @@ fi
 # way out however we leave, so a Ctrl-C does not leave an orphan holding 4180 —
 # which is its own afternoon of "address already in use" for anybody who has met
 # it once.
-bun run server/server.ts &
-API=$!
+#
+# ## Started in one place, because it is now started more than once
+#
+# This used to be two lines in the middle of the script. It is a function
+# because the API is started AGAIN when it dies, and a second copy of the start
+# would be a second place for the command, or for the bookkeeping below, to
+# drift out of step with the first.
+#
+# `API_UP_AT` is when this attempt began. It is the whole of how the supervisor
+# at the bottom tells a crash loop from bad luck.
+start_api() {
+  bun run server/server.ts &
+  API=$!
+  API_UP_AT="$(date +%s)"
+}
+
+start_api
+
+# A sleep this script can be interrupted during.
+#
+# A FOREGROUND `sleep` would re-create, exactly, the bug the essay below records
+# about a foreground Vite: a shell blocked on a foreground child does not act on
+# a trapped signal until that child ends, so a TERM aimed at this script would
+# sit queued behind a nap. Backgrounded and `wait`ed on, the trap runs at once —
+# `wait` is the one thing here that is interruptible, which is why the whole of
+# this script is built around it.
+nap() {
+  sleep "$1" &
+  NAP=$!
+  wait "$NAP" 2>/dev/null || true
+}
+
+# How long the API has to stay up before its previous death stops counting.
+#
+# Below this it is a crash loop — a broken import, a port it cannot bind — and
+# the wait between attempts doubles so a permanently broken build does not fill
+# the terminal. Above it, the death was an event rather than a pattern (somebody
+# killed it, something crashed once) and the next one starts from one second
+# again, because that is the case where coming straight back is the whole point.
+API_HEALTHY_FOR=20
+
+# The ceiling on that doubling. Half a minute is long enough to be quiet and
+# short enough that somebody who has just FIXED the broken import gets their
+# server back without touching anything.
+API_BACKOFF_MAX=30
 
 # `$PAGE` rather than `$((PORT + 1))`, because the pair was claimed together and
 # this is the half that was checked to be free. `--strictPort` stays: the page
@@ -201,8 +244,109 @@ PAGE_PID=$!
 trap 'kill $API $PAGE_PID 2>/dev/null; exit 143' INT TERM
 trap 'kill $API 2>/dev/null' EXIT
 
-wait $PAGE_PID
-PAGE_STATUS=$?
+# ---------------------------------------------------------------------------
+# The supervisor: nothing was holding the API up, and it showed.
+#
+# ## The half of the host that could die alone
+#
+# `server/ports.ts` already has a word for an API answering with no page behind
+# it — `half` — and an essay about the white screen it caused. This is the
+# MIRROR of that state, it is the one people actually meet, and until now
+# nothing in this script had noticed it was possible.
+#
+# The old tail of this file was `wait $PAGE_PID`. If the API exited, this shell
+# was blocked on the PAGE and never heard about it. Vite carried on serving a
+# perfectly good document; every `/host/*` call it proxied was refused; and the
+# canvas sat there saying the host's own server was not answering until somebody
+# restarted the whole thing by hand — which destroys every module's document to
+# fix a process that takes a second to start. `Frames.tsx` exists in the shape
+# it does specifically to avoid losing those documents, and the recommended cure
+# for this fault was to lose them all.
+#
+# It is not a rare state. Reproduced on the first attempt while this was being
+# written: a file in `server/` imported a name its dependency no longer
+# exported, `bun` printed a `SyntaxError` and exited before binding anything,
+# and this script went straight on to start Vite as though nothing had happened.
+# An agent editing server code and an agent killing something on 4180 both land
+# here, and the second is already recorded in `ports.ts` as something that has
+# happened.
+#
+# ## Why a poll and not `wait -n`
+#
+# `wait -n` — wake when ANY child ends — is exactly this loop in one builtin,
+# and it is bash 4.3 and later. This file is `#!/usr/bin/env sh` and is run by
+# whatever that is on somebody's machine. A two-second poll of two pids costs a
+# `sleep` and two `kill -0`s, which is nothing, and it works everywhere.
+#
+# The poll interval is not what decides how fast a signal is honoured: naps are
+# `wait`ed on, so the trap runs the instant a TERM arrives. It only decides how
+# long a dead API stays dead, and two seconds is under the page's own first
+# retry.
+#
+# ## Why the page is not restarted the same way
+#
+# Because Vite dying is a different fact. The API is a process this host can
+# have again for nothing — it holds no browser state, and a page whose `/host`
+# calls are refused for a second is a page that retries. The PAGE is the
+# document somebody is looking at, with every module's frame inside it; a
+# restarted Vite is a browser that must reload, and a reload is the loss this
+# whole arrangement is built to prevent. So the page ending still ends the host,
+# and whoever started it finds out, which is the rule this script already had.
+API_BACKOFF=1
+API_DEATHS=0
+
+while :; do
+  # The page ending ends the host. Checked first, so a host being shut down does
+  # not spend a nap resurrecting an API on its way out.
+  if ! kill -0 "$PAGE_PID" 2>/dev/null; then
+    break
+  fi
+
+  if ! kill -0 "$API" 2>/dev/null; then
+    # Reaped, for its status. `|| API_STATUS=$?` rather than a bare `wait`,
+    # because `set -e` would take a non-zero exit here as this script's own
+    # failure — and a crashed API is precisely the case this loop is for.
+    API_STATUS=0
+    wait "$API" 2>/dev/null || API_STATUS=$?
+
+    LIVED=$(( $(date +%s) - API_UP_AT ))
+    if [ "$LIVED" -ge "$API_HEALTHY_FOR" ]; then
+      # It had been up and working. Whatever ended it was an event, not a
+      # pattern, so the next attempt is immediate-ish and the count starts over.
+      API_BACKOFF=1
+      API_DEATHS=0
+    fi
+    API_DEATHS=$(( API_DEATHS + 1 ))
+
+    echo "kehikko: the API exited ($API_STATUS) after ${LIVED}s. The page is untouched; starting the API again in ${API_BACKOFF}s." >&2
+    if [ "$API_DEATHS" -ge 3 ]; then
+      # Said only once it is a pattern, because saying it on a single crash
+      # would be this script diagnosing a fault it has not seen twice.
+      echo "kehikko: that is $API_DEATHS in a row. The same error repeating above is the reason — it is being restarted into code that does not load. Fix it and it will come back on its own." >&2
+    fi
+
+    nap "$API_BACKOFF"
+    if [ "$API_BACKOFF" -lt "$API_BACKOFF_MAX" ]; then
+      API_BACKOFF=$(( API_BACKOFF * 2 ))
+      if [ "$API_BACKOFF" -gt "$API_BACKOFF_MAX" ]; then
+        API_BACKOFF="$API_BACKOFF_MAX"
+      fi
+    fi
+
+    # Only if the page is still there. A TERM that arrived during the nap took
+    # the page down through the trap, and starting an API for a page that has
+    # gone is the orphan on 4180 this script's traps exist to prevent.
+    if kill -0 "$PAGE_PID" 2>/dev/null; then
+      start_api
+    fi
+    continue
+  fi
+
+  nap 2
+done
+
+PAGE_STATUS=0
+wait "$PAGE_PID" 2>/dev/null || PAGE_STATUS=$?
 
 # Exiting with the page's own status keeps whoever started this able to tell a
 # clean stop from a crash.
