@@ -125,31 +125,50 @@ export function holdsEpics(root: string): boolean {
 }
 
 /**
- * Whether this folder is under git at all.
+ * Whether this folder is under git — here, or anywhere above it.
  *
- * `.git` as either a directory or a file — the file form is a worktree or a
+ * `.git` as either a directory or a file: the file form is a worktree or a
  * submodule, both of which are real repositories, and a check that only knew
  * about the directory would tell somebody working in a worktree that their
  * project has no history. This host runs out of worktrees itself.
  *
- * It looks HERE and not upwards, which is a decision rather than an oversight.
- * A project nested inside a repository — `05_drafts/thesis_latex` inside a
- * degree repo is a real one on this machine — does have a history, and this
- * answers `false` for it, so the setting is not offered. That is the safer of
- * the two mistakes: the alternative is a checkbox that writes a `.gitignore`
- * into a folder in the middle of somebody else's repository, affecting files
- * this host has never been shown.
+ * ## It walks up, and the first version of this did not
  *
- * The cost is that such a project cannot share its `.kehikot/` from here, and
- * the way to say so is a sentence on the screen rather than a disabled control
- * with no explanation.
+ * Looking only at `<project>/.git` is wrong for the project this setting was
+ * built for. The thesis is at `…/CS-DEGREE/05_drafts/thesis_latex`, has no
+ * `.git` of its own, and sits several directories inside one. Under the narrower
+ * check the host would have said "no git history here" and withheld the setting
+ * from the one project whose papers most needed to be committed — while `notes`
+ * had been writing a `.gitignore` into that same folder for months, because it
+ * walks up and always has. Two programs disagreeing about whether somebody's
+ * folder is in a repository, with one of them acting on it.
+ *
+ * The objection to walking up is real and is answered by WHERE the file goes,
+ * not by refusing to look: the `.gitignore` is written at the PROJECT root and
+ * never at the repository root. Git honours one in any directory, so the rule
+ * reaches exactly this folder and nothing beside it — which is both the correct
+ * scope and the smallest edit to somebody else's repository. Appending to a
+ * `.gitignore` five levels up, covering work that has nothing to do with this,
+ * would be the much larger thing to do uninvited. `notes` makes this argument
+ * first and at length; this is the same conclusion, reached by finding it there.
+ *
+ * A folder with no `.git` anywhere above it gets nothing: there is no history
+ * for a rule to mean anything to, and the screen says so in a sentence rather
+ * than with a disabled control.
  */
 export function hasGit(root: string): boolean {
-  try {
-    statSync(resolve(root, '.git'))
-    return true
-  } catch {
-    return false
+  let at = resolve(root)
+  for (;;) {
+    try {
+      statSync(resolve(at, '.git'))
+      return true
+    } catch {
+      const up = resolve(at, '..')
+      /* `resolve('/', '..')` is `/`, so the root of the filesystem is where this
+         stops. A loop that tested only for a `.git` would not terminate there. */
+      if (up === at) return false
+      at = up
+    }
   }
 }
 

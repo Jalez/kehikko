@@ -111,6 +111,31 @@ describe('whether a project keeps its .kehikot out of git', () => {
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('dist\n')
   })
 
+  /*
+   * The case the first version of `hasGit` got wrong, and the reason it walks up.
+   *
+   * The thesis on this machine is `…/CS-DEGREE/05_drafts/thesis_latex`: no `.git`
+   * of its own, several directories inside one. A check that looked only at the
+   * project folder would withhold this setting from the project whose papers
+   * most need committing — while `notes` wrote a `.gitignore` into that same
+   * folder anyway, because it has always walked up.
+   */
+  test('a project nested inside a repository has a history, and the file goes at the project', () => {
+    const store = db()
+    const outer = project(true)
+    const inner = join(outer, 'drafts', 'thesis')
+    mkdirSync(inner, { recursive: true })
+    const one = added(store, inner)
+    expect(one.git).toBe(true)
+
+    const off = shareKehikot(store, one.id, false)
+    expect(off.ok).toBe(true)
+    /* At the project, never at the repository root: git honours a `.gitignore`
+       in any directory, so the rule reaches this folder and nothing beside it. */
+    expect(existsSync(join(inner, '.gitignore'))).toBe(true)
+    expect(existsSync(join(outer, '.gitignore'))).toBe(false)
+  })
+
   test('a project that is not there is a 404 rather than a thrown host', () => {
     const said = shareKehikot(db(), 4321, true)
     expect(said.ok).toBe(false)
