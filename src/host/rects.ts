@@ -28,6 +28,12 @@ import type { Rect } from '@/canvas/Frames.tsx'
  */
 export function useRects(): {
   rects: Record<string, Rect>
+  /**
+   * The height the canvas has to draw in, or `null` before anything is
+   * measured. Read by `fit.ts` to decide how tall a grid row is drawn, so an
+   * arrangement fits its height the way it has always fitted its width.
+   */
+  room: number | null
   /** Give the surface — the scrolling element the layer sits inside. */
   surface: (element: HTMLElement | null) => void
   /** Give one container's body, or `null` when that container goes away. */
@@ -70,6 +76,8 @@ export function useRects(): {
   settle: (ms?: number) => void
 } {
   const [rects, setRects] = useState<Record<string, Rect>>({})
+  /** The height the canvas has to draw in. `null` until something is measured. */
+  const [room, setRoom] = useState<number | null>(null)
   const surfaceRef = useRef<HTMLElement | null>(null)
   const bodies = useRef(new Map<string, HTMLElement>())
   /* One observer for every container body and the surface itself. A container resized by
@@ -82,6 +90,22 @@ export function useRects(): {
     const surface = surfaceRef.current
     if (!surface) return
     const base = surface.getBoundingClientRect()
+
+    /*
+     * How much height the canvas has, reported alongside where everything is.
+     *
+     * Taken here rather than by a second observer because this one already runs
+     * on every change of the surface — a window resize, a strip appearing, a
+     * container being dragged — and a second `ResizeObserver` on the same
+     * element would be a second answer to one question, arriving on its own
+     * schedule. `see fit.ts` for what reads it.
+     *
+     * `clientHeight` rather than the rect's height: the rect is what the box
+     * OCCUPIES, and this needs what it can draw INSIDE, which differs by
+     * whatever a horizontal scrollbar takes. On a canvas that has just
+     * overflowed, those are exactly the pixels in dispute.
+     */
+    setRoom((was) => (was === surface.clientHeight ? was : surface.clientHeight))
 
     const next: Record<string, Rect> = {}
     for (const [id, element] of bodies.current) {
@@ -185,7 +209,7 @@ export function useRects(): {
     [measure],
   )
 
-  return { rects, surface, body, measure, remeasure: soon, settle }
+  return { rects, room, surface, body, measure, remeasure: soon, settle }
 }
 
 function same(a: Record<string, Rect>, b: Record<string, Rect>): boolean {

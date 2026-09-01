@@ -47,6 +47,7 @@ import { toWireContext, type Subject } from './host/context.ts'
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
@@ -222,7 +223,7 @@ export function App() {
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
-  const { rects, surface, body, measure, remeasure, settle } = useRects()
+  const { rects, room, surface, body, measure, remeasure, settle } = useRects()
 
   /* Whether the canvases have been read from the server yet. Nothing is written
      before they have been, or the first render would save an empty canvas over
@@ -1374,6 +1375,32 @@ export function App() {
     return said
   }, [registry])
   const containers = placements.filter((p) => byId.has(p.i))
+
+  /*
+   * How tall a row is DRAWN, so an arrangement fits the height it has.
+   *
+   * The canvas has always fitted its width and never its height, and the reason
+   * was one line: twelve columns make a column a proportion of the room, while
+   * `rowHeight` was a fixed 24 pixels. So a container six wide was half the
+   * canvas on any screen and a container ten tall was 240 pixels on every
+   * screen — and an arrangement built on a large display overflowed a small one
+   * downward, forever, with scrolling as the only remedy.
+   *
+   * The extent is the bottom edge of the lowest container rather than the
+   * number of containers: a canvas of three containers stacked twelve rows
+   * apart is thirty-six rows tall, and counting the containers would say three.
+   *
+   * The answer only ever shrinks — see `fit.ts` for why it deliberately does
+   * not grow to fill a tall screen, and for the floor it stops at.
+   */
+  const extent = useMemo(
+    () => containers.reduce((lowest, one) => Math.max(lowest, one.y + one.h), 0),
+    [containers],
+  )
+  const rowHeight = useMemo(
+    () => rowHeightFor({ room, extent, gap: MARGIN[1] }, ROW_HEIGHT),
+    [room, extent],
+  )
   const placed = placements.map((p) => p.i)
 
   /**
@@ -1594,7 +1621,7 @@ export function App() {
           layouts={{ lg: containers as Layout[] }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
-          rowHeight={ROW_HEIGHT}
+          rowHeight={rowHeight}
           margin={MARGIN}
           containerPadding={MARGIN}
           draggableHandle=".container-grip"
