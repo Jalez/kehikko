@@ -38,8 +38,14 @@ import { Hint } from './Hint.tsx'
  * control strip is a fixed row of chrome competing with the thing somebody
  * opened the module to look at. Moving that to a permanent strip in the header
  * would have moved the cost rather than removed it, so this is one
- * twenty-four-pixel button that opens a menu — quiet when nobody is using it,
+ * twenty-four-pixel button that opens a menu — small when nobody is using it,
  * which is what "put it aside" means.
+ *
+ * Small, and deliberately not DIM. That distinction is a correction: what the
+ * five modules were paying was a ROW OF CHROME, and giving that back is not the
+ * same as making the control hard to notice. For a while this file confused the
+ * two, drew the button muted, and the person who owns this host went looking
+ * for a filter and could not find one. See two sections down.
  *
  * ## No module string is ever laid out in the header
  *
@@ -61,14 +67,54 @@ import { Hint } from './Hint.tsx'
  * There is no `Badge` in this file and there must not be. shadcn's badge is
  * `whitespace-nowrap` in its base.
  *
- * ## What the icon says, which is the only thing the host can honestly say
+ * ## What it is CALLED, which is the half that was missing
  *
- * Foreground weight when something is narrowed, muted when nothing is — the
- * same two states the pin, the height toggle and the prompt button use, so it
- * reads as one more control of the kind already there rather than a new
- * language.
+ * Its accessible name used to be "what Notifications shows". Every word of that
+ * is true and the control was still, in practice, not there: the person who
+ * owns this host was told a filter existed, went looking for one, and reported
+ * it missing. It was in front of them. A row of seven unlabelled icons offers
+ * no way in except by name, and nobody hunting for a filter searches for the
+ * phrase "what Notifications shows" — the one word that would have found it
+ * appeared nowhere on the screen, in any tooltip, or in any accessible name.
  *
- * That mark is the always-visible signal that something is being hidden, and it
+ * So the name now begins with the word: "filter what Notifications shows". The
+ * module's name stays in it, because it is what distinguishes six otherwise
+ * identical-looking icon buttons from each other when they are read out one
+ * after another, and every other control in this header does the same.
+ *
+ * This workspace has removed a control for exactly this failure before — the
+ * refresh button in `Bar.tsx`, which still has the essay: a control nobody can
+ * name is a control that is pressed by accident or never at all. That one was
+ * deleted because its capability could be done without a button. This one
+ * cannot; it is renamed instead, which is the other half of the same rule.
+ *
+ * ## What the icon says, and why it is not the usual two states
+ *
+ * The other icons in this header are muted when off and foreground when on,
+ * and this one followed them: muted with an offer and nothing chosen,
+ * foreground when narrowed. That is a departure now, and the departure is the
+ * point rather than an oversight.
+ *
+ * The difference is what "off" means. A pin, a fold and a height toggle are on
+ * EVERY container, in one of two states, so their weight is the only thing
+ * distinguishing the states and muted is the right way to say "not on". This
+ * button is on almost no containers: its presence is itself the message, and
+ * the message is "this module can be narrowed", which is a thing a person
+ * cannot know any other way. Drawn muted, that message was delivered as the
+ * fifth grey icon in a row of grey icons — which is to say it was not
+ * delivered. A container with an offer and no choice made was indistinguishable
+ * at a glance from a container with nothing to filter at all.
+ *
+ * So weight now says "there is something here" and is on whenever the control
+ * is drawn, and the second state is said with FILL: an outline funnel when the
+ * module is showing everything, a solid one when it is not. That costs zero
+ * pixels, which is the constraint that ruled everything else out — the header
+ * is a flex row with six controls and a truncating name in a container that is
+ * routinely 220 pixels wide, and the surplus there was clipping the remove
+ * button until recently. A dot, a count or a word beside the icon would each
+ * have bought legibility back with the pixels that fix cost.
+ *
+ * The fill is the always-visible signal that something is being hidden, and it
  * is worth being plain about what it costs. A module drawing its own toggle
  * could say `show 3 ignored` on screen at all times; with the control in the
  * header the 3 is one press away, in the menu, in the module's own words. The
@@ -98,33 +144,31 @@ export function FilterButton({
   if (groups.length === 0) return null
 
   const on = narrowed(groups, chosen)
+  const said = saying(name, on)
 
   return (
     <DropdownMenu>
-      <Hint
-        label={
-          on
-            ? `${name} is showing less than everything. Press to change what it shows, or to put it all back`
-            : `choose what ${name} shows`
-        }
-        side="left"
-      >
+      <Hint label={said.hint} side="left">
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={on ? `what ${name} shows — narrowed` : `what ${name} shows`}
+            aria-label={said.name}
             aria-pressed={on}
-            className={
-              on
-                ? 'text-foreground pointer-events-auto size-6 cursor-default'
-                : 'text-muted-foreground hover:text-foreground pointer-events-auto size-6 cursor-default'
-            }
+            /* Foreground whichever state it is in — the argument is in the
+               essay above, and it is that the presence of this button is
+               itself the message. `hover:text-foreground` is gone with the
+               muted variant it existed to undo. */
+            className="text-foreground pointer-events-auto size-6 cursor-default"
             /* Stops the grid reading the press as the start of a drag, which
                would make this button unpressable — see `Container.tsx`. */
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <Filter className="size-3" />
+            {/* Solid when something is narrowed, hollow when everything is
+                showing. `fill-current` rather than a second icon import: it is
+                the same funnel, and two lucide glyphs that differ only in
+                weight would be two things to keep in step. */}
+            <Filter className={on ? 'size-3 fill-current' : 'size-3'} />
           </Button>
         </DropdownMenuTrigger>
       </Hint>
@@ -189,6 +233,44 @@ export function FilterButton({
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+/**
+ * What this control is called, and what it says when hovered or focused.
+ *
+ * A function rather than two ternaries at the call site, because the wording is
+ * the whole of the fix and a wording nothing can test is a wording that drifts
+ * back. `test/filters.test.ts` asserts against this directly: that the word
+ * "filter" is in the accessible name in BOTH states, that the module's name is
+ * too, and that the name changes when something is narrowed. Rendering the
+ * button to assert the same things would need a Radix dropdown standing up in a
+ * test runner with no browser, to check a string.
+ *
+ * ## Why the name changes but the verb does not
+ *
+ * The pin and the height toggle name the ACTION and swap it round — "pin this
+ * container" becomes "let this container follow the kehikko again" — because
+ * pressing them does the opposite of what they are doing. Pressing this one
+ * does the same thing either way: it opens a menu. So the verb is fixed and
+ * only the state is appended, which is also what `aria-pressed` says on the
+ * element. Saying it twice is deliberate: `aria-pressed` is a state a screen
+ * reader may or may not announce with the name, and "— narrowed" is four
+ * syllables that guarantee it.
+ *
+ * The hint is a sentence and the name is a phrase, which is the split the rest
+ * of this host keeps: `Hint.tsx` has the argument for why every icon here has a
+ * tooltip at all, and the tooltip is deliberately not the accessible name.
+ */
+export function saying(name: string, narrowed: boolean): { name: string; hint: string } {
+  return narrowed
+    ? {
+        name: `filter what ${name} shows — narrowed`,
+        hint: `filter: ${name} is showing less than everything. Press to change what it shows, or to put it all back`,
+      }
+    : {
+        name: `filter what ${name} shows`,
+        hint: `filter: choose what ${name} shows`,
+      }
 }
 
 /**

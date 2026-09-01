@@ -4,7 +4,7 @@ import { createElement } from 'react'
 import { readFileSync } from 'node:fs'
 import type { FilterGroup } from 'roadmap-module-protocol'
 
-import { Label } from '../src/canvas/Filters.tsx'
+import { Label, saying } from '../src/canvas/Filters.tsx'
 import { chosen, narrowed, sameChoice, settle } from '../src/host/filters.ts'
 import { whileFrozen } from '../src/host/context.ts'
 import { contextSchema } from 'roadmap-module-protocol'
@@ -227,9 +227,125 @@ describe('a module’s label cannot widen anything', () => {
    * nothing in the container header for a label to widen even if every rule
    * above were broken at once.
    */
+  /*
+   * `<` on both ends, and it is not a detail. Without the angle brackets these
+   * matched the IMPORT list at the top of the file, where `DropdownMenuContent`
+   * is named before `DropdownMenuTrigger` — so the slice ran from a later index
+   * to an earlier one and came back empty, and `expect('').not.toContain(...)`
+   * passes for every input there has ever been. The test was green from the day
+   * it was written and was asserting nothing at all.
+   *
+   * It was found by writing a POSITIVE assertion against the same slice: a
+   * check that something IS in the button fails loudly on an empty string,
+   * where a check that something is not in it cannot. Worth remembering as a
+   * shape — a source-slice test made only of `not.toContain` cannot tell you
+   * whether it found the source.
+   */
+  const inTheButton = (from: string) =>
+    from.slice(from.indexOf('<DropdownMenuTrigger'), from.indexOf('<DropdownMenuContent'))
+
+  test('the slice this is asserted against is really the button', () => {
+    expect(inTheButton(source).length).toBeGreaterThan(0)
+    expect(inTheButton(source)).toContain('aria-label')
+  })
+
   test('the header control renders no module string at all', () => {
-    const button = source.slice(source.indexOf('DropdownMenuTrigger'), source.indexOf('DropdownMenuContent'))
+    const button = inTheButton(source)
     expect(button).not.toContain('option.label')
     expect(button).not.toContain('group.label')
+  })
+})
+
+/**
+ * The control a person was told they had and could not find.
+ *
+ * Its accessible name was "what Notifications shows". Every word of that is
+ * true, and the control was in practice invisible: the owner of this host went
+ * looking for a filter among seven unlabelled icons in a container header and
+ * reported it missing. It was in front of them. Nobody hunting for a filter
+ * searches for the phrase "what Notifications shows", and the word "filter"
+ * appeared nowhere on the screen, in any tooltip, or in any accessible name.
+ *
+ * This workspace has already removed a control for exactly this failure — the
+ * refresh button, whose essay in `Bar.tsx` says that a control nobody can name
+ * is one pressed by accident or never at all. That one could be deleted,
+ * because the capability behind it could happen without a button. This one
+ * cannot, so it is renamed instead — and the naming is a pure function so that
+ * a test can hold it there. Two ternaries at a call site are a wording nothing
+ * can assert against, which is a wording that drifts back.
+ */
+describe('a control has to say what it is', () => {
+  test('the word somebody would actually go looking for is in the name', () => {
+    expect(saying('Notifications', false).name).toContain('filter')
+    expect(saying('Notifications', true).name).toContain('filter')
+  })
+
+  /*
+   * And in the tooltip, which is the version read with the eyes rather than
+   * heard. Both, because they reach different people, and only one of them is
+   * the accessible name — see the essay in `Hint.tsx` on why the tooltip is
+   * deliberately not it.
+   */
+  test('and in the sentence shown on hover or focus', () => {
+    expect(saying('Notifications', false).hint).toContain('filter')
+    expect(saying('Notifications', true).hint).toContain('filter')
+  })
+
+  /*
+   * The module's name stays in it. A container header is six icon buttons, and
+   * read out one after another "filter", "pin", "fold" say nothing about WHICH
+   * container is being talked about. Every other control in that header names
+   * its module for the same reason.
+   */
+  test('the module is named, because six identical icons are not', () => {
+    expect(saying('Notifications', false).name).toContain('Notifications')
+    expect(saying('Notifications', true).name).toContain('Notifications')
+  })
+
+  /*
+   * The verb does not swap round the way the pin's and the fold's do, because
+   * pressing this does the same thing in either state: it opens a menu. What
+   * changes is the state appended to it — which `aria-pressed` carries as well,
+   * and saying it twice is deliberate, because a screen reader may or may not
+   * announce a pressed state along with the name.
+   */
+  test('and the name says when something is being hidden', () => {
+    expect(saying('Notifications', true).name).not.toBe(saying('Notifications', false).name)
+    expect(saying('Notifications', true).name).toContain('narrowed')
+    expect(saying('Notifications', false).name).not.toContain('narrowed')
+  })
+
+  /*
+   * The icon is drawn at full weight whenever the control exists at all, which
+   * is a departure from the pin and the fold beside it and is argued at length
+   * in `Filters.tsx`. The short version: those are on every container in one of
+   * two states, so weight is how the state is read; this one is on almost no
+   * containers, so its presence IS the message — "this module can be narrowed"
+   * — and a fifth grey icon in a row of grey icons does not deliver it. A
+   * container with an offer and nothing chosen used to be indistinguishable at
+   * a glance from a container with nothing to filter.
+   *
+   * Whether anything is actually narrowed is said with fill instead, which
+   * costs no pixels. That was the constraint that ruled out a dot, a count and
+   * a word: the header is a flex row with six controls and a truncating name
+   * in a container that is routinely 220 pixels wide, and its surplus was
+   * clipping the remove button until recently.
+   */
+  const trigger = readFileSync(new URL('../src/canvas/Filters.tsx', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+  const button = trigger.slice(trigger.indexOf('<DropdownMenuTrigger'), trigger.indexOf('<DropdownMenuContent'))
+
+  test('the slice this is asserted against is really the button', () => {
+    expect(button.length).toBeGreaterThan(0)
+  })
+
+  test('the icon is not dim when a module has an offer and nothing is chosen', () => {
+    expect(button).not.toContain('text-muted-foreground')
+    expect(button).toContain('text-foreground')
+  })
+
+  test('and it fills in when something is', () => {
+    expect(button).toContain('fill-current')
   })
 })
