@@ -33,10 +33,35 @@
  * would otherwise become a second one — with its own shape to keep in step, its
  * own validation, and the ability to be subtly out of date. What is being sent
  * is not the news; it is that there IS news.
+ *
+ * ## Why there are now two kinds of it, and why that is still one stream
+ *
+ * A kehikko changing underneath somebody is not the only thing that happens
+ * while nobody moves the mouse. A module's server can die — and did: a terminal
+ * whose process was gone while its container went on showing a green light,
+ * because the page had stopped asking and nothing was left to tell it to start
+ * again. See `watch` in `server.ts` for who notices and `toWatch` in
+ * `lifecycle.ts` for which modules are worth noticing about.
+ *
+ * The second kind carries even less than the first: no id, no condition, no
+ * list of what changed. Just `registry`, meaning "what is registered, or what
+ * is answering, is not what you were last told — look again". Everything above
+ * about the first kind applies to it unchanged, and applies harder: the page's
+ * sweep is the one true reading of that, and a stream that shipped a condition
+ * would be a second, older one.
+ *
+ * They share a stream because they share a purpose and a lifetime. The socket
+ * is already open, it already ends exactly when the screen does, and a second
+ * `EventSource` would be a second connection, a second reconnect policy, and a
+ * second place for the evidence `open.ts` reads off this one to be
+ * half-withdrawn.
  */
 
-/** A listener that has been handed one kehikko id. */
-type Woken = (kehikko: number) => void
+/** What a page is told. Never the news itself — only that there is some. */
+export type News = { kehikko: number } | { registry: true }
+
+/** A listener that has been handed one piece of news. */
+type Woken = (news: News) => void
 
 export class Wakes {
   #listeners = new Set<Woken>()
@@ -63,9 +88,27 @@ export class Wakes {
    * must not swallow the news for a live one.
    */
   woke(kehikko: number): void {
+    this.#tell({ kehikko })
+  }
+
+  /**
+   * Say that what is registered, or what is answering, is no longer what the
+   * pages were last told.
+   *
+   * Only ever sent because the host FOUND SOMETHING OUT — a module that was
+   * answering and is not, or one that was not and now is. Never on a tick that
+   * merely elapsed. That restraint is the whole design: a page told on every
+   * tick would sweep on every tick, and the interval this exists to avoid would
+   * have moved into a different process rather than gone away.
+   */
+  registryChanged(): void {
+    this.#tell({ registry: true })
+  }
+
+  #tell(news: News): void {
     for (const listener of [...this.#listeners]) {
       try {
-        listener(kehikko)
+        listener(news)
       } catch {
         /* A closed stream. It will be removed when its own cleanup runs. */
       }

@@ -329,19 +329,40 @@ export function reportOpen(kehikko: number | null): Promise<void> {
 }
 
 /**
- * Listen for a kehikko that changed under this page, and re-read when one does.
+ * Listen for news that something changed under this page, and re-read when it
+ * does.
  *
- * The other half of `server/wake.ts`. What arrives is an id and nothing else,
- * so the caller re-reads the kehikot the ordinary way — this stream is
- * deliberately not a second route by which a canvas can arrive, because a
- * second route is a second shape to keep in step.
+ * The other half of `server/wake.ts`. What arrives is an id, or the bare word
+ * `registry`, and nothing else — so the caller re-reads the ordinary way. This
+ * stream is deliberately not a second route by which a canvas or a condition
+ * can arrive, because a second route is a second shape to keep in step.
+ *
+ * ## The two callbacks, and why the second one is here rather than a timer
+ *
+ * `woke` is a kehikko somebody else changed. `looked` is the host saying that
+ * what is registered — or what is ANSWERING — is not what this page was last
+ * told, and the occasion for it is the one every other mechanism in this page
+ * misses: a module's server dying while the person sits perfectly still,
+ * watching a green light that has stopped being true. Focus does not fire,
+ * `visibilitychange` does not fire, nothing is `starting`, and before this the
+ * page had no reason to ask again.
+ *
+ * It is not a poll and it does not become one. The page opens no timer, makes
+ * no extra request, and hears nothing at all unless the host actually found
+ * something out — see `WATCH_EVERY_MS` in `server/lifecycle.ts` for who does
+ * the finding out and what it costs. What this end contributes is one line: it
+ * sweeps, exactly as it would have on focus.
  *
  * `EventSource` reconnects on its own when the server restarts, which is worth
  * having: a person editing this host restarts its server constantly, and a page
  * that stopped hearing about changes at the first restart would be a mechanism
  * that works only until it is first tested.
  */
-export function watchCanvases(kehikko: number | null, woke: (kehikko: number) => void): () => void {
+export function watchCanvases(
+  kehikko: number | null,
+  woke: (kehikko: number) => void,
+  looked?: () => void,
+): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
    *
@@ -371,6 +392,10 @@ export function watchCanvases(kehikko: number | null, woke: (kehikko: number) =>
       const parsed: unknown = JSON.parse(event.data)
       const id = (parsed as { kehikko?: unknown })?.kehikko
       if (typeof id === 'number' && Number.isInteger(id)) woke(id)
+      /* Checked for `=== true` rather than for truthiness, so that a future
+         server sending something else under this name is news this page does
+         not understand rather than news it half-understands. */
+      if ((parsed as { registry?: unknown })?.registry === true) looked?.()
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */

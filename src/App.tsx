@@ -491,21 +491,51 @@ export function App() {
    * arrangement still sitting in the `Writer` would be sent AFTER this re-read
    * and would overwrite it with what the page thought a moment ago, which is
    * the tool call being silently undone half a second later.
+   *
+   * ## The second callback: a module died while somebody was watching it
+   *
+   * The paragraph above turns out to describe a whole family of faults rather
+   * than one, and this is the second member of it. A module's server can go
+   * away — a crash, a stray kill, a terminal closed — and every mechanism this
+   * page has for finding that out is tied to an act of attention that does not
+   * happen: the person is already looking. Focus never fires, nothing is
+   * `starting`, and the container kept its green light while the module's own
+   * page inside the frame said the connection had ended. The host and the frame
+   * disagreeing about the same program is the exact shape this workspace keeps
+   * having to fix.
+   *
+   * The answer is the same one `wake.ts` already is: the half that CAN notice
+   * says so, and this page sweeps when told. Nothing here polls. The host asks
+   * about the containers on the open kehikko and nothing else — see
+   * `WATCH_EVERY_MS` in `server/lifecycle.ts` for why that is a check rather
+   * than a heartbeat — and sends this only when an answer came back different.
+   * The container then draws whatever it already draws for a module that is not
+   * answering: `silent`, or `starting` if the host has just run it again.
+   *
+   * Through `lookRef` rather than `look` itself, so that this effect does not
+   * list the sweep among its dependencies. What is wanted is "whatever looking
+   * means right now", and a dependency here would mean tearing down and
+   * reopening the SSE connection — and with it the report `open.ts` reads off
+   * it — for a reason that has nothing to do with what this page has open.
    */
   useEffect(() => {
-    const stop = watchCanvases(openId, () => {
-      void (async () => {
-        if (!loaded.current) return
-        writer.flushAll()
-        try {
-          const found = await fetchCanvases()
-          setCanvases(found.canvases)
-        } catch {
-          /* The next wake, or the next load, will do. A canvas that could not
-             be re-read is the arrangement the person already has on screen. */
-        }
-      })()
-    })
+    const stop = watchCanvases(
+      openId,
+      () => {
+        void (async () => {
+          if (!loaded.current) return
+          writer.flushAll()
+          try {
+            const found = await fetchCanvases()
+            setCanvases(found.canvases)
+          } catch {
+            /* The next wake, or the next load, will do. A canvas that could not
+               be re-read is the arrangement the person already has on screen. */
+          }
+        })()
+      },
+      () => void lookRef.current?.(),
+    )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
        The stream's URL carries what this page has open — see `watchCanvases` —

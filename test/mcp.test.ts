@@ -264,7 +264,11 @@ describe('setting the module selection', () => {
   test('the page is woken, after the write and not before', async () => {
     const id = aCanvas()
     const heard: number[] = []
-    wakes.listen((kehikko) => {
+    wakes.listen((news) => {
+      /* The stream carries two shapes now — see `News` in `server/wake.ts` —
+         and only one of them is a kehikko. */
+      if (!('kehikko' in news)) return
+      const kehikko = news.kehikko
       /* Read from the database at the moment the wake arrives: a page that
          re-read on a wake sent before the write would show the old
          arrangement, and nothing would wake it a second time. */
