@@ -77,6 +77,7 @@ export function Bar({
   projects,
   project,
   held,
+  onRetitleEpic,
   onProject,
   onAddProject,
   onShareProject,
@@ -103,6 +104,11 @@ export function Bar({
   project: Project | null
   /** What this project holds, or null while it is still being read. */
   held: HeldEpics | null
+  /**
+   * Change what one of this project's epics is called. Never its slug — see
+   * `Epics.tsx` on why those are two different operations and only one is here.
+   */
+  onRetitleEpic(slug: string, title: string): Promise<boolean>
   onProject(id: number): void
   onAddProject(path: string): void
   /** Whether the open project's `.kehikot/` is committed with it. */
@@ -165,6 +171,11 @@ export function Bar({
           held={held}
           hasProject={project !== null}
           onPick={(epic) => onSubject({ ...subject, epic })}
+          /* Retitling does NOT touch the subject. The epic is the same epic; it
+             is called something else. A control that moved the canvas onto what
+             you had just renamed would be treating a label as an identity,
+             which is the exact confusion this control is built around. */
+          onRetitle={onRetitleEpic}
         />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />

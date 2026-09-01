@@ -151,6 +151,33 @@ export async function fetchEpics(project: number, signal?: AbortSignal): Promise
     .parse(await response.json())
 }
 
+/**
+ * Change what one epic is called. Its slug does not move.
+ *
+ * The distinction is the whole of this function and it is why it is not called
+ * `renameEpic`. A title is a label in one field of one file. A slug is the
+ * identity: it is on `canvases.epic`, it is what every framed module is told in
+ * `roadmap.context.epic`, and the modules key their own material by it — a
+ * record in `journeys.json`, a file per epic in `checklist/`, a whole directory
+ * under `paper/`. Changing that is a migration across programs this host cannot
+ * see inside, and `retitleEpic` in `server/holdings.ts` says at length why it
+ * is deliberately not offered.
+ *
+ * The epic comes back as the server re-read it, so a caller replaces its row
+ * rather than patching in the title it just sent — the same decision
+ * `shareProject` makes, for the same reason: the file is one a person can also
+ * edit by hand.
+ */
+export async function retitleEpic(project: number, slug: string, title: string): Promise<Epic> {
+  const response = await fetch('/host/epics', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, slug, title }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ epic: epicSchema }).parse(await response.json()).epic
+}
+
 /** Which project this browser had open, for the reason the open kehikko is local. */
 export const OPEN_PROJECT_KEY = 'roadmap.frame.project.v1'
 

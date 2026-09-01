@@ -37,6 +37,7 @@ import {
   fetchEpics,
   fetchProjects,
   forgetProject,
+  retitleEpic,
   shareProject,
   readOpenProject,
   writeOpenProject,
@@ -1678,6 +1679,46 @@ export function App() {
   }, [])
 
   /**
+   * Change what one epic is called. Nothing else about it moves.
+   *
+   * ## The subject is deliberately not touched
+   *
+   * A retitle is not a pick. `subject.epic` holds a SLUG, the slug has not
+   * changed, and every framed module goes on being told exactly what it was
+   * told before — no `roadmap.context` goes out, no module re-reads anything,
+   * and the kehikko is about the same epic it was about a second ago. That is
+   * the whole claim this control makes, and the moment this handler also set a
+   * subject it would stop being true.
+   *
+   * ## Why the list is re-read rather than patched
+   *
+   * The server sorts epics by title, so the row that was just retitled belongs
+   * somewhere else in the list; patching the title in place would leave a
+   * picker sorted by what things used to be called. `held` is not cleared
+   * first, so the menu shows the list it already had until the new one lands
+   * rather than blinking through "reading epics…" under an open dropdown.
+   *
+   * Answers whether it was written, because the form stays open over a refusal
+   * — see `Epics.tsx`. The sentence is the server's own: "A title is at most
+   * 200 characters and that one is 640" is something a person can act on.
+   */
+  const onRetitleEpic = useCallback(
+    async (slug: string, title: string): Promise<boolean> => {
+      if (projectId === null) return false
+      try {
+        await retitleEpic(projectId, slug, title)
+        setHeld(await fetchEpics(projectId))
+        setTrouble(null)
+        return true
+      } catch (error) {
+        setTrouble(`${slug} was not retitled: ${(error as Error).message}`)
+        return false
+      }
+    },
+    [projectId],
+  )
+
+  /**
    * Stop holding a folder as a project. Nothing on disk is deleted.
    *
    * The canvases are re-read rather than filtered here, because forgetting a
@@ -1948,6 +1989,7 @@ export function App() {
         projects={projects}
         project={project}
         held={held}
+        onRetitleEpic={onRetitleEpic}
         onProject={onProject}
         onAddProject={(path) => void onAddProject(path)}
         onShareProject={(id, shared) => void onShareProject(id, shared)}

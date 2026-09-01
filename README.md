@@ -103,6 +103,34 @@ greppable and hand-editable. That folder is gitignored by default, because it is
 one person's working material and not the project's. Remove the line to share
 it.
 
+## An epic can be retitled here, and cannot be re-slugged
+
+"Rename this epic" names two operations, and the picker offers one of them. The
+pencil that appears on a row in the epic menu changes the epic's **title** —
+what it is called — in `data/epics/<slug>.json`, and the form says while you are
+typing that the slug is staying where it is.
+
+The **slug** is the identity, and everything that has ever pointed at an epic
+points at it by that string: the `epic` column on a canvas, the
+`roadmap.context.epic` every framed module is told, `data/state/<slug>.json`
+written by a tracker refresh, a record keyed by slug in
+`.kehikot/journeys/journeys.json`, a file per epic under `.kehikot/checklist/`,
+and a whole directory under `.kehikot/paper/`. Renaming the epic's own file and
+stopping there would file a project's papers, journeys, checklists and questions
+under a name nothing asks for again — silently, because each of those readers
+answers "nothing here" for an unknown slug rather than failing. That is a
+migration across six programs, four of which this host does not own, and it does
+not go behind a pencil in a dropdown. So the control does not say "rename".
+
+It is the only write this host makes into a project's `data/`, and it changes
+one field: the file is read, one span of text is replaced, and every other byte
+is written back exactly as it was. These are documents somebody wrote by hand,
+under their own name in that repository's history, and a host that reformatted
+one while changing a label would put a hundred-line diff in front of a person
+who changed six characters. `retitleEpic` in `server/holdings.ts` has the
+argument, and `withTitle` beside it has the reason a regular expression will not
+do — `"title"` is also the key on every step in these files.
+
 ## The filter a module offers and the host draws
 
 Modules kept building the same control. Five of them had a toggle inside their

@@ -16,7 +16,7 @@ import {
 } from './canvases.ts'
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { browse, rootsFor } from './folders.ts'
-import { epicsIn, listEpics } from './holdings.ts'
+import { epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
 import { answered, gone, Nursery, start, startable } from './launch.ts'
@@ -703,6 +703,35 @@ const server = Bun.serve({
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
       const dir = epicsIn(project.path)
       return json({ holds: dir !== null, epics: dir ? listEpics(dir) : [] })
+    }
+
+    /*
+     * What one epic is CALLED, changed. What it IS does not move.
+     *
+     * The one write this host makes into a project's `data/`, and the only one
+     * it will: `data/epics/<slug>.json` is a document somebody wrote, under
+     * their name in that repository's history, and this changes one field of it
+     * and leaves every other byte alone. `retitleEpic` has the essay on why the
+     * OTHER rename — the slug — is a migration across six programs rather than
+     * a control in a dropdown, and is not here.
+     *
+     * Every check on what arrived is in that function, the way `addProject`
+     * holds its own. This end reads a project id and turns it into a folder,
+     * which is the one thing the function cannot do for itself.
+     */
+    if (url.pathname === '/host/epics' && request.method === 'PATCH') {
+      const body = (await request.json().catch(() => null)) as
+        | { project?: unknown; slug?: unknown; title?: unknown }
+        | null
+      if (!body || typeof body.project !== 'number') {
+        return json({ error: 'A retitle names one project, one epic, and what it is to be called.' }, 400)
+      }
+      const project = projectById(db, body.project)
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+
+      const said = retitleEpic(project.path, body.slug as string, body.title as string)
+      if (!said.ok) return json({ error: said.why }, said.status)
+      return json({ epic: said.epic })
     }
 
     const canvas = canvasId(url.pathname)
