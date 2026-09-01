@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { SQUEEZED_ROWS, below, mostFor, pay, reach, shares, type Box } from '../src/host/columns.ts'
+import { SQUEEZED_ROWS, below, mostFor, pay, reach, shares, unfolded, type Box } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
 /**
@@ -285,5 +285,76 @@ describe('how tall a container is allowed to become', () => {
     for (const one of [...canvas10, ...canvas1]) {
       expect(mostFor(canvas10, one.i)).toBeLessThanOrEqual(CANVAS_ROWS)
     }
+  })
+})
+
+describe('coming back from folded', () => {
+  const box = (i: string, y: number, h: number, x = 0, w = 6): Box => ({ i, x, y, w, h })
+
+  /*
+   * Unfolding is growth, and growth is bought from the column.
+   *
+   * `onCollapse` used to assign the remembered height straight back, so the one
+   * gesture whose whole meaning is "put this back the way it was" was the only
+   * one that ignored the budget. Folding hands rows to the column; by the time
+   * you unfold, a neighbour has usually taken them.
+   */
+  test('a column with room gives back everything that was folded away', () => {
+    const boxes = [box('a', 0, 1), box('b', 1, 10)]
+    const settled = unfolded(boxes, 'a', 12)
+    expect(settled.get('a')).toBe(12)
+  })
+
+  /*
+   * Explicit rows and floor, so the arithmetic is readable rather than a
+   * consequence of two constants. A canvas of twelve with a floor of three: `b`
+   * holds eleven and can give up eight, so a container asking for twelve gets
+   * nine and not a row more.
+   */
+  test('a column that filled up in the meantime gives back less than was asked', () => {
+    const boxes = [box('a', 0, 1), box('b', 1, 11)]
+    const settled = unfolded(boxes, 'a', 12, 12, 3)
+    expect(settled.get('a')).toBe(9)
+    expect(settled.get('b')).toBe(3)
+  })
+
+  /* And a column with nothing left to give hands back nothing, rather than
+     taking rows that do not exist. */
+  test('a column at its floor gives back nothing', () => {
+    const boxes = [box('a', 0, 1), box('b', 1, 3), box('c', 4, 3), box('d', 7, 3), box('e', 10, 2)]
+    const settled = unfolded(boxes, 'a', 9, 12, 3)
+    expect(settled.get('a') ?? 1).toBe(1)
+  })
+
+  /* The property that was actually broken: whatever is granted, the column
+     still fits the canvas. Before this, unfolding could push the arrangement
+     past its rows and a neighbour off the bottom. */
+  test('whatever is granted, the column still fits', () => {
+    for (const held of [4, 9, 14, 26, CANVAS_ROWS + 5]) {
+      const boxes = [box('a', 0, 1), box('b', 1, 12), box('c', 13, 10)]
+      const settled = unfolded(boxes, 'a', held)
+      const after = boxes.map((one) => settled.get(one.i) ?? one.h)
+      expect(after.reduce((sum, h) => sum + h, 0)).toBeLessThanOrEqual(CANVAS_ROWS)
+    }
+  })
+
+  /* Unfolding and dragging to the same height must end in the same
+     arrangement, or the two controls disagree about what a column can hold. */
+  test('unfolding agrees with dragging to the same height', () => {
+    const boxes = [box('a', 0, 1), box('b', 1, 18)]
+    expect([...unfolded(boxes, 'a', 11)]).toEqual([...pay(boxes, 'a', 11)])
+  })
+
+  /* Nobody paid, so nothing changed, and a caller must not be handed a
+     phantom container to write back. */
+  test('a container that is not there settles nothing', () => {
+    expect(unfolded([box('a', 0, 4)], 'nobody', 9).size).toBe(0)
+  })
+
+  /* No remembered height is the container's current one, not zero: a fold that
+     never recorded anything must not unfold into nothing. */
+  test('no remembered height asks for the height it already has', () => {
+    const boxes = [box('a', 0, 5), box('b', 5, 5)]
+    expect(unfolded(boxes, 'a', null).get('a') ?? 5).toBe(5)
   })
 })

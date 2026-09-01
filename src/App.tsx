@@ -48,7 +48,7 @@ import { toWireContext, type Subject } from './host/context.ts'
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
-import { mostFor, pay } from './host/columns.ts'
+import { mostFor, pay, unfolded } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -1268,13 +1268,63 @@ export function App() {
    */
   const onCollapse = useCallback(
     (id: string, collapsed: boolean) => {
-      const placements = (open?.placements ?? []).map((p) => {
-        if (p.i !== id) return p
-        return collapsed
-          ? { ...p, collapsed: true, openH: p.h, h: COLLAPSED_ROWS }
-          : { ...p, collapsed: false, h: p.openH ?? p.h, openH: null }
+      const placements = open?.placements ?? []
+
+      /*
+       * Folding gives rows back and needs nobody's permission.
+       *
+       * A container getting shorter hands its rows to the column as free space,
+       * and `columns.ts` is explicit that it does not inflate its neighbours to
+       * fill them — auto-growing a container somebody did not touch is the same
+       * surprise as auto-shrinking one.
+       */
+      if (collapsed) {
+        change({
+          placements: placements.map((p) =>
+            p.i === id ? { ...p, collapsed: true, openH: p.h, h: COLLAPSED_ROWS } : p,
+          ),
+        })
+        return
+      }
+
+      /*
+       * Unfolding is growth, and growth is bought from the column.
+       *
+       * This used to assign `h: p.openH ?? p.h` straight back, which is where a
+       * container had been before it was folded — and in between, its
+       * column-mates will usually have been given the rows it let go. Handing
+       * the remembered height back regardless walked over them: the canvas
+       * exceeded its rows, or a neighbour was pushed off the bottom, and the one
+       * gesture that is supposed to be the exact undo of folding was the one
+       * gesture that ignored the budget.
+       *
+       * So the remembered height is a REQUEST, not a right. `pay` grants what
+       * the column can afford and names everyone who paid, exactly as a drag
+       * does, so unfolding and dragging to the same height end in the same
+       * arrangement.
+       *
+       * A column that has since filled up gives a container back less than it
+       * had. That is the honest answer and the alternative is worse: a canvas
+       * that silently overflows, or neighbours shrunk by a press whose whole
+       * meaning is "put this back the way it was".
+       */
+      const box = placements.find((p) => p.i === id)
+      const wanted = box?.openH ?? box?.h ?? COLLAPSED_ROWS
+      const settled = unfolded(placements, id, box?.openH ?? null)
+
+      change({
+        placements: placements.map((p) => {
+          const height = settled.get(p.i)
+          if (p.i === id) {
+            /* `openH` is cleared whatever the column granted: it is no longer
+               folded, so there is no remembered height to come back to, and
+               keeping one would have this container quietly re-grow the next
+               time anything asked. */
+            return { ...p, collapsed: false, h: height ?? wanted, openH: null }
+          }
+          return height === undefined ? p : { ...p, h: height }
+        }),
       })
-      change({ placements })
     },
     [change, open?.placements],
   )

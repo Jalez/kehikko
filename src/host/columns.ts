@@ -217,3 +217,32 @@ export function mostFor(
   if (!box) return rows
   return pay(boxes, id, rows, rows, floor).get(id) ?? box.h
 }
+
+/**
+ * What a column can give back to a container being unfolded.
+ *
+ * Folding hands rows to the column as free space, and between the fold and the
+ * unfold those rows will usually have been taken — by a neighbour growing, or
+ * by another container being unfolded first. So the height a container had
+ * before it was folded is a REQUEST rather than a right, and this is what turns
+ * it into an answer.
+ *
+ * Written here, beside `pay`, rather than inside the callback that unfolds,
+ * because the bug it fixes was not a wrong number: it was that unfolding never
+ * asked. `onCollapse` assigned the remembered height straight back, so the one
+ * gesture whose whole meaning is "put this back the way it was" was the only
+ * one that ignored the budget — and the canvas overflowed, or a neighbour was
+ * pushed off the bottom, exactly where a drag to the same height would have
+ * been refused.
+ */
+export function unfolded(
+  boxes: readonly Box[],
+  id: string,
+  openH: number | null,
+  rows = CANVAS_ROWS,
+  floor = SQUEEZED_ROWS,
+): Map<string, number> {
+  const box = boxes.find((one) => one.i === id)
+  if (!box) return new Map()
+  return pay(boxes, id, openH ?? box.h, rows, floor)
+}
