@@ -225,20 +225,31 @@ nothing else: no program is told, started, stopped or asked anything, and the
 selection is stored with the layout, so it is still there tomorrow.
 
 The host answers MCP on its own API port, at `http://127.0.0.1:4180/mcp`, with
-two tools:
+four tools:
 
 | tool | what it does |
 |---|---|
-| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic |
+| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic — and which registered modules are not on it |
 | `select_modules` | pick containers out, replacing what was picked before |
+| `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
+| `create_epic` | make a new epic in the project a kehikko stands in — one file, `data/epics/<slug>.json` — without opening it |
 
-Both take an optional `kehikko` id and, without one, act on the kehikko a page
-of this host says it has open — refusing, with the list, when no page has said
-or when two browser windows have two different ones open. Neither tool can add,
-remove or move anything: the arrangement belongs to the person looking at it.
+All four take an optional `kehikko` id and, without one, act on the kehikko a
+page of this host says it has open — refusing, with the list, when no page has
+said or when two browser windows have two different ones open.
+
+The door can ADD and cannot take away: no tool removes, moves or resizes a
+container, switches the kehikko, or changes which epic is open. The arrangement
+belongs to the person looking at it, and what an agent may add is what they
+can see arrive and take off with one press — a container, or an epic in the
+dropdown. `place_modules` refuses rather than squeeze a container somebody
+arranged, and refuses a module this computer has no registration for.
+`server/mcp.ts` has the argument, including the half of the original "cannot
+add" rule that did not survive and why.
 
 A tool call is visible immediately on the page, without a refresh — the server
-says a kehikko changed over `/host/watch` and the page re-reads.
+says a kehikko changed, or a project's epics did, over `/host/watch` and the
+page re-reads.
 
 Tell your agent about it from the strip: the plug at the right-hand end is the
 same control every container header has for its module's door. It opens a

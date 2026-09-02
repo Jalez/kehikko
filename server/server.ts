@@ -17,7 +17,7 @@ import {
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
-import { epicsIn, listEpics, retitleEpic } from './holdings.ts'
+import { createEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
 import { answered, gone, Nursery, start, startable } from './launch.ts'
@@ -910,6 +910,37 @@ const server = Bun.serve({
       return json({ epic: said.epic })
     }
 
+    /*
+     * A new epic, from the `+` beside the epic select.
+     *
+     * The second write this host makes into a project's `data/` — the first
+     * was the retitle above — and it is a file that did not exist rather than
+     * a field of one that did. `createEpic` decides everything: the slug rule,
+     * the title rule, the refusal to overwrite, and that a project with no
+     * `data/epics` gets one made. This end turns a project id into a folder,
+     * as the retitle does, and says so to every page standing in that
+     * project — `epicsChanged` in `wake.ts` — because a second window's
+     * dropdown would otherwise not have the new row until it switched project
+     * and back. The door's `create_epic` in `mcp.ts` is the same function and
+     * the same wake; the page's own re-read after this answer is the one
+     * redundant read, and it is redundant rather than racing.
+     */
+    if (url.pathname === '/host/epics' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as
+        | { project?: unknown; slug?: unknown; title?: unknown }
+        | null
+      if (!body || typeof body.project !== 'number') {
+        return json({ error: 'A new epic names one project and what it is to be called.' }, 400)
+      }
+      const project = projectById(db, body.project)
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+
+      const made = createEpic(project.path, { slug: body.slug, title: body.title })
+      if (!made.ok) return json({ error: made.why }, made.status)
+      wakes.epicsChanged(project.id)
+      return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
+    }
+
     const canvas = canvasId(url.pathname)
     if (canvas !== null) {
       if (request.method === 'PATCH') {
@@ -1375,6 +1406,7 @@ const server = Bun.serve({
           db,
           which: () => openness.open(),
           wake: (kehikko) => wakes.woke(kehikko),
+          epicsChanged: (project) => wakes.epicsChanged(project),
           /* A sweep, so that an agent reading a canvas is told which of the
              containers on it hold a program that is actually answering. It is
              the same sweep the page asks for on load — N requests to N

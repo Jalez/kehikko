@@ -178,6 +178,35 @@ export async function retitleEpic(project: number, slug: string, title: string):
   return z.object({ epic: epicSchema }).parse(await response.json()).epic
 }
 
+/**
+ * Make a new epic in one project: a file that did not exist.
+ *
+ * The slug is sent as the page shows it — derived by `slugFrom` in `epics.ts`
+ * unless the person edited it — and NOT checked here. The server's `createEpic`
+ * is the one rule about what a slug and a title may be, and its sentence is
+ * what the footer shows when it refuses; a check on this side would be a second
+ * copy of that rule, and the copy nobody tests against a real file is the one
+ * that drifts. See `src/host/epics.ts`.
+ *
+ * The epic comes back as the server wrote and re-read it, for the reason
+ * `retitleEpic` gives. `madeDirectory` says whether `data/epics` had to be
+ * created, which is worth a sentence to a person whose thesis folder just
+ * gained a `data/`.
+ */
+export async function createEpic(
+  project: number,
+  slug: string,
+  title: string,
+): Promise<{ epic: Epic; madeDirectory: boolean }> {
+  const response = await fetch('/host/epics', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, slug, title }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ epic: epicSchema, madeDirectory: z.boolean() }).parse(await response.json())
+}
+
 /** Which project this browser had open, for the reason the open kehikko is local. */
 export const OPEN_PROJECT_KEY = 'roadmap.frame.project.v1'
 

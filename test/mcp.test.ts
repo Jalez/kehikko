@@ -34,6 +34,7 @@ const door = (): Door => ({
     woken.push(kehikko)
     wakes.woke(kehikko)
   },
+  epicsChanged: (project) => wakes.epicsChanged(project),
   seen: async () => seen,
 })
 
@@ -74,13 +75,21 @@ describe('the door says what it is and what it offers', () => {
     expect(result.capabilities).toEqual({ tools: {} })
   })
 
-  test('two tools and no more', async () => {
+  test('four tools and no more', async () => {
     const reply = await mcp({ id: 2, method: 'tools/list' }, door(), { name: 'kehikko', version: '0.1.0' })
     const tools = (reply.body as { result: { tools: { name: string }[] } }).result.tools
-    /* The surface is narrow on purpose: reading what is arranged and setting
-       the module selection. Adding, removing, moving or renaming anything would
-       be an agent rearranging a workspace somebody is looking at. */
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['read_canvas', 'select_modules'])
+    /* The surface is still narrow on purpose, and the line has moved once:
+       reading, selecting, and two ADDITIVE acts — putting a module on, making
+       an epic. Removing, moving, resizing, switching or renaming anything
+       would be an agent rearranging a workspace somebody is looking at, and
+       none of those is here. See the essay in `mcp.ts` for which half of the
+       original argument survived. */
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'create_epic',
+      'place_modules',
+      'read_canvas',
+      'select_modules',
+    ])
   })
 
   test('a notification is answered with nothing', async () => {
@@ -102,7 +111,7 @@ describe('the door says what it is and what it offers', () => {
     )
     const result = (reply.body as { result: { content: { text: string }[]; isError?: boolean } }).result
     expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toContain('read_canvas and select_modules')
+    expect(result.content[0]?.text).toContain('read_canvas, select_modules, place_modules, create_epic')
   })
 })
 
