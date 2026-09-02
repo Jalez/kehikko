@@ -150,8 +150,11 @@ export function Container({
   /**
    * Whether this container has been picked out as a target on this kehikko.
    *
-   * A fact about the canvas, not about the module: nothing crosses the wire and
-   * the program inside is not told. See the essay on `onSelect` in `App.tsx`.
+   * A fact about the canvas, not about the module. It does cross the wire now
+   * — every module on the kehikko is told which containers are picked out, in
+   * `context.containers` — and the program inside is not told anything
+   * SPECIAL for being one of them: it reads the same list its neighbours read.
+   * See the essay on `onSelect` in `App.tsx`.
    */
   selected: boolean
   onSelect(selected: boolean): void
@@ -352,8 +355,8 @@ export function Container({
         <Hint
           label={
             selected
-              ? 'picked out as a target on this kehikko — press to unpick it'
-              : 'pick this container out as a target on this kehikko'
+              ? 'picked out as a target on this kehikko — a module that narrows to what is picked out is following it. Press to unpick it'
+              : 'pick this container out as a target on this kehikko. A module that narrows to what is picked out will follow it'
           }
           side="bottom"
           align="start"

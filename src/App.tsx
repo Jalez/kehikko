@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'roadmap-module-protocol'
-import type { FilterChoice, FilterGroup, ModuleCondition, Passage } from 'roadmap-module-protocol'
+import type { FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Footer } from './canvas/Footer.tsx'
@@ -47,6 +47,7 @@ import {
   type Epics as HeldEpics,
   type Project,
 } from './host/projects.ts'
+import { containersKey, containersOf } from '@/host/showing.ts'
 import { toWireContext, type Subject } from './host/context.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -921,6 +922,34 @@ export function App() {
   const [passages, setPassages] = useState<Record<number, Passage | null>>({})
 
   /**
+   * What each container says it is showing, per canvas, in memory only.
+   *
+   * Keyed like `passages` and held like `passages`, for the reason given at
+   * length above it: this is a claim about a running program's own state — "I
+   * have chapter three open" — and once the program is gone nobody is left to
+   * renew it. A host that wrote it down would be asserting, after a restart,
+   * that a module which may not even be running is showing a file it may have
+   * closed a week ago. So it lives with the page, and a module that reloads
+   * says it again.
+   *
+   * Beside it, who POINTED and who PICKED on each canvas. The host always knew
+   * — `passage.set` and `selection.set` arrive from a window — and never wrote
+   * it down, because nothing needed it. `context.containers` does: the
+   * container that pointed is showing what it pointed at, and its row says so
+   * without the module having learned a new word. `host/showing.ts` composes
+   * the three into one list and has the argument for why that is a projection
+   * and not a second source.
+   *
+   * `selectedBy` is honest about one gap: a selection read back out of the
+   * database after a reload has no setter here, and goes into nobody's row. It
+   * is still `context.selection`. Inventing who picked it would be the host
+   * stating who said something it did not hear.
+   */
+  const [said, setSaid] = useState<Record<number, Record<string, Showing>>>({})
+  const [pointedBy, setPointedBy] = useState<Record<number, string | null>>({})
+  const [selectedBy, setSelectedBy] = useState<Record<number, string | null>>({})
+
+  /**
    * Moving to a different PROJECT clears every passage. Moving to a different
    * EPIC does not, and the difference is the whole of the decision.
    *
@@ -948,6 +977,12 @@ export function App() {
     if (wasInProject.current === projectId) return
     wasInProject.current = projectId
     setPassages((was) => (Object.keys(was).length === 0 ? was : {}))
+    /* And everything a container said it shows, and who pointed or picked,
+       for the passage's own reason: a document path belongs to the project
+       that was just left, and a ref was picked out of an epic in it. */
+    setSaid((was) => (Object.keys(was).length === 0 ? was : {}))
+    setPointedBy((was) => (Object.keys(was).length === 0 ? was : {}))
+    setSelectedBy((was) => (Object.keys(was).length === 0 ? was : {}))
   }, [projectId])
 
   const passage = openId === null ? null : (passages[openId] ?? null)
@@ -966,13 +1001,34 @@ export function App() {
    */
   const pointing = passage === null ? '' : JSON.stringify(passage)
 
+  /**
+   * Every container on the open kehikko, whether it is picked out, and what it
+   * shows — composed on every render, cheaply, and depended on BY VALUE below.
+   *
+   * `open.placements` is a fresh array on every read of the canvases, the
+   * passage is a fresh object on every context, and `containersOf` builds
+   * fresh rows out of both. Depending on any of those by identity is the
+   * seventeen-identical-broadcasts problem `picked` and `pointing` exist to
+   * prevent, so what the memo reads is the list as one string.
+   */
+  const described = containersOf({
+    placements: open?.placements ?? [],
+    said: (openId === null ? undefined : said[openId]) ?? {},
+    passage,
+    pointedBy: openId === null ? null : (pointedBy[openId] ?? null),
+    selection: picked ? picked.split('\n') : [],
+    selectedBy: openId === null ? null : (selectedBy[openId] ?? null),
+  })
+  const arranged = containersKey(described)
+
   const context = useMemo(
-    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage),
-    /* `pointing` and not `passage`: the value, not the identity. `passage` is
-       intentionally absent from the list and the lint rule that would ask for
-       it is wrong here — see the essay on `pointing` above. */
+    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described),
+    /* `pointing` and not `passage`, `arranged` and not `described`: the
+       value, not the identity. Both objects are intentionally absent from the
+       list and the lint rule that would ask for them is wrong here — see the
+       essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing],
+    [subject, theme, picked, kehikko, pointing, arranged],
   )
 
   /**
@@ -1038,6 +1094,15 @@ export function App() {
   openRef.current = openId
   const setPassagesRef = useRef(setPassages)
   setPassagesRef.current = setPassages
+  /* The same arrangement for the three records beside it. `controls` is built
+     once; these setters are stable anyway, and reading them through refs keeps
+     the pattern one pattern. */
+  const setSaidRef = useRef(setSaid)
+  setSaidRef.current = setSaid
+  const setPointedByRef = useRef(setPointedBy)
+  setPointedByRef.current = setPointedBy
+  const setSelectedByRef = useRef(setSelectedBy)
+  setSelectedByRef.current = setSelectedBy
 
   const onFocus = useCallback(() => {
     setFocus((was) => {
@@ -1201,22 +1266,55 @@ export function App() {
          one epic's references; carrying it into another would leave every
          module pointing at something that is not in front of them any more, and
          "nothing is selected" is a state they all have to handle anyway. */
-      showEpic: (epic) => change({ epic, selection: [] }),
-      select: (refs) => change({ selection: refs }),
+      showEpic: (epic) => {
+        change({ epic, selection: [] })
+        /* The selection went, so its setter goes with it: a row saying a
+           container picked refs the canvas no longer holds would be the row
+           and the canvas disagreeing. */
+        const id = openRef.current
+        if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
+      },
+      select: (from, refs) => {
+        change({ selection: refs })
+        /* Who picked, so that the refs appear in that container's own row of
+           `context.containers`. An empty list is a selection cleared, and
+           nobody is its setter. */
+        const id = openRef.current
+        if (id === null) return
+        const by = refs.length ? from : null
+        setSelectedByRef.current((was) => (was[id] === by ? was : { ...was, [id]: by }))
+      },
+      /* What a container says it shows, held for the open canvas and only when
+         it CHANGED — the same bargain `point` keeps below, for the same reason:
+         a module that re-says an identical statement on every render must not
+         cost every frame on the canvas a context. */
+      show: (from, showing) =>
+        setSaidRef.current((was) => {
+          const id = openRef.current
+          if (id === null) return was
+          const here = was[id] ?? {}
+          if (JSON.stringify(here[from] ?? null) === JSON.stringify(showing)) return was
+          return { ...was, [id]: { ...here, [from]: showing } }
+        }),
       /* Held for the canvas that is open, and only when it actually CHANGED.
          A module that points on every pointer move during a drag would
          otherwise put a `roadmap.context` into every frame on the canvas per
          event; the sender is asked not to do that, and this is the half of the
          bargain the host can keep on its own — a host cannot make somebody
          else's program debounce, and it can refuse to repeat itself. */
-      point: (next) =>
+      point: (from, next) => {
+        const id = openRef.current
+        if (id === null) return
         setPassagesRef.current((was) => {
-          const id = openRef.current
-          if (id === null) return was
           const had = was[id] ?? null
           if (JSON.stringify(had ?? null) === JSON.stringify(next ?? null)) return was
           return { ...was, [id]: next }
-        }),
+        })
+        /* Who pointed, so the passage appears in that container's row. A null
+           passage is a document closed, and nobody is showing it. */
+        const by = next ? from : null
+        setPointedByRef.current((was) => (was[id] === by ? was : { ...was, [id]: by }))
+      },
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
@@ -1736,32 +1834,39 @@ export function App() {
    * list beside it, which is what stops it ever naming a container that is not
    * there.
    *
-   * ## The module is NOT told, and this is a decision
+   * ## The module was NOT told, and that was a decision; now every module is, and that is another
    *
-   * The obvious objection is that a module that knew it was selected could show
-   * it, and the answer is the one `onCollapse` gives about folding, sharpened
-   * by what happened with the pin.
+   * What stood here argued, at length, against putting this on the wire, and
+   * the argument is kept because half of it still holds. The pin went on the
+   * wire because the host CHANGES WHAT IT SAYS to a pinned module, and silence
+   * there manufactures a disagreement; a selected container is sent exactly
+   * what an unselected one is sent, so there was no disagreement for a field
+   * to prevent. And a module could not act on ITS OWN flag correctly: being
+   * selected is a fact about somebody else's aim — an agent was pointed here —
+   * and from inside there is no telling "an agent is about to work on me" from
+   * "a person ticked a box last Tuesday and forgot". A module that changed its
+   * behaviour on the strength of that would change behaviour in a case it
+   * cannot detect the end of. All of that was about a module reading a flag
+   * about itself, and it is still refused: there is no `context.selected`.
    *
-   * The pin went on the wire because the host CHANGES WHAT IT SAYS to a pinned
-   * module: it stops telling it about the canvas, and a module that was not
-   * told would describe a remembered epic as the open one. Silence there
-   * manufactures a disagreement between what the module says and what is true.
-   * Nothing of the kind happens here. A selected container is sent exactly the
-   * same context as an unselected one, is asked exactly the same questions, and
-   * has exactly the same material. There is no disagreement for the field to
-   * prevent.
+   * What changed it was an ask the old paragraph had not met: "if user selects
+   * x number of the modules then we should only show those modules'
+   * checklist". That is not a module acting on being selected. It is a
+   * CONSUMER — checklists, notes — narrowing its own material to what the
+   * picked-out containers are showing, which needs two things the wire did not
+   * carry: which containers are picked out, and what each shows. Both go out
+   * now, to every module alike, as `context.containers`, composed in
+   * `host/showing.ts`. The consumer offers a control in its own header to turn
+   * the narrowing off, and when it is left empty it says which containers are
+   * picked out — so the tick a person made last Tuesday is a tick they can see
+   * as a ring on the canvas, read in the consumer's own sentence, and unpick.
    *
-   * And a module could not act on it correctly if it had it. Being selected is
-   * a fact about somebody else's aim — an agent was pointed here — not about
-   * the module's own work, and from inside there is no telling "an agent is
-   * about to work on me" from "a person ticked a box last Tuesday and forgot".
-   * A module that changed its behaviour on the strength of it would change
-   * behaviour in a case it cannot detect the end of.
-   *
-   * So there is no protocol change, no version bump, and no essay in
-   * `wire.ts` — and this paragraph is the host saying why in its own code,
-   * which is the price of not putting it on the wire. If a module ever needs
-   * this, what it needs is a way to ASK, not a field it is handed.
+   * The pin's argument is honoured too, from the other side: nothing here
+   * changes what the host says to a selected container. Every frame on the
+   * kehikko is told the same list, and none is told anything special for being
+   * in it. A protocol field that meant "you are the target" is still not
+   * built, and the essay on `containerSchema` in the protocol's `wire.ts`
+   * says why the two readings are different.
    */
   const onSelect = useCallback(
     (id: string, selected: boolean) => {

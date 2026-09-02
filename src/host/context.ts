@@ -1,4 +1,10 @@
-import { contextSchema, passageSchema, type ModuleContext, type Passage } from 'roadmap-module-protocol'
+import {
+  contextSchema,
+  passageSchema,
+  type CanvasContainer,
+  type ModuleContext,
+  type Passage,
+} from 'roadmap-module-protocol'
 
 import { sameChoice } from './filters.ts'
 import type { Project } from './projects.ts'
@@ -152,6 +158,20 @@ export function toWireContext(
    * quote is what is there now. See `point` on `CanvasControls` in `ask.ts`.
    */
   passage: Passage | null = null,
+  /**
+   * Every container on this kehikko, whether it is picked out, and what it is
+   * showing — composed by `containersOf` in `host/showing.ts` out of the
+   * arrangement, who pointed, who picked, and what each module said.
+   *
+   * A fifth argument rather than a field on `Subject`, and the reason is the
+   * one the other three give sharpened once more: this changes on a tick in a
+   * header, on a scroll in a paper, on a module saying something — every one
+   * of them faster than the subject and none of them a change of subject. It
+   * is the host's own list of its own arrangement, so unlike the passage it is
+   * not passed through on trust: the placements are the host's, the flag is
+   * the host's, and only what each module says it shows is that module's word.
+   */
+  containers: readonly CanvasContainer[] = [],
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -183,6 +203,7 @@ export function toWireContext(
     selection,
     kehikko,
     passage: pointing,
+    containers,
   })
   if (parsed.success) return parsed.data
 
@@ -231,6 +252,13 @@ export function toWireContext(
     selection: [],
     kehikko,
     passage: pointing,
+    /* The containers survive with the kehikko, for the kehikko's reason: they
+       are the arrangement, and the arrangement has nothing to do with whether
+       an epic slug parses. The selection inside a setter's row goes with the
+       selection itself — `containersOf` was handed the same refs this context
+       is dropping — so a consumer is not told twice about refs it is being told
+       to forget. */
+    containers: containers.map((c) => ({ ...c, showing: { ...c.showing, refs: [] } })),
   })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
@@ -246,7 +274,9 @@ export function toWireContext(
     /* Not here, and it cannot be needed: a passage that would not parse was
        already turned into null at the top of this function. This branch must
        not throw — it is called during render — so it names only fields that
-       cannot fail. */
+       cannot fail. The containers are not here either, for the same reason:
+       they are built out of module ids and modules' own claims, and one of
+       those refusing is not something this branch may find out about. */
   })
 }
 

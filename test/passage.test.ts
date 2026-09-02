@@ -20,7 +20,8 @@ function canvasThatRemembers() {
   const controls: CanvasControls = {
     showEpic: () => {},
     select: () => {},
-    point: (passage) => pointed.push(passage),
+    point: (_from, passage) => pointed.push(passage),
+    show: () => {},
     emit: () => ({ ok: true, delivered: 0 }),
     project: () => null,
     filter: () => ({ ok: true as const, filters: {} }),

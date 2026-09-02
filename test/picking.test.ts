@@ -21,6 +21,7 @@ function canvasThatIsAsked(answer: Picked, seen: string[] = []): CanvasControls 
     showEpic: () => {},
     select: () => {},
     point: () => {},
+    show: () => {},
     emit: () => ({ ok: true, delivered: 0 }),
     project: () => null,
     filter: () => ({ ok: true as const, filters: {} }),

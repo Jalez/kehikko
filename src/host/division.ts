@@ -87,6 +87,11 @@ export const ANSWERED_BY_THE_VIEW = [
   /* A container's own filters live in the canvas's placements, which only the
      page has. The server holds no opinion about what is narrowed. */
   'filters.set',
+  /* A container saying what it shows goes into `context.containers`, which
+     the canvas composes out of its own arrangement — the placements, who
+     pointed, who picked — none of which the server holds live. The same rule
+     as `passage.set`, one step further out. */
+  'showing.set',
   /*
    * Asking the person which project — the canvas, because a person is here.
    *

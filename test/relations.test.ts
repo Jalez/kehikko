@@ -290,6 +290,31 @@ describe('the receiving half, now that a module can declare one', () => {
     expect(said).toContain('carries nothing between these two')
   })
 
+  test('a container saying what it shows pairs with a module that narrows to the picked-out ones', () => {
+    /* The third pair. Kept apart from the passage in kind and in words, because
+       "I have chapter three open" and "the reader is pointing at bytes 4120 to
+       4180" are different claims and a person reading a badge is entitled to
+       know which one a module makes. */
+    const SHOWER = presence('roadmap.paper', 'Paper', {
+      declares: { protocol: '>=2', uses: ['showing:set'], storage: false, prompt: false },
+    })
+    const NARROWER = presence('roadmap.checklist', 'Checklist', { reacts: ['containers'] })
+    const found = relate([SHOWER, NARROWER], NOWHERE)
+
+    const sets = found.get('roadmap.paper')?.[0]
+    expect(sets?.kind).toBe('containers')
+    expect(sets?.role).toBe('sets')
+    expect(labelFor(sets!)).toBe('says what it shows')
+    expect(sentenceFor('Paper', sets!)).toContain('picked out')
+
+    const reacts = found.get('roadmap.checklist')?.[0]
+    expect(reacts?.kind).toBe('containers')
+    expect(reacts?.role).toBe('reacts')
+    expect(reacts?.direct).toBe(false)
+    expect(labelFor(reacts!)).toBe('narrows to what is picked out')
+    expect(standingOf(SHOWER, found.get('roadmap.paper') ?? []).provider).toBe(true)
+  })
+
   test('a reactor with nothing registered that sets it is not drawn', () => {
     /* Half a relationship is not one, and the asymmetry with the setter above
        is deliberate: a `passage:set` badge is drawn alone because the HOST will
