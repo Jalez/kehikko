@@ -204,12 +204,20 @@ export const OPEN_KEY = 'roadmap.frame.open.v1'
  * shrink that union on every project switch and unmount every frame that is not
  * on the new project, which is the reload the user chose re-pointing over.
  */
-export async function fetchCanvases(signal?: AbortSignal): Promise<{ canvases: Canvas[]; projects: Project[] }> {
+export async function fetchCanvases(
+  signal?: AbortSignal,
+): Promise<{ canvases: Canvas[]; projects: Project[]; trouble: string[] }> {
   const response = await fetch('/host/canvases', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = await response.json()
   return z
-    .object({ canvases: z.array(canvasSchema), projects: z.array(projectSchema).default([]) })
+    .object({
+      canvases: z.array(canvasSchema),
+      projects: z.array(projectSchema).default([]),
+      /* Sentences about a project's `kehikot.json` that would not read — see
+         `server/kehikot.ts`. Defaulted, so an older server still answers. */
+      trouble: z.array(z.string()).default([]),
+    })
     .parse(body)
 }
 
@@ -531,21 +539,15 @@ export function unplace(placements: readonly Placement[], id: string): Placement
   return placements.filter((p) => p.i !== id)
 }
 
-/**
- * Reconcile a stored arrangement with what is actually registered.
- *
- * A module whose registration file is gone is not `silent` — it is genuinely
- * not here, because somebody deleted the file that said it was, and a container for
- * it would be the host inventing a program. It comes off the canvas.
- *
- * Nothing is ADDED here, and that asymmetry is the point: a new registration
- * appearing is not a licence for the host to rearrange somebody's canvas
- * underneath them. It shows up in the list of modules to add, and waits.
+/*
+ * There used to be a `reconcile()` here that took every container for an
+ * unregistered module off the arrangement. It is gone on purpose and must not
+ * come back: the arrangement now lives in the project's own folder and travels
+ * with it — see `server/kehikot.ts` — so a page on one computer filtering by
+ * what THAT computer has registered, and writing the result, would delete the
+ * other computer's containers through the shared file. What is drawn for such
+ * a container is `canvas/Missing.tsx`.
  */
-export function reconcile(placements: readonly Placement[], registered: readonly string[]): Placement[] {
-  const present = new Set(registered)
-  return placements.filter((p) => present.has(p.i))
-}
 
 /**
  * Every module placed on any canvas.

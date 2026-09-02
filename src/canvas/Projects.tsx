@@ -217,12 +217,37 @@ export function Projects({
             <>
               <DropdownMenuSeparator />
               {open.git ? (
-                <DropdownMenuItem onSelect={() => onShare(open.id, !open.shared)}>
-                  <DropdownMenuCheck checked={open.shared} />
-                  <span className="min-w-0 flex-1">
-                    keep <span className="font-mono">.kehikot</span> in git
-                  </span>
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onSelect={() => onShare(open.id, !open.shared)}>
+                    <DropdownMenuCheck checked={open.shared} />
+                    <span className="min-w-0 flex-1">
+                      keep <span className="font-mono">.kehikot</span> in git
+                    </span>
+                  </DropdownMenuItem>
+                  {/*
+                   * What the setting means for the kehikot themselves, said
+                   * beside it. The layout is written to the project either way
+                   * — see `server/kehikot.ts` — and whether it reaches another
+                   * computer is exactly this checkbox. A person who unticked it
+                   * and later wonders why their kehikko did not arrive on the
+                   * other machine should find the answer here, next to the
+                   * thing they unticked; this host does not change their
+                   * `.gitignore` to make it arrive.
+                   */}
+                  <div className="text-muted-foreground px-2 pb-1.5 text-[11px] leading-snug">
+                    {open.shared ? (
+                      <>
+                        Its kehikot are in <span className="font-mono">.kehikot/kehikko/kehikot.json</span> and
+                        travel with the repository.
+                      </>
+                    ) : (
+                      <>
+                        Its kehikot are written to <span className="font-mono">.kehikot/kehikko/kehikot.json</span>,
+                        but while the folder is ignored they stay on this computer.
+                      </>
+                    )}
+                  </div>
+                </>
               ) : (
                 /* Not an item: there is nothing to press. A menu entry that
                    answers a press by doing nothing is worse than a line of

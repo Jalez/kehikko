@@ -10,6 +10,7 @@ import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
+import { Missing } from './canvas/Missing.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
@@ -24,7 +25,6 @@ import {
   place,
   promptFor,
   readOpen,
-  reconcile,
   removeCanvas,
   reportOpen,
   unplace,
@@ -378,6 +378,11 @@ export function App() {
            is one nobody can get back to. */
         setOpenId(chooseOpen(found.canvases, remembered, project))
         loaded.current = true
+        /* A project's `kehikot.json` that would not read. Said in the footer,
+           where the host's own line is, because the person who edited that
+           file is the person looking at this page, and it stays until a load
+           finds the file reads again. See `server/kehikot.ts`. */
+        if (found.trouble.length) setTrouble(found.trouble.join(' '))
       } catch (error) {
         if (cancelled) return
         setTrouble(
@@ -766,14 +771,29 @@ export function App() {
   }, [registry, look])
 
   /**
-   * Reconcile every canvas against what is registered.
+   * Every container is kept, whatever is registered here.
    *
-   * A module whose registration file is gone comes off every canvas that held
-   * it, which is a real edit and is written like one. On a browser's first
-   * visit — and only then — an empty first canvas is filled with whatever is
-   * registered, so that a person who has just started this thing sees their own
-   * programs instead of a black rectangle. Every visit after that respects the
-   * arrangement exactly, including an empty one.
+   * ## What this effect no longer does
+   *
+   * It used to reconcile every canvas against the registry: a module whose
+   * registration was gone came off every canvas that held it, and the
+   * arrangement was written back without it. That write is now the most
+   * dangerous thing this page could do. The arrangement lives in the project's
+   * own `.kehikot/kehikko/kehikot.json` and travels with the project — see
+   * `server/kehikot.ts` — and the other computer will not have every module
+   * registered. Reconciling there would have written machine A's containers
+   * out of the file on machine B, and the next push would have deleted them
+   * from A. So no placement is ever taken off by this page on its own; a
+   * container for a module this computer lacks is drawn as one — see
+   * `Missing.tsx` and `missing()` in `host/canvases.ts` — and comes off only
+   * when a person presses the button on it.
+   *
+   * ## What it still does
+   *
+   * On a browser's first visit — and only then — an empty first canvas is
+   * filled with whatever is registered, so that a person who has just started
+   * this thing sees their own programs instead of a black rectangle. Every
+   * visit after that respects the arrangement exactly, including an empty one.
    */
   useEffect(() => {
     if (!loaded.current || !registry) return
@@ -782,9 +802,8 @@ export function App() {
     setCanvases((was) =>
       was.map((canvas, index) => {
         const fill = firstVisit.current && index === 0 && canvas.placements.length === 0
-        const placements = fill
-          ? registered.reduce<Placement[]>((acc, id) => place(acc, id), [])
-          : reconcile(canvas.placements, registered)
+        if (!fill) return canvas
+        const placements = registered.reduce<Placement[]>((acc, id) => place(acc, id), [])
         if (same(canvas.placements, placements)) return canvas
         writer.write(canvas.id, { placements })
         return { ...canvas, placements }
@@ -2093,7 +2112,10 @@ export function App() {
     }
     return said
   }, [registry])
-  const containers = placements.filter((p) => byId.has(p.i))
+  /* Every placement, including the ones for modules this computer has no
+     registration for — see the effect above for why those are not filtered
+     out here, and `Missing.tsx` for what is drawn in their rectangle. */
+  const containers = placements
 
   /*
    * The arrangement as the grid is given it, with one thing added: how tall
@@ -2467,7 +2489,13 @@ export function App() {
         >
           {containers.map((placement) => {
             const presence = byId.get(placement.i)
-            if (!presence) return null
+            if (!presence) {
+              return (
+                <div key={placement.i}>
+                  <Missing id={placement.i} onRemove={() => onUnplace(placement.i)} />
+                </div>
+              )
+            }
             const found = live[presence.id]
             return (
               <div key={placement.i}>

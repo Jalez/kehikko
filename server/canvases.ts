@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite'
+import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -38,6 +39,18 @@ import { LIMITS, MODULE_ID, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'roadmap
  * A JSON column would have been fewer lines. Rows are here so that "which
  * canvases is this module on" is a question with an answer — which the canvas
  * needs, because a module placed on two of them is loaded once and shown twice.
+ *
+ * ## This database is now a cache, and the record is in the project
+ *
+ * Everything above was written when this file was the only place a kehikko
+ * existed. It is not any more: each project's kehikot are written to
+ * `<project>/.kehikot/kehikko/kehikot.json`, that file is what travels between
+ * computers, and when the two disagree the file wins. `kehikot.ts` has the
+ * essay, the rule for every case, and the list of which fields travel — read
+ * that list before adding a column here, because a column that is not on it
+ * does not leave this machine. What this file is still for is everything the
+ * page asks in a hurry: rows, ids, and the "which canvases hold this module"
+ * question that made placements rows in the first place.
  */
 
 /** Where the file lives. `ROADMAP_FRAME_DB` overrides it, which is what makes this testable. */
@@ -227,7 +240,37 @@ export interface Placement {
 }
 
 export interface Canvas {
+  /**
+   * This machine's row number, and nothing more.
+   *
+   * Every route, every `localStorage` entry and every open-page report names a
+   * kehikko by this, and all of those are conversations between one page and
+   * one server on one computer. It never leaves the machine: see `key`.
+   */
   id: number
+  /**
+   * The kehikko's identity everywhere else — the one that travels.
+   *
+   * ## Why there are two
+   *
+   * `id` is an autoincrement. The same kehikko cloned onto a second computer
+   * lands in a database that has already handed out 1, 2 and 3 to other things,
+   * so an integer cannot say "this is that one". The name cannot either: two
+   * kehikot in one project may share a name — nothing here has ever refused it
+   * — and a rename would turn one kehikko into a different one.
+   *
+   * So each canvas carries a short generated key, written into the project's
+   * own `.kehikot/kehikko/kehikot.json` beside its name, and that file is what
+   * `server/kehikot.ts` reads on another machine to say "this row is that
+   * kehikko". Eight hex characters: unique enough for a list a person can see
+   * all of, short enough to read in a diff. A person may also write one by hand
+   * — `writing`, `review` — and the file's schema allows it.
+   *
+   * Unique within a project, not globally: the file is per project, so that is
+   * the only scope in which two keys could ever meet. Never edited, never
+   * shown, never sent to a module.
+   */
+  key: string
   name: string
   /** Which epic this kehikko is about — see `src/host/context.ts`. Null when none is picked. */
   epic: string | null
@@ -440,6 +483,19 @@ export function open(file = databaseFile()): Database {
    * been written, which is the whole reason this change is happening.
    */
   drop(db, 'canvases', 'project')
+  /*
+   * The portable identity — see the essay on `key` above, and
+   * after `project_id` because a fresh key is unique within a project. Every canvas written
+   * before it existed gets one here, once, so that the first time its project's
+   * file is written every kehikko in it can be recognised on the next machine.
+   * Generated rather than derived from the name, because the name is neither
+   * unique nor stable, and a key that changed with a rename would make one
+   * kehikko into two.
+   */
+  add(db, 'canvases', 'key', 'text')
+  for (const row of db.query<{ id: number; project: number | null }, []>('select id, project_id as project from canvases where key is null').all()) {
+    db.query('update canvases set key = ? where id = ?').run(freshKey(db, row.project), row.id)
+  }
   return db
 }
 
@@ -508,9 +564,9 @@ export function listCanvases(db: Database): Canvas[] {
    */
   const rows = db
     .query<
-      { id: number; name: string; epic: string | null; project: number | null; selection: string | null },
+      { id: number; key: string; name: string; epic: string | null; project: number | null; selection: string | null },
       []
-    >('select id, name, epic, project_id as project, selection from canvases order by rank, id')
+    >('select id, key, name, epic, project_id as project, selection from canvases order by rank, id')
     .all()
 
   const placements = db
@@ -583,16 +639,60 @@ export function listCanvases(db: Database): Canvas[] {
   }))
 }
 
-/** Make one. It goes at the end, because that is where a person looks for a thing they just made. */
-export function createCanvas(db: Database, name?: string, project: number | null = null): Canvas {
+/**
+ * Make one. It goes at the end, because that is where a person looks for a
+ * thing they just made.
+ *
+ * `key` is given only by `server/kehikot.ts`, when the kehikko already has one
+ * because it arrived in a project's file from another machine. Everything a
+ * person makes here gets a fresh one.
+ */
+export function createCanvas(db: Database, name?: string, project: number | null = null, key?: string): Canvas {
   const clean = tidyName(name) ?? 'canvas'
+  const identity = key ?? freshKey(db, project)
   const row = db
-    .query<{ id: number }, [string, number | null]>(
-      'insert into canvases (name, rank, project_id) values (?, (select coalesce(max(rank), 0) + 1 from canvases), ?) returning id',
+    .query<{ id: number }, [string, number | null, string]>(
+      'insert into canvases (name, rank, project_id, key) values (?, (select coalesce(max(rank), 0) + 1 from canvases), ?, ?) returning id',
     )
-    .get(clean, project)
+    .get(clean, project, identity)
   if (!row) throw new Error('the canvas was not written')
-  return { id: row.id, name: clean, epic: null, project, selection: [], placements: [] }
+  return { id: row.id, key: identity, name: clean, epic: null, project, selection: [], placements: [] }
+}
+
+/**
+ * Put a project's kehikot in a given order.
+ *
+ * The one write to `rank` after creation, and only `kehikot.ts` makes it: the
+ * project's file lists its kehikot in order, and the order is part of what the
+ * file says. Ranks are dense from 1 for the ids given; they may collide with
+ * another project's ranks and that is harmless, because the page never shows
+ * two projects' kehikot in one list. A canvas made afterwards still lands at
+ * the end — `createCanvas` takes the global maximum plus one.
+ */
+export function orderCanvases(db: Database, ids: readonly number[]): void {
+  const set = db.query('update canvases set rank = ? where id = ?')
+  ids.forEach((id, index) => set.run(index + 1, id))
+}
+
+/**
+ * A key no kehikko in this project has.
+ *
+ * Four random bytes is one collision in four thousand million, which is not why
+ * the loop is here — it is here so the property "unique within a project" is
+ * something this function promises rather than something it is very likely to
+ * deliver. The `is null`-tolerant comparison matters during `open()`, where
+ * older rows are being given keys one at a time.
+ */
+function freshKey(db: Database, project: number | null): string {
+  for (;;) {
+    const key = randomBytes(4).toString('hex')
+    const taken = db
+      .query<{ n: number }, [string, number | null, number | null]>(
+        'select count(*) as n from canvases where key = ? and (project_id = ? or (project_id is null and ? is null))',
+      )
+      .get(key, project, project)
+    if (!taken?.n) return key
+  }
 }
 
 /**
@@ -701,6 +801,20 @@ export function deleteCanvas(db: Database, id: number): 'deleted' | 'no-such-can
   if (siblings <= 1) return 'the-last-one'
   db.query('delete from canvases where id = ?').run(id)
   return 'deleted'
+}
+
+/**
+ * Remove one because the project's file no longer lists it.
+ *
+ * Without the last-one rule `deleteCanvas` has, and that is not a loophole: the
+ * rule exists so a PERSON cannot press their way into a project with nothing
+ * in it, and this is not a press. It is `server/kehikot.ts` making the database
+ * agree with the file, and a file that lists no kehikot is allowed to — the
+ * guarantee of at least one is `ensureCanvases`'s, and it runs afterwards and
+ * writes what it makes back into the file. Nothing else may call this.
+ */
+export function dropCanvas(db: Database, id: number): void {
+  db.query('delete from canvases where id = ?').run(id)
 }
 
 /**

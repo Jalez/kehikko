@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 
 import { listCanvases, editCanvas, type Canvas } from './canvases.ts'
+import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
 import type { WhichKehikko } from './open.ts'
 
@@ -227,7 +228,7 @@ function canvasText(db: Database, canvas: Canvas, how: string, seen: Sighting[])
          perfectly ordinary thing to have on a canvas, and an agent asked to
          work on one should know that is what it is. */
       sighting === undefined
-        ? 'no registration — this container will come off the kehikko on the next sweep'
+        ? 'no registration on this computer — the container stays, drawn as missing, so the layout survives a machine that lacks the module'
         : sighting.condition === 'ready'
           ? null
           : `not answering (${sighting.condition})`,
@@ -367,6 +368,10 @@ export async function call(
   const wanted = new Set(asked.ids)
   const placements = canvas.placements.map((p) => ({ ...p, selected: wanted.has(p.i) }))
   const written = editCanvas(door.db, canvas.id, { placements })
+  /* A selection is part of the arrangement and the arrangement's record is the
+     project's file — see `kehikot.ts`. Written here, by the door that changed
+     it, the way the HTTP routes each write after their own change. */
+  if (written) keep(door.db, written.project)
   if (!written) {
     return { text: `kehikko ${canvas.id} was there a moment ago and is not now; nothing was selected.`, failed: true }
   }
