@@ -14,19 +14,48 @@ import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'roadma
  *      in memory, exactly as a passage is held — see `App.tsx` — and for the
  *      same reason: it is a claim about a running program's own state, and
  *      nobody is left to renew it once the program has gone.
- *   2. The canvas's passage, if this container is the one that pointed. The
- *      host already knows who called `passage.set`; it simply never wrote it
- *      down. A module that only ever points is "showing" what it points at
- *      without having learned a new word, which is what lets a paper module
- *      written last month narrow a checklist written this week.
+ *   2. What the module last POINTED at, with `passage.set`. The host already
+ *      knows who called it; it simply never wrote it down. A module that only
+ *      ever points is "showing" what it points at without having learned a new
+ *      word, which is what lets a paper module written last month narrow a
+ *      checklist written this week.
+ *
+ *      Held PER POINTER, not as "whoever pointed last" — and that is the whole
+ *      of a bug this file shipped with. The first version kept one name,
+ *      `pointedBy`, beside the canvas's one passage, and wrote the passage into
+ *      that one row. So the moment a second container pointed — a notes pane
+ *      pressing a note, which is the honest thing for it to do — the paper's
+ *      row went EMPTY: the passage had moved to the notes row, the paper had
+ *      never learned `showing.set`, and the host was now telling every
+ *      consumer that a container with a chapter plainly open on screen was
+ *      showing nothing. A checklist narrowed to the picked-out paper emptied;
+ *      so did the notes list that had just been pressed, since it narrows by
+ *      the same rule. Measured against the owner's thesis with the paper
+ *      picked out: one press on any note, adrift or anchored, and both panes
+ *      said "paper is picked out and shows nothing".
+ *
+ *      What was wrong was the memory, not the passage. `passage` is
+ *      single-valued per canvas and rightly so — one finger, one place. But
+ *      "what this container is showing" is a claim by that container, held
+ *      until THAT container revises it, exactly as a `showing.set` is held
+ *      until re-said. Another container speaking does not un-say it. So each
+ *      pointer's last pointing is kept, and the row of a container that
+ *      pointed at page three keeps saying page three until it points elsewhere
+ *      or at nothing. Staleness is possible — a quiet paper walked to another
+ *      page by somebody else's press still claims the page it last said — and
+ *      it is the same staleness `showing.set` has, and the honest amount: a
+ *      claim the host heard, attributed to who made it, revised only by them.
+ *      It is NOT the host checking that a passage resolves or guessing what a
+ *      frame draws; it cannot do either and does not try.
  *   3. The canvas's selection, if this container is the one that set it. The
  *      same argument.
  *
- * The passage and the selection appear TWICE in a context — once as themselves
- * and once inside their setter's row — and that is a projection, not a second
- * source. One value, held in one place, written into a second field by this
- * one function. The protocol's essay on `containerSchema` says a host may do
- * this and should say so in its own code; this is the saying.
+ * The canvas's passage and selection therefore appear TWICE in a context —
+ * once as themselves and once inside their setter's row — and that is a
+ * projection, not a second source: the current passage IS its setter's last
+ * pointing, written into a second field by this one function. The protocol's
+ * essay on `containerSchema` says a host may do this and should say so in its
+ * own code; this is the saying.
  *
  * ## What it refuses to guess
  *
@@ -49,11 +78,11 @@ import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'roadma
  * printing "Paper and Journeys are picked out" prints them in the order the
  * person sees them.
  *
- * The passage goes FIRST among a row's documents, because it is the narrowest
- * thing there and the one the reader's finger is actually on, and the list is
- * cut at the protocol's bound afterwards. A module that said sixteen documents
- * and also points has said one more than fits; what is dropped is the last of
- * what it said, never the place the reader is standing.
+ * A container's pointing goes FIRST among its documents, because it is the
+ * narrowest thing there and the one its reader's finger is actually on, and
+ * the list is cut at the protocol's bound afterwards. A module that said
+ * sixteen documents and also points has said one more than fits; what is
+ * dropped is the last of what it said, never the place the reader is standing.
  *
  * Pure, so `test/showing.test.ts` is a table.
  */
@@ -70,14 +99,18 @@ export function containersOf(input: {
   placements: readonly Arranged[]
   /** What each module said with `showing.set`, by module id. */
   said: Readonly<Record<string, Showing>>
-  passage: Passage | null
-  /** Which module set the passage, or null when nobody the host heard did. */
-  pointedBy: string | null
+  /**
+   * What each module last pointed at with `passage.set`, by module id — only
+   * the ones still pointing at something. A module that pointed at null has
+   * closed its document and is in here no more; the canvas's own `passage` is
+   * whichever of these was said last, and is not needed here to compose a row.
+   */
+  pointed: Readonly<Record<string, Passage>>
   selection: readonly string[]
   /** Which module set the selection, or null — including after a reload. */
   selectedBy: string | null
 }): CanvasContainer[] {
-  const { placements, said, passage, pointedBy, selection, selectedBy } = input
+  const { placements, said, pointed, selection, selectedBy } = input
   const here = [...placements].sort((a, b) => a.y - b.y || a.x - b.x)
   return here.map((p) => {
     const own = said[p.i]
@@ -85,8 +118,9 @@ export function containersOf(input: {
       ...(selectedBy === p.i ? selection : []),
       ...(own?.refs ?? []),
     ]).slice(0, LIMITS.REFS)
+    const pointing = pointed[p.i]
     const documents = dedupeDocuments([
-      ...(pointedBy === p.i && passage ? [passage] : []),
+      ...(pointing ? [pointing] : []),
       ...(own?.documents ?? []),
     ]).slice(0, LIMITS.SHOWING_DOCUMENTS)
     return { module: p.i, selected: p.selected, showing: { refs, documents } }

@@ -950,13 +950,20 @@ export function App() {
    * closed a week ago. So it lives with the page, and a module that reloads
    * says it again.
    *
-   * Beside it, who POINTED and who PICKED on each canvas. The host always knew
-   * — `passage.set` and `selection.set` arrive from a window — and never wrote
-   * it down, because nothing needed it. `context.containers` does: the
-   * container that pointed is showing what it pointed at, and its row says so
-   * without the module having learned a new word. `host/showing.ts` composes
-   * the three into one list and has the argument for why that is a projection
-   * and not a second source.
+   * Beside it, what each container last POINTED at and who PICKED, on each
+   * canvas. The host always knew — `passage.set` and `selection.set` arrive
+   * from a window — and never wrote it down, because nothing needed it.
+   * `context.containers` does: a container that pointed is showing what it
+   * pointed at, and its row says so without the module having learned a new
+   * word. `host/showing.ts` composes the three into one list and has the
+   * argument for why that is a projection and not a second source.
+   *
+   * `pointings` is per MODULE and not one name per canvas, and the essay in
+   * `host/showing.ts` is why: a single "who pointed last" emptied the paper's
+   * row the moment the notes pane pointed, and every consumer narrowed to the
+   * picked-out paper emptied with it. A pointing is that container's claim
+   * about what it shows and lasts until that container points elsewhere or at
+   * nothing — the same life a `showing.set` has.
    *
    * `selectedBy` is honest about one gap: a selection read back out of the
    * database after a reload has no setter here, and goes into nobody's row. It
@@ -964,7 +971,7 @@ export function App() {
    * stating who said something it did not hear.
    */
   const [said, setSaid] = useState<Record<number, Record<string, Showing>>>({})
-  const [pointedBy, setPointedBy] = useState<Record<number, string | null>>({})
+  const [pointings, setPointings] = useState<Record<number, Record<string, Passage>>>({})
   const [selectedBy, setSelectedBy] = useState<Record<number, string | null>>({})
 
   /**
@@ -999,7 +1006,7 @@ export function App() {
        for the passage's own reason: a document path belongs to the project
        that was just left, and a ref was picked out of an epic in it. */
     setSaid((was) => (Object.keys(was).length === 0 ? was : {}))
-    setPointedBy((was) => (Object.keys(was).length === 0 ? was : {}))
+    setPointings((was) => (Object.keys(was).length === 0 ? was : {}))
     setSelectedBy((was) => (Object.keys(was).length === 0 ? was : {}))
   }, [projectId])
 
@@ -1023,8 +1030,8 @@ export function App() {
    * Every container on the open kehikko, whether it is picked out, and what it
    * shows — composed on every render, cheaply, and depended on BY VALUE below.
    *
-   * `open.placements` is a fresh array on every read of the canvases, the
-   * passage is a fresh object on every context, and `containersOf` builds
+   * `open.placements` is a fresh array on every read of the canvases, every
+   * pointing is a fresh object on every context, and `containersOf` builds
    * fresh rows out of both. Depending on any of those by identity is the
    * seventeen-identical-broadcasts problem `picked` and `pointing` exist to
    * prevent, so what the memo reads is the list as one string.
@@ -1032,8 +1039,7 @@ export function App() {
   const described = containersOf({
     placements: open?.placements ?? [],
     said: (openId === null ? undefined : said[openId]) ?? {},
-    passage,
-    pointedBy: openId === null ? null : (pointedBy[openId] ?? null),
+    pointed: (openId === null ? undefined : pointings[openId]) ?? {},
     selection: picked ? picked.split('\n') : [],
     selectedBy: openId === null ? null : (selectedBy[openId] ?? null),
   })
@@ -1117,8 +1123,8 @@ export function App() {
      the pattern one pattern. */
   const setSaidRef = useRef(setSaid)
   setSaidRef.current = setSaid
-  const setPointedByRef = useRef(setPointedBy)
-  setPointedByRef.current = setPointedBy
+  const setPointingsRef = useRef(setPointings)
+  setPointingsRef.current = setPointings
   const setSelectedByRef = useRef(setSelectedBy)
   setSelectedByRef.current = setSelectedBy
 
@@ -1328,10 +1334,21 @@ export function App() {
           if (JSON.stringify(had ?? null) === JSON.stringify(next ?? null)) return was
           return { ...was, [id]: next }
         })
-        /* Who pointed, so the passage appears in that container's row. A null
-           passage is a document closed, and nobody is showing it. */
-        const by = next ? from : null
-        setPointedByRef.current((was) => (was[id] === by ? was : { ...was, [id]: by }))
+        /* And what THIS container is now pointing at, so the passage appears
+           in its row — and stays there when another container points next,
+           which is the bug `host/showing.ts` names. A null passage is a
+           document closed: this container's row stops showing it, and only
+           this container's. */
+        setPointingsRef.current((was) => {
+          const here = was[id] ?? {}
+          if (next === null) {
+            if (!(from in here)) return was
+            const { [from]: _gone, ...rest } = here
+            return { ...was, [id]: rest }
+          }
+          if (JSON.stringify(here[from] ?? null) === JSON.stringify(next)) return was
+          return { ...was, [id]: { ...here, [from]: next } }
+        })
       },
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
