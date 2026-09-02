@@ -57,8 +57,28 @@
  * half-withdrawn.
  */
 
-/** What a page is told. Never the news itself — only that there is some. */
-export type News = { kehikko: number } | { registry: true }
+/**
+ * What a page is told. Never the news itself — only that there is some.
+ *
+ * ## The third kind, and why it is an id after all
+ *
+ * `epics` names a PROJECT, by this machine's id for it. An epic created at the
+ * door — `create_epic` in `mcp.ts` — is a file in that project's `data/epics`,
+ * which the page reads once per project switch and never again, so an agent's
+ * new epic would not be in the dropdown until the person changed project and
+ * came back. That is the sitting-still-and-watching case the essay above is
+ * about, one more time.
+ *
+ * It carries the project rather than nothing because two windows can be
+ * standing in two projects, and a page in the thesis folder re-reading its
+ * epics because something happened in the roadmap's would be a read for no
+ * reason — cheap, and still a read the page cannot explain. The `registry`
+ * kind carries nothing because there is one registry; there is not one project.
+ *
+ * Still not the news itself: not the epic, not its title. `/host/epics` is the
+ * one reading, and a stream that shipped a summary would be a second, older one.
+ */
+export type News = { kehikko: number } | { registry: true } | { epics: number }
 
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
@@ -103,6 +123,21 @@ export class Wakes {
    */
   registryChanged(): void {
     this.#tell({ registry: true })
+  }
+
+  /**
+   * Say that a project's `data/epics` has a file in it that it did not have.
+   *
+   * Sent by whatever wrote the file — the route the page's `+` posts to and
+   * the door's `create_epic` both do — and never by watching the directory.
+   * The roadmap rewrites `data/` under a running host on every refresh, and a
+   * watcher would have the page re-reading its epics on every one of those,
+   * which is the tick-driven read this file refuses. What this host wrote,
+   * this host says; what something else wrote is read on the next project
+   * switch, as before.
+   */
+  epicsChanged(project: number): void {
+    this.#tell({ epics: project })
   }
 
   #tell(news: News): void {

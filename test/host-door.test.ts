@@ -304,7 +304,12 @@ describe('the host’s server, running', () => {
       expect(door.url).toBe(`${api}/mcp`)
       expect(door.agent.kind).toBe('told')
       expect(door.tools.ok).toBe(true)
-      expect(door.tools.tools?.map((t) => t.name).sort()).toEqual(['read_canvas', 'select_modules'])
+      expect(door.tools.tools?.map((t) => t.name).sort()).toEqual([
+        'create_epic',
+        'place_modules',
+        'read_canvas',
+        'select_modules',
+      ])
 
       /* The POST route reaches the host's door too — refused here, before
          anything is run, because the agent has already been told. */

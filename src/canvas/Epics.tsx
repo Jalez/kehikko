@@ -1,4 +1,4 @@
-import { ChevronDown, Circle, CircleSlash, Pencil } from 'lucide-react'
+import { ChevronDown, Circle, CircleSlash, Pencil, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
+import { offerOfCreate, slugFrom } from '@/host/epics.ts'
 import type { Epic, Epics as Held } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
 
@@ -81,6 +83,48 @@ import { Hint } from './Hint.tsx'
  * and the form has the room to say what it will and will not change. Escape
  * abandons the draft, and whether the menu goes with it costs nothing either
  * way — the form is not left standing over a list it is no longer editing.
+ *
+ * ## An epic can be MADE here, and the `+` is beside the select, not in it
+ *
+ * The owner's words: "If there are no epics user seems unable to add an epic."
+ * True, and worse than it sounds — two of the three empty states above are
+ * a DISABLED select, and a disabled select is a control that cannot open, so a
+ * "new epic…" row at the bottom of its menu would be unreachable in exactly
+ * the situation it exists for. So the control is a `+` outside the menu, the
+ * way `Canvases.tsx` puts the new-kehikko `+` beside the kehikko switcher: a
+ * button that works whether or not the list has anything in it.
+ *
+ * `offerOfCreate` in `host/epics.ts` decides what it does per state, and it
+ * is data rather than JSX so each state can be asserted without a DOM. The one
+ * departure from the disabled-not-hidden rule above — no `+` at all when
+ * there is no project — is argued there: the select beside it is already
+ * saying "no project" in words, and two flat controls for one fact explain
+ * less than one.
+ *
+ * ## The slug is shown while the title is typed, and is not checked here
+ *
+ * Retitle draws the line between a title and a slug sharply, so create has to
+ * as well: the person is choosing both. The slug is derived from the title as
+ * they type, by the same `slugFrom` the server uses when an agent gives none,
+ * and it stops following the moment they edit it — "derived unless somebody
+ * says otherwise". It is NOT validated on this side. The server's `createEpic`
+ * is the one rule about what a slug may be, and its sentence is the refusal;
+ * a copy here would be the copy that drifts, and the field would refuse a slug
+ * the server takes or take one it refuses.
+ *
+ * ## It is a popover and not the dropdown, and it is not armed
+ *
+ * A popover, because the dropdown may be disabled — see above — and because
+ * a form of two fields with a sentence under them is not a menu. Not armed,
+ * for the reason the retitle is not: a file that can be deleted, in a
+ * repository, is not the class of thing two presses are for.
+ *
+ * ## Creating opens the epic; the door's `create_epic` does not
+ *
+ * Both go through the same server function and produce the same file, and
+ * they differ in exactly one thing afterwards, which `onCreateEpic` in
+ * `App.tsx` argues: a person who pressed `+` and typed a title has chosen this
+ * epic; an agent has not chosen it for them.
  */
 export function Epics({
   epic,
@@ -88,6 +132,7 @@ export function Epics({
   hasProject,
   onPick,
   onRetitle,
+  onCreate,
 }: {
   /** What the kehikko is on now, straight from the canvas's subject. */
   epic: string | null
@@ -104,9 +149,19 @@ export function Epics({
    * already goes.
    */
   onRetitle(slug: string, title: string): Promise<boolean>
+  /**
+   * Make a new epic in this project, filed under `slug`, and open it.
+   *
+   * Answers whether it was written, exactly as `onRetitle` does and for the
+   * same reason: the form stays open over a refusal with what was typed still
+   * in it, and the server's own sentence goes to the footer.
+   */
+  onCreate(slug: string, title: string): Promise<boolean>
 }) {
   /** Which epic is being retitled, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<string | null>(null)
+  /** Whether the create form is open. Its own state, because it is its own popover. */
+  const [creating, setCreating] = useState(false)
   const epics = held?.epics ?? []
   const holds = held?.holds ?? false
   /* Three states and not two: no project, a project with no epics directory,
@@ -124,7 +179,10 @@ export function Epics({
           ? 'this project’s data/epics is empty'
           : 'the epic every module on this kehikko is shown'
 
+  const offer = offerOfCreate(hasProject, held)
+
   return (
+    <>
     <DropdownMenu>
       <Hint label={label} align="start">
         {/* A span, because a disabled button dispatches no pointer events and
@@ -272,6 +330,36 @@ export function Epics({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+
+    {offer.offered ? (
+      <Popover open={creating} onOpenChange={setCreating}>
+        <Hint label={held ? `a new epic — ${offer.note}` : 'a new epic in this project'}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="new epic"
+              className="text-muted-foreground hover:text-foreground size-6 shrink-0"
+            >
+              <Plus className="size-3" />
+            </Button>
+          </PopoverTrigger>
+        </Hint>
+        <PopoverContent align="start" className="w-80 p-0">
+          {/* Keyed on being open, so that a form abandoned with half a title in
+              it comes back empty next time rather than carrying the draft. */}
+          {creating ? (
+            <Create
+              note={offer.note}
+              makesDirectory={offer.makesDirectory}
+              onCreate={onCreate}
+              onDone={() => setCreating(false)}
+            />
+          ) : null}
+        </PopoverContent>
+      </Popover>
+    ) : null}
+    </>
   )
 }
 
@@ -380,6 +468,126 @@ function Retitle({
         </Button>
         <Button size="sm" className="h-6 px-2 text-xs" disabled={saving} onClick={() => void commit()}>
           {saving ? 'saving…' : 'save'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The create form: a title, the slug it makes, and a sentence about where the
+ * file goes.
+ *
+ * ## The slug follows the title until it is touched
+ *
+ * `slug` is `null` while it is derived and a string once the person has typed
+ * in it — `null` rather than a copy of the derivation, so that "is this still
+ * following" is a fact the form holds rather than a comparison it makes.
+ * Clearing the slug field entirely puts it back to following, which is the
+ * gesture a person makes when they have edited it into something they no
+ * longer want.
+ *
+ * ## The keys stop here, as in `Retitle`
+ *
+ * A popover does not read typeahead the way a menu does, but the canvas
+ * behind it has its own keyboard — see `presses.ts` — and a title with a
+ * space in it must not fold a container. Enter creates, Escape abandons.
+ *
+ * ## Nothing is checked on this side
+ *
+ * The button is disabled for an empty title and for nothing else. A slug
+ * the server will refuse is sent and refused, and the refusal lands in the
+ * footer with the server's sentence while the form stays open with both
+ * fields as they were — see the essay on the component.
+ */
+function Create({
+  note,
+  makesDirectory,
+  onCreate,
+  onDone,
+}: {
+  note: string
+  makesDirectory: boolean
+  onCreate(slug: string, title: string): Promise<boolean>
+  onDone(): void
+}) {
+  const [title, setTitle] = useState('')
+  const [slug, setSlug] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const field = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    field.current?.focus()
+  }, [])
+
+  const derived = slugFrom(title)
+  const chosen = slug ?? derived
+
+  const commit = async () => {
+    if (!title.trim()) return
+    setSaving(true)
+    const written = await onCreate(chosen, title.trim())
+    setSaving(false)
+    if (written) onDone()
+  }
+
+  return (
+    <div
+      className="px-3 py-2"
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.key === 'Enter') void commit()
+        if (event.key === 'Escape') onDone()
+      }}
+    >
+      <p className="text-muted-foreground pb-1.5 text-xs font-medium">new epic</p>
+      <Input
+        ref={field}
+        value={title}
+        disabled={saving}
+        onChange={(event) => setTitle(event.target.value)}
+        aria-label="what the new epic is called"
+        placeholder="what it is called"
+        spellCheck={false}
+        /* The same courtesy stop `Retitle` puts on a title, and the same
+           division of labour: the server decides. */
+        maxLength={200}
+        className="h-7 w-full text-xs"
+      />
+      <Input
+        value={chosen}
+        disabled={saving}
+        onChange={(event) => setSlug(event.target.value === '' ? null : event.target.value)}
+        aria-label="what the new epic is filed under — its slug"
+        placeholder="its slug"
+        spellCheck={false}
+        className="mt-1.5 h-7 w-full font-mono text-xs"
+      />
+      <p className="text-muted-foreground pt-1.5 text-[11px] leading-snug">
+        {slug === null ? 'the slug follows the title until you edit it. ' : 'the slug is yours. '}
+        It is what this kehikko, and every module’s own material, will file this epic under, and it does not
+        change afterwards.
+      </p>
+      <p
+        className={
+          makesDirectory
+            ? 'text-foreground pt-1.5 text-[11px] leading-snug'
+            : 'text-muted-foreground pt-1.5 text-[11px] leading-snug'
+        }
+      >
+        {note}.
+      </p>
+      <div className="flex justify-end gap-1 pt-2">
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onDone}>
+          cancel
+        </Button>
+        <Button
+          size="sm"
+          className="h-6 px-2 text-xs"
+          disabled={saving || !title.trim()}
+          onClick={() => void commit()}
+        >
+          {saving ? 'creating…' : 'create and open'}
         </Button>
       </div>
     </div>

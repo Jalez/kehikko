@@ -376,6 +376,12 @@ export function watchCanvases(
   kehikko: number | null,
   woke: (kehikko: number) => void,
   looked?: () => void,
+  /**
+   * A project's epics are not what this page last read — see `epicsChanged`
+   * in `server/wake.ts`. Given the project's id, so a page standing in a
+   * different one can leave its dropdown alone.
+   */
+  wrote?: (project: number) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -410,6 +416,8 @@ export function watchCanvases(
          server sending something else under this name is news this page does
          not understand rather than news it half-understands. */
       if ((parsed as { registry?: unknown })?.registry === true) looked?.()
+      const project = (parsed as { epics?: unknown })?.epics
+      if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */

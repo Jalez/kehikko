@@ -79,6 +79,7 @@ export function Bar({
   project,
   held,
   onRetitleEpic,
+  onCreateEpic,
   onProject,
   onAddProject,
   onShareProject,
@@ -111,6 +112,8 @@ export function Bar({
    * `Epics.tsx` on why those are two different operations and only one is here.
    */
   onRetitleEpic(slug: string, title: string): Promise<boolean>
+  /** Make a new epic in this project and open it here. See `onCreateEpic` in `App.tsx`. */
+  onCreateEpic(slug: string, title: string): Promise<boolean>
   onProject(id: number): void
   onAddProject(path: string): void
   /** Whether the open project's `.kehikot/` is committed with it. */
@@ -180,6 +183,10 @@ export function Bar({
              you had just renamed would be treating a label as an identity,
              which is the exact confusion this control is built around. */
           onRetitle={onRetitleEpic}
+          /* Creating DOES move the subject, and `App.tsx` says why the two
+             differ: a person who typed a title into a `+` has said which epic
+             they want to be on. */
+          onCreate={onCreateEpic}
         />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />

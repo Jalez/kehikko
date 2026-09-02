@@ -46,7 +46,17 @@ describe('what travels on the wake stream', () => {
     const { news, wakes } = heard()
     wakes.woke(3)
     wakes.registryChanged()
-    expect(news.map((one) => Object.keys(one))).toEqual([['kehikko'], ['registry']])
+    wakes.epicsChanged(5)
+    expect(news.map((one) => Object.keys(one))).toEqual([['kehikko'], ['registry'], ['epics']])
+  })
+
+  test('a project whose epics changed is the project’s id and nothing else', () => {
+    /* Not the epic, not its title, not the file: the page has `/host/epics`
+       for those. The id is carried — unlike `registry` — because two windows
+       can stand in two projects and only the one this is about should read. */
+    const { news, wakes } = heard()
+    wakes.epicsChanged(5)
+    expect(news).toEqual([{ epics: 5 }])
   })
 
   test('one closed stream does not swallow the news for a live one', () => {

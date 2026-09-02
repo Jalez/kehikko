@@ -37,6 +37,7 @@ import type { ConversationWatcher } from './host/conversation.ts'
 import {
   addProject,
   chooseProject,
+  createEpic,
   fetchEpics,
   fetchProjects,
   forgetProject,
@@ -525,6 +526,23 @@ export function App() {
         })()
       },
       () => void lookRef.current?.(),
+      /* A project's epics changed — an agent's `create_epic`, or a `+` in
+         another window. Re-read only when it is THIS page's project: the
+         dropdown of a page standing in the thesis folder has nothing to learn
+         from an epic made in the roadmap's. Through `projectRef`, for the
+         reason `lookRef` is a ref: the stream must not be reopened because the
+         open project changed. `held` is not cleared first, as `onRetitleEpic`
+         explains — the list stays until the new one lands. */
+      (project) => {
+        if (project !== projectRef.current) return
+        void (async () => {
+          try {
+            setHeld(await fetchEpics(project))
+          } catch {
+            /* The list the page has is the list it had. Nothing was lost. */
+          }
+        })()
+      },
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -2078,6 +2096,47 @@ export function App() {
   )
 
   /**
+   * Make a new epic in the open project, and open it on this kehikko.
+   *
+   * ## Opening it is the half that makes the button do something
+   *
+   * A create that left the kehikko on the epic it was on would be a `+` that
+   * appears to do nothing: the dropdown gains a row the menu is not open to
+   * show, and the person is looking at the same canvas. So the subject moves
+   * to the new epic — which is the opposite of what `onRetitleEpic` does, and
+   * the opposite of what the door's `create_epic` does, and all three are
+   * right. A retitle changes a label, not what the kehikko is about. An agent
+   * creating an epic is not the person, and which epic a person is looking at
+   * is theirs. A person pressing `+` and typing a title has said, as plainly
+   * as a pointer can, that THIS is the epic they want to be on.
+   *
+   * The list is re-read before the subject moves, so that the select has the
+   * row to show as chosen by the time it is chosen; a subject set to a slug
+   * the list does not yet hold would draw the slug bare for a frame.
+   *
+   * Answers whether it was written, for the reason `onRetitleEpic` does: the
+   * form stays open over a refusal with the typed title and slug still in it,
+   * and the server's sentence — "there is already an epic called that" — goes
+   * to the footer, where every other refusal goes.
+   */
+  const onCreateEpic = useCallback(
+    async (slug: string, title: string): Promise<boolean> => {
+      if (projectId === null) return false
+      try {
+        const made = await createEpic(projectId, slug, title)
+        setHeld(await fetchEpics(projectId))
+        change({ epic: made.epic.slug })
+        setTrouble(null)
+        return true
+      } catch (error) {
+        setTrouble(`${slug || 'that epic'} was not created: ${(error as Error).message}`)
+        return false
+      }
+    },
+    [projectId, change],
+  )
+
+  /**
    * Stop holding a folder as a project. Nothing on disk is deleted.
    *
    * The canvases are re-read rather than filtered here, because forgetting a
@@ -2359,6 +2418,7 @@ export function App() {
         project={project}
         held={held}
         onRetitleEpic={onRetitleEpic}
+        onCreateEpic={onCreateEpic}
         onProject={onProject}
         onAddProject={(path) => void onAddProject(path)}
         onShareProject={(id, shared) => void onShareProject(id, shared)}

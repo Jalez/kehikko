@@ -1,5 +1,9 @@
-import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { EPIC_SLUG } from 'roadmap-module-protocol'
+
+import { slugFrom } from '../src/host/epics.ts'
 
 /**
  * What this host actually holds, when it is pointed at something.
@@ -224,28 +228,9 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
       status: 400,
     }
   }
-  if (typeof title !== 'string') {
-    return { ok: false, why: 'A title is a line of text.', status: 400 }
-  }
-
-  const wanted = title.trim()
-  if (!wanted) {
-    return {
-      ok: false,
-      why: 'An epic has to be called something. Type a title, or leave the one it has.',
-      status: 400,
-    }
-  }
-  if (wanted.length > TITLE_MAX) {
-    return {
-      ok: false,
-      why: `A title is at most ${TITLE_MAX} characters and that one is ${wanted.length}. The lede underneath it is where a longer sentence goes.`,
-      status: 400,
-    }
-  }
-  if (NOT_ONE_LINE.test(wanted)) {
-    return { ok: false, why: 'A title is one line, and that one has a line break or a control character in it.', status: 400 }
-  }
+  const titled = checkTitle(title)
+  if (!titled.ok) return titled
+  const wanted = titled.title
 
   if (!epicsIn(root)) {
     return { ok: false, why: 'This project has no data/epics, so there is no epic in it to retitle.', status: 409 }
@@ -295,6 +280,156 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
   }
 
   return { ok: true, epic: summarise(slug, { ...epic, title: wanted }) }
+}
+
+/**
+ * A title, checked once for both the retitle and the create.
+ *
+ * Pulled out when `createEpic` arrived, for the reason `summarise` was pulled
+ * out of `listEpics`: two copies of "what a title may be" would drift, and the
+ * first thing to drift would be the ceiling — a create that took 240
+ * characters beside a retitle that refused 201 would make the same title legal
+ * to type once and illegal to type again.
+ */
+function checkTitle(title: unknown): { ok: true; title: string } | { ok: false; why: string; status: number } {
+  if (typeof title !== 'string') {
+    return { ok: false, why: 'A title is a line of text.', status: 400 }
+  }
+  const wanted = title.trim()
+  if (!wanted) {
+    return {
+      ok: false,
+      why: 'An epic has to be called something. Type a title, or leave the one it has.',
+      status: 400,
+    }
+  }
+  if (wanted.length > TITLE_MAX) {
+    return {
+      ok: false,
+      why: `A title is at most ${TITLE_MAX} characters and that one is ${wanted.length}. The lede underneath it is where a longer sentence goes.`,
+      status: 400,
+    }
+  }
+  if (NOT_ONE_LINE.test(wanted)) {
+    return { ok: false, why: 'A title is one line, and that one has a line break or a control character in it.', status: 400 }
+  }
+  return { ok: true, title: wanted }
+}
+
+export type Created =
+  | { ok: true; epic: EpicSummary; file: string; madeDirectory: boolean }
+  | { ok: false; why: string; status: number }
+
+/**
+ * A new epic: one file in `data/epics`, and the directory if there was none.
+ *
+ * ## One implementation, two callers
+ *
+ * The `+` beside the epic select and the `create_epic` tool on the host's door
+ * both come here, through `POST /host/epics` and `server/mcp.ts` respectively,
+ * and neither writes a byte of its own. Two ways to make an epic that could
+ * disagree about what a valid one is — a slug rule on the page and a looser
+ * one at the door, a `written` stamp from one and not the other — is precisely
+ * the class of bug this workspace keeps meeting, and `test/epics-made.test.ts`
+ * holds the two paths to the same bytes rather than to two expectations.
+ *
+ * ## What the file contains, and why so little
+ *
+ * `slug`, `title`, and `written` — the date, the way the roadmap's own
+ * `create_epic` stamps it. That is the minimum every reader of these files
+ * accepts: this host reads them with everything optional (`summarise`), and the
+ * roadmap's `epicSchema` requires the slug and the title and defaults the rest.
+ * Nothing else is invented. Not `lede: ""`, not `steps: []` — `countOf` beside
+ * this answers null rather than zero when there is nothing to count, and an
+ * empty list written here would be this host asserting "no steps" on behalf of
+ * somebody who has said nothing yet. The person, or the roadmap, fills the
+ * document in; this makes it exist.
+ *
+ * Two-space JSON with a trailing newline, which is the shape the roadmap's
+ * `writeEpic` writes, so that the first edit the roadmap makes to this file is
+ * a one-field diff rather than a reformat.
+ *
+ * ## The slug is derived unless somebody says otherwise
+ *
+ * `slugFrom` in `src/host/epics.ts`, which the page also uses to show the slug
+ * it is about to send. Derived HERE when none was given, and not on the page
+ * alone, so that an agent giving a title and no slug gets the same slug a
+ * person would have watched appear. Checked against this host's own `SLUG`,
+ * which is a subset of the protocol's `EPIC_SLUG` — no leading dash — and
+ * against the protocol's as well, so that a slug this host makes is one every
+ * module will take in `roadmap.context.epic`.
+ *
+ * ## What it refuses
+ *
+ * A title that is not one (the same rules as a retitle), a slug that is not
+ * one, a slug that is already an epic here — never overwritten, because that
+ * file is a document somebody wrote — and a directory this host cannot make.
+ * A project with no `data/epics` is NOT refused: the directory is made, which
+ * is the whole difference between this and `retitleEpic`. A retitle in such a
+ * project has nothing to retitle; a create is how the directory comes to
+ * exist. The caller says on screen that it will happen — see `offerOfCreate`.
+ *
+ * `today` is a parameter so a test can hold two paths to the same bytes across
+ * midnight; nothing but a test passes it.
+ */
+export function createEpic(
+  root: string,
+  asked: { slug?: unknown; title: unknown },
+  today: string = new Date().toISOString().slice(0, 10),
+): Created {
+  const titled = checkTitle(asked.title)
+  if (!titled.ok) return titled
+  const title = titled.title
+
+  if (asked.slug !== undefined && asked.slug !== null && typeof asked.slug !== 'string') {
+    return { ok: false, why: 'A slug is text: lowercase letters, digits and dashes.', status: 400 }
+  }
+  const slug = typeof asked.slug === 'string' && asked.slug.trim() ? asked.slug.trim() : slugFrom(title)
+  if (!SLUG.test(slug) || !EPIC_SLUG.test(slug)) {
+    return {
+      ok: false,
+      why: slug
+        ? `"${shown(slug)}" is not a slug. An epic is named by lowercase letters, digits and dashes — at most 80 of them, starting with a letter or a digit.`
+        : `Nothing in "${shown(title)}" makes a slug. Give one: lowercase letters, digits and dashes.`,
+      status: 400,
+    }
+  }
+
+  const dir = join(root, 'data', 'epics')
+  const madeDirectory = !existsSync(dir)
+  if (madeDirectory) {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch (error) {
+      return { ok: false, why: `data/epics could not be made in this project: ${(error as Error).message}`, status: 500 }
+    }
+  }
+
+  const path = join(dir, `${slug}.json`)
+  if (existsSync(path)) {
+    return {
+      ok: false,
+      why: `There is already an epic called ${slug} in this project. Pick another slug, or open that one.`,
+      status: 409,
+    }
+  }
+
+  const epic = { slug, title, written: today }
+  try {
+    /* `wx`: create, and fail if it appeared between the check above and this
+       write. Two windows pressing `+` with the same slug at the same moment is
+       unlikely and the cost of guarding it is one flag. */
+    writeFileSync(path, `${JSON.stringify(epic, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  } catch (error) {
+    return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
+  }
+
+  return { ok: true, epic: summarise(slug, epic), file: path, madeDirectory }
+}
+
+/** Text as it is quoted back in a refusal: whole when short, cut when it is a paragraph. */
+function shown(text: string): string {
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text
 }
 
 /**
