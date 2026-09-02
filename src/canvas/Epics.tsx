@@ -204,8 +204,35 @@ export function Epics({
                  * A span and not a button: this is inside a menu item, whose
                  * own click is what picks the epic, and a nested button would
                  * be a button inside a control that already means something.
-                 * The press is stopped here so that retitling does not also
+                 * The CLICK is stopped here so that retitling does not also
                  * change what the kehikko is about.
+                 *
+                 * ## The pointerdown must NOT be stopped, and stopping it was the bug
+                 *
+                 * This span used to stop `pointerdown` as well, on the reading
+                 * that stopping a press earlier stops it harder. It does the
+                 * opposite here, and the mechanism is worth writing down because
+                 * nothing about it is visible from this file.
+                 *
+                 * Radix's menu item keeps a ref saying whether the press STARTED
+                 * on it, set from its own `onPointerDown`, and on `pointerup` it
+                 * does this:
+                 *
+                 *     if (!isPointerDownRef.current) event.currentTarget?.click()
+                 *
+                 * — so that a press begun on one item and released over another
+                 * activates the one it was released over. Stopping `pointerdown`
+                 * kept the item's handler from ever running, so the ref stayed
+                 * false, so the release synthesised a click ON THE ITEM. That
+                 * click never passes through this span, so the handler below
+                 * never ran; the item selected, `onPick` fired, and the menu
+                 * closed. Pressing the pencil switched epic and shut the
+                 * dropdown — the exact opposite of what it is for.
+                 *
+                 * Letting the pointerdown through is therefore what fixes it:
+                 * the item marks the press as its own, no click is synthesised,
+                 * and the real click lands on this span, where stopping
+                 * propagation keeps it from reaching the item at all.
                  */}
                 <span
                   role="button"
@@ -213,7 +240,6 @@ export function Epics({
                   aria-label={`retitle ${titleOf(one)} — its slug, ${one.slug}, does not change`}
                   title={`retitle — the slug ${one.slug} does not change (F2)`}
                   className="text-muted-foreground hover:text-foreground pointer-events-auto shrink-0 opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100"
-                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
