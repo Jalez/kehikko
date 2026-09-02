@@ -21,7 +21,7 @@ const container = (i: string, at: [number, number], prompt = '', promptFor: stri
   prompt,
   promptFor,
   collapsed: false,
-  openH: null,
+  wish: 10,
   selected: false,
   filters: {},
   refreshEvery: null,
