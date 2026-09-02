@@ -185,8 +185,11 @@ export interface Placement {
    * can be the target on one kehikko and a bystander on another, and which it
    * is, is that kehikko's business.
    *
-   * The module is NOT told, and that is a decision rather than an omission —
-   * see the essay on `onSelect` in `src/App.tsx`.
+   * Every module on the kehikko IS told, now, and told the same thing: the
+   * list of containers and which of them are picked out, in
+   * `context.containers`. It was not, for a while, and that was a decision —
+   * the essay on `onSelect` in `src/App.tsx` keeps the old argument and says
+   * what changed it.
    */
   selected: boolean
   /**

@@ -176,14 +176,26 @@ export interface Counterpart {
 }
 
 /** The context kinds a module can declare a reaction to, and the capability that produces each. */
-const SETS: Record<string, string> = { selection: 'selection:set', passage: 'passage:set' }
+const SETS: Record<string, string> = {
+  selection: 'selection:set',
+  passage: 'passage:set',
+  /* The third pair, and the one whose reaction has another end the registry
+     cannot see: half of `context.containers` — which containers are picked
+     out — is the host's own act, set by a tick in a header. What a registry
+     CAN pair is the other half, a module saying what it shows. A module that
+     reacts to `containers` on a machine where nothing says what it shows is
+     still narrowing to the person's ticks; it is simply not drawn here, which
+     is the same refusal a reactor with no setter has always had, and for the
+     same reason — this file draws pairs of manifests and nothing else. */
+  containers: 'showing:set',
+}
 
 export interface Relationship {
-  kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'navigation'
+  kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'containers' | 'navigation'
   /**
    * Which end of a context kind this module is.
    *
-   * Only on `selection` and `passage`, because only they have two ends to be.
+   * Only on `selection`, `passage` and `containers`, because only they have two ends to be.
    * `emits` and `consumes` say their direction in the kind itself, and
    * `navigation` genuinely has one end — moving the canvas is felt by whatever
    * is on it, and nothing declares that it follows the subject beyond the mode
@@ -342,6 +354,19 @@ export function relate(
         told: others,
       })
     }
+    /* A container saying what it shows. The same shape again, named apart
+       from the passage because it is a different claim — not where a reader
+       is pointing but what a program has open, said by the program about
+       itself, and read by neighbours that narrow to the picked-out ones. */
+    if (module.declares.uses.includes('showing:set')) {
+      relationships.push({
+        kind: 'containers',
+        role: 'sets',
+        direct: false,
+        with: reactorsOf('containers', presence.id, reactors, named, placings),
+        told: others,
+      })
+    }
 
     /* The receiving half, and the only half of this file that is drawn out of a
        module's description of itself rather than out of a capability. It is
@@ -350,7 +375,7 @@ export function relate(
        and would be repeating on trust. `told` is zero here rather than the
        audience count — a reactor has no audience, it IS one. */
     for (const kind of module.reacts ?? []) {
-      if (kind !== 'selection' && kind !== 'passage') continue
+      if (kind !== 'selection' && kind !== 'passage' && kind !== 'containers') continue
       const from = (setters.get(kind) ?? []).filter((id) => id !== presence.id)
       if (!from.length) continue
       relationships.push({
@@ -452,17 +477,26 @@ export function sentenceFor(name: string, relationship: Relationship): string {
    * sets" be read as a wire between them.
    */
   if (relationship.role === 'reacts') {
-    const noun = kind === 'passage' ? 'a passage' : 'a selection'
+    const noun = kind === 'passage' ? 'a passage' : kind === 'containers' ? 'what the containers show' : 'a selection'
     const what =
       kind === 'passage'
         ? 'where in a document somebody is pointing'
-        : 'which references somebody has picked out'
+        : kind === 'containers'
+          ? 'what they are showing'
+          : 'which references somebody has picked out'
     return `${name} says it reacts to ${noun}, and ${names(relationship.with)} ${relationship.with.length === 1 ? 'says it can say' : 'say they can say'} ${what}. Both are what the modules say about themselves — the host broadcasts the context to every module on the kehikko in any case, and it carries nothing between these two.`
   }
 
+  const nounFor = kind === 'passage' ? 'a passage' : kind === 'containers' ? 'what the containers show' : 'a selection'
   const reacting = relationship.with.length
-    ? `${names(relationship.with)} ${relationship.with.length === 1 ? 'says it' : 'say they'} react${relationship.with.length === 1 ? 's' : ''} to ${kind === 'passage' ? 'a passage' : 'a selection'}, in ${relationship.with.length === 1 ? 'its own manifest' : 'their own manifests'}.`
-    : `None of them says in its manifest that it reacts to ${kind === 'passage' ? 'a passage' : 'a selection'}, so this does not name one.`
+    ? `${names(relationship.with)} ${relationship.with.length === 1 ? 'says it' : 'say they'} react${relationship.with.length === 1 ? 's' : ''} to ${nounFor}, in ${relationship.with.length === 1 ? 'its own manifest' : 'their own manifests'}.`
+    : `None of them says in its manifest that it reacts to ${nounFor}, so this does not name one.`
+
+  if (kind === 'containers') {
+    return relationship.told > 0
+      ? `${name} can say what its container is showing — which references, and which places in which documents — and the host puts it in the list of containers every module on this kehikko is told, beside whether the container is picked out, ${count(relationship.told)} beside this one right now. ${reacting}`
+      : `${name} can say what its container is showing — which references, and which places in which documents — and the host puts it in the list of containers every module on the kehikko is told, beside whether the container is picked out; nothing else is on this one. ${reacting}`
+  }
 
   if (kind === 'passage') {
     return relationship.told > 0
@@ -483,6 +517,9 @@ export function labelFor(relationship: Relationship): string {
   }
   if (relationship.kind === 'passage') {
     return relationship.role === 'reacts' ? 'follows a passage' : 'points at a passage'
+  }
+  if (relationship.kind === 'containers') {
+    return relationship.role === 'reacts' ? 'narrows to what is picked out' : 'says what it shows'
   }
   const others = relationship.with
   return others.length === 1 ? (others[0]?.name ?? '') : `${others.length} modules`
@@ -591,7 +628,7 @@ export interface Standing {
 }
 
 /** The capabilities that make a module a provider of something shared. */
-const OFFERS = ['events:emit', 'selection:set', 'passage:set', 'view:navigate']
+const OFFERS = ['events:emit', 'selection:set', 'passage:set', 'showing:set', 'view:navigate']
 
 export function standingOf(presence: Presence, relationships: readonly Relationship[]): Standing {
   const module = presence.module

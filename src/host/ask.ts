@@ -1,4 +1,10 @@
-import { methodParams, type FilterChoice, type Passage, type ProjectPickResult } from 'roadmap-module-protocol'
+import {
+  methodParams,
+  type FilterChoice,
+  type Passage,
+  type ProjectPickResult,
+  type Showing,
+} from 'roadmap-module-protocol'
 import type { Emitted } from './events.ts'
 
 /**
@@ -79,8 +85,15 @@ export interface CanvasControls {
    * holds no trackers and has never heard of `gh#131`. What it can vouch for is
    * that these are the refs somebody picked, which is exactly what it goes on
    * to say. See the essay on `selection` in the protocol's `wire.ts`.
+   *
+   * `from` is supplied by `makeAsk` out of the registration, as it is for
+   * `emit`, and it is new here. The canvas always knew which frame picked —
+   * the call arrived from a window — and never wrote it down. Now it does, so
+   * that the refs can also appear in that container's own row of
+   * `context.containers`; see `host/showing.ts`. Nothing about what is
+   * selected changed.
    */
-  select(refs: string[]): void
+  select(from: string, refs: string[]): void
   /**
    * Say where in a document somebody is pointing, and tell every module.
    *
@@ -96,8 +109,27 @@ export interface CanvasControls {
    *
    * `null` clears it, and is a real call rather than an absence: "no document
    * is open" is a state every consumer has to be able to move into.
+   *
+   * `from`, for the reason `select` has it: the container that pointed is the
+   * container showing what it pointed at, and its row in `context.containers`
+   * says so.
    */
-  point(passage: Passage | null): void
+  point(from: string, passage: Passage | null): void
+  /**
+   * Hold what one container says it is showing, and tell every module.
+   *
+   * The canvas checks nothing about it and could not — a module saying "I am
+   * showing chapter three" is a claim about the inside of a frame on another
+   * origin. What it can vouch for is that THIS frame said so, and it relays
+   * exactly that: the statement, in that container's row, attributed by the
+   * host's own material and never by anything the frame wrote. See the essay
+   * on `showingSchema` in the protocol's `wire.ts`.
+   *
+   * Whole replacement, and `{ refs: [], documents: [] }` is a real call: a
+   * container that closed its document says so this way, for the reason a
+   * `null` passage exists.
+   */
+  show(from: string, showing: Showing): void
   /**
    * Carry one module's event to whoever consumes the format.
    *
@@ -259,7 +291,7 @@ function answerInTheView(
    */
   if (method === 'selection.set') {
     const { refs } = parsed.data as { refs: string[] }
-    canvas.select(refs)
+    canvas.select(moduleId, refs)
     return succeeded(method, { selection: refs })
   }
 
@@ -281,8 +313,25 @@ function answerInTheView(
    */
   if (method === 'passage.set') {
     const { passage } = parsed.data as { passage: Passage | null }
-    canvas.point(passage)
+    canvas.point(moduleId, passage)
     return succeeded(method, { passage })
+  }
+
+  /*
+   * A container saying what it shows, which is the same act one step further
+   * out and is answered the same way: held, relayed, and never declined,
+   * because the canvas is not being asked to find anything — only to repeat a
+   * module's own description of itself, attributed to it.
+   *
+   * `parsed.data` and never `rawParams`, for the reason `passage.set` gives:
+   * the schema is the protocol's own, and it is what refuses a half-range
+   * inside a document and a list past the bound. Relaying the raw object
+   * would put in a row something the context schema will later drop.
+   */
+  if (method === 'showing.set') {
+    const showing = parsed.data as Showing
+    canvas.show(moduleId, showing)
+    return succeeded(method, { showing })
   }
 
   /*
