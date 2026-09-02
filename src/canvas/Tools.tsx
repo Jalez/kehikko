@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
-import type { Presence } from '@/host/registry.ts'
+import type { AgentAwareness } from '@/host/registry.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { Hint } from './Hint.tsx'
 
@@ -73,27 +73,53 @@ import { Hint } from './Hint.tsx'
  * is not the module at all: it is what the AGENT has been told, which is a fact
  * about a configuration file the module has never seen and must never be given
  * a way to write.
+ *
+ * ## The host's own door, and what it changed here
+ *
+ * The host serves a door of its own — `server/mcp.ts`, `read_canvas` and
+ * `select_modules` — and for a while it was the one door on the screen with no
+ * plug: every container header had this control and the host's strip had
+ * nothing, because everything here was typed against a `Presence` from the
+ * registry and the host is not in its own registry. Somebody noticed, in so
+ * many words: the app has tools of its own, so where is its connect button?
+ *
+ * The honest fix was not a second component and not a fake `Presence`. Two
+ * implementations of "is the agent connected, and what does this offer" would
+ * disagree the first time one was changed; and a `Presence` invented for the
+ * host would carry a `condition`, an `at` and a `line` that are not true of
+ * anything. What the mark actually depends on is an `AgentAwareness` and a
+ * name, so that is what it takes now. What the window depends on is an id the
+ * server can answer, so it takes an id — and the SERVER says which kind of
+ * thing it answered for (`about`), because the server is the one that decided.
+ * Every sentence that said "this module" and would be false of the host reads
+ * `about` and says "this host" instead; nothing else differs, and the restart-
+ * the-session caveat is shown to both without exception.
  */
 
 /** The control on the container header. It opens the window below. */
 export function ToolsMark({
   agent,
   name,
+  about = 'module',
   onOpen,
 }: {
-  agent: Presence['agent']
+  /** What the sweep read from the agent's configuration. `undefined` draws nothing. */
+  agent: AgentAwareness | undefined
   name: string
+  /** Whose door: a module's, or the host's own. Only the wording differs. */
+  about?: 'module' | 'host'
   onOpen(): void
 }) {
   if (!agent || agent.kind === 'none') return null
 
   const wrong = agent.kind === 'untold' || agent.kind === 'elsewhere'
+  const thing = about === 'host' ? 'this host' : 'this module'
 
   const label =
     agent.kind === 'untold'
       ? `${name} offers tools to an agent, and no agent has been told about them. Open this to see the tools and to connect them.`
       : agent.kind === 'elsewhere'
-        ? `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at this module. An agent will reach that address and get nothing. Open this to repoint it.`
+        ? `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at ${thing}. An agent will reach that address and get nothing. Open this to repoint it.`
         : `${name}'s tools are connected, as "${agent.as}". Open this to see what it offers, or to disconnect it.`
 
   return (
@@ -132,10 +158,16 @@ export function ToolsMark({
 interface AtTheDoor {
   ok: true
   module: string
+  /**
+   * Whose door the server answered for. Optional because a server older than
+   * this page answers without it, and every such server only ever answered
+   * for modules.
+   */
+  about?: 'module' | 'host'
   as: string
   url: string
   transport: string
-  agent: NonNullable<Presence['agent']>
+  agent: AgentAwareness
   writesTo: string
   configuredIn: { scope: 'user' } | { scope: 'local'; project: string } | null
   command: string
@@ -270,8 +302,8 @@ export function ToolsDialog({
         <DialogHeader>
           <DialogTitle>Tools from {name}</DialogTitle>
           <DialogDescription>
-            What this module offers an agent through its MCP door, and whether any agent has been
-            told the door exists.
+            What {door?.about === 'host' ? 'this host' : 'this module'} offers an agent through its
+            MCP door, and whether any agent has been told the door exists.
           </DialogDescription>
         </DialogHeader>
 
@@ -292,7 +324,7 @@ export function ToolsDialog({
               </p>
             ) : null}
 
-            <ToolList tools={door.tools} name={name} at={door.url} />
+            <ToolList tools={door.tools} name={name} at={door.url} about={door.about ?? 'module'} />
 
             {/* The other half of NEXT_SESSION, and it only exists for `told`.
                 NEXT_SESSION says a config change waits for the next session;
@@ -308,8 +340,8 @@ export function ToolsDialog({
             {door.agent.kind === 'told' && door.tools.ok && door.tools.tools.length > 0 ? (
               <p className="text-muted-foreground text-xs leading-relaxed">
                 This list was read from {name} just now. An agent mid-session is using the list from
-                when its session started — if the module has reloaded since, the two can differ, and
-                only a new session catches the agent up.
+                when its session started — if {door.about === 'host' ? 'the host' : 'the module'} has
+                reloaded since, the two can differ, and only a new session catches the agent up.
               </p>
             ) : null}
           </div>
@@ -345,6 +377,9 @@ function Connection({
       : door.configuredIn.scope === 'user'
         ? 'in user scope, which is global to this machine'
         : `in local scope, under ${door.configuredIn.project}`
+  /* "this module" is false of the host, and the host's is the one door whose
+     stale address is the host's OWN port having moved — see `hostDoor`. */
+  const thing = door.about === 'host' ? 'this host' : 'this module'
 
   return (
     <div className="min-w-0 space-y-2 rounded-md border p-3">
@@ -358,9 +393,9 @@ function Connection({
           <>
             A server called <span className="font-mono text-xs">{door.agent.as}</span> is configured
             {where ? ` ${where}` : null}, and it points at{' '}
-            <span className="font-mono text-xs">{door.agent.pointsAt}</span> rather than at this
-            module. An agent will reach that address and get nothing — which looks like a broken
-            module rather than a stale line in a config file.
+            <span className="font-mono text-xs">{door.agent.pointsAt}</span> rather than at{' '}
+            {thing}. An agent will reach that address and get nothing — which looks like a broken
+            {door.about === 'host' ? ' host' : ' module'} rather than a stale line in a config file.
           </>
         ) : (
           <>
@@ -391,7 +426,7 @@ function Connection({
 
         {door.agent.kind === 'elsewhere' ? (
           <Hint
-            label={`this rewrites the existing “${door.agent.as}”: it is removed from wherever it is configured, then written again in ${door.writesTo} scope pointing at this module`}
+            label={`this rewrites the existing “${door.agent.as}”: it is removed from wherever it is configured, then written again in ${door.writesTo} scope pointing at ${thing}`}
             side="top"
           >
             <Button
@@ -401,7 +436,7 @@ function Connection({
               onClick={() => onPress('repoint')}
             >
               <Plug className="size-3" />
-              {pressing ? 'repointing…' : 'point it at this module'}
+              {pressing ? 'repointing…' : `point it at ${thing}`}
             </Button>
           </Hint>
         ) : null}
@@ -456,8 +491,26 @@ function Connection({
  * in its base, and a tool description is exactly the variable-length string that
  * turns that into a min-content floor wider than the window it sits in.
  */
-function ToolList({ tools, name, at }: { tools: AtTheDoor['tools']; name: string; at: string }) {
+function ToolList({
+  tools,
+  name,
+  at,
+  about,
+}: {
+  tools: AtTheDoor['tools']
+  name: string
+  at: string
+  about: 'module' | 'host'
+}) {
   if (!tools.ok) {
+    /* For the host's own door, `silent` is a state this window should never be
+       able to show: the process that answered `/host/tools` a moment ago is the
+       process that serves `/mcp`, and a dead host serves no page to draw this
+       on. It is kept rather than special-cased away because the code path is
+       shared and because "should never" is not "cannot" — a host under enough
+       load to time out on its own loopback would land here — and the sentence
+       says where the door is instead of citing a manifest the host does not
+       have. */
     return (
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-medium">
@@ -471,9 +524,11 @@ function ToolList({ tools, name, at }: { tools: AtTheDoor['tools']; name: string
           {tools.says}
         </p>
         <p className="text-muted-foreground min-w-0 text-xs leading-relaxed break-words">
-          {tools.why === 'not-mcp'
-            ? `${name} says its MCP door is at ${at}. A dev server answering its own index page at that path looks exactly like this.`
-            : `${name}'s manifest says its door is at ${at}.`}
+          {about === 'host'
+            ? `This host serves its own door at ${at}, on the same port that answered this window — so if it did not answer, the reason is in the terminal the host was started from.`
+            : tools.why === 'not-mcp'
+              ? `${name} says its MCP door is at ${at}. A dev server answering its own index page at that path looks exactly like this.`
+              : `${name}'s manifest says its door is at ${at}.`}
         </p>
       </div>
     )

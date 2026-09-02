@@ -34,7 +34,7 @@ import {
   type Standing,
 } from './lifecycle.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
-import { addArgs, connect, disconnect, doorFor, repoint, SCOPE } from './register.ts'
+import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
 import { whyQuiet } from './quiet.ts'
@@ -151,6 +151,8 @@ const json = (body: unknown, status = 200) =>
  */
 async function survey(): Promise<{
   presences: (Presence & { state: string | null; agent: AgentAwareness })[]
+  /** The host's own door and whether the agent has been told about it. See `hostDoor`. */
+  host: { id: string; as: string; url: string; agent: AgentAwareness }
   sweep: RegistrationSweep
   protocol: number
 }> {
@@ -206,12 +208,48 @@ async function survey(): Promise<{
       state: readState(db, presence.id),
       agent: awarenessOf(presence.module?.mcp?.url ?? null, presence.id, knows),
     })),
+    /* The host's own door, read against the same `knows` in the same sweep.
+       This is the whole of what the page needs to draw the plug on the host's
+       strip with the same states a container's plug has — and it is a READ of
+       a file already read; nothing here handshakes with the door or writes
+       anything. See `hostDoor` in `register.ts` for the name and the port. */
+    host: {
+      id: own.module,
+      as: own.as,
+      url: own.url,
+      agent: awarenessOf(own.url, own.module, knows),
+    },
     sweep: found,
     protocol: PROTOCOL,
   }
 }
 
 type Swept = Awaited<ReturnType<typeof survey>>
+
+/**
+ * The host's own door, at the port this process was told to bind.
+ *
+ * `PORT` rather than `server.port`, because a sweep may run before `server`
+ * exists and because the two are the same number by construction: `run.sh`
+ * claims a pair, exports the API half as `PORT`, and `Bun.serve` below is given
+ * exactly that. If they ever differed the host would have failed to start.
+ */
+const own: Door = hostDoor(PORT)
+
+/**
+ * Which door an id names: the host's own, or one found in the registry.
+ *
+ * The one place the two are told apart, used by both `/host/tools` and
+ * `/host/agent`, so that the question "what does this id refer to" has one
+ * answer. `HOST_ID` is answered here and never looked up on disk; every other id
+ * goes through `doorFor` and its rule that an address comes from a registration
+ * the person wrote. A module registered under the host's own id would be
+ * shadowed at these two endpoints, which `hostDoor` says out loud.
+ */
+async function doorOf(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
+  if (id === HOST_ID) return { ok: true, door: own }
+  return doorFor(id)
+}
 
 /**
  * The sweep, with two of them never running at once.
@@ -1049,7 +1087,7 @@ const server = Bun.serve({
       const id = moduleIn(url.searchParams.get('module'))
       if (!id) return json({ ok: false, why: 'A request for tools names one module.' }, 400)
 
-      const found = await doorFor(id)
+      const found = await doorOf(id)
       if (!found.ok) return json({ ok: false, why: found.why }, found.status)
       const door = found.door
 
@@ -1062,6 +1100,10 @@ const server = Bun.serve({
       return json({
         ok: true,
         module: id,
+        /* Which kind of thing the window is describing. The server says it,
+           rather than the page guessing from the id, because the server is the
+           one that decided — see `doorOf`. */
+        about: id === HOST_ID ? 'host' : 'module',
         as: door.as,
         url: door.url,
         transport: door.transport,
@@ -1100,7 +1142,7 @@ const server = Bun.serve({
         return json({ ok: false, why: 'A press names one module and one of connect, disconnect or repoint.' }, 400)
       }
 
-      const found = await doorFor(id)
+      const found = await doorOf(id)
       if (!found.ok) return json({ ok: false, why: found.why }, found.status)
       const door = found.door
 

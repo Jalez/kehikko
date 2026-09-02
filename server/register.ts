@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 
 import { look } from './discover.ts'
+import { HOST_ID } from './kehikot.ts'
 import { readRegistrations, registryDir } from './registrations.ts'
 
 /**
@@ -93,7 +94,11 @@ export function serverName(id: string): string {
  * is a considerably larger thing to have listening on loopback than a canvas.
  */
 export interface Door {
-  /** The module id, from the registry. */
+  /**
+   * Whose door this is: a module id from the registry, or `HOST_ID` for the
+   * host's own — see `hostDoor` for why that one is not from the registry and
+   * is still not from a request.
+   */
   module: string
   /** What the server will be called, derived from the id. */
   as: string
@@ -296,4 +301,55 @@ export async function doorFor(id: string): Promise<{ ok: true; door: Door } | { 
     ok: true,
     door: { module: id, as: serverName(id), url: mcp.url, transport: mcp.transport },
   }
+}
+
+/**
+ * The host's own door, which is the one door `doorFor` cannot find.
+ *
+ * ## The gap
+ *
+ * `server/mcp.ts` serves a door on the host's own API — `read_canvas` and
+ * `select_modules`, the two tools an agent needs to know which containers a
+ * person has picked out. Every module's door got a plug on its container
+ * header; this one got nothing, because everything above reads the REGISTRY,
+ * and the host is not in its own registry. So the one door on the screen that
+ * an agent most needs was the one door no control on the screen would connect.
+ *
+ * ## Why this is still not "a url from a request"
+ *
+ * The rule `doorFor` enforces is that the set of addresses this host will write
+ * into somebody's agent configuration is exactly the programs that person
+ * registered on their own disk. The host's door is derived from two things and
+ * neither is the request: the port `run.sh` claimed and `server.ts` bound, and
+ * a path that is a literal here. `/host/tools` and `/host/agent` still take an
+ * id and nothing else; the id `HOST_ID` is answered from this function instead
+ * of from a registration file, and any other id is looked up as before.
+ *
+ * ## What it is called, and why that name
+ *
+ * `HOST_ID` — `kehikko`. The same word the host calls itself at its own door's
+ * `initialize` and the folder it keeps under a project's `.kehikot/`, so the
+ * server name in somebody's agent config, the `serverInfo` the agent reads
+ * back, and the folder on disk are one word and cannot drift. It is stable
+ * across ports and machines: the ADDRESS is what moves, and `agents.ts` reads
+ * the address, not the name, to decide whether the agent has been told.
+ *
+ * It cannot collide with a module registered under this host's convention —
+ * module ids are dotted (`roadmap.checklist`) and `serverName` takes the tail
+ * — unless somebody registers a module whose tail is literally `kehikko`. That
+ * collision is not silent: whichever of the two is connected, the other reads
+ * as `elsewhere`, and the window says which address the entry points at.
+ *
+ * ## The port, and why `repoint` applies here exactly as it does to a module
+ *
+ * `run.sh` takes `PORT`, and `claim.ts` moves to the next pair when 4180 is
+ * taken. A config entry written against 4180 while the host is on 4182 is
+ * stale in precisely the way a module that moved port is stale — the agent
+ * reaches the old address and gets nothing — and `awarenessOf` reports it as
+ * `elsewhere` for precisely the same reason: url first, then the name. So the
+ * repoint press the module window already has is the right press here, and
+ * nothing about it is special-cased.
+ */
+export function hostDoor(port: number): Door {
+  return { module: HOST_ID, as: HOST_ID, url: `http://127.0.0.1:${port}/mcp`, transport: 'http' }
 }

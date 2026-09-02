@@ -35,6 +35,7 @@ import { ConditionDot } from './Conditions.tsx'
 import { Epics } from './Epics.tsx'
 import { Hint } from './Hint.tsx'
 import { Projects } from './Projects.tsx'
+import { ToolsMark } from './Tools.tsx'
 
 /**
  * The whole of the host's own interface.
@@ -93,6 +94,7 @@ export function Bar({
   onFocus,
   theme,
   onTheme,
+  onTools,
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -127,6 +129,8 @@ export function Bar({
   onFocus(): void
   theme: Theme
   onTheme(): void
+  /** Open the window about the host's own MCP door. See the plug below. */
+  onTools(): void
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -245,6 +249,33 @@ export function Bar({
             {focus === 'on' ? <PanelTopClose className="size-3" /> : <PanelTop className="size-3" />}
           </Button>
         </Hint>
+
+        {/*
+         * The host's own MCP door, and whether an agent has been told about it.
+         *
+         * This strip is to the host what a container header is to a module, and
+         * every module's header has this control — `ToolsMark`, the plug — so
+         * a host that serves a door of its own (`server/mcp.ts`: what is on the
+         * canvas and which containers are picked out) and offered nothing here
+         * was the one door on the screen an agent could not be connected to
+         * from the screen. The same component, deliberately: a second drawing
+         * of "is the agent hearing this" would disagree with the first the day
+         * either changed.
+         *
+         * Same weight as the module version and not louder for being the
+         * host's. The essay in `Tools.tsx` is the argument: a connected door
+         * gets the quietest control on the strip, and only an untold or a
+         * stale one is loud. It sits with the right-hand cluster because that
+         * is where the host talks about itself — how the canvas is drawn, what
+         * is registered — and before the module list because the list is the
+         * outermost thing on the strip and this is a fact about the host, not
+         * about a module.
+         *
+         * `registry.host` is absent from a server older than this page, and
+         * then nothing is drawn — the same silence a module with no door gets,
+         * rather than a control that opens on a refusal.
+         */}
+        <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
 
         <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>
           <Button

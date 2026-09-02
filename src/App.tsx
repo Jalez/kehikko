@@ -2313,6 +2313,12 @@ export function App() {
         onFocus={onFocus}
         theme={theme}
         onTheme={onTheme}
+        /* The host's own door. The id the server answers for it comes from
+           the sweep — `registry.host.id` — so the page never spells the host's
+           name itself; see `hostDoor` in `server/register.ts`. */
+        onTools={() => {
+          if (registry?.host) setToolsFor(registry.host.id)
+        }}
       />
 
       {/*
@@ -2626,7 +2632,11 @@ export function App() {
           open
           onOpenChange={(isOpen) => setToolsFor(isOpen ? toolsFor : null)}
           module={toolsFor}
-          name={byId.get(toolsFor)?.name ?? toolsFor}
+          /* The host is not in `byId` and must not be looked up as if it were;
+             what it is called in this window is what the strip calls it. */
+          name={
+            toolsFor === registry?.host?.id ? 'this host' : (byId.get(toolsFor)?.name ?? toolsFor)
+          }
           onChanged={() => void look()}
         />
       ) : null}
