@@ -15,6 +15,7 @@ import {
   type CanvasEdit,
 } from './canvases.ts'
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
+import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
@@ -56,8 +57,9 @@ import { Wakes } from './wake.ts'
 
 const PORT = Number(process.env.PORT ?? 4180)
 
-/** What this host calls itself at its own MCP door. See `server/mcp.ts`. */
-const HOST_ID = 'kehikko'
+/* `HOST_ID` — what this host calls itself at its own MCP door, and what its
+   folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
+   so the door and the folder cannot drift apart. */
 const HOST_VERSION = '0.1.0'
 
 /**
@@ -80,6 +82,14 @@ const db = open()
  */
 const settled = adopt(db)
 ensureKnown(db)
+
+/**
+ * Every project's kehikot, read from the project's own file before anything is
+ * served — see `kehikot.ts` for why the file is the record and this database
+ * is its cache. A file that would not read is said in the terminal now and to
+ * the page on every load; it is not a reason to refuse to start.
+ */
+const unreadable = syncEvery(db)
 
 /**
  * Which kehikko each open page has, so the MCP door can answer a call that
@@ -700,7 +710,16 @@ const server = Bun.serve({
          alive across a project switch, which is the whole reason switching
          re-points modules instead of reloading them. */
       const projects = listProjects(db)
-      return json({ projects, canvases: ensureCanvases(db, projects[0]?.id ?? null) })
+      /* The files first, because they are the record and a `git pull` since
+         the last load may have changed them. Then the guarantee of at least
+         one kehikko, and the file told about the one it made, if it made one.
+         `trouble` is the files that would not read, as sentences for the
+         footer — see `kehikot.ts`. */
+      const trouble = syncEvery(db)
+      const first = projects[0]?.id ?? null
+      const canvases = ensureCanvases(db, first)
+      keep(db, first)
+      return json({ projects, canvases, trouble })
     }
 
     if (url.pathname === '/host/canvases' && request.method === 'POST') {
@@ -714,7 +733,9 @@ const server = Bun.serve({
       if (project !== null && !projectById(db, project)) {
         return json({ error: 'There is no project with that id.' }, 404)
       }
-      return json({ canvas: createCanvas(db, name, project) }, 201)
+      const canvas = createCanvas(db, name, project)
+      keep(db, project)
+      return json({ canvas }, 201)
     }
 
     /* The projects: what is open, and one more.
@@ -775,6 +796,12 @@ const server = Bun.serve({
       }
       const added = addProject(db, body.path, typeof body.name === 'string' ? body.name : undefined)
       if (!added.ok) return json({ error: added.why }, added.status)
+      /* This is the moment a kehikko arrives from another computer: the folder
+         was cloned with `.kehikot/kehikko/kehikot.json` in it, and reading it
+         here is what makes adding the project enough. The file wins over the
+         empty kehikko `addProject` just made, which is the point. A file that
+         will not read is reported on the load the page does next. */
+      if (!added.already) syncProject(db, added.project)
       return json({ project: added.project, already: added.already }, added.already ? 200 : 201)
     }
 
@@ -869,10 +896,14 @@ const server = Bun.serve({
           ...(Array.isArray(body.placements) ? { placements: body.placements } : {}),
         })
         if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)
+        keep(db, edited.project)
         return json({ canvas: edited })
       }
 
       if (request.method === 'DELETE') {
+        /* Read before the delete, because afterwards there is no row to say
+           which project's file has to lose a kehikko. */
+        const project = listCanvases(db).find((one) => one.id === canvas)?.project ?? null
         const outcome = deleteCanvas(db, canvas)
         if (outcome === 'no-such-canvas') return json({ error: 'There is no canvas with that id.' }, 404)
         /* Refused, and said as a sentence rather than a status code, because
@@ -884,6 +915,7 @@ const server = Bun.serve({
             409,
           )
         }
+        keep(db, project)
         return json({ deleted: canvas })
       }
     }
@@ -1343,3 +1375,5 @@ if (settled.seeded) {
 if (settled.adopted) {
   console.log(`${settled.adopted} kehikko(t) written before projects existed were filed under it`)
 }
+console.log('each project keeps its kehikot in .kehikot/kehikko/kehikot.json; that file is the record and the database is its cache')
+for (const sentence of unreadable) console.log(sentence)

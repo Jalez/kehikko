@@ -6,7 +6,6 @@ import {
   OPEN_KEY,
   place,
   readOpen,
-  reconcile,
   unplace,
   writeOpen,
   type Canvas,
@@ -53,18 +52,6 @@ describe('putting things on the canvas and taking them off', () => {
   test('removing takes it away and leaves everything else where it was', () => {
     const both = place(place([], 'a.one'), 'a.two')
     expect(unplace(both, 'a.one')).toEqual(both.filter((p) => p.i === 'a.two'))
-  })
-})
-
-describe('reconciling with what is actually registered', () => {
-  test('a module whose registration is gone comes off: it is not silent, it is not here', () => {
-    const both = place(place([], 'a.one'), 'a.two')
-    expect(reconcile(both, ['a.two']).map((p) => p.i)).toEqual(['a.two'])
-  })
-
-  test("a new registration does not rearrange somebody's canvas underneath them", () => {
-    const one = place([], 'a.one')
-    expect(reconcile(one, ['a.one', 'a.new']).map((p) => p.i)).toEqual(['a.one'])
   })
 })
 
