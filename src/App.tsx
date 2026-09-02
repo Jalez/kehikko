@@ -31,7 +31,8 @@ import {
   watchCanvases,
   writeOpen,
   type Canvas,
-  type Placement, unfoldedByResize } from './host/canvases.ts'
+  type Placement,
+} from './host/canvases.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
   addProject,
@@ -55,7 +56,7 @@ import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { mostFor, pay, unfolded } from './host/columns.ts'
+import { dragged, granted, mostFor, wishing } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -118,31 +119,9 @@ const MEASURE_FIRST = false
  */
 const MARGIN: [number, number] = [8, 8]
 
-/**
- * How tall a folded container is, in grid rows.
- *
- * One, and the point of it is that nothing is reserved that is not drawn — see
- * the essay on the folded container in `Container.tsx`, which is where the two-row
- * version was measured and rejected: the emptiness did not go away, it moved
- * outside the container, and a person folding something to reclaim space got
- * twenty-two pixels of nothing between it and its neighbour.
- *
- * ## What a row is worth, now that it is not twenty-four pixels
- *
- * This used to reason in absolute pixels — "a header is thirty-two and a row is
- * twenty-four" — and it cannot any more. A row is `room / CANVAS_ROWS`, so one
- * row is 24 pixels on the canvas these arrangements were built for, 34 on a
- * tall monitor, and 12 at the floor. The header goes dense when folded, which
- * is a change to one CSS rule rather than to the grid, and that is what keeps a
- * folded container legible across that range.
- *
- * It is deliberately still a count and not a computed number of rows. A folded
- * container is ONE of whatever a row is here, in the same sense that a full
- * width container is twelve of whatever a column is; making it depend on the
- * drawn height would put the arrangement back in the business of reading its
- * own scale, which is the loop `fit.ts` exists to keep shut.
- */
-const COLLAPSED_ROWS = 1
+/* How tall a folded container is, in grid rows, is `FOLDED_ROWS` in
+   `host/columns.ts`, beside the floor a neighbour may be squeezed to — the two
+   are one judgement seen from two sides, and the essay is there. */
 
 /**
  * What the canvas currently believes about one module, which is not always what
@@ -291,6 +270,11 @@ export function App() {
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
   const [moving, setMoving] = useState<string | null>(null)
+  /* The container whose corner a hand is on, from `onResizeStart` until
+     `onLayoutChange` reads it on release. A ref and not state, because it is
+     read inside a callback the grid calls synchronously on release, before any
+     render could have delivered a state update. See `onLayoutChange`. */
+  const resized = useRef<string | null>(null)
   /* Read from the document rather than worked out again. The blocking script in
      `index.html` already decided this before anything was painted, and a second
      implementation of that decision is a second thing that can be wrong — see
@@ -1307,8 +1291,9 @@ export function App() {
    * The ceiling used to be `MOST_ROWS = 40` — "a tall container on any screen
    * and nowhere near a runaway" — which was a sensible invention when a canvas
    * had no bottom. It has one now, and more than that, growing has a PRICE:
-   * `pay` in `columns.ts` takes the rows out of the column, from the free space
-   * under it first and then from the nearest containers below, down to a floor.
+   * `granted` in `columns.ts` draws every container at what its wish leaves
+   * for the containers below it, from the free space under the column first
+   * and then from the containers below, down to a floor.
    *
    * A module asking to grow goes through exactly that, so a request from a
    * program does the same thing to a canvas that a hand on the resize handle
@@ -1342,9 +1327,11 @@ export function App() {
       if (!container?.grow) return
 
       /* How many rows hold `px`, at the height rows are actually drawn at.
-         What the column will actually GRANT of that is `pay`'s answer, below;
-         this is only the conversion. */
-      const rowsFor = (wanted: number) => Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1]))
+         What the column will actually GRANT of that is `granted`'s answer, in
+         `redrawn`; this is only the conversion. Bounded by the canvas, because
+         a wish past it is simply "as much as there is" and a wish of ten
+         thousand rows is not a height anybody chose. */
+      const rowsFor = (wanted: number) => Math.min(CANVAS_ROWS, Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1])))
 
       /*
        * A collapsed container does not grow, and the request is not thrown away.
@@ -1353,37 +1340,37 @@ export function App() {
        * has not been told its container is folded — deliberately; see `onCollapse` —
        * so it goes on measuring and asking, and honouring that here would let a
        * module force a container open that a person folded shut. The person's press
-       * wins. What the module asked for is remembered as the height to unfold
-       * to, so a module that grew while folded is the right size when it comes
-       * back rather than the size it was when it was put away.
+       * wins. What the module asked for becomes the wish, which is what the
+       * container is unfolded towards, so a module that grew while folded is the
+       * right size when it comes back rather than the size it was when it was
+       * put away. `redrawn` is not needed: a folded container is drawn at one
+       * row whatever it wishes.
        */
       if (container.collapsed) {
-        /* Bounded by what the column could pay if it were unfolded RIGHT NOW,
-           which is the honest ceiling for a height it will be opened at later.
-           A remembered `openH` that no column could ever grant is the
-           stored-unlayoutable-arrangement problem one press away. */
-        const wanted = Math.min(rowsFor(px), mostFor(placements, id))
-        if (wanted <= (container.openH ?? 0)) return
-        change({ placements: placements.map((p) => (p.i === id ? { ...p, openH: wanted } : p)) })
+        const wanted = rowsFor(px)
+        if (wanted <= container.wish) return
+        change({ placements: placements.map((p) => (p.i === id ? { ...p, wish: wanted } : p)) })
         return
       }
 
       const isNow = container.h * rowHeight + (container.h - 1) * MARGIN[1]
       if (px <= isNow + WORTH_GROWING_PX) return
 
-      /* Through the same rule a hand on the resize handle goes through: the
-         free rows under the column first, then the nearest containers below,
-         each down to a floor, and then it stops. `pay` answers with every
-         height that changes — the module's container and whoever paid for it —
-         and an empty answer is a column that had nothing to give. */
-      const settled = pay(placements, id, rowsFor(px))
-      if (settled.size === 0) return
-      change({
-        placements: placements.map((p) => {
-          const height = settled.get(p.i)
-          return height === undefined ? p : { ...p, h: height }
-        }),
-      })
+      /*
+       * Only a LARGER wish. A module measures its document and asks on every
+       * change, and a container drawn short because a neighbour took its rows
+       * is a container whose module is asking for what it already wishes for
+       * — the wish is not the problem, the column is, and re-writing the same
+       * wish would be a write per measurement for nothing.
+       *
+       * Then through the same rule a hand on the resize handle goes through:
+       * the wish is written, and `redrawn` asks the column what every wish is
+       * granted. A column with nothing to give draws the same heights, and
+       * `change` is a no-op write of the wish alone.
+       */
+      const wanted = rowsFor(px)
+      if (wanted <= container.wish) return
+      change({ placements: redrawn(placements.map((p) => (p.i === id ? { ...p, wish: wanted } : p))) })
     },
     [change, open?.placements, rowHeight],
   )
@@ -1674,17 +1661,24 @@ export function App() {
   /**
    * Fold a container down to its header, or unfold it.
    *
-   * ## What is kept, and why the height is remembered
+   * ## Folding is a state, not a height
    *
-   * Folding writes the container's current height into `openH` and sets `h` to two
-   * rows, which is the smallest the grid can be while still holding a
-   * thirty-two pixel header. Unfolding puts `openH` back.
+   * This sets `collapsed` and nothing else, and asks `redrawn` what every
+   * container is drawn at now. The container's `wish` — the height its owner
+   * asked for — is left exactly as it was, which is what unfolding returns it
+   * towards: not a height remembered at the moment of folding and put back,
+   * but the same wish every other gesture is drawn from, granted by the same
+   * rule. See `granted` in `host/columns.ts` for why there is no remembered
+   * height: there used to be one, `openH`, and it was thrown away on unfold
+   * exactly when a squeezed container needed it.
    *
-   * Remembered rather than recomputed, and the difference matters more than it
-   * sounds: a container that unfolded to a default height would move everything
-   * below it on the canvas, and nothing the person did asked for that. They
-   * folded a container and unfolded it; the arrangement they built should be the
-   * arrangement they get back.
+   * What follows for the neighbours is the point. Folding hands rows to the
+   * column, and a column-mate that had been squeezed to make room for this
+   * container is drawn back at ITS wish — not because anything here gives the
+   * rows back, but because its wish never changed and the column has room.
+   * Unfolding takes them again, subject to the budget: a column that filled up
+   * in the meantime gives back less than was asked, and the canvas never
+   * overflows, which is the bug the old unfold had.
    *
    * ## The module keeps running, and is not told
    *
@@ -1708,62 +1702,7 @@ export function App() {
   const onCollapse = useCallback(
     (id: string, collapsed: boolean) => {
       const placements = open?.placements ?? []
-
-      /*
-       * Folding gives rows back and needs nobody's permission.
-       *
-       * A container getting shorter hands its rows to the column as free space,
-       * and `columns.ts` is explicit that it does not inflate its neighbours to
-       * fill them — auto-growing a container somebody did not touch is the same
-       * surprise as auto-shrinking one.
-       */
-      if (collapsed) {
-        change({
-          placements: placements.map((p) =>
-            p.i === id ? { ...p, collapsed: true, openH: p.h, h: COLLAPSED_ROWS } : p,
-          ),
-        })
-        return
-      }
-
-      /*
-       * Unfolding is growth, and growth is bought from the column.
-       *
-       * This used to assign `h: p.openH ?? p.h` straight back, which is where a
-       * container had been before it was folded — and in between, its
-       * column-mates will usually have been given the rows it let go. Handing
-       * the remembered height back regardless walked over them: the canvas
-       * exceeded its rows, or a neighbour was pushed off the bottom, and the one
-       * gesture that is supposed to be the exact undo of folding was the one
-       * gesture that ignored the budget.
-       *
-       * So the remembered height is a REQUEST, not a right. `pay` grants what
-       * the column can afford and names everyone who paid, exactly as a drag
-       * does, so unfolding and dragging to the same height end in the same
-       * arrangement.
-       *
-       * A column that has since filled up gives a container back less than it
-       * had. That is the honest answer and the alternative is worse: a canvas
-       * that silently overflows, or neighbours shrunk by a press whose whole
-       * meaning is "put this back the way it was".
-       */
-      const box = placements.find((p) => p.i === id)
-      const wanted = box?.openH ?? box?.h ?? COLLAPSED_ROWS
-      const settled = unfolded(placements, id, box?.openH ?? null)
-
-      change({
-        placements: placements.map((p) => {
-          const height = settled.get(p.i)
-          if (p.i === id) {
-            /* `openH` is cleared whatever the column granted: it is no longer
-               folded, so there is no remembered height to come back to, and
-               keeping one would have this container quietly re-grow the next
-               time anything asked. */
-            return { ...p, collapsed: false, h: height ?? wanted, openH: null }
-          }
-          return height === undefined ? p : { ...p, h: height }
-        }),
-      })
+      change({ placements: redrawn(placements.map((p) => (p.i === id ? { ...p, collapsed } : p))) })
     },
     [change, open?.placements],
   )
@@ -1848,58 +1787,74 @@ export function App() {
          arrangement, and anything of ours not in its vocabulary would be
          dropped here on the first drag. */
       const was = open?.placements ?? []
+      /*
+       * Which container, if any, a hand has just let go of the corner of.
+       *
+       * `next` carries a new `h` for EVERY container a resize touched — the
+       * one being pulled and every column-mate `onResize` squeezed or let back
+       * out — and only one of those heights was chosen. `resized` was set on
+       * `onResizeStart` and names it; the rest are what `granted` drew, and
+       * writing THOSE into a wish would be the one thing `columns.ts` says no
+       * caller may do. Consumed here rather than cleared on `onResizeStop`,
+       * because the library calls that first and this second in the same
+       * tick, and cleared at the start of the next gesture in case a release
+       * changed nothing and this was never called.
+       */
+      const held = resized.current
+      resized.current = null
       const placements = next.map((item) => {
         const before = was.find((p) => p.i === item.i)
         /*
-         * Dragging a folded container taller unfolds it.
-         *
-         * Without this the grid took the new height and the container kept
-         * `collapsed`, so the row grew and the container went on drawing nothing
-         * but its header — a person pulling the corner made a gap appear and
-         * concluded the handle was broken. Refusing the resize outright would be
-         * worse: a handle that does not move is a handle somebody keeps pulling.
-         *
-         * Reaching for the corner of a folded container is a person saying "I want
-         * to see this", which is the same sentence the fold control says. So it
-         * is honoured as one, and the height they dragged to becomes the height
-         * it opens at — better than `openH`, which is where it was folded FROM
-         * and not where they have just asked it to be.
-         *
-         * Only a taller drag counts. `h` also arrives unchanged on every drag
-         * of a neighbour, and equal-or-smaller cannot be a request to see more.
+         * What the hand said, if this is the container it was on: a drag to
+         * the folded height is a fold, a drag out of it is an unfold, and any
+         * other drag is a new wish. `dragged` in `host/columns.ts` has the
+         * argument; a container that was not the one being resized has said
+         * nothing, and keeps what it had.
          */
-        const unfolding = unfoldedByResize(before, item.h, COLLAPSED_ROWS)
+        const said =
+          before && held === item.i
+            ? dragged(before, item.h)
+            : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
         return {
-        i: item.i,
-        x: item.x,
-        y: item.y,
-        w: item.w,
-        h: item.h,
-        /* Everything of ours that react-grid-layout has never heard of is
-           carried across from what is stored. `next` is its idea of the
-           arrangement, so anything not in its vocabulary is dropped here on the
-           first drag unless it is copied over deliberately. */
-        grow: before?.grow ?? false,
-        pinned: before?.pinned ?? false,
-        prompt: before?.prompt ?? '',
-        promptFor: before?.promptFor ?? null,
-        collapsed: unfolding ? false : (before?.collapsed ?? false),
-        /* Cleared with the fold, so a later fold remembers where it was folded
-           from rather than a height from two gestures ago. */
-        openH: unfolding ? null : (before?.openH ?? null),
-        selected: before?.selected ?? false,
-        /* Carried across for the same reason as everything above it. A drag is
-           not a change of mind about what a container is showing, nor about how
-           often it reads. */
-        filters: before?.filters ?? {},
-        refreshEvery: before?.refreshEvery ?? null,
-      }
+          i: item.i,
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+          /* Everything of ours that react-grid-layout has never heard of is
+             carried across from what is stored. `next` is its idea of the
+             arrangement, so anything not in its vocabulary is dropped here on
+             the first drag unless it is copied over deliberately. */
+          grow: before?.grow ?? false,
+          pinned: before?.pinned ?? false,
+          prompt: before?.prompt ?? '',
+          promptFor: before?.promptFor ?? null,
+          collapsed: said.collapsed,
+          wish: said.wish,
+          selected: before?.selected ?? false,
+          /* Carried across for the same reason as everything above it. A drag is
+             not a change of mind about what a container is showing, nor about how
+             often it reads. */
+          filters: before?.filters ?? {},
+          refreshEvery: before?.refreshEvery ?? null,
+        }
       })
-      /* react-grid-layout fires this during a drag as well as at the end. Doing
-         nothing when nothing changed keeps the write out of the drag loop —
-         and `Writer` merges what does get through, so a whole gesture is one
-         request rather than forty. */
-      if (!same(open?.placements ?? [], placements)) change({ placements })
+      /*
+       * Then drawn at what the wishes are granted. A move can change who
+       * shares a column with whom — a container dragged out of a full column
+       * leaves room its mates wished for, one dragged in takes it — and a
+       * fold by drag is a fold like any other: the folded container is drawn
+       * at one row and its column-mates at their wishes. The heights the grid
+       * reported were `onResize`'s answer to the same question with the same
+       * wishes, so on a plain resize this changes nothing and costs a walk.
+       *
+       * react-grid-layout fires this during a drag as well as at the end.
+       * Doing nothing when nothing changed keeps the write out of the drag
+       * loop — and `Writer` merges what does get through, so a whole gesture
+       * is one request rather than forty.
+       */
+      const drawn = redrawn(placements)
+      if (!same(open?.placements ?? [], drawn)) change({ placements: drawn })
     },
     [change, open?.placements],
   )
@@ -2131,8 +2086,9 @@ export function App() {
    * felt.
    *
    * It agrees with `onResize` by construction rather than by care, because
-   * `mostFor` is `pay` asked for everything — see `columns.ts`. A `maxH`
-   * computed separately would eventually stop somewhere nothing happens.
+   * `mostFor` is `granted` asked with this container wishing for the whole
+   * canvas — see `columns.ts`. A `maxH` computed separately would eventually
+   * stop somewhere nothing happens.
    *
    * Recomputed whenever the arrangement changes, which is what it is a fact
    * about. It is never written down: `onLayoutChange` builds its placements
@@ -2415,7 +2371,12 @@ export function App() {
              used to be and slide out from under them. `remeasure` is capped at
              once a frame, so a drag costs one measuring pass per painted frame
              and not one per mouse event. */
-          onDragStart={(_all, _old, item) => setMoving(item.i)}
+          onDragStart={(_all, _old, item) => {
+            /* A move is not a resize; whatever a release that changed nothing
+               left in `resized` must not be read as this gesture's. */
+            resized.current = null
+            setMoving(item.i)
+          }}
           onDrag={() => remeasure()}
           /* `settle`, not one more measurement, and the difference is the whole
              bug. A dropped container does not stay where it was dropped — the grid
@@ -2427,7 +2388,10 @@ export function App() {
             setMoving(null)
             settle()
           }}
-          onResizeStart={(_all, _old, item) => setMoving(item.i)}
+          onResizeStart={(_all, _old, item) => {
+            resized.current = item.i
+            setMoving(item.i)
+          }}
           /*
            * The column pays for the growth, and it pays WHILE the handle is
            * moving rather than when it is let go.
@@ -2464,14 +2428,29 @@ export function App() {
            * function had already written, which is how a squeeze compounds into
            * a container that shrinks while you watch.
            *
-           * `maxH` below means `item.h` has already been clamped to what the
-           * column can pay, so in practice `pay` grants all of it; the guard
-           * matters for the frame after a fold, when the two disagree briefly.
+           * ## What is asked each frame
+           *
+           * The in-flight height is this container's WISH for the duration of
+           * the frame — or, at the folded height, its fold — and every other
+           * container keeps the wish it has stored. `wishing` answers with what
+           * every wish is granted, which is both directions at once: pulling
+           * down squeezes the column below, and pulling back up lets it back
+           * out towards its wishes as the pointer moves, rather than on
+           * release. `maxH` below means `item.h` has already been clamped to
+           * what the column can grant, so in practice the container is drawn
+           * at what the hand asked; the map is applied to it anyway so that the
+           * one rule decides, and the frame after a fold — when the two
+           * disagree briefly — draws what the rule says.
+           *
+           * Nothing is written here. The wish and the fold land in
+           * `onLayoutChange`, on release; this only draws.
            */
           onResize={(layout, _old, item) => {
-            const settled = pay(open?.placements ?? [], item.i, item.h)
+            const stored = open?.placements ?? []
+            const before = stored.find((p) => p.i === item.i)
+            const heights = before ? wishing(stored, item.i, dragged(before, item.h)) : granted(stored)
             for (const one of layout) {
-              const height = settled.get(one.i)
+              const height = heights.get(one.i)
               if (height !== undefined) one.h = height
             }
             remeasure()
@@ -2685,7 +2664,32 @@ function same(a: readonly Placement[], b: readonly Placement[]): boolean {
       one.x === other.x &&
       one.y === other.y &&
       one.w === other.w &&
-      one.h === other.h
+      one.h === other.h &&
+      /* The two facts a drag can change besides the rectangle. A drag to the
+         folded height changes `h` as well, so these are not strictly needed
+         to notice it — but a comparison that ignored them would be one edit
+         away from dropping a fold on the floor. */
+      one.wish === other.wish &&
+      one.collapsed === other.collapsed
     )
+  })
+}
+
+/**
+ * Every placement drawn at what its wish is granted.
+ *
+ * This is the ONE place on the page a height is written from a rule, and every
+ * gesture that changes a wish or a fold goes through it: a drag's release, a
+ * press on the fold control, a module asking for room. The rule is `granted`
+ * in `host/columns.ts`, and the essay there is why the wish and the height are
+ * two numbers. A placement whose height does not change is returned as the
+ * same object, so an arrangement that was already drawn right is `same` as
+ * before and nothing is written.
+ */
+function redrawn(placements: readonly Placement[]): Placement[] {
+  const heights = granted(placements)
+  return placements.map((p) => {
+    const h = heights.get(p.i)
+    return h === undefined || h === p.h ? p : { ...p, h }
   })
 }

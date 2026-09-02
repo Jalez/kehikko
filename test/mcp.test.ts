@@ -293,7 +293,7 @@ describe('setting the module selection', () => {
   test('picking a container out changes nothing else about it', async () => {
     const id = aCanvas()
     editCanvas(db, id, {
-      placements: [{ ...at('a.one'), pinned: true, collapsed: true, openH: 12, prompt: 'read this' }],
+      placements: [{ ...at('a.one'), pinned: true, collapsed: true, wish: 12, prompt: 'read this' }],
     })
     const was = listCanvases(db).find((c) => c.id === id)?.placements[0]
     await call('select_modules', { kehikko: id, modules: ['a.one'] }, door())

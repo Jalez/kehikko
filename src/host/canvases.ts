@@ -46,13 +46,19 @@ const placementSchema = z.object({
    */
   collapsed: z.boolean().default(false),
   /**
-   * The height it had before it was folded, in rows, or `null`.
+   * The height its owner last asked for, in rows.
    *
-   * Remembered rather than recomputed, so that unfolding puts the container back
-   * where it was rather than at a size somebody never chose. See the essay on
-   * `onCollapse` in `App.tsx`.
+   * Not `h`. `h` is what is drawn, and this is what was chosen — by a hand on
+   * the corner or by the module when `grow` is on — and the two part company
+   * whenever a column is over-subscribed. The rule that turns wishes into
+   * heights is `granted` in `columns.ts`; the essays on it and on
+   * `Placement.wish` in `server/canvases.ts` say why there are two numbers.
+   *
+   * Required rather than defaulted, unlike its neighbours: the server fills it
+   * for every row, migrated or new, so a canvas without one is not an older
+   * canvas but a wrong one.
    */
-  openH: z.number().int().min(1).max(400).nullable().default(null),
+  wish: z.number().int().min(1).max(400),
   /**
    * Whether this container is picked out as a target on this kehikko.
    *
@@ -517,7 +523,9 @@ export function place(placements: readonly Placement[], id: string): Placement[]
       prompt: '',
       promptFor: null,
       collapsed: false,
-      openH: null,
+      /* The height it was given, which is the height it asks for until a hand
+         or its module says otherwise. */
+      wish: NEW_H,
       /* Off. A container arriving on the canvas has not been picked out by
          anybody, and a host that selected what it just added would be aiming an
          agent at a container the person has not even looked at yet. */
@@ -563,30 +571,7 @@ export function everyPlaced(canvases: readonly Canvas[]): string[] {
   return [...ids].sort()
 }
 
-/**
- * Has a drag of the corner asked a folded container to open?
- *
- * ## Why a resize is an unfold and not an error
- *
- * A folded container is one grid row and draws only its header. When somebody
- * pulled its corner, the grid took the new height and the container kept
- * `collapsed` — so the row grew, the container went on drawing its header, and a
- * gap appeared where the module should be. The handle looked broken.
- *
- * Refusing the resize would be worse. A handle that does not move is a handle
- * somebody pulls again, harder, and then reports. Reaching for the corner of a
- * folded container is a person saying "I want to see this", which is the same
- * sentence the fold control says — so it is honoured as one.
- *
- * Only a TALLER drag counts. `h` arrives unchanged for every container on every
- * drag of a neighbour, and a height equal to or smaller than the folded one
- * cannot be a request to see more.
- */
-export function unfoldedByResize(
-  before: { collapsed?: boolean } | undefined,
-  height: number,
-  foldedRows: number,
-): boolean {
-  if (!before?.collapsed) return false
-  return height > foldedRows
-}
+/* There used to be an `unfoldedByResize()` here: whether a drag of the corner
+   had asked a folded container to open. It is `dragged()` in `columns.ts` now,
+   beside the rule that decides what a drag to the FOLDED height means, because
+   the two are one question asked in two directions. */

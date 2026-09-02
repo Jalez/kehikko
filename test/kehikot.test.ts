@@ -77,7 +77,7 @@ const everything: Placement = {
   prompt: 'read chapter two and say what is missing',
   promptFor: 'roadmap.notes',
   collapsed: true,
-  openH: 30,
+  wish: 30,
   selected: true,
   filters: { scope: 'chapter', kind: 'todo' },
   refreshEvery: 15,
@@ -94,7 +94,7 @@ const another: Placement = {
   prompt: '',
   promptFor: null,
   collapsed: false,
-  openH: null,
+  wish: 12,
   selected: false,
   filters: {},
   refreshEvery: null,
@@ -191,8 +191,8 @@ describe('the round trip: this computer, the file, another computer', () => {
       "epic": "modes-are-modules",
       "selection": [],
       "containers": [
-        {"module":"roadmap.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"openH":null,"selected":false,"filters":{},"refreshEvery":null},
-        {"module":"roadmap.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"roadmap.notes","collapsed":true,"openH":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
+        {"module":"roadmap.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
+        {"module":"roadmap.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"roadmap.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
       ]
     }
   ]
@@ -389,12 +389,59 @@ describe('a file that will not read', () => {
       prompt: '',
       promptFor: null,
       collapsed: false,
-      openH: null,
+      /* Not yet the height: a `null` here is "the height it has", and it is
+         `cleaned` in `server/canvases.ts` that says so, once, on the way into
+         the database — see `fromContainer`. */
+      wish: null,
       selected: false,
       filters: {},
       refreshEvery: null,
     })
     expect(read.ok && read.kehikot[0]).toMatchObject({ epic: null, selection: [] })
+  })
+
+  /*
+   * The files in the user's projects today were written by a host that said
+   * `openH` — the height a folded container had — and no wish for an open one.
+   * They have to read, and the arrangement in them has to come out the same:
+   * the folded container wishing for what it remembered, the open one for
+   * what it draws. A file this host writes says `wish`; `openH` is read and
+   * never written again.
+   */
+  test('a file from before wishes reads, and its containers wish for what they had', () => {
+    const dir = folder()
+    const store = db()
+    const p = project(store, dir)
+    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    writeFileSync(
+      kehikotFile(dir)!,
+      `{
+  "version": 1,
+  "kehikot": [
+    {
+      "key": "old",
+      "name": "old",
+      "epic": null,
+      "selection": [],
+      "containers": [
+        {"module":"roadmap.notes","x":0,"y":0,"w":6,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"openH":null,"selected":false,"filters":{},"refreshEvery":null},
+        {"module":"roadmap.paper","x":0,"y":12,"w":6,"h":1,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":true,"openH":14,"selected":false,"filters":{},"refreshEvery":null}
+      ]
+    }
+  ]
+}
+`,
+    )
+    expect(syncProject(store, p)).toMatchObject({ outcome: 'read' })
+    const placements = listCanvases(store)[0]!.placements
+    expect(placements.find((x) => x.i === 'roadmap.notes')).toMatchObject({ h: 12, collapsed: false, wish: 12 })
+    expect(placements.find((x) => x.i === 'roadmap.paper')).toMatchObject({ h: 1, collapsed: true, wish: 14 })
+
+    /* And once written back, the file says `wish` and not `openH`. */
+    keep(store, p.id)
+    const text = readFileSync(kehikotFile(dir)!, 'utf8')
+    expect(text).toContain('"wish":14')
+    expect(text).not.toContain('openH')
   })
 })
 

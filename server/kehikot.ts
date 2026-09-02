@@ -78,7 +78,7 @@ import { listProjects, projectById } from './projects.ts'
  *     are the same trackers on the other machine).
  *   - Every placement, whole: `module` (stored as `i` — the grid library's
  *     word — and written here under a name a person can read), `x`, `y`, `w`,
- *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `collapsed`, `openH`,
+ *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `collapsed`, `wish`,
  *     `selected`, `filters`, `refreshEvery`. A module id is the one thing about
  *     a module that IS the same on every machine, so a container keyed by it
  *     means the same thing there as here.
@@ -198,7 +198,7 @@ export const PORTABLE_PLACEMENT_FIELDS = [
   'prompt',
   'promptFor',
   'collapsed',
-  'openH',
+  'wish',
   'selected',
   'filters',
   'refreshEvery',
@@ -260,7 +260,17 @@ const containerSchema = z
     prompt: z.string().max(LIMITS.PROMPT).default(''),
     promptFor: z.string().regex(MODULE_ID, 'is not a module id').nullable().default(null),
     collapsed: z.boolean().default(false),
-    openH: z.number().int().nullable().default(null),
+    /* `null` means "the height it has" — a hand-written container, or one
+       from a file written before wishes existed. Resolved in `fromContainer`;
+       the file this host writes always has a number here. */
+    wish: z.number().int().nullable().default(null),
+    /* What `wish` was called before it existed for open containers: the
+       height a container had when it was folded, or null. Accepted so that a
+       file written by the host before `wish` still reads, and read as the wish
+       when there is no `wish`. Never written — a file this host writes says
+       `wish` — and absent rather than defaulted, so the strict schema still
+       refuses a file that carries a field this version has never heard of. */
+    openH: z.number().int().nullable().optional(),
     selected: z.boolean().default(false),
     filters: z.record(z.string().min(1).max(LIMITS.FILTER_ID), z.string().min(1).max(LIMITS.FILTER_ID)).default({}),
     refreshEvery: z.number().max(REFRESH_EVERY_MAX).nullable().default(null),
@@ -331,7 +341,7 @@ function toContainer(p: Placement): FileContainer {
     prompt: p.prompt,
     promptFor: p.promptFor,
     collapsed: p.collapsed,
-    openH: p.openH,
+    wish: p.wish,
     selected: p.selected,
     filters: p.filters,
     refreshEvery: p.refreshEvery,
@@ -358,7 +368,10 @@ function fromContainer(c: FileContainer): PlacementInput {
     prompt: c.prompt,
     promptFor: c.promptFor,
     collapsed: c.collapsed,
-    openH: c.openH,
+    /* A file from before `wish` said `openH` for a folded container and
+       nothing for an open one; either way the fallback is the height it has,
+       which `cleaned` supplies for a `null`. */
+    wish: c.wish ?? c.openH ?? null,
     selected: c.selected,
     filters: c.filters,
     refreshEvery: c.refreshEvery,

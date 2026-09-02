@@ -119,15 +119,35 @@ export interface Placement {
    */
   collapsed: boolean
   /**
-   * The height this container had before it was collapsed, in grid rows.
+   * The height this container's owner last asked for, in grid rows.
    *
-   * Remembered rather than recomputed. A container that expanded to a default height
-   * would be a container that rearranged somebody's canvas for them — everything
-   * below it moves, and nothing they did asked for that. `null` for a container that
-   * has never been collapsed, which is every container in every database written
-   * before this existed.
+   * ## Not the same fact as `h`, and the difference is the whole point
+   *
+   * `h` is what is DRAWN. `wish` is what was ASKED FOR — by a hand on the
+   * corner, or by the module when `grow` is on — and the two part company
+   * whenever a column is over-subscribed: a neighbour growing squeezes this
+   * container's `h` and leaves its `wish` alone, so that when the neighbour
+   * folds and the rows are free again, this container comes back to the height
+   * it wanted. The rule that turns wishes into heights is `granted` in
+   * `src/host/columns.ts`, and the essay there is the reason this column
+   * exists: a squeeze that wrote itself into the stored height destroyed the
+   * evidence of what the person had wanted, and nothing could give it back.
+   *
+   * Folding leaves it alone too. A folded container is drawn at one row and
+   * its wish is what unfolding returns it towards — subject to the budget, as
+   * every wish is.
+   *
+   * ## What became of `openH`
+   *
+   * There used to be an `openH` beside `collapsed`: the height a container had
+   * when it was folded, or `null`. That was this, seen only through the fold —
+   * a wish that was remembered while folded and thrown away the moment the
+   * container was open, which is exactly when a squeezed container needed it.
+   * It is folded into this column: `open_h` is read once into `wish` for every
+   * row written before, and never read again. A row from before either existed
+   * wishes for the height it had, which is what it has been drawing all along.
    */
-  openH: number | null
+  wish: number
   /**
    * Whether this container has been picked out as a target on this kehikko.
    *
@@ -327,7 +347,7 @@ export type PlacementInput = Omit<
   | 'prompt'
   | 'promptFor'
   | 'collapsed'
-  | 'openH'
+  | 'wish'
   | 'selected'
   | 'filters'
   | 'refreshEvery'
@@ -337,7 +357,8 @@ export type PlacementInput = Omit<
   prompt?: string
   promptFor?: string | null
   collapsed?: boolean
-  openH?: number | null
+  /** Absent means "the height it has": see `cleaned`. */
+  wish?: number | null
   selected?: boolean
   filters?: Record<string, string>
   refreshEvery?: number | null
@@ -439,6 +460,14 @@ export function open(file = databaseFile()): Database {
   add(db, 'placements', 'prompt_for', 'text')
   add(db, 'placements', 'collapsed', 'integer not null default 0')
   add(db, 'placements', 'open_h', 'integer')
+  /* The height a container's owner asked for, which `open_h` used to be a
+     folded-only shadow of — see `Placement.wish`. Every row written before
+     this column existed is given its wish once: what it had remembered while
+     folded, or else the height it was drawing. `open_h` stays in the table and
+     is not read again; a version of this host from before `wish` still finds
+     what it wrote there. */
+  add(db, 'placements', 'wish', 'integer')
+  db.run('update placements set wish = coalesce(open_h, h) where wish is null')
   /* Whether a container is picked out as a target. Added to every database
      written before there was such a thing, where nothing is selected — which is
      what every container in them has been all along. */
@@ -583,14 +612,14 @@ export function listCanvases(db: Database): Canvas[] {
         prompt: string
         prompt_for: string | null
         collapsed: number
-        open_h: number | null
+        wish: number | null
         selected: number
         filters: string
         refresh_every: number | null
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters, refresh_every from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every from placements order by canvas, module',
     )
     .all()
 
@@ -603,7 +632,7 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       prompt_for: promptFor,
       collapsed,
-      open_h: openH,
+      wish,
       selected,
       filters,
       refresh_every: refreshEvery,
@@ -618,7 +647,11 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       promptFor,
       collapsed: collapsed === 1,
-      openH,
+      /* The migration above filled this for every row that existed; `?? h` is
+         for a row written by a version of this host from before `wish` and read
+         by this one without the migration having run again — which it does on
+         every open, so this is a belt for braces. */
+      wish: wish ?? rest.h,
       selected: selected === 1,
       filters: filtersFrom(filters),
       /* Bounded on the way out as well as on the way in, because this column is
@@ -737,7 +770,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, open_h, selected, filters, refresh_every) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -752,7 +785,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.prompt,
           p.promptFor,
           p.collapsed ? 1 : 0,
-          p.openH,
+          p.wish,
           p.selected ? 1 : 0,
           JSON.stringify(p.filters),
           p.refreshEvery,
@@ -1008,11 +1041,13 @@ function cleaned(placements: PlacementInput[]): Placement[] {
         typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
-      /* Bounded exactly like `h`, because it BECOMES `h` the moment somebody
-         expands the container. A remembered height that no version of this host
-         could lay out is the same stored-unlayoutable-arrangement problem one
-         press later. */
-      openH: p.openH === null || p.openH === undefined ? null : bounded(p.openH, 1, 400),
+      /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A
+         wish nobody could lay out is harmless to the arrangement — `granted`
+         cuts it to the column — but a wish of ten thousand rows is not a
+         height a person chose. Absent means the height it has: that is a
+         placement from a page, a file or a test from before wishes existed,
+         and what it has is what it has been asking for all along. */
+      wish: p.wish === null || p.wish === undefined ? bounded(p.h, 1, 400) : bounded(p.wish, 1, 400),
       /* Same rule again: anything but a literal `true` is off. This one is what
          an agent reads to decide which containers it was pointed at, and a flag
          that switched on because the string "false" arrived would aim it at

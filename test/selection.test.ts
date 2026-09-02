@@ -119,7 +119,7 @@ describe('a container is picked out on one kehikko', () => {
   test('picking one out does not disturb what else the container is', () => {
     const made = createCanvas(db, 'one')
     editCanvas(db, made.id, {
-      placements: [{ ...at('a.one'), pinned: true, collapsed: true, openH: 14, prompt: 'read this' }],
+      placements: [{ ...at('a.one'), pinned: true, collapsed: true, wish: 14, prompt: 'read this' }],
     })
     const was = listCanvases(db)[0]?.placements[0]
     editCanvas(db, made.id, { placements: [{ ...was!, selected: true }] })
