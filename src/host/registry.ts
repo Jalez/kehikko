@@ -40,6 +40,22 @@ export interface FramedModule {
   declares: { protocol: string; uses: string[]; storage: boolean; prompt?: boolean }
 }
 
+/**
+ * Whether the AGENT has been told about a door.
+ *
+ * Named on its own, rather than only as `Presence['agent']`, because the host's
+ * own door has one of these and the host is not a `Presence`: it is not
+ * registered, not swept, not `ready` or `silent`, and faking it into one to
+ * reuse a component would be a page telling itself something untrue about what
+ * is on the canvas. What the plug on a header actually depends on is this
+ * union and a name, and `Tools.tsx` now says so in its props.
+ */
+export type AgentAwareness =
+  | { kind: 'none' }
+  | { kind: 'told'; as: string }
+  | { kind: 'elsewhere'; as: string; pointsAt: string }
+  | { kind: 'untold' }
+
 export interface Presence {
   id: string
   at: string
@@ -80,15 +96,32 @@ export interface Presence {
    * it sits beside `condition` rather than inside it. A module can be perfectly
    * `ready`, serving tools, while no agent has been told the door exists.
    */
-  agent?:
-    | { kind: 'none' }
-    | { kind: 'told'; as: string }
-    | { kind: 'elsewhere'; as: string; pointsAt: string }
-    | { kind: 'untold' }
+  agent?: AgentAwareness
+}
+
+/**
+ * The host's own MCP door, as the sweep reports it.
+ *
+ * `id` is what to send to `/host/tools` and `/host/agent` — the server answers
+ * it from its own port rather than from the registry; see `hostDoor` in
+ * `server/register.ts`. `agent` is read against the same configuration file,
+ * in the same sweep, as every module's, which is what lets the strip draw one
+ * control with the same states as a container's.
+ */
+export interface HostDoor {
+  id: string
+  as: string
+  url: string
+  agent: AgentAwareness
 }
 
 export interface RegistryView {
   presences: Presence[]
+  /**
+   * Optional for the reason `reacts` is: a server older than this page answers
+   * without it, and the strip then draws no plug rather than a wrong one.
+   */
+  host?: HostDoor
   sweep: {
     dir: string
     rejected: { file: string; why: string }[]

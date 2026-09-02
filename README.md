@@ -240,11 +240,21 @@ remove or move anything: the arrangement belongs to the person looking at it.
 A tool call is visible immediately on the page, without a refresh — the server
 says a kehikko changed over `/host/watch` and the page re-reads.
 
-Tell your agent about it with:
+Tell your agent about it from the strip: the plug at the right-hand end is the
+same control every container header has for its module's door. It opens a
+window listing the two tools, says whether an agent has been told, and connects,
+disconnects or repoints on a press — never on its own. That press runs, and the
+window shows before running it:
 
 ```
-claude mcp add kehikko --transport http http://127.0.0.1:4180/mcp
+claude mcp add --scope user --transport http kehikko http://127.0.0.1:4180/mcp
 ```
+
+The name is `kehikko` whatever port the host is on; the address is what moves.
+A host that came up on another port because 4180 was taken reads an entry
+written against 4180 as stale, exactly as a module that moved port would, and
+offers to repoint it. Claude Code reads its MCP configuration when a session
+starts, so any of this applies to the next session and not to one already open.
 
 ## The modules
 
