@@ -94,8 +94,7 @@ describe('composing the list', () => {
     const rows = containersOf({
       placements: [at('roadmap.notes', 5), at('roadmap.paper', 0, true), at('roadmap.journeys', 0)],
       said: {},
-      passage: null,
-      pointedBy: null,
+      pointed: {},
       selection: [],
       selectedBy: null,
     })
@@ -108,8 +107,7 @@ describe('composing the list', () => {
     const rows = containersOf({
       placements: [at('roadmap.paper', 0), at('roadmap.journeys', 1)],
       said: { 'roadmap.journeys': { refs: ['gh#10', 'gh#11'], documents: [] } },
-      passage: null,
-      pointedBy: null,
+      pointed: {},
       selection: [],
       selectedBy: null,
     })
@@ -124,8 +122,7 @@ describe('composing the list', () => {
     const rows = containersOf({
       placements: [at('roadmap.paper', 0), at('roadmap.notes', 1)],
       said: { 'roadmap.paper': { refs: [], documents: [chapter] } },
-      passage: paragraph,
-      pointedBy: 'roadmap.paper',
+      pointed: { 'roadmap.paper': paragraph },
       selection: [],
       selectedBy: null,
     })
@@ -133,12 +130,47 @@ describe('composing the list', () => {
     expect(rows[1]?.showing.documents).toEqual([])
   })
 
+  test('a container keeps showing what it pointed at after another container points', () => {
+    /*
+     * The bug, in one table. The paper pointed at page 3; the notes pane then
+     * pointed at a note's passage. With one "who pointed last" per canvas the
+     * paper's row went empty — the host telling every consumer that a
+     * container with a chapter open on screen was showing nothing, and a
+     * checklist narrowed to the picked-out paper emptied with it. Each
+     * pointer's last pointing is its own claim and outlives the next pointer.
+     */
+    const notesAt: Passage = { ...chapter, from: 2781, to: 2929, quoted: 'Front matter, in the order' }
+    const rows = containersOf({
+      placements: [at('roadmap.paper', 0, true), at('roadmap.notes', 1)],
+      said: {},
+      pointed: { 'roadmap.paper': paragraph, 'roadmap.notes': notesAt },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[0]?.showing.documents).toEqual([paragraph])
+    expect(rows[1]?.showing.documents).toEqual([notesAt])
+  })
+
+  test('a pointing with no range or page — an adrift note\'s document — is a document shown, not nothing', () => {
+    /* The notes pane no longer points at an adrift note at all; but a bare
+       document is a legitimate rung-1 passage from any module, and a row
+       holding one is a row showing that document. */
+    const rows = containersOf({
+      placements: [at('roadmap.paper', 0, true), at('roadmap.notes', 1)],
+      said: {},
+      pointed: { 'roadmap.paper': paragraph, 'roadmap.notes': chapter },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[1]?.showing.documents).toEqual([chapter])
+    expect(rows[0]?.showing.documents).toEqual([paragraph])
+  })
+
   test('the selection is folded into its setter\'s row, and into nobody\'s after a reload', () => {
     const picked = containersOf({
       placements: [at('roadmap.references', 0), at('roadmap.checklist', 1)],
       said: {},
-      passage: null,
-      pointedBy: null,
+      pointed: {},
       selection: ['gh#7'],
       selectedBy: 'roadmap.references',
     })
@@ -151,8 +183,7 @@ describe('composing the list', () => {
     const reloaded = containersOf({
       placements: [at('roadmap.references', 0)],
       said: {},
-      passage: null,
-      pointedBy: null,
+      pointed: {},
       selection: ['gh#7'],
       selectedBy: null,
     })
@@ -163,8 +194,7 @@ describe('composing the list', () => {
     const rows = containersOf({
       placements: [at('roadmap.paper', 0)],
       said: { 'roadmap.paper': { refs: ['gh#1', 'gh#1'], documents: [paragraph] } },
-      passage: paragraph,
-      pointedBy: 'roadmap.gone',
+      pointed: { 'roadmap.gone': paragraph },
       selection: ['gh#1'],
       selectedBy: 'roadmap.paper',
     })
@@ -174,8 +204,8 @@ describe('composing the list', () => {
   })
 
   test('the key is by value, so two equal lists are one dependency', () => {
-    const a = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, passage: null, pointedBy: null, selection: [], selectedBy: null })
-    const b = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, passage: null, pointedBy: null, selection: [], selectedBy: null })
+    const a = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
+    const b = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
     expect(a).not.toBe(b)
     expect(containersKey(a)).toBe(containersKey(b))
   })
@@ -188,8 +218,7 @@ describe('the list goes out in the context', () => {
     const rows = containersOf({
       placements: [at('roadmap.paper', 0, true)],
       said: {},
-      passage: paragraph,
-      pointedBy: 'roadmap.paper',
+      pointed: { 'roadmap.paper': paragraph },
       selection: [],
       selectedBy: null,
     })
@@ -206,8 +235,7 @@ describe('the list goes out in the context', () => {
     const rows = containersOf({
       placements: [at('roadmap.references', 0), at('roadmap.paper', 1)],
       said: { 'roadmap.paper': { refs: [], documents: [chapter] } },
-      passage: null,
-      pointedBy: null,
+      pointed: {},
       selection: ['gh#7'],
       selectedBy: 'roadmap.references',
     })
