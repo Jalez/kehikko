@@ -78,7 +78,7 @@ const FETCH_TIMEOUT_MS = 20_000
 const LOCAL_TIMEOUT_MS = 10_000
 
 /** No terminal to prompt in, so nothing may prompt. */
-const QUIET_ENV = {
+export const QUIET_ENV = {
   ...process.env,
   GIT_TERMINAL_PROMPT: '0',
   GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',

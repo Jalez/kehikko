@@ -41,6 +41,7 @@ import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
+import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { resolve } from 'node:path'
 
 /**
@@ -149,6 +150,19 @@ function updatePlaces(): Place[] {
   return places
 }
 
+
+/* Feedback on a module, filed as an issue in its repository. The repository is
+   read from the registration here, never taken from the request — see
+   `feedback.ts`. The version is the module's manifest, when it is answering. */
+const feedback = feedbackDesk({
+  run: spawnRunner,
+  registration: (id) => registered.get(id) ?? null,
+  version: async (id) => {
+    const registration = registered.get(id)
+    if (!registration) return null
+    return (await look(registration)).module?.version ?? null
+  },
+})
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -1052,6 +1066,10 @@ const server = Bun.serve({
         restart: place.id === 'host' ? (hostNeedsRestart(done.changed) ? 'host' : null) : done.changed.length ? 'module' : null,
       })
     }
+
+    /* The issues this person opened on a module, and a new one. `feedback.ts`. */
+    const feedbackAnswer = await feedback.route(request, url)
+    if (feedbackAnswer) return feedbackAnswer
 
     /*
      * Start a module that is not running.
