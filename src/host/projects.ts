@@ -207,6 +207,19 @@ export async function createEpic(
   return z.object({ epic: epicSchema, madeDirectory: z.boolean() }).parse(await response.json())
 }
 
+/**
+ * Delete one epic's file from a project. What modules filed under its slug
+ * stays — see `deleteEpic` in `server/holdings.ts`.
+ */
+export async function deleteEpic(project: number, slug: string): Promise<void> {
+  const response = await fetch('/host/epics', {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, slug }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+}
+
 /** Which project this browser had open, for the reason the open kehikko is local. */
 export const OPEN_PROJECT_KEY = 'roadmap.frame.project.v1'
 

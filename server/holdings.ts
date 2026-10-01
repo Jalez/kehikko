@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { EPIC_SLUG } from 'roadmap-module-protocol'
@@ -425,6 +425,47 @@ export function createEpic(
   }
 
   return { ok: true, epic: summarise(slug, epic), file: path, madeDirectory }
+}
+
+export type Deleted = { ok: true } | { ok: false; why: string; status: number }
+
+/**
+ * An epic, gone: its one file in `data/epics` removed, and nothing else.
+ *
+ * Asked for from the epic menu, beside the project's forget and the kehikko's
+ * remove, and armed there for the same reason they are — this one cannot be
+ * pressed back. The file is in somebody's repository, so `git` can bring it
+ * back if it was committed; that is the repository's undo, not this host's.
+ *
+ * Only the epic's own file. What the modules filed under its slug — a paper
+ * directory, a checklist file, a journey record — is theirs, and this host
+ * neither owns nor can see inside it; it stays where it is, readable again if
+ * an epic with that slug is ever made.
+ *
+ * Refuses a slug that is not one, a project with no `data/epics`, and an epic
+ * that is not in THIS project.
+ */
+export function deleteEpic(root: string, slug: string): Deleted {
+  if (typeof slug !== 'string' || !SLUG.test(slug)) {
+    return {
+      ok: false,
+      why: 'An epic is named by a slug: lowercase letters, digits and dashes, starting with a letter or a digit.',
+      status: 400,
+    }
+  }
+  if (!epicsIn(root)) {
+    return { ok: false, why: 'This project has no data/epics, so there is no epic in it to delete.', status: 409 }
+  }
+  const path = join(root, 'data', 'epics', `${slug}.json`)
+  if (!existsSync(path)) {
+    return { ok: false, why: `There is no epic called ${slug} in this project.`, status: 404 }
+  }
+  try {
+    unlinkSync(path)
+  } catch (error) {
+    return { ok: false, why: `${slug}.json could not be deleted: ${(error as Error).message}`, status: 500 }
+  }
+  return { ok: true }
 }
 
 /** Text as it is quoted back in a refusal: whole when short, cut when it is a paragraph. */

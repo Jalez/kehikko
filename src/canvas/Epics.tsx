@@ -1,4 +1,4 @@
-import { ChevronDown, Circle, CircleSlash, Pencil, Plus } from 'lucide-react'
+import { ChevronDown, Circle, CircleSlash } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -12,10 +12,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
 import type { Epic, Epics as Held } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
+import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
 /**
  * The epic every module on this kehikko is shown, picked from a list.
@@ -84,22 +84,18 @@ import { Hint } from './Hint.tsx'
  * abandons the draft, and whether the menu goes with it costs nothing either
  * way — the form is not left standing over a list it is no longer editing.
  *
- * ## An epic can be MADE here, and the `+` is beside the select, not in it
+ * ## An epic can be MADE here, at the end of the list
  *
  * The owner's words: "If there are no epics user seems unable to add an epic."
- * True, and worse than it sounds — two of the three empty states above are
- * a DISABLED select, and a disabled select is a control that cannot open, so a
- * "new epic…" row at the bottom of its menu would be unreachable in exactly
- * the situation it exists for. So the control is a `+` outside the menu, the
- * way `Canvases.tsx` puts the new-kehikko `+` beside the kehikko switcher: a
- * button that works whether or not the list has anything in it.
+ * And later: the `+` that answered that should be "the last dropdown menu
+ * item, like it is for the projects". Both are honoured by the same rule — the
+ * menu opens whenever there is a project, even when it has nothing to pick, so
+ * "new epic…" at its bottom is reachable in exactly the situation it exists
+ * for. The trigger is disabled only when there is no project at all, which is
+ * the one state with nowhere to create into.
  *
  * `offerOfCreate` in `host/epics.ts` decides what it does per state, and it
- * is data rather than JSX so each state can be asserted without a DOM. The one
- * departure from the disabled-not-hidden rule above — no `+` at all when
- * there is no project — is argued there: the select beside it is already
- * saying "no project" in words, and two flat controls for one fact explain
- * less than one.
+ * is data rather than JSX so each state can be asserted without a DOM.
  *
  * ## The slug is shown while the title is typed, and is not checked here
  *
@@ -112,12 +108,12 @@ import { Hint } from './Hint.tsx'
  * a copy here would be the copy that drifts, and the field would refuse a slug
  * the server takes or take one it refuses.
  *
- * ## It is a popover and not the dropdown, and it is not armed
+ * ## It replaces the list, as the retitle does, and it is not armed
  *
- * A popover, because the dropdown may be disabled — see above — and because
- * a form of two fields with a sentence under them is not a menu. Not armed,
- * for the reason the retitle is not: a file that can be deleted, in a
- * repository, is not the class of thing two presses are for.
+ * In the menu and in place of the list, for the reason the retitle form is —
+ * see "The list is replaced by the form" above. Not armed, for the reason the
+ * retitle is not: a file that can be deleted, in a repository, is not the
+ * class of thing two presses are for.
  *
  * ## Creating opens the epic; the door's `create_epic` does not
  *
@@ -133,6 +129,7 @@ export function Epics({
   onPick,
   onRetitle,
   onCreate,
+  onDelete,
 }: {
   /** What the kehikko is on now, straight from the canvas's subject. */
   epic: string | null
@@ -157,17 +154,32 @@ export function Epics({
    * in it, and the server's own sentence goes to the footer.
    */
   onCreate(slug: string, title: string): Promise<boolean>
+  /**
+   * Delete one epic's file. Armed on its row, as forgetting a project and
+   * removing a kehikko are: the first press says what will go, the second
+   * does it. What modules filed under the slug stays — see `deleteEpic` in
+   * `server/holdings.ts`.
+   */
+  onDelete(slug: string): void
 }) {
   /** Which epic is being retitled, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<string | null>(null)
-  /** Whether the create form is open. Its own state, because it is its own popover. */
+  /** Whether the create form is standing in place of the list. */
   const [creating, setCreating] = useState(false)
+  /** Which epic's delete has been asked about but not yet confirmed. One at a time. */
+  const [arming, setArming] = useState<string | null>(null)
   const epics = held?.epics ?? []
   const holds = held?.holds ?? false
   /* Three states and not two: no project, a project with no epics directory,
      and a directory that is there and empty. Only the first is the host not
      knowing yet; the other two are answers. */
   const nothingToPick = !hasProject || !holds || epics.length === 0
+  /* Null when the list has been re-read and no longer has this epic in it. */
+  const retitling = epics.find((one) => one.slug === editing) ?? null
+  const offer = offerOfCreate(hasProject, held)
+  /* Openable whenever something can be created, even with nothing to pick:
+     "new epic…" lives at the bottom of this menu. */
+  const shut = !offer.offered
 
   const label = !hasProject
     ? 'no project is open, so there is no epic to pick'
@@ -179,10 +191,7 @@ export function Epics({
           ? 'this project’s data/epics is empty'
           : 'the epic every module on this kehikko is shown'
 
-  const offer = offerOfCreate(hasProject, held)
-
   return (
-    <>
     <DropdownMenu>
       <Hint label={label} align="start">
         {/* A span, because a disabled button dispatches no pointer events and
@@ -190,12 +199,12 @@ export function Epics({
             explanation is worth having. The same trick `Canvases.tsx` uses on
             the delete button, for the same reason. */}
         <span className="inline-flex shrink-0">
-          <DropdownMenuTrigger asChild disabled={nothingToPick}>
+          <DropdownMenuTrigger asChild disabled={shut}>
             <Button
               variant="ghost"
               size="sm"
               aria-label="the epic this kehikko is about"
-              disabled={nothingToPick}
+              disabled={shut}
               className="h-6 max-w-52 gap-1 px-1.5 font-mono text-xs disabled:pointer-events-none"
             >
               {epic ? (
@@ -206,7 +215,7 @@ export function Epics({
               <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
                 {epic ?? sentenceFor(hasProject, held)}
               </span>
-              {nothingToPick ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
+              {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
             </Button>
           </DropdownMenuTrigger>
         </span>
@@ -218,100 +227,77 @@ export function Epics({
            left half-typed from twenty minutes ago, reappearing over the list
            somebody opened in order to SWITCH epic, is a menu that does not do
            what it was opened for. */
-        onCloseAutoFocus={() => setEditing(null)}
+        onCloseAutoFocus={() => {
+          setEditing(null)
+          setCreating(false)
+          setArming(null)
+        }}
       >
-        {editing !== null ? (
-          <Retitle
-            /* Keyed on the slug, so that starting a retitle of a different epic
-               replaces the draft rather than carrying the last one into it. */
-            key={editing}
-            epic={epics.find((one) => one.slug === editing) ?? null}
-            onRetitle={onRetitle}
+        {creating && offer.offered ? (
+          <Create
+            note={offer.note}
+            makesDirectory={offer.makesDirectory}
+            onCreate={onCreate}
+            onDone={() => setCreating(false)}
+          />
+        ) : retitling ? (
+          /* Keyed on the slug, so that starting a retitle of a different epic
+             replaces the draft rather than carrying the last one into it.
+             The note is the disclosure that stops somebody retitling an epic
+             in the belief that they moved its paper directory with it. */
+          <NameForm
+            key={retitling.slug}
+            heading="retitle this epic"
+            initial={titleOf(retitling)}
+            label={`what ${retitling.slug} is called`}
+            maxLength={200}
+            note={
+              <>
+                the slug stays <span className="text-foreground break-all font-mono">{retitling.slug}</span> — it is
+                what this kehikko, and every module’s own material, files this epic under.
+              </>
+            }
+            onSave={(title) => onRetitle(retitling.slug, title)}
             onDone={() => setEditing(null)}
           />
         ) : (
           <>
             <DropdownMenuLabel>epics</DropdownMenuLabel>
+            {/* Said rather than left blank, so an empty list reads as an answer
+                and not as a list that failed to load. */}
+            {nothingToPick ? (
+              <p className="text-muted-foreground px-2 pb-1.5 text-xs">{sentenceFor(hasProject, held)}</p>
+            ) : null}
             {epics.map((one) => (
               <DropdownMenuItem
                 key={one.slug}
-                onSelect={() => onPick(one.slug)}
-                /*
-                 * F2 starts the retitle, because the pencil beside it cannot be
-                 * reached from the keyboard: inside a menu, Tab dismisses and
-                 * the arrows move between items, so a button that is not an item
-                 * is a button for the mouse only. F2 is what renames a thing in
-                 * a file manager and in every editor this host sits beside.
-                 */
-                onKeyDown={(event) => {
-                  if (event.key !== 'F2') return
-                  event.preventDefault()
-                  setEditing(one.slug)
-                }}
+                onSelect={armedSelect(arming === one.slug, () => setArming(null), () => onPick(one.slug))}
+                onKeyDown={renameKey(() => setEditing(one.slug))}
                 className="group/row"
               >
                 <DropdownMenuCheck checked={one.slug === epic} />
                 <span className="min-w-0 flex-1 truncate">{titleOf(one)}</span>
-                {/*
-                 * The retitle, revealed on the row rather than drawn on every
-                 * one of them. Radix focuses the item the pointer is over, so
-                 * one rule covers the mouse and the keyboard both, and a
-                 * dropdown of twelve epics is still a list of twelve titles
-                 * rather than twelve titles and twelve pencils.
-                 *
-                 * A span and not a button: this is inside a menu item, whose
-                 * own click is what picks the epic, and a nested button would
-                 * be a button inside a control that already means something.
-                 * The CLICK is stopped here so that retitling does not also
-                 * change what the kehikko is about.
-                 *
-                 * ## The pointerdown must NOT be stopped, and stopping it was the bug
-                 *
-                 * This span used to stop `pointerdown` as well, on the reading
-                 * that stopping a press earlier stops it harder. It does the
-                 * opposite here, and the mechanism is worth writing down because
-                 * nothing about it is visible from this file.
-                 *
-                 * Radix's menu item keeps a ref saying whether the press STARTED
-                 * on it, set from its own `onPointerDown`, and on `pointerup` it
-                 * does this:
-                 *
-                 *     if (!isPointerDownRef.current) event.currentTarget?.click()
-                 *
-                 * — so that a press begun on one item and released over another
-                 * activates the one it was released over. Stopping `pointerdown`
-                 * kept the item's handler from ever running, so the ref stayed
-                 * false, so the release synthesised a click ON THE ITEM. That
-                 * click never passes through this span, so the handler below
-                 * never ran; the item selected, `onPick` fired, and the menu
-                 * closed. Pressing the pencil switched epic and shut the
-                 * dropdown — the exact opposite of what it is for.
-                 *
-                 * Letting the pointerdown through is therefore what fixes it:
-                 * the item marks the press as its own, no click is synthesised,
-                 * and the real click lands on this span, where stopping
-                 * propagation keeps it from reaching the item at all.
-                 */}
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={`retitle ${titleOf(one)} — its slug, ${one.slug}, does not change`}
+                <RowPencil
+                  label={`retitle ${titleOf(one)} — its slug, ${one.slug}, does not change`}
                   title={`retitle — the slug ${one.slug} does not change (F2)`}
-                  className="text-muted-foreground hover:text-foreground pointer-events-auto shrink-0 opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setEditing(one.slug)
-                  }}
-                >
-                  <Pencil className="size-3" />
-                </span>
+                  onStart={() => setEditing(one.slug)}
+                />
                 {/* How much it names, when the file says. Never invented — see
                     `countOf` in `server/holdings.ts`, which answers null rather
                     than zero when there is nothing to count. */}
                 {one.size ? (
                   <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{one.size}</span>
                 ) : null}
+                <Remove
+                  armed={arming === one.slug}
+                  label={`delete ${titleOf(one)}`}
+                  question="delete its file?"
+                  onArm={() => setArming(one.slug)}
+                  onConfirm={() => {
+                    setArming(null)
+                    onDelete(one.slug)
+                  }}
+                />
               </DropdownMenuItem>
             ))}
             {epic ? (
@@ -326,151 +312,15 @@ export function Epics({
                 </DropdownMenuItem>
               </>
             ) : null}
+            {offer.offered ? (
+              <AddItem keepOpen onAdd={() => setCreating(true)}>
+                new epic…
+              </AddItem>
+            ) : null}
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
-
-    {offer.offered ? (
-      <Popover open={creating} onOpenChange={setCreating}>
-        <Hint label={held ? `a new epic — ${offer.note}` : 'a new epic in this project'}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="new epic"
-              className="text-muted-foreground hover:text-foreground size-6 shrink-0"
-            >
-              <Plus className="size-3" />
-            </Button>
-          </PopoverTrigger>
-        </Hint>
-        <PopoverContent align="start" className="w-80 p-0">
-          {/* Keyed on being open, so that a form abandoned with half a title in
-              it comes back empty next time rather than carrying the draft. */}
-          {creating ? (
-            <Create
-              note={offer.note}
-              makesDirectory={offer.makesDirectory}
-              onCreate={onCreate}
-              onDone={() => setCreating(false)}
-            />
-          ) : null}
-        </PopoverContent>
-      </Popover>
-    ) : null}
-    </>
-  )
-}
-
-/**
- * The retitle form: one field, and a sentence about what is not changing.
- *
- * ## Why the slug is on screen while you type
- *
- * Because "rename" is a word people arrive with, and the thing they mean by it
- * is usually the identity. The line under the field is not decoration and it is
- * not an apology — it is the disclosure that stops somebody retitling an epic
- * in the belief that they have moved its paper directory with it. It costs two
- * lines of a menu that is only open while the form is.
- *
- * ## The keys are handled here and go no further
- *
- * Every key is stopped at this form. The menu around it reads keystrokes as
- * typeahead and arrows as movement between items — correct for a list of epics
- * and wrong for a field somebody is typing a title into, where `s` means `s`.
- * Escape abandons the draft rather than committing it, which is the one
- * decision about that key this form is entitled to make; whether the menu
- * closes underneath it is Radix's dismissal to run and is harmless either way,
- * because closing puts the list back too.
- *
- * A refusal leaves the form standing with the typed title in it. The server's
- * sentence goes to the footer — "A title is at most 200 characters and that one
- * is 640" is something a person can act on, and it is worth nothing at all if
- * the field it is about has just been cleared and closed.
- */
-function Retitle({
-  epic,
-  onRetitle,
-  onDone,
-}: {
-  /** Null when the list has been re-read and no longer has this epic in it. */
-  epic: Epic | null
-  onRetitle(slug: string, title: string): Promise<boolean>
-  onDone(): void
-}) {
-  const [draft, setDraft] = useState(epic ? titleOf(epic) : '')
-  const [saving, setSaving] = useState(false)
-  const field = useRef<HTMLInputElement>(null)
-
-  /* Focused and selected on the way in, because this form replaced a list the
-     person had already reached with the pointer or the arrows, and a field that
-     appears without the caret in it is a field they have to go and click. */
-  useEffect(() => {
-    field.current?.focus()
-    field.current?.select()
-  }, [])
-
-  if (!epic) return null
-
-  const commit = async () => {
-    const title = draft.trim()
-    /* Nothing typed, or nothing changed: not a write. The server would refuse
-       the first and skip the second, and both round trips exist only to tell
-       this form what it already knows. */
-    if (!title || title === titleOf(epic)) {
-      onDone()
-      return
-    }
-    setSaving(true)
-    const written = await onRetitle(epic.slug, title)
-    setSaving(false)
-    if (written) onDone()
-  }
-
-  return (
-    <div
-      className="px-2 py-1.5"
-      onKeyDown={(event) => {
-        event.stopPropagation()
-        if (event.key === 'Enter') void commit()
-        if (event.key === 'Escape') onDone()
-      }}
-    >
-      <p className="text-muted-foreground pb-1.5 text-xs font-medium">retitle this epic</p>
-      <Input
-        ref={field}
-        value={draft}
-        disabled={saving}
-        onChange={(event) => setDraft(event.target.value)}
-        aria-label={`what ${epic.slug} is called`}
-        spellCheck={false}
-        /* The same courtesy stop `Canvases.tsx` puts on a kehikko's name, and
-           the same division of labour: the field declines to take more, and the
-           server — `TITLE_MAX` in `server/holdings.ts` — is what actually
-           decides, because a page is not where a rule about somebody's file
-           lives. */
-        maxLength={200}
-        className="h-7 w-full text-xs"
-      />
-      {/*
-       * What is NOT changing, said in the same breath as what is. `break-all`
-       * because a slug is one unbroken token and an eighty-character one would
-       * otherwise widen this menu rather than wrap inside it.
-       */}
-      <p className="text-muted-foreground pt-1.5 text-[11px] leading-snug">
-        the slug stays <span className="text-foreground break-all font-mono">{epic.slug}</span> — it is what
-        this kehikko, and every module’s own material, files this epic under.
-      </p>
-      <div className="flex justify-end gap-1 pt-2">
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onDone}>
-          cancel
-        </Button>
-        <Button size="sm" className="h-6 px-2 text-xs" disabled={saving} onClick={() => void commit()}>
-          {saving ? 'saving…' : 'save'}
-        </Button>
-      </div>
-    </div>
   )
 }
 
@@ -489,9 +339,9 @@ function Retitle({
  *
  * ## The keys stop here, as in `Retitle`
  *
- * A popover does not read typeahead the way a menu does, but the canvas
- * behind it has its own keyboard — see `presses.ts` — and a title with a
- * space in it must not fold a container. Enter creates, Escape abandons.
+ * The menu around it reads keystrokes as typeahead, and the canvas behind it
+ * has its own keyboard — see `presses.ts` — and a title with a space in it
+ * must not fold a container. Enter creates, Escape abandons.
  *
  * ## Nothing is checked on this side
  *
@@ -533,7 +383,7 @@ function Create({
 
   return (
     <div
-      className="px-3 py-2"
+      className="px-2 py-1.5"
       onKeyDown={(event) => {
         event.stopPropagation()
         if (event.key === 'Enter') void commit()

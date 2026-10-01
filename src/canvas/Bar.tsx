@@ -80,6 +80,7 @@ export function Bar({
   held,
   onRetitleEpic,
   onCreateEpic,
+  onDeleteEpic,
   onProject,
   onAddProject,
   onShareProject,
@@ -114,6 +115,8 @@ export function Bar({
   onRetitleEpic(slug: string, title: string): Promise<boolean>
   /** Make a new epic in this project and open it here. See `onCreateEpic` in `App.tsx`. */
   onCreateEpic(slug: string, title: string): Promise<boolean>
+  /** Delete one epic's file from this project. See `onDeleteEpic` in `App.tsx`. */
+  onDeleteEpic(slug: string): void
   onProject(id: number): void
   onAddProject(path: string): void
   /** Whether the open project's `.kehikot/` is committed with it. */
@@ -121,7 +124,7 @@ export function Bar({
   /** Stop holding a folder as a project. Nothing on disk is deleted. */
   onForgetProject(id: number): void
   onOpen(id: number): void
-  onRename(name: string): void
+  onRename(id: number, name: string): void
   onCreate(): void
   onDelete(id: number): void
   onSubject(subject: Subject): void
@@ -187,6 +190,7 @@ export function Bar({
              differ: a person who typed a title into a `+` has said which epic
              they want to be on. */
           onCreate={onCreateEpic}
+          onDelete={onDeleteEpic}
         />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
