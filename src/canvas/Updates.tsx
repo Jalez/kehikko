@@ -2,17 +2,20 @@ import { CloudDownload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import {
   ago,
   applyUpdate,
   fetchUpdates,
   isCheckout,
+  offersAppRestart,
   requestRestart,
   restartModule,
+  triage,
   waiting,
   type Check,
   type Checkout,
+  type Outcome,
   type Reading,
 } from '@/host/updates.ts'
 import { Hint } from './Hint.tsx'
@@ -27,12 +30,21 @@ import { KehikkoMark } from './Mark.tsx'
  * and when the window comes back into focus after ten minutes away. A quiet
  * check only moves the dot on the button and the time in its tooltip.
  *
- * Out loud, when the button is pressed: the modal opens and checks at once,
- * with the kehikko mark drawing itself while it waits, and shows what is
- * behind and what can be done about it. Everything slow in it — the check and
- * each update — can be cancelled, and Cancel closes the request, which stops
- * the git the server was running for it. `server/updates.ts` says what a
- * cancel can and cannot undo.
+ * Out loud, when the button is pressed: a panel slides out from under the
+ * button and checks at once, with the kehikko mark drawing itself while it
+ * waits, and then shows — in the same panel, which never gives way to a second
+ * one — what is behind and what can be done about it. Everything slow in it —
+ * the check and each update — can be cancelled, and Cancel closes the request,
+ * which stops the git the server was running for it. `server/updates.ts` says
+ * what a cancel can and cannot undo. Closing the panel cancels too: a job that
+ * carries on unseen is a job nobody can see finish.
+ *
+ * ## What the panel lists
+ *
+ * Only what needs a person (`needsAttention` in `host/updates.ts`): behind,
+ * unreadable, unreachable, or just acted on. The level rest is one quiet line,
+ * "N others up to date", which can be opened; and when nothing needs anyone the
+ * panel says so in one calm sentence instead of a list of fifteen "up to date"s.
  *
  * ## What the tooltip says
  *
@@ -49,11 +61,11 @@ const FIRST_CHECK_AFTER_MS = 5_000
  * waits for it, so a fast check is a finished cube and not a flicker of half
  * of one. Cancel does not wait.
  */
-const MARK_DRAWN_MS = 2_300
+export const MARK_DRAWN_MS = 2_300
 
 /** Resolves once the mark has drawn since `since`, or at once on a cancel. */
-function drawn(since: number, signal: AbortSignal): Promise<void> {
-  const left = MARK_DRAWN_MS - (Date.now() - since)
+function drawn(since: number, signal: AbortSignal, markMs: number): Promise<void> {
+  const left = markMs - (Date.now() - since)
   if (left <= 0 || signal.aborted) return Promise.resolve()
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, left)
@@ -70,20 +82,20 @@ function drawn(since: number, signal: AbortSignal): Promise<void> {
 
 type Phase = { kind: 'idle' } | { kind: 'checking' } | { kind: 'updating'; ids: string[]; at: number }
 
-type Outcome =
-  | { kind: 'updated'; note: string; restart: 'host' | 'module' | null; installFailed: string | null }
-  | { kind: 'failed'; why: string }
-  | { kind: 'restarted' }
-
-export function Updates() {
+/** `markMs` is how long a result waits for the mark; tests pass 0. */
+export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const [check, setCheck] = useState<Check | null>(null)
   const [failed, setFailed] = useState<{ at: Date; why: string } | null>(null)
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  /** A quiet check is running — the icon pulses, nothing else moves. */
+  const [quietly, setQuietly] = useState(false)
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({})
   const [notice, setNotice] = useState<string | null>(null)
   /** Asked the app to restart; the window is about to go. */
   const [restarting, setRestarting] = useState(false)
+  /** The level checkouts are listed, not just counted. */
+  const [showLevel, setShowLevel] = useState(false)
   const [now, setNow] = useState(() => new Date())
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
@@ -96,45 +108,51 @@ export function Updates() {
     return () => clearInterval(tick)
   }, [])
 
-  const run = useCallback(async (loud: boolean): Promise<void> => {
-    if (busy.current) {
-      /* A press beats a quiet check that happens to be running: stop it and
-         check out loud. A quiet check never interrupts anything. */
-      if (!loud || !pending.current) return
-      controller.current?.abort()
-      await pending.current
-    }
-    busy.current = true
-    let finish = () => {}
-    pending.current = new Promise((resolve) => (finish = resolve))
-    const abort = new AbortController()
-    controller.current = abort
-    if (loud) {
-      setPhase({ kind: 'checking' })
-      setNotice(null)
-    }
-    const since = Date.now()
-    try {
-      const found = await fetchUpdates(true, abort.signal)
-      if (loud) await drawn(since, abort.signal)
-      setCheck(found)
-      setFailed(null)
-    } catch (error) {
-      if (abort.signal.aborted) {
-        if (loud) setNotice('Check cancelled. What is shown is from the last check that finished.')
-      } else {
-        if (loud) await drawn(since, abort.signal)
-        setFailed({ at: new Date(), why: (error as Error).message })
+  const run = useCallback(
+    async (loud: boolean): Promise<void> => {
+      if (busy.current) {
+        /* A press beats a quiet check that happens to be running: stop it and
+           check out loud. A quiet check never interrupts anything. */
+        if (!loud || !pending.current) return
+        controller.current?.abort()
+        await pending.current
       }
-    } finally {
-      busy.current = false
-      controller.current = null
-      pending.current = null
-      finish()
-      setNow(new Date())
-      if (loud) setPhase({ kind: 'idle' })
-    }
-  }, [])
+      busy.current = true
+      let finish = () => {}
+      pending.current = new Promise((resolve) => (finish = resolve))
+      const abort = new AbortController()
+      controller.current = abort
+      if (loud) {
+        setPhase({ kind: 'checking' })
+        setNotice(null)
+      } else {
+        setQuietly(true)
+      }
+      const since = Date.now()
+      try {
+        const found = await fetchUpdates(true, abort.signal)
+        if (loud) await drawn(since, abort.signal, markMs)
+        setCheck(found)
+        setFailed(null)
+      } catch (error) {
+        if (abort.signal.aborted) {
+          if (loud) setNotice('Check cancelled. What is shown is from the last check that finished.')
+        } else {
+          if (loud) await drawn(since, abort.signal, markMs)
+          setFailed({ at: new Date(), why: (error as Error).message })
+        }
+      } finally {
+        busy.current = false
+        controller.current = null
+        pending.current = null
+        finish()
+        setNow(new Date())
+        if (loud) setPhase({ kind: 'idle' })
+        else setQuietly(false)
+      }
+    },
+    [markMs],
+  )
 
   /* Quiet checks: soon after load, every half hour, and on coming back. */
   const lastAt = check?.checked.getTime() ?? 0
@@ -154,13 +172,21 @@ export function Updates() {
     }
   }, [run])
 
-  const press = () => {
-    setOpen(true)
-    setOutcomes({})
-    void run(true)
-  }
-
   const cancel = () => controller.current?.abort()
+
+  const onOpenChange = (next: boolean) => {
+    if (next) {
+      setOpen(true)
+      setOutcomes({})
+      setShowLevel(false)
+      void run(true)
+    } else {
+      /* Closing while something runs cancels it — a panel that closes on a
+         job that carries on unseen is a job nobody can see finish. */
+      cancel()
+      setOpen(false)
+    }
+  }
 
   /** One or several checkouts, one after another; a cancel stops the rest. */
   const updateAll = async (ids: string[]) => {
@@ -175,7 +201,7 @@ export function Updates() {
       const since = Date.now()
       try {
         const done = await applyUpdate(id, abort.signal)
-        await drawn(since, abort.signal)
+        await drawn(since, abort.signal, markMs)
         replace(done.checkout)
         setOutcomes((was) => ({
           ...was,
@@ -187,7 +213,7 @@ export function Updates() {
           },
         }))
       } catch (error) {
-        await drawn(since, abort.signal)
+        await drawn(since, abort.signal, markMs)
         const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
         setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
       }
@@ -208,15 +234,6 @@ export function Updates() {
     setOutcomes((was) => ({ ...was, [id]: why ? { kind: 'failed', why } : { kind: 'restarted' } }))
   }
 
-  const count = check ? waiting(check.checkouts) : 0
-  const label = tooltipFor(check, failed, count, now, phase.kind === 'checking' && !open)
-  const checkouts = check?.checkouts ?? []
-  /* What needs a person first: new commits, then what could not be read, then
-     the quiet majority that is level. */
-  const sorted = [...checkouts].sort((a, b) => weight(b) - weight(a))
-  const ready = checkouts.filter((one): one is Checkout => isCheckout(one) && one.blocked === null)
-  const working = phase.kind !== 'idle' || restarting
-
   const restartApp = async () => {
     setRestarting(true)
     const why = await requestRestart()
@@ -228,135 +245,192 @@ export function Updates() {
     }
   }
 
+  const count = check ? waiting(check.checkouts) : 0
+  const checking = phase.kind === 'checking' || quietly
+  const label = tooltipFor(check, failed, count, now, checking && !open)
+  const checkouts = check?.checkouts ?? []
+  const { attention, level } = triage(checkouts, outcomes)
+  const ready = attention.filter((one): one is Checkout => isCheckout(one) && one.behind > 0 && one.blocked === null)
+  const updating = phase.kind === 'updating' ? phase : null
+  const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
+  const status = restarting
+    ? 'Restarting Kehikot so the updated host runs…'
+    : phase.kind === 'checking'
+      ? 'Asking GitHub what is new for the host and each module…'
+      : updating
+        ? `Updating ${nameOf(checkouts, updating.ids[updating.at] ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
+        : summaryOf(check, lastFailed, count)
+
   return (
-    <>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <Hint label={label} align="end">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={count ? `updates — ${count} new commits` : 'check for updates'}
-          className={`relative size-6 ${count ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-          onClick={press}
-        >
-          <CloudDownload className="size-3" />
-          {count ? <span className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full" /> : null}
-        </Button>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={count ? `updates — ${count} new commits` : 'check for updates'}
+            data-busy={checking || updating !== null || restarting}
+            className={`relative size-6 ${count || open ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <CloudDownload
+              className={`size-3 ${checking || updating || restarting ? 'animate-pulse' : ''}`}
+            />
+            {count ? <span className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full" /> : null}
+          </Button>
+        </PopoverTrigger>
       </Hint>
 
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          /* Closing while something runs cancels it — a modal that closes on a
-             job that carries on unseen is a job nobody can see finish. */
-          if (!next) cancel()
-          setOpen(next)
-        }}
+      <PopoverContent
+        align="end"
+        side="bottom"
+        aria-label="Updates"
+        className="updates-panel flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] flex-col p-0"
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Updates</DialogTitle>
-            <DialogDescription>
-              {restarting
-                ? 'Restarting Kehikot so the updated host runs…'
-                : phase.kind === 'checking'
-                ? 'Asking GitHub what is new for the host and each module…'
-                : phase.kind === 'updating'
-                  ? `Updating ${nameOf(checkouts, phase.ids[phase.at] ?? '')}${phase.ids.length > 1 ? ` (${phase.at + 1} of ${phase.ids.length})` : ''}…`
-                  : summaryOf(check, failed, count)}
-            </DialogDescription>
-          </DialogHeader>
+        <div className="border-b px-3 py-2">
+          <p className="text-sm font-medium">Updates</p>
+          <p className="text-muted-foreground text-xs" data-testid="updates-status">
+            {status}
+          </p>
+        </div>
 
-          {working ? (
-            <div className="flex flex-col items-center gap-4 py-6">
-              <KehikkoMark
-                key={restarting ? 'r' : phase.kind === 'updating' ? `u${phase.at}` : 'c'}
-                working
-                className="text-foreground size-24"
-              />
-              <p className="text-muted-foreground max-w-sm text-center text-xs leading-relaxed">
+        <div className="min-h-0 flex-1 overflow-auto p-3">
+          {restarting || phase.kind === 'checking' ? (
+            <div className="flex flex-col items-center gap-3 py-4" data-testid="updates-working">
+              <KehikkoMark key={restarting ? 'r' : 'c'} working className="text-foreground size-12" />
+              <p className="text-muted-foreground text-center text-xs">
                 {restarting
                   ? 'The window closes and Kehikot opens again in a moment, on the same kehikko.'
-                  : phase.kind === 'checking'
-                  ? 'This fetches from each repository’s remote. It can take a few seconds per repository.'
-                  : 'Cancelling before the code moves leaves it exactly as it was. If the code has already moved, cancelling stops the dependency install and says so.'}
+                  : 'Fetching from each repository — a few seconds per repository.'}
               </p>
               {restarting ? null : (
-                <Button variant="outline" size="sm" onClick={cancel}>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={cancel}>
                   Cancel
                 </Button>
               )}
             </div>
           ) : (
-            <div className="flex max-h-[55vh] flex-col gap-2 overflow-auto">
+            <div className="flex flex-col gap-2" data-testid="updates-results">
               {notice ? <p className="text-muted-foreground text-xs">{notice}</p> : null}
-              {failed && !check ? <p className="text-destructive text-xs">{failed.why}</p> : null}
-              {sorted.map((one) => (
-                <Row
-                  key={one.id}
-                  reading={one}
-                  outcome={outcomes[one.id] ?? null}
-                  onUpdate={() => void updateAll([one.id])}
-                  onRestart={() => void restart(one.id)}
-                  onRestartApp={check?.restartable ? () => void restartApp() : null}
-                />
-              ))}
-              <div className="flex items-center justify-between gap-2 pt-2">
-                <Button variant="ghost" size="sm" onClick={() => void run(true)}>
+              {lastFailed ? <p className="text-destructive text-xs">{lastFailed.why}</p> : null}
+
+              {check && !lastFailed && attention.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-3 text-center" data-testid="updates-calm">
+                  <KehikkoMark working={false} className="text-muted-foreground size-12" />
+                  <p className="text-sm">Everything is up to date</p>
+                  <p className="text-muted-foreground text-xs">
+                    Last checked {ago(check.checked, now)} (
+                    {check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                  </p>
+                </div>
+              ) : null}
+
+              {attention.map((one) => {
+                const outcome = outcomes[one.id] ?? null
+                return (
+                  <Row
+                    key={one.id}
+                    reading={one}
+                    outcome={outcome}
+                    running={updating ? updating.ids[updating.at] === one.id : false}
+                    disabled={updating !== null}
+                    onUpdate={() => void updateAll([one.id])}
+                    onCancel={cancel}
+                    onRestart={() => void restart(one.id)}
+                    onRestartApp={
+                      offersAppRestart(outcome, check?.restartable ?? false) ? () => void restartApp() : null
+                    }
+                  />
+                )
+              })}
+
+              {attention.length > 0 && level.length > 0 ? (
+                <div className="text-muted-foreground text-xs" data-testid="updates-level">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="flex-1">
+                      {level.length} other{level.length === 1 ? '' : 's'} up to date
+                    </span>
+                    <button
+                      type="button"
+                      className="hover:text-foreground underline-offset-2 hover:underline"
+                      aria-expanded={showLevel}
+                      onClick={() => setShowLevel((was) => !was)}
+                    >
+                      {showLevel ? 'hide' : 'show'}
+                    </button>
+                  </div>
+                  {showLevel ? (
+                    <ul className="mt-1 space-y-0.5 px-1">
+                      {level.map((one) => (
+                        <li key={one.id} className="flex items-center gap-2">
+                          <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
+                          <span className="shrink-0 font-mono text-[11px]">
+                            {one.branch ?? 'detached'} @ {one.commit}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={updating !== null}
+                  onClick={() => void run(true)}
+                >
                   Check again
                 </Button>
-                {ready.length > 1 ? (
-                  <Button size="sm" onClick={() => void updateAll(ready.map((one) => one.id))}>
+                {ready.length > 1 && !updating ? (
+                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id))}>
                     Update all ({ready.length})
                   </Button>
                 ) : null}
               </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-    </>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
-/** One checkout: where it is, how far behind, what is coming, and what can be done. */
+/** One checkout that needs a person: where it is, what is coming, and what can be done. */
 function Row({
   reading,
   outcome,
+  running,
+  disabled,
   onUpdate,
+  onCancel,
   onRestart,
   onRestartApp,
 }: {
   reading: Reading
   outcome: Outcome | null
+  /** This is the checkout being updated right now. */
+  running: boolean
+  /** Something else is being updated; this one waits. */
+  disabled: boolean
   onUpdate(): void
+  onCancel(): void
   onRestart(): void
-  /** Null when nothing can restart the app — then the note says to do it by hand. */
+  /** Null unless the host's server changed and the app can restart it — then the note says to do it by hand. */
   onRestartApp: (() => void) | null
 }) {
   if (!isCheckout(reading)) {
     return (
-      <div className="rounded-md border px-3 py-2 text-xs">
+      <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row">
         <p className="font-medium">{reading.name}</p>
         <p className="text-muted-foreground">{reading.error}</p>
       </div>
     )
   }
   const one = reading
-  /* Level and nothing to say: one quiet line, so fifteen of them do not bury
-     the one that needs attention. */
-  if (!outcome && one.behind === 0 && !one.fetchFailed) {
-    return (
-      <div className="text-muted-foreground flex items-center gap-2 px-3 py-0.5 text-xs">
-        <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
-        <span className="shrink-0 font-mono text-[11px]">
-          {one.branch ?? 'detached'} @ {one.commit}
-        </span>
-        <span className="w-20 shrink-0 text-right">up to date</span>
-      </div>
-    )
-  }
   return (
-    <div className="rounded-md border px-3 py-2 text-xs">
+    <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">{one.name}</span>
         <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
@@ -365,7 +439,9 @@ function Row({
       </div>
       <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
         {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
-        {one.fetchFailed ? <span className="text-muted-foreground"> — GitHub could not be reached: {one.fetchFailed}</span> : null}
+        {one.fetchFailed ? (
+          <span className="text-muted-foreground"> — GitHub could not be reached: {one.fetchFailed}</span>
+        ) : null}
       </p>
       {one.incoming.length ? (
         <ul className="text-muted-foreground mt-1 space-y-0.5">
@@ -378,11 +454,19 @@ function Row({
         </ul>
       ) : null}
 
-      {outcome?.kind === 'updated' ? (
+      {running ? (
+        <div className="flex items-center gap-2 pt-1.5" data-testid="updates-running">
+          <KehikkoMark working className="text-foreground size-5 shrink-0" />
+          <span className="text-muted-foreground flex-1">Updating…</span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      ) : outcome?.kind === 'updated' ? (
         <div className="pt-1.5">
           <p className="text-foreground">{outcome.note}</p>
           {outcome.installFailed ? <p className="text-destructive">{outcome.installFailed}</p> : null}
-          {outcome.restart === 'host' && onRestartApp ? (
+          {onRestartApp ? (
             <Button size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestartApp}>
               Restart Kehikot
             </Button>
@@ -397,9 +481,9 @@ function Row({
         <p className="text-foreground pt-1.5">Restarted — it is running the new code.</p>
       ) : outcome?.kind === 'failed' ? (
         <p className="text-destructive pt-1.5">{outcome.why}</p>
-      ) : one.blocked === null ? (
+      ) : one.behind && one.blocked === null ? (
         <div className="flex justify-end pt-1.5">
-          <Button size="sm" className="h-6 px-2 text-xs" onClick={onUpdate}>
+          <Button size="sm" className="h-6 px-2 text-xs" disabled={disabled} onClick={onUpdate}>
             Update
           </Button>
         </div>
@@ -421,18 +505,13 @@ function noteFor(id: string, changed: number, installed: boolean, restart: 'host
   return restart === 'module' ? `Updated — ${files} Restart it to run the new code.` : `Updated — ${files}`
 }
 
-function weight(one: Reading): number {
-  if (!isCheckout(one)) return 1
-  if (one.behind > 0) return 3
-  return one.fetchFailed ? 2 : 0
-}
-
 function nameOf(checkouts: readonly Reading[], id: string): string {
   return checkouts.find((one) => one.id === id)?.name ?? id
 }
 
-function summaryOf(check: Check | null, failed: { why: string } | null, count: number): string {
-  if (!check) return failed ? 'The check did not finish.' : 'Not checked yet.'
+export function summaryOf(check: Check | null, failed: { why: string } | null, count: number): string {
+  if (failed) return 'The last check did not finish.'
+  if (!check) return 'Not checked yet.'
   if (count === 0) return 'Everything is up to date with GitHub.'
   const behind = check.checkouts.filter((one) => isCheckout(one) && one.behind > 0).length
   return `${count} new commit${count === 1 ? '' : 's'} across ${behind} repositor${behind === 1 ? 'y' : 'ies'}.`
