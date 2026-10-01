@@ -36,6 +36,7 @@ const paragraph: Passage = {
   from: 4120,
   to: 4180,
   quoted: 'the wire is narrow on purpose',
+  section: null,
 }
 
 describe('the host answers the method the protocol names', () => {
@@ -92,7 +93,27 @@ describe('what the canvas does when a module points', () => {
       from: null,
       to: null,
       quoted: '',
+      section: null,
     })
+  })
+
+  test('a section rides through intact — the reader is in it, nothing is selected', async () => {
+    /* `section` arrived in the protocol for Slides and the paper: "the reader
+       is under this heading", apart from `from`/`to`. The host relays passages
+       through the protocol's schema, so this is what fails first if a later
+       version of either drops the field on the way through. */
+    const { controls, pointed } = canvasThatRemembers()
+    const ask = makeAsk('roadmap.paper', controls)
+    const reading = {
+      path: '/Users/x/thesis/chapters/bridge.tex',
+      page: 7,
+      section: { title: 'Bridging the gap', from: 120, to: 4800 },
+    }
+
+    const answer = await ask('passage.set', { passage: reading })
+
+    expect(answer.ok).toBe(true)
+    expect(pointed[0]).toEqual({ ...reading, from: null, to: null, quoted: '' })
   })
 
   test('a half-range is refused rather than relayed as a coarser answer', async () => {

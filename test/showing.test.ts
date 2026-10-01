@@ -19,7 +19,7 @@ import { containersKey, containersOf } from '@/host/showing.ts'
  * `passage.test.ts` runs from the other end.
  */
 
-const chapter: Passage = { path: '/Users/x/thesis/chapters/3_methods.tex', page: null, from: null, to: null, quoted: '' }
+const chapter: Passage = { path: '/Users/x/thesis/chapters/3_methods.tex', page: null, from: null, to: null, quoted: '', section: null }
 const paragraph: Passage = { ...chapter, page: 3, from: 4120, to: 4180, quoted: 'the wire is narrow on purpose' }
 
 const at = (i: string, y: number, selected = false) => ({ i, x: 0, y, selected })

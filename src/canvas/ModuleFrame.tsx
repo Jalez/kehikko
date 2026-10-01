@@ -386,8 +386,13 @@ export function ModuleFrame({
        * ask for would be a permission every module asks for, and the person
        * approving them would learn to press yes without reading. A module that
        * does not copy anything is not harmed by being able to.
+       *
+       * `fullscreen` for the same reason and with the same shape of harm: a
+       * slide deck presents by taking the screen, it takes a press to ask for,
+       * and Escape gives the screen back. A frame without it is told no by the
+       * browser and has no way to say why.
        */
-      allow="clipboard-write"
+      allow="clipboard-write; fullscreen"
       referrerPolicy="no-referrer"
     />
   )
