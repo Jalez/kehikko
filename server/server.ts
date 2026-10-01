@@ -22,6 +22,7 @@ import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdi
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
 import { answered, gone, Nursery, start, startable } from './launch.ts'
+import { systemProcesses, takeOver } from './takeover.ts'
 import {
   asleepLine,
   Idleness,
@@ -1166,6 +1167,11 @@ const server = Bun.serve({
        * A module somebody is running in their own terminal is theirs, and the
        * honest answer names where it is rather than pretending the button did
        * something.
+       *
+       * The one widening: a module the nursery does not hold may still be
+       * restarted when the program on its port is proven to be running from
+       * the registered directory — the case of modules a previous host started
+       * and this one inherited. The proof and its limits are in `takeover.ts`.
        */
       const standing = registration ? await look(registration) : null
       if (standing?.reached) {
@@ -1180,13 +1186,19 @@ const server = Bun.serve({
         }
         const stopped = nursery.stop(body.module)
         if (stopped === 'not-ours') {
-          return json({
-            ok: false,
-            why:
-              `${body.module} is already running at ${can.run.url} and this host did not start it, so it cannot `
-              + 'restart it. Stop it where you started it and press this again — or reload this page, which is '
-              + 'enough when the module is fine and this container is holding a stale copy of its page.',
-          }, 409)
+          /* Not started by THIS host — most often started by the host before
+             it, which the desktop app restarts after a host update while the
+             detached modules carry on. Restartable only when the program on
+             the port is proven to run from the registered directory; see
+             `takeover.ts`. */
+          const taken = await takeOver(body.module, can.run, systemProcesses)
+          if (taken.kind === 'refused') return json({ ok: false, why: taken.why }, 409)
+          if (taken.kind === 'stopped') {
+            console.log(
+              `kehikko: stopped ${body.module} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
+              + `to restart it — it was running from ${can.run.dir}`,
+            )
+          }
         }
         /* Its own port has to come free before the replacement asks for it, or
            the new process finds the old one still listening, decides a copy of
