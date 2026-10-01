@@ -34,6 +34,7 @@ import { Canvases } from './Canvases.tsx'
 import { ConditionDot } from './Conditions.tsx'
 import { Epics } from './Epics.tsx'
 import { Hint } from './Hint.tsx'
+import { Updates } from './Updates.tsx'
 import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
 
@@ -282,6 +283,10 @@ export function Bar({
          * then nothing is drawn — the same silence a module with no door gets,
          * rather than a control that opens on a refusal.
          */}
+        {/* Whether the host and its modules are behind GitHub. The tooltip
+            says when that was last asked; a press asks now. See `Updates.tsx`. */}
+        <Updates />
+
         <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
 
         <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>

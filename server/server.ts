@@ -40,6 +40,8 @@ import { mcp } from './mcp.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
+import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
+import { resolve } from 'node:path'
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -134,6 +136,19 @@ const callers = new Map<string, string>()
  * gone.
  */
 const registered = new Map<string, import('./registrations.ts').Registration>()
+
+/** Where this host's own code lives: the checkout `run.sh` was started in. */
+const HOST_DIR = resolve(import.meta.dir, '..')
+
+/** The host, then every registered module that names a directory. */
+function updatePlaces(): Place[] {
+  const places: Place[] = [{ id: 'host', name: 'kehikko host', dir: HOST_DIR }]
+  for (const registration of registered.values()) {
+    if (registration.dir) places.push({ id: registration.id, name: registration.id, dir: registration.dir })
+  }
+  return places
+}
+
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -987,6 +1002,35 @@ const server = Bun.serve({
         keep(db, project)
         return json({ deleted: canvas })
       }
+    }
+
+    /*
+     * Whether the host and the modules are behind GitHub, and catching them up.
+     *
+     * The places come from this process — its own checkout, and the `dir` of
+     * each registration — never from the request. What arrives over the wire
+     * is an id, as with Start, and an id that names nothing is a refusal.
+     * `server/updates.ts` has the rules about what an update will touch.
+     */
+    if (url.pathname === '/host/updates' && request.method === 'GET') {
+      const { places, unreadable } = await topLevels(updatePlaces())
+      const fetch = url.searchParams.get('fetch') === '1'
+      const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
+      return json({ checked: new Date().toISOString(), checkouts: [...checkouts, ...unreadable] })
+    }
+
+    if (url.pathname === '/host/updates' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+      if (!body || typeof body.id !== 'string') return json({ error: 'An update names one checkout.' }, 400)
+      const { places } = await topLevels(updatePlaces())
+      const place = places.find((one) => one.id === body.id)
+      if (!place) return json({ error: `There is no checkout called ${body.id} to update.` }, 404)
+      const done = await update(place, request.signal)
+      if (!done.ok) return json({ error: done.why }, done.status)
+      return json({
+        ...done,
+        restart: place.id === 'host' ? (hostNeedsRestart(done.changed) ? 'host' : null) : done.changed.length ? 'module' : null,
+      })
     }
 
     /*

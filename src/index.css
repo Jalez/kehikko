@@ -358,3 +358,43 @@
   block-size: 0.625rem;
   inline-size: 0.625rem;
 }
+
+/*
+ * The kehikko mark — a wireframe cube drawing itself, then breathing.
+ *
+ * Ported from the desktop app's waiting room (`kehikko-desktop/dist/index.html`)
+ * so the host's own waits look like the app's first one. `data-working="false"`
+ * is the finished frame, still: something that is done should not move.
+ */
+.kehikko-mark path,
+.kehikko-mark line {
+  stroke: currentColor;
+  stroke-width: 1.25;
+  fill: none;
+  stroke-linecap: square;
+}
+.kehikko-mark[data-working='true'] :is(.seed, .front, .back, .strut) {
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+}
+.kehikko-mark[data-working='true'] .seed { --len: 56; animation: kehikko-draw 0.42s ease-out 0.05s forwards; }
+.kehikko-mark[data-working='true'] .front { --len: 224; animation: kehikko-draw 0.75s ease-out 0.42s forwards; }
+.kehikko-mark[data-working='true'] .back { --len: 224; animation: kehikko-draw 0.75s ease-out 0.95s forwards; }
+.kehikko-mark[data-working='true'] .strut { --len: 40; animation: kehikko-draw 0.4s ease-out var(--at) forwards; }
+.kehikko-mark .s1 { --at: 1.5s; }
+.kehikko-mark .s2 { --at: 1.6s; }
+.kehikko-mark .s3 { --at: 1.7s; }
+.kehikko-mark .s4 { --at: 1.8s; }
+.kehikko-mark[data-working='true'] .built {
+  animation: kehikko-breathe 3.4s ease-in-out 2.3s infinite;
+  transform-origin: 54px 54px;
+}
+@keyframes kehikko-draw { to { stroke-dashoffset: 0; } }
+@keyframes kehikko-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kehikko-mark[data-working='true'] :is(.seed, .front, .back, .strut) { animation: none; stroke-dashoffset: 0; }
+  .kehikko-mark[data-working='true'] .built { animation: none; }
+}
