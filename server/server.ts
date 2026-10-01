@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { writeFileSync } from 'node:fs'
 import { LIMITS, PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
 import { answer } from './answers.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -137,6 +138,9 @@ const callers = new Map<string, string>()
  * gone.
  */
 const registered = new Map<string, import('./registrations.ts').Registration>()
+
+/** Where the desktop shell watches for a restart request, when it started this host. */
+const RESTART_FILE = process.env.KEHIKKO_RESTART_FILE?.trim() || null
 
 /** Where this host's own code lives: the checkout `run.sh` was started in. */
 const HOST_DIR = resolve(import.meta.dir, '..')
@@ -1054,7 +1058,32 @@ const server = Bun.serve({
       const { places, unreadable } = await topLevels(updatePlaces())
       const fetch = url.searchParams.get('fetch') === '1'
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
-      return json({ checked: new Date().toISOString(), checkouts: [...checkouts, ...unreadable] })
+      return json({
+        checked: new Date().toISOString(),
+        checkouts: [...checkouts, ...unreadable],
+        restartable: RESTART_FILE !== null,
+      })
+    }
+
+    /*
+     * Restart the whole app, so a server that was just updated actually runs.
+     *
+     * Only the desktop shell can do it, and only for a host it started: it gives
+     * that host `KEHIKKO_RESTART_FILE` and watches for the file. This writes
+     * it; the shell stops this process group and relaunches itself, which starts
+     * a fresh host. Without the variable — a host run from a terminal, or one the
+     * shell adopted — nothing would bring this back, so it is a refusal.
+     */
+    if (url.pathname === '/host/restart' && request.method === 'POST') {
+      if (!RESTART_FILE) {
+        return json({ error: 'This host was not started by the Kehikot app, so nothing here can restart it. Quit and reopen it yourself.' }, 409)
+      }
+      try {
+        writeFileSync(RESTART_FILE, new Date().toISOString())
+      } catch (error) {
+        return json({ error: `The restart could not be asked for: ${(error as Error).message}` }, 500)
+      }
+      return json({ ok: true })
     }
 
     if (url.pathname === '/host/updates' && request.method === 'POST') {

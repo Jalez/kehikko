@@ -34,6 +34,8 @@ export type Reading = z.infer<typeof readingSchema>
 export interface Check {
   checked: Date
   checkouts: Reading[]
+  /** Whether the desktop app can restart this host — see `/host/restart`. */
+  restartable: boolean
 }
 
 export function isCheckout(reading: Reading): reading is Checkout {
@@ -44,8 +46,10 @@ export function isCheckout(reading: Reading): reading is Checkout {
 export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promise<Check> {
   const response = await globalThis.fetch(`/host/updates${fetch ? '?fetch=1' : ''}`, { signal })
   if (!response.ok) throw new Error(await reason(response))
-  const body = z.object({ checked: z.string(), checkouts: z.array(readingSchema) }).parse(await response.json())
-  return { checked: new Date(body.checked), checkouts: body.checkouts }
+  const body = z
+    .object({ checked: z.string(), checkouts: z.array(readingSchema), restartable: z.boolean().default(false) })
+    .parse(await response.json())
+  return { checked: new Date(body.checked), checkouts: body.checkouts, restartable: body.restartable }
 }
 
 const updatedSchema = z.object({
@@ -79,6 +83,12 @@ export async function restartModule(id: string): Promise<string | null> {
   })
   const body = (await response.json().catch(() => null)) as { ok?: boolean; why?: string } | null
   return body?.ok ? null : (body?.why ?? 'it could not be restarted, and the host did not say why')
+}
+
+/** Ask the desktop app to restart, so an updated host server runs. Null when it was asked. */
+export async function requestRestart(): Promise<string | null> {
+  const response = await fetch('/host/restart', { method: 'POST' })
+  return response.ok ? null : await reason(response)
 }
 
 /** How many commits, across everything, are waiting. */
