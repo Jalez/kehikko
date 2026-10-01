@@ -42,6 +42,30 @@ import { KehikkoMark } from './Mark.tsx'
 const BACKGROUND_EVERY_MS = 30 * 60_000
 const ON_FOCUS_AFTER_MS = 10 * 60_000
 const FIRST_CHECK_AFTER_MS = 5_000
+/**
+ * How long the mark takes to draw itself once — the last strut starts at 1.8s
+ * and draws for 0.4s (`.strut` in `index.css`). A result that arrives sooner
+ * waits for it, so a fast check is a finished cube and not a flicker of half
+ * of one. Cancel does not wait.
+ */
+const MARK_DRAWN_MS = 2_300
+
+/** Resolves once the mark has drawn since `since`, or at once on a cancel. */
+function drawn(since: number, signal: AbortSignal): Promise<void> {
+  const left = MARK_DRAWN_MS - (Date.now() - since)
+  if (left <= 0 || signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, left)
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+  })
+}
 
 type Phase = { kind: 'idle' } | { kind: 'checking' } | { kind: 'updating'; ids: string[]; at: number }
 
@@ -86,14 +110,17 @@ export function Updates() {
       setPhase({ kind: 'checking' })
       setNotice(null)
     }
+    const since = Date.now()
     try {
       const found = await fetchUpdates(true, abort.signal)
+      if (loud) await drawn(since, abort.signal)
       setCheck(found)
       setFailed(null)
     } catch (error) {
       if (abort.signal.aborted) {
         if (loud) setNotice('Check cancelled. What is shown is from the last check that finished.')
       } else {
+        if (loud) await drawn(since, abort.signal)
         setFailed({ at: new Date(), why: (error as Error).message })
       }
     } finally {
@@ -142,8 +169,10 @@ export function Updates() {
     for (const [at, id] of ids.entries()) {
       if (abort.signal.aborted) break
       setPhase({ kind: 'updating', ids, at })
+      const since = Date.now()
       try {
         const done = await applyUpdate(id, abort.signal)
+        await drawn(since, abort.signal)
         replace(done.checkout)
         setOutcomes((was) => ({
           ...was,
@@ -155,6 +184,7 @@ export function Updates() {
           },
         }))
       } catch (error) {
+        await drawn(since, abort.signal)
         const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
         setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
       }
