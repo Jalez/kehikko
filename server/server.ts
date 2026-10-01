@@ -164,8 +164,13 @@ const feedback = feedbackDesk({
      the reason `/host/start` reads the directory at the press: a menu opened
      before the first sweep answered "not registered" for a module that is. */
   registration: async (id) =>
-    registered.get(id) ?? (await readRegistrations(registryDir())).registrations.find((r) => r.id === id) ?? null,
+    /* `host` is this program itself: feedback on Kehikot goes to the
+       repository this host is running from, found the same way as a module's. */
+    id === 'host'
+      ? { id: 'host', dir: HOST_DIR }
+      : (registered.get(id) ?? (await readRegistrations(registryDir())).registrations.find((r) => r.id === id) ?? null),
   version: async (id) => {
+    if (id === 'host') return HOST_VERSION
     const registration = registered.get(id)
     if (!registration) return null
     return (await look(registration)).module?.version ?? null
