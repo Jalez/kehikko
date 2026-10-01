@@ -145,7 +145,7 @@ type Found = { ok: true; repo: string; dir: string } | { ok: false; why: string;
 export interface Deps {
   run: Runner
   /** The registration under an id, from the server's last sweep. */
-  registration(id: string): { id: string; dir?: string } | null
+  registration(id: string): { id: string; dir?: string } | null | Promise<{ id: string; dir?: string } | null>
   /** The module's own version, as its manifest says; null when it cannot be read. */
   version(id: string): Promise<string | null>
   now?(): number
@@ -167,7 +167,7 @@ export function feedbackDesk(deps: Deps) {
   const cache = new Map<string, { at: number; items: Item[] }>()
 
   async function repoOf(id: string): Promise<Found> {
-    const registration = deps.registration(id)
+    const registration = await deps.registration(id)
     if (!registration) return { ok: false, why: 'No module is registered under that id.', status: 404 }
     if (!registration.dir) {
       return {

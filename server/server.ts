@@ -156,7 +156,11 @@ function updatePlaces(): Place[] {
    `feedback.ts`. The version is the module's manifest, when it is answering. */
 const feedback = feedbackDesk({
   run: spawnRunner,
-  registration: (id) => registered.get(id) ?? null,
+  /* The last sweep's map first, and the disk when it has not seen the id yet —
+     the reason `/host/start` reads the directory at the press: a menu opened
+     before the first sweep answered "not registered" for a module that is. */
+  registration: async (id) =>
+    registered.get(id) ?? (await readRegistrations(registryDir())).registrations.find((r) => r.id === id) ?? null,
   version: async (id) => {
     const registration = registered.get(id)
     if (!registration) return null
