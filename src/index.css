@@ -398,3 +398,20 @@
   .kehikko-mark[data-working='true'] :is(.seed, .front, .back, .strut) { animation: none; stroke-dashoffset: 0; }
   .kehikko-mark[data-working='true'] .built { animation: none; }
 }
+
+/*
+ * The updates panel slides out from under its button and back up into it.
+ * The shadcn `animate-in` classes the other overlays carry come from a plugin
+ * this host does not load, so they do nothing; this is the panel's own, and
+ * Radix waits for the closing animation before it unmounts the panel.
+ */
+.updates-panel[data-state='open'] { animation: updates-slide-in 160ms ease-out; }
+.updates-panel[data-state='closed'] { animation: updates-slide-out 120ms ease-in forwards; }
+@keyframes updates-slide-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes updates-slide-out { to { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) {
+  .updates-panel[data-state='open'] { animation-name: updates-fade-in; }
+  .updates-panel[data-state='closed'] { animation-name: updates-fade-out; }
+}
+@keyframes updates-fade-in { from { opacity: 0; } }
+@keyframes updates-fade-out { to { opacity: 0; } }

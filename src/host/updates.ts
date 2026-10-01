@@ -3,7 +3,7 @@ import { z } from 'zod'
 /**
  * Whether the host and its modules are behind GitHub — the page's side of
  * `server/updates.ts`, which has the rules. Every call takes a signal, because
- * the modal's Cancel is a real cancel: closing the request stops the git the
+ * the panel's Cancel is a real cancel: closing the request stops the git the
  * server was running for it.
  */
 
@@ -111,4 +111,49 @@ async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
   return `the host's server answered ${response.status}`
+}
+
+/** What pressing Update or Restart in the panel came to, for one checkout. */
+export type Outcome =
+  | { kind: 'updated'; note: string; restart: 'host' | 'module' | null; installFailed: string | null }
+  | { kind: 'failed'; why: string }
+  | { kind: 'restarted' }
+
+/**
+ * Whether a checkout gets a row of its own in the panel: it is behind, it
+ * could not be read, GitHub could not be reached for it, or something was just
+ * done to it. Everything else is level and quiet, and is only counted.
+ */
+export function needsAttention(reading: Reading, outcome: Outcome | null | undefined): boolean {
+  if (outcome) return true
+  if (!isCheckout(reading)) return true
+  return reading.behind > 0 || reading.fetchFailed !== null
+}
+
+/** The checkouts that need a person, most pressing first, and the level rest. */
+export function triage(
+  checkouts: readonly Reading[],
+  outcomes: Readonly<Record<string, Outcome>>,
+): { attention: Reading[]; level: Checkout[] } {
+  const attention: Reading[] = []
+  const level: Checkout[] = []
+  for (const one of checkouts) {
+    if (needsAttention(one, outcomes[one.id])) attention.push(one)
+    else if (isCheckout(one)) level.push(one)
+  }
+  attention.sort((a, b) => weight(b) - weight(a))
+  return { attention, level }
+}
+
+/* What needs a person first: new commits, then what could not be read, then
+   what GitHub could not be asked about, then what was just updated. */
+function weight(one: Reading): number {
+  if (!isCheckout(one)) return 2
+  if (one.behind > 0) return 3
+  return one.fetchFailed ? 1 : 0
+}
+
+/** Whether "Restart Kehikot" is offered for an outcome: the host's server changed and the app can restart it. */
+export function offersAppRestart(outcome: Outcome | null | undefined, restartable: boolean): boolean {
+  return restartable && outcome?.kind === 'updated' && outcome.restart === 'host'
 }
