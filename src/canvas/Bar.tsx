@@ -35,6 +35,7 @@ import { ConditionDot } from './Conditions.tsx'
 import { Epics } from './Epics.tsx'
 import { Hint } from './Hint.tsx'
 import { Updates } from './Updates.tsx'
+import { FeedbackButton } from './Feedback.tsx'
 import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
 
@@ -292,6 +293,11 @@ export function Bar({
         <Updates />
 
         <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
+
+        {/* Feedback on Kehikot itself, beside its plug — the same control every
+            container header has for its module, filed in the host's own
+            repository. See `Feedback.tsx`. */}
+        <FeedbackButton module="host" name="Kehikot" kehikko={open?.name ?? null} epic={subject.epic} />
 
         <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>
           <Button
