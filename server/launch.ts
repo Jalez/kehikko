@@ -339,6 +339,11 @@ export function start(run: Runnable): Started {
  * host did not start cannot be stopped by it, not because a check says no but
  * because there is nothing for the pid to be looked up in.
  *
+ * (One path exists beside this, and it is narrower than a port: a person
+ * pressing Restart on a module whose listener is proven, by its working
+ * directory, to be running from the directory its registration names — see
+ * `takeover.ts`. It is never taken by the reaper, only by that press.)
+ *
  * ## A pid is a name that gets reused, so a pid is not what is held
  *
  * This is the failure that would be worst and quietest, and it is not
