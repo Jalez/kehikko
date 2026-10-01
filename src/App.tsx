@@ -2755,6 +2755,8 @@ export function App() {
                   onTools={() => setToolsFor(presence.id)}
                   onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
+                  kehikko={open?.name ?? null}
+                  epic={open?.epic ?? null}
                 />
               </div>
             )

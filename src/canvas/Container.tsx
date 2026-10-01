@@ -11,6 +11,7 @@ import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup } from 'roadmap-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
+import { FeedbackButton } from './Feedback.tsx'
 import { FilterButton } from './Filters.tsx'
 import { RefreshButton } from './Refreshing.tsx'
 import { Hint } from './Hint.tsx'
@@ -77,6 +78,8 @@ export function Container({
   onTools,
   onStarted,
   onRemove,
+  kehikko,
+  epic,
 }: {
   presence: Presence
   /** The condition as the canvas currently understands it — see `App.tsx`. */
@@ -165,6 +168,9 @@ export function Container({
   /** Look again, after this module has been started. */
   onStarted(): void
   onRemove(): void
+  /** The open kehikko's name and epic, written under any feedback filed from here. */
+  kehikko: string | null
+  epic: string | null
 }) {
   const name = presence.name ?? presence.id
 
@@ -420,6 +426,12 @@ export function Container({
             window; see the essay in `Tools.tsx` for why the quiet one exists now
             and why there is still no green tick. */}
         <ToolsMark agent={presence.agent} name={name} onOpen={onTools} />
+
+        {/* Feedback to the module's authors, as GitHub issues. Beside the plug
+            because both are about the module as a program, and on every
+            container, folded too: a module that is not running is exactly one
+            somebody may want to report. See `Feedback.tsx`. */}
+        <FeedbackButton module={presence.id} name={name} kehikko={kehikko} epic={epic} />
 
         {/*
          * There is no height toggle here any more, and the mechanism underneath
