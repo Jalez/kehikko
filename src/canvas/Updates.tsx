@@ -8,6 +8,7 @@ import {
   applyUpdate,
   fetchUpdates,
   isCheckout,
+  requestRestart,
   restartModule,
   waiting,
   type Check,
@@ -81,6 +82,8 @@ export function Updates() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({})
   const [notice, setNotice] = useState<string | null>(null)
+  /** Asked the app to restart; the window is about to go. */
+  const [restarting, setRestarting] = useState(false)
   const [now, setNow] = useState(() => new Date())
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
@@ -212,7 +215,18 @@ export function Updates() {
      the quiet majority that is level. */
   const sorted = [...checkouts].sort((a, b) => weight(b) - weight(a))
   const ready = checkouts.filter((one): one is Checkout => isCheckout(one) && one.blocked === null)
-  const working = phase.kind !== 'idle'
+  const working = phase.kind !== 'idle' || restarting
+
+  const restartApp = async () => {
+    setRestarting(true)
+    const why = await requestRestart()
+    /* On success there is nothing more to do here: the app stops this page
+       and comes back with the new server. A refusal goes back to the list. */
+    if (why) {
+      setRestarting(false)
+      setNotice(why)
+    }
+  }
 
   return (
     <>
@@ -242,7 +256,9 @@ export function Updates() {
           <DialogHeader>
             <DialogTitle>Updates</DialogTitle>
             <DialogDescription>
-              {phase.kind === 'checking'
+              {restarting
+                ? 'Restarting Kehikot so the updated host runs…'
+                : phase.kind === 'checking'
                 ? 'Asking GitHub what is new for the host and each module…'
                 : phase.kind === 'updating'
                   ? `Updating ${nameOf(checkouts, phase.ids[phase.at] ?? '')}${phase.ids.length > 1 ? ` (${phase.at + 1} of ${phase.ids.length})` : ''}…`
@@ -253,18 +269,22 @@ export function Updates() {
           {working ? (
             <div className="flex flex-col items-center gap-4 py-6">
               <KehikkoMark
-                key={phase.kind === 'updating' ? `u${phase.at}` : 'c'}
+                key={restarting ? 'r' : phase.kind === 'updating' ? `u${phase.at}` : 'c'}
                 working
                 className="text-foreground size-24"
               />
               <p className="text-muted-foreground max-w-sm text-center text-xs leading-relaxed">
-                {phase.kind === 'checking'
+                {restarting
+                  ? 'The window closes and Kehikot opens again in a moment, on the same kehikko.'
+                  : phase.kind === 'checking'
                   ? 'This fetches from each repository’s remote. It can take a few seconds per repository.'
                   : 'Cancelling before the code moves leaves it exactly as it was. If the code has already moved, cancelling stops the dependency install and says so.'}
               </p>
-              <Button variant="outline" size="sm" onClick={cancel}>
-                Cancel
-              </Button>
+              {restarting ? null : (
+                <Button variant="outline" size="sm" onClick={cancel}>
+                  Cancel
+                </Button>
+              )}
             </div>
           ) : (
             <div className="flex max-h-[55vh] flex-col gap-2 overflow-auto">
@@ -277,6 +297,7 @@ export function Updates() {
                   outcome={outcomes[one.id] ?? null}
                   onUpdate={() => void updateAll([one.id])}
                   onRestart={() => void restart(one.id)}
+                  onRestartApp={check?.restartable ? () => void restartApp() : null}
                 />
               ))}
               <div className="flex items-center justify-between gap-2 pt-2">
@@ -303,11 +324,14 @@ function Row({
   outcome,
   onUpdate,
   onRestart,
+  onRestartApp,
 }: {
   reading: Reading
   outcome: Outcome | null
   onUpdate(): void
   onRestart(): void
+  /** Null when nothing can restart the app — then the note says to do it by hand. */
+  onRestartApp: (() => void) | null
 }) {
   if (!isCheckout(reading)) {
     return (
@@ -358,6 +382,11 @@ function Row({
         <div className="pt-1.5">
           <p className="text-foreground">{outcome.note}</p>
           {outcome.installFailed ? <p className="text-destructive">{outcome.installFailed}</p> : null}
+          {outcome.restart === 'host' && onRestartApp ? (
+            <Button size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestartApp}>
+              Restart Kehikot
+            </Button>
+          ) : null}
           {outcome.restart === 'module' ? (
             <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestart}>
               Restart {one.name}
