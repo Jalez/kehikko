@@ -1,4 +1,4 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, Layers, X } from 'lucide-react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, Layers } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { fetchFolders, type Entry, type Listing, type Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
+import { AddItem, armedSelect, Remove } from './Menu.tsx'
 
 /**
  * The project: which one you are in, and how to open another.
@@ -111,17 +112,7 @@ export function Projects({
           {projects.map((project) => (
             <DropdownMenuItem
               key={project.id}
-              onSelect={(event) => {
-                /* An armed row is asking a question, and answering it must not
-                   also switch project — which is what a press here otherwise
-                   does. `preventDefault` keeps the menu open for the answer. */
-                if (arming === project.id) {
-                  event.preventDefault()
-                  return
-                }
-                setArming(null)
-                onOpen(project.id)
-              }}
+              onSelect={armedSelect(arming === project.id, () => setArming(null), () => onOpen(project.id))}
             >
               <DropdownMenuCheck checked={project.id === open?.id} />
               <span className="min-w-0 truncate">{project.name}</span>
@@ -138,31 +129,16 @@ export function Projects({
                * What it destroys is this project's kehikot — an arrangement
                * somebody built by hand — and nothing else. No file is touched.
                */}
-              {arming === project.id ? (
-                <button
-                  type="button"
-                  className="text-destructive shrink-0 text-[10px] font-medium"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setArming(null)
-                    onForget(project.id)
-                  }}
-                >
-                  forget it, and its kehikot?
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  aria-label={`forget ${project.name}`}
-                  className="text-muted-foreground hover:text-destructive shrink-0"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setArming(project.id)
-                  }}
-                >
-                  <X className="size-3" />
-                </button>
-              )}
+              <Remove
+                armed={arming === project.id}
+                label={`forget ${project.name}`}
+                question="forget it, and its kehikot?"
+                onArm={() => setArming(project.id)}
+                onConfirm={() => {
+                  setArming(null)
+                  onForget(project.id)
+                }}
+              />
               {/* Whether a kehikko here would have epics to pick. Said in the
                   list rather than only after switching, because "this project
                   has none" is the difference between a picker worth opening and
@@ -174,13 +150,11 @@ export function Projects({
               )}
             </DropdownMenuItem>
           ))}
-          <DropdownMenuSeparator />
           {/* At the end of the list of projects, which is where it was asked
               for and where the question it answers gets asked. */}
-          <DropdownMenuItem onSelect={() => setBrowsing(true)}>
-            <FolderPlus className="text-muted-foreground size-3 shrink-0" />
-            <span className="flex-1">add a project…</span>
-          </DropdownMenuItem>
+          <AddItem icon={<FolderPlus className="text-muted-foreground size-3 shrink-0" />} onAdd={() => setBrowsing(true)}>
+            add a project…
+          </AddItem>
 
           {/*
            * Whether the open project's `.kehikot/` is committed with it.
