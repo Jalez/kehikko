@@ -1,4 +1,4 @@
-import { ChevronDown, Circle, CircleSlash, Pencil, Plus } from 'lucide-react'
+import { ChevronDown, Circle, CircleSlash, Pencil, Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -12,7 +12,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
 import type { Epic, Epics as Held } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
@@ -84,22 +83,18 @@ import { Hint } from './Hint.tsx'
  * abandons the draft, and whether the menu goes with it costs nothing either
  * way — the form is not left standing over a list it is no longer editing.
  *
- * ## An epic can be MADE here, and the `+` is beside the select, not in it
+ * ## An epic can be MADE here, at the end of the list
  *
  * The owner's words: "If there are no epics user seems unable to add an epic."
- * True, and worse than it sounds — two of the three empty states above are
- * a DISABLED select, and a disabled select is a control that cannot open, so a
- * "new epic…" row at the bottom of its menu would be unreachable in exactly
- * the situation it exists for. So the control is a `+` outside the menu, the
- * way `Canvases.tsx` puts the new-kehikko `+` beside the kehikko switcher: a
- * button that works whether or not the list has anything in it.
+ * And later: the `+` that answered that should be "the last dropdown menu
+ * item, like it is for the projects". Both are honoured by the same rule — the
+ * menu opens whenever there is a project, even when it has nothing to pick, so
+ * "new epic…" at its bottom is reachable in exactly the situation it exists
+ * for. The trigger is disabled only when there is no project at all, which is
+ * the one state with nowhere to create into.
  *
  * `offerOfCreate` in `host/epics.ts` decides what it does per state, and it
- * is data rather than JSX so each state can be asserted without a DOM. The one
- * departure from the disabled-not-hidden rule above — no `+` at all when
- * there is no project — is argued there: the select beside it is already
- * saying "no project" in words, and two flat controls for one fact explain
- * less than one.
+ * is data rather than JSX so each state can be asserted without a DOM.
  *
  * ## The slug is shown while the title is typed, and is not checked here
  *
@@ -112,12 +107,12 @@ import { Hint } from './Hint.tsx'
  * a copy here would be the copy that drifts, and the field would refuse a slug
  * the server takes or take one it refuses.
  *
- * ## It is a popover and not the dropdown, and it is not armed
+ * ## It replaces the list, as the retitle does, and it is not armed
  *
- * A popover, because the dropdown may be disabled — see above — and because
- * a form of two fields with a sentence under them is not a menu. Not armed,
- * for the reason the retitle is not: a file that can be deleted, in a
- * repository, is not the class of thing two presses are for.
+ * In the menu and in place of the list, for the reason the retitle form is —
+ * see "The list is replaced by the form" above. Not armed, for the reason the
+ * retitle is not: a file that can be deleted, in a repository, is not the
+ * class of thing two presses are for.
  *
  * ## Creating opens the epic; the door's `create_epic` does not
  *
@@ -133,6 +128,7 @@ export function Epics({
   onPick,
   onRetitle,
   onCreate,
+  onDelete,
 }: {
   /** What the kehikko is on now, straight from the canvas's subject. */
   epic: string | null
@@ -157,17 +153,30 @@ export function Epics({
    * in it, and the server's own sentence goes to the footer.
    */
   onCreate(slug: string, title: string): Promise<boolean>
+  /**
+   * Delete one epic's file. Armed on its row, as forgetting a project and
+   * removing a kehikko are: the first press says what will go, the second
+   * does it. What modules filed under the slug stays — see `deleteEpic` in
+   * `server/holdings.ts`.
+   */
+  onDelete(slug: string): void
 }) {
   /** Which epic is being retitled, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<string | null>(null)
-  /** Whether the create form is open. Its own state, because it is its own popover. */
+  /** Whether the create form is standing in place of the list. */
   const [creating, setCreating] = useState(false)
+  /** Which epic's delete has been asked about but not yet confirmed. One at a time. */
+  const [arming, setArming] = useState<string | null>(null)
   const epics = held?.epics ?? []
   const holds = held?.holds ?? false
   /* Three states and not two: no project, a project with no epics directory,
      and a directory that is there and empty. Only the first is the host not
      knowing yet; the other two are answers. */
   const nothingToPick = !hasProject || !holds || epics.length === 0
+  const offer = offerOfCreate(hasProject, held)
+  /* Openable whenever something can be created, even with nothing to pick:
+     "new epic…" lives at the bottom of this menu. */
+  const shut = !offer.offered
 
   const label = !hasProject
     ? 'no project is open, so there is no epic to pick'
@@ -179,10 +188,7 @@ export function Epics({
           ? 'this project’s data/epics is empty'
           : 'the epic every module on this kehikko is shown'
 
-  const offer = offerOfCreate(hasProject, held)
-
   return (
-    <>
     <DropdownMenu>
       <Hint label={label} align="start">
         {/* A span, because a disabled button dispatches no pointer events and
@@ -190,12 +196,12 @@ export function Epics({
             explanation is worth having. The same trick `Canvases.tsx` uses on
             the delete button, for the same reason. */}
         <span className="inline-flex shrink-0">
-          <DropdownMenuTrigger asChild disabled={nothingToPick}>
+          <DropdownMenuTrigger asChild disabled={shut}>
             <Button
               variant="ghost"
               size="sm"
               aria-label="the epic this kehikko is about"
-              disabled={nothingToPick}
+              disabled={shut}
               className="h-6 max-w-52 gap-1 px-1.5 font-mono text-xs disabled:pointer-events-none"
             >
               {epic ? (
@@ -206,7 +212,7 @@ export function Epics({
               <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
                 {epic ?? sentenceFor(hasProject, held)}
               </span>
-              {nothingToPick ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
+              {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
             </Button>
           </DropdownMenuTrigger>
         </span>
@@ -218,9 +224,20 @@ export function Epics({
            left half-typed from twenty minutes ago, reappearing over the list
            somebody opened in order to SWITCH epic, is a menu that does not do
            what it was opened for. */
-        onCloseAutoFocus={() => setEditing(null)}
+        onCloseAutoFocus={() => {
+          setEditing(null)
+          setCreating(false)
+          setArming(null)
+        }}
       >
-        {editing !== null ? (
+        {creating && offer.offered ? (
+          <Create
+            note={offer.note}
+            makesDirectory={offer.makesDirectory}
+            onCreate={onCreate}
+            onDone={() => setCreating(false)}
+          />
+        ) : editing !== null ? (
           <Retitle
             /* Keyed on the slug, so that starting a retitle of a different epic
                replaces the draft rather than carrying the last one into it. */
@@ -232,10 +249,24 @@ export function Epics({
         ) : (
           <>
             <DropdownMenuLabel>epics</DropdownMenuLabel>
+            {/* Said rather than left blank, so an empty list reads as an answer
+                and not as a list that failed to load. */}
+            {nothingToPick ? (
+              <p className="text-muted-foreground px-2 pb-1.5 text-xs">{sentenceFor(hasProject, held)}</p>
+            ) : null}
             {epics.map((one) => (
               <DropdownMenuItem
                 key={one.slug}
-                onSelect={() => onPick(one.slug)}
+                onSelect={(event) => {
+                  /* An armed row is asking a question; answering it must not
+                     also switch epic. */
+                  if (arming === one.slug) {
+                    event.preventDefault()
+                    return
+                  }
+                  setArming(null)
+                  onPick(one.slug)
+                }}
                 /*
                  * F2 starts the retitle, because the pencil beside it cannot be
                  * reached from the keyboard: inside a menu, Tab dismisses and
@@ -312,6 +343,33 @@ export function Epics({
                 {one.size ? (
                   <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{one.size}</span>
                 ) : null}
+                {/* Delete, in two presses — the same control the projects menu
+                    puts on its rows for forgetting one. */}
+                {arming === one.slug ? (
+                  <button
+                    type="button"
+                    className="text-destructive shrink-0 text-[10px] font-medium"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setArming(null)
+                      onDelete(one.slug)
+                    }}
+                  >
+                    delete its file?
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={`delete ${titleOf(one)}`}
+                    className="text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setArming(one.slug)
+                    }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
               </DropdownMenuItem>
             ))}
             {epic ? (
@@ -326,40 +384,27 @@ export function Epics({
                 </DropdownMenuItem>
               </>
             ) : null}
+            {offer.offered ? (
+              <>
+                <DropdownMenuSeparator />
+                {/* At the end of the list, as "add a project…" is in the
+                    projects menu. `preventDefault` keeps the menu open: the
+                    form takes the list's place rather than closing it. */}
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    setCreating(true)
+                  }}
+                >
+                  <Plus className="text-muted-foreground size-3 shrink-0" />
+                  <span className="flex-1">new epic…</span>
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
-
-    {offer.offered ? (
-      <Popover open={creating} onOpenChange={setCreating}>
-        <Hint label={held ? `a new epic — ${offer.note}` : 'a new epic in this project'}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="new epic"
-              className="text-muted-foreground hover:text-foreground size-6 shrink-0"
-            >
-              <Plus className="size-3" />
-            </Button>
-          </PopoverTrigger>
-        </Hint>
-        <PopoverContent align="start" className="w-80 p-0">
-          {/* Keyed on being open, so that a form abandoned with half a title in
-              it comes back empty next time rather than carrying the draft. */}
-          {creating ? (
-            <Create
-              note={offer.note}
-              makesDirectory={offer.makesDirectory}
-              onCreate={onCreate}
-              onDone={() => setCreating(false)}
-            />
-          ) : null}
-        </PopoverContent>
-      </Popover>
-    ) : null}
-    </>
   )
 }
 
@@ -489,9 +534,9 @@ function Retitle({
  *
  * ## The keys stop here, as in `Retitle`
  *
- * A popover does not read typeahead the way a menu does, but the canvas
- * behind it has its own keyboard — see `presses.ts` — and a title with a
- * space in it must not fold a container. Enter creates, Escape abandons.
+ * The menu around it reads keystrokes as typeahead, and the canvas behind it
+ * has its own keyboard — see `presses.ts` — and a title with a space in it
+ * must not fold a container. Enter creates, Escape abandons.
  *
  * ## Nothing is checked on this side
  *
@@ -533,7 +578,7 @@ function Create({
 
   return (
     <div
-      className="px-3 py-2"
+      className="px-2 py-1.5"
       onKeyDown={(event) => {
         event.stopPropagation()
         if (event.key === 'Enter') void commit()

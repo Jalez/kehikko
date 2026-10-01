@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { EPIC_SLUG } from 'roadmap-module-protocol'
 
 import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
-import { createEpic, listEpics } from '../server/holdings.ts'
+import { createEpic, deleteEpic, listEpics } from '../server/holdings.ts'
 import { call, mcp, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
 import { addProject } from '../server/projects.ts'
@@ -331,5 +331,22 @@ describe('one writer, two callers', () => {
     expect((await call('create_epic', { kehikko: id, title: 'x'.repeat(2000) }, door())).failed).toBe(true)
     expect((await call('create_epic', { kehikko: id, title: 'ok', slug: 7 }, door())).failed).toBe(true)
     expect(listEpics(dir)).toEqual([])
+  })
+})
+
+describe('deleting an epic', () => {
+  test('removes its one file and nothing beside it', () => {
+    const dir = project(true, { 'keep.json': '{"slug":"keep","title":"Keep"}\n' })
+    expect(createEpic(dir, { title: 'Gone soon' }).ok).toBe(true)
+    expect(deleteEpic(dir, 'gone-soon')).toEqual({ ok: true })
+    expect(existsSync(join(dir, 'data', 'epics', 'gone-soon.json'))).toBe(false)
+    expect(existsSync(join(dir, 'data', 'epics', 'keep.json'))).toBe(true)
+  })
+
+  test('refuses what is not there, and what is not a slug', () => {
+    const dir = project(true)
+    expect(deleteEpic(dir, 'nothing')).toMatchObject({ ok: false, status: 404 })
+    expect(deleteEpic(dir, '../escape')).toMatchObject({ ok: false, status: 400 })
+    expect(deleteEpic(project(false), 'any')).toMatchObject({ ok: false, status: 409 })
   })
 })

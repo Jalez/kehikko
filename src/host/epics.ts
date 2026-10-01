@@ -51,7 +51,7 @@ export function slugFrom(title: string): string {
 }
 
 /**
- * What the `+` beside the epic select does, given the state the select is in.
+ * What "new epic…" at the end of the epic menu does, given the state the menu is in.
  *
  * The select has three empty states — no project, no `data/epics`, and a
  * `data/epics` with nothing in it — and `Epics.tsx` says why they are three

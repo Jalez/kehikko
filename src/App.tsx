@@ -38,6 +38,7 @@ import {
   addProject,
   chooseProject,
   createEpic,
+  deleteEpic,
   fetchEpics,
   fetchProjects,
   forgetProject,
@@ -2154,6 +2155,29 @@ export function App() {
   )
 
   /**
+   * Delete one epic's file from the open project.
+   *
+   * If this kehikko was on it, it moves to no epic — a subject naming a file
+   * that is gone would be a header pointing at nothing. Other kehikot that
+   * remember the slug are left to `toWireContext`'s fallback, which is what it
+   * is for.
+   */
+  const onDeleteEpic = useCallback(
+    async (slug: string) => {
+      if (projectId === null) return
+      try {
+        await deleteEpic(projectId, slug)
+        setHeld(await fetchEpics(projectId))
+        if (open?.epic === slug) change({ epic: null })
+        setTrouble(null)
+      } catch (error) {
+        setTrouble(`${slug} was not deleted: ${(error as Error).message}`)
+      }
+    },
+    [projectId, open?.epic, change],
+  )
+
+  /**
    * Stop holding a folder as a project. Nothing on disk is deleted.
    *
    * The canvases are re-read rather than filtered here, because forgetting a
@@ -2200,6 +2224,18 @@ export function App() {
       }
     },
     [],
+  )
+
+  /**
+   * Rename any kehikko, not only the open one — the pencil is on every row of
+   * the kehikko menu, as the retitle is on every row of the epic menu.
+   */
+  const onRename = useCallback(
+    (id: number, name: string) => {
+      setCanvases((was) => was.map((canvas) => (canvas.id === id ? { ...canvas, name } : canvas)))
+      writer.write(id, { name })
+    },
+    [writer],
   )
 
   const onDelete = useCallback(
@@ -2436,12 +2472,13 @@ export function App() {
         held={held}
         onRetitleEpic={onRetitleEpic}
         onCreateEpic={onCreateEpic}
+        onDeleteEpic={(slug) => void onDeleteEpic(slug)}
         onProject={onProject}
         onAddProject={(path) => void onAddProject(path)}
         onShareProject={(id, shared) => void onShareProject(id, shared)}
         onForgetProject={(id) => void onForgetProject(id)}
         onOpen={setOpenId}
-        onRename={(name) => change({ name })}
+        onRename={onRename}
         onCreate={() => void onCreate()}
         onDelete={(id) => void onDelete(id)}
         onSubject={setSubject}

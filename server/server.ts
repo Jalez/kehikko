@@ -17,7 +17,7 @@ import {
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
-import { createEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
+import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
 import { answered, gone, Nursery, start, startable } from './launch.ts'
@@ -939,6 +939,26 @@ const server = Bun.serve({
       if (!made.ok) return json({ error: made.why }, made.status)
       wakes.epicsChanged(project.id)
       return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
+    }
+
+    /*
+     * An epic, deleted, from the armed X on its row in the epic menu.
+     *
+     * `deleteEpic` removes the one file and nothing a module filed under the
+     * slug. Every page standing in the project is told, as for a create.
+     */
+    if (url.pathname === '/host/epics' && request.method === 'DELETE') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown; slug?: unknown } | null
+      if (!body || typeof body.project !== 'number') {
+        return json({ error: 'A delete names one project and one epic.' }, 400)
+      }
+      const project = projectById(db, body.project)
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+
+      const gone = deleteEpic(project.path, body.slug as string)
+      if (!gone.ok) return json({ error: gone.why }, gone.status)
+      wakes.epicsChanged(project.id)
+      return json({ deleted: body.slug })
     }
 
     const canvas = canvasId(url.pathname)
