@@ -127,6 +127,12 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'the roadmap\'s code generator writing module SOURCE trees into the repo, not data',
   },
   {
+    id: 'roadmap-requests-db',
+    match: /new Database\((?:dbPath\(\)|DB_PATH|process\.env\.ROADMAP_DB \?\? join\(DATA, 'requests\.db'\))/,
+    file: /(^|\/)src\/(?:calls|requests|concerns|stages|activity|journeys)\.ts$/,
+    reason: 'the roadmap opening requests.db, whose default is DATA = <project>/.kehikot/roadmap (src/store.ts)',
+  },
+  {
     id: 'memory-db',
     match: /:memory:/,
     reason: 'an in-memory database stores nothing',
@@ -303,7 +309,10 @@ export function workspace(env: Record<string, string | undefined> = process.env)
   for (const file of files) {
     try {
       const dir = (JSON.parse(readFileSync(join(registry, file), 'utf8')) as { dir?: unknown }).dir
-      if (typeof dir === 'string' && dir) candidates.push({ name: basename(dir), dir })
+      /* Named by the registration's id rather than the folder: two checkouts
+         can share a basename (every `.claude/worktrees/<branch>` does), and the
+         report groups by name. */
+      if (typeof dir === 'string' && dir) candidates.push({ name: basename(file, '.json'), dir })
     } catch {
       /* An unreadable registration is not this check's business. */
     }
