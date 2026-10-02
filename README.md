@@ -87,7 +87,7 @@ browser. Point it at a repository you work in.
 
 ```
 project  (a repository or worktree — a folder on disk)
-  ├── epics    (<project>/.kehikot/roadmap/epics, when it has any)
+  ├── epics    (<project>/.kehikot/epics, when it has any)
   └── kehikot  (many; one per purpose)
 ```
 
@@ -110,10 +110,10 @@ it.
 path is built with the protocol's helpers — `KEHIKOT_DIR`, `kehikotDir`,
 `moduleDir`, `moduleFile` from `roadmap-module-protocol` — never spelled by hand
 and never anchored at a program's own folder (`import.meta.dir`, `__dirname`,
-`process.cwd()`, a repo `ROOT`) or the home directory. The roadmap's own data is
-`.kehikot/roadmap/epics/` and `.kehikot/roadmap/state/`; papers are
-`.kehikot/paper/<epic>/`. The host moves a legacy `<project>/data/epics` or
-`data/state` there when it adopts or adds a project (`server/roadmapData.ts`):
+`process.cwd()`, a repo `ROOT`) or the home directory. A project's epics are
+`.kehikot/epics/` and their state `.kehikot/state/`; papers are
+`.kehikot/paper/<epic>/`. The host moves an old `<project>/data/{epics,state}`
+or `.kehikot/roadmap/{epics,state}` there when it adopts or adds a project (`server/epicData.ts`):
 it never overwrites, and leaves both and logs both paths if both exist.
 
 **Machine-level state** — state that belongs to this computer rather than to a
@@ -135,12 +135,12 @@ startup without refusing to start.
 
 "Rename this epic" names two operations, and the picker offers one of them. The
 pencil that appears on a row in the epic menu changes the epic's **title** —
-what it is called — in `.kehikot/roadmap/epics/<slug>.json`, and the form says while you are
+what it is called — in `.kehikot/epics/<slug>.json`, and the form says while you are
 typing that the slug is staying where it is.
 
 The **slug** is the identity, and everything that has ever pointed at an epic
 points at it by that string: the `epic` column on a project, the
-`roadmap.context.epic` every framed module is told, `.kehikot/roadmap/state/<slug>.json`
+`roadmap.context.epic` every framed module is told, `.kehikot/state/<slug>.json`
 written by a tracker refresh, a record keyed by slug in
 `.kehikot/journeys/journeys.json`, a file per epic under `.kehikot/checklist/`,
 and a whole directory under `.kehikot/paper/`. Renaming the epic's own file and
@@ -150,7 +150,7 @@ answers "nothing here" for an unknown slug rather than failing. That is a
 migration across six programs, four of which this host does not own, and it does
 not go behind a pencil in a dropdown. So the control does not say "rename".
 
-It is the only write this host makes into a project's `.kehikot/roadmap/`, and it changes
+It is the only write this host makes into a project's `.kehikot/epics/`, and it changes
 one field: the file is read, one span of text is replaced, and every other byte
 is written back exactly as it was. These are documents somebody wrote by hand,
 under their own name in that repository's history, and a host that reformatted
@@ -260,7 +260,7 @@ four tools:
 | `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic — and which registered modules are not on it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
-| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/roadmap/epics/<slug>.json` — without opening it |
+| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/epics/<slug>.json` — without opening it |
 
 All four take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has

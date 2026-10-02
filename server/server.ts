@@ -958,7 +958,7 @@ const server = Bun.serve({
      * own host would be worse than a second route.
      *
      * `holds` is the field that matters and it is why this is not just a list.
-     * A project with no `.kehikot/roadmap/epics` and a project whose `.kehikot/roadmap/epics` is empty
+     * A project with no `.kehikot/epics` and a project whose `.kehikot/epics` is empty
      * both answer with no epics, and only one of those should make the header
      * say "this project has none". See `Epics.tsx`.
      */
@@ -973,8 +973,8 @@ const server = Bun.serve({
     /*
      * What one epic is CALLED, changed. What it IS does not move.
      *
-     * The one write this host makes into a project’s `.kehikot/roadmap/`, and the only one
-     * it will: `.kehikot/roadmap/epics/<slug>.json` is a document somebody wrote, under
+     * The one write this host makes into a project’s `.kehikot/epics/`, and the only one
+     * it will: `.kehikot/epics/<slug>.json` is a document somebody wrote, under
      * their name in that repository's history, and this changes one field of it
      * and leaves every other byte alone. `retitleEpic` has the essay on why the
      * OTHER rename — the slug — is a migration across six programs rather than
@@ -1002,11 +1002,11 @@ const server = Bun.serve({
     /*
      * A new epic, from the `+` beside the epic select.
      *
-     * The second write this host makes into a project’s `.kehikot/roadmap/` — the first
+     * The second write this host makes into a project’s `.kehikot/epics/` — the first
      * was the retitle above — and it is a file that did not exist rather than
      * a field of one that did. `createEpic` decides everything: the slug rule,
      * the title rule, the refusal to overwrite, and that a project with no
-     * `.kehikot/roadmap/epics` gets one made. This end turns a project id into a folder,
+     * `.kehikot/epics` gets one made. This end turns a project id into a folder,
      * as the retitle does, and says so to every page standing in that
      * project — `epicsChanged` in `wake.ts` — because a second window's
      * dropdown would otherwise not have the new row until it switched project
@@ -1625,7 +1625,7 @@ console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`
 if (settled.seeded) {
   console.log(
     `projects are folders; the first is ${settled.seeded.name} at ${settled.seeded.path}` +
-      (settled.seeded.epics ? '' : ' (which holds no .kehikot/roadmap/epics, so kehikot there have no epics to pick)'),
+      (settled.seeded.epics ? '' : ' (which holds no .kehikot/epics, so kehikot there have no epics to pick)'),
   )
 }
 if (settled.adopted) {

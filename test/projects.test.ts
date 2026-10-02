@@ -30,12 +30,12 @@ afterEach(() => {
   rmSync(scratch, { recursive: true, force: true })
 })
 
-/** A folder with `.kehikot/roadmap/epics` under it, holding the named epics. */
+/** A folder with `.kehikot/epics` under it, holding the named epics. */
 function withEpics(name: string, epics: Record<string, unknown>[] = []): string {
   const root = join(scratch, name)
-  mkdirSync(join(root, '.kehikot', 'roadmap', 'epics'), { recursive: true })
+  mkdirSync(join(root, '.kehikot', 'epics'), { recursive: true })
   for (const epic of epics) {
-    writeFileSync(join(root, '.kehikot', 'roadmap', 'epics', `${String(epic.slug)}.json`), JSON.stringify(epic))
+    writeFileSync(join(root, '.kehikot', 'epics', `${String(epic.slug)}.json`), JSON.stringify(epic))
   }
   return root
 }
@@ -67,7 +67,7 @@ describe('a project is a name and a folder', () => {
     expect(kehikot[0]?.placements).toEqual([])
   })
 
-  test('a project with no .kehikot/roadmap/epics is a project, and says so', () => {
+  test('a project with no .kehikot/epics is a project, and says so', () => {
     /* The user's thesis: main.tex, chapters/, references.bib, and no epics
        anywhere. Refusing it would be this host insisting that work it cannot
        index is not work. */
@@ -245,7 +245,7 @@ describe('the kehikot that were written before projects existed', () => {
 
   test('with nowhere named, the seed is home — visible, and never nothing', () => {
     /* A guess, deliberately a visible one: home certainly exists, it holds no
-       .kehikot/roadmap/epics, so the header says there are none — which is true — and "add
+       .kehikot/epics, so the header says there are none — which is true — and "add
        a project" is one press away. The alternative was leaving kehikot in no
        project, and a kehikko no dropdown lists is work nobody can reach. */
     const settled = adopt(db, {})

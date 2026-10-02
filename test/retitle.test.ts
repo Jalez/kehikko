@@ -22,16 +22,16 @@ afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 let made = 0
 
-/** A project folder with `.kehikot/roadmap/epics` in it, and one epic written verbatim. */
+/** A project folder with `.kehikot/epics` in it, and one epic written verbatim. */
 function project(files: Record<string, string> = {}): string {
   const dir = join(root, `p${(made += 1)}`)
-  mkdirSync(join(dir, '.kehikot', 'roadmap', 'epics'), { recursive: true })
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, '.kehikot', 'roadmap', 'epics', name), text)
+  mkdirSync(join(dir, '.kehikot', 'epics'), { recursive: true })
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, '.kehikot', 'epics', name), text)
   return dir
 }
 
 function epicFile(dir: string, slug: string): string {
-  return readFileSync(join(dir, '.kehikot', 'roadmap', 'epics', `${slug}.json`), 'utf8')
+  return readFileSync(join(dir, '.kehikot', 'epics', `${slug}.json`), 'utf8')
 }
 
 /*
@@ -121,7 +121,7 @@ describe('retitling an epic', () => {
 
   test('a title that is already the title writes nothing at all', async () => {
     const dir = project({ 'page-is-components.json': WRITTEN })
-    const path = join(dir, '.kehikot', 'roadmap', 'epics', 'page-is-components.json')
+    const path = join(dir, '.kehikot', 'epics', 'page-is-components.json')
     const before = statSync(path).mtimeMs
     /* A moment, so that a write would have a different timestamp to show for
        itself. Pressing a control that is already where you pressed it must not
@@ -184,7 +184,7 @@ describe('what a retitle refuses', () => {
     }
   })
 
-  test('a project with no .kehikot/roadmap/epics, which is not a fault and is still a refusal', () => {
+  test('a project with no .kehikot/epics, which is not a fault and is still a refusal', () => {
     const dir = join(root, 'thesis')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'main.tex'), '\\begin{document}\\end{document}')
@@ -192,7 +192,7 @@ describe('what a retitle refuses', () => {
     expect(said.ok).toBe(false)
     if (!said.ok) {
       expect(said.status).toBe(409)
-      expect(said.why).toContain('.kehikot/roadmap/epics')
+      expect(said.why).toContain('.kehikot/epics')
     }
   })
 

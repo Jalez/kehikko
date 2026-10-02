@@ -269,7 +269,7 @@ export function App() {
    * What the open project holds, or null while it is being read.
    *
    * Null is "not known yet" and is not the same as `{ holds: false }`, which is
-   * "this project has no .kehikot/roadmap/epics". The epic picker draws a different
+   * "this project has no .kehikot/epics". The epic picker draws a different
    * sentence for each — see `Epics.tsx` — because an empty box is what a
    * project with none and a read that failed both look like.
    */
@@ -584,7 +584,7 @@ export function App() {
    * picker that briefly offers epics from somewhere else is a picker somebody
    * can click during that moment.
    *
-   * Not cached per project. `.kehikot/roadmap/epics` is rewritten underneath a running host
+   * Not cached per project. `.kehikot/epics` is rewritten underneath a running host
    * by anything that refreshes the roadmap, and a cache here would be this page
    * showing what was on disk when the project was first opened.
    */

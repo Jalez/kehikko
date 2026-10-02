@@ -96,9 +96,9 @@ fi
 # told about epics for the life of the process.
 #
 # That is no longer where epics come from. A kehikko belongs to a PROJECT, a
-# project is a folder, and epics are read from `<project>/.kehikot/roadmap/epics`
+# project is a folder, and epics are read from `<project>/.kehikot/epics`
 # (once `<project>/data/epics`; the host moves a legacy one over when it adopts
-# or adds the project — see `server/roadmapData.ts`) — so a
+# or adds the project — see `server/epicData.ts`) — so a
 # person with two projects open gets two different answers, which is the whole
 # point. See `server/projects.ts`.
 #
@@ -130,10 +130,11 @@ fi
 # live in the kehikko project's `.kehikot/`), so the default is too: the
 # projects table is the answer on every start, and this variable only seeds a
 # fresh database when somebody sets it on purpose.
-# Whether a folder holds epics: `.kehikot/roadmap/epics`, or the legacy
-# `data/epics` the host will move there when it adopts the folder.
+# Whether a folder holds epics: `.kehikot/epics`, or an old
+# `.kehikot/roadmap/epics` / `data/epics` the host will move there when it
+# adopts the folder.
 holds_epics() {
-  [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
+  [ -d "$1/.kehikot/epics" ] || [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy locations, read only to seed; the host migrates them
 }
 
 if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
@@ -141,7 +142,7 @@ if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
   if holds_epics "$KEHIKKO_ROADMAP_DIR"; then
     echo "kehikko: KEHIKKO_ROADMAP_DIR seeds the FIRST project only, from $KEHIKKO_ROADMAP_DIR" >&2
   else
-    echo "kehikko: KEHIKKO_ROADMAP_DIR=$KEHIKKO_ROADMAP_DIR holds no .kehikot/roadmap/epics; it seeds nothing." >&2
+    echo "kehikko: KEHIKKO_ROADMAP_DIR=$KEHIKKO_ROADMAP_DIR holds no .kehikot/epics; it seeds nothing." >&2
   fi
 fi
 

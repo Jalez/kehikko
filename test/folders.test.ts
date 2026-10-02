@@ -18,7 +18,7 @@ let scratch: string
 let roots: string[]
 beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-folders-')))
-  mkdirSync(join(scratch, 'Projects', 'roadmap', '.kehikot', 'roadmap', 'epics'), { recursive: true })
+  mkdirSync(join(scratch, 'Projects', 'roadmap', '.kehikot', 'epics'), { recursive: true })
   mkdirSync(join(scratch, 'Projects', 'roadmap', '.git'), { recursive: true })
   mkdirSync(join(scratch, 'Projects', 'plain'), { recursive: true })
   mkdirSync(join(scratch, 'Projects', 'worktree'), { recursive: true })

@@ -58,8 +58,6 @@ describe('what the scanner flags', () => {
     /* File-scoped entries only hold in their file. */
     expect(scanText('const db = new Database(file, { create: true })', 'server/canvases.ts')).toEqual([])
     expect(rules('const db = new Database(file, { create: true })', 'server/other.ts')).toEqual(['database'])
-    expect(scanText('db = new Database(DB_PATH, { create: true })', 'src/requests.ts')).toEqual([])
-    expect(rules('db = new Database(somewhere, { create: true })', 'src/requests.ts')).toEqual(['database'])
   })
 
   test('the inline escape hatch needs a reason', () => {

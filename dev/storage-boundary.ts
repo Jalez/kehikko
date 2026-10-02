@@ -127,12 +127,6 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'the roadmap\'s code generator writing module SOURCE trees into the repo, not data',
   },
   {
-    id: 'roadmap-requests-db',
-    match: /new Database\((?:dbPath\(\)|DB_PATH|process\.env\.ROADMAP_DB \?\? join\(DATA, 'requests\.db'\))/,
-    file: /(^|\/)src\/(?:calls|requests|concerns|stages|activity|journeys)\.ts$/,
-    reason: 'the roadmap opening requests.db, whose default is DATA = <project>/.kehikot/roadmap (src/store.ts)',
-  },
-  {
     id: 'memory-db',
     match: /:memory:/,
     reason: 'an in-memory database stores nothing',

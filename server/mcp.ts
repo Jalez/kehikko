@@ -415,12 +415,12 @@ function tools() {
     {
       name: 'create_epic',
       description:
-        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/roadmap/epics/<slug>.json, with the '
+        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/epics/<slug>.json, with the '
         + 'slug, the title and today’s date, and nothing else invented — steps and prose come later, through the '
         + 'roadmap. The slug is derived from the title (lowercase, dashes) unless you give one. The person sees the '
         + 'epic appear in their dropdown at once. It does NOT open the epic on the kehikko: which epic somebody is '
         + 'looking at is theirs to change, so if you want them to look at it, say so to them. A slug that is '
-        + 'already an epic here is refused, never overwritten. A project with no .kehikot/roadmap/epics gets the directory made.',
+        + 'already an epic here is refused, never overwritten. A project with no .kehikot/epics gets the directory made.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -751,7 +751,7 @@ function createEpicAt(
   return {
     text:
       `Created ${made.epic.slug} ("${made.epic.title}") in ${project.name} — ${made.file}`
-      + (made.madeDirectory ? ', and made .kehikot/roadmap/epics there, which did not exist' : '')
+      + (made.madeDirectory ? ', and made .kehikot/epics there, which did not exist' : '')
       + `. It is in the dropdown now. ${project.name} is still about ${
         readSubject(door.db, project.id)?.epic ?? 'no epic'
       }: this tool does not switch what somebody is looking at. If they should open it, ask them.`,

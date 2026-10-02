@@ -27,17 +27,17 @@ import { offerOfCreate, slugFrom } from '../src/host/epics.ts'
 const root = mkdtempSync(join(tmpdir(), 'kehikko-epics-made-'))
 let made = 0
 
-/** A project folder. `holds` says whether it has a `.kehikot/roadmap/epics` to begin with. */
+/** A project folder. `holds` says whether it has a `.kehikot/epics` to begin with. */
 function project(holds: boolean, files: Record<string, string> = {}): string {
   const dir = join(root, `p${(made += 1)}`)
   mkdirSync(dir, { recursive: true })
-  if (holds) mkdirSync(join(dir, '.kehikot', 'roadmap', 'epics'), { recursive: true })
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, '.kehikot', 'roadmap', 'epics', name), text)
+  if (holds) mkdirSync(join(dir, '.kehikot', 'epics'), { recursive: true })
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, '.kehikot', 'epics', name), text)
   return dir
 }
 
 function epicFile(dir: string, slug: string): string {
-  return readFileSync(join(dir, '.kehikot', 'roadmap', 'epics', `${slug}.json`), 'utf8')
+  return readFileSync(join(dir, '.kehikot', 'epics', `${slug}.json`), 'utf8')
 }
 
 afterEach(() => {
@@ -75,8 +75,8 @@ describe('what a made epic is', () => {
     const said = createEpic(dir, { slug: 'components', title: 'The page is components' })
     if (!said.ok) throw new Error(said.why)
     expect(said.epic.slug).toBe('components')
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'components.json'))).toBe(true)
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'the-page-is-components.json'))).toBe(false)
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'components.json'))).toBe(true)
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'the-page-is-components.json'))).toBe(false)
   })
 
   test('the answer is the epic as the picker reads it', () => {
@@ -85,25 +85,25 @@ describe('what a made epic is', () => {
     if (!said.ok) throw new Error(said.why)
     expect(said.epic).toEqual({ slug: 'made', title: 'Made' })
     expect(said.madeDirectory).toBe(false)
-    expect(said.file).toBe(join(dir, '.kehikot', 'roadmap', 'epics', 'made.json'))
+    expect(said.file).toBe(join(dir, '.kehikot', 'epics', 'made.json'))
   })
 })
 
 describe('the three empty states, on the server', () => {
-  test('a project with no .kehikot/roadmap/epics gets one made, and says so', () => {
+  test('a project with no .kehikot/epics gets one made, and says so', () => {
     const dir = project(false)
     writeFileSync(join(dir, 'main.tex'), '\\begin{document}\\end{document}')
     expect(existsSync(join(dir, '.kehikot'))).toBe(false)
     const said = createEpic(dir, { title: 'Chapter one' })
     if (!said.ok) throw new Error(said.why)
     expect(said.madeDirectory).toBe(true)
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'chapter-one.json'))).toBe(true)
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'chapter-one.json'))).toBe(true)
     /* And the retitle beside it, which refuses such a project, now has
        something to retitle — the directory is real. */
     expect(listEpics(dir).map((e) => e.slug)).toEqual(['chapter-one'])
   })
 
-  test('a project whose .kehikot/roadmap/epics is empty gets a file in it, and no directory is made', () => {
+  test('a project whose .kehikot/epics is empty gets a file in it, and no directory is made', () => {
     const dir = project(true)
     const said = createEpic(dir, { title: 'First' })
     if (!said.ok) throw new Error(said.why)
@@ -120,7 +120,7 @@ describe('the three empty states, on the page', () => {
     expect(offerOfCreate(false, { holds: true, epics: [] })).toEqual({ offered: false })
   })
 
-  test('no .kehikot/roadmap/epics: offered, and the note says the directory will be made', () => {
+  test('no .kehikot/epics: offered, and the note says the directory will be made', () => {
     const offer = offerOfCreate(true, { holds: false, epics: [] })
     expect(offer.offered).toBe(true)
     if (!offer.offered) return
@@ -128,7 +128,7 @@ describe('the three empty states, on the page', () => {
     expect(offer.note).toContain('makes that directory')
   })
 
-  test('an empty .kehikot/roadmap/epics: offered, a file goes in it', () => {
+  test('an empty .kehikot/epics: offered, a file goes in it', () => {
     const offer = offerOfCreate(true, { holds: true, epics: [] })
     expect(offer).toMatchObject({ offered: true, makesDirectory: false })
   })
@@ -295,13 +295,13 @@ describe('one writer, two callers', () => {
     expect(news).toEqual([{ epics: projectId }])
   })
 
-  test('a project with no .kehikot/roadmap/epics is made one by the door as well, and the sentence says so', async () => {
+  test('a project with no .kehikot/epics is made one by the door as well, and the sentence says so', async () => {
     const dir = project(false)
     const { id } = kehikkoIn(dir)
     const done = await call('create_epic', { kehikko: id, title: 'First here' }, door())
     expect(done.failed).toBe(false)
-    expect(done.text).toContain('made .kehikot/roadmap/epics there')
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'first-here.json'))).toBe(true)
+    expect(done.text).toContain('made .kehikot/epics there')
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'first-here.json'))).toBe(true)
   })
 
   test('a bad slug is refused by the server and its sentence reaches the agent as a tool error', async () => {
@@ -341,8 +341,8 @@ describe('deleting an epic', () => {
     const dir = project(true, { 'keep.json': '{"slug":"keep","title":"Keep"}\n' })
     expect(createEpic(dir, { title: 'Gone soon' }).ok).toBe(true)
     expect(deleteEpic(dir, 'gone-soon')).toEqual({ ok: true })
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'gone-soon.json'))).toBe(false)
-    expect(existsSync(join(dir, '.kehikot', 'roadmap', 'epics', 'keep.json'))).toBe(true)
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'gone-soon.json'))).toBe(false)
+    expect(existsSync(join(dir, '.kehikot', 'epics', 'keep.json'))).toBe(true)
   })
 
   test('refuses what is not there, and what is not a slug', () => {
