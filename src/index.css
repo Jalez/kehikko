@@ -387,7 +387,7 @@
 .kehikko-mark .s4 { --at: 1.8s; }
 .kehikko-mark[data-working='true'] .built {
   animation: kehikko-breathe 3.4s ease-in-out 2.3s infinite;
-  transform-origin: 54px 54px;
+  transform-origin: 64px 44px;
 }
 @keyframes kehikko-draw { to { stroke-dashoffset: 0; } }
 @keyframes kehikko-breathe {
