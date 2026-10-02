@@ -11,9 +11,12 @@ import {
   editCanvas,
   listCanvases,
   orderCanvases,
+  readSubject,
+  setSubject,
   type Canvas,
   type Placement,
   type PlacementInput,
+  type Subject,
 } from './canvases.ts'
 import { listProjects, projectById } from './projects.ts'
 
@@ -73,9 +76,12 @@ import { listProjects, projectById } from './projects.ts'
  *
  * PORTABLE — in the file, because it is a fact about the arrangement:
  *
- *   - A kehikko's `key` (its identity — see `Canvas.key`), `name`, `epic` and
- *     `selection` (refs are names for things in the project's trackers, which
- *     are the same trackers on the other machine).
+ *   - What the project is about: its `epic` and `selection`, once, at the top
+ *     of the file — see `Subject` in `canvases.ts`. Refs are names for things
+ *     in the project's trackers, which are the same trackers on the other
+ *     machine. They are the PROJECT's, not any kehikko's: a kehikko is a
+ *     layout, and every layout works with every epic.
+ *   - A kehikko's `key` (its identity — see `Canvas.key`) and `name`.
  *   - Every placement, whole: `module` (stored as `i` — the grid library's
  *     word — and written here under a name a person can read), `x`, `y`, `w`,
  *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `collapsed`, `wish`,
@@ -159,7 +165,17 @@ import { listProjects, projectById } from './projects.ts'
  * changing that file behind somebody's back is a bug this workspace has had
  * once already.
  *
- * ## The shape of the file
+ * ## The shape of the file, and the one it replaced
+ *
+ * Version 2 has `epic` and `selection` at the top and none inside a kehikko.
+ * Version 1 had them on every kehikko, which is how switching kehikko used to
+ * switch the epic. A version-1 file still reads: the project's epic is taken
+ * from its first kehikko that had one, the per-kehikko fields are not read
+ * again, and the file is written back as version 2 straight away — so the old
+ * shape is read once and never written. A host from before version 2 refuses
+ * the new file with a sentence (an unknown version), which is the honest
+ * thing for it to do; it would otherwise drop the project's epic on its next
+ * write.
  *
  * Indented JSON with a fixed key order and a trailing newline, and every
  * container on ONE line, so that a moved container is one changed line in a
@@ -176,7 +192,7 @@ export const HOST_ID = 'kehikko'
 const FILE_NAME = 'kehikot'
 
 /** What is written at the top of the file, so a reader — or a later version — knows which shape this is. */
-const VERSION = 1
+const VERSION = 2
 
 /**
  * Every field of a placement that goes in the file — which is every field.
@@ -212,7 +228,10 @@ const everyPlacementFieldTravels: [UntaughtPlacementField] extends [never] ? tru
 void everyPlacementFieldTravels
 
 /** The fields of a canvas that go in the file, in the order they are written. */
-export const PORTABLE_CANVAS_FIELDS = ['key', 'name', 'epic', 'selection'] as const satisfies readonly (keyof Canvas)[]
+export const PORTABLE_CANVAS_FIELDS = ['key', 'name'] as const satisfies readonly (keyof Canvas)[]
+
+/** What the file says once, about the project rather than about any kehikko. */
+export const PORTABLE_SUBJECT_FIELDS = ['epic', 'selection'] as const satisfies readonly (keyof Subject)[]
 
 /** And the ones that do not, each named so the split is complete rather than implied. */
 export const LOCAL_CANVAS_FIELDS = ['id', 'project'] as const satisfies readonly (keyof Canvas)[]
@@ -277,48 +296,71 @@ const containerSchema = z
   })
   .strict()
 
-const kehikkoSchema = z
-  .object({
-    key: z.string().regex(KEY, 'is not a key: lowercase letters, digits and dashes'),
-    name: z.string().trim().min(1).max(NAME_MAX),
-    epic: z.string().trim().min(1).max(80).nullable().default(null),
-    selection: z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.REFS).default([]),
-    containers: z.array(containerSchema).max(64).default([]),
-  })
-  .strict()
-  .superRefine((kehikko, ctx) => {
-    const seen = new Set<string>()
-    for (const container of kehikko.containers) {
-      if (seen.has(container.module)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['containers'],
-          message: `has two containers for ${container.module}; a module is on a kehikko once`,
-        })
-      }
-      seen.add(container.module)
+const epicSchema = z.string().trim().min(1).max(80).nullable().default(null)
+const selectionSchema = z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.REFS).default([])
+
+const kehikkoFields = {
+  key: z.string().regex(KEY, 'is not a key: lowercase letters, digits and dashes'),
+  name: z.string().trim().min(1).max(NAME_MAX),
+  containers: z.array(containerSchema).max(64).default([]),
+}
+
+/* One container per module, said once for both versions of a kehikko. */
+function oncePerModule(kehikko: { containers: { module: string }[] }, ctx: z.RefinementCtx): void {
+  const seen = new Set<string>()
+  for (const container of kehikko.containers) {
+    if (seen.has(container.module)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['containers'],
+        message: `has two containers for ${container.module}; a module is on a kehikko once`,
+      })
     }
-  })
+    seen.add(container.module)
+  }
+}
+
+const kehikkoSchema = z.object(kehikkoFields).strict().superRefine(oncePerModule)
+
+/* A kehikko as version 1 wrote it, with an epic and a selection of its own.
+   Read for the move to version 2 and never written. */
+const kehikkoV1Schema = z
+  .object({ ...kehikkoFields, epic: epicSchema, selection: selectionSchema })
+  .strict()
+  .superRefine(oncePerModule)
+
+/* Two kehikot with one key are two claims to be one kehikko, in either version. */
+function keysOnce(file: { kehikot: { key: string }[] }, ctx: z.RefinementCtx): void {
+  const seen = new Set<string>()
+  for (const kehikko of file.kehikot) {
+    if (seen.has(kehikko.key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['kehikot'],
+        message: `two kehikot share the key "${kehikko.key}"; a key is what tells them apart, so give one a new one`,
+      })
+    }
+    seen.add(kehikko.key)
+  }
+}
 
 const fileSchema = z
   .object({
     version: z.literal(VERSION),
+    epic: epicSchema,
+    selection: selectionSchema,
     kehikot: z.array(kehikkoSchema).max(500),
   })
   .strict()
-  .superRefine((file, ctx) => {
-    const seen = new Set<string>()
-    for (const kehikko of file.kehikot) {
-      if (seen.has(kehikko.key)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['kehikot'],
-          message: `two kehikot share the key "${kehikko.key}"; a key is what tells them apart, so give one a new one`,
-        })
-      }
-      seen.add(kehikko.key)
-    }
+  .superRefine(keysOnce)
+
+const fileV1Schema = z
+  .object({
+    version: z.literal(1),
+    kehikot: z.array(kehikkoV1Schema).max(500),
   })
+  .strict()
+  .superRefine(keysOnce)
 
 type FileKehikko = z.infer<typeof kehikkoSchema>
 type FileContainer = z.infer<typeof containerSchema>
@@ -382,11 +424,11 @@ function toKehikko(canvas: Canvas): FileKehikko {
   return {
     key: canvas.key,
     name: canvas.name,
-    epic: canvas.epic,
-    selection: canvas.selection,
     containers: canvas.placements.map(toContainer),
   }
 }
+
+const NO_SUBJECT: Subject = { epic: null, selection: [] }
 
 /**
  * The text of the file for these kehikot — the same bytes for the same input,
@@ -398,15 +440,19 @@ function toKehikko(canvas: Canvas): FileKehikko {
  * is indented normally. Both halves are still `JSON.stringify`, so the result
  * is JSON and nothing here escapes a string by hand.
  */
-export function serialize(canvases: readonly Canvas[]): string {
-  const lines: string[] = ['{', `  "version": ${VERSION},`, '  "kehikot": [']
+export function serialize(canvases: readonly Canvas[], subject: Subject = NO_SUBJECT): string {
+  const lines: string[] = [
+    '{',
+    `  "version": ${VERSION},`,
+    `  "epic": ${JSON.stringify(subject.epic)},`,
+    `  "selection": ${JSON.stringify(subject.selection)},`,
+    '  "kehikot": [',
+  ]
   canvases.forEach((canvas, index) => {
     const k = toKehikko(canvas)
     lines.push('    {')
     lines.push(`      "key": ${JSON.stringify(k.key)},`)
     lines.push(`      "name": ${JSON.stringify(k.name)},`)
-    lines.push(`      "epic": ${JSON.stringify(k.epic)},`)
-    lines.push(`      "selection": ${JSON.stringify(k.selection)},`)
     if (k.containers.length === 0) {
       lines.push('      "containers": []')
     } else {
@@ -422,7 +468,15 @@ export function serialize(canvases: readonly Canvas[]): string {
   return `${lines.join('\n')}\n`
 }
 
-export type Parsed = { ok: true; kehikot: FileKehikko[] } | { ok: false; why: string }
+export type Parsed =
+  | {
+      ok: true
+      subject: Subject
+      kehikot: FileKehikko[]
+      /** The file is version 1 and should be written again as the current shape. */
+      older: boolean
+    }
+  | { ok: false; why: string }
 
 /**
  * The file's text, read into kehikot — or one sentence about why it could not
@@ -440,17 +494,50 @@ export function parse(text: string): Parsed {
   } catch (error) {
     return { ok: false, why: `it is not JSON (${(error as Error).message})` }
   }
-  const read = fileSchema.safeParse(raw)
-  if (read.success) return { ok: true, kehikot: read.data.kehikot }
+  /*
+   * Version 1, read for the move and not otherwise. The project's epic is its
+   * first kehikko's that had one, in the file's order — the order of the
+   * dropdown — and that kehikko's selection with it, since the refs were picked
+   * out of that epic. Which kehikko the person was last on is a browser's
+   * memory, not the file's; see `hintSubject` in `canvases.ts`.
+   */
+  const version = (raw as { version?: unknown } | null)?.version
+  if (version === 1) {
+    const old = fileV1Schema.safeParse(raw)
+    if (old.success) {
+      const first = old.data.kehikot.find((k) => k.epic !== null)
+      return {
+        ok: true,
+        subject: first ? { epic: first.epic, selection: first.selection } : { epic: null, selection: [] },
+        kehikot: old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko),
+        older: true,
+      }
+    }
+    return { ok: false, why: said(old.error) }
+  }
 
-  const said = read.error.issues.slice(0, 3).map((issue) => {
+  const read = fileSchema.safeParse(raw)
+  if (read.success) {
+    return {
+      ok: true,
+      subject: { epic: read.data.epic, selection: read.data.selection },
+      kehikot: read.data.kehikot,
+      older: false,
+    }
+  }
+  return { ok: false, why: said(read.error) }
+}
+
+/** A refusal, in words the person who edited the file can act on. */
+function said(error: z.ZodError): string {
+  const words = error.issues.slice(0, 3).map((issue) => {
     const at = issue.path.length ? issue.path.map(String).join('.') : 'the top level'
     if (issue.code === z.ZodIssueCode.unrecognized_keys) {
       return `${at} has a field this host does not know (${issue.keys.join(', ')}) — is the file from a newer Kehikot?`
     }
     return `${at} ${issue.message}`
   })
-  return { ok: false, why: said.join('; ') }
+  return words.join('; ')
 }
 
 /**
@@ -486,7 +573,7 @@ export function keep(db: Database, projectId: number | null): void {
   if (file === null || refused.has(file)) return
 
   const mine = listCanvases(db).filter((canvas) => canvas.project === projectId)
-  const text = serialize(mine)
+  const text = serialize(mine, readSubject(db, projectId) ?? NO_SUBJECT)
   let before: string | null = null
   try {
     before = readFileSync(file, 'utf8')
@@ -567,8 +654,6 @@ export function syncProject(db: Database, project: { id: number; path: string })
       if (serialize([row]) === serialize([{ ...row, ...asCanvasFields(kehikko) }])) continue
       editCanvas(db, row.id, {
         name: kehikko.name,
-        epic: kehikko.epic,
-        selection: kehikko.selection,
         placements: kehikko.containers.map(fromContainer),
       })
       changed = true
@@ -581,10 +666,22 @@ export function syncProject(db: Database, project: { id: number; path: string })
       orderCanvases(db, ids)
       changed = true
     }
+    /* What the project is about, which the file says once. The file wins here
+       as everywhere, and is compared through `serialize` for the reason the
+       kehikot are: bounding on the way in is a difference worth writing. */
+    const before = readSubject(db, project.id) ?? NO_SUBJECT
+    if (serialize([], before) !== serialize([], read.subject)) {
+      setSubject(db, project.id, { epic: read.subject.epic, selection: read.subject.selection })
+      changed = true
+    }
     return changed
   })
 
-  return { file, outcome: 'read', changed: apply() }
+  const changed = apply()
+  /* Read once, and written back as the current shape at once, so the
+     per-kehikko epics of version 1 are never written again. */
+  if (read.older) keep(db, project.id)
+  return { file, outcome: 'read', changed }
 }
 
 /**
@@ -595,11 +692,9 @@ export function syncProject(db: Database, project: { id: number; path: string })
  * a difference and gets written, rather than the two sides silently agreeing
  * to disagree.
  */
-function asCanvasFields(kehikko: FileKehikko): Pick<Canvas, 'name' | 'epic' | 'selection' | 'placements'> {
+function asCanvasFields(kehikko: FileKehikko): Pick<Canvas, 'name' | 'placements'> {
   return {
     name: kehikko.name,
-    epic: kehikko.epic,
-    selection: kehikko.selection,
     placements: kehikko.containers.map((c) => ({ ...fromContainer(c) }) as Placement),
   }
 }

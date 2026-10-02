@@ -13,8 +13,10 @@ import {
   ensureCanvases,
   keepState,
   readState,
+  readSubject,
   listCanvases,
   open,
+  setSubject,
 } from '../server/canvases.ts'
 
 /**
@@ -37,7 +39,6 @@ describe('a canvas is a name and an arrangement', () => {
   test('what is written comes back', () => {
     const made = createCanvas(db, 'the wire')
     editCanvas(db, made.id, {
-      epic: 'modes-are-modules',
       placements: [
         { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
         { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
@@ -46,7 +47,6 @@ describe('a canvas is a name and an arrangement', () => {
 
     const [canvas] = listCanvases(db)
     expect(canvas?.name).toBe('the wire')
-    expect(canvas?.epic).toBe('modes-are-modules')
     expect(canvas?.placements).toEqual([
       { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
       { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
@@ -72,10 +72,12 @@ describe('a canvas is a name and an arrangement', () => {
   })
 
   test('the subject can be cleared, which is different from not mentioning it', () => {
-    const made = createCanvas(db, 'one')
-    editCanvas(db, made.id, { epic: 'modes-are-modules' })
-    editCanvas(db, made.id, { epic: null })
-    expect(listCanvases(db)[0]?.epic).toBeNull()
+    const project = aProject()
+    setSubject(db, project, { epic: 'modes-are-modules' })
+    setSubject(db, project, { selection: ['gh#1'] })
+    expect(readSubject(db, project)?.epic).toBe('modes-are-modules')
+    setSubject(db, project, { epic: null })
+    expect(readSubject(db, project)?.epic).toBeNull()
   })
 
   test('editing a canvas that is not there says so instead of making one', () => {
@@ -331,45 +333,46 @@ describe('a database written before a column existed still opens', () => {
 
 describe('a selection is what somebody picked out, and the host holds it without reading it', () => {
   test('what is set comes back', () => {
-    const made = createCanvas(db, 'one')
-    editCanvas(db, made.id, { selection: ['gh#131', 'gh#105'] })
-    expect(listCanvases(db)[0]?.selection).toEqual(['gh#131', 'gh#105'])
+    const project = aProject()
+    setSubject(db, project, { selection: ['gh#131', 'gh#105'] })
+    expect(readSubject(db, project)?.selection).toEqual(['gh#131', 'gh#105'])
   })
 
   test('nothing selected is a state, and an empty list is how it is reached', () => {
-    const made = createCanvas(db, 'one')
-    expect(listCanvases(db)[0]?.selection).toEqual([])
-    editCanvas(db, made.id, { selection: ['gh#131'] })
-    editCanvas(db, made.id, { selection: [] })
-    expect(listCanvases(db)[0]?.selection).toEqual([])
+    const project = aProject()
+    expect(readSubject(db, project)?.selection).toEqual([])
+    setSubject(db, project, { selection: ['gh#131'] })
+    setSubject(db, project, { selection: [] })
+    expect(readSubject(db, project)?.selection).toEqual([])
   })
 
   test('the same ref twice is once — a duplicate is the same pick, not a second one', () => {
-    const made = createCanvas(db, 'one')
-    editCanvas(db, made.id, { selection: ['gh#1', 'gh#1', 'gh#2'] })
-    expect(listCanvases(db)[0]?.selection).toEqual(['gh#1', 'gh#2'])
+    const project = aProject()
+    setSubject(db, project, { selection: ['gh#1', 'gh#1', 'gh#2'] })
+    expect(readSubject(db, project)?.selection).toEqual(['gh#1', 'gh#2'])
   })
 
   test('anything that is not a usable ref is dropped rather than stored', () => {
-    const made = createCanvas(db, 'one')
-    editCanvas(db, made.id, {
-      selection: ['gh#1', '', '   ', 42, null, 'x'.repeat(500)] as never,
-    })
-    expect(listCanvases(db)[0]?.selection).toEqual(['gh#1'])
+    const project = aProject()
+    setSubject(db, project, { selection: ['gh#1', '', '   ', 42, null, 'x'.repeat(500)] as never })
+    expect(readSubject(db, project)?.selection).toEqual(['gh#1'])
   })
 
-  test('a canvas stored before selections existed reads as nothing selected', () => {
-    const made = createCanvas(db, 'one')
-    db.query('update canvases set selection = null where id = ?').run(made.id)
-    expect(listCanvases(db)[0]?.selection).toEqual([])
-  })
-
-  test('a column somebody edited by hand does not take the canvas down with it', () => {
-    const made = createCanvas(db, 'one')
+  test('a column somebody edited by hand does not take the project down with it', () => {
+    const project = aProject()
     for (const junk of ['{ not json', '"a string"', '{"refs":[]}', '17']) {
-      db.query('update canvases set selection = ? where id = ?').run(junk, made.id)
-      expect(listCanvases(db)[0]?.selection).toEqual([])
+      db.query('update projects set selection = ? where id = ?').run(junk, project)
+      expect(readSubject(db, project)?.selection).toEqual([])
     }
+  })
+
+  test('a different epic clears it, and the same epic again keeps it', () => {
+    const project = aProject()
+    setSubject(db, project, { epic: 'one', selection: ['gh#1'] })
+    setSubject(db, project, { epic: 'one' })
+    expect(readSubject(db, project)?.selection).toEqual(['gh#1'])
+    setSubject(db, project, { epic: 'two' })
+    expect(readSubject(db, project)).toEqual({ epic: 'two', selection: [] })
   })
 })
 
@@ -676,3 +679,16 @@ describe('a filter choice is part of the arrangement', () => {
     expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({})
   })
 })
+
+let projects = 0
+/** A project row, without the folder checks `addProject` makes: these tests are about the store. */
+function aProject(): number {
+  projects += 1
+  const row = db
+    .query<{ id: number }, [string, string]>(
+      'insert into projects (name, path, rank) values (?, ?, 1) returning id',
+    )
+    .get(`p${projects}`, `/nowhere/p${projects}`)
+  if (!row) throw new Error('no project')
+  return row.id
+}

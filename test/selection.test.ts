@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
+import { createCanvas, editCanvas, listCanvases, open, readSubject, setSubject } from '../server/canvases.ts'
 
 /**
  * Which containers on a kehikko have been picked out as targets.
@@ -128,11 +128,14 @@ describe('a container is picked out on one kehikko', () => {
   })
 
   test('the refs picked out of a tracker are a different axis and do not move', () => {
-    const made = createCanvas(db, 'one')
-    editCanvas(db, made.id, { selection: ['gh#105'], placements: [at('a.one')] })
+    const project = db
+      .query<{ id: number }, []>("insert into projects (name, path, rank) values ('p', '/nowhere/p', 1) returning id")
+      .get()!.id
+    const made = createCanvas(db, 'one', project)
+    setSubject(db, project, { selection: ['gh#105'] })
+    editCanvas(db, made.id, { placements: [at('a.one')] })
     editCanvas(db, made.id, { placements: [{ ...at('a.one'), selected: true }] })
-    const canvas = listCanvases(db)[0]
-    expect(canvas?.selection).toEqual(['gh#105'])
-    expect(canvas?.placements[0]?.selected).toBe(true)
+    expect(readSubject(db, project)?.selection).toEqual(['gh#105'])
+    expect(listCanvases(db)[0]?.placements[0]?.selected).toBe(true)
   })
 })

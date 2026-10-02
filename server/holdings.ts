@@ -198,7 +198,7 @@ const NOT_ONE_LINE = /[\u0000-\u001f\u007f]/
  * A slug is an identity, and everything that has ever pointed at this epic
  * points at it by that string:
  *
- * - `canvases.epic`, the column this host writes when somebody picks an epic;
+ * - `projects.epic`, the column this host writes when somebody picks an epic;
  * - `roadmap.context.epic`, which every framed module on the kehikko is told;
  * - `.kehikot/roadmap/state/<slug>.json`, written by a tracker refresh and never by hand;
  * - `.kehikot/journeys/journeys.json`, a record whose KEYS are slugs;

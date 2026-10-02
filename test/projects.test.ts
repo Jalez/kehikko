@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createCanvas, deleteCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
+import { createCanvas, deleteCanvas, editCanvas, epicFromKehikot, listCanvases, open, readSubject } from '../server/canvases.ts'
 import { addProject, adopt, holdsEpics, listProjects, projectById, within } from '../server/projects.ts'
 import { epicsIn, listEpics } from '../server/holdings.ts'
 import { answer } from '../server/answers.ts'
@@ -200,11 +200,9 @@ describe('the kehikot that were written before projects existed', () => {
     const now = open(file)
     const before = listCanvases(now)
     expect(before.map((canvas) => canvas.name)).toEqual(['Kehikko 1', 'Kehikko 2 -reviews', 'writing'])
-    expect(before.map((canvas) => canvas.epic)).toEqual([
-      'tables-declare-themselves',
-      'modes-are-modules',
-      'workbench-reads-like-the-thesis',
-    ])
+    /* Their epics are not on them any more — an epic is the project's — and
+       there is no project yet to hand them to. That waits for the adoption. */
+    expect(before.every((canvas) => !('epic' in canvas))).toBe(true)
     expect(before.every((canvas) => canvas.project === null)).toBe(true)
     expect(before[0]?.placements).toHaveLength(1)
 
@@ -224,11 +222,10 @@ describe('the kehikot that were written before projects existed', () => {
 
     const after = listCanvases(now)
     expect(after.every((canvas) => canvas.project === settled.seeded?.id)).toBe(true)
-    expect(after.map((canvas) => canvas.epic)).toEqual([
-      'tables-declare-themselves',
-      'modes-are-modules',
-      'workbench-reads-like-the-thesis',
-    ])
+    /* And the project they were adopted into takes the first one's epic, as
+       the server does at startup — see `epicFromKehikot`. */
+    epicFromKehikot(now, settled.seeded!.id)
+    expect(readSubject(now, settled.seeded!.id)?.epic).toBe('tables-declare-themselves')
     /* The arrangement survives, which is the whole reason there is a database. */
     expect(after[0]?.placements).toHaveLength(1)
 

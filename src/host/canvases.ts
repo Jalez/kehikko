@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { MODULE_ID } from 'roadmap-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
+import { subjectsSchema, type Subjects } from './subject.ts'
 
 /**
  * The page's side of the canvases.
@@ -178,9 +179,9 @@ export type Placement = z.infer<typeof placementSchema>
 const canvasSchema = z.object({
   id: z.number().int(),
   name: z.string(),
-  /** What has been picked out here. Defaulted, so a canvas stored before this reads. */
-  selection: z.array(z.string()).max(64).default([]),
-  epic: z.string().nullable(),
+  /* No epic and no selection: those are the project's, not the kehikko's.
+     See `host/subject.ts`. An older server still sends them, and zod drops
+     what is not named here, so they cannot leak back in from one. */
   /**
    * Which project this kehikko is in, as a project id.
    *
@@ -212,8 +213,16 @@ export const OPEN_KEY = 'roadmap.frame.open.v1'
  */
 export async function fetchCanvases(
   signal?: AbortSignal,
-): Promise<{ canvases: Canvas[]; projects: Project[]; trouble: string[] }> {
-  const response = await fetch('/host/canvases', { signal, cache: 'no-store' })
+  /**
+   * Which kehikko this browser remembers having open, for the server's one-time
+   * move of the epic off the kehikot and onto the project — see `hintSubject`
+   * in `server/canvases.ts`. Only this page knows it; after the first load the
+   * server ignores it.
+   */
+  remembered: number | null = null,
+): Promise<{ canvases: Canvas[]; projects: Project[]; trouble: string[]; subjects: Subjects }> {
+  const where = remembered === null ? '' : `?open=${remembered}`
+  const response = await fetch(`/host/canvases${where}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = await response.json()
   return z
@@ -223,6 +232,10 @@ export async function fetchCanvases(
       /* Sentences about a project's `kehikot.json` that would not read — see
          `server/kehikot.ts`. Defaulted, so an older server still answers. */
       trouble: z.array(z.string()).default([]),
+      /* What each project is about. Defaulted, so an older server — whose
+         epics were on its kehikot — still answers, with every project about
+         nothing until somebody picks. */
+      subjects: subjectsSchema,
     })
     .parse(body)
 }
@@ -239,9 +252,7 @@ export async function createCanvas(name?: string, project?: number | null): Prom
 
 export interface CanvasEdit {
   name?: string
-  epic?: string | null
   project?: number | null
-  selection?: string[]
   placements?: Placement[]
 }
 

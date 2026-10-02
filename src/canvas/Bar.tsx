@@ -167,11 +167,10 @@ export function Bar({
         />
 
         {/*
-         * What the canvas is about. One epic, for the whole kehikko, and the
-         * argument for there being exactly one is in `host/context.ts`: a canvas
-         * has no open document, so the honest reading of `roadmap.context` here
-         * is "what this workspace is about", and six modules around one epic are
-         * six views of one thing.
+         * What the project is about. One epic, for every kehikko in it, and the
+         * argument for there being exactly one is in `host/context.ts`. It sits
+         * between the project and the kehikko and depends on only the first:
+         * switching kehikko changes the layout and leaves this where it is.
          *
          * A select over the project's own epics rather than the field you used
          * to type a slug into. The host could not offer a list before, because
