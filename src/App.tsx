@@ -4,7 +4,6 @@ import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'roadmap-module-protoc
 import type { FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
-import { Footer } from './canvas/Footer.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
@@ -377,7 +376,7 @@ export function App() {
            is one nobody can get back to. */
         setOpenId(chooseOpen(found.canvases, remembered, project))
         loaded.current = true
-        /* A project's `kehikot.json` that would not read. Said in the footer,
+        /* A project's `kehikot.json` that would not read. Said in the header's error line,
            where the host's own line is, because the person who edited that
            file is the person looking at this page, and it stays until a load
            finds the file reads again. See `server/kehikot.ts`. */
@@ -2181,7 +2180,7 @@ export function App() {
    * Answers whether it was written, for the reason `onRetitleEpic` does: the
    * form stays open over a refusal with the typed title and slug still in it,
    * and the server's sentence — "there is already an epic called that" — goes
-   * to the footer, where every other refusal goes.
+   * to the header's error line, where every other refusal goes.
    */
   const onCreateEpic = useCallback(
     async (slug: string, title: string): Promise<boolean> => {
@@ -2537,6 +2536,9 @@ export function App() {
         onFocus={onFocus}
         theme={theme}
         onTheme={onTheme}
+        trouble={trouble}
+        onLookAgain={() => void look()}
+        looking={looking}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */
@@ -2548,12 +2550,12 @@ export function App() {
       {/*
        * The canvas, and the only row of the shell that gives.
        *
-       * `flex-1` takes whatever the strip above and the footer below have not
-       * taken, and `overflow-auto` is what happens when the arrangement wants
-       * more than that: the CANVAS scrolls, and the window does not. Those are
-       * two different behaviours and only one of them is acceptable — a
-       * document that scrolls carries the footer off the bottom of the screen,
-       * which is the one thing an always-visible strip must not do.
+       * `flex-1` takes whatever the strip above has not taken, and
+       * `overflow-auto` is what happens when the arrangement wants more than
+       * that: the CANVAS scrolls, and the window does not. Those are two
+       * different behaviours and only one of them is acceptable — a document
+       * that scrolls carries the strip, and the error line in it, off the
+       * screen, which is the one thing an always-visible strip must not do.
        *
        * `min-h-0` is the load-bearing class and it looks redundant. A flex item
        * defaults to `min-height: auto`, which means "never shrink below your
@@ -2890,18 +2892,6 @@ export function App() {
         />
       ) : null}
 
-      {/* The floor of the window, and the reason the canvas has a definite
-          height to be `flex-1` of. `trouble` — the host's own error line —
-          lives here now rather than in a band above the canvas, which used to
-          take its height out of the arrangement and move every container the
-          moment anything went wrong. See `Footer.tsx` for what else was
-          considered for this strip and why none of it is here.
-
-          `onLookAgain` is the same sweep every other caller asks for, and the
-          footer offers it only for the one fault where it means anything — see
-          `host/reachable.ts`. It is not a restart: nothing in this page can
-          restart a server it can only reach through that server. */}
-      <Footer trouble={trouble} onLookAgain={() => void look()} looking={looking} />
     </div>
   )
 }

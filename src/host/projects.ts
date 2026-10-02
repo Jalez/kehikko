@@ -184,7 +184,7 @@ export async function retitleEpic(project: number, slug: string, title: string):
  * The slug is sent as the page shows it — derived by `slugFrom` in `epics.ts`
  * unless the person edited it — and NOT checked here. The server's `createEpic`
  * is the one rule about what a slug and a title may be, and its sentence is
- * what the footer shows when it refuses; a check on this side would be a second
+ * what the error line shows when it refuses; a check on this side would be a second
  * copy of that rule, and the copy nobody tests against a real file is the one
  * that drifts. See `src/host/epics.ts`.
  *

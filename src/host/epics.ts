@@ -23,7 +23,7 @@ import type { Epics as Held } from './projects.ts'
  * copy of that rule, and the copy on the page is the one that drifts — it is
  * the one nobody runs a test against a real file with. So the page shows the
  * derived slug, lets it be edited, sends whatever it shows, and puts the
- * server's own refusal in the footer, which is where every other refusal in
+ * server's own refusal in the header's error line, which is where every other refusal in
  * this host goes.
  */
 

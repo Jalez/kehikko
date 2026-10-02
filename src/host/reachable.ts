@@ -56,13 +56,13 @@
  * everywhere else.
  *
  * What the page can honestly offer is to LOOK AGAIN, immediately, rather than
- * waiting for its own backoff — and that is what the footer offers.
+ * waiting for its own backoff — and that is what the error line offers.
  */
 
 /**
  * The words every one of these sentences begins with.
  *
- * Exported so the footer can recognise its own line rather than guess from a
+ * Exported so the error line can recognise its own line rather than guess from a
  * substring somebody might reword. This is not string-sniffing across a
  * boundary: the module that WRITES the sentence is the module that reads it
  * back, and `test/reachable.test.ts` fails if the two ever drift.
@@ -96,7 +96,7 @@ export function notAnswering(error: unknown, also?: string): string {
 /**
  * Is this line one of ours?
  *
- * The footer asks, because the offer to look again belongs to this fault and
+ * The error line asks, because the offer to look again belongs to this fault and
  * to no other: a canvas that could not be saved and a `.gitignore` that was
  * not changed are also `trouble`, and re-sweeping the registry would do
  * nothing whatever about either.
