@@ -125,7 +125,7 @@ service's `~/Library/LaunchAgents` / `~/Library/Logs` and its
 `// kehikot-storage: allow <reason>` comment on the line, and a reviewer who
 agrees.
 
-**Check it:** `bun run check:storage` scans this host, the roadmap, the protocol
+**Check it:** `bun run check:storage` scans this host, the protocol
 and every module registered in `~/.roadmap/modules`, and fails on any code that
 stores data outside `.kehikot/`. `bun test` runs the same scan
 (`test/storage-boundary.test.ts`), and `run.sh` prints the violations loudly at

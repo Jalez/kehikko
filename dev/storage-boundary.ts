@@ -16,7 +16,7 @@
  * worked — and each put somebody's work where the next program would not look.
  *
  * So the rule is checked, not asked for. This walks the source of this host,
- * the roadmap, the protocol, and every module registered in
+ * the protocol, and every module registered in
  * `~/.roadmap/modules/*.json` (each names its `dir`), READ-ONLY, and reports
  * every line that builds a storage path outside `.kehikot/`.
  *
@@ -287,8 +287,8 @@ export function scanRepo(repo: Repo): Violation[] {
 }
 
 /**
- * The workspace: this host, the roadmap, the protocol, and every registered
- * module. Read-only. Missing repos are reported in `missing`, not scanned.
+ * The workspace: this host, the protocol, and every registered module. The
+ * roadmap prototype is retired and deliberately not scanned. Read-only. Missing repos are reported in `missing`, not scanned.
  */
 export function workspace(env: Record<string, string | undefined> = process.env): { repos: Repo[]; missing: string[] } {
   const home = env.HOME ?? homedir()
@@ -296,7 +296,6 @@ export function workspace(env: Record<string, string | undefined> = process.env)
   const host = join(import.meta.dir, '..')
   const candidates: Repo[] = [
     { name: 'kehikko', dir: host },
-    { name: 'roadmap', dir: env.KEHIKOT_SCAN_ROADMAP ?? join(projects, 'roadmap'), skip: ['modules'] },
     { name: 'kehikko-protocol', dir: env.KEHIKOT_SCAN_PROTOCOL ?? join(projects, 'kehikko-protocol') },
   ]
   const registry = env.ROADMAP_MODULES_DIR ?? join(home, '.roadmap', 'modules')
