@@ -171,6 +171,9 @@ export function Epics({
   const [arming, setArming] = useState<string | null>(null)
   const epics = held?.epics ?? []
   const holds = held?.holds ?? false
+  /* The picked epic's entry, for its title. Null while the list is still being
+     read, or when the slug names nothing in it — then the slug itself shows. */
+  const picked = epic ? (epics.find((one) => one.slug === epic) ?? null) : null
   /* Three states and not two: no project, a project with no epics directory,
      and a directory that is there and empty. Only the first is the host not
      knowing yet; the other two are answers. */
@@ -190,7 +193,9 @@ export function Epics({
         ? 'this project has no .kehikot/roadmap/epics, so there is no epic to pick — which is not a fault: not every project has any'
         : epics.length === 0
           ? 'this project’s .kehikot/roadmap/epics is empty'
-          : 'the epic every module on this kehikko is shown'
+          : picked
+            ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/roadmap/epics`
+            : 'the epic every module on this kehikko is shown'
 
   return (
     <DropdownMenu>
@@ -206,7 +211,7 @@ export function Epics({
               size="sm"
               aria-label="the epic this project is on"
               disabled={shut}
-              className="h-6 max-w-52 gap-1 px-1.5 font-mono text-xs disabled:pointer-events-none"
+              className="h-6 max-w-72 gap-1 px-1.5 text-xs disabled:pointer-events-none"
             >
               {epic ? (
                 <Circle className="text-muted-foreground size-3 shrink-0" />
@@ -214,7 +219,7 @@ export function Epics({
                 <CircleSlash className="text-muted-foreground size-3 shrink-0" />
               )}
               <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
-                {epic ?? sentenceFor(hasProject, held)}
+                {picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
               </span>
               {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
             </Button>
