@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { LIMITS } from 'roadmap-module-protocol'
 
 import { within } from './projects.ts'
+import { epicsDir } from './roadmapData.ts'
 
 /**
  * Walking the disk to pick a project, and why the server has to be the one
@@ -55,7 +56,7 @@ import { within } from './projects.ts'
  *
  * Three facts, all cheap and all the ones a person needs to recognise a folder
  * they meant: whether it is a git repository, whether it is a git worktree, and
- * whether it holds `data/epics`. The last is the one that changes what a
+ * whether it holds `.kehikot/roadmap/epics`. The last is the one that changes what a
  * kehikko there can do, and showing it in the picker means nobody adds a
  * project and then wonders why the epic list is empty.
  */
@@ -67,7 +68,7 @@ export interface Entry {
   git: boolean
   /** `.git` is a FILE: a worktree, or a submodule. Both are folders you may open. */
   worktree: boolean
-  /** `data/epics` is under it, so a kehikko here would have epics to pick. */
+  /** `.kehikot/roadmap/epics` is under it, so a kehikko here would have epics to pick. */
   epics: boolean
 }
 
@@ -228,7 +229,7 @@ function marksOf(path: string): { git: boolean; worktree: boolean; epics: boolea
   }
   let epics = false
   try {
-    epics = statSync(join(path, 'data', 'epics')).isDirectory()
+    epics = statSync(epicsDir(path)).isDirectory()
   } catch {
     /* No epics here. Not an error — see `addProject`. */
   }

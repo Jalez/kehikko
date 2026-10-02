@@ -5,6 +5,8 @@ import { EPIC_SLUG } from 'roadmap-module-protocol'
 
 import { slugFrom } from '../src/host/epics.ts'
 
+import { EPICS_REL, epicsDir, stateDir } from './roadmapData.ts'
+
 /**
  * What this host actually holds, when it is pointed at something.
  *
@@ -17,8 +19,8 @@ import { slugFrom } from '../src/host/epics.ts'
  *
  * ## And then that one directory turned out to be one project's
  *
- * `$KEHIKKO_ROADMAP_DIR/data/epics` is not "the host's epics". It is the epics
- * of one folder — `~/Projects/roadmap` — which is one project among however
+ * The epics under `$KEHIKKO_ROADMAP_DIR` are not "the host's epics". They are
+ * the epics of one folder — `~/Projects/roadmap` — which is one project among however
  * many a person has. A host that read epics from a variable set at startup
  * could show a person a second project and go on answering `epics.list` out of
  * the first, correctly, with nothing to indicate it.
@@ -32,7 +34,7 @@ import { slugFrom } from '../src/host/epics.ts'
  * ## Not every project has any
  *
  * The user's thesis folder has `main.tex`, `chapters/` and `references.bib` and
- * no `data/epics` at all. `epicsIn` answers null for it, every question below
+ * no `.kehikot/roadmap/epics` at all. `epicsIn` answers null for it, every question below
  * refuses rather than inventing an empty answer, and the header says there are
  * no epics here. A host with no holdings says "not mine to say" and means it;
  * it does not say "no epics" and quietly mean "I was not configured". Those are
@@ -42,12 +44,20 @@ import { slugFrom } from '../src/host/epics.ts'
  *
  * ## Two directories, and the split between them is not ours
  *
- * `data/epics/<slug>.json` is what a person wrote: the title, the project, the
- * prose, the order of things. `data/state/<slug>.json` is what the trackers
+ * `.kehikot/roadmap/epics/<slug>.json` is what a person wrote: the title, the
+ * project, the prose, the order of things. `.kehikot/roadmap/state/<slug>.json`
+ * is what the trackers
  * last reported, written by a refresh and never by hand. The roadmap that owns
  * those files enforces the split, and this reads both without blurring it —
  * `epic.get` answers from the first, `live.get` from the second, and neither
  * borrows from the other.
+ *
+ * ## Under `.kehikot/roadmap/`, and no longer under `data/`
+ *
+ * Both directories used to sit at `<project>/data/`. They moved under the
+ * project's `.kehikot/` folder with every other module's data — see
+ * `roadmapData.ts`, which spells the path once and moves a legacy `data/epics`
+ * over when a project is adopted or added.
  *
  * ## Read on every call, and cached not at all
  *
@@ -68,7 +78,7 @@ import { slugFrom } from '../src/host/epics.ts'
  */
 export function epicsIn(root: string | null | undefined): string | null {
   if (!root) return null
-  return existsSync(join(root, 'data', 'epics')) ? root : null
+  return existsSync(epicsDir(root)) ? root : null
 }
 
 /**
@@ -104,7 +114,7 @@ export function listEpics(dir: string): EpicSummary[] {
   const epics: EpicSummary[] = []
   let files: string[]
   try {
-    files = readdirSync(join(dir, 'data', 'epics'))
+    files = readdirSync(epicsDir(dir))
   } catch {
     return []
   }
@@ -113,7 +123,7 @@ export function listEpics(dir: string): EpicSummary[] {
     if (!file.endsWith('.json')) continue
     const slug = file.slice(0, -'.json'.length)
     if (!SLUG.test(slug)) continue
-    const epic = read(join(dir, 'data', 'epics', file))
+    const epic = read(join(epicsDir(dir), file))
     if (!epic) continue
     epics.push(summarise(slug, epic))
   }
@@ -152,7 +162,7 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
 /** One epic, exactly as it is written down. `null` when there is no such file. */
 export function readEpic(dir: string, slug: string): Record<string, unknown> | null {
   if (!SLUG.test(slug)) return null
-  return read(join(dir, 'data', 'epics', `${slug}.json`))
+  return read(join(epicsDir(dir), `${slug}.json`))
 }
 
 export type Retitled = { ok: true; epic: EpicSummary } | { ok: false; why: string; status: number }
@@ -190,14 +200,14 @@ const NOT_ONE_LINE = /[\u0000-\u001f\u007f]/
  *
  * - `canvases.epic`, the column this host writes when somebody picks an epic;
  * - `roadmap.context.epic`, which every framed module on the kehikko is told;
- * - `data/state/<slug>.json`, written by a tracker refresh and never by hand;
+ * - `.kehikot/roadmap/state/<slug>.json`, written by a tracker refresh and never by hand;
  * - `.kehikot/journeys/journeys.json`, a record whose KEYS are slugs;
  * - `.kehikot/checklist/<slug>.json`, one file per epic;
  * - `.kehikot/paper/<epic>/`, a whole DIRECTORY named by the slug, with
  *   somebody's chapters in it.
  *
  * All six were checked on this machine and all six are real. A re-slug that
- * renamed `data/epics/<slug>.json` and stopped there would leave a project's
+ * renamed `.kehikot/roadmap/epics/<slug>.json` and stopped there would leave a project's
  * papers, journeys, checklists and questions filed under a name nothing asks
  * for again — silently, because every one of those readers answers "nothing
  * here" for an unknown slug rather than failing. That is a migration across
@@ -208,7 +218,8 @@ const NOT_ONE_LINE = /[\u0000-\u001f\u007f]/
  * ## What it refuses
  *
  * A slug that is not one, a title that is empty, a title longer than
- * `TITLE_MAX`, a title with a newline in it, a project with no `data/epics`, an
+ * `TITLE_MAX`, a title with a newline in it, a project with no
+ * `.kehikot/roadmap/epics`, an
  * epic that is not in THIS project, and a file this host cannot read as JSON —
  * because overwriting a file you could not read is how somebody's narrative
  * becomes two fields and a lost afternoon.
@@ -233,10 +244,10 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
   const wanted = titled.title
 
   if (!epicsIn(root)) {
-    return { ok: false, why: 'This project has no data/epics, so there is no epic in it to retitle.', status: 409 }
+    return { ok: false, why: `This project has no ${EPICS_REL}, so there is no epic in it to retitle.`, status: 409 }
   }
 
-  const path = join(root, 'data', 'epics', `${slug}.json`)
+  const path = join(epicsDir(root), `${slug}.json`)
   let raw: string
   try {
     raw = readFileSync(path, 'utf8')
@@ -321,7 +332,7 @@ export type Created =
   | { ok: false; why: string; status: number }
 
 /**
- * A new epic: one file in `data/epics`, and the directory if there was none.
+ * A new epic: one file in `.kehikot/roadmap/epics`, and the directory if there was none.
  *
  * ## One implementation, two callers
  *
@@ -364,7 +375,7 @@ export type Created =
  * A title that is not one (the same rules as a retitle), a slug that is not
  * one, a slug that is already an epic here — never overwritten, because that
  * file is a document somebody wrote — and a directory this host cannot make.
- * A project with no `data/epics` is NOT refused: the directory is made, which
+ * A project with no `.kehikot/roadmap/epics` is NOT refused: the directory is made, which
  * is the whole difference between this and `retitleEpic`. A retitle in such a
  * project has nothing to retitle; a create is how the directory comes to
  * exist. The caller says on screen that it will happen — see `offerOfCreate`.
@@ -395,13 +406,13 @@ export function createEpic(
     }
   }
 
-  const dir = join(root, 'data', 'epics')
+  const dir = epicsDir(root)
   const madeDirectory = !existsSync(dir)
   if (madeDirectory) {
     try {
       mkdirSync(dir, { recursive: true })
     } catch (error) {
-      return { ok: false, why: `data/epics could not be made in this project: ${(error as Error).message}`, status: 500 }
+      return { ok: false, why: `${EPICS_REL} could not be made in this project: ${(error as Error).message}`, status: 500 }
     }
   }
 
@@ -430,7 +441,7 @@ export function createEpic(
 export type Deleted = { ok: true } | { ok: false; why: string; status: number }
 
 /**
- * An epic, gone: its one file in `data/epics` removed, and nothing else.
+ * An epic, gone: its one file in `.kehikot/roadmap/epics` removed, and nothing else.
  *
  * Asked for from the epic menu, beside the project's forget and the kehikko's
  * remove, and armed there for the same reason they are — this one cannot be
@@ -442,7 +453,8 @@ export type Deleted = { ok: true } | { ok: false; why: string; status: number }
  * neither owns nor can see inside it; it stays where it is, readable again if
  * an epic with that slug is ever made.
  *
- * Refuses a slug that is not one, a project with no `data/epics`, and an epic
+ * Refuses a slug that is not one, a project with no `.kehikot/roadmap/epics`,
+ * and an epic
  * that is not in THIS project.
  */
 export function deleteEpic(root: string, slug: string): Deleted {
@@ -454,9 +466,9 @@ export function deleteEpic(root: string, slug: string): Deleted {
     }
   }
   if (!epicsIn(root)) {
-    return { ok: false, why: 'This project has no data/epics, so there is no epic in it to delete.', status: 409 }
+    return { ok: false, why: `This project has no ${EPICS_REL}, so there is no epic in it to delete.`, status: 409 }
   }
-  const path = join(root, 'data', 'epics', `${slug}.json`)
+  const path = join(epicsDir(root), `${slug}.json`)
   if (!existsSync(path)) {
     return { ok: false, why: `There is no epic called ${slug} in this project.`, status: 404 }
   }
@@ -641,7 +653,7 @@ function endOfValue(raw: string, from: number): number {
  */
 export function readLive(dir: string, slug: string): Record<string, unknown> | null {
   if (!SLUG.test(slug)) return null
-  return read(join(dir, 'data', 'state', `${slug}.json`))
+  return read(join(stateDir(dir), `${slug}.json`))
 }
 
 /** The steps of one epic, when it has any written down. */
@@ -669,7 +681,7 @@ function read(path: string): Record<string, unknown> | null {
  * needs the bytes as well as the values, because it writes the bytes back — and
  * must not read the same file twice to get both. Two reads of one file are two
  * different files if anything writes between them, and a refresh rewriting
- * `data/` under a running host is the ordinary case here, not the exotic one.
+ * `.kehikot/roadmap/` under a running host is the ordinary case here, not the exotic one.
  */
 function parse(text: string): Record<string, unknown> | null {
   try {
