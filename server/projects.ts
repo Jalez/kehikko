@@ -6,6 +6,7 @@ import { basename, isAbsolute, resolve, sep } from 'node:path'
 import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } from 'roadmap-module-protocol'
 
 import { createCanvas, listCanvases } from './canvases.ts'
+import { epicsDir, migrateLegacyRoadmapData } from './roadmapData.ts'
 
 /**
  * Projects: the containers, and the thing this host had the wrong way round.
@@ -24,7 +25,7 @@ import { createCanvas, listCanvases } from './canvases.ts'
  * on coding. Project and their epics can have one or many kehikkos."* So:
  *
  *     project (a folder on disk)
- *       ├── epics      (data/epics under it, when it has any)
+ *       ├── epics      (.kehikot/roadmap/epics under it, when it has any)
  *       └── kehikot    (many; one per purpose)
  *
  * ## Why a folder, and why that is the whole of it
@@ -50,7 +51,7 @@ export interface Project {
   name: string
   /** Absolute, and real: the path as the filesystem resolved it. */
   path: string
-  /** Whether `data/epics` exists under it. Read now, never cached — see below. */
+  /** Whether `.kehikot/roadmap/epics` exists under it. Read now, never cached — see below. */
   epics: boolean
   /**
    * Whether this folder has a git history at all.
@@ -151,7 +152,7 @@ export function named(path: string): string {
 /** Whether a folder brings its own epics. Not every project does — see `addProject`. */
 export function holdsEpics(root: string): boolean {
   try {
-    return statSync(resolve(root, 'data', 'epics')).isDirectory()
+    return statSync(epicsDir(resolve(root))).isDirectory()
   } catch {
     return false
   }
@@ -360,7 +361,7 @@ export type Added =
  * ## A project with no epics is not an error
  *
  * The user's thesis lives in a folder with `main.tex`, `chapters/` and
- * `references.bib` and no `data/epics` anywhere in it. A kehikko there is a
+ * `references.bib` and no `.kehikot/roadmap/epics` anywhere in it. A kehikko there is a
  * perfectly good kehikko — it is where the writing modules go — and it honestly
  * has no epics to pick. Refusing that folder would be this host insisting that
  * work it cannot index is not work. So `epics` is reported and never required,
@@ -417,6 +418,11 @@ export function addProject(
     return { ok: false, why: 'There is no folder at that path.', status: 400 }
   }
 
+  /* A legacy `data/epics` / `data/state` moves under `.kehikot/roadmap/` the
+     moment the folder becomes (or is re-added as) a project — see
+     `roadmapData.ts`. Never overwrites; a folder with both keeps both. */
+  migrateLegacyRoadmapData(real)
+
   /* Already open. Not an error and not a second row: the person picked the
      folder they are already in, most likely because they could not tell from
      the browser that it was already a project. They get the one that exists. */
@@ -470,7 +476,7 @@ export function addProject(
  *
  * With no `KEHIKKO_ROADMAP_DIR` and no projects, the seed is the person's home
  * folder. That is a guess and it is deliberately a visible one: home certainly
- * exists, it holds no `data/epics`, so the header says there are no epics here
+ * exists, it holds no `.kehikot/roadmap/epics`, so the header says there are no epics here
  * — which is true — and "add a project" is one press away. The alternative was
  * leaving canvases in no project at all, and a kehikko no dropdown lists is
  * work somebody cannot reach.
@@ -501,6 +507,12 @@ export function adopt(
        state than refusing to serve a page. */
     if (addProject(db, seed, undefined, orphans.length === 0).ok) projects = listProjects(db)
   }
+
+  /* Every project this host already knows gets its legacy roadmap data moved
+     under `.kehikot/roadmap/` at startup, so a project added before the move
+     reads the same epics after it. See `roadmapData.ts`. */
+  for (const project of projects) migrateLegacyRoadmapData(project.path)
+  if (projects.length) projects = listProjects(db)
 
   const first = projects[0] ?? null
   if (!first) return { seeded: null, adopted: 0 }

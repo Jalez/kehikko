@@ -137,7 +137,7 @@ export function answer(
    * the roadmap, correctly, with no symptom.
    *
    * Null is the ordinary state and not a failure: a host with no project open,
-   * a call from a frame on a project that has no `data/epics`, or a test that
+   * a call from a frame on a project that has no `.kehikot/roadmap/epics`, or a test that
    * has deliberately given it nothing. Every branch below already had to answer
    * for a host holding nothing, so null needs no new sentence.
    */
@@ -204,7 +204,7 @@ export function answer(
    * Where this call's holdings are, if there are any.
    *
    * Checked per call rather than once at startup, because a refresh rewrites
-   * those files underneath a running host, because `data/epics` can appear
+   * those files underneath a running host, because `.kehikot/roadmap/epics` can appear
    * under a project that did not have it a minute ago, and because which
    * project is being asked about is now a property of the call rather than of
    * the process.
@@ -257,7 +257,7 @@ export function answer(
   /**
    * What the trackers last reported.
    *
-   * Answered out of `data/state/`, which a refresh writes and nobody edits by
+   * Answered out of `.kehikot/roadmap/state/`, which a refresh writes and nobody edits by
    * hand — so this host relays a reading rather than making a claim of its own.
    * `generated` travels with it and is the most important field in the answer:
    * tracker state with no date on it is last week presented as now.

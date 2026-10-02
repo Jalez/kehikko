@@ -9,7 +9,8 @@
     "build": "vite build",
     "serve": "bun run server/server.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:storage": "bun dev/storage-boundary.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.11",
