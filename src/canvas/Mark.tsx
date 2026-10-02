@@ -5,10 +5,15 @@
  * in the desktop app's waiting room; otherwise it is the finished frame, still.
  * Key it on the job to restart the drawing for a new one. `currentColor`
  * throughout, so it is right in light and dark. The styles are in `index.css`.
+ *
+ * The viewBox is centred on the drawing, not on the origin: the cube spans
+ * x 26–102 and y 6–82 (centre 64,44), so a `0 0 108 108` box drew it high and
+ * to the right of whatever it sat beside. Keep `transform-origin` in
+ * `index.css` on the same centre.
  */
 export function KehikkoMark({ working, className }: { working: boolean; className?: string }) {
   return (
-    <svg className={`kehikko-mark ${className ?? ''}`} data-working={working} viewBox="0 0 108 108" aria-hidden="true">
+    <svg className={`kehikko-mark ${className ?? ''}`} data-working={working} viewBox="10 -10 108 108" aria-hidden="true">
       <g className="built">
         <line className="seed" x1="26" y1="82" x2="82" y2="82" />
         <path className="front" d="M26 82 L26 26 L82 26 L82 82" />
