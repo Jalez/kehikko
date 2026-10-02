@@ -209,7 +209,7 @@ export function AddItem({
  * `onSave` answers whether it was written. Nothing typed or nothing changed is
  * not a write and simply closes. A refusal keeps the form open with the typed
  * name still in it, and the reason — the server's own sentence — goes to the
- * footer, where every other refusal in this host goes.
+ * error line, where every other refusal in this host goes.
  */
 export function NameForm({
   heading,

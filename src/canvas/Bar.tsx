@@ -38,6 +38,8 @@ import { Updates } from './Updates.tsx'
 import { FeedbackButton } from './Feedback.tsx'
 import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
+import { KehikkoMark } from './Mark.tsx'
+import { Trouble } from './Trouble.tsx'
 
 /**
  * The whole of the host's own interface.
@@ -99,6 +101,9 @@ export function Bar({
   theme,
   onTheme,
   onTools,
+  trouble,
+  onLookAgain,
+  looking,
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -139,6 +144,11 @@ export function Bar({
   onTheme(): void
   /** Open the window about the host's own MCP door. See the plug below. */
   onTools(): void
+  /** The host's own error line, or null. Drawn here; see `Trouble.tsx`. */
+  trouble: string | null
+  /** Sweep the registry now. */
+  onLookAgain(): void
+  looking: boolean
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -152,6 +162,14 @@ export function Bar({
        readable in one pass rather than four. */
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
       <header className="bg-background flex h-8 shrink-0 items-center gap-1 px-2">
+        {/* Whose window this is, before anything it holds. The mark is the same
+            one the update panel draws, still. */}
+        <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none">
+          <KehikkoMark working={false} className="size-4" />
+          Kehikot
+        </span>
+        <span className="bg-border mx-1 h-4 w-px shrink-0" />
+
         {/*
          * The project. Everything else on this strip is inside it, so it comes
          * first — see `Projects.tsx`, and the essay above on why the order is
@@ -207,6 +225,8 @@ export function Bar({
         />
 
         <span className="flex-1" />
+
+        <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
 
         {/* The one number worth putting on the frame itself: how many registered
             programs are not answering. Silence is the common condition and the one

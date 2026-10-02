@@ -142,7 +142,7 @@ export function Epics({
    *
    * Answers whether it was written, which is what keeps the form open over a
    * refusal with the typed title still in it. The sentence saying why is the
-   * server's own and goes to the footer, where every other refusal in this host
+   * server's own and goes to the header's error line, where every other refusal in this host
    * already goes.
    */
   onRetitle(slug: string, title: string): Promise<boolean>
@@ -151,7 +151,7 @@ export function Epics({
    *
    * Answers whether it was written, exactly as `onRetitle` does and for the
    * same reason: the form stays open over a refusal with what was typed still
-   * in it, and the server's own sentence goes to the footer.
+   * in it, and the server's own sentence goes to the header's error line.
    */
   onCreate(slug: string, title: string): Promise<boolean>
   /**
@@ -347,7 +347,7 @@ export function Epics({
  *
  * The button is disabled for an empty title and for nothing else. A slug
  * the server will refuse is sent and refused, and the refusal lands in the
- * footer with the server's sentence while the form stays open with both
+ * error line with the server's sentence while the form stays open with both
  * fields as they were — see the essay on the component.
  */
 function Create({
