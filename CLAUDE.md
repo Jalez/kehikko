@@ -12,5 +12,5 @@
   `~/.claude*`, `~/Library/LaunchAgents|Logs`, the roadmap service marker, temp
   dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
-- Run `bun run check:storage` before finishing; it scans this host, the roadmap,
+- Run `bun run check:storage` before finishing; it scans this host,
   the protocol and every registered module, and fails on violations.

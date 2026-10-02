@@ -11,7 +11,7 @@
 import { hasGit, sharesKehikot } from '../server/projects.ts'
 
 const projects = [
-  '/Users/jaakkorajala/Projects/roadmap',
+  '/Users/jaakkorajala/Projects/kehikko',
   '/Users/jaakkorajala/Claude/Projects/CS-DEGREE/05_drafts/thesis_latex',
   '/Users/jaakkorajala/Projects/hippos_kotisivut/hippos-portal',
 ]

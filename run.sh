@@ -125,43 +125,30 @@ fi
 # host said what its environment told it. Nothing was broken and nothing could be
 # grepped for.
 #
-# So the default lives here, in the script that starts this host, rather than in
-# whoever's shell happens to run it. An explicit `KEHIKKO_ROADMAP_DIR` still
-# wins; this only fills in the silence.
-#
-# Note this is the OPPOSITE of the rule `kehikko-orchestrator/scope.ts` argues
-# for, which refuses to default a directory at all — and the difference is what
-# the directory is FOR. There, a guessed path is an agent editing the wrong
-# repository: a write, and an irreversible one. Here it is a read of a roadmap's
-# own epics, where a wrong guess shows the wrong list and a missing guess shows
-# no list, and only one of those two announces itself.
-# Whether a folder holds a roadmap's epics: `.kehikot/roadmap/epics`, or the
-# legacy `data/epics` the host will move there when it adopts the folder.
+# There used to be a default here — `~/Projects/roadmap` — for exactly that
+# reason. The roadmap prototype is retired and its folder is gone (its epics now
+# live in the kehikko project's `.kehikot/`), so the default is too: the
+# projects table is the answer on every start, and this variable only seeds a
+# fresh database when somebody sets it on purpose.
+# Whether a folder holds epics: `.kehikot/roadmap/epics`, or the legacy
+# `data/epics` the host will move there when it adopts the folder.
 holds_epics() {
   [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
 }
 
-if [ -z "${KEHIKKO_ROADMAP_DIR:-}" ] && holds_epics "$HOME/Projects/roadmap"; then
-  KEHIKKO_ROADMAP_DIR="$HOME/Projects/roadmap"
-fi
-export KEHIKKO_ROADMAP_DIR
-
-if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ] && holds_epics "$KEHIKKO_ROADMAP_DIR"; then
-  echo "kehikko: epics from $KEHIKKO_ROADMAP_DIR/.kehikot/roadmap/epics" >&2
-  echo "kehikko: that path seeds the FIRST project only; after that, epics come from <project>/.kehikot/roadmap/epics" >&2
-else
-  # Said out loud, at start, in the terminal somebody is looking at — because
-  # the alternative is finding out from a module drawing an empty map twenty
-  # minutes later and blaming the module. It is now a warning about the FIRST
-  # run only: a host whose projects are already in its database reads its epics
-  # from those folders and never from here.
-  echo "kehikko: KEHIKKO_ROADMAP_DIR names no folder with .kehikot/roadmap/epics. If this host has no projects yet it will seed one from your home folder, which holds none — add a project from the header." >&2
+if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
+  export KEHIKKO_ROADMAP_DIR
+  if holds_epics "$KEHIKKO_ROADMAP_DIR"; then
+    echo "kehikko: KEHIKKO_ROADMAP_DIR seeds the FIRST project only, from $KEHIKKO_ROADMAP_DIR" >&2
+  else
+    echo "kehikko: KEHIKKO_ROADMAP_DIR=$KEHIKKO_ROADMAP_DIR holds no .kehikot/roadmap/epics; it seeds nothing." >&2
+  fi
 fi
 
 # What the server itself then prints is the fact that matters, and it prints it
 # from the database rather than from this script:
 #
-#   projects are folders; the first is roadmap at /Users/…/Projects/roadmap
+#   projects are folders; the first is kehikko at /Users/…/Projects/kehikko
 #   3 kehikko(t) written before projects existed were filed under it
 #
 # The second line appears once, on the run that migrates. A host that had
@@ -170,7 +157,7 @@ fi
 # The storage boundary, said loudly and never enforced here.
 #
 # Every module keeps a project's data under `<project>/.kehikot/<module>/`, and
-# `dev/storage-boundary.ts` scans this host, the roadmap, the protocol and every
+# `dev/storage-boundary.ts` scans this host, the protocol and every
 # registered module for code that stores it anywhere else. A violation is a
 # warning at start, in the terminal somebody is looking at, rather than a refusal
 # to start: the workspace is somebody's running tools, and a module that still
