@@ -7,8 +7,11 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import {
   createCanvas,
   editCanvas,
+  hintSubject,
   listCanvases,
   open as openDb,
+  readSubject,
+  setSubject,
   type Canvas,
   type Placement,
 } from '../server/canvases.ts'
@@ -142,11 +145,8 @@ describe('the round trip: this computer, the file, another computer', () => {
     const here = db()
     const p = project(here, dir)
     const writing = createCanvas(here, 'writing', p.id)
-    editCanvas(here, writing.id, {
-      epic: 'modes-are-modules',
-      selection: ['gh#105', '!44'],
-      placements: [everything, another],
-    })
+    editCanvas(here, writing.id, { placements: [everything, another] })
+    setSubject(here, p.id, { epic: 'modes-are-modules', selection: ['gh#105', '!44'] })
     const review = createCanvas(here, 'review', p.id)
     editCanvas(here, review.id, { placements: [another] })
 
@@ -171,6 +171,8 @@ describe('the round trip: this computer, the file, another computer', () => {
     expect(after.map((c) => c.key)).toEqual(before.map((c) => c.key))
     /* The ids are not — they are this machine's row numbers and nothing more. */
     expect(listCanvases(there).map((c) => c.project)).toEqual([q.id, q.id])
+    /* And what the project is about travels once, with the project. */
+    expect(readSubject(there, q.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105', '!44'] })
   })
 
   test('the file is one a person can read, diff and merge', () => {
@@ -178,18 +180,19 @@ describe('the round trip: this computer, the file, another computer', () => {
     const store = db()
     const p = project(store, dir)
     const made = createCanvas(store, 'writing', p.id, 'writing')
-    editCanvas(store, made.id, { epic: 'modes-are-modules', placements: [everything, another] })
+    editCanvas(store, made.id, { placements: [everything, another] })
+    setSubject(store, p.id, { epic: 'modes-are-modules' })
     keep(store, p.id)
 
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
     expect(text).toBe(`{
-  "version": 1,
+  "version": 2,
+  "epic": "modes-are-modules",
+  "selection": [],
   "kehikot": [
     {
       "key": "writing",
       "name": "writing",
-      "epic": "modes-are-modules",
-      "selection": [],
       "containers": [
         {"module":"roadmap.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
         {"module":"roadmap.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"roadmap.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
@@ -343,7 +346,12 @@ describe('a file that will not read', () => {
   test('each kind of fault is named in a sentence rather than thrown', () => {
     expect(parse('{')).toMatchObject({ ok: false })
     expect(parse('[]')).toMatchObject({ ok: false })
-    expect(parse('{"version": 2, "kehikot": []}')).toMatchObject({ ok: false })
+    expect(parse('{"version": 3, "kehikot": []}')).toMatchObject({ ok: false })
+    /* A version-2 file with an epic on a kehikko is refused rather than
+       quietly read: version 2 has no such field, so somebody wrote it there
+       expecting it to mean something. */
+    const misplaced = parse(JSON.stringify({ version: 2, kehikot: [{ key: 'a1', name: 'a', epic: 'x' }] }))
+    expect(!misplaced.ok && misplaced.why).toContain('epic')
     const unknown = parse(
       JSON.stringify({ version: 1, kehikot: [{ key: 'a1', name: 'a', containers: [{ module: 'x.y', x: 0, y: 0, w: 1, h: 1, tint: 'red' }] }] }),
     )
@@ -397,7 +405,7 @@ describe('a file that will not read', () => {
       filters: {},
       refreshEvery: null,
     })
-    expect(read.ok && read.kehikot[0]).toMatchObject({ epic: null, selection: [] })
+    expect(read.ok && read.subject).toEqual({ epic: null, selection: [] })
   })
 
   /*
@@ -505,6 +513,201 @@ describe('the file is the record', () => {
     const store = db()
     syncProject(store, project(store, dir))
     expect(listCanvases(store)[0]!.placements[0]).toMatchObject({ h: 400, refreshEvery: null })
+  })
+})
+
+describe('the epic is the project’s, and the kehikko is only a layout', () => {
+  test('the file says the epic once, at the top, and no kehikko carries one', () => {
+    const dir = folder()
+    const store = db()
+    const p = project(store, dir)
+    createCanvas(store, 'writing', p.id, 'writing')
+    createCanvas(store, 'review', p.id, 'review')
+    setSubject(store, p.id, { epic: 'modes-are-modules', selection: ['gh#1'] })
+    keep(store, p.id)
+    const raw = JSON.parse(readFileSync(kehikotFile(dir)!, 'utf8'))
+    expect(raw.version).toBe(2)
+    expect(raw.epic).toBe('modes-are-modules')
+    expect(raw.selection).toEqual(['gh#1'])
+    for (const kehikko of raw.kehikot) {
+      expect(Object.keys(kehikko).sort()).toEqual(['containers', 'key', 'name'])
+    }
+  })
+
+  test('rearranging or renaming a kehikko leaves the epic where it was', () => {
+    const store = db()
+    const p = project(store, folder())
+    const one = createCanvas(store, 'one', p.id)
+    const two = createCanvas(store, 'two', p.id)
+    setSubject(store, p.id, { epic: 'modes-are-modules', selection: ['gh#1'] })
+    editCanvas(store, one.id, { placements: [everything] })
+    editCanvas(store, two.id, { name: 'renamed', placements: [another] })
+    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#1'] })
+  })
+
+  test('changing the epic leaves every kehikko exactly as it was', () => {
+    const store = db()
+    const p = project(store, folder())
+    const one = createCanvas(store, 'one', p.id)
+    editCanvas(store, one.id, { placements: [everything, another] })
+    createCanvas(store, 'two', p.id)
+    const before = listCanvases(store)
+    setSubject(store, p.id, { epic: 'one-epic' })
+    setSubject(store, p.id, { epic: 'another-epic', selection: ['gh#2'] })
+    setSubject(store, p.id, { epic: null })
+    expect(listCanvases(store)).toEqual(before)
+  })
+
+  test('two projects are about two different things', () => {
+    const store = db()
+    const a = project(store, folder())
+    const b = project(store, folder())
+    setSubject(store, a.id, { epic: 'first' })
+    setSubject(store, b.id, { epic: 'second' })
+    expect(readSubject(store, a.id)?.epic).toBe('first')
+    expect(readSubject(store, b.id)?.epic).toBe('second')
+  })
+
+  test('the file wins for the epic as it does for the layout', () => {
+    const dir = folder()
+    const here = db()
+    const p = project(here, dir)
+    createCanvas(here, 'writing', p.id, 'writing')
+    setSubject(here, p.id, { epic: 'pulled', selection: ['gh#9'] })
+    keep(here, p.id)
+
+    const there = db()
+    const q = project(there, dir)
+    setSubject(there, q.id, { epic: 'stale' })
+    expect(syncProject(there, q)).toMatchObject({ outcome: 'read', changed: true })
+    expect(readSubject(there, q.id)).toEqual({ epic: 'pulled', selection: ['gh#9'] })
+    expect(syncProject(there, q)).toMatchObject({ outcome: 'read', changed: false })
+  })
+})
+
+describe('a version-1 file, where every kehikko had its own epic', () => {
+  const v1 = (kehikot: unknown[]) => JSON.stringify({ version: 1, kehikot }, null, 2)
+
+  test('the project takes the first kehikko’s epic that had one, and the file is written again as version 2', () => {
+    const dir = folder()
+    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    writeFileSync(
+      kehikotFile(dir)!,
+      v1([
+        { key: 'blank', name: 'blank', epic: null, selection: [], containers: [] },
+        { key: 'writing', name: 'writing', epic: 'modes-are-modules', selection: ['gh#105'], containers: [] },
+        { key: 'review', name: 'review', epic: 'something-else', selection: ['gh#1'], containers: [] },
+      ]),
+    )
+    const store = db()
+    const p = project(store, dir)
+    expect(syncProject(store, p)).toMatchObject({ outcome: 'read', changed: true })
+    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105'] })
+    expect(listCanvases(store).map((c) => c.key)).toEqual(['blank', 'writing', 'review'])
+
+    /* Read once: the old per-kehikko fields are not written back. */
+    const text = readFileSync(kehikotFile(dir)!, 'utf8')
+    const raw = JSON.parse(text)
+    expect(raw.version).toBe(2)
+    expect(raw.epic).toBe('modes-are-modules')
+    expect(text).not.toContain('something-else')
+    expect(raw.kehikot.every((k: Record<string, unknown>) => !('epic' in k) && !('selection' in k))).toBe(true)
+  })
+
+  test('a version-1 file with no epic anywhere leaves the project about nothing', () => {
+    const dir = folder()
+    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    writeFileSync(kehikotFile(dir)!, v1([{ key: 'a1', name: 'a', epic: null, containers: [] }]))
+    const store = db()
+    const p = project(store, dir)
+    syncProject(store, p)
+    expect(readSubject(store, p.id)).toEqual({ epic: null, selection: [] })
+  })
+})
+
+describe('the move in the database, from per-kehikko epics to the project', () => {
+  /** A database as the host before this change left it: epics on the kehikot. */
+  function before(file: string, rows: { name: string; epic: string | null; selection?: string[] }[]): void {
+    const old = new Database(file, { create: true })
+    old.exec(`
+      create table projects (id integer primary key autoincrement, name text not null, path text not null unique, rank integer not null);
+      create table canvases (id integer primary key autoincrement, name text not null, rank integer not null, epic text, selection text,
+        project_id integer references projects(id) on delete cascade, key text);
+      create table placements (canvas integer not null references canvases(id) on delete cascade, module text not null,
+        x integer not null, y integer not null, w integer not null, h integer not null, primary key (canvas, module));
+      insert into projects (id, name, path, rank) values (1, 'p', '/nowhere/p', 1);
+      insert into projects (id, name, path, rank) values (2, 'q', '/nowhere/q', 2);
+    `)
+    rows.forEach((row, i) =>
+      old
+        .query('insert into canvases (name, rank, epic, selection, project_id, key) values (?, ?, ?, ?, 1, ?)')
+        .run(row.name, i + 1, row.epic, JSON.stringify(row.selection ?? []), `k${i}`),
+    )
+    old.close()
+  }
+
+  function scratch(): string {
+    return join(folder(), 'frame.sqlite')
+  }
+
+  test('a project takes its first kehikko’s epic that had one, and the one with none stays about nothing', () => {
+    const file = scratch()
+    before(file, [
+      { name: 'blank', epic: null },
+      { name: 'writing', epic: 'modes-are-modules', selection: ['gh#105'] },
+      { name: 'review', epic: 'something-else' },
+    ])
+    const store = openDb(file)
+    expect(readSubject(store, 1)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105'] })
+    expect(readSubject(store, 2)).toEqual({ epic: null, selection: [] })
+    store.close()
+  })
+
+  test('the kehikko the page says it was last on wins, once, and never again', () => {
+    const file = scratch()
+    before(file, [
+      { name: 'writing', epic: 'modes-are-modules' },
+      { name: 'review', epic: 'something-else', selection: ['gh#1'] },
+    ])
+    const store = openDb(file)
+    const review = listCanvases(store).find((c) => c.name === 'review')!.id
+    const writing = listCanvases(store).find((c) => c.name === 'writing')!.id
+    expect(hintSubject(store, review)).toBe(1)
+    expect(readSubject(store, 1)).toEqual({ epic: 'something-else', selection: ['gh#1'] })
+
+    /* A later load on another kehikko — the switch the person reported — does
+       not move the epic. */
+    expect(hintSubject(store, writing)).toBeNull()
+    expect(readSubject(store, 1)?.epic).toBe('something-else')
+
+    /* And reopening the database does not run the move again. */
+    store.close()
+    const again = openDb(file)
+    expect(hintSubject(again, writing)).toBeNull()
+    expect(readSubject(again, 1)?.epic).toBe('something-else')
+    again.close()
+  })
+
+  test('a person who picks before the page has said anything is not overruled by it', () => {
+    const file = scratch()
+    before(file, [
+      { name: 'writing', epic: 'modes-are-modules' },
+      { name: 'review', epic: 'something-else' },
+    ])
+    const store = openDb(file)
+    setSubject(store, 1, { epic: 'chosen' })
+    const review = listCanvases(store).find((c) => c.name === 'review')!.id
+    expect(hintSubject(store, review)).toBeNull()
+    expect(readSubject(store, 1)?.epic).toBe('chosen')
+    store.close()
+  })
+
+  test('a fresh database has nothing to move', () => {
+    const store = db()
+    const p = project(store, folder())
+    expect(readSubject(store, p.id)).toEqual({ epic: null, selection: [] })
+    const made = createCanvas(store, 'one', p.id)
+    expect(hintSubject(store, made.id)).toBeNull()
   })
 })
 

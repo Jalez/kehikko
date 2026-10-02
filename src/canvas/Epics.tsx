@@ -18,7 +18,8 @@ import { Hint } from './Hint.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
 /**
- * The epic every module on this kehikko is shown, picked from a list.
+ * The epic the open project is on — every module on every kehikko in it is
+ * shown it — picked from a list.
  *
  * ## It used to be a text field, and a text field was the wrong control
  *
@@ -35,8 +36,8 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  *
  * The fallback in `toWireContext` for a slug the schema will not take is kept
  * rather than deleted, and its comment now says what it actually guards: a slug
- * persisted before this picker existed, and a kehikko whose remembered epic is
- * no longer in its project.
+ * persisted before this picker existed, and a project whose remembered epic is
+ * no longer among its epics.
  *
  * ## A project with no epics says so
  *
@@ -61,7 +62,7 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  *
  * "Rename an epic" names two operations. Retitling changes what it is called —
  * one field of one file, nothing else refers to it. Re-slugging changes what it
- * IS, and the slug is on `canvases.epic`, in `roadmap.context.epic`, and is the
+ * IS, and the slug is on `projects.epic`, in `roadmap.context.epic`, and is the
  * key every module files its own material under: a record in `journeys.json`, a
  * file per epic under `checklist/`, a whole directory under `paper/`. Only the
  * first is offered, the control says "retitle" rather than "rename", and the
@@ -203,7 +204,7 @@ export function Epics({
             <Button
               variant="ghost"
               size="sm"
-              aria-label="the epic this kehikko is about"
+              aria-label="the epic this project is on"
               disabled={shut}
               className="h-6 max-w-52 gap-1 px-1.5 font-mono text-xs disabled:pointer-events-none"
             >

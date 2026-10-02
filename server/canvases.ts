@@ -153,14 +153,14 @@ export interface Placement {
    *
    * ## A third axis, and it is not either of the other two
    *
-   * `Canvas.selection` below is REFS — `gh#105`, `!44` — somebody picked out of
-   * a tracker, and a passage is a place inside a document. Neither is this.
+   * A project's `Subject.selection` is REFS — `gh#105`, `!44` — somebody picked
+   * out of a tracker, and a passage is a place inside a document. Neither is this.
    * This says which of the containers arranged here are the ones being aimed
    * at: "work on these two", said about the canvas rather than about the work.
    *
    * ## Why it is a field on the placement rather than a list on the canvas
    *
-   * The selection of refs is a JSON column on `canvases` because a ref is a
+   * The selection of refs is a JSON column on `projects` because a ref is a
    * name for something outside this host, and nothing here can check it. A
    * container is not like that: it is a row in this table, and the only
    * containers that can be selected are the ones on the canvas. Putting the
@@ -295,8 +295,19 @@ export interface Canvas {
    */
   key: string
   name: string
-  /** Which epic this kehikko is about — see `src/host/context.ts`. Null when none is picked. */
-  epic: string | null
+  /*
+   * There is no epic here, and no selection, and that is a decision rather than
+   * an omission. A kehikko used to carry both: "which epic this kehikko is
+   * about", and the refs picked out on it. So switching kehikko switched the
+   * epic, because each one remembered its own — and the person reported it
+   * plainly: "when I switch the kehikko it also switches the epic, even though
+   * it shouldn't."
+   *
+   * The epic is picked per PROJECT and stays put; a kehikko is only a layout.
+   * See `Subject` below and the essay in `src/host/context.ts`. The `epic` and
+   * `selection` columns are still in the table, unread and unwritten, for the
+   * one-time move described at the end of `open()`.
+   */
   /**
    * Which project this kehikko belongs to, as a project id.
    *
@@ -321,17 +332,6 @@ export interface Canvas {
    * dropdown lists, which is work a person cannot reach. See `projects.ts`.
    */
   project: number | null
-  /**
-   * What has been picked out on this canvas, as refs.
-   *
-   * Stored as one JSON column rather than as rows, which is the opposite of the
-   * decision made for placements — and the difference is the reason. Placements
-   * are rows so that "which canvases hold this module" has an answer, and the
-   * canvas layer genuinely asks it. Nothing will ever ask which canvases have
-   * `gh#131` selected; a selection is read whole, written whole, and never
-   * queried across. A table for it would be schema for its own sake.
-   */
-  selection: string[]
   placements: Placement[]
 }
 
@@ -370,11 +370,49 @@ export type PlacementInput = Omit<
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
 export interface CanvasEdit {
   name?: string
-  epic?: string | null
   /** Which project this kehikko is in, as an id. Moving one between projects is a real edit. */
   project?: number | null
-  selection?: string[]
   placements?: PlacementInput[]
+}
+
+/**
+ * What a project is about: one epic, and the refs picked out of it.
+ *
+ * ## Per project, and not per kehikko
+ *
+ * This used to be two fields of every canvas, and the consequence was the bug
+ * the person reported: the kehikko dropdown lists every kehikko of the project,
+ * each remembered its own epic, and so picking a different LAYOUT quietly
+ * picked a different EPIC. The two are independent questions. A kehikko is how
+ * the containers are arranged — one for writing, one for review — and the epic
+ * is what the person is working on; every kehikko works with every epic.
+ * Switching kehikko never changes the epic, and switching epic never changes
+ * the kehikko.
+ *
+ * The selection goes with the epic rather than with the kehikko, because a ref
+ * is picked OUT OF an epic: `gh#131` was one of this epic's references, and it
+ * means nothing on its own. So the pair is stored together, and changing the
+ * epic clears the selection — here, in `setSubject`, where the rule cannot be
+ * forgotten by one of the callers.
+ *
+ * ## Where it lives
+ *
+ * Two columns on `projects`, as the cache, and a top-level `"epic"` and
+ * `"selection"` in the project's own `.kehikot/kehikko/kehikot.json`, as the
+ * record — the same arrangement every other portable fact has; see
+ * `server/kehikot.ts`. The selection is one JSON column rather than rows for
+ * the reason it always was: it is read whole, written whole, and never queried
+ * across.
+ */
+export interface Subject {
+  epic: string | null
+  selection: string[]
+}
+
+/** What a project's subject may be changed to. Absent means unchanged; `null` means cleared. */
+export interface SubjectEdit {
+  epic?: string | null
+  selection?: string[]
 }
 
 const NAME_MAX = 60
@@ -476,7 +514,7 @@ export function open(file = databaseFile()): Database {
      what every container in them has been all along. */
   add(db, 'placements', 'selected', 'integer not null default 0')
   /* Which filter values a container is on, as JSON. Text rather than a table of
-     its own for the reason `selection` on a canvas is text: it is read whole,
+     its own for the reason a project's `selection` is text: it is read whole,
      written whole, and never queried by its contents — the host has no query it
      could write, since it does not know what any of the words mean. Empty
      object for every container written before this existed, which is what all
@@ -528,7 +566,63 @@ export function open(file = databaseFile()): Database {
   for (const row of db.query<{ id: number; project: number | null }, []>('select id, project_id as project from canvases where key is null').all()) {
     db.query('update canvases set key = ? where id = ?').run(freshKey(db, row.project), row.id)
   }
+  /*
+   * What a project is about — see `Subject` — moved off the kehikot and onto
+   * the project.
+   *
+   * Detected by the column being absent, so it runs exactly once per database.
+   * Each project is given the epic, and the selection that came with it, of its
+   * first kehikko in the dropdown's order that had an epic at all; a project
+   * none of whose kehikot had one starts with none. Every project is then
+   * marked, so that the page's first load may correct "first" to "the one you
+   * were last on" — see `hintSubject`, and why only the page can know that.
+   *
+   * `canvases.epic` and `canvases.selection` are left in the table, unread and
+   * never written again. Dropping them would need the same care `drop` above
+   * describes, for no gain, and they are what `hintSubject` reads its one
+   * answer from; a version of this host from before the move still finds what
+   * it wrote there.
+   */
+  const moving = !db
+    .query<{ name: string }, []>('pragma table_info(projects)')
+    .all()
+    .some((c) => c.name === 'epic')
+  add(db, 'projects', 'epic', 'text')
+  add(db, 'projects', 'selection', "text not null default '[]'")
+  add(db, 'projects', 'subject_pending', 'integer not null default 0')
+  if (moving) {
+    for (const { id } of db.query<{ id: number }, []>('select id from projects').all()) epicFromKehikot(db, id)
+  }
   return db
+}
+
+/**
+ * A project's subject taken from what its kehikot used to remember: the epic
+ * of the first one, in the dropdown's order, that had one, and the selection
+ * picked out of it. Marks the project so the page's first load may prefer the
+ * kehikko the person was last on — see `hintSubject`.
+ *
+ * Run by `open()` for every project when the move happens, and by the server
+ * after `adopt()` files kehikot from before projects existed into one — those
+ * had no project to give their epic to when `open()` ran. A project that is
+ * already about something is left alone: what a person picked outranks what a
+ * kehikko remembered.
+ */
+export function epicFromKehikot(db: Database, project: number): void {
+  const now = readSubject(db, project)
+  if (!now || now.epic !== null) return
+  const first = db
+    .query<{ epic: string; selection: string | null }, [number]>(
+      `select epic, selection from canvases
+        where project_id = ? and epic is not null and trim(epic) <> ''
+        order by rank, id limit 1`,
+    )
+    .get(project)
+  db.query('update projects set epic = ?, selection = ?, subject_pending = 1 where id = ?').run(
+    first ? subject(first.epic) : null,
+    JSON.stringify(first ? refsFrom(first.selection) : []),
+    project,
+  )
 }
 
 /**
@@ -596,9 +690,9 @@ export function listCanvases(db: Database): Canvas[] {
    */
   const rows = db
     .query<
-      { id: number; key: string; name: string; epic: string | null; project: number | null; selection: string | null },
+      { id: number; key: string; name: string; project: number | null },
       []
-    >('select id, key, name, epic, project_id as project, selection from canvases order by rank, id')
+    >('select id, key, name, project_id as project from canvases order by rank, id')
     .all()
 
   const placements = db
@@ -668,9 +762,8 @@ export function listCanvases(db: Database): Canvas[] {
     else byCanvas.set(canvas, [placement])
   }
 
-  return rows.map(({ selection, ...row }) => ({
+  return rows.map((row) => ({
     ...row,
-    selection: refsFrom(selection),
     placements: byCanvas.get(row.id) ?? [],
   }))
 }
@@ -692,7 +785,7 @@ export function createCanvas(db: Database, name?: string, project: number | null
     )
     .get(clean, project, identity)
   if (!row) throw new Error('the canvas was not written')
-  return { id: row.id, key: identity, name: clean, epic: null, project, selection: [], placements: [] }
+  return { id: row.id, key: identity, name: clean, project, placements: [] }
 }
 
 /**
@@ -752,21 +845,12 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
          out of a list. */
       if (name) db.query('update canvases set name = ? where id = ?').run(name, id)
     }
-    if (edit.epic !== undefined) {
-      db.query('update canvases set epic = ? where id = ?').run(subject(edit.epic), id)
-    }
     if (edit.project !== undefined) {
       /* An id or nothing. A project id that names no project is refused by the
          foreign key rather than by a check written here, which is the point of
          having turned this from a name into a key. */
       db.query('update canvases set project_id = ? where id = ?').run(
         typeof edit.project === 'number' && Number.isInteger(edit.project) ? edit.project : null,
-        id,
-      )
-    }
-    if (edit.selection !== undefined) {
-      db.query('update canvases set selection = ? where id = ?').run(
-        JSON.stringify(refsIn(edit.selection)),
         id,
       )
     }
@@ -869,6 +953,101 @@ export function ensureCanvases(db: Database, project: number | null = null): Can
 }
 
 /** Which canvases hold a module. The reason placements are rows. */
+/**
+ * One project's subject, or null when there is no such project.
+ *
+ * Never "no epic" for a project that is not there: a caller asking about a
+ * project id that names nothing has a bug, and an empty subject would hide it.
+ */
+export function readSubject(db: Database, project: number): Subject | null {
+  const row = db
+    .query<{ epic: string | null; selection: string | null }, [number]>(
+      'select epic, selection from projects where id = ?',
+    )
+    .get(project)
+  return row ? { epic: subject(row.epic), selection: refsFrom(row.selection) } : null
+}
+
+/** Every project's subject, by project id. For the page, which holds them all. */
+export function listSubjects(db: Database): { project: number; epic: string | null; selection: string[] }[] {
+  return db
+    .query<{ id: number; epic: string | null; selection: string | null }, []>(
+      'select id, epic, selection from projects order by rank, id',
+    )
+    .all()
+    .map((row) => ({ project: row.id, epic: subject(row.epic), selection: refsFrom(row.selection) }))
+}
+
+/**
+ * Change what a project is about, and answer with what it is now about.
+ *
+ * The one rule is here rather than at each caller: a different epic clears the
+ * selection unless the same edit says what the selection is to be. A ref was
+ * picked out of one epic's references, and carried into another it would point
+ * every module at something that is not in front of them. The same epic again
+ * is not a change, and keeps what was picked.
+ *
+ * Any explicit write also settles the one-time move from per-kehikko epics —
+ * see `hintSubject` — because a person who has picked an epic has said which
+ * one they meant, and nothing remembered from before may overrule that.
+ */
+export function setSubject(db: Database, project: number, edit: SubjectEdit): Subject | null {
+  const before = readSubject(db, project)
+  if (!before) return null
+  const epic = edit.epic !== undefined ? subject(edit.epic) : before.epic
+  const selection =
+    edit.selection !== undefined ? refsIn(edit.selection) : epic !== before.epic ? [] : before.selection
+  db.query('update projects set epic = ?, selection = ?, subject_pending = 0 where id = ?').run(
+    epic,
+    JSON.stringify(selection),
+    project,
+  )
+  return { epic, selection }
+}
+
+/**
+ * The one-time move from "every kehikko has its own epic" to "the project has
+ * one", finished with the one fact only a page knows.
+ *
+ * `open()` gives each project the epic of its FIRST kehikko that had one, in
+ * the dropdown's order, because that is all the server can know. The better
+ * answer is the epic of the kehikko the person was last ON in that project —
+ * the one they would have seen had they reloaded before this change — and that
+ * is remembered per browser, in `localStorage`, never on the server (see
+ * `readOpen` in `src/host/canvases.ts`). So the page says which kehikko it
+ * remembers on its first read of the canvases, and this applies it, once.
+ *
+ * Once for the whole machine, not once per project: the hint names one kehikko
+ * in one project, and for every other project "last on" is not knowable, so
+ * the first-kehikko answer `open()` gave stands. Clearing every project's mark
+ * at once is what stops a later load — in another project, or another browser
+ * — from changing an epic the person has already been looking at, which would
+ * be the very bug this replaces, committed one last time by the migration.
+ *
+ * A hinted kehikko whose old epic was null changes nothing: "last on a kehikko
+ * with no epic" is weaker evidence than "some kehikko here had one".
+ *
+ * Answers the project whose subject changed, so the caller can write its file.
+ */
+export function hintSubject(db: Database, canvas: number): number | null {
+  const pending = db.query<{ n: number }, []>('select count(*) as n from projects where subject_pending = 1').get()
+  if (!pending?.n) return null
+  const row = db
+    .query<{ project: number | null; epic: string | null; selection: string | null; pending: number | null }, [number]>(
+      `select c.project_id as project, c.epic, c.selection, p.subject_pending as pending
+         from canvases c left join projects p on p.id = c.project_id where c.id = ?`,
+    )
+    .get(canvas)
+  db.run('update projects set subject_pending = 0')
+  if (!row || row.project === null || row.pending !== 1 || subject(row.epic) === null) return null
+  db.query('update projects set epic = ?, selection = ? where id = ?').run(
+    subject(row.epic),
+    JSON.stringify(refsFrom(row.selection)),
+    row.project,
+  )
+  return row.project
+}
+
 export function canvasesHolding(db: Database, module: string): number[] {
   return db
     .query<{ canvas: number }, [string]>('select canvas from placements where module = ? order by canvas')
@@ -999,7 +1178,7 @@ function tidyName(name: string | undefined): string | null {
   return trimmed || null
 }
 
-/** An epic slug as it arrives, trimmed and bounded. Nothing else uses this now. */
+/** An epic slug as it arrives, trimmed and bounded. */
 function subject(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().slice(0, 80)

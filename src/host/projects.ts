@@ -156,7 +156,7 @@ export async function fetchEpics(project: number, signal?: AbortSignal): Promise
  *
  * The distinction is the whole of this function and it is why it is not called
  * `renameEpic`. A title is a label in one field of one file. A slug is the
- * identity: it is on `canvases.epic`, it is what every framed module is told in
+ * identity: it is on `projects.epic`, it is what every framed module is told in
  * `roadmap.context.epic`, and the modules key their own material by it — a
  * record in `journeys.json`, a file per epic in `checklist/`, a whole directory
  * under `paper/`. Changing that is a migration across programs this host cannot

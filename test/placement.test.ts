@@ -23,9 +23,7 @@ import {
 const canvas = (id: number, ...ids: string[]): Canvas => ({
   id,
   name: `canvas ${id}`,
-  epic: null,
   project: null,
-  selection: [],
   placements: ids.reduce<Canvas['placements']>((acc, i) => place(acc, i), []),
 })
 

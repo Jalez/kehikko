@@ -92,10 +92,11 @@ project  (a repository or worktree — a folder on disk)
 ```
 
 A **project** is the container. A **kehikko** is one named canvas inside it:
-which containers, arranged where, and what they are about. An **epic** is what a
-kehikko is currently about. Not every
-project has epics, and one that does not says so rather than showing an empty
-picker.
+which containers, arranged where — a layout, and nothing more. An **epic** is
+what the project is currently about, picked once per project; every kehikko in
+it shows the same one. Switching kehikko never changes the epic, and switching
+epic never changes the kehikko. Not every project has epics, and one that does
+not says so rather than showing an empty picker.
 
 Modules keep their data in `<project>/.kehikot/<module>/` as plain JSON — beside
 the work it describes rather than inside somebody's app, so it is readable,
@@ -138,7 +139,7 @@ what it is called — in `.kehikot/roadmap/epics/<slug>.json`, and the form says
 typing that the slug is staying where it is.
 
 The **slug** is the identity, and everything that has ever pointed at an epic
-points at it by that string: the `epic` column on a canvas, the
+points at it by that string: the `epic` column on a project, the
 `roadmap.context.epic` every framed module is told, `.kehikot/roadmap/state/<slug>.json`
 written by a tracker refresh, a record keyed by slug in
 `.kehikot/journeys/journeys.json`, a file per epic under `.kehikot/checklist/`,

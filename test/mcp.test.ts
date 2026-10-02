@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
-import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
+import { createCanvas, editCanvas, listCanvases, open, readSubject, setSubject } from '../server/canvases.ts'
 import { addProject } from '../server/projects.ts'
 import { call, mcp, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
@@ -63,7 +63,8 @@ function aCanvas(name = 'the wire') {
   const added = addProject(db, folder, 'a project')
   const project = added.ok ? added.project.id : null
   const made = createCanvas(db, name, project)
-  editCanvas(db, made.id, { epic: 'modes-are-modules', placements: [at('a.one'), at('a.two', 6)] })
+  editCanvas(db, made.id, { placements: [at('a.one'), at('a.two', 6)] })
+  if (project !== null) setSubject(db, project, { epic: 'modes-are-modules' })
   return made.id
 }
 
@@ -312,8 +313,9 @@ describe('setting the module selection', () => {
 
   test('the refs picked out of a tracker are a different axis and are left alone', async () => {
     const id = aCanvas()
-    editCanvas(db, id, { selection: ['gh#105'] })
+    const project = listCanvases(db).find((c) => c.id === id)!.project!
+    setSubject(db, project, { selection: ['gh#105'] })
     await call('select_modules', { kehikko: id, modules: ['a.one'] }, door())
-    expect(listCanvases(db).find((c) => c.id === id)?.selection).toEqual(['gh#105'])
+    expect(readSubject(db, project)?.selection).toEqual(['gh#105'])
   })
 })

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 
-import { listCanvases, editCanvas, type Canvas, type Placement } from './canvases.ts'
+import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import { createEpic } from './holdings.ts'
 import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
@@ -259,15 +259,18 @@ function canvasText(db: Database, canvas: Canvas, how: string, seen: Sighting[])
       ? `project: ${project.name} at ${project.path}`
       : 'project: none. This kehikko is in no project, so modules on it are told no folder to work in.',
   )
+  /* The project's, not the kehikko's: the epic is picked per project and every
+     kehikko in it shows the same one. See `Subject` in `canvases.ts`. */
+  const about = canvas.project === null ? null : readSubject(db, canvas.project)
   lines.push(
-    canvas.epic
-      ? `epic: ${canvas.epic}`
+    about?.epic
+      ? `epic: ${about.epic} (the project's; every kehikko in it is on the same epic)`
       : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
   )
   lines.push(
-    canvas.selection.length
-      ? `refs picked out here: ${canvas.selection.join(', ')}`
-      : 'refs picked out here: none.',
+    about?.selection.length
+      ? `refs picked out in this project: ${about.selection.join(', ')}`
+      : 'refs picked out in this project: none.',
   )
   lines.push('')
 
@@ -749,8 +752,8 @@ function createEpicAt(
     text:
       `Created ${made.epic.slug} ("${made.epic.title}") in ${project.name} — ${made.file}`
       + (made.madeDirectory ? ', and made .kehikot/roadmap/epics there, which did not exist' : '')
-      + `. It is in the dropdown now. Kehikko ${canvas.id} (${canvas.name}) is still about ${
-        canvas.epic ? canvas.epic : 'no epic'
+      + `. It is in the dropdown now. ${project.name} is still about ${
+        readSubject(door.db, project.id)?.epic ?? 'no epic'
       }: this tool does not switch what somebody is looking at. If they should open it, ask them.`,
     failed: false,
   }

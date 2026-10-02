@@ -31,17 +31,28 @@ import type { Project } from './projects.ts'
  *
  * ## What this host does instead
  *
- * The canvas has a SUBJECT: one epic and one project, set by the person, in the
+ * There is a SUBJECT: one project and one epic in it, set by the person, in the
  * host's own bar, and by nothing else. Every epic-scoped mode on the canvas is
  * told the same one.
  *
- * The two halves of it are not the same kind of fact any more, and the
- * difference is worth being precise about. The PROJECT is where the whole
- * kehikko is — a folder on disk, the same for every container, and the thing modules
- * will eventually take their root from. The EPIC is one of the things inside
- * it. So the project is picked first and the epic is picked from the project's
- * own list, which is why they are two selects in that order rather than a field
- * you type into.
+ * The two halves of it are not the same kind of fact, and the difference is
+ * worth being precise about. The PROJECT is where everything is — a folder on
+ * disk, the same for every container, and the thing modules take their root
+ * from. The EPIC is one of the things inside it. So the project is picked first
+ * and the epic is picked from the project's own list.
+ *
+ * ## The epic belongs to the project, not to the kehikko
+ *
+ * This essay used to say the epic was a property of the canvas, stored with
+ * the layout, and that was wrong in a way a person found in a day: the kehikko
+ * dropdown lists every kehikko of the project, each remembered its own epic,
+ * and so switching LAYOUT switched what they were working ON. A kehikko is how
+ * the containers are arranged — one for writing, one for review — and the
+ * epic is the work; every kehikko works with every epic. So the epic is held
+ * per project (`projects.epic`, and the top of the project's `kehikot.json`),
+ * switching kehikko never changes it, and changing it never changes the
+ * kehikko. The selection — refs picked out OF the epic — is held beside it and
+ * cleared whenever it moves.
  *
  * The move is to stop reading `context` as "the document you have open" and
  * start reading it as "what this workspace is about". Under that reading the
@@ -52,17 +63,16 @@ import type { Project } from './projects.ts'
  * to share a screen, and nothing about the layout would mean anything.
  *
  * So: **one context, every module, changed only when the person changes it.**
- * It is stored with the layout, because it is the same kind of thing — a
- * property of this person's view rather than of anybody's data — and it
- * survives a reload for the same reason the layout does.
+ * Switching kehikko is not changing it: the epic stays, and only the
+ * arrangement around it moves. It survives a reload, kept with the project.
  *
  * ## The one thing that changes it besides the person
  *
  * `view.goto` naming an epic. A module that shows every epic on the machine and
- * offers "open that one" is asking the canvas to change its subject, and the
- * canvas is exactly the thing that can honour it. That is answered in the
+ * offers "open that one" is asking the host to change the project's epic, and
+ * the host is exactly the thing that can honour it. That is answered in the
  * browser rather than on the server — see `ask.ts` — because it acts on the
- * view and the view is here.
+ * view and the view is here; the browser then writes it to the project.
  *
  * ## What this host cannot express, and it is a real want
  *
@@ -81,7 +91,7 @@ import type { Project } from './projects.ts'
 export interface Subject {
   epic: string | null
   /**
-   * The project this kehikko is in, whole, or null when there is none open.
+   * The project that is open, whole, or null when there is none.
    *
    * The project OBJECT rather than its id, because both of its fields go out on
    * the wire and they must go out together. A subject holding an id would make
@@ -138,7 +148,8 @@ export function toWireContext(
    *
    * Note what this is NOT: a per-frame fact. Every frame on this canvas is told
    * the same one, because the canvas is one place and they are all standing in
-   * it. The subject is per-canvas for the same reason.
+   * it. Nor does it decide the subject: every kehikko in a project is told the
+   * project's one epic.
    */
   kehikko: { id: number; name: string } | null = null,
   /**
@@ -214,11 +225,11 @@ export function toWireContext(
    * the project's own disk. That does not retire this branch, it changes what
    * it guards. Two things still reach here:
    *
-   *   - A slug persisted in the database from before the picker existed, or
-   *     from a hand-edited row, which no list ever vetted.
-   *   - A kehikko whose remembered epic is no longer in its project. The file
-   *     was renamed or deleted, or the kehikko was moved to another project,
-   *     and the stored slug is now a name for nothing.
+   *   - A slug persisted from before the picker existed, or from a
+   *     hand-edited `kehikot.json` or row, which no list ever vetted.
+   *   - A project whose remembered epic is no longer among its epics. The file
+   *     was renamed or deleted under the host, and the stored slug is now a
+   *     name for nothing.
    *
    * The context still goes out — a module that is told nothing shows the last
    * epic it heard about forever, which is a page quietly describing the wrong
@@ -242,7 +253,7 @@ export function toWireContext(
      A selection is refs picked out of an epic this context no longer names, so
      it goes. A passage names a FILE and a byte range in it. A person reading
      chapter three of a paper is still reading chapter three when the epic slug
-     stored against this canvas turns out not to parse, and dropping it would
+     stored against this project turns out not to parse, and dropping it would
      make one bad row in a table close somebody's document. */
   const bare = contextSchema.safeParse({
     epic: null,

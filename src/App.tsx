@@ -51,6 +51,7 @@ import {
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { toWireContext, type Subject } from './host/context.ts'
+import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
@@ -260,6 +261,12 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
   /**
+   * What each project is about — its epic and the refs picked out of it — by
+   * project id. Beside the projects and NOT inside the kehikot: the kehikko is
+   * a layout and switching it must not move the epic. See `host/subject.ts`.
+   */
+  const [subjects, setSubjects] = useState<Subjects>({})
+  /**
    * What the open project holds, or null while it is being read.
    *
    * Null is "not known yet" and is not the same as `{ holds: false }`, which is
@@ -351,14 +358,19 @@ export function App() {
     let cancelled = false
     void (async () => {
       try {
-        const found = await fetchCanvases()
-        if (cancelled) return
+        /* Read before the request, because the server wants it: on the first
+           load after the epic moved off the kehikot, the kehikko this browser
+           was last on is the best answer to "which epic was this project on".
+           See `hintSubject` in `server/canvases.ts`. */
         const remembered = readOpen(window.localStorage)
+        const found = await fetchCanvases(undefined, remembered)
+        if (cancelled) return
         firstVisit.current = remembered === null
         const project = chooseProject(found.projects, readOpenProject(window.localStorage))
         setProjects(found.projects)
         setProjectId(project)
         setCanvases(found.canvases)
+        setSubjects(found.subjects)
         /* Within the project, and only within it. A remembered kehikko that
            belongs to another project is not the one to open: the switcher
            beside it would not list it, and a canvas its own switcher cannot see
@@ -520,6 +532,7 @@ export function App() {
           try {
             const found = await fetchCanvases()
             setCanvases(found.canvases)
+            setSubjects(found.subjects)
           } catch {
             /* The next wake, or the next load, will do. A canvas that could not
                be re-read is the arrangement the person already has on screen. */
@@ -822,9 +835,7 @@ export function App() {
   const change = useCallback(
     (edit: {
       name?: string
-      epic?: string | null
       project?: number | null
-      selection?: string[]
       placements?: Placement[]
     }) => {
       const id = openId
@@ -836,26 +847,55 @@ export function App() {
   )
 
   /**
-   * What the canvas is about: one epic, and the project it is standing in.
+   * What the open project is about: its epic, and the refs picked out of it.
    *
-   * The project comes from `project` rather than from the open canvas's own
-   * `project` id, and they are the same thing said twice on purpose — the
-   * canvas holds the key, the header holds the row, and the subject wants the
-   * row because both of its fields go out on the wire. Split by value rather
-   * than by identity, like the selection and the kehikko below it, so that a
-   * re-render for any other reason does not look like a context change and
-   * re-point every frame.
+   * Read by PROJECT, and the open kehikko is deliberately not an input. It
+   * used to be `open.epic`, so the kehikko dropdown was also an epic switch —
+   * every kehikko remembered its own — and the person reported exactly that.
+   * Now `openId` can change all day and `about` does not move.
    */
-  const subject = useMemo<Subject>(
-    () => ({ epic: open?.epic ?? null, project }),
-    [open?.epic, project],
+  const about = subjectOf(subjects, projectId)
+
+  /**
+   * The subject as the wire wants it: the epic, and the project row itself.
+   *
+   * The row rather than the id because both of its fields go out on the wire.
+   * Split by value rather than by identity, like the selection and the kehikko
+   * below it, so that a re-render for any other reason does not look like a
+   * context change and re-point every frame.
+   */
+  const subject = useMemo<Subject>(() => ({ epic: about.epic, project }), [about.epic, project])
+
+  /**
+   * Change what the open project is about, on screen now and on the server at
+   * once — no debounce, because nobody drags an epic.
+   *
+   * The rule that a different epic clears the selection is applied here, by
+   * `withEdit`, and again by the server, which owns it. A failed write leaves
+   * the screen as the person left it and says so, like the canvas writer.
+   */
+  const changeSubject = useCallback(
+    (edit: SubjectEdit) => {
+      const id = projectId
+      if (id === null) return
+      setSubjects((was) => withEdit(was, id, edit))
+      editSubject(id, edit).catch((error: unknown) =>
+        setTrouble(
+          `What this project is about could not be saved: ${(error as Error).message}. What is on screen is unchanged; it is what is stored that is behind.`,
+        ),
+      )
+    },
+    [projectId],
   )
+  /* For `controls`, which is built once — see `openRef`. */
+  const changeSubjectRef = useRef(changeSubject)
+  changeSubjectRef.current = changeSubject
 
   /* The epic only. The project is not a property of the subject a person edits
-     here — it is where the whole kehikko is, changed by opening a project, and
-     changing it from this direction would mean the epic picker could move a
-     kehikko between projects. */
-  const setSubject = useCallback((next: Subject) => change({ epic: next.epic }), [change])
+     here — it is changed by opening a project, and changing it from this
+     direction would mean the epic picker could move a kehikko between
+     projects. */
+  const setSubject = useCallback((next: Subject) => changeSubject({ epic: next.epic }), [changeSubject])
 
   /* What every module on the canvas is told. One object, memoised, so that a
      re-render caused by anything else does not look like a context change and
@@ -868,8 +908,8 @@ export function App() {
   /**
    * The selection, as a value rather than as an array identity.
    *
-   * `open.selection` is a fresh array on every read of the canvases — a `.map`
-   * over the rows produces new objects — so depending on it directly rebuilt
+   * The project's selection is a fresh array on every read of the canvases —
+   * a `.map` over the rows produces new objects — so depending on it directly rebuilt
    * the context whenever anything about any canvas changed, and every rebuild
    * is a `roadmap.context` posted to every framed module. Measured on a canvas
    * with three modules on it: seventeen identical broadcasts during startup,
@@ -886,7 +926,7 @@ export function App() {
    * A newline joins them because a ref cannot contain one, so two different
    * selections cannot produce the same key.
    */
-  const picked = (open?.selection ?? []).join('\n')
+  const picked = about.selection.join('\n')
   /**
    * Which canvas is open, as the wire spells it.
    *
@@ -905,9 +945,9 @@ export function App() {
    *
    * ## Per-canvas, and not per-host
    *
-   * The subject is per-canvas and the selection is per-canvas, and a passage is
-   * the same kind of fact one step narrower: it is what THIS arrangement of
-   * containers is looking at. The consumer it exists for is another container beside the
+   * The epic and the selection are per PROJECT — they are what the person is
+   * working on, and every kehikko works with every epic. A passage is not like
+   * them: it is what THIS arrangement of containers is looking at. The consumer it exists for is another container beside the
    * one that pointed — a paper on the left, its notes on the right — and both
    * of those are on one canvas. A passage held per-host would mean a highlight
    * made in a paper on one canvas narrowing a notes container on another, where the
@@ -918,7 +958,7 @@ export function App() {
    *
    * ## Not written down, which is the one place it differs from the selection
    *
-   * The selection is stored in the canvases table and survives a reload. This
+   * The selection is stored with the project and survives a reload. This
    * is not, and the reason is what the two things ARE. A ref is an identifier:
    * `gh#131` means the same thing tomorrow, and the module that reads it looks
    * it up afresh. A passage is a claim about a mutable file — these bytes, in
@@ -970,6 +1010,11 @@ export function App() {
    * database after a reload has no setter here, and goes into nobody's row. It
    * is still `context.selection`. Inventing who picked it would be the host
    * stating who said something it did not hear.
+   *
+   * `selectedBy` is keyed by PROJECT, unlike the two beside it, because the
+   * selection it names the setter of is the project's: a module that picked
+   * refs on one kehikko is still their setter when the person switches to
+   * another kehikko, and its row says so wherever it is placed.
    */
   const [said, setSaid] = useState<Record<number, Record<string, Showing>>>({})
   const [pointings, setPointings] = useState<Record<number, Record<string, Passage>>>({})
@@ -1042,7 +1087,7 @@ export function App() {
     said: (openId === null ? undefined : said[openId]) ?? {},
     pointed: (openId === null ? undefined : pointings[openId]) ?? {},
     selection: picked ? picked.split('\n') : [],
-    selectedBy: openId === null ? null : (selectedBy[openId] ?? null),
+    selectedBy: projectId === null ? null : (selectedBy[projectId] ?? null),
   })
   const arranged = containersKey(described)
 
@@ -1291,20 +1336,21 @@ export function App() {
          one epic's references; carrying it into another would leave every
          module pointing at something that is not in front of them any more, and
          "nothing is selected" is a state they all have to handle anyway. */
+      /* The project's epic, not this kehikko's: there is no kehikko's. */
       showEpic: (epic) => {
-        change({ epic, selection: [] })
+        changeSubjectRef.current({ epic, selection: [] })
         /* The selection went, so its setter goes with it: a row saying a
-           container picked refs the canvas no longer holds would be the row
-           and the canvas disagreeing. */
-        const id = openRef.current
+           container picked refs the project no longer holds would be the row
+           and the project disagreeing. */
+        const id = projectRef.current
         if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
       },
       select: (from, refs) => {
-        change({ selection: refs })
+        changeSubjectRef.current({ selection: refs })
         /* Who picked, so that the refs appear in that container's own row of
            `context.containers`. An empty list is a selection cleared, and
            nobody is its setter. */
-        const id = openRef.current
+        const id = projectRef.current
         if (id === null) return
         const by = refs.length ? from : null
         setSelectedByRef.current((was) => (was[id] === by ? was : { ...was, [id]: by }))
@@ -2081,7 +2127,7 @@ export function App() {
    * A retitle is not a pick. `subject.epic` holds a SLUG, the slug has not
    * changed, and every framed module goes on being told exactly what it was
    * told before — no `roadmap.context` goes out, no module re-reads anything,
-   * and the kehikko is about the same epic it was about a second ago. That is
+   * and the project is on the same epic it was on a second ago. That is
    * the whole claim this control makes, and the moment this handler also set a
    * subject it would stop being true.
    *
@@ -2123,7 +2169,7 @@ export function App() {
    * show, and the person is looking at the same canvas. So the subject moves
    * to the new epic — which is the opposite of what `onRetitleEpic` does, and
    * the opposite of what the door's `create_epic` does, and all three are
-   * right. A retitle changes a label, not what the kehikko is about. An agent
+   * right. A retitle changes a label, not what the project is on. An agent
    * creating an epic is not the person, and which epic a person is looking at
    * is theirs. A person pressing `+` and typing a title has said, as plainly
    * as a pointer can, that THIS is the epic they want to be on.
@@ -2143,7 +2189,7 @@ export function App() {
       try {
         const made = await createEpic(projectId, slug, title)
         setHeld(await fetchEpics(projectId))
-        change({ epic: made.epic.slug })
+        changeSubject({ epic: made.epic.slug })
         setTrouble(null)
         return true
       } catch (error) {
@@ -2151,16 +2197,17 @@ export function App() {
         return false
       }
     },
-    [projectId, change],
+    [projectId, changeSubject],
   )
 
   /**
    * Delete one epic's file from the open project.
    *
-   * If this kehikko was on it, it moves to no epic — a subject naming a file
-   * that is gone would be a header pointing at nothing. Other kehikot that
-   * remember the slug are left to `toWireContext`'s fallback, which is what it
-   * is for.
+   * If the project was on it, it moves to no epic — a subject naming a file
+   * that is gone would be a header pointing at nothing. The server does the
+   * same on its side; this is the screen agreeing without waiting for a read.
+   * A slug remembered from somewhere this did not reach is left to
+   * `toWireContext`'s fallback, which is what it is for.
    */
   const onDeleteEpic = useCallback(
     async (slug: string) => {
@@ -2168,13 +2215,13 @@ export function App() {
       try {
         await deleteEpic(projectId, slug)
         setHeld(await fetchEpics(projectId))
-        if (open?.epic === slug) change({ epic: null })
+        if (about.epic === slug) setSubjects((was) => withEdit(was, projectId, { epic: null }))
         setTrouble(null)
       } catch (error) {
         setTrouble(`${slug} was not deleted: ${(error as Error).message}`)
       }
     },
-    [projectId, open?.epic, change],
+    [projectId, about.epic],
   )
 
   /**
@@ -2194,6 +2241,7 @@ export function App() {
         const [found, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
         setProjects(everyProject)
         setCanvases(found.canvases)
+        setSubjects(found.subjects)
         if (id === projectId) {
           const next = chooseProject(everyProject, null)
           setProjectId(next)
@@ -2214,6 +2262,7 @@ export function App() {
         const [found, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
         setProjects(everyProject)
         setCanvases(found.canvases)
+        setSubjects(found.subjects)
         setProjectId(added.id)
         setOpenId(chooseOpen(found.canvases, null, added.id))
         setTrouble(null)
@@ -2756,7 +2805,7 @@ export function App() {
                   onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
-                  epic={open?.epic ?? null}
+                  epic={about.epic}
                 />
               </div>
             )

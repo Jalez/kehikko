@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { EPIC_SLUG } from 'roadmap-module-protocol'
 
-import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
+import { createCanvas, editCanvas, listCanvases, open, readSubject, setSubject } from '../server/canvases.ts'
 import { createEpic, deleteEpic, listEpics } from '../server/holdings.ts'
 import { call, mcp, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
@@ -255,7 +255,8 @@ describe('one writer, two callers', () => {
     const added = addProject(db, dir, 'a project')
     if (!added.ok) throw new Error(added.why)
     const canvas = createCanvas(db, 'the wire', added.project.id)
-    editCanvas(db, canvas.id, { epic: 'something-else', placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    editCanvas(db, canvas.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    setSubject(db, added.project.id, { epic: 'something-else' })
     return { id: canvas.id, project: added.project.id }
   }
 
@@ -285,7 +286,8 @@ describe('one writer, two callers', () => {
     expect(done.failed).toBe(false)
     expect(done.text).toContain('Created not-opened')
     expect(done.text).toContain('still about something-else')
-    expect(listCanvases(db).find((c) => c.id === id)?.epic).toBe('something-else')
+    expect(readSubject(db, projectId)?.epic).toBe('something-else')
+    expect(listCanvases(db).some((c) => c.id === id)).toBe(true)
     /* The page is told its epics changed — not that the kehikko did, because
        it did not — so the dropdown gains the row without a re-read of an
        arrangement that is exactly what is on screen. */

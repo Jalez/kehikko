@@ -9,10 +9,15 @@ import {
   deleteCanvas,
   editCanvas,
   ensureCanvases,
+  epicFromKehikot,
+  hintSubject,
   keepState,
   listCanvases,
+  listSubjects,
   open,
   readState,
+  readSubject,
+  setSubject,
   type CanvasEdit,
 } from './canvases.ts'
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
@@ -86,6 +91,10 @@ const db = open()
  * point of a migration is that it happens once and is then simply true.
  */
 const settled = adopt(db)
+/* Kehikot from before projects existed remembered epics of their own, and had
+   no project to hand them to when `open()` moved epics onto projects. Now they
+   have one. See `epicFromKehikot`. */
+if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id)
 ensureKnown(db)
 
 /**
@@ -800,7 +809,18 @@ const server = Bun.serve({
       const first = projects[0]?.id ?? null
       const canvases = ensureCanvases(db, first)
       keep(db, first)
-      return json({ projects, canvases, trouble })
+      /* Which kehikko this browser remembers having open, said once by the page
+         so the one-time move of the epic off the kehikot can prefer the one the
+         person was last on. See `hintSubject`; after the first load it is a
+         no-op. */
+      const remembered = Number(url.searchParams.get('open'))
+      if (Number.isInteger(remembered) && remembered > 0) {
+        const moved = hintSubject(db, remembered)
+        if (moved !== null) keep(db, moved)
+      }
+      /* What each project is about — its epic and selection — beside the
+         kehikot rather than inside them, because it belongs to no kehikko. */
+      return json({ projects, canvases, trouble, subjects: listSubjects(db) })
     }
 
     if (url.pathname === '/host/canvases' && request.method === 'POST') {
@@ -868,6 +888,32 @@ const server = Bun.serve({
       const said = shareKehikot(db, body.id, body.shared)
       if (!said.ok) return json({ error: said.why }, said.status)
       return json({ project: said.project })
+    }
+
+    /*
+     * What one project is about: its epic, and the refs picked out of it.
+     *
+     * Its own flat path rather than a field on the projects PATCH, because the
+     * two are different kinds of write: sharing is a write to a `.gitignore`,
+     * and this is a write to the database and the project's `kehikot.json`.
+     * Only `epic` and `selection` are read off the body, one at a time, for the
+     * reason the canvas PATCH gives. The rule that a new epic clears the
+     * selection is in `setSubject`, not here.
+     */
+    if (url.pathname === '/host/subject' && request.method === 'PATCH') {
+      const body = (await request.json().catch(() => null)) as
+        | { project?: unknown; epic?: unknown; selection?: unknown }
+        | null
+      if (!body || typeof body.project !== 'number') {
+        return json({ error: 'A change to what a project is about names the project.' }, 400)
+      }
+      const said = setSubject(db, body.project, {
+        ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
+        ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
+      })
+      if (!said) return json({ error: 'There is no project with that id.' }, 404)
+      keep(db, body.project)
+      return json({ subject: { project: body.project, ...said } })
     }
 
     if (url.pathname === '/host/projects' && request.method === 'POST') {
@@ -1000,6 +1046,12 @@ const server = Bun.serve({
 
       const gone = deleteEpic(project.path, body.slug as string)
       if (!gone.ok) return json({ error: gone.why }, gone.status)
+      /* A project about a file that is gone is about nothing. Said here, by the
+         owner of the subject, rather than left to whichever page pressed it. */
+      if (readSubject(db, project.id)?.epic === body.slug) {
+        setSubject(db, project.id, { epic: null })
+        keep(db, project.id)
+      }
       wakes.epicsChanged(project.id)
       return json({ deleted: body.slug })
     }
@@ -1017,14 +1069,12 @@ const server = Bun.serve({
            editable. */
         const edited = editCanvas(db, canvas, {
           ...(body.name !== undefined ? { name: String(body.name) } : {}),
-          ...(body.epic !== undefined ? { epic: body.epic === null ? null : String(body.epic) } : {}),
           /* A project id, or nothing. It used to be `String(body.project)` —
              a name typed onto a canvas — and that is the field this whole
              change replaces; see the essay on `project` in `canvases.ts`. */
           ...(body.project !== undefined
             ? { project: typeof body.project === 'number' ? body.project : null }
             : {}),
-          ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
           ...(Array.isArray(body.placements) ? { placements: body.placements } : {}),
         })
         if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)
