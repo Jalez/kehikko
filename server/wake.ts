@@ -77,8 +77,18 @@
  *
  * Still not the news itself: not the epic, not its title. `/host/epics` is the
  * one reading, and a stream that shipped a summary would be a second, older one.
+ *
+ * ## The fourth kind, a project's dispositions
+ *
+ * `dispositions` names a project for `epics`' reason: a mark is kept per
+ * project (see `server/dispositions.ts`), and a page standing somewhere else
+ * has nothing to re-read. What it does on hearing it is fetch the marks and
+ * re-send the context — `context.dispositions` is how every framed module,
+ * and in particular one that `reacts` to `dispositions`, learns that somebody
+ * has said why a ref closed. Still not the marks themselves, for the reason
+ * above.
  */
-export type News = { kehikko: number } | { registry: true } | { epics: number }
+export type News = { kehikko: number } | { registry: true } | { epics: number } | { dispositions: number }
 
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
@@ -138,6 +148,17 @@ export class Wakes {
    */
   epicsChanged(project: number): void {
     this.#tell({ epics: project })
+  }
+
+  /**
+   * Say that a project's dispositions are not what the pages last read.
+   *
+   * Sent by whatever wrote the file — a module's `disposition.set` relayed
+   * through `/host/call`, or the door's `mark_disposition` — and only when the
+   * file changed. A hand-edit is read on the next project switch, as epics are.
+   */
+  dispositionsChanged(project: number): void {
+    this.#tell({ dispositions: project })
   }
 
   #tell(news: News): void {

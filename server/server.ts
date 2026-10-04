@@ -44,6 +44,7 @@ import { readRegistrations, registryDir, type RegistrationSweep } from './regist
 import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
+import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
@@ -781,6 +782,17 @@ const server = Bun.serve({
           (id) => callers.has(id),
           (module, state) => keepState(db, module, state),
           rootOf(body.project),
+          /* A mark from a frame is a person's press inside a module, so it is
+             signed with the module's name — the one the registry last heard it
+             give, or its id. Every page in the project is woken only when the
+             file actually changed. */
+          (module, root, marking) => {
+            const done = setDisposition(root, marking, known(db).get(module) ?? module)
+            if (done.ok && done.changed && typeof body.project === 'number') {
+              wakes.dispositionsChanged(body.project)
+            }
+            return done
+          },
         ),
       )
     }
@@ -968,6 +980,22 @@ const server = Bun.serve({
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
       const dir = epicsIn(project.path)
       return json({ holds: dir !== null, epics: dir ? listEpics(dir) : [] })
+    }
+
+    /*
+     * The marks people have put on this project's refs, for `context.dispositions`.
+     *
+     * Read by the page on a project switch and whenever it is told one changed;
+     * the page composes them into the context every framed module is sent. A
+     * file that will not read is answered as no marks — the context is what
+     * modules draw from, and a broken file is not a reason to draw nothing —
+     * and a write to it is refused instead, in `setDisposition`.
+     */
+    if (url.pathname === '/host/dispositions' && request.method === 'GET') {
+      const asked = Number(url.searchParams.get('project') ?? '')
+      const project = Number.isInteger(asked) ? projectById(db, asked) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      return json({ dispositions: marksOf(project.path) })
     }
 
     /*
@@ -1589,6 +1617,7 @@ const server = Bun.serve({
           which: () => openness.open(),
           wake: (kehikko) => wakes.woke(kehikko),
           epicsChanged: (project) => wakes.epicsChanged(project),
+          dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           /* A sweep, so that an agent reading a canvas is told which of the
              containers on it hold a program that is actually answering. It is
              the same sweep the page asks for on load — N requests to N

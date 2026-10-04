@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { ModuleContext } from 'roadmap-module-protocol'
+import type { FilterChoice, ModuleContext } from 'roadmap-module-protocol'
 
 import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
@@ -78,7 +78,7 @@ export function ModuleFrame({
    * for it, so anything that differs between two places the same module appears
    * has to ride on the channel the host re-sends when the canvas moves.
    */
-  filters: Record<string, string>
+  filters: FilterChoice
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -108,7 +108,7 @@ export function ModuleFrame({
      new field. */
   const filtersKey = JSON.stringify(filters)
   const told: ModuleContext = useMemo(
-    () => ({ ...context, pinned, prompt, filters: JSON.parse(filtersKey) as Record<string, string> }),
+    () => ({ ...context, pinned, prompt, filters: JSON.parse(filtersKey) as FilterChoice }),
     [context, pinned, prompt, filtersKey],
   )
 

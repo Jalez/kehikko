@@ -122,7 +122,7 @@ export function Container({
   filters: readonly FilterGroup[]
   /** Which option is current in each group, already reconciled against `filters`. */
   chosen: Choice
-  onChoose(group: string, option: string): void
+  onChoose(group: string, option: string | string[]): void
   onEverything(): void
   /**
    * What this module says it can clear of what it is showing, in its own words.

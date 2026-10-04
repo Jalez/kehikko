@@ -2,6 +2,7 @@ import {
   contextSchema,
   passageSchema,
   type CanvasContainer,
+  type Disposition,
   type ModuleContext,
   type Passage,
 } from 'roadmap-module-protocol'
@@ -183,6 +184,13 @@ export function toWireContext(
    * the host's, and only what each module says it shows is that module's word.
    */
   containers: readonly CanvasContainer[] = [],
+  /**
+   * The open project's dispositions: people's marks on why refs closed. Per
+   * project rather than per canvas — a verdict on a ref is about the work — and
+   * only the marks; what a tracker implies is derived on each module's side.
+   * See `server/dispositions.ts`.
+   */
+  dispositions: readonly Disposition[] = [],
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -215,6 +223,7 @@ export function toWireContext(
     kehikko,
     passage: pointing,
     containers,
+    dispositions,
   })
   if (parsed.success) return parsed.data
 
@@ -270,6 +279,9 @@ export function toWireContext(
        is dropping — so a consumer is not told twice about refs it is being told
        to forget. */
     containers: containers.map((c) => ({ ...c, showing: { ...c.showing, refs: [] } })),
+    /* The marks survive with the project they belong to: a bad epic slug says
+       nothing about whether somebody called #2274 a duplicate. */
+    dispositions,
   })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
@@ -348,6 +360,18 @@ export function whileFrozen(
      a stored choice and a live offer, so identity says nothing about whether
      anybody pressed anything. */
   const refiltered = !sameChoice(held.filters, told.filters)
-  if (!relit && !refiltered) return null
-  return { ...held, theme: told.theme, filters: told.filters }
+  /* Dispositions pass a pin when the pinned container is still in the
+     project they are about. A mark is a verdict on the WORK, not on what this
+     container is looking at, so a pinned Journeys that went on counting a
+     won't-do step as delivered would be the frozen theme again. A container
+     pinned on another project is not told this one's marks. */
+  const sameProject = held.projectPath === told.projectPath
+  const remarked = sameProject && JSON.stringify(held.dispositions) !== JSON.stringify(told.dispositions)
+  if (!relit && !refiltered && !remarked) return null
+  return {
+    ...held,
+    theme: told.theme,
+    filters: told.filters,
+    ...(sameProject ? { dispositions: told.dispositions } : {}),
+  }
 }

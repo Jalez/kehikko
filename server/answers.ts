@@ -10,6 +10,7 @@ import {
   assertEveryMethodIsAnswered,
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
+import type { Marked, Marking } from './dispositions.ts'
 import { epicsIn, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
 
 /**
@@ -142,6 +143,19 @@ export function answer(
    * for a host holding nothing, so null needs no new sentence.
    */
   root: string | null = null,
+  /**
+   * Where a disposition goes, and the news that one changed.
+   *
+   * Injected for `keep`'s reason: this file decides, and the server writes —
+   * into `<project>/.kehikot/kehikko/dispositions.json`, see
+   * `server/dispositions.ts` — and wakes every page standing in that project.
+   * The default refuses, so a caller that gave nothing gets the sentence that is
+   * true of it rather than a mark that went nowhere.
+   */
+  mark: (module: string, root: string | null, marking: Marking) => Marked = () => ({
+    ok: false,
+    why: 'This host was not given anywhere to keep a disposition. Nothing was recorded.',
+  }),
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -302,6 +316,23 @@ export function answer(
     const { state } = parsed.data as { state: string }
     keep(moduleId, state)
     return nothingToShow('state.set', { kept: true })
+  }
+
+  /**
+   * A person's verdict on why a ref closed, written into the project.
+   *
+   * The second write this host performs, and the one `stage.report` below is
+   * not: a disposition has a place of its own beside the arrangement, one row
+   * per ref, and nothing about keeping it asks this host to be a tracker. `by`
+   * and `at` are filled in by the writer, never taken from the call — see
+   * `server/dispositions.ts`. A project-less call is refused with a sentence,
+   * because a mark kept nowhere is the green button this file refuses.
+   */
+  case 'disposition.set': {
+    const marking = parsed.data as Marking
+    const done = mark(moduleId, root, marking)
+    if (!done.ok) return notMineToSay(done.why)
+    return nothingToShow('disposition.set', { disposition: done.mark, changed: done.changed })
   }
 
   /**

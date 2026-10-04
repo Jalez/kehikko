@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'roadmap-module-protocol'
-import type { FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'roadmap-module-protocol'
+import type { Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'roadmap-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -38,6 +38,7 @@ import {
   chooseProject,
   createEpic,
   deleteEpic,
+  fetchDispositions,
   fetchEpics,
   fetchProjects,
   forgetProject,
@@ -274,6 +275,13 @@ export function App() {
    * project with none and a read that failed both look like.
    */
   const [held, setHeld] = useState<HeldEpics | null>(null)
+  /**
+   * The open project's dispositions — people's marks on why refs closed — for
+   * `context.dispositions`. Empty while they are read and when nobody has said
+   * anything; a module cannot tell those apart and does not need to, since in
+   * both it falls back to what its own tracker reading implies.
+   */
+  const [marks, setMarks] = useState<Disposition[]>([])
   const [live, setLive] = useState<Record<string, Live>>({})
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
@@ -556,6 +564,20 @@ export function App() {
           }
         })()
       },
+      /* A mark changed — a module's press, or an agent at the door. Re-read
+         and let the context carry it to every frame, for `epics`' reason only
+         when it is this page's project. */
+      (project) => {
+        if (project !== projectRef.current) return
+        void (async () => {
+          try {
+            const found = await fetchDispositions(project)
+            if (project === projectRef.current) setMarks(found)
+          } catch {
+            /* The marks the page has are the marks it had. */
+          }
+        })()
+      },
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -605,6 +627,24 @@ export function App() {
            read. It is not turned into `{ holds: false }`, because that sentence
            — "this project has no epics" — is a claim, and a failed read is not
            grounds for making it. */
+      }
+    })()
+    return () => stop.abort()
+  }, [projectId])
+
+  /* The open project's dispositions, re-read on a project switch. Cleared
+     first: another project's marks on refs that happen to share a spelling
+     would be verdicts about work this project does not have. */
+  useEffect(() => {
+    setMarks([])
+    if (projectId === null) return
+    const stop = new AbortController()
+    void (async () => {
+      try {
+        const found = await fetchDispositions(projectId, stop.signal)
+        if (!stop.signal.aborted) setMarks(found)
+      } catch {
+        /* No marks is what modules fall back from anyway. */
       }
     })()
     return () => stop.abort()
@@ -1090,14 +1130,18 @@ export function App() {
   })
   const arranged = containersKey(described)
 
+  /* By value, for the reason `pointing` is: a re-read that found the same
+     marks is a fresh array, and must not be a `roadmap.context` to every frame. */
+  const marked = JSON.stringify(marks)
+
   const context = useMemo(
-    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described),
+    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged],
+    [subject, theme, picked, kehikko, pointing, arranged, marked],
   )
 
   /**
@@ -1806,7 +1850,7 @@ export function App() {
    * back out of the next `roadmap.context`.
    */
   const onChooseFilter = useCallback(
-    (id: string, group: string, option: string) => {
+    (id: string, group: string, option: string | string[]) => {
       const placements = open?.placements ?? []
       const container = placements.find((p) => p.i === id)
       if (!container) return

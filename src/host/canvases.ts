@@ -100,7 +100,7 @@ const placementSchema = z.object({
    * means every group falls back to whatever its module says its resting option
    * is.
    */
-  filters: z.record(z.string(), z.string()).default({}),
+  filters: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
   /**
    * How often this container refreshes itself, in minutes, or `null`.
    *
@@ -393,6 +393,11 @@ export function watchCanvases(
    * different one can leave its dropdown alone.
    */
   wrote?: (project: number) => void,
+  /**
+   * A project's dispositions changed — see `dispositionsChanged` in
+   * `server/wake.ts`. Given the project's id for `wrote`'s reason.
+   */
+  marked?: (project: number) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -429,6 +434,8 @@ export function watchCanvases(
       if ((parsed as { registry?: unknown })?.registry === true) looked?.()
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
+      const disposed = (parsed as { dispositions?: unknown })?.dispositions
+      if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */

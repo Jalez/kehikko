@@ -1,4 +1,4 @@
-import { LIMITS, own, type FilterGroup } from 'roadmap-module-protocol'
+import { LIMITS, own, type FilterChoice, type FilterGroup } from 'roadmap-module-protocol'
 
 /**
  * What the host does with a filter, which is as close to nothing as it can be.
@@ -48,8 +48,36 @@ import { LIMITS, own, type FilterGroup } from 'roadmap-module-protocol'
  * gets no control, which is what every module got the day before this existed.
  */
 
-/** Group id to option id, as the module named them. */
-export type Choice = Record<string, string>
+/**
+ * Group id to option id, as the module named them — or, under a `toggles`
+ * group, to the list of its option ids that are switched on.
+ */
+export type Choice = FilterChoice
+
+/**
+ * The ids a `toggles` group has switched on, out of whatever was stored.
+ *
+ * In the group's own order rather than the order they were pressed, so two
+ * sets with the same members are the same record and `sameChoice` can say so
+ * without sorting. Anything the group no longer offers is dropped here, which
+ * is the list's version of a choice falling to its fallback: an id in no menu
+ * is a switch nobody can see or turn off. A string under a toggles group — a
+ * value from before the module made it one — names nothing in a set, and reads
+ * as nothing switched on.
+ */
+export function switchedOn(group: FilterGroup, wanted: string | readonly string[] | undefined): string[] {
+  if (!Array.isArray(wanted)) return []
+  const on = new Set(wanted)
+  return group.options.filter((option) => on.has(option.id)).map((option) => option.id)
+}
+
+/** A group's set with one option flipped, as `chosen` would then hold it. */
+export function toggled(group: FilterGroup, current: readonly string[], option: string): string[] {
+  const on = new Set(current)
+  if (on.has(option)) on.delete(option)
+  else on.add(option)
+  return switchedOn(group, [...on])
+}
 
 /**
  * The choice a module should actually be told about, given what it is offering.
@@ -87,15 +115,22 @@ export function chosen(offer: readonly FilterGroup[], stored: Choice): Choice {
        * it. That is not the failure this file guards. A value in no menu is
        * unreachable; a value in an input is right there to be edited.
        */
-      if (wanted !== undefined && wanted !== '') settled[group.id] = wanted
+      if (typeof wanted === 'string' && wanted !== '') settled[group.id] = wanted
       continue
     }
-    const known = wanted !== undefined && group.options.some((option) => option.id === wanted)
+    if (group.kind === 'toggles') {
+      /* Absent when nothing is on, for the text group's reason: the resting
+         state of a set is empty, and empty is spelled by not being here. */
+      const on = switchedOn(group, wanted)
+      if (on.length) settled[group.id] = on
+      continue
+    }
+    const known = typeof wanted === 'string' && group.options.some((option) => option.id === wanted)
     /* `fallback` is optional on the type because a text group has none, and a
        choice group without one cannot reach here — the protocol's own schema
        refuses it. Defaulted rather than asserted, because "cannot" is a
        property of a schema somebody may edit. */
-    settled[group.id] = known ? wanted : (group.fallback ?? '')
+    settled[group.id] = known ? (wanted as string) : (group.fallback ?? '')
   }
   return settled
 }
@@ -136,10 +171,16 @@ export function settle(offer: readonly FilterGroup[], choice: Choice): Choice {
          `filters.set` or a hand-edited database; a query cut to length is still
          a query, where dropping it is a filter that silently stops working the
          first time somebody pastes something long. */
-      if (wanted !== '') kept[group.id] = wanted.slice(0, LIMITS.FILTER_TEXT)
+      if (typeof wanted === 'string' && wanted !== '') kept[group.id] = wanted.slice(0, LIMITS.FILTER_TEXT)
       continue
     }
-    if (wanted === group.fallback) continue
+    if (group.kind === 'toggles') {
+      /* An empty set is the group at rest, and dropped for the same reason. */
+      const on = switchedOn(group, wanted)
+      if (on.length) kept[group.id] = on
+      continue
+    }
+    if (typeof wanted !== 'string' || wanted === group.fallback) continue
     if (!group.options.some((option) => option.id === wanted)) continue
     kept[group.id] = wanted
   }
@@ -165,7 +206,11 @@ export function narrowed(offer: readonly FilterGroup[], choice: Choice): boolean
        to: the claim this makes is "something has been typed here", which is
        exactly as true as "something other than the resting option is pressed"
        and is the same signal a person needs when a list looks short. */
-    if (group.kind === 'text') return true
+    if (group.kind === 'text') return typeof wanted === 'string'
+    /* A set with anything in it is hiding something, by the same argument: the
+       host cannot know what each option covers, only that one is switched on,
+       and the resting state of a toggles group is nothing switched on. */
+    if (group.kind === 'toggles') return switchedOn(group, wanted).length > 0
     return wanted !== group.fallback
   })
 }
@@ -183,9 +228,18 @@ export function narrowed(offer: readonly FilterGroup[], choice: Choice): boolean
  * `Object.hasOwn` rather than `in`: both of these are keyed by strings a framed
  * module invented, and `'constructor' in b` is true of every object there has
  * ever been.
+ *
+ * A toggles set compares by its members in order. `chosen` and `settle` both
+ * write a set in the group's own option order, so two records that went through
+ * either are equal exactly when they hold the same options.
  */
 export function sameChoice(a: Choice, b: Choice): boolean {
   const keys = Object.keys(a)
   if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
+  return keys.every((key) => Object.hasOwn(b, key) && sameValue(a[key], b[key]))
+}
+
+function sameValue(a: string | readonly string[] | undefined, b: string | readonly string[] | undefined): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((id, i) => id === b[i])
+  return a === b
 }

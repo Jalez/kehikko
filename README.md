@@ -201,6 +201,12 @@ container header; a press comes back in `context.filters`.
   module is offering right now, every time. A value naming an option a newer
   version of the module no longer has degrades to that module's own default
   instead of narrowing by something nobody can see or clear.
+- **Three kinds of group.** A `choice` group is ticks, one of them on; a `text`
+  group is one input; a `toggles` group is independent checkboxes — "hide
+  closed changes" without also hiding closed issues — whose value is the list
+  of ids switched on, with a host-worded *Clear* under it. Nothing switched on is
+  the resting state and is stored as nothing; anything switched on fills the
+  funnel.
 - **No module string is laid out in the header.** The button is an icon. Every
   label the module wrote is inside the menu, truncated, with the whole of it in
   a `title` — a `whitespace-nowrap` element carrying a variable string once gave
@@ -253,7 +259,7 @@ nothing else: no program is told, started, stopped or asked anything, and the
 selection is stored with the layout, so it is still there tomorrow.
 
 The host answers MCP on its own API port, at `http://127.0.0.1:4180/mcp`, with
-four tools:
+five tools:
 
 | tool | what it does |
 |---|---|
@@ -261,8 +267,9 @@ four tools:
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
 | `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/roadmap/epics/<slug>.json` — without opening it |
+| `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/kehikko/dispositions.json`, signed `agent (MCP)` |
 
-All four take an optional `kehikko` id and, without one, act on the kehikko a
+All five take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
 said or when two browser windows have two different ones open.
 

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import type { FilterGroup } from 'roadmap-module-protocol'
 
 import { Label, saying } from '../src/canvas/Filters.tsx'
-import { chosen, narrowed, sameChoice, settle } from '../src/host/filters.ts'
+import { chosen, narrowed, sameChoice, settle, switchedOn, toggled } from '../src/host/filters.ts'
 import { whileFrozen } from '../src/host/context.ts'
 import { LIMITS, contextSchema } from 'roadmap-module-protocol'
 
@@ -426,5 +426,81 @@ describe('a group somebody types into', () => {
       search: 'rbac',
     })
     expect(settle([kinds, search], { kind: 'all', search: 'rbac' })).toEqual({ search: 'rbac' })
+  })
+})
+
+/*
+ * #17: a set of independently hideable options. "Hide closed changes" without
+ * also hiding closed issues is a cell of a product two choice groups could
+ * only say together; one toggles group says it alone.
+ */
+describe('a group of switches', () => {
+  const hide: FilterGroup = {
+    id: 'hide',
+    label: 'hide',
+    kind: 'toggles',
+    options: [
+      { id: 'closed-changes', label: 'closed MRs/PRs' },
+      { id: 'closed-issues', label: 'closed issues' },
+      { id: 'wont-do', label: "won't do" },
+    ],
+  }
+
+  test('nothing switched on is absent, as an empty input is', () => {
+    expect(chosen([hide], {})).toEqual({})
+    expect(chosen([hide], { hide: [] })).toEqual({})
+    expect(settle([hide], { hide: [] })).toEqual({})
+  })
+
+  test('what is on is handed back in the group’s own order, so equal sets are equal records', () => {
+    const one = chosen([hide], { hide: ['wont-do', 'closed-changes'] })
+    expect(one).toEqual({ hide: ['closed-changes', 'wont-do'] })
+    expect(sameChoice(one, chosen([hide], { hide: ['closed-changes', 'wont-do'] }))).toBe(true)
+    expect(sameChoice(one, { hide: ['closed-changes'] })).toBe(false)
+  })
+
+  /* The list's version of an option falling to its fallback: an id in no menu
+     is a switch nobody can see or turn off. */
+  test('an id the group no longer offers is dropped, on the way out and in the store', () => {
+    expect(chosen([hide], { hide: ['closed-changes', 'gone'] })).toEqual({ hide: ['closed-changes'] })
+    expect(settle([hide], { hide: ['gone'] })).toEqual({})
+  })
+
+  test('a string from before the module made it a toggles group switches nothing on', () => {
+    expect(chosen([hide], { hide: 'closed-changes' })).toEqual({})
+  })
+
+  test('each press flips one switch and leaves the others', () => {
+    expect(toggled(hide, ['closed-changes'], 'wont-do')).toEqual(['closed-changes', 'wont-do'])
+    expect(toggled(hide, ['closed-changes', 'wont-do'], 'closed-changes')).toEqual(['wont-do'])
+    expect(switchedOn(hide, toggled(hide, [], 'closed-issues'))).toEqual(['closed-issues'])
+  })
+
+  test('anything switched on counts as narrowed, for the header’s funnel', () => {
+    expect(narrowed([hide], { hide: ['wont-do'] })).toBe(true)
+    expect(narrowed([hide], { hide: [] })).toBe(false)
+    expect(narrowed([hide], { hide: ['gone'] })).toBe(false)
+    expect(narrowed([hide], {})).toBe(false)
+  })
+})
+
+/*
+ * #18: the marks people put on refs travel past a pin when the pinned
+ * container is in the project they are about, and not otherwise.
+ */
+describe('dispositions reach a pinned container in the same project', () => {
+  const mark = { ref: '#2274', value: 'wont-do' as const }
+  const held = contextSchema.parse({ epic: 'a', projectPath: '/p' })
+
+  test('a new mark in the same project goes through, and the subject stays frozen', () => {
+    const told = contextSchema.parse({ epic: 'b', projectPath: '/p', dispositions: [mark] })
+    const relit = whileFrozen(held, told)
+    expect(relit?.dispositions.map((d) => d.ref)).toEqual(['#2274'])
+    expect(relit?.epic).toBe('a')
+  })
+
+  test('another project’s marks do not', () => {
+    const told = contextSchema.parse({ epic: 'b', projectPath: '/q', dispositions: [mark] })
+    expect(whileFrozen(held, told)).toBeNull()
   })
 })
