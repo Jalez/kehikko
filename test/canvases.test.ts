@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { LIMITS } from 'roadmap-module-protocol'
 
 import {
   canvasesHolding,
@@ -677,6 +678,46 @@ describe('a filter choice is part of the arrangement', () => {
       ],
     })
     expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({})
+  })
+
+  /*
+   * #19: a text group's value is what somebody typed, bounded at FILTER_TEXT.
+   * It used to be held to FILTER_ID like an option id, and a search longer
+   * than 64 characters worked on screen and was gone after a reload.
+   */
+  test('a typed query longer than an option id survives, up to FILTER_TEXT', () => {
+    const made = createCanvas(db, 'one')
+    const query = 'q'.repeat(LIMITS.FILTER_ID + 40)
+    const tooLong = 'q'.repeat(LIMITS.FILTER_TEXT + 1)
+    editCanvas(db, made.id, {
+      placements: [{ i: 'a.refs', x: 0, y: 0, w: 6, h: 10, filters: { search: query, other: tooLong } }],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({ search: query })
+  })
+
+  /* #17: a toggles group's value is a list of option ids. */
+  test('a toggles set is kept as a list, and an empty or broken one is not kept', () => {
+    const made = createCanvas(db, 'one')
+    editCanvas(db, made.id, {
+      placements: [
+        {
+          i: 'a.refs',
+          x: 0,
+          y: 0,
+          w: 6,
+          h: 10,
+          filters: {
+            hide: ['closed-changes', 'wont-do'],
+            empty: [],
+            /* An option id is a FILTER_ID, so an over-long one is not one. */
+            long: ['x'.repeat(LIMITS.FILTER_ID + 1)],
+            twice: ['a', 'a'],
+            nasty: ['constructor'],
+          },
+        },
+      ],
+    })
+    expect(listCanvases(db)[0]?.placements[0]?.filters).toEqual({ hide: ['closed-changes', 'wont-do'] })
   })
 })
 

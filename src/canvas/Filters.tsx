@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
-import { narrowed, type Choice } from '@/host/filters.ts'
+import { narrowed, switchedOn, toggled, type Choice } from '@/host/filters.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -142,7 +142,7 @@ export function FilterButton({
   chosen: Choice
   /** The module's name, for the sentence somebody reads before pressing. */
   name: string
-  onChoose(group: string, option: string): void
+  onChoose(group: string, option: string | string[]): void
   /** Put every group back to its module's own resting option. */
   onEverything(): void
 }) {
@@ -204,10 +204,12 @@ export function FilterButton({
                 `LIMITS.FILTER_TEXT` in the protocol. */}
             {group.kind === 'text' ? (
               <Typed
-                value={own(chosen, group.id) ?? ''}
+                value={typedIn(own(chosen, group.id))}
                 placeholder={group.label}
                 onType={(text) => onChoose(group.id, text)}
               />
+            ) : group.kind === 'toggles' ? (
+              <Toggles group={group} on={switchedOn(group, own(chosen, group.id))} onChoose={onChoose} />
             ) : (
               group.options.map((option) => (
                 <DropdownMenuItem
@@ -291,6 +293,67 @@ export function saying(name: string, narrowed: boolean): { name: string; hint: s
         name: `filter what ${name} shows`,
         hint: `filter: choose what ${name} shows`,
       }
+}
+
+/** What a text group's input shows: what was typed, or nothing. */
+function typedIn(value: string | readonly string[] | undefined): string {
+  return typeof value === 'string' ? value : ''
+}
+
+/**
+ * A `toggles` group, drawn as checkboxes that do not know about each other.
+ *
+ * Each press flips one option and leaves the rest as they were, which is the
+ * whole difference from a choice group — "hide closed changes" and "hide closed
+ * issues" are two switches, not two answers to one question. So the menu stays
+ * open on a press (`preventDefault` on Radix's select), because somebody
+ * switching two things off should not have to open it twice.
+ *
+ * The "clear" under the set is the host's word, like "Show everything" below,
+ * and is drawn only when something is on: it puts this one group back to rest
+ * without touching any other group, which "Show everything" would.
+ */
+function Toggles({
+  group,
+  on,
+  onChoose,
+}: {
+  group: FilterGroup
+  /** The ids switched on, already reconciled against the group's options. */
+  on: readonly string[]
+  onChoose(group: string, option: string | string[]): void
+}) {
+  return (
+    <>
+      {group.options.map((option) => (
+        <DropdownMenuItem
+          key={option.id}
+          role="menuitemcheckbox"
+          aria-checked={on.includes(option.id)}
+          className="min-w-0 cursor-default text-xs"
+          onSelect={(event) => {
+            event.preventDefault()
+            onChoose(group.id, toggled(group, on, option.id))
+          }}
+        >
+          <DropdownMenuCheck checked={on.includes(option.id)} />
+          <Label text={option.label} />
+        </DropdownMenuItem>
+      ))}
+      {on.length ? (
+        <DropdownMenuItem
+          className="text-muted-foreground cursor-default text-xs"
+          onSelect={(event) => {
+            event.preventDefault()
+            onChoose(group.id, [])
+          }}
+        >
+          <DropdownMenuCheck checked={false} />
+          Clear
+        </DropdownMenuItem>
+      ) : null}
+    </>
+  )
 }
 
 /**

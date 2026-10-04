@@ -237,6 +237,7 @@ describe('one writer, two callers', () => {
       wakes.woke(kehikko)
     },
     epicsChanged: (project) => wakes.epicsChanged(project),
+    dispositionsChanged: (project) => wakes.dispositionsChanged(project),
     seen: async () => seen,
   })
 

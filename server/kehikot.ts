@@ -291,7 +291,20 @@ const containerSchema = z
        refuses a file that carries a field this version has never heard of. */
     openH: z.number().int().nullable().optional(),
     selected: z.boolean().default(false),
-    filters: z.record(z.string().min(1).max(LIMITS.FILTER_ID), z.string().min(1).max(LIMITS.FILTER_ID)).default({}),
+    /* The bounds are the wire's, half by half: a group id is a `FILTER_ID`, a
+       string value may be a typed query and so is a `FILTER_TEXT`, and a list
+       is a `toggles` group's set of option ids. An empty list is read rather
+       than refused — it is a hand-written "nothing switched on", and the
+       placement drops it on the way in, since rest is stored as nothing. */
+    filters: z
+      .record(
+        z.string().min(1).max(LIMITS.FILTER_ID),
+        z.union([
+          z.string().min(1).max(LIMITS.FILTER_TEXT),
+          z.array(z.string().min(1).max(LIMITS.FILTER_ID)).max(LIMITS.FILTER_OPTIONS),
+        ]),
+      )
+      .default({}),
     refreshEvery: z.number().max(REFRESH_EVERY_MAX).nullable().default(null),
   })
   .strict()

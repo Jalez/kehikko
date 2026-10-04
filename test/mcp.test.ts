@@ -35,6 +35,7 @@ const door = (): Door => ({
     wakes.woke(kehikko)
   },
   epicsChanged: (project) => wakes.epicsChanged(project),
+  dispositionsChanged: (project) => wakes.dispositionsChanged(project),
   seen: async () => seen,
 })
 
@@ -76,7 +77,7 @@ describe('the door says what it is and what it offers', () => {
     expect(result.capabilities).toEqual({ tools: {} })
   })
 
-  test('four tools and no more', async () => {
+  test('five tools and no more', async () => {
     const reply = await mcp({ id: 2, method: 'tools/list' }, door(), { name: 'kehikko', version: '0.1.0' })
     const tools = (reply.body as { result: { tools: { name: string }[] } }).result.tools
     /* The surface is still narrow on purpose, and the line has moved once:
@@ -87,6 +88,7 @@ describe('the door says what it is and what it offers', () => {
        original argument survived. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
+      'mark_disposition',
       'place_modules',
       'read_canvas',
       'select_modules',

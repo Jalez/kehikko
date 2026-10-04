@@ -3,7 +3,13 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { LIMITS, MODULE_ID, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'roadmap-module-protocol'
+import {
+  LIMITS,
+  MODULE_ID,
+  REFRESH_EVERY_MAX,
+  REFRESH_EVERY_MIN,
+  type FilterChoice,
+} from 'roadmap-module-protocol'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -231,7 +237,7 @@ export interface Placement {
    * what to do about that is the page's, at the moment it has the live offer in
    * front of it — see `src/host/filters.ts`. What is stored is what was pressed.
    */
-  filters: Record<string, string>
+  filters: FilterChoice
   /**
    * How often this container refreshes itself, in minutes, or `null` for "only
    * when somebody presses it".
@@ -363,7 +369,7 @@ export type PlacementInput = Omit<
   /** Absent means "the height it has": see `cleaned`. */
   wish?: number | null
   selected?: boolean
-  filters?: Record<string, string>
+  filters?: FilterChoice
   refreshEvery?: number | null
 }
 
@@ -1084,7 +1090,7 @@ function refsFrom(raw: string | null): string[] {
  * every group falls back to whatever the module says its resting option is — so
  * a column that will not read costs a person their filter and never a canvas.
  */
-function filtersFrom(raw: string | null): Record<string, string> {
+function filtersFrom(raw: string | null): FilterChoice {
   if (!raw) return {}
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -1103,26 +1109,64 @@ function filtersFrom(raw: string | null): Record<string, string> {
  * as at the wire because this is also what a hand-edited column goes through on
  * the way back out.
  *
+ * ## Which bound holds which half
+ *
+ * A key is a group id and always a `FILTER_ID`. A string VALUE is held to
+ * `FILTER_TEXT`, because this function cannot tell a text group's query from a
+ * choice group's option id — the offer that would say which is the page's, not
+ * this table's — and the wider bound is the only one that does not throw away
+ * what somebody typed. It used to be `FILTER_ID` here too, and a search longer
+ * than sixty-four characters worked on screen and was gone after a reload. An
+ * over-long option id that gets through is dropped by the page reconciling it
+ * against the live offer, which is where that was always decided.
+ *
+ * A LIST value is a `toggles` group's set, and every item in it is an option id,
+ * so each is held to `FILTER_ID`. A list with a bad item is dropped whole rather
+ * than trimmed: a set with one id quietly taken out is a set nobody chose. An
+ * empty list is the group at rest, and rest is stored as nothing.
+ *
  * `Object.hasOwn` rather than `in`, and the three reserved names refused
  * outright: a record is a plain object, and `__proto__` as a key does not store
  * anything — it re-parents the object. The protocol refuses these ids at the
  * wire; this is the second half of the same defence, at the other door, because
  * a value in this column did not necessarily come through that one.
  */
-function filtersIn(value: unknown): Record<string, string> {
+export function filtersIn(value: unknown): FilterChoice {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
-  const kept: Record<string, string> = {}
+  const kept: FilterChoice = {}
   let count = 0
   for (const group of Object.keys(value as Record<string, unknown>)) {
     if (count >= LIMITS.FILTER_GROUPS) break
-    if (group === '__proto__' || group === 'constructor' || group === 'prototype') continue
+    if (RESERVED_FILTER_IDS.has(group)) continue
     if (!group || group.length > LIMITS.FILTER_ID) continue
     const chosen = (value as Record<string, unknown>)[group]
-    if (typeof chosen !== 'string' || !chosen || chosen.length > LIMITS.FILTER_ID) continue
-    kept[group] = chosen
+    if (typeof chosen === 'string') {
+      if (!chosen || chosen.length > LIMITS.FILTER_TEXT) continue
+      kept[group] = chosen
+    } else if (Array.isArray(chosen)) {
+      const ids = togglesIn(chosen)
+      if (!ids) continue
+      kept[group] = ids
+    } else {
+      continue
+    }
     count += 1
   }
   return kept
+}
+
+const RESERVED_FILTER_IDS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** A toggles set as stored, or null when it is empty or any item is not an option id. */
+function togglesIn(list: readonly unknown[]): string[] | null {
+  if (!list.length || list.length > LIMITS.FILTER_OPTIONS) return null
+  const seen = new Set<string>()
+  for (const id of list) {
+    if (typeof id !== 'string' || !id || id.length > LIMITS.FILTER_ID) return null
+    if (RESERVED_FILTER_IDS.has(id) || seen.has(id)) return null
+    seen.add(id)
+  }
+  return [...seen]
 }
 
 /**

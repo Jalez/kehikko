@@ -41,6 +41,7 @@ const door = (): Door => ({
     wakes.woke(kehikko)
   },
   epicsChanged: () => {},
+  dispositionsChanged: () => {},
   seen: async () => seen,
 })
 

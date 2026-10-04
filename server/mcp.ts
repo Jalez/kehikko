@@ -1,6 +1,8 @@
 import type { Database } from 'bun:sqlite'
+import { DISPOSITIONS, LIMITS, methodParams } from 'roadmap-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
+import { setDisposition } from './dispositions.ts'
 import { createEpic } from './holdings.ts'
 import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
@@ -142,13 +144,15 @@ export interface Door {
   wake(kehikko: number): void
   /** Say that a project's epics are not what the page last read. See `wake.ts`. */
   epicsChanged(project: number): void
+  /** A project's dispositions file changed; see `dispositionsChanged` in `wake.ts`. */
+  dispositionsChanged(project: number): void
   /** Every registered module and whether it is answering, from a sweep. */
   seen(): Promise<Sighting[]>
 }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 
-export const TOOL_NAMES = ['read_canvas', 'select_modules', 'place_modules', 'create_epic'] as const
+export const TOOL_NAMES = ['read_canvas', 'select_modules', 'place_modules', 'create_epic', 'mark_disposition'] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
 /* ------------------------------------------------------------------ *
@@ -441,6 +445,42 @@ function tools() {
         required: ['title'],
       },
     },
+    {
+      name: 'mark_disposition',
+      description:
+        'Say why a closed reference closed — done, wont-do, duplicate or superseded — in the project a kehikko is '
+        + 'standing in, the same mark a person makes from a module. A tracker’s "closed" covers all four, and every '
+        + 'module showing the ref reads this mark over whatever the tracker implies: Journeys stops counting a '
+        + 'won’t-do step as delivered, References can hide it. One mark per ref; a new one replaces the old. Pass '
+        + 'value: null to take a mark back. It is signed as yours (agent, through MCP) with the time, and the person '
+        + 'sees it at once. Mark what you know — a ref you closed as done, a duplicate you found — not a guess.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          ref: {
+            type: 'string',
+            description: 'The reference, as modules spell it, e.g. "#2274" or "gh:owner/repo#2274".',
+          },
+          value: {
+            type: ['string', 'null'],
+            enum: [...DISPOSITIONS, null],
+            description: 'done, wont-do, duplicate or superseded; null removes the mark.',
+          },
+          target: {
+            type: 'string',
+            description:
+              'For duplicate, the ref it duplicates; for superseded, the ref that replaced it. Refused for done and '
+              + 'wont-do.',
+          },
+          note: {
+            type: 'string',
+            description: `Optional, one line of why, at most ${LIMITS.SUMMARY} characters.`,
+          },
+        },
+        required: ['ref', 'value'],
+      },
+    },
   ]
 }
 
@@ -505,6 +545,7 @@ export async function call(
     return { text: canvasText(door.db, canvas, where.how, await door.seen()), failed: false }
   }
   if (name === 'create_epic') return createEpicAt(canvas, args, door)
+  if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
 
   const asked = modulesIn(args.modules, 'select_modules')
@@ -713,6 +754,73 @@ function fittedIn(before: readonly Placement[], after: Placement[], id: string):
  * the page's `+` reaches through `POST /host/epics` — and this end only turns
  * a kehikko into a folder and bounds what it hands over.
  */
+/**
+ * A disposition, from an agent.
+ *
+ * On the near side of this file's line: a mark changes no arrangement, adds a
+ * row a person sees arrive, and is taken back with one press — or by this tool
+ * with `value: null`. The arguments go through the protocol's own schema for
+ * `disposition.set`, so an agent and a module are refused for the same things
+ * in the same words, and the write is the same function the frames reach.
+ */
+function markAt(
+  canvas: Canvas,
+  args: Record<string, unknown>,
+  door: Door,
+): { text: string; failed: boolean } {
+  const project = canvas.project === null ? null : projectById(door.db, canvas.project)
+  if (!project) {
+    return {
+      text:
+        `kehikko ${canvas.id} (${canvas.name}) is in no project, so there is nowhere to keep a disposition. `
+        + `Name a kehikko that is in one.\n\n${roster(door.db)}`,
+      failed: true,
+    }
+  }
+
+  /* `value` is required here even though the schema would read a missing one
+     as an error anyway: the sentence for it should say that null is how a
+     mark is taken back, which zod's would not. */
+  if (!Object.hasOwn(args, 'value')) {
+    return {
+      text: `mark_disposition needs value: one of ${DISPOSITIONS.join(', ')}, or null to take the mark back.`,
+      failed: true,
+    }
+  }
+  const parsed = methodParams['disposition.set'].safeParse({
+    ref: args.ref,
+    value: args.value,
+    ...(args.target === undefined || args.target === null ? {} : { target: args.target }),
+    ...(args.note === undefined || args.note === null ? {} : { note: args.note }),
+  })
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const where = issue?.path.length ? issue.path.join('.') : 'the mark'
+    return { text: `nothing was marked — ${where}: ${issue?.message ?? 'not a disposition'}.`, failed: true }
+  }
+
+  const done = setDisposition(project.path, parsed.data, AGENT)
+  if (!done.ok) return { text: done.why, failed: true }
+  if (done.changed) door.dispositionsChanged(project.id)
+
+  const ref = parsed.data.ref
+  const said = done.mark
+    ? `${ref} is marked ${done.mark.value}${done.mark.target ? ` (${done.mark.target})` : ''} in ${project.name}`
+    : `${ref} has no mark in ${project.name}`
+  return {
+    text:
+      `${said}${done.changed ? '' : ' — it already said that, so nothing was written'}. `
+      + `${done.marks.length} ref${done.marks.length === 1 ? ' is' : 's are'} marked in this project`
+      + (done.marks.length
+        ? `: ${done.marks.map((m) => `${m.ref} ${m.value}${m.target ? ` → ${m.target}` : ''}`).join(', ')}.`
+        : '.'),
+    failed: false,
+  }
+}
+
+/** Who a mark through this door is signed as. */
+const AGENT = 'agent (MCP)'
+
 function createEpicAt(
   canvas: Canvas,
   args: Record<string, unknown>,
@@ -779,8 +887,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
       instructions:
         'The host somebody’s modules are arranged in. A kehikko is one canvas: several programs side by side '
         + 'around one project and one epic. This door reads what is arranged on one, sets which of those '
-        + 'containers are picked out as targets, puts modules on a kehikko as new containers, and creates epics in '
-        + 'the project a kehikko stands in. It can ADD; it cannot remove, move or resize a container, switch the '
+        + 'containers are picked out as targets, puts modules on a kehikko as new containers, creates epics in '
+        + 'the project a kehikko stands in, and marks why a closed ref closed. It can ADD; it cannot remove, move or resize a container, switch the '
         + 'kehikko, or change which epic is open — the arrangement belongs to the person looking at it, and what '
         + 'this door adds is what they can see arrive and take off with one press.',
     })

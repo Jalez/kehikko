@@ -1,3 +1,4 @@
+import { LIMITS, dispositionSchema, type Disposition } from 'roadmap-module-protocol'
 import { z } from 'zod'
 
 /**
@@ -149,6 +150,22 @@ export async function fetchEpics(project: number, signal?: AbortSignal): Promise
   return z
     .object({ holds: z.boolean(), epics: z.array(epicSchema) })
     .parse(await response.json())
+}
+
+/**
+ * The marks people have put on a project's refs — `context.dispositions`.
+ *
+ * Parsed with the protocol's own schema, so what reaches the context is what a
+ * module is promised. Not cached, for `fetchEpics`' reason: a file somebody can
+ * edit by hand is read when the page has a reason to read it, which is a
+ * project switch or the server saying a mark changed.
+ */
+export async function fetchDispositions(project: number, signal?: AbortSignal): Promise<Disposition[]> {
+  const response = await fetch(`/host/dispositions?project=${project}`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error(await reason(response))
+  return z
+    .object({ dispositions: z.array(dispositionSchema).max(LIMITS.DISPOSITIONS) })
+    .parse(await response.json()).dispositions
 }
 
 /**

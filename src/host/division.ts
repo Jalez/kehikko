@@ -32,6 +32,11 @@ export const ANSWERED_BY_THE_SERVER = [
   'stage.report',
   /* A module's own kept state. Storage, so the half that has a database. */
   'state.set',
+  /* A verdict on why a ref closed, written into the project's folder — which
+     only the server can name, from the project id the page relays. The page
+     hears about it afterwards the way it hears about an agent's write: a wake,
+     and a re-read. See `server/dispositions.ts`. */
+  'disposition.set',
 ] as const
 
 /**

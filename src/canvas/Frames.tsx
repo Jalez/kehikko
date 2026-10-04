@@ -1,4 +1,4 @@
-import type { ModuleContext } from 'roadmap-module-protocol'
+import type { FilterChoice, ModuleContext } from 'roadmap-module-protocol'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
@@ -87,7 +87,7 @@ export interface Framing {
    * here — see `host/filters.ts` — so a module is never told about a group or
    * an option it does not currently have.
    */
-  filters: Record<string, string>
+  filters: FilterChoice
 }
 
 export function Frames({

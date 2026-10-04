@@ -711,6 +711,56 @@ describe('the move in the database, from per-kehikko epics to the project', () =
   })
 })
 
+/*
+ * #19 and #17 in the file: a typed query longer than an option id, and a
+ * toggles set, both travel. The file used to cap every value at FILTER_ID, so
+ * a long search was refused here even when the database had kept it.
+ */
+describe('a filter value in the file is held to the wire’s bounds, half by half', () => {
+  test('a long query and a toggles set make the round trip', () => {
+    const dir = folder()
+    const here = db()
+    const p = project(here, dir)
+    const query = 'q'.repeat(150)
+    const made = createCanvas(here, 'refs', p.id)
+    editCanvas(here, made.id, {
+      placements: [{ ...another, filters: { search: query, hide: ['closed-changes', 'wont-do'] } }],
+    })
+    expect(syncProject(here, p).outcome).toBe('written')
+
+    const there = db()
+    const q = project(there, dir)
+    expect(syncProject(there, q)).toEqual({ file: kehikotFile(dir)!, outcome: 'read', changed: true })
+    expect(listCanvases(there)[0]!.placements[0]!.filters).toEqual({
+      search: query,
+      hide: ['closed-changes', 'wont-do'],
+    })
+  })
+
+  test('a hand-written empty set reads, and is kept as nothing', () => {
+    const dir = folder()
+    const file = kehikotFile(dir)!
+    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        kehikot: [
+          {
+            key: 'one',
+            name: 'one',
+            containers: [{ module: 'roadmap.refs', x: 0, y: 0, w: 6, h: 10, filters: { hide: [] } }],
+          },
+        ],
+      }),
+    )
+    const store = db()
+    const p = project(store, dir)
+    expect(syncProject(store, p).outcome).toBe('read')
+    expect(listCanvases(store)[0]!.placements[0]!.filters).toEqual({})
+  })
+})
+
 /** Two canvases in a throwaway database, for the serialiser. */
 function listCanvasesOf(...placements: Placement[]): Canvas[] {
   const store = db()
