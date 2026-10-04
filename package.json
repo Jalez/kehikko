@@ -25,7 +25,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-grid-layout": "^1.5.4",
-    "roadmap-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#ref-facets-disposition",
+    "roadmap-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#main",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.25.76"
   },
