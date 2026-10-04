@@ -121,6 +121,37 @@
         }
       })()
     </script>
+    <!--
+      A page that cannot start says so, instead of being a black canvas.
+
+      If the application fails before React has drawn anything — most often a
+      module that will not link because an installed dependency is older than
+      the code importing from it — the page is the background colour above and
+      nothing else, and the reason is only in a console nobody has open. This
+      listens until something has been drawn, and if an error arrives while
+      `#root` is still empty it writes the message there, as text, with the one
+      line that usually fixes it.
+    -->
+    <script>
+      ;(function () {
+        function show(message) {
+          var root = document.getElementById('root')
+          if (!root || root.childNodes.length) return
+          var box = document.createElement('pre')
+          box.style.cssText = 'margin:2rem;padding:1rem;white-space:pre-wrap;font:13px/1.5 ui-monospace,monospace;color:#f87171;border:1px solid currentColor;border-radius:6px'
+          box.textContent = 'Kehikot could not start.\n\n' + message
+            + '\n\nIf this follows an update, run `bun install` in the kehikko folder and restart Kehikot.'
+          root.appendChild(box)
+        }
+        window.addEventListener('error', function (event) {
+          show(event.message || String(event.error || 'a script failed to load'))
+        }, true)
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason
+          show(reason && reason.message ? reason.message : String(reason))
+        })
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

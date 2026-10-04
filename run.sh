@@ -81,9 +81,24 @@ export PORT
 HOST_PORT="$PORT"
 export HOST_PORT
 
-if [ ! -d node_modules ]; then
+# Install when there is nothing installed, AND when `bun.lock` has moved since
+# the last install here. Only the first was checked, and the second is the one
+# an update produces: a pull that moves the protocol pin leaves the old package
+# in `node_modules`, the new page imports names it does not have, and an ES
+# module that fails to link draws nothing at all — a black canvas with no error
+# on it. The stamp is ours, written after an install that succeeded, so a
+# checkout that has never had one installs once and is current from then on.
+INSTALLED=node_modules/.kehikot-installed
+VITE_FORCE=
+if [ ! -d node_modules ] || [ ! -f "$INSTALLED" ] || [ bun.lock -nt "$INSTALLED" ] || [ package.json -nt "$INSTALLED" ]; then
   echo "installing…" >&2
-  bun install >&2
+  if bun install >&2; then
+    touch "$INSTALLED"
+    # A fresh install can change a dependency Vite has already pre-bundled,
+    # and its own lockfile check is not the only way to end up here, so the
+    # pre-bundle is rebuilt rather than trusted.
+    VITE_FORCE=--force
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -239,7 +254,7 @@ API_BACKOFF_MAX=30
 # So the page goes to the background too and this shell `wait`s on it, which is
 # interruptible. A signal reaches the trap immediately, the trap takes both
 # halves down, and there is no state where one is serving without the other.
-bunx vite --host 127.0.0.1 --port "$PAGE" --strictPort &
+bunx vite --host 127.0.0.1 --port "$PAGE" --strictPort $VITE_FORCE &
 PAGE_PID=$!
 
 # Whichever way this ends -- Ctrl-C, a TERM from whoever started it, or Vite
