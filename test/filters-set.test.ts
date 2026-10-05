@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { FilterGroup } from 'roadmap-module-protocol'
+import type { FilterGroup } from 'kehikot-module-protocol'
 
 import { makeAsk, type CanvasControls } from '../src/host/ask.ts'
 import { settle } from '../src/host/filters.ts'
@@ -55,7 +55,7 @@ describe('a module asking for its own filters', () => {
        module that assumed otherwise would draw one thing and be told another on
        the next context. */
     const { controls } = canvasThat((_from, choice) => ({ ok: true, filters: settle(OFFER, choice) }))
-    const out = await ask(controls, 'roadmap.references', { filters: { kind: 'issues', state: 'any' } })
+    const out = await ask(controls, 'kehikot.references', { filters: { kind: 'issues', state: 'any' } })
     expect(out.ok).toBe(true)
     expect((out as { data: { filters: Record<string, string> } }).data.filters).toEqual({ kind: 'issues' })
   })
@@ -68,14 +68,14 @@ describe('a module asking for its own filters', () => {
    */
   test('cannot name a target: the sender is the host’s to supply', async () => {
     const { controls, asked } = canvasThat(() => ({ ok: true, filters: {} }))
-    await ask(controls, 'roadmap.references', { filters: { kind: 'issues' }, from: 'roadmap.notes', module: 'roadmap.notes' })
+    await ask(controls, 'kehikot.references', { filters: { kind: 'issues' }, from: 'kehikot.notes', module: 'kehikot.notes' })
     expect(asked).toHaveLength(1)
-    expect(asked[0]?.from).toBe('roadmap.references')
+    expect(asked[0]?.from).toBe('kehikot.references')
   })
 
   test('an empty choice is a real request — it is what clearing the narrowing is', async () => {
     const { controls, asked } = canvasThat(() => ({ ok: true, filters: {} }))
-    const out = await ask(controls, 'roadmap.references', { filters: {} })
+    const out = await ask(controls, 'kehikot.references', { filters: {} })
     expect(out.ok).toBe(true)
     expect(asked[0]?.choice).toEqual({})
   })
@@ -83,8 +83,8 @@ describe('a module asking for its own filters', () => {
   test('a refusal arrives as the canvas’s own sentence', async () => {
     /* Pinned, not on the open kehikko, offering nothing: three grounds, each
        with a sentence a module's author can act on. A number could not be. */
-    const { controls } = canvasThat(() => ({ ok: false, error: 'roadmap.references is pinned, so it would not be told.' }))
-    const out = await ask(controls, 'roadmap.references', { filters: { kind: 'issues' } })
+    const { controls } = canvasThat(() => ({ ok: false, error: 'kehikot.references is pinned, so it would not be told.' }))
+    const out = await ask(controls, 'kehikot.references', { filters: { kind: 'issues' } })
     expect(out.ok).toBe(false)
     expect(JSON.stringify(out)).toContain('pinned')
   })
@@ -92,7 +92,7 @@ describe('a module asking for its own filters', () => {
   test('a malformed ask is refused before the canvas is troubled', async () => {
     const { controls, asked } = canvasThat(() => ({ ok: true, filters: {} }))
     for (const params of [{}, { filters: 'everything' }, { filters: { kind: 5 } }]) {
-      expect((await ask(controls, 'roadmap.references', params)).ok).toBe(false)
+      expect((await ask(controls, 'kehikot.references', params)).ok).toBe(false)
     }
     expect(asked).toHaveLength(0)
   })

@@ -30,12 +30,12 @@ afterEach(() => {
   rmSync(scratch, { recursive: true, force: true })
 })
 
-/** A folder with `.kehikot/roadmap/epics` under it, holding the named epics. */
+/** A folder with `.kehikot/kehikko/epics` under it, holding the named epics. */
 function withEpics(name: string, epics: Record<string, unknown>[] = []): string {
   const root = join(scratch, name)
-  mkdirSync(join(root, '.kehikot', 'roadmap', 'epics'), { recursive: true })
+  mkdirSync(join(root, '.kehikot', 'kehikko', 'epics'), { recursive: true })
   for (const epic of epics) {
-    writeFileSync(join(root, '.kehikot', 'roadmap', 'epics', `${String(epic.slug)}.json`), JSON.stringify(epic))
+    writeFileSync(join(root, '.kehikot', 'kehikko', 'epics', `${String(epic.slug)}.json`), JSON.stringify(epic))
   }
   return root
 }
@@ -67,7 +67,7 @@ describe('a project is a name and a folder', () => {
     expect(kehikot[0]?.placements).toEqual([])
   })
 
-  test('a project with no .kehikot/roadmap/epics is a project, and says so', () => {
+  test('a project with no .kehikot/kehikko/epics is a project, and says so', () => {
     /* The user's thesis: main.tex, chapters/, references.bib, and no epics
        anywhere. Refusing it would be this host insisting that work it cannot
        index is not work. */
@@ -188,7 +188,7 @@ describe('the kehikot that were written before projects existed', () => {
         (1, 'Kehikko 1', 1, 'tables-declare-themselves', null),
         (2, 'Kehikko 2 -reviews', 2, 'modes-are-modules', null),
         (10, 'writing', 3, 'workbench-reads-like-the-thesis', null);
-      insert into placements (canvas, module, x, y, w, h) values (1, 'roadmap.atlas', 0, 0, 6, 10);
+      insert into placements (canvas, module, x, y, w, h) values (1, 'kehikot.atlas', 0, 0, 6, 10);
     `)
     const file = join(scratch, 'frame.sqlite')
     old.exec(`vacuum into '${file}'`)
@@ -251,7 +251,7 @@ describe('the kehikot that were written before projects existed', () => {
 
   test('with nowhere named, the seed is home — visible, and never nothing', () => {
     /* A guess, deliberately a visible one: home certainly exists, it holds no
-       .kehikot/roadmap/epics, so the header says there are none — which is true — and "add
+       .kehikot/kehikko/epics, so the header says there are none — which is true — and "add
        a project" is one press away. The alternative was leaving kehikot in no
        project, and a kehikko no dropdown lists is work nobody can reach. */
     const settled = adopt(db, {})

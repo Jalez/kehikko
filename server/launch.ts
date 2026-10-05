@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, join, resolve, sep } from 'node:path'
+import { DEFAULT_FRAME_ORIGINS } from 'kehikot-module-protocol/serve'
+
 import type { Registration } from './registrations.ts'
 
 /**
@@ -193,14 +195,19 @@ const ASK_EVERY_MS = 300
  * that starts and exits has run, and a script still compiling has not finished
  * being useful. The manifest answering is the fact worth reporting.
  */
-export async function answered(origin: string, wellKnown: string): Promise<boolean> {
+export async function answered(origin: string, wellKnown: string | readonly string[]): Promise<boolean> {
+  /* Every path given counts: a module from before the rename serves its
+     manifest only at the old well-known path, and 404s the new one. */
+  const paths = typeof wellKnown === 'string' ? [wellKnown] : wellKnown
   const until = Date.now() + ANSWERS_WITHIN_MS
   while (Date.now() < until) {
     try {
-      const response = await fetch(new URL(wellKnown, origin), {
-        signal: AbortSignal.timeout(ASK_EVERY_MS * 2),
-      })
-      if (response.ok) return true
+      for (const path of paths) {
+        const response = await fetch(new URL(path, origin), {
+          signal: AbortSignal.timeout(ASK_EVERY_MS * 2),
+        })
+        if (response.ok) return true
+      }
     } catch {
       /* Not up yet. Nothing here distinguishes "refused" from "still binding",
          and it does not need to: both mean ask again. */
@@ -217,7 +224,7 @@ export async function answered(origin: string, wellKnown: string): Promise<boole
  * SIGTERM returns immediately; the process then has to run its own shutdown,
  * close its listener and let the socket go. A replacement started inside that
  * window finds the old one still listening, decides a copy of itself is already
- * running -- which is exactly what `roadmap-module-protocol/serve` is supposed
+ * running -- which is exactly what `kehikot-module-protocol/serve` is supposed
  * to conclude -- and exits without starting anything.
  *
  * So the restart waits to see the address go quiet before asking for it. Bounded
@@ -274,9 +281,10 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  *
  * The desktop shell sets `KEHIKOT_ORIGIN` on the host process it launches. So
  * inheriting the environment is nearly the whole of what has to happen: a
- * module the host starts is framed correctly by whatever started the host. The
- * one thing done here is spelling it both ways (`originEnv`), so a module still
- * reading the old name sees the same value as one reading the new. A person
+ * module the host starts is framed correctly by whatever started the host. What
+ * is done here (`originEnv`) is spelling the single origin both ways, so a
+ * module still reading the old name sees the same value as one reading the new,
+ * and widening it to the list of every origin that may frame it. A person
  * running `./run.sh` in a terminal passes nothing and their modules take the
  * browser default, which is what they want.
  *
@@ -287,13 +295,47 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * environment, or "start it yourself and see" stops being useful advice.
  */
 /**
- * The frame origin under both its names, `KEHIKOT_ORIGIN` first. Empty when
- * neither is set, so a module falls back to its browser default as before.
- * The old name goes once every module reads the new one.
+ * The origins of this host's own page, set once by `server.ts` at startup —
+ * `http://127.0.0.1:<port>` and `http://localhost:<port>` for whichever port the
+ * page is really on — so a module this host starts allows the page that is
+ * actually framing it, even when it is not on a default port.
  */
-export function originEnv(env: Record<string, string | undefined>): Record<string, string> {
-  const origin = env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN
-  return origin ? { KEHIKOT_ORIGIN: origin, ROADMAP_ORIGIN: origin } : {}
+let ownPageOrigins: string[] = []
+
+export function setPageOrigins(origins: readonly string[]): void {
+  ownPageOrigins = [...origins]
+}
+
+/**
+ * Who may frame a module this host starts, for the module's `frame-ancestors`.
+ *
+ * `KEHIKOT_ORIGINS` is the LIST, space-separated, and is always set: whatever
+ * the host was given in it, the single origin it was given (if any), this
+ * host's own page, and every origin a host on this machine serves its page from
+ * by default — the development page (4181), the desktop app's page (4170) and
+ * the desktop window's `tauri://` origins (`DEFAULT_FRAME_ORIGINS` in the
+ * protocol). A module reading it — see `frameOrigins` in the protocol's
+ * `/serve` — can then be framed by every one of them, which a single origin
+ * never could: the same module is framed by the development page and by the
+ * installed app on one machine.
+ *
+ * `KEHIKOT_ORIGIN` and `ROADMAP_ORIGIN` are set to the SAME list. Every module
+ * from before the rename reads one of those and interpolates it straight into
+ * `frame-ancestors 'self' ${...}` — the desktop shell already relies on that,
+ * passing four origins in it — so a list there is what they already expect,
+ * and it is what makes an unchanged module started by this host frameable by
+ * the development page AND the installed app rather than whichever started it.
+ * The single names go once every module reads the list.
+ */
+export function originEnv(
+  env: Record<string, string | undefined>,
+  pageOrigins: readonly string[] = ownPageOrigins,
+): Record<string, string> {
+  const single = env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN
+  const words = (value: string | undefined) => (value ?? '').split(/\s+/).filter(Boolean)
+  const list = [...new Set([...words(env.KEHIKOT_ORIGINS), ...words(single), ...pageOrigins, ...DEFAULT_FRAME_ORIGINS])]
+  const all = list.join(' ')
+  return { KEHIKOT_ORIGINS: all, KEHIKOT_ORIGIN: all, ROADMAP_ORIGIN: all }
 }
 
 export function start(run: Runnable): Started {

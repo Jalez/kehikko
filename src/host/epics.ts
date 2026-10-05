@@ -53,8 +53,8 @@ export function slugFrom(title: string): string {
 /**
  * What "new epic…" at the end of the epic menu does, given the state the menu is in.
  *
- * The select has three empty states — no project, no `.kehikot/roadmap/epics`, and a
- * `.kehikot/roadmap/epics` with nothing in it — and `Epics.tsx` says why they are three
+ * The select has three empty states — no project, no `.kehikot/kehikko/epics`, and a
+ * `.kehikot/kehikko/epics` with nothing in it — and `Epics.tsx` says why they are three
  * and not one. Creating has to answer each of them separately, because what
  * the button will DO differs:
  *
@@ -66,11 +66,11 @@ export function slugFrom(title: string): string {
  *     words, and a second flat control repeating the same sentence would be
  *     two disabled things for one fact. The button comes back with the
  *     project.
- *   - **No `.kehikot/roadmap/epics`.** The directory has to be made, and it is made by the
+ *   - **No `.kehikot/kehikko/epics`.** The directory has to be made, and it is made by the
  *     server on the first create — but the person is told before they press,
  *     because `.kehikot/` appearing in a thesis folder that had `main.tex` and
  *     `chapters/` is something they should have chosen rather than found.
- *   - **Empty `.kehikot/roadmap/epics`.** The directory is there; a file goes in it.
+ *   - **Empty `.kehikot/kehikko/epics`.** The directory is there; a file goes in it.
  *   - **Still reading, or the read failed.** Offered anyway. The server is the
  *     one that decides, and a `+` that waited for a list it does not need
  *     would be dead for as long as a failed read is — which is forever.
@@ -87,12 +87,12 @@ export function offerOfCreate(
     return {
       offered: true,
       makesDirectory: true,
-      note: 'this project has no .kehikot/roadmap/epics yet — creating the first epic makes that directory in it',
+      note: 'this project has no .kehikot/kehikko/epics yet — creating the first epic makes that directory in it',
     }
   }
   return {
     offered: true,
     makesDirectory: false,
-    note: 'a file in this project’s .kehikot/roadmap/epics, named by the slug',
+    note: 'a file in this project’s .kehikot/kehikko/epics, named by the slug',
   }
 }

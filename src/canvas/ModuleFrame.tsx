@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { FilterChoice, ModuleContext } from 'roadmap-module-protocol'
+import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
 
 import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
@@ -95,7 +95,7 @@ export function ModuleFrame({
 
      Memoised, and that is not a performance nicety. This object is the
      dependency of the effect that POSTS the context, so a fresh one per render
-     is a `roadmap.context` per render — measured at seventeen identical
+     is a `kehikot.context` per render — measured at seventeen identical
      broadcasts to three modules during one startup. Nothing looked wrong,
      because every module already ignores a context that tells it nothing new;
      it was still the host saying the same thing seventeen times, and the first
@@ -103,7 +103,7 @@ export function ModuleFrame({
      have inherited a bug that looked like its own. */
   /* Compared by content rather than by identity, because the caller builds a
      fresh record on every render out of the stored choice and the live offer.
-     A new object each time would be a `roadmap.context` each time — the
+     A new object each time would be a `kehikot.context` each time — the
      seventeen-identical-broadcasts problem this memo exists to prevent, in a
      new field. */
   const filtersKey = JSON.stringify(filters)
@@ -182,7 +182,7 @@ export function ModuleFrame({
            host would otherwise be tempted to infer from when it last asked. */
         refreshable: (state) => watcherRef.current.refreshable(state),
       },
-      { name: framed.name },
+      { name: framed.name, dialect: framed.dialect },
     )
     conversationRef.current = conversation
 
@@ -243,7 +243,7 @@ export function ModuleFrame({
       conversation.close()
       conversationRef.current = null
     }
-  }, [framed.id, framed.name, framed.entry, origin, bus, presses])
+  }, [framed.id, framed.name, framed.entry, framed.dialect, origin, bus, presses])
 
   /**
    * Context, re-sent whenever it changes — unless this container is pinned.

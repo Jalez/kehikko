@@ -1,12 +1,15 @@
 import {
+  dialectOfKind,
+  LEGACY_WELL_KNOWN,
   LIMITS,
   manifestSchema,
   PROTOCOL,
   speaks,
   WELL_KNOWN,
+  type Dialect,
   type Manifest,
   type ModuleCondition,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
 
@@ -102,6 +105,13 @@ export interface FramedModule {
   modes: Manifest['modes']
   extensions: Manifest['extensions']
   /**
+   * Which spelling of the wire this module speaks: `roadmap` for a module
+   * built against the protocol from before the rename, which serves
+   * `kind: "roadmap.module"`. The page greets it in that dialect and respells
+   * everything it posts into the frame — see `dialect.ts` in the protocol.
+   */
+  dialect: Dialect
+  /**
    * What the module says it REACTS to, out of the context every frame is sent.
    *
    * Carried, and carried for one purpose: the page draws it in the modules
@@ -134,7 +144,31 @@ export async function fetchManifest(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = MANIFEST_TIMEOUT_MS,
 ): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean }> {
-  const url = new URL(WELL_KNOWN, origin).toString()
+  /* The current path, and on a plain 404 the one a module from before the
+     rename serves (`/.well-known/roadmap-module.json`). Only on a 404: a module
+     that answered the first path with anything else has answered, and asking
+     it again somewhere else would be looking for a second opinion. */
+  const first = await fetchManifestAt(origin, WELL_KNOWN, fetchImpl, timeoutMs)
+  if (first.ok || !first.notFound) return strip(first)
+  const second = await fetchManifestAt(origin, LEGACY_WELL_KNOWN, fetchImpl, timeoutMs)
+  if (second.ok) return second
+  /* Both missing: say so about the path this host asks for first. */
+  return second.notFound ? strip(first) : strip(second)
+}
+
+function strip(
+  read: { ok: true; text: string } | { ok: false; why: string; reached: boolean; notFound?: boolean },
+): { ok: true; text: string } | { ok: false; why: string; reached: boolean } {
+  return read.ok ? read : { ok: false, why: read.why, reached: read.reached }
+}
+
+async function fetchManifestAt(
+  origin: string,
+  path: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean; notFound?: boolean }> {
+  const url = new URL(path, origin).toString()
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
   try {
@@ -143,10 +177,12 @@ export async function fetchManifest(
       headers: { accept: 'application/json' },
       redirect: 'error',
     })
-    if (!response.ok) return { ok: false, why: `answered ${response.status} at ${WELL_KNOWN}`, reached: true }
+    if (!response.ok) {
+      return { ok: false, why: `answered ${response.status} at ${path}`, reached: true, notFound: response.status === 404 }
+    }
     const text = await response.text()
     if (text.length > LIMITS.MANIFEST_BYTES) {
-      return { ok: false, why: `served more than ${LIMITS.MANIFEST_BYTES} bytes at ${WELL_KNOWN}`, reached: true }
+      return { ok: false, why: `served more than ${LIMITS.MANIFEST_BYTES} bytes at ${path}`, reached: true }
     }
     return { ok: true, text }
   } catch (error) {
@@ -357,6 +393,7 @@ export async function look(
         : null,
       modes: manifest.modes,
       extensions: manifest.extensions,
+      dialect: dialectOfKind(manifest.kind),
       reacts: manifest.reacts,
       declares: manifest.declares,
     },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'roadmap-module-protocol'
-import type { Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'roadmap-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
+import type { Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -273,7 +273,7 @@ export function App() {
    * What the open project holds, or null while it is being read.
    *
    * Null is "not known yet" and is not the same as `{ holds: false }`, which is
-   * "this project has no .kehikot/roadmap/epics". The epic picker draws a different
+   * "this project has no .kehikot/kehikko/epics". The epic picker draws a different
    * sentence for each — see `Epics.tsx` — because an empty box is what a
    * project with none and a read that failed both look like.
    */
@@ -559,7 +559,7 @@ export function App() {
       /* A project's epics changed — an agent's `create_epic`, or a `+` in
          another window. Re-read only when it is THIS page's project: the
          dropdown of a page standing in the thesis folder has nothing to learn
-         from an epic made in the roadmap's. Through `projectRef`, for the
+         from an epic made in another project's. Through `projectRef`, for the
          reason `lookRef` is a ref: the stream must not be reopened because the
          open project changed. `held` is not cleared first, as `onRetitleEpic`
          explains — the list stays until the new one lands. */
@@ -631,8 +631,8 @@ export function App() {
    * picker that briefly offers epics from somewhere else is a picker somebody
    * can click during that moment.
    *
-   * Not cached per project. `.kehikot/roadmap/epics` is rewritten underneath a running host
-   * by anything that refreshes the roadmap, and a cache here would be this page
+   * Not cached per project. `.kehikot/kehikko/epics` is rewritten underneath a running host
+   * by anything that refreshes the epics, and a cache here would be this page
    * showing what was on disk when the project was first opened.
    */
   useEffect(() => {
@@ -1002,7 +1002,7 @@ export function App() {
      re-point every frame. */
   /* The theme is part of it, so switching sends every framed module a new
      context and a module that honours it changes with the host. It used to be
-     the literal 'dark', which made `roadmap.context.theme` a field this host
+     the literal 'dark', which made `kehikot.context.theme` a field this host
      filled in with a constant and never revisited — a lie that happened to be
      true. */
   /**
@@ -1011,7 +1011,7 @@ export function App() {
    * The project's selection is a fresh array on every read of the canvases —
    * a `.map` over the rows produces new objects — so depending on it directly rebuilt
    * the context whenever anything about any canvas changed, and every rebuild
-   * is a `roadmap.context` posted to every framed module. Measured on a canvas
+   * is a `kehikot.context` posted to every framed module. Measured on a canvas
    * with three modules on it: seventeen identical broadcasts during startup,
    * all carrying the same selection.
    *
@@ -1033,7 +1033,7 @@ export function App() {
    * Split out of `open` by value rather than by identity, exactly like the
    * selection above and for exactly the same reason: `open` is a fresh object
    * on every read of the canvases, so depending on it here would rebuild the
-   * context — and post a `roadmap.context` to every framed module — whenever
+   * context — and post a `kehikot.context` to every framed module — whenever
    * anything about any canvas changed.
    */
   const kehikko = useMemo(
@@ -1163,7 +1163,7 @@ export function App() {
    *
    * `toWireContext` runs the protocol's schema and hands back a fresh object
    * every time, so a memo depending on the passage by identity would rebuild
-   * the context — and post a `roadmap.context` into every frame on the canvas —
+   * the context — and post a `kehikot.context` into every frame on the canvas —
    * on every render that happened to produce an equal passage. There is a
    * measured history of exactly this here: seventeen identical contexts during
    * startup, because a `.map` over the canvases made a new selection array each
@@ -1192,7 +1192,7 @@ export function App() {
   const arranged = containersKey(described)
 
   /* By value, for the reason `pointing` is: a re-read that found the same
-     marks is a fresh array, and must not be a `roadmap.context` to every frame. */
+     marks is a fresh array, and must not be a `kehikot.context` to every frame. */
   const marked = JSON.stringify(marks)
   /* By value too: the bar's state carries the sources, which the context does
      not, and a re-read that changed only a source's sentence is not news for
@@ -1374,7 +1374,7 @@ export function App() {
    * something about the disk by asking.
    */
   const pickRef = useRef<(from: string) => Promise<Picked>>(() =>
-    Promise.resolve({ outcome: 'declined', project: null, why: 'This roadmap is not ready to ask anybody yet.' }),
+    Promise.resolve({ outcome: 'declined', project: null, why: 'This host is not ready to ask anybody yet.' }),
   )
   pickRef.current = (from) => {
     const declined = (why: string): Promise<Picked> =>
@@ -1383,7 +1383,7 @@ export function App() {
       return declined('Somebody is already being asked to choose a project.')
     }
     if (projects.length === 0) {
-      return declined('This roadmap will not ask right now.')
+      return declined('This host will not ask right now.')
     }
     /* The name comes off the registration, never off anything the frame said.
        Same rule as `emit`'s sender, and it bites harder here: this is the one
@@ -1482,7 +1482,7 @@ export function App() {
         }),
       /* Held for the canvas that is open, and only when it actually CHANGED.
          A module that points on every pointer move during a drag would
-         otherwise put a `roadmap.context` into every frame on the canvas per
+         otherwise put a `kehikot.context` into every frame on the canvas per
          event; the sender is asked not to do that, and this is the half of the
          bargain the host can keep on its own — a host cannot make somebody
          else's program debounce, and it can refuse to repeat itself. */
@@ -1629,7 +1629,7 @@ export function App() {
       /*
        * A collapsed container does not grow, and the request is not thrown away.
        *
-       * `roadmap.resize` is a module saying how tall its document is. A module
+       * `kehikot.resize` is a module saying how tall its document is. A module
        * has not been told its container is folded — deliberately; see `onCollapse` —
        * so it goes on measuring and asking, and honouring that here would let a
        * module force a container open that a person folded shut. The person's press
@@ -1675,7 +1675,7 @@ export function App() {
    * about this canvas — which is how two containers end up on two different epics,
    * side by side, to be compared.
    *
-   * The module is TOLD, in `roadmap.context`. This host refused to pin at all
+   * The module is TOLD, in `kehikot.context`. This host refused to pin at all
    * until the protocol had a word for it, because a silent pin leaves a module
    * describing itself as showing the open epic while it shows a remembered one,
    * with no way to tell a person's pin from the canvas not having moved. See
@@ -1917,7 +1917,7 @@ export function App() {
    *
    * The host has no idea what was chosen and never finds out. It writes a
    * string it was handed under a key it was handed, and the module reads both
-   * back out of the next `roadmap.context`.
+   * back out of the next `kehikot.context`.
    */
   const onChooseFilter = useCallback(
     (id: string, group: string, option: string | string[]) => {
@@ -1982,7 +1982,7 @@ export function App() {
    * it back. A folded container's page is hidden the same way a container on another
    * canvas is hidden, which is a path this program has had since the beginning.
    *
-   * Nothing goes out on the wire, and `roadmap.context` does not grow a field.
+   * Nothing goes out on the wire, and `kehikot.context` does not grow a field.
    * This is a real judgement call rather than an oversight: one could argue a
    * module ought to know it is not visible so it can stop polling. It should
    * not learn it from HERE, because it could not act on it correctly — from
@@ -2009,7 +2009,7 @@ export function App() {
    * selection, and they are three different facts:
    *
    *   - `canvas.selection` is REFS — `gh#105`, `!44` — what somebody picked out
-   *     of a tracker. It goes out in `roadmap.context` and every module is told.
+   *     of a tracker. It goes out in `kehikot.context` and every module is told.
    *   - `passage` is a place inside a document: a path, a page, a byte range.
    *   - This is which of the CONTAINERS arranged here are being aimed at. It is
    *     a fact about the canvas's own arrangement and about nothing else.
@@ -2184,7 +2184,7 @@ export function App() {
    *
    * So switching a project is exactly two state changes: which project is open,
    * and which kehikko. Every frame stays mounted, keeps its document, and is
-   * TOLD — `roadmap.context` goes out with the new project's name and path, and
+   * TOLD — `kehikot.context` goes out with the new project's name and path, and
    * a module re-reads. A module that ignores the new context is no worse off
    * than it was before this existed, which is the bar an addition has to clear.
    *
@@ -2239,7 +2239,7 @@ export function App() {
    *
    * A retitle is not a pick. `subject.epic` holds a SLUG, the slug has not
    * changed, and every framed module goes on being told exactly what it was
-   * told before — no `roadmap.context` goes out, no module re-reads anything,
+   * told before — no `kehikot.context` goes out, no module re-reads anything,
    * and the project is on the same epic it was on a second ago. That is
    * the whole claim this control makes, and the moment this handler also set a
    * subject it would stop being true.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MESSAGE, PROTOCOL } from 'roadmap-module-protocol'
+import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
 import { BURST, EventBus, PER_SECOND } from '../src/host/events.ts'
 
@@ -24,10 +24,10 @@ function listener(consumes: string[]) {
 describe('who hears an event', () => {
   test('a module that consumes the format hears it, with the host\'s own fields on it', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
-    const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(out.ok).toBe(true)
     if (!out.ok) return
@@ -36,22 +36,22 @@ describe('who hears an event', () => {
     const event = shower.heard[0]!
     expect(event.type).toBe(MESSAGE.EVENT)
     expect(event.protocol).toBe(PROTOCOL)
-    expect(event.extension).toBe('roadmap.notifications@1')
-    expect(event.from).toBe('roadmap.checklist')
+    expect(event.extension).toBe('kehikot.notifications@1')
+    expect(event.from).toBe('kehikot.checklist')
     expect(event.kehikko).toEqual(KEHIKKO)
     expect(typeof event.at).toBe('string')
   })
 
   test('a module that does not consume the format hears nothing at all', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
+    const shower = listener(['kehikot.notifications@1'])
     const bystander = listener([])
-    const otherFormat = listener(['roadmap.calls@1'])
-    bus.join('roadmap.notifications', shower)
-    bus.join('roadmap.journeys', bystander)
-    bus.join('roadmap.mapmaker', otherFormat)
+    const otherFormat = listener(['kehikot.calls@1'])
+    bus.join('kehikot.notifications', shower)
+    bus.join('kehikot.journeys', bystander)
+    bus.join('kehikot.mapmaker', otherFormat)
 
-    const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(out.ok && out.delivered).toBe(1)
     expect(bystander.heard).toHaveLength(0)
@@ -67,12 +67,12 @@ describe('who hears an event', () => {
     /* Legitimate and not a mistake: a module may both post notifications and
        show them. Echoing it back would make every such module carry an "is this
        me" check, and the first one to get it wrong draws its own lines twice. */
-    const both = listener(['roadmap.notifications@1'])
-    const other = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', both)
-    bus.join('roadmap.checklist', other)
+    const both = listener(['kehikot.notifications@1'])
+    const other = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', both)
+    bus.join('kehikot.checklist', other)
 
-    const out = bus.emit('roadmap.notifications', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const out = bus.emit('kehikot.notifications', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(out.ok && out.delivered).toBe(1)
     expect(both.heard).toHaveLength(0)
@@ -81,7 +81,7 @@ describe('who hears an event', () => {
 
   test('emitting into an empty room succeeds and says nobody heard', () => {
     const bus = new EventBus()
-    const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
     /* Not a refusal. The event was fine and the host carried it; nothing on
        this canvas consumes the format. Refusing here would send an author
        looking for a bug in a payload that has none. */
@@ -91,26 +91,26 @@ describe('who hears an event', () => {
 
   test('a module that has left hears nothing more', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
-    bus.leave('roadmap.notifications')
-    bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
+    bus.leave('kehikot.notifications')
+    bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
     expect(shower.heard).toHaveLength(0)
   })
 
   test('one receiver that throws does not stop the others', () => {
     const bus = new EventBus()
     const gone = {
-      consumes: ['roadmap.notifications@1'],
+      consumes: ['kehikot.notifications@1'],
       send: () => {
         throw new Error('this frame navigated away')
       },
     }
-    const alive = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.dead', gone)
-    bus.join('roadmap.notifications', alive)
+    const alive = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.dead', gone)
+    bus.join('kehikot.notifications', alive)
 
-    const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(alive.heard).toHaveLength(1)
     /* Counted honestly: one heard it. A sender told "2" about a frame that is
@@ -124,9 +124,9 @@ describe('what the host vouches for', () => {
   test('a format the host cannot check is refused rather than carried', () => {
     const bus = new EventBus()
     const shower = listener(['somebody.else@7'])
-    bus.join('roadmap.notifications', shower)
+    bus.join('kehikot.notifications', shower)
 
-    const out = bus.emit('roadmap.checklist', 'somebody.else@7', { anything: true }, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'somebody.else@7', { anything: true }, KEHIKKO)
 
     expect(out.ok).toBe(false)
     if (out.ok) return
@@ -139,10 +139,10 @@ describe('what the host vouches for', () => {
 
   test('a payload that does not fit its format names the field and is not delivered', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
-    const out = bus.emit('roadmap.checklist', 'roadmap.notifications@1', { message: '' }, KEHIKKO)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', { message: '' }, KEHIKKO)
 
     expect(out.ok).toBe(false)
     if (out.ok) return
@@ -152,10 +152,10 @@ describe('what the host vouches for', () => {
 
   test('the payload delivered is the parsed one, so a receiver reads the format\'s defaults', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
-    bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     const payload = shower.heard[0]!.payload as { level: string; refs: string[] }
     /* The sender sent neither. A receiver that had to know which fields the
@@ -167,27 +167,27 @@ describe('what the host vouches for', () => {
 
   test('`from` is the host\'s word: a payload claiming to be somebody else changes nothing', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
     bus.emit(
-      'roadmap.checklist',
-      'roadmap.notifications@1',
+      'kehikot.checklist',
+      'kehikot.notifications@1',
       /* `from` is not a field of this format and could not be set even if it
          were — `emit` takes the sender as an argument the frame cannot reach.
          The assertion is that nothing in the payload leaks into the envelope. */
-      { ...NOTE, from: 'roadmap.tests', module: 'roadmap.tests' },
+      { ...NOTE, from: 'kehikot.tests', module: 'kehikot.tests' },
       KEHIKKO,
     )
 
-    expect(shower.heard[0]!.from).toBe('roadmap.checklist')
+    expect(shower.heard[0]!.from).toBe('kehikot.checklist')
   })
 
   test('a null kehikko is carried as null rather than dropped', () => {
     const bus = new EventBus()
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
-    bus.emit('roadmap.checklist', 'roadmap.notifications@1', NOTE, null)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
+    bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, null)
     /* A receiver has to be able to tell "this happened nowhere I can name" from
        "this field was not sent", because the first is a filter it cannot honour
        and the second is a host that is broken. */
@@ -199,13 +199,13 @@ describe('the bound, and what it says about what it drops', () => {
   test('a burst goes through and the one after it does not', () => {
     let clock = 0
     const bus = new EventBus(() => clock)
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
     for (let i = 0; i < BURST; i += 1) {
-      expect(bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
+      expect(bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
     }
-    const over = bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    const over = bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(over.ok).toBe(false)
     expect(shower.heard).toHaveLength(BURST)
@@ -214,12 +214,12 @@ describe('the bound, and what it says about what it drops', () => {
   test('what is dropped is said, not dropped silently, and the count is in the sentence', () => {
     let clock = 0
     const bus = new EventBus(() => clock)
-    bus.join('roadmap.notifications', listener(['roadmap.notifications@1']))
-    for (let i = 0; i < BURST; i += 1) bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    bus.join('kehikot.notifications', listener(['kehikot.notifications@1']))
+    for (let i = 0; i < BURST; i += 1) bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
-    bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
-    bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
-    const third = bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
+    bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
+    const third = bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     expect(third.ok).toBe(false)
     if (third.ok) return
@@ -233,13 +233,13 @@ describe('the bound, and what it says about what it drops', () => {
   test('nothing is queued: what was refused does not arrive later', () => {
     let clock = 0
     const bus = new EventBus(() => clock)
-    const shower = listener(['roadmap.notifications@1'])
-    bus.join('roadmap.notifications', shower)
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
 
-    for (let i = 0; i < BURST + 10; i += 1) bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    for (let i = 0; i < BURST + 10; i += 1) bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
     /* A minute later, with the bucket long since full again. */
     clock += 60_000
-    bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     /* The burst, plus the one emitted after the wait. The ten that were refused
        are gone, and that is the design: an event held back until the storm
@@ -250,44 +250,44 @@ describe('the bound, and what it says about what it drops', () => {
   test('the bucket refills, so a module that slows down is heard again', () => {
     let clock = 0
     const bus = new EventBus(() => clock)
-    bus.join('roadmap.notifications', listener(['roadmap.notifications@1']))
-    for (let i = 0; i < BURST; i += 1) bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
-    expect(bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(false)
+    bus.join('kehikot.notifications', listener(['kehikot.notifications@1']))
+    for (let i = 0; i < BURST; i += 1) bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
+    expect(bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO).ok).toBe(false)
 
     clock += 1000
 
     /* One second buys exactly PER_SECOND of them. */
     for (let i = 0; i < PER_SECOND; i += 1) {
-      expect(bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
+      expect(bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
     }
-    expect(bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(false)
+    expect(bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO).ok).toBe(false)
   })
 
   test('one module in a loop does not spend another module\'s allowance', () => {
     let clock = 0
     const bus = new EventBus(() => clock)
-    bus.join('roadmap.notifications', listener(['roadmap.notifications@1']))
-    for (let i = 0; i < BURST + 5; i += 1) bus.emit('roadmap.loud', 'roadmap.notifications@1', NOTE, KEHIKKO)
+    bus.join('kehikot.notifications', listener(['kehikot.notifications@1']))
+    for (let i = 0; i < BURST + 5; i += 1) bus.emit('kehikot.loud', 'kehikot.notifications@1', NOTE, KEHIKKO)
 
     /* The bucket is per sender. A shared one would mean the noisiest container on
        the canvas deciding whether anybody else is heard, which is the same
        failure the limit exists to prevent, one level up. */
-    expect(bus.emit('roadmap.quiet', 'roadmap.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
+    expect(bus.emit('kehikot.quiet', 'kehikot.notifications@1', NOTE, KEHIKKO).ok).toBe(true)
   })
 })
 
 describe('who consumes what, as the host can see it', () => {
   test('consumersOf names the modules that would hear a format', () => {
     const bus = new EventBus()
-    bus.join('roadmap.notifications', listener(['roadmap.notifications@1']))
-    bus.join('roadmap.activity', listener(['roadmap.notifications@1', 'roadmap.calls@1']))
-    bus.join('roadmap.journeys', listener([]))
+    bus.join('kehikot.notifications', listener(['kehikot.notifications@1']))
+    bus.join('kehikot.activity', listener(['kehikot.notifications@1', 'kehikot.calls@1']))
+    bus.join('kehikot.journeys', listener([]))
 
-    expect(bus.consumersOf('roadmap.notifications@1').sort()).toEqual([
-      'roadmap.activity',
-      'roadmap.notifications',
+    expect(bus.consumersOf('kehikot.notifications@1').sort()).toEqual([
+      'kehikot.activity',
+      'kehikot.notifications',
     ])
-    expect(bus.consumersOf('roadmap.calls@1')).toEqual(['roadmap.activity'])
+    expect(bus.consumersOf('kehikot.calls@1')).toEqual(['kehikot.activity'])
     expect(bus.consumersOf('nobody@1')).toEqual([])
   })
 })

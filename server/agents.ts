@@ -127,7 +127,7 @@ export function awarenessOf(mcpUrl: string | null, id: string, known: Map<string
 
   /* Nothing points here. Is something wearing this module's name? Checked
      against both the id and its last segment, since `claude mcp add` is usually
-     given a short name and `roadmap.checklist` is a mouthful. */
+     given a short name and `kehikot.checklist` is a mouthful. */
   const tail = id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id
   for (const [name, value] of known) {
     if (name !== id && name !== tail) continue

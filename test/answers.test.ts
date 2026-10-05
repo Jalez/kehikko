@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { epicsListResult, LIMITS, METHOD_NAMES } from 'roadmap-module-protocol'
+import { epicsListResult, LIMITS, METHOD_NAMES } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
 import { unanswered } from '@/host/division.ts'
@@ -79,7 +79,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
       ME,
       'events.emit',
       {
-        extension: 'roadmap.notifications@1',
+        extension: 'kehikot.notifications@1',
         payload: { epic: 'modes-are-modules', message: 'the note was updated', level: 'info' },
       },
       registered,
@@ -97,7 +97,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
     const good = answer(
       ME,
       'events.emit',
-      { extension: 'roadmap.notifications@1', payload: { epic: 'x', message: 'hi' } },
+      { extension: 'kehikot.notifications@1', payload: { epic: 'x', message: 'hi' } },
       registered,
     )
     const bad = answer(
@@ -118,7 +118,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
   })
 
   test('it is not reported as unknown-method, which would mean never', () => {
-    const given = answer(ME, 'events.emit', { extension: 'roadmap.calls@1', payload: {} }, registered)
+    const given = answer(ME, 'events.emit', { extension: 'kehikot.calls@1', payload: {} }, registered)
     expect(given.ok).toBe(false)
     if (given.ok) return
     /* `unknown-method` is the protocol's word for "this does not exist, now or

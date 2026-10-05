@@ -57,18 +57,18 @@ describe('the three answers, kept apart', () => {
   const door = 'http://127.0.0.1:7860/mcp'
 
   test('a module with no MCP door is not a problem and must not be drawn as one', () => {
-    expect(awarenessOf(null, 'roadmap.mapmaker', new Map())).toEqual({ kind: 'none' })
+    expect(awarenessOf(null, 'kehikot.mapmaker', new Map())).toEqual({ kind: 'none' })
   })
 
   test('nothing configured is untold', () => {
-    expect(awarenessOf(door, 'roadmap.checklist', new Map())).toEqual({ kind: 'untold' })
+    expect(awarenessOf(door, 'kehikot.checklist', new Map())).toEqual({ kind: 'untold' })
   })
 
   test('a server pointing here is told, whatever it is called', () => {
     /* The url decides whether a request arrives; the name is a label somebody
        chose. So a match on url counts however it was named. */
     const known = new Map<string, unknown>([['whatever-they-called-it', { url: door }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known)).toEqual({
+    expect(awarenessOf(door, 'kehikot.checklist', known)).toEqual({
       kind: 'told',
       as: 'whatever-they-called-it',
     })
@@ -76,36 +76,36 @@ describe('the three answers, kept apart', () => {
 
   test('a trailing slash is not a difference anybody means', () => {
     const known = new Map<string, unknown>([['x', { url: `${door}/` }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known).kind).toBe('told')
+    expect(awarenessOf(door, 'kehikot.checklist', known).kind).toBe('told')
   })
 
   test('this module’s name pointing somewhere else is the interesting failure', () => {
     /* Almost always a module that has moved port. The agent reaches the old
        address, gets nothing, and it looks like a broken module rather than a
        stale line in a config file. */
-    const known = new Map<string, unknown>([['roadmap.checklist', { url: 'http://127.0.0.1:7999/mcp' }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known)).toEqual({
+    const known = new Map<string, unknown>([['kehikot.checklist', { url: 'http://127.0.0.1:7999/mcp' }]])
+    expect(awarenessOf(door, 'kehikot.checklist', known)).toEqual({
       kind: 'elsewhere',
-      as: 'roadmap.checklist',
+      as: 'kehikot.checklist',
       pointsAt: 'http://127.0.0.1:7999/mcp',
     })
   })
 
   test('the short name counts too, since that is what `claude mcp add` is usually given', () => {
     const known = new Map<string, unknown>([['checklist', { url: 'http://127.0.0.1:7999/mcp' }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known).kind).toBe('elsewhere')
+    expect(awarenessOf(door, 'kehikot.checklist', known).kind).toBe('elsewhere')
   })
 
   test('a server named for something else entirely leaves this module untold', () => {
     const known = new Map<string, unknown>([['unrelated', { url: 'http://elsewhere/mcp' }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known)).toEqual({ kind: 'untold' })
+    expect(awarenessOf(door, 'kehikot.checklist', known)).toEqual({ kind: 'untold' })
   })
 
   test('a configured server with no url cannot be a match', () => {
     /* A stdio server — a command, no url. It cannot be pointing at this door
        and it cannot be pointing anywhere else either. */
-    const known = new Map<string, unknown>([['roadmap.checklist', { command: 'bun', args: ['x'] }]])
-    expect(awarenessOf(door, 'roadmap.checklist', known)).toEqual({ kind: 'untold' })
+    const known = new Map<string, unknown>([['kehikot.checklist', { command: 'bun', args: ['x'] }]])
+    expect(awarenessOf(door, 'kehikot.checklist', known)).toEqual({ kind: 'untold' })
   })
 })
 

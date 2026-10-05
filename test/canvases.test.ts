@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LIMITS } from 'roadmap-module-protocol'
+import { LIMITS } from 'kehikot-module-protocol'
 
 import {
   canvasesHolding,
@@ -41,16 +41,16 @@ describe('a canvas is a name and an arrangement', () => {
     const made = createCanvas(db, 'the wire')
     editCanvas(db, made.id, {
       placements: [
-        { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
-        { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
+        { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
+        { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
       ],
     })
 
     const [canvas] = listCanvases(db)
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.placements).toEqual([
-      { i: 'roadmap.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
-      { i: 'roadmap.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
+      { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null },
+      { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null },
     ])
   })
 
@@ -379,14 +379,14 @@ describe('a selection is what somebody picked out, and the host holds it without
 
 describe("a module's own kept state, which the host does not read", () => {
   test('what is kept comes back verbatim', () => {
-    keepState(db, 'roadmap.references', '{"kind":"change","state":"merged"}')
-    expect(readState(db, 'roadmap.references')).toBe('{"kind":"change","state":"merged"}')
+    keepState(db, 'kehikot.references', '{"kind":"change","state":"merged"}')
+    expect(readState(db, 'kehikot.references')).toBe('{"kind":"change","state":"merged"}')
   })
 
   test('nothing kept is null, which is not the same as an empty string', () => {
-    expect(readState(db, 'roadmap.never-wrote')).toBeNull()
-    keepState(db, 'roadmap.wrote-nothing', '')
-    expect(readState(db, 'roadmap.wrote-nothing')).toBe('')
+    expect(readState(db, 'kehikot.never-wrote')).toBeNull()
+    keepState(db, 'kehikot.wrote-nothing', '')
+    expect(readState(db, 'kehikot.wrote-nothing')).toBe('')
   })
 
   test('keeping again replaces, because there is one state and not a history', () => {

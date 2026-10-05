@@ -58,7 +58,7 @@ import type { Presence } from './registry.ts'
  *
  * **The passage, and it is INDIRECT in exactly the same way.** A module
  * declaring `passage:set` calls `passage.set`, the canvas holds it, and it goes
- * into the `roadmap.context` every framed module receives. Everything the
+ * into the `kehikot.context` every framed module receives. Everything the
  * paragraph below says about the selection holds here with the noun swapped,
  * including what may and may not be said about the receiving end. It is drawn
  * as its own kind
@@ -69,7 +69,7 @@ import type { Presence } from './registry.ts'
  *
  * **The selection, and it is INDIRECT.** A module declaring `selection:set`
  * calls `selection.set`, the canvas holds the refs, and they go into the
- * `roadmap.context` every framed module receives. The sending half has always
+ * `kehikot.context` every framed module receives. The sending half has always
  * been vouchable. The receiving half was not, and the section below is about
  * what changed.
  *

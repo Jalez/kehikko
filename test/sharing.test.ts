@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 
-import { KEHIKOT_IGNORE, ignoresKehikot } from 'roadmap-module-protocol'
+import { KEHIKOT_IGNORE, ignoresKehikot } from 'kehikot-module-protocol'
 
 import { addProject, forgetProject, listProjects, named, shareKehikot } from '../server/projects.ts'
 import { open as openDb } from '../server/canvases.ts'

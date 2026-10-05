@@ -11,8 +11,8 @@ import type { Database } from 'bun:sqlite'
  *
  * Now most modules are asleep most of the time, and an asleep module serves
  * nothing. So the host had no name for them, and the page fell back to the id —
- * a canvas of containers labelled `roadmap.checklist`, `roadmap.notes`,
- * `roadmap.paper`. Correct, in the sense that the host genuinely did not know;
+ * a canvas of containers labelled `kehikot.checklist`, `kehikot.notes`,
+ * `kehikot.paper`. Correct, in the sense that the host genuinely did not know;
  * useless, because the person reading it knows those are Checklist, Notes and
  * Paper, and so does the host, which read them an hour ago.
  *

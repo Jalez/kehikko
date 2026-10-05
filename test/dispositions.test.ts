@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { LIMITS } from 'roadmap-module-protocol'
+import { LIMITS } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
 import { createCanvas, open } from '../server/canvases.ts'
@@ -101,7 +101,7 @@ describe('the file', () => {
 })
 
 describe('disposition.set from a framed module', () => {
-  const ME = 'roadmap.journeys'
+  const ME = 'kehikot.journeys'
   const registered = (id: string) => id === ME
   const mark = (module: string, root: string | null, marking: Parameters<typeof setDisposition>[1]) =>
     setDisposition(root, marking, module === ME ? 'Journeys' : module, AT)

@@ -5,9 +5,11 @@ import {
   MESSAGE,
   moduleMessageSchema,
   PROTOCOL,
+  toDialect,
+  type Dialect,
   type FilterGroup,
   type ModuleContext,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 
 /**
  * One conversation with one frame.
@@ -128,7 +130,7 @@ export interface ConversationWatcher {
 export const READY_TIMEOUT_MS = 4000
 
 /**
- * How long the host waits for `roadmap.went`.
+ * How long the host waits for `kehikot.went`.
  *
  * The protocol is explicit that this timeout must mean the same thing as
  * `found: false`, and the reason is worth restating: `goto` is the only message
@@ -172,6 +174,14 @@ export class Conversation {
   private readonly name: string
   private readonly readyTimeoutMs: number
   private readonly wentTimeoutMs: number
+  /**
+   * The spelling this module hears: `roadmap` for one built against the
+   * protocol from before the rename, which listens for `roadmap.hello` and
+   * nothing else. Everything this class builds is canonical and is respelled
+   * only in `post`. What it RECEIVES needs no such care: the protocol's schemas
+   * read both spellings and hand back the canonical one.
+   */
+  readonly dialect: Dialect
 
   constructor(
     private readonly frame: Pick<HTMLIFrameElement, 'contentWindow'>,
@@ -188,12 +198,15 @@ export class Conversation {
     options: {
       /** What the module calls itself, for the sentences a person reads. */
       name?: string
+      /** Which spelling of the wire the module speaks. From its manifest's kind; see `FramedModule.dialect`. */
+      dialect?: Dialect
       session?: string
       readyTimeoutMs?: number
       wentTimeoutMs?: number
     } = {},
   ) {
     this.name = options.name ?? moduleId
+    this.dialect = options.dialect ?? 'kehikot'
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
@@ -332,13 +345,13 @@ export class Conversation {
    * No ids, because the host does not know what is on the page and must not
    * find out — it sees rows it does not render, in a document it cannot read,
    * in a frame on another origin. No copy of the filter choice, because the
-   * module already has that from `roadmap.context` and a second copy would be a
+   * module already has that from `kehikot.context` and a second copy would be a
    * second answer to one question, disagreeing after any race. No correlation
    * id, because there is no answer: the only thing this host could do with an
    * acknowledgement is display it, and displaying it would mean reporting a
    * number it did not count about data it cannot see.
    *
-   * What comes back instead is a new `roadmap.clearable` with a smaller count
+   * What comes back instead is a new `kehikot.clearable` with a smaller count
    * in its label, or with `null` because there is nothing left. That is the
    * module reporting on its own work in its own words, which is the only
    * reporting anybody here is entitled to.
@@ -386,7 +399,7 @@ export class Conversation {
    * a dead conversation to spend a rate limit every five minutes for as long as
    * the app is open. Dropping it here is where that stops.
    *
-   * What comes back is not a reply but a new `roadmap.refreshable` — `busy`
+   * What comes back is not a reply but a new `kehikot.refreshable` — `busy`
    * while it runs, then a new `at`, or the SAME `at` if the read failed and the
    * module is still showing the old one. That last case is the whole reason
    * this host does not date the data from this message.
@@ -569,7 +582,7 @@ export class Conversation {
     if (!target) return
     /* See the essay above: `'*'` is the only address an opaque frame has, and
        the frame handle is the address that matters. */
-    target.postMessage(message, this.origin ?? '*')
+    target.postMessage(toDialect(message, this.dialect), this.origin ?? '*')
   }
 }
 

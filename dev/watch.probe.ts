@@ -26,7 +26,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { MANIFEST_KIND, PROTOCOL } from 'roadmap-module-protocol'
+import { MANIFEST_KIND, PROTOCOL } from 'kehikot-module-protocol'
 
 const API = 4380
 const MODULE = 4382

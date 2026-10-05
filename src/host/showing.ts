@@ -1,4 +1,4 @@
-import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'roadmap-module-protocol'
+import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'kehikot-module-protocol'
 
 /**
  * `context.containers`, composed: every container on the open kehikko, whether
@@ -131,7 +131,7 @@ export function containersOf(input: {
  * The list as a string, for React to depend on by value.
  *
  * `containersOf` builds fresh objects on every call, and a memo keyed on it by
- * identity would rebuild the context — and post a `roadmap.context` into every
+ * identity would rebuild the context — and post a `kehikot.context` into every
  * frame — on every render. The same discipline `pointing` and `picked` keep in
  * `App.tsx`, for the same measured reason.
  */

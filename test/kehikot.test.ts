@@ -70,7 +70,7 @@ function project(store: Database, dir: string): Project {
  * is exactly the silent failure the test exists to catch.
  */
 const everything: Placement = {
-  i: 'roadmap.paper',
+  i: 'kehikot.paper',
   x: 3,
   y: 7,
   w: 5,
@@ -78,7 +78,7 @@ const everything: Placement = {
   grow: true,
   pinned: true,
   prompt: 'read chapter two and say what is missing',
-  promptFor: 'roadmap.notes',
+  promptFor: 'kehikot.notes',
   collapsed: true,
   wish: 30,
   selected: true,
@@ -87,7 +87,7 @@ const everything: Placement = {
 }
 
 const another: Placement = {
-  i: 'roadmap.notes',
+  i: 'kehikot.notes',
   x: 0,
   y: 0,
   w: 3,
@@ -166,7 +166,7 @@ describe('the round trip: this computer, the file, another computer', () => {
     const after = listCanvases(there).map(portable)
     expect(after).toEqual(before)
     /* And the field that mattered most, spelled out, so a failure names it. */
-    expect(after[0]!.placements.find((x) => x.i === 'roadmap.paper')).toEqual(everything)
+    expect(after[0]!.placements.find((x) => x.i === 'kehikot.paper')).toEqual(everything)
     /* The keys are what matched them, and they are the same on both sides. */
     expect(after.map((c) => c.key)).toEqual(before.map((c) => c.key))
     /* The ids are not — they are this machine's row numbers and nothing more. */
@@ -194,8 +194,8 @@ describe('the round trip: this computer, the file, another computer', () => {
       "key": "writing",
       "name": "writing",
       "containers": [
-        {"module":"roadmap.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
-        {"module":"roadmap.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"roadmap.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
+        {"module":"kehikot.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
+        {"module":"kehikot.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"kehikot.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
       ]
     }
   ]
@@ -208,7 +208,7 @@ describe('the round trip: this computer, the file, another computer', () => {
     const moved = readFileSync(kehikotFile(dir)!, 'utf8')
     const differing = text.split('\n').filter((line, i) => moved.split('\n')[i] !== line)
     expect(differing).toHaveLength(1)
-    expect(differing[0]).toContain('"module":"roadmap.paper","x":3')
+    expect(differing[0]).toContain('"module":"kehikot.paper","x":3')
   })
 
   test('the same kehikot serialise to the same bytes, whatever order the database answered in', () => {
@@ -232,7 +232,7 @@ describe('the round trip: this computer, the file, another computer', () => {
     syncProject(there, project(there, dir))
     const arrived = listCanvases(there)
     expect(arrived.map((c) => c.name)).toEqual(['writing', 'writing'])
-    expect(arrived.map((c) => c.placements.map((x) => x.i))).toEqual([['roadmap.paper'], ['roadmap.notes']])
+    expect(arrived.map((c) => c.placements.map((x) => x.i))).toEqual([['kehikot.paper'], ['kehikot.notes']])
   })
 
   test('the order of the kehikot is the order in the file', () => {
@@ -270,34 +270,34 @@ describe('a module this computer does not have', () => {
             epic: null,
             selection: [],
             containers: [
-              { module: 'roadmap.paper', x: 0, y: 0, w: 6, h: 20 },
-              { module: 'roadmap.notes', x: 6, y: 0, w: 6, h: 20 },
+              { module: 'kehikot.paper', x: 0, y: 0, w: 6, h: 20 },
+              { module: 'kehikot.notes', x: 6, y: 0, w: 6, h: 20 },
             ],
           },
         ],
       }),
     )
 
-    /* This machine has never heard of roadmap.paper. Nothing here knows or
+    /* This machine has never heard of kehikot.paper. Nothing here knows or
        asks what is registered, and that is the point: the file says what is
        on the kehikko, and the registry says what this computer can show. */
     const store = db()
     const p = project(store, dir)
     expect(syncProject(store, p).outcome).toBe('read')
     const [canvas] = listCanvases(store)
-    expect(canvas!.placements.map((x) => x.i)).toEqual(['roadmap.notes', 'roadmap.paper'])
+    expect(canvas!.placements.map((x) => x.i)).toEqual(['kehikot.notes', 'kehikot.paper'])
 
     /* A person moves the container they CAN see, and the page writes the
        arrangement back — with every container in it, because the page no
        longer takes off what it cannot show. The file must still name paper. */
     editCanvas(store, canvas!.id, {
-      placements: canvas!.placements.map((x) => (x.i === 'roadmap.notes' ? { ...x, x: 3 } : x)),
+      placements: canvas!.placements.map((x) => (x.i === 'kehikot.notes' ? { ...x, x: 3 } : x)),
     })
     keep(store, p.id)
     const written = parse(readFileSync(file, 'utf8'))
     expect(written.ok && written.kehikot[0]!.containers.map((c) => c.module)).toEqual([
-      'roadmap.notes',
-      'roadmap.paper',
+      'kehikot.notes',
+      'kehikot.paper',
     ])
   })
 })
@@ -380,14 +380,14 @@ describe('a file that will not read', () => {
     const read = parse(
       JSON.stringify({
         version: 1,
-        kehikot: [{ key: 'review', name: 'Review', containers: [{ module: 'roadmap.paper', x: 0, y: 0, w: 12, h: 30 }] }],
+        kehikot: [{ key: 'review', name: 'Review', containers: [{ module: 'kehikot.paper', x: 0, y: 0, w: 12, h: 30 }] }],
       }),
     )
     expect(read.ok).toBe(true)
     /* Every field this host knows, defaulted — the same defaults a page gives a
        container it has just placed. */
     expect(read.ok && read.kehikot[0]!.containers[0]).toEqual({
-      module: 'roadmap.paper',
+      module: 'kehikot.paper',
       x: 0,
       y: 0,
       w: 12,
@@ -432,8 +432,8 @@ describe('a file that will not read', () => {
       "epic": null,
       "selection": [],
       "containers": [
-        {"module":"roadmap.notes","x":0,"y":0,"w":6,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"openH":null,"selected":false,"filters":{},"refreshEvery":null},
-        {"module":"roadmap.paper","x":0,"y":12,"w":6,"h":1,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":true,"openH":14,"selected":false,"filters":{},"refreshEvery":null}
+        {"module":"kehikot.notes","x":0,"y":0,"w":6,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"openH":null,"selected":false,"filters":{},"refreshEvery":null},
+        {"module":"kehikot.paper","x":0,"y":12,"w":6,"h":1,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":true,"openH":14,"selected":false,"filters":{},"refreshEvery":null}
       ]
     }
   ]
@@ -442,8 +442,8 @@ describe('a file that will not read', () => {
     )
     expect(syncProject(store, p)).toMatchObject({ outcome: 'read' })
     const placements = listCanvases(store)[0]!.placements
-    expect(placements.find((x) => x.i === 'roadmap.notes')).toMatchObject({ h: 12, collapsed: false, wish: 12 })
-    expect(placements.find((x) => x.i === 'roadmap.paper')).toMatchObject({ h: 1, collapsed: true, wish: 14 })
+    expect(placements.find((x) => x.i === 'kehikot.notes')).toMatchObject({ h: 12, collapsed: false, wish: 12 })
+    expect(placements.find((x) => x.i === 'kehikot.paper')).toMatchObject({ h: 1, collapsed: true, wish: 14 })
 
     /* And once written back, the file says `wish` and not `openH`. */
     keep(store, p.id)
@@ -749,7 +749,7 @@ describe('a filter value in the file is held to the wire’s bounds, half by hal
           {
             key: 'one',
             name: 'one',
-            containers: [{ module: 'roadmap.refs', x: 0, y: 0, w: 6, h: 10, filters: { hide: [] } }],
+            containers: [{ module: 'kehikot.refs', x: 0, y: 0, w: 6, h: 10, filters: { hide: [] } }],
           },
         ],
       }),

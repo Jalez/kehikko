@@ -10,7 +10,7 @@
  * app can no longer start its own, because the port it wants is held by a
  * process it does not own and cannot see.
  *
- * Modules already have an answer to exactly this. `roadmap-module-protocol/serve`
+ * Modules already have an answer to exactly this. `kehikot-module-protocol/serve`
  * asks who is on a port before taking it, exits cleanly when the answer is "a
  * copy of me", and moves when the answer is "a stranger". The host — the one
  * process everything else depends on — had none of it, which is the joke this

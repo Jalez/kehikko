@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Passage, Showing } from 'roadmap-module-protocol'
+import type { Passage, Showing } from 'kehikot-module-protocol'
 
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import { toWireContext } from '@/host/context.ts'
@@ -52,12 +52,12 @@ describe('what the canvas does when a container says what it shows', () => {
 
   test('the statement reaches the canvas attributed to the module, and the answer repeats it', async () => {
     const { controls, shown } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     const answer = await ask('showing.set', { refs: ['gh#105'], documents: [chapter] })
 
     expect(answer.ok).toBe(true)
-    expect(shown).toEqual([{ from: 'roadmap.paper', showing: { refs: ['gh#105'], documents: [chapter] } }])
+    expect(shown).toEqual([{ from: 'kehikot.paper', showing: { refs: ['gh#105'], documents: [chapter] } }])
   })
 
   test('the attribution is the registration\'s and nothing the frame said reaches it', async () => {
@@ -65,14 +65,14 @@ describe('what the canvas does when a container says what it shows', () => {
        row. `from` is bound by `makeAsk` and there is no field for it in the
        params — one that is sent is dropped by the schema. */
     const { controls, shown } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
-    await ask('showing.set', { refs: [], documents: [], from: 'roadmap.journeys' })
-    expect(shown[0]?.from).toBe('roadmap.paper')
+    const ask = makeAsk('kehikot.paper', controls)
+    await ask('showing.set', { refs: [], documents: [], from: 'kehikot.journeys' })
+    expect(shown[0]?.from).toBe('kehikot.paper')
   })
 
   test('showing nothing is a real call, and half a statement is refused', async () => {
     const { controls, shown } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
     expect((await ask('showing.set', { refs: [], documents: [] })).ok).toBe(true)
     expect(shown).toHaveLength(1)
     const half = await ask('showing.set', { refs: ['gh#1'] })
@@ -83,7 +83,7 @@ describe('what the canvas does when a container says what it shows', () => {
 
   test('a document inside is held to the passage rules', async () => {
     const { controls } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
     const half = await ask('showing.set', { refs: [], documents: [{ ...chapter, from: 10 }] })
     expect(half.ok).toBe(false)
   })
@@ -92,21 +92,21 @@ describe('what the canvas does when a container says what it shows', () => {
 describe('composing the list', () => {
   test('every container is a row, in reading order, whether or not it said anything', () => {
     const rows = containersOf({
-      placements: [at('roadmap.notes', 5), at('roadmap.paper', 0, true), at('roadmap.journeys', 0)],
+      placements: [at('kehikot.notes', 5), at('kehikot.paper', 0, true), at('kehikot.journeys', 0)],
       said: {},
       pointed: {},
       selection: [],
       selectedBy: null,
     })
-    expect(rows.map((r) => r.module)).toEqual(['roadmap.paper', 'roadmap.journeys', 'roadmap.notes'])
+    expect(rows.map((r) => r.module)).toEqual(['kehikot.paper', 'kehikot.journeys', 'kehikot.notes'])
     expect(rows.map((r) => r.selected)).toEqual([true, false, false])
     expect(rows.every((r) => r.showing.refs.length === 0 && r.showing.documents.length === 0)).toBe(true)
   })
 
   test('what a module said is its row, and nobody else\'s', () => {
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0), at('roadmap.journeys', 1)],
-      said: { 'roadmap.journeys': { refs: ['gh#10', 'gh#11'], documents: [] } },
+      placements: [at('kehikot.paper', 0), at('kehikot.journeys', 1)],
+      said: { 'kehikot.journeys': { refs: ['gh#10', 'gh#11'], documents: [] } },
       pointed: {},
       selection: [],
       selectedBy: null,
@@ -120,9 +120,9 @@ describe('composing the list', () => {
        a module that only ever calls `passage.set` is showing what it points
        at. The reader's finger goes first, ahead of whatever the module said. */
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0), at('roadmap.notes', 1)],
-      said: { 'roadmap.paper': { refs: [], documents: [chapter] } },
-      pointed: { 'roadmap.paper': paragraph },
+      placements: [at('kehikot.paper', 0), at('kehikot.notes', 1)],
+      said: { 'kehikot.paper': { refs: [], documents: [chapter] } },
+      pointed: { 'kehikot.paper': paragraph },
       selection: [],
       selectedBy: null,
     })
@@ -141,9 +141,9 @@ describe('composing the list', () => {
      */
     const notesAt: Passage = { ...chapter, from: 2781, to: 2929, quoted: 'Front matter, in the order' }
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0, true), at('roadmap.notes', 1)],
+      placements: [at('kehikot.paper', 0, true), at('kehikot.notes', 1)],
       said: {},
-      pointed: { 'roadmap.paper': paragraph, 'roadmap.notes': notesAt },
+      pointed: { 'kehikot.paper': paragraph, 'kehikot.notes': notesAt },
       selection: [],
       selectedBy: null,
     })
@@ -156,9 +156,9 @@ describe('composing the list', () => {
        document is a legitimate rung-1 passage from any module, and a row
        holding one is a row showing that document. */
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0, true), at('roadmap.notes', 1)],
+      placements: [at('kehikot.paper', 0, true), at('kehikot.notes', 1)],
       said: {},
-      pointed: { 'roadmap.paper': paragraph, 'roadmap.notes': chapter },
+      pointed: { 'kehikot.paper': paragraph, 'kehikot.notes': chapter },
       selection: [],
       selectedBy: null,
     })
@@ -168,11 +168,11 @@ describe('composing the list', () => {
 
   test('the selection is folded into its setter\'s row, and into nobody\'s after a reload', () => {
     const picked = containersOf({
-      placements: [at('roadmap.references', 0), at('roadmap.checklist', 1)],
+      placements: [at('kehikot.references', 0), at('kehikot.checklist', 1)],
       said: {},
       pointed: {},
       selection: ['gh#7'],
-      selectedBy: 'roadmap.references',
+      selectedBy: 'kehikot.references',
     })
     expect(picked[0]?.showing.refs).toEqual(['gh#7'])
     expect(picked[1]?.showing.refs).toEqual([])
@@ -181,7 +181,7 @@ describe('composing the list', () => {
        still `context.selection`; it is in no row, because inventing who said
        it would be the host stating something it did not hear. */
     const reloaded = containersOf({
-      placements: [at('roadmap.references', 0)],
+      placements: [at('kehikot.references', 0)],
       said: {},
       pointed: {},
       selection: ['gh#7'],
@@ -192,11 +192,11 @@ describe('composing the list', () => {
 
   test('a setter no longer on the kehikko contributes nothing, and the same place is listed once', () => {
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0)],
-      said: { 'roadmap.paper': { refs: ['gh#1', 'gh#1'], documents: [paragraph] } },
-      pointed: { 'roadmap.gone': paragraph },
+      placements: [at('kehikot.paper', 0)],
+      said: { 'kehikot.paper': { refs: ['gh#1', 'gh#1'], documents: [paragraph] } },
+      pointed: { 'kehikot.gone': paragraph },
       selection: ['gh#1'],
-      selectedBy: 'roadmap.paper',
+      selectedBy: 'kehikot.paper',
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]?.showing.refs).toEqual(['gh#1'])
@@ -204,8 +204,8 @@ describe('composing the list', () => {
   })
 
   test('the key is by value, so two equal lists are one dependency', () => {
-    const a = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
-    const b = containersOf({ placements: [at('roadmap.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
+    const a = containersOf({ placements: [at('kehikot.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
+    const b = containersOf({ placements: [at('kehikot.paper', 0, true)], said: {}, pointed: {}, selection: [], selectedBy: null })
     expect(a).not.toBe(b)
     expect(containersKey(a)).toBe(containersKey(b))
   })
@@ -216,9 +216,9 @@ describe('the list goes out in the context', () => {
 
   test('carried whole, and empty when the canvas has no containers', () => {
     const rows = containersOf({
-      placements: [at('roadmap.paper', 0, true)],
+      placements: [at('kehikot.paper', 0, true)],
       said: {},
-      pointed: { 'roadmap.paper': paragraph },
+      pointed: { 'kehikot.paper': paragraph },
       selection: [],
       selectedBy: null,
     })
@@ -233,11 +233,11 @@ describe('the list goes out in the context', () => {
        the row and the canvas disagreeing. The documents stay, for the reason
        the passage stays. */
     const rows = containersOf({
-      placements: [at('roadmap.references', 0), at('roadmap.paper', 1)],
-      said: { 'roadmap.paper': { refs: [], documents: [chapter] } },
+      placements: [at('kehikot.references', 0), at('kehikot.paper', 1)],
+      said: { 'kehikot.paper': { refs: [], documents: [chapter] } },
       pointed: {},
       selection: ['gh#7'],
-      selectedBy: 'roadmap.references',
+      selectedBy: 'kehikot.references',
     })
     const told = toWireContext({ ...subject, epic: 'Not An Epic!' }, 'light', ['gh#7'], null, null, rows)
     expect(told.epic).toBeNull()

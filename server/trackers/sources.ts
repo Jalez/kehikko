@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { LIMITS, TRACKERS, moduleFile, readTrackerRef, type Tracker } from 'roadmap-module-protocol'
+import { LIMITS, TRACKERS, moduleFile, readTrackerRef, type Tracker } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import type { Runner } from '../feedback.ts'

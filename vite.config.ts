@@ -24,7 +24,7 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       /*
-       * There used to be a second alias here, pointing `roadmap-module-protocol`
+       * There used to be a second alias here, pointing `kehikot-module-protocol`
        * at that package's source in the same repository. It is gone, and its
        * absence is the point: the protocol is now a repository of its own and an
        * ordinary dependency, resolved the way every other dependency is.

@@ -6,7 +6,7 @@ import {
   type ModuleContext,
   type Passage,
   type TrackerSignal,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 
 import { sameChoice } from './filters.ts'
 import type { Project } from './projects.ts'
@@ -17,7 +17,7 @@ import type { Project } from './projects.ts'
  *
  * ## The problem
  *
- * `roadmap.context` exists to tell a framed module what the person is currently
+ * `kehikot.context` exists to tell a framed module what the person is currently
  * looking at. That question has an obvious answer in a host that is a page with
  * one panel on it: the panel shows one epic, so the epic that is open is the
  * context, and when the reader switches epics every panel is told.
@@ -80,7 +80,7 @@ import type { Project } from './projects.ts'
  *
  * A person may genuinely want two containers on two different epics: last quarter's
  * beside this one, to compare. The canvas can do that — nothing stops the host
- * sending a different `roadmap.context` to a different frame, and it is two
+ * sending a different `kehikot.context` to a different frame, and it is two
  * lines. What is missing is on the other side. A module has no way to say "I am
  * pinned, stop re-pointing me", no way to ask which epic it is on beyond the
  * last one it was told, and no way to tell a person's pin from the canvas
@@ -137,7 +137,7 @@ export function toWireContext(
    * module's page is loaded ONCE and shown on whichever canvas asks for it — see
    * `Frames.tsx` on why the iframes outlive the containers — so a module genuinely
    * cannot tell where it is standing. It only starts to matter now that
-   * something else on the wire says where IT came from: a `roadmap.event`
+   * something else on the wire says where IT came from: a `kehikot.event`
    * carries the kehikko it happened on, this says the one being looked at, and
    * near-or-far becomes a comparison the module makes rather than a rule the
    * host imposes.

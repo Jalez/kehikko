@@ -13,7 +13,7 @@ import {
   type TrackerRow,
   type TrackerSignal,
   type TrackerSource,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import type { Runner } from '../feedback.ts'

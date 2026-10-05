@@ -94,7 +94,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'module-registry',
     match: /\.roadmap['"`]?\s*,\s*['"`]modules|\.roadmap\/modules/,
-    reason: '~/.roadmap/modules is the RETIRED module registry: modules still register there until they move to Application Support/Kehikot/modules, and the host reads it as a fallback',
+    reason: '~/.roadmap/modules is the RETIRED module registry (named after the app before it was Kehikot): modules built against kehikot-module-protocol < 0.25 still register there, the host reads it as a fallback, and the protocol reads it once to carry a registration\'s fields over',
   },
   {
     id: 'frame-db',
@@ -143,7 +143,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     id: 'roadmap-requests-db',
     match: /new Database\((?:dbPath\(\)|DB_PATH|process\.env\.ROADMAP_DB \?\? join\(DATA, 'requests\.db'\))/,
     file: /(^|\/)src\/(?:calls|requests|concerns|stages|activity|journeys)\.ts$/,
-    reason: 'the roadmap opening requests.db, whose default is DATA = <project>/.kehikot/roadmap (src/store.ts)',
+    reason: 'the retired roadmap app opening requests.db, whose default is DATA = <project>/.kehikot/roadmap (src/store.ts)',
   },
   {
     id: 'memory-db',

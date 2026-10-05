@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Passage } from 'roadmap-module-protocol'
+import type { Passage } from 'kehikot-module-protocol'
 
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import { toWireContext } from '@/host/context.ts'
@@ -55,7 +55,7 @@ describe('the host answers the method the protocol names', () => {
 describe('what the canvas does when a module points', () => {
   test('the passage reaches the canvas and the answer repeats it', async () => {
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     const answer = await ask('passage.set', { passage: paragraph })
 
@@ -68,7 +68,7 @@ describe('what the canvas does when a module points', () => {
        INTO. A module that could not send this would leave a notes container showing
        the notes on a chapter nobody has open. */
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     const answer = await ask('passage.set', { passage: null })
 
@@ -83,7 +83,7 @@ describe('what the canvas does when a module points', () => {
        anyway, and a half-filled object on the way in is a passage that
        validates here and changes shape on the way out. */
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     await ask('passage.set', { passage: { path: '/Users/x/thesis/main.tex' } })
 
@@ -103,7 +103,7 @@ describe('what the canvas does when a module points', () => {
        through the protocol's schema, so this is what fails first if a later
        version of either drops the field on the way through. */
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
     const reading = {
       path: '/Users/x/thesis/chapters/bridge.tex',
       page: 7,
@@ -121,7 +121,7 @@ describe('what the canvas does when a module points', () => {
        reading `from` with no `to` has to invent an end, and the end it invents
        is a claim about somebody's document. */
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     const answer = await ask('passage.set', {
       passage: { path: '/Users/x/thesis/main.tex', from: 10, to: null },
@@ -137,7 +137,7 @@ describe('what the canvas does when a module points', () => {
        a caller with a typo in the field name, and one of those means "clear it"
        while the other means nothing at all. */
     const { controls, pointed } = canvasThatRemembers()
-    const ask = makeAsk('roadmap.paper', controls)
+    const ask = makeAsk('kehikot.paper', controls)
 
     const answer = await ask('passage.set', {})
 
@@ -147,10 +147,10 @@ describe('what the canvas does when a module points', () => {
 })
 
 describe('the passage travels in the context every module is told', () => {
-  const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
+  const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
 
   test('it goes out whole, unchecked, because the host did not open the file', () => {
-    const here = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], null, paragraph)
+    const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, paragraph)
     expect(here.passage).toEqual(paragraph)
   })
 
@@ -165,7 +165,7 @@ describe('the passage travels in the context every module is told', () => {
        reading chapter three when a stored slug turns out not to parse, and
        dropping it would make one bad row in a table close somebody's document. */
     const here = toWireContext(
-      { epic: 'NOT A SLUG '.repeat(40), project: roadmap },
+      { epic: 'NOT A SLUG '.repeat(40), project: webapp },
       'light',
       ['gh#1'],
       { id: 2, name: 'reading' },
@@ -180,11 +180,11 @@ describe('the passage travels in the context every module is told', () => {
     /* `toWireContext` runs during render. A quote past `LIMITS.QUOTE` arriving
        from a module must cost that module its passage and must not take every
        other container on the canvas down with it. */
-    const here = toWireContext({ epic: null, project: roadmap }, 'light', [], null, {
+    const here = toWireContext({ epic: null, project: webapp }, 'light', [], null, {
       ...paragraph,
       quoted: 'x'.repeat(5000),
     })
     expect(here.passage).toBeNull()
-    expect(here.projectPath).toBe('/Users/x/Projects/roadmap')
+    expect(here.projectPath).toBe('/Users/x/Projects/webapp')
   })
 })

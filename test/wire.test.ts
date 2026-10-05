@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL } from 'roadmap-module-protocol'
+import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL } from 'kehikot-module-protocol'
 
 import { Conversation, type Answer } from '@/host/conversation.ts'
 import { toWireContext } from '@/host/context.ts'
@@ -97,7 +97,7 @@ describe('the host greets first', () => {
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, quiet())
     conversation.greet(context)
     conversation.sendContext(toWireContext(
-      { epic: 'modes-are-modules', project: { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false } },
+      { epic: 'modes-are-modules', project: { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false } },
       'dark',
     ))
     expect(sent[1]!.message).toMatchObject({ type: MESSAGE.CONTEXT, protocol: PROTOCOL })
@@ -255,7 +255,7 @@ describe('one question, one answer, one id', () => {
     conversation.close()
   })
 
-  test('a message with the roadmap prefix and the wrong shape is a fault, not silence', () => {
+  test('a message with the kehikot. prefix and the wrong shape is a fault, not silence', () => {
     const { frame, contentWindow } = frameAndWindow()
     const faults: string[] = []
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, {
@@ -274,7 +274,7 @@ describe('one question, one answer, one id', () => {
     conversation.close()
   })
 
-  test('anything without the roadmap prefix is not ours and is left alone', () => {
+  test('anything without a kehikot. or roadmap. prefix is not ours and is left alone', () => {
     const { frame, contentWindow } = frameAndWindow()
     const faults: string[] = []
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, {
@@ -402,16 +402,16 @@ describe('an event goes into the frame and is never answered', () => {
   const event = {
     type: MESSAGE.EVENT,
     protocol: PROTOCOL,
-    extension: 'roadmap.notifications@1',
+    extension: 'kehikot.notifications@1',
     payload: { epic: 'modes-are-modules', message: 'the tests passed', level: 'info', refs: [] },
-    from: 'roadmap.checklist',
+    from: 'kehikot.checklist',
     at: '2026-08-28T09:00:00.000Z',
     kehikko: { id: 1, name: 'workbench' },
   }
 
   test('after the greeting it is posted, whole, with no correlation id on it', () => {
     const { frame, sent } = frameAndWindow()
-    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    const conversation = new Conversation(frame, 'kehikot.notifications', null, async () => nothing, quiet())
     conversation.greet(context)
     sent.length = 0
 
@@ -428,7 +428,7 @@ describe('an event goes into the frame and is never answered', () => {
 
   test('before the greeting it is dropped, which is what best-effort means', () => {
     const { frame, sent } = frameAndWindow()
-    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    const conversation = new Conversation(frame, 'kehikot.notifications', null, async () => nothing, quiet())
 
     conversation.sendEvent(event)
 
@@ -441,7 +441,7 @@ describe('an event goes into the frame and is never answered', () => {
 
   test('a closed conversation posts nothing, so a frame taken off the canvas is not written to', () => {
     const { frame, sent } = frameAndWindow()
-    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    const conversation = new Conversation(frame, 'kehikot.notifications', null, async () => nothing, quiet())
     conversation.greet(context)
     conversation.close()
     sent.length = 0
@@ -455,7 +455,7 @@ describe('an event goes into the frame and is never answered', () => {
 describe('the context says which kehikko is being looked at', () => {
   test('the open canvas travels in hello, so a module knows where it is standing', () => {
     const { frame, sent } = frameAndWindow()
-    const conversation = new Conversation(frame, 'roadmap.notifications', null, async () => nothing, quiet())
+    const conversation = new Conversation(frame, 'kehikot.notifications', null, async () => nothing, quiet())
     const here = toWireContext({ epic: null, project: null }, 'dark', [], { id: 7, name: 'workbench' })
 
     conversation.greet(here)
@@ -473,8 +473,8 @@ describe('the context says which kehikko is being looked at', () => {
   })
 
   test('an epic slug the schema refuses does not cost the module its bearings', () => {
-    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
-    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: roadmap }, 'light', ['gh#1'], {
+    const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
+    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: webapp }, 'light', ['gh#1'], {
       id: 2,
       name: 'reading',
     })
@@ -486,8 +486,8 @@ describe('the context says which kehikko is being looked at', () => {
     expect(here.epic).toBeNull()
     expect(here.selection).toEqual([])
     expect(here.kehikko).toEqual({ id: 2, name: 'reading' })
-    expect(here.project).toBe('roadmap')
-    expect(here.projectPath).toBe('/Users/x/Projects/roadmap')
+    expect(here.project).toBe('webapp')
+    expect(here.projectPath).toBe('/Users/x/Projects/webapp')
   })
 })
 
@@ -517,11 +517,11 @@ describe('the context says which project the kehikko is in, and where it is', ()
   })
 
   test('switching project changes what every module is told, and nothing else', () => {
-    const roadmap = { id: 1, name: 'roadmap', path: '/Users/x/Projects/roadmap', epics: true, git: true, shared: false }
+    const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
     const thesis = { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false, git: true, shared: false }
     const kehikko = { id: 7, name: 'writing' }
 
-    const before = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], kehikko)
+    const before = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], kehikko)
     const after = toWireContext({ epic: 'modes-are-modules', project: thesis }, 'dark', [], kehikko)
 
     expect(before.projectPath).not.toBe(after.projectPath)
@@ -567,7 +567,7 @@ describe('a module can hand the host a control it cannot draw itself', () => {
 
     expect(offers).toHaveLength(1)
     /* Nothing goes back. It is fire and forget, like `resize`: what returns is
-       a `roadmap.context` when somebody presses something, and only then. */
+       a `kehikot.context` when somebody presses something, and only then. */
     expect(sent).toHaveLength(0)
   })
 

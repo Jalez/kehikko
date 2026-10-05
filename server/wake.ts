@@ -63,7 +63,7 @@
  * ## The third kind, and why it is an id after all
  *
  * `epics` names a PROJECT, by this machine's id for it. An epic created at the
- * door — `create_epic` in `mcp.ts` — is a file in that project's `.kehikot/roadmap/epics`,
+ * door — `create_epic` in `mcp.ts` — is a file in that project's `.kehikot/kehikko/epics`,
  * which the page reads once per project switch and never again, so an agent's
  * new epic would not be in the dropdown until the person changed project and
  * came back. That is the sitting-still-and-watching case the essay above is
@@ -71,7 +71,7 @@
  *
  * It carries the project rather than nothing because two windows can be
  * standing in two projects, and a page in the thesis folder re-reading its
- * epics because something happened in the roadmap's would be a read for no
+ * epics because something happened in another project's would be a read for no
  * reason — cheap, and still a read the page cannot explain. The `registry`
  * kind carries nothing because there is one registry; there is not one project.
  *
@@ -144,11 +144,11 @@ export class Wakes {
   }
 
   /**
-   * Say that a project's `.kehikot/roadmap/epics` has a file in it that it did not have.
+   * Say that a project's `.kehikot/kehikko/epics` has a file in it that it did not have.
    *
    * Sent by whatever wrote the file — the route the page's `+` posts to and
    * the door's `create_epic` both do — and never by watching the directory.
-   * The roadmap rewrites `.kehikot/roadmap/` under a running host on every refresh, and a
+   * A refresh rewrites `.kehikot/kehikko/` under a running host, and a
    * watcher would have the page re-reading its epics on every one of those,
    * which is the tick-driven read this file refuses. What this host wrote,
    * this host says; what something else wrote is read on the next project

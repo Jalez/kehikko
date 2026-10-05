@@ -22,17 +22,17 @@ function fresh() {
 describe('what a module is called', () => {
   test('a name given once is given back', () => {
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
-    expect(known(db).get('roadmap.paper')).toBe('Paper')
+    remember(db, 'kehikot.paper', 'Paper')
+    expect(known(db).get('kehikot.paper')).toBe('Paper')
   })
 
   test('a rename replaces the old name rather than keeping the first', () => {
     /* The memory follows the module. Pinning the first answer would mean a
        module renamed months ago still showing its old name whenever it slept. */
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
-    remember(db, 'roadmap.paper', 'Reader')
-    expect(known(db).get('roadmap.paper')).toBe('Reader')
+    remember(db, 'kehikot.paper', 'Paper')
+    remember(db, 'kehikot.paper', 'Reader')
+    expect(known(db).get('kehikot.paper')).toBe('Reader')
     expect(known(db).size).toBe(1)
   })
 
@@ -40,14 +40,14 @@ describe('what a module is called', () => {
     /* A module that answered with nothing must not overwrite what it said when
        it could speak — otherwise one bad sweep erases the memory. */
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
-    remember(db, 'roadmap.paper', '')
-    expect(known(db).get('roadmap.paper')).toBe('Paper')
+    remember(db, 'kehikot.paper', 'Paper')
+    remember(db, 'kehikot.paper', '')
+    expect(known(db).get('kehikot.paper')).toBe('Paper')
   })
 
   test('an id with no name is not stored at all', () => {
     const db = fresh()
-    remember(db, 'roadmap.ghost', '')
+    remember(db, 'kehikot.ghost', '')
     expect(known(db).size).toBe(0)
   })
 
@@ -56,25 +56,25 @@ describe('what a module is called', () => {
        anybody ever registered, and the one place that surfaces is a list of
        things which no longer exist. */
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
-    remember(db, 'roadmap.atlas', 'Atlas')
-    forgetUnregistered(db, ['roadmap.paper'])
-    expect([...known(db).keys()]).toEqual(['roadmap.paper'])
+    remember(db, 'kehikot.paper', 'Paper')
+    remember(db, 'kehikot.atlas', 'Atlas')
+    forgetUnregistered(db, ['kehikot.paper'])
+    expect([...known(db).keys()]).toEqual(['kehikot.paper'])
   })
 
   test('forgetting nothing when everything is still registered', () => {
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
-    remember(db, 'roadmap.notes', 'Notes')
-    forgetUnregistered(db, ['roadmap.paper', 'roadmap.notes'])
+    remember(db, 'kehikot.paper', 'Paper')
+    remember(db, 'kehikot.notes', 'Notes')
+    forgetUnregistered(db, ['kehikot.paper', 'kehikot.notes'])
     expect(known(db).size).toBe(2)
   })
 
   test('the table can be made twice without complaint', () => {
     /* It is made on every start, and a host restarts often. */
     const db = fresh()
-    remember(db, 'roadmap.paper', 'Paper')
+    remember(db, 'kehikot.paper', 'Paper')
     ensureKnown(db)
-    expect(known(db).get('roadmap.paper')).toBe('Paper')
+    expect(known(db).get('kehikot.paper')).toBe('Paper')
   })
 })

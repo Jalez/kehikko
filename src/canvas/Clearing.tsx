@@ -9,7 +9,7 @@ import { Hint } from './Hint.tsx'
  * only one anywhere in this host that destroys something.
  *
  * A module says that what it is showing can be cleared and what to call it; the
- * host draws this; the SECOND press sends `roadmap.clear`; and the module does
+ * host draws this; the SECOND press sends `kehikot.clear`; and the module does
  * the deleting. The host never touches the data and never learns what went —
  * see `sendClear` in `conversation.ts` and `MESSAGE.CLEAR` in the protocol.
  *

@@ -1,5 +1,5 @@
 import { CircleSlash, Moon, PlugZap, Unplug } from 'lucide-react'
-import type { ModuleCondition } from 'roadmap-module-protocol'
+import type { ModuleCondition } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils'
 

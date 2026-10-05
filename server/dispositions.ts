@@ -6,7 +6,7 @@ import {
   moduleFile,
   type Disposition,
   type DispositionValue,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import { HOST_ID } from './kehikot.ts'

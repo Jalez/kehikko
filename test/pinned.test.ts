@@ -12,13 +12,13 @@ import { toWireContext, whileFrozen } from '@/host/context.ts'
  * simply the two that happened to be pinned.
  */
 
-const roadmap = { id: 1, name: 'roadmap', path: '/w/roadmap', epics: true, git: true, shared: false }
+const webapp = { id: 1, name: 'webapp', path: '/w/webapp', epics: true, git: true, shared: false }
 
-const held = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], null, null)
+const held = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, null)
 
 describe('what a pinned container is still told', () => {
   test('a changed theme gets through', () => {
-    const told = toWireContext({ epic: 'something-else', project: roadmap }, 'light', [], null, null)
+    const told = toWireContext({ epic: 'something-else', project: webapp }, 'light', [], null, null)
     const sent = whileFrozen(held, told)
     expect(sent?.theme).toBe('light')
   })
@@ -31,7 +31,7 @@ describe('what a pinned container is still told', () => {
     const told = toWireContext({ epic: 'something-else', project: null }, 'light', [], null, null)
     const sent = whileFrozen(held, told)
     expect(sent?.epic).toBe('modes-are-modules')
-    expect(sent?.project).toBe('roadmap')
+    expect(sent?.project).toBe('webapp')
   })
 
   /* Asked on every context the canvas produces. Answering with the held context
@@ -47,13 +47,13 @@ describe('what a pinned container is still told', () => {
      nothing to substitute a theme into. Sending the live context here would
      hand a pinned container the canvas's current subject as its first word. */
   test('a container that has been told nothing is told nothing', () => {
-    const told = toWireContext({ epic: 'anything', project: roadmap }, 'light', [], null, null)
+    const told = toWireContext({ epic: 'anything', project: webapp }, 'light', [], null, null)
     expect(whileFrozen(null, told)).toBeNull()
   })
 
   test('and it works in both directions', () => {
-    const lit = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'light', [], null, null)
-    const back = toWireContext({ epic: 'modes-are-modules', project: roadmap }, 'dark', [], null, null)
+    const lit = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'light', [], null, null)
+    const back = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, null)
     expect(whileFrozen(lit, back)?.theme).toBe('dark')
   })
 })

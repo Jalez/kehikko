@@ -1,4 +1,4 @@
-import { resultSchemaFor } from 'roadmap-module-protocol'
+import { resultSchemaFor } from 'kehikot-module-protocol'
 
 /**
  * Hold the host's own answers to the shapes the protocol names.

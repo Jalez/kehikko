@@ -39,7 +39,7 @@ it answers to a person and to an agent equally:
 
   > Every change on this kehikko is held to a checklist, and the work is not
   > finished when the code is finished — it is finished when the items are
-  > ticked. — `roadmap.checklist`
+  > ticked. — `kehikot.checklist`
 
 So a canvas is a statement of scope, not decoration.
 
@@ -98,7 +98,7 @@ browser. Point it at a repository you work in.
 
 ```
 project  (a repository or worktree — a folder on disk)
-  ├── epics    (<project>/.kehikot/roadmap/epics, when it has any)
+  ├── epics    (<project>/.kehikot/kehikko/epics, when it has any)
   └── kehikot  (many; one per purpose)
 ```
 
@@ -119,13 +119,16 @@ it.
 
 **A project's data goes only under `<project>/.kehikot/<module>/`**, and the
 path is built with the protocol's helpers — `KEHIKOT_DIR`, `kehikotDir`,
-`moduleDir`, `moduleFile` from `roadmap-module-protocol` — never spelled by hand
+`moduleDir`, `moduleFile` from `kehikot-module-protocol` — never spelled by hand
 and never anchored at a program's own folder (`import.meta.dir`, `__dirname`,
-`process.cwd()`, a repo `ROOT`) or the home directory. The roadmap's own data is
-`.kehikot/roadmap/epics/` and `.kehikot/roadmap/state/`; papers are
-`.kehikot/paper/<epic>/`. The host moves a legacy `<project>/data/epics` or
-`data/state` there when it adopts or adds a project (`server/roadmapData.ts`):
-it never overwrites, and leaves both and logs both paths if both exist.
+`process.cwd()`, a repo `ROOT`) or the home directory. The host's own data is
+`.kehikot/kehikko/epics/` and `.kehikot/kehikko/state/`, beside
+`.kehikot/kehikko/kehikot.json`; papers are `.kehikot/paper/<epic>/`. The host
+brings older layouts there when it starts, adopts or adds a project
+(`server/hostData.ts`): `.kehikot/roadmap/{epics,state}` (from before the app
+was renamed) is COPIED and left where it is, and read as a fallback while the
+new folder is missing; a legacy `<project>/data/epics` or `data/state` is moved.
+It never overwrites, and leaves both and logs both paths if both exist.
 
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a
@@ -147,12 +150,12 @@ startup without refusing to start.
 
 "Rename this epic" names two operations, and the picker offers one of them. The
 pencil that appears on a row in the epic menu changes the epic's **title** —
-what it is called — in `.kehikot/roadmap/epics/<slug>.json`, and the form says while you are
+what it is called — in `.kehikot/kehikko/epics/<slug>.json`, and the form says while you are
 typing that the slug is staying where it is.
 
 The **slug** is the identity, and everything that has ever pointed at an epic
 points at it by that string: the `epic` column on a project, the
-`roadmap.context.epic` every framed module is told, `.kehikot/roadmap/state/<slug>.json`
+`kehikot.context.epic` every framed module is told, `.kehikot/kehikko/state/<slug>.json`
 written by a tracker refresh, a record keyed by slug in
 `.kehikot/journeys/journeys.json`, a file per epic under `.kehikot/checklist/`,
 and a whole directory under `.kehikot/paper/`. Renaming the epic's own file and
@@ -162,7 +165,7 @@ answers "nothing here" for an unknown slug rather than failing. That is a
 migration across six programs, four of which this host does not own, and it does
 not go behind a pencil in a dropdown. So the control does not say "rename".
 
-It is the only write this host makes into a project's `.kehikot/roadmap/`, and it changes
+It is the only write this host makes into a project's `.kehikot/kehikko/`, and it changes
 one field: the file is read, one span of text is replaced, and every other byte
 is written back exactly as it was. These are documents somebody wrote by hand,
 under their own name in that repository's history, and a host that reformatted
@@ -180,7 +183,7 @@ chrome in a column that is often 220 pixels wide and under 300 tall. None of
 them could put it anywhere else, because the strip around a module belongs to
 the host.
 
-So a module can hand over the values instead. It sends `roadmap.filters` with
+So a module can hand over the values instead. It sends `kehikot.filters` with
 the axes it can be narrowed along, and the host draws one button in the
 container header; a press comes back in `context.filters`.
 
@@ -278,7 +281,7 @@ five tools:
 | `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic — and which registered modules are not on it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
-| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/roadmap/epics/<slug>.json` — without opening it |
+| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/kehikko/epics/<slug>.json` — without opening it |
 | `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/kehikko/dispositions.json`, signed `agent (MCP)` |
 
 All five take an optional `kehikko` id and, without one, act on the kehikko a
@@ -335,11 +338,13 @@ starts, so any of this applies to the next session and not to one already open.
 
 A module is any program that serves three things:
 
-1. `/.well-known/roadmap-module.json` — a manifest describing itself
+1. `/.well-known/kehikot-module.json` — a manifest describing itself (a
+   module built before the rename serves `/.well-known/roadmap-module.json`,
+   which the host still reads; see "The rename" below)
 2. a page the host frames
 3. optionally, an MCP server
 
-The contract is [`roadmap-module-protocol`](https://github.com/Jalez/kehikko-protocol):
+The contract is [`kehikot-module-protocol`](https://github.com/Jalez/kehikko-protocol):
 eight messages over `postMessage`, plus one for events. The host runs its own
 copy of every schema rather than trusting a module's, and the package's shapes
 are a convenience for module authors, never the check.
@@ -405,12 +410,15 @@ Three restraints matter more than the saving:
   for silence nobody asked for, which is where all of this began.
 
 A started module inherits the host's whole environment, which matters for one
-variable: modules read `KEHIKOT_ORIGIN` (older ones `ROADMAP_ORIGIN`) to decide
-who may frame them, and a Tauri window is `tauri://localhost` rather than the
-browser default. The desktop shell sets it on the host it launches; passing the
-environment through is nearly all that has to happen for every module the host
-starts to be framed correctly — the host only copies whichever name is set into
-the other, so old and new modules agree.
+variable: modules decide who may frame them from it, and one module is framed by
+more than one host on one machine — the development page (4181), the desktop
+app's page (4170), and the desktop window (`tauri://localhost`). So the host
+passes `KEHIKOT_ORIGINS`, a space-separated list of all of them plus its own
+page, to every module it starts (`frameOrigins` in the protocol's `/serve`
+reads it), and puts the same list in `KEHIKOT_ORIGIN` and `ROADMAP_ORIGIN`:
+modules from before the rename read only those, and already put whatever is in
+them straight into `frame-ancestors`. Whatever the desktop shell set on the
+host comes first in the list.
 
 Nothing waits, either. Starting is a spawn and the answer says `starting`
 immediately — a cold host with six down modules on the open kehikko answers in
@@ -522,3 +530,22 @@ a webview — an iframe. So the exception there is the rule here.
 **MCP** — the reason an agent can use any of this. Each module owns its own
 server rather than the host proxying, so a module's tools work whether or not
 anything is framed.
+
+## The rename
+
+This app was called "roadmap" before it was Kehikot, and so were its names:
+`roadmap-module-protocol`, `roadmap.module`, `roadmap.*` messages,
+`roadmap.<name>` module ids, `<project>/.kehikot/roadmap/`. They are
+`kehikot-module-protocol`, `kehikot.module`, `kehikot.*`, `kehikot.<name>` and
+`<project>/.kehikot/kehikko/` now, and an unchanged module keeps working:
+
+- The host finds it at the old well-known path, greets it in its own dialect
+  and reads what it says in either (`dialect.ts` in the protocol).
+- `roadmap.<name>` is the same module as `kehikot.<name>` everywhere an id
+  comes in — registrations (both file names, newest wins), manifests, the
+  canvases database (respelled on every start), a project's `kehikot.json`
+  (read either way, written in the new ids on its next write) and MCP calls.
+- A module's own data stays where it is: `moduleFolder` gives both ids the
+  same folder.
+
+What a module changes to move over is listed in the protocol's README.

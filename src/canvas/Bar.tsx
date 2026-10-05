@@ -253,7 +253,7 @@ export function Bar({
          * pictures, and half of everyone reads it the wrong way round. A label
          * settles it, and this control has room for one.
          *
-         * The theme goes out to every module in `roadmap.context` as well, so
+         * The theme goes out to every module in `kehikot.context` as well, so
          * a page inside a container is not left bright inside a dark canvas.
          */}
         {/*

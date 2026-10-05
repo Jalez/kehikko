@@ -4,7 +4,7 @@ import {
   type Passage,
   type ProjectPickResult,
   type Showing,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import type { Emitted } from './events.ts'
 
 /**

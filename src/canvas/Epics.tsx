@@ -24,12 +24,12 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * ## It used to be a text field, and a text field was the wrong control
  *
  * The bar had an `<input>`: you typed a slug, it was trimmed, and whatever came
- * out became `roadmap.context.epic`. That was the right control while the host
+ * out became `kehikot.context.epic`. That was the right control while the host
  * had no idea what epics existed — it holds no data of its own, and a picker
  * over a list it could not read would have been a picker with nothing in it.
  *
  * Now a kehikko is in a project and a project is a folder, so the host CAN read
- * the list: `.kehikot/roadmap/epics` under the project, which is the same reading
+ * the list: `.kehikot/kehikko/epics` under the project, which is the same reading
  * `epics.list` gives a framed module. A field you type a slug into, next to a
  * list of the slugs that exist, is a way to make a typo authoritative. So it is
  * a select.
@@ -42,7 +42,7 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * ## A project with no epics says so
  *
  * The user's thesis folder has `main.tex`, `chapters/` and `references.bib` and
- * no `.kehikot/roadmap/epics` at all. A kehikko there honestly has nothing to pick, and an
+ * no `.kehikot/kehikko/epics` at all. A kehikko there honestly has nothing to pick, and an
  * empty dropdown is indistinguishable from a project whose epics failed to
  * load. So `holds` — whether the directory exists at all — is carried
  * separately from the list, and the control says which of the two it is in
@@ -62,7 +62,7 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  *
  * "Rename an epic" names two operations. Retitling changes what it is called —
  * one field of one file, nothing else refers to it. Re-slugging changes what it
- * IS, and the slug is on `projects.epic`, in `roadmap.context.epic`, and is the
+ * IS, and the slug is on `projects.epic`, in `kehikot.context.epic`, and is the
  * key every module files its own material under: a record in `journeys.json`, a
  * file per epic under `checklist/`, a whole directory under `paper/`. Only the
  * first is offered, the control says "retitle" rather than "rename", and the
@@ -190,11 +190,11 @@ export function Epics({
     : !held
       ? 'reading this project’s epics…'
       : !holds
-        ? 'this project has no .kehikot/roadmap/epics, so there is no epic to pick — which is not a fault: not every project has any'
+        ? 'this project has no .kehikot/kehikko/epics, so there is no epic to pick — which is not a fault: not every project has any'
         : epics.length === 0
-          ? 'this project’s .kehikot/roadmap/epics is empty'
+          ? 'this project’s .kehikot/kehikko/epics is empty'
           : picked
-            ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/roadmap/epics`
+            ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/kehikko/epics`
             : 'the epic every module on this kehikko is shown'
 
   return (

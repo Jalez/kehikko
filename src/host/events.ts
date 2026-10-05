@@ -1,4 +1,4 @@
-import { known, LIMITS, MESSAGE, PROTOCOL, schemaFor } from 'roadmap-module-protocol'
+import { known, LIMITS, MESSAGE, PROTOCOL, schemaFor } from 'kehikot-module-protocol'
 
 /**
  * Who hears what one module emitted, and how much of it a canvas will carry.
@@ -8,7 +8,7 @@ import { known, LIMITS, MESSAGE, PROTOCOL, schemaFor } from 'roadmap-module-prot
  * `events.emit` was answered by the server for as long as the answer was a
  * refusal, because a refusal needs no frames. Delivery does. The server knows
  * which modules are registered and what each says it consumes, and it has no
- * window handle to post through — every `roadmap.event` goes out over
+ * window handle to post through — every `kehikot.event` goes out over
  * `postMessage` to an iframe that exists only on the canvas. Sending it from
  * the server would mean inventing a channel from the server back to the page
  * whose only cargo would be events the page then re-posts, which is the same
@@ -45,7 +45,7 @@ export interface Kehikko {
 export interface Receiver {
   /** What its manifest says it consumes. Read on every emit, never cached here. */
   consumes: readonly string[]
-  /** Post one `roadmap.event` into its frame. Not answered; see `Conversation`. */
+  /** Post one `kehikot.event` into its frame. Not answered; see `Conversation`. */
   send(event: unknown): void
 }
 
@@ -68,7 +68,7 @@ export type Emitted =
  *
  * Delivery is synchronous fan-out: one `emit` becomes one `postMessage` per
  * consumer, on the canvas's own main thread, in the middle of answering a
- * `roadmap.request`. A module in a loop — and the obvious loop is a module that
+ * `kehikot.request`. A module in a loop — and the obvious loop is a module that
  * emits on every MCP call, wired to an agent that calls it in a loop — would
  * therefore not merely fill somebody's notification list; it would fill the
  * host's task queue, and a canvas that cannot get a frame in is a canvas that

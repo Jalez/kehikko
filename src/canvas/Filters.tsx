@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Filter } from 'lucide-react'
-import { LIMITS, own, type FilterGroup } from 'roadmap-module-protocol'
+import { LIMITS, own, type FilterGroup } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -368,7 +368,7 @@ function Toggles({
  *
  * **It is typed into locally and reported on a delay.** Every keystroke that
  * reached `onChoose` would be a write to the arrangement, a row in the database
- * and a `roadmap.context` to every frame on the canvas — thirteen of them for
+ * and a `kehikot.context` to every frame on the canvas — thirteen of them for
  * the word `notifications`, twelve describing a filter nobody ever had. So the
  * value lives here while somebody is typing and is reported once they stop.
  * 300ms: longer than the gap between two keystrokes, shorter than the gap
