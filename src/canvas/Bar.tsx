@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
-import type { Epics as HeldEpics, Project } from '@/host/projects.ts'
+import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
 import type { Presence, RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import {
@@ -40,6 +40,7 @@ import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { Trouble } from './Trouble.tsx'
+import { TrackerReading } from './TrackerReading.tsx'
 
 /**
  * The whole of the host's own interface.
@@ -104,6 +105,8 @@ export function Bar({
   trouble,
   onLookAgain,
   looking,
+  tracker = null,
+  onRefreshTrackers = () => {},
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -149,6 +152,9 @@ export function Bar({
   /** Sweep the registry now. */
   onLookAgain(): void
   looking: boolean
+  /** The open project's tracker reading, or null with no project open. See `TrackerReading.tsx`. */
+  tracker?: TrackerState | null
+  onRefreshTrackers?(): void
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -226,6 +232,9 @@ export function Bar({
         <span className="flex-1" />
 
         <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
+
+        {/* The project's shared tracker reading: its age, and "Refresh all". */}
+        {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} /> : null}
 
         {/* The one number worth putting on the frame itself: how many registered
             programs are not answering. Silence is the common condition and the one

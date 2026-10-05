@@ -1,7 +1,8 @@
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, LIMITS, methodParams } from 'roadmap-module-protocol'
+import { DISPOSITIONS, LIMITS, methodParams, type TrackerRow } from 'roadmap-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
+import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
 import { createEpic } from './holdings.ts'
 import { keep } from './kehikot.ts'
@@ -148,11 +149,20 @@ export interface Door {
   dispositionsChanged(project: number): void
   /** Every registered module and whether it is answering, from a sweep. */
   seen(): Promise<Sighting[]>
+  /** The shared tracker reading, for `read_tracker`. Absent, the tool says so. */
+  trackers?: TrackerDoor
 }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 
-export const TOOL_NAMES = ['read_canvas', 'select_modules', 'place_modules', 'create_epic', 'mark_disposition'] as const
+export const TOOL_NAMES = [
+  'read_canvas',
+  'select_modules',
+  'place_modules',
+  'create_epic',
+  'mark_disposition',
+  'read_tracker',
+] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
 /* ------------------------------------------------------------------ *
@@ -481,6 +491,25 @@ function tools() {
         required: ['ref', 'value'],
       },
     },
+    {
+      name: 'read_tracker',
+      description:
+        'What GitHub and GitLab last said about issues, merge requests and pull requests in the project a kehikko '
+        + 'is standing in — the one reading every module on the canvas shows, read with the person’s own logged-in '
+        + 'gh and glab. Name refs (e.g. "gh#41", "#2274", "!1848", "gh:owner/repo#12"), or an epic, or neither for '
+        + 'the whole project. Says when the reading is from and which sources failed. refresh: true reads the '
+        + 'trackers again first and waits for it, which every module on the canvas then sees; leave it off to '
+        + 'answer from what was last read.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          refs: { type: 'array', items: { type: 'string' }, description: `Up to ${LIMITS.TRACKER_ASK} refs.` },
+          epic: { type: 'string', description: 'An epic slug: every ref it names.' },
+          refresh: { type: 'boolean', description: 'Read the trackers again before answering.' },
+        },
+      },
+    },
   ]
 }
 
@@ -546,6 +575,7 @@ export async function call(
   }
   if (name === 'create_epic') return createEpicAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
+  if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
 
   const asked = modulesIn(args.modules, 'select_modules')
@@ -814,6 +844,59 @@ function markAt(
       + (done.marks.length
         ? `: ${done.marks.map((m) => `${m.ref} ${m.value}${m.target ? ` → ${m.target}` : ''}`).join(', ')}.`
         : '.'),
+    failed: false,
+  }
+}
+
+/**
+ * The shared tracker reading, for an agent: the same rows a module gets from
+ * `tracker.get`, as lines. A read of the host's material, plus — with
+ * `refresh` — the same read a person's "Refresh all" starts.
+ */
+async function readTrackerAt(
+  canvas: Canvas,
+  args: Record<string, unknown>,
+  door: Door,
+): Promise<{ text: string; failed: boolean }> {
+  if (!door.trackers) return { text: 'This host has no tracker reading to answer from.', failed: true }
+  const project = canvas.project === null ? null : projectById(door.db, canvas.project)
+  if (!project) {
+    return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so there is no tracker reading for it.`, failed: true }
+  }
+  const asked = methodParams['tracker.get'].safeParse(
+    args.refs !== undefined ? { refs: args.refs } : args.epic !== undefined ? { epic: args.epic } : { project: true },
+  )
+  if (!asked.success) {
+    const issue = asked.error.issues[0]
+    return { text: `nothing was read — ${issue?.path.join('.') || 'the call'}: ${issue?.message ?? 'malformed'}.`, failed: true }
+  }
+  const scope = Array.isArray(asked.data.refs)
+    ? { refs: asked.data.refs }
+    : asked.data.epic
+      ? { epic: asked.data.epic }
+      : { project: true as const }
+  let refreshed = ''
+  if (args.refresh === true) {
+    const result = await door.trackers.refresh(project.path, scope)
+    refreshed = `Refreshed: ${result.outcome}${result.why ? ` — ${result.why.replace(/\.$/, '')}` : ''}.\n`
+  }
+  const reading = door.trackers.get(project.path, scope, 'summary')
+  if ('refused' in reading) return { text: reading.refused, failed: true }
+  const line = (row: TrackerRow) =>
+    `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
+    + `${row.draft ? ' draft' : ''}${row.pipeline ? ` pipeline:${row.pipeline}` : ''}${row.review ? ` review:${row.review}` : ''}`
+    + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
+  const sources = reading.sources
+    .map((s) => `${s.tracker} ${s.host}/${s.repo}${s.default ? ' (default)' : ''}: ${s.error ? `FAILED — ${s.error}` : s.at ? `read ${s.at}` : 'never read'}`)
+    .join('\n')
+  const shown = reading.rows.slice(0, 300)
+  return {
+    text:
+      `${refreshed}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
+      + `${reading.refreshing ? ' (a read is running now)' : ''}.\n${sources || 'No sources.'}\n\n`
+      + (shown.length ? shown.map(line).join('\n') : 'No rows.')
+      + (reading.rows.length > shown.length ? `\n…and ${reading.rows.length - shown.length} more.` : '')
+      + (reading.missing.length ? `\n\nNot in the reading: ${reading.missing.map((m) => `${m.ref} (${m.reason})`).join(', ')}.` : ''),
     failed: false,
   }
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { writeFileSync } from 'node:fs'
 import { LIMITS, PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
-import { answer } from './answers.ts'
+import { answerCall } from './answers.ts'
+import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
 import {
   createCanvas,
@@ -136,6 +137,26 @@ const openness = new Openness()
  * time, so no event fires. See `wake.ts`.
  */
 const wakes = new Wakes()
+
+/**
+ * The shared tracker reading, one per project, for every module and every page.
+ *
+ * Told about each read that starts or lands, and says so to every page standing
+ * in a project at that folder; the page puts it in `context.tracker`. Nothing
+ * is read here at startup — see `server/trackers/reading.ts`.
+ */
+const trackers = new Trackers({
+  run: spawnRunner,
+  told: (root, signal) => {
+    for (const project of listProjects(db)) {
+      if (project.path === root) wakes.trackerChanged(project.id, signal)
+    }
+  },
+})
+/* The schedule: a project somebody looked at in the last half hour is read
+   whole once its `every` minutes have passed. A minute tick that decides
+   nothing for a project nobody is looking at. */
+setInterval(() => trackers.tick(), 60_000).unref?.()
 
 /** The open project's folder, when the call named a project this host has. */
 function rootOf(project: unknown): string | null {
@@ -806,7 +827,7 @@ const server = Bun.serve({
       if (!callers.size) await sweep()
 
       return json(
-        answer(
+        await answerCall(
           body.module,
           body.method,
           body.params,
@@ -824,6 +845,7 @@ const server = Bun.serve({
             }
             return done
           },
+          trackers,
         ),
       )
     }
@@ -1027,6 +1049,33 @@ const server = Bun.serve({
       const project = Number.isInteger(asked) ? projectById(db, asked) : null
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
       return json({ dispositions: marksOf(project.path) })
+    }
+
+    /*
+     * The open project's tracker reading, as the bar shows it: when it last
+     * changed, whether a read is running, and how each source fared. Asking
+     * is somebody looking, so the first ask for a project starts its first
+     * read and keeps its schedule running — see `Trackers.signal`.
+     */
+    if (url.pathname === '/host/tracker' && request.method === 'GET') {
+      const asked = Number(url.searchParams.get('project') ?? '')
+      const project = Number.isInteger(asked) ? projectById(db, asked) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      const signal = trackers.signal(project.path)
+      const reading = trackers.get(project.path, { refs: [] })
+      return json({ ...signal, sources: 'refused' in reading ? [] : reading.sources })
+    }
+
+    /*
+     * "Refresh all": read every source of the project again, and answer when
+     * it lands. Every page standing in the project hears it start and land
+     * through `/host/watch`, and every module through `context.tracker`.
+     */
+    if (url.pathname === '/host/tracker/refresh' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown } | null
+      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      return json(await trackers.refresh(project.path, { project: true }))
     }
 
     /*
@@ -1654,6 +1703,7 @@ const server = Bun.serve({
           wake: (kehikko) => wakes.woke(kehikko),
           epicsChanged: (project) => wakes.epicsChanged(project),
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
+          trackers,
           /* A sweep, so that an agent reading a canvas is told which of the
              containers on it hold a program that is actually answering. It is
              the same sweep the page asks for on load — N requests to N

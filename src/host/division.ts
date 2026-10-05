@@ -37,6 +37,11 @@ export const ANSWERED_BY_THE_SERVER = [
      hears about it afterwards the way it hears about an agent's write: a wake,
      and a re-read. See `server/dispositions.ts`. */
   'disposition.set',
+  /* The shared tracker reading. The server holds the person's CLIs and the
+     project's reading, and `tracker.refresh` waits on a tracker, which only a
+     process can do. See `server/trackers/reading.ts`. */
+  'tracker.get',
+  'tracker.refresh',
 ] as const
 
 /**

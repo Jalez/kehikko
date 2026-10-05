@@ -309,6 +309,7 @@ describe('the host’s server, running', () => {
         'mark_disposition',
         'place_modules',
         'read_canvas',
+        'read_tracker',
         'select_modules',
       ])
 

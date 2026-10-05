@@ -1,4 +1,12 @@
-import { LIMITS, dispositionSchema, type Disposition } from 'roadmap-module-protocol'
+import {
+  LIMITS,
+  dispositionSchema,
+  trackerRefreshResult,
+  trackerSourceSchema,
+  type Disposition,
+  type TrackerRefreshResult,
+  type TrackerSource,
+} from 'roadmap-module-protocol'
 import { z } from 'zod'
 
 /**
@@ -166,6 +174,40 @@ export async function fetchDispositions(project: number, signal?: AbortSignal): 
   return z
     .object({ dispositions: z.array(dispositionSchema).max(LIMITS.DISPOSITIONS) })
     .parse(await response.json()).dispositions
+}
+
+/**
+ * The open project's tracker reading, as the bar shows it: `context.tracker`'s
+ * two facts and how each source fared. Asking counts as somebody looking — the
+ * server starts the project's first read on it, and keeps its schedule going.
+ */
+export interface TrackerState {
+  at: string | null
+  refreshing: boolean
+  sources: TrackerSource[]
+}
+
+export async function fetchTracker(project: number, signal?: AbortSignal): Promise<TrackerState> {
+  const response = await fetch(`/host/tracker?project=${project}`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error(await reason(response))
+  return z
+    .object({
+      at: z.string().datetime({ offset: true }).nullable(),
+      refreshing: z.boolean(),
+      sources: z.array(trackerSourceSchema).max(LIMITS.TRACKER_SOURCES),
+    })
+    .parse(await response.json())
+}
+
+/** "Refresh all": read every source of the project again. Answers when the read lands. */
+export async function refreshTracker(project: number): Promise<TrackerRefreshResult> {
+  const response = await fetch('/host/tracker/refresh', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return trackerRefreshResult.parse(await response.json())
 }
 
 /**
