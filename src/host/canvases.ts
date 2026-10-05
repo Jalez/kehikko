@@ -398,6 +398,11 @@ export function watchCanvases(
    * `server/wake.ts`. Given the project's id for `wrote`'s reason.
    */
   marked?: (project: number) => void,
+  /**
+   * A project's tracker reading started or landed a read — see
+   * `trackerChanged` in `server/wake.ts`. The signal comes with the news.
+   */
+  read?: (project: number, signal: { at: string | null; refreshing: boolean }) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -436,6 +441,13 @@ export function watchCanvases(
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
       const disposed = (parsed as { dispositions?: unknown })?.dispositions
       if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
+      const tracked = parsed as { tracker?: unknown; at?: unknown; refreshing?: unknown }
+      if (
+        typeof tracked?.tracker === 'number' && Number.isInteger(tracked.tracker)
+        && (tracked.at === null || typeof tracked.at === 'string') && typeof tracked.refreshing === 'boolean'
+      ) {
+        read?.(tracked.tracker, { at: tracked.at, refreshing: tracked.refreshing })
+      }
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */

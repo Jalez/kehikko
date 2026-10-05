@@ -5,6 +5,7 @@ import {
   type Disposition,
   type ModuleContext,
   type Passage,
+  type TrackerSignal,
 } from 'roadmap-module-protocol'
 
 import { sameChoice } from './filters.ts'
@@ -191,6 +192,12 @@ export function toWireContext(
    * See `server/dispositions.ts`.
    */
   dispositions: readonly Disposition[] = [],
+  /**
+   * The open project's tracker signal: when its shared reading last changed,
+   * and whether a read is running. Per project, like the marks. The rows stay
+   * behind `tracker.get`; see `server/trackers/reading.ts`.
+   */
+  tracker: TrackerSignal = { at: null, refreshing: false },
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -224,6 +231,7 @@ export function toWireContext(
     passage: pointing,
     containers,
     dispositions,
+    tracker,
   })
   if (parsed.success) return parsed.data
 
@@ -282,6 +290,7 @@ export function toWireContext(
     /* The marks survive with the project they belong to: a bad epic slug says
        nothing about whether somebody called #2274 a duplicate. */
     dispositions,
+    tracker,
   })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
@@ -367,11 +376,15 @@ export function whileFrozen(
      pinned on another project is not told this one's marks. */
   const sameProject = held.projectPath === told.projectPath
   const remarked = sameProject && JSON.stringify(held.dispositions) !== JSON.stringify(told.dispositions)
-  if (!relit && !refiltered && !remarked) return null
+  /* The tracker signal passes a pin for the marks' reason: a reading is about
+     the work, and a pinned Journeys still showing yesterday's states after a
+     person pressed "Refresh all" would be the frozen theme again. */
+  const reread = sameProject && JSON.stringify(held.tracker) !== JSON.stringify(told.tracker)
+  if (!relit && !refiltered && !remarked && !reread) return null
   return {
     ...held,
     theme: told.theme,
     filters: told.filters,
-    ...(sameProject ? { dispositions: told.dispositions } : {}),
+    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker } : {}),
   }
 }

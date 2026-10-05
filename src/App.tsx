@@ -39,6 +39,9 @@ import {
   createEpic,
   deleteEpic,
   fetchDispositions,
+  fetchTracker,
+  refreshTracker,
+  type TrackerState,
   fetchEpics,
   fetchProjects,
   forgetProject,
@@ -282,6 +285,12 @@ export function App() {
    * both it falls back to what its own tracker reading implies.
    */
   const [marks, setMarks] = useState<Disposition[]>([])
+  /**
+   * The open project's shared tracker reading, as the bar shows it and as
+   * `context.tracker` carries it: when it last changed, whether a read is
+   * running, and how each source fared. See `server/trackers/reading.ts`.
+   */
+  const [tracker, setTracker] = useState<TrackerState>({ at: null, refreshing: false, sources: [] })
   const [live, setLive] = useState<Record<string, Live>>({})
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
@@ -578,6 +587,22 @@ export function App() {
           }
         })()
       },
+      /* The project's tracker reading started or landed a read. The signal
+         came with the news and goes straight into the context; when a read
+         lands, the sources are re-read for the bar's sentence about them. */
+      (project, signal) => {
+        if (project !== projectRef.current) return
+        setTracker((was) => ({ ...was, ...signal }))
+        if (signal.refreshing) return
+        void (async () => {
+          try {
+            const found = await fetchTracker(project)
+            if (project === projectRef.current) setTracker(found)
+          } catch {
+            /* The bar keeps what it had. */
+          }
+        })()
+      },
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -649,6 +674,42 @@ export function App() {
     })()
     return () => stop.abort()
   }, [projectId])
+
+  /* The open project's tracker reading, read on a project switch. Asking is
+     what starts the project's first read — never the host's startup. */
+  useEffect(() => {
+    setTracker({ at: null, refreshing: false, sources: [] })
+    if (projectId === null) return
+    const stop = new AbortController()
+    void (async () => {
+      try {
+        const found = await fetchTracker(projectId, stop.signal)
+        if (!stop.signal.aborted) setTracker(found)
+      } catch {
+        /* Nothing read is what the context says by default. */
+      }
+    })()
+    return () => stop.abort()
+  }, [projectId])
+
+  /* "Refresh all". The bar shows it running from the wake the server sends
+     when the read starts, so this only has to ask; the answer is the outcome,
+     and the sentence about any source that failed arrives with the re-read. */
+  const onRefreshTrackers = useCallback(() => {
+    const project = projectRef.current
+    if (project === null) return
+    setTracker((was) => ({ ...was, refreshing: true }))
+    void refreshTracker(project)
+      .catch(() => null)
+      .then(async () => {
+        try {
+          const found = await fetchTracker(project)
+          if (project === projectRef.current) setTracker(found)
+        } catch {
+          if (project === projectRef.current) setTracker((was) => ({ ...was, refreshing: false }))
+        }
+      })
+  }, [])
 
   /*
    * One sweep at a time, and a record of when the last one finished.
@@ -1133,15 +1194,24 @@ export function App() {
   /* By value, for the reason `pointing` is: a re-read that found the same
      marks is a fresh array, and must not be a `roadmap.context` to every frame. */
   const marked = JSON.stringify(marks)
+  /* By value too: the bar's state carries the sources, which the context does
+     not, and a re-read that changed only a source's sentence is not news for
+     the frames. */
+  const trackerAt = tracker.at
+  const trackerBusy = tracker.refreshing
 
   const context = useMemo(
-    () => toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks),
+    () =>
+      toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
+        at: trackerAt,
+        refreshing: trackerBusy,
+      }),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged, marked],
+    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy],
   )
 
   /**
@@ -2583,6 +2653,8 @@ export function App() {
         trouble={trouble}
         onLookAgain={() => void look()}
         looking={looking}
+        tracker={projectId === null ? null : tracker}
+        onRefreshTrackers={onRefreshTrackers}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */

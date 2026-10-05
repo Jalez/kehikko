@@ -12,6 +12,20 @@ import {
 import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
 import { epicsIn, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
+import type { Scope } from './trackers/reading.ts'
+import type { TrackerReading, TrackerRefreshResult } from 'roadmap-module-protocol'
+
+/**
+ * The shared tracker reading, as this file needs it. Injected for `keep`'s
+ * reason — this file decides, `server/trackers/reading.ts` reads — and so a
+ * test can answer with rows it wrote.
+ */
+export interface TrackerDoor {
+  get(root: string, scope: Scope, detail: 'summary' | 'detail'): TrackerReading | { refused: string }
+  refresh(root: string, scope: Scope): Promise<TrackerRefreshResult>
+  /** `live.get`'s four bags for one epic, from the reading, or null when it holds nothing for it. */
+  live(root: string, epic: string): Record<string, unknown> | null
+}
 
 /**
  * What this host answers, and — much more of the file — what it does not.
@@ -156,6 +170,8 @@ export function answer(
     ok: false,
     why: 'This host was not given anywhere to keep a disposition. Nothing was recorded.',
   }),
+  /** The shared tracker reading. Absent, the tracker methods are refused with a sentence saying so. */
+  trackers: TrackerDoor | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -287,7 +303,10 @@ export function answer(
       )
     }
     const { epic } = parsed.data as { epic: string }
-    const live = readLive(dir, epic)
+    /* A compatibility view now: what an outside refresher once wrote into
+       `state/`, with the shared reading laid over it, so a module still asking
+       here sees the same states as one asking `tracker.get`. */
+    const live = overlay(readLive(dir, epic), root && trackers ? trackers.live(root, epic) : null)
     if (!live) {
       /* The epic may be real and simply never refreshed. Either way nothing
          here has read a tracker about it, and empty bags would say they were
@@ -334,6 +353,25 @@ export function answer(
     if (!done.ok) return notMineToSay(done.why)
     return nothingToShow('disposition.set', { disposition: done.mark, changed: done.changed })
   }
+
+  /**
+   * What the trackers last said, from the one reading the host keeps per
+   * project. Answered at once; what is not read yet comes back `pending`, and
+   * `context.tracker` moves when it lands. See `server/trackers/reading.ts`.
+   */
+  case 'tracker.get': {
+    if (!trackers) return notMineToSay('This host was not given a tracker reading to answer from.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
+    const { detail, ...scope } = parsed.data as { detail: 'summary' | 'detail' } & Partial<Record<'refs' | 'epic' | 'project', unknown>>
+    const reading = trackers.get(root, scopeOf(scope), detail)
+    if ('refused' in reading) return notMineToSay(reading.refused)
+    return nothingToShow('tracker.get', reading)
+  }
+
+  /* Reachable only through `answer` called directly: the server sends this one
+     through `answerCall`, because its answer waits on a tracker. */
+  case 'tracker.refresh':
+    return notMineToSay('tracker.refresh is answered when the read lands; this host asked the wrong half of itself.')
 
   /**
    * A write, refused. `ok: true` would cost nothing today and would mean a
@@ -407,4 +445,68 @@ export function answer(
 function clip(sentence: string): string {
   const room = LIMITS.REASON - 120
   return sentence.length > room ? `${sentence.slice(0, room)}…` : sentence
+}
+
+/** The one scope a parsed tracker call named. The schema has already refused zero or two. */
+function scopeOf(scope: Partial<Record<'refs' | 'epic' | 'project', unknown>>): Scope {
+  if (Array.isArray(scope.refs)) return { refs: scope.refs as string[] }
+  if (typeof scope.epic === 'string') return { epic: scope.epic }
+  return { project: true }
+}
+
+/** The state file's bags with the reading's laid over them, newest `generated` winning. */
+function overlay(
+  file: Record<string, unknown> | null,
+  reading: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!reading) return file
+  if (!file) return reading
+  const out: Record<string, unknown> = { ...file }
+  for (const bag of ['issues', 'mrs', 'ghIssues', 'ghPrs']) {
+    const was = file[bag]
+    const now = reading[bag]
+    out[bag] = {
+      ...(was && typeof was === 'object' && !Array.isArray(was) ? was : {}),
+      ...(now && typeof now === 'object' && !Array.isArray(now) ? now : {}),
+    }
+  }
+  const a = typeof file.generated === 'string' ? file.generated : ''
+  const b = typeof reading.generated === 'string' ? reading.generated : ''
+  out.generated = a > b ? a : b
+  return out
+}
+
+/**
+ * Answer one call, waiting where the answer waits on something.
+ *
+ * `answer` stays synchronous — it is a decision table, and every test of it
+ * calls it as one. The one method whose answer arrives later, `tracker.refresh`,
+ * is answered here after the same checks `answer` makes, and everything else
+ * is handed straight to it.
+ */
+export async function answerCall(
+  moduleId: string,
+  method: string,
+  rawParams: unknown,
+  knownModule: (id: string) => boolean,
+  keep: (module: string, state: string) => void,
+  root: string | null,
+  mark: (module: string, root: string | null, marking: Marking) => Marked,
+  trackers: TrackerDoor | null,
+): Promise<Answer> {
+  if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers)
+  }
+  const parsed = params.get(method)!.safeParse(rawParams ?? {})
+  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers)
+  if (!trackers) return notMineToSay('This host was not given a tracker reading to refresh.')
+  if (!root) {
+    return nothingToShow('tracker.refresh', {
+      outcome: 'declined',
+      at: null,
+      why: 'This call is standing in no project, so there is nothing to read.',
+    })
+  }
+  const result = await trackers.refresh(root, scopeOf(parsed.data as Partial<Record<'refs' | 'epic' | 'project', unknown>>))
+  return nothingToShow('tracker.refresh', result)
 }

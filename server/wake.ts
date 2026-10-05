@@ -88,7 +88,15 @@
  * has said why a ref closed. Still not the marks themselves, for the reason
  * above.
  */
-export type News = { kehikko: number } | { registry: true } | { epics: number } | { dispositions: number }
+export type News =
+  | { kehikko: number }
+  | { registry: true }
+  | { epics: number }
+  | { dispositions: number }
+  /* The fifth kind: a project's tracker reading started or landed. Carries
+     the signal itself — `context.tracker` is two small facts, and making every
+     page fetch them back would be a round trip per page per read. */
+  | { tracker: number; at: string | null; refreshing: boolean }
 
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
@@ -159,6 +167,18 @@ export class Wakes {
    */
   dispositionsChanged(project: number): void {
     this.#tell({ dispositions: project })
+  }
+
+  /**
+   * Say that a project's shared tracker reading started a read, or landed one.
+   *
+   * Sent by the reader itself (`server/trackers/reading.ts`) and only then:
+   * a person's "Refresh all", a module's `tracker.refresh`, the project's
+   * schedule, or a module asking about a ref nobody had read. The page puts it
+   * in `context.tracker`, and every module that `reacts` to `tracker` re-asks.
+   */
+  trackerChanged(project: number, signal: { at: string | null; refreshing: boolean }): void {
+    this.#tell({ tracker: project, at: signal.at, refreshing: signal.refreshing })
   }
 
   #tell(news: News): void {
