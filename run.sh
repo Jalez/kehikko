@@ -113,7 +113,7 @@ fi
 # ## It is a SEED, and only a seed
 #
 # It used to be the answer: `server/holdings.ts` read the epics under
-# `$KEHIKKO_ROADMAP_DIR` on every call, so this one variable decided what every module was
+# `$KEHIKKO_ROADMAP_DIR` (now `$KEHIKOT_SEED_PROJECT`) on every call, so this one variable decided what every module was
 # told about epics for the life of the process.
 #
 # That is no longer where epics come from. A kehikko belongs to a PROJECT, a
@@ -157,12 +157,17 @@ holds_epics() {
   [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
 }
 
-if [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
-  export KEHIKKO_ROADMAP_DIR
-  if holds_epics "$KEHIKKO_ROADMAP_DIR"; then
-    echo "kehikko: KEHIKKO_ROADMAP_DIR seeds the FIRST project only, from $KEHIKKO_ROADMAP_DIR" >&2
+# `KEHIKOT_SEED_PROJECT` is the name; `KEHIKKO_ROADMAP_DIR`, the old one, is
+# still honoured so an existing setup keeps starting.
+if [ -z "${KEHIKOT_SEED_PROJECT:-}" ] && [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
+  KEHIKOT_SEED_PROJECT="$KEHIKKO_ROADMAP_DIR"
+fi
+if [ -n "${KEHIKOT_SEED_PROJECT:-}" ]; then
+  export KEHIKOT_SEED_PROJECT
+  if holds_epics "$KEHIKOT_SEED_PROJECT"; then
+    echo "kehikko: KEHIKOT_SEED_PROJECT seeds the FIRST project only, from $KEHIKOT_SEED_PROJECT" >&2
   else
-    echo "kehikko: KEHIKKO_ROADMAP_DIR=$KEHIKKO_ROADMAP_DIR holds no .kehikot/roadmap/epics; it seeds nothing." >&2
+    echo "kehikko: KEHIKOT_SEED_PROJECT=$KEHIKOT_SEED_PROJECT holds no .kehikot/roadmap/epics; it seeds nothing." >&2
   fi
 fi
 

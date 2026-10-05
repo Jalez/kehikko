@@ -1,8 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import {
   LIMITS,
   MODULE_ID,
@@ -10,6 +9,7 @@ import {
   REFRESH_EVERY_MIN,
   type FilterChoice,
 } from 'roadmap-module-protocol'
+import { frameDbFile } from './machineDirs.ts'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -59,9 +59,9 @@ import {
  * question that made placements rows in the first place.
  */
 
-/** Where the file lives. `ROADMAP_FRAME_DB` overrides it, which is what makes this testable. */
+/** Where the file lives — see `machineDirs.ts`. `KEHIKOT_FRAME_DB` overrides it, which is what makes this testable. */
 export function databaseFile(env: Record<string, string | undefined> = process.env): string {
-  return env.ROADMAP_FRAME_DB ?? join(homedir(), '.roadmap', 'frame.sqlite')
+  return frameDbFile(env)
 }
 
 export interface Placement {

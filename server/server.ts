@@ -42,6 +42,7 @@ import {
   type Standing,
 } from './lifecycle.ts'
 import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
+import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
 import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
@@ -95,14 +96,21 @@ const HOST_REPO = 'Jalez/kehikko'
  * Opened eagerly rather than on the first request that needs it, so that a
  * database this host cannot open is a startup failure with a stack trace and
  * not a page that loads, looks fine, and cannot save anything.
+ *
+ * Before it opens, `~/.roadmap` is brought over to the machine directory once
+ * (see `machineDirs.ts`) — copied, never moved, so an older host still running
+ * on the old database is not disturbed.
  */
+const migrated = migrateMachineData()
+if (migrated.frameDb) console.log(`copied the canvases from ${migrated.frameDb.from} to ${migrated.frameDb.to}`)
+if (migrated.modules.length) console.log(`copied ${migrated.modules.length} module registrations from ${legacyModulesDir()} to ${registryDir()}`)
 const db = open()
 
 /**
  * The projects, settled before a single request is served.
  *
  * Once, at startup, and never again on demand: `adopt` seeds the first project
- * from `KEHIKKO_ROADMAP_DIR` and files every kehikko written before projects
+ * from `KEHIKOT_SEED_PROJECT` and files every kehikko written before projects
  * existed into it. Doing that lazily, on the first request that noticed, would
  * mean two requests arriving together both deciding to migrate, and the whole
  * point of a migration is that it happens once and is then simply true.
@@ -225,7 +233,7 @@ const feedback = feedbackDesk({
         : /* Bundled: no checkout to read a remote from, so the repository is
              named, and the stamp carries the version without a commit. */
           { id: 'host', repo: HOST_REPO }
-      : (registered.get(id) ?? (await readRegistrations(registryDir())).registrations.find((r) => r.id === id) ?? null),
+      : (registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null),
   version: async (id) => {
     if (id === 'host') return HOST_VERSION
     const registration = registered.get(id)
@@ -255,7 +263,7 @@ async function survey(): Promise<{
   sweep: RegistrationSweep
   protocol: number
 }> {
-  const found = await readRegistrations(registryDir())
+  const found = await readRegistrations()
   const presences = await Promise.all(found.registrations.map((registration) => look(registration)))
   const knows = agentKnows()
 
@@ -1293,7 +1301,7 @@ const server = Bun.serve({
          else happened to sweep, which contradicted `launch.ts`'s own claim that
          the answer is about the disk as it is at the moment of the press. It is
          one small directory read; the honesty is worth more than the map. */
-      const now = await readRegistrations(registryDir())
+      const now = await readRegistrations()
       const registration = now.registrations.find((r) => r.id === body.module) ?? null
       const can = startable(registration)
       if (!can.ok) return json({ ok: false, why: can.why }, 409)
@@ -1735,7 +1743,7 @@ const server = Bun.serve({
 })
 
 console.log(`the canvas is at http://127.0.0.1:${server.port}`)
-console.log(`registrations are read from ${registryDir()}`)
+console.log(`registrations are read from ${registryDir()}${legacyModulesDir() ? ` (and, for modules that still register there, ${legacyModulesDir()})` : ''}`)
 console.log(`canvases are kept in ${databaseFile()}`)
 console.log(`this host speaks protocol ${PROTOCOL}`)
 console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`)

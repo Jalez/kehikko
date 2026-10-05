@@ -51,6 +51,8 @@ describe('what the scanner flags', () => {
   test('the allowlist: machine-level state, each with a reason', () => {
     expect(rules("return env.ROADMAP_MODULES_DIR ?? join(homedir(), '.roadmap', 'modules')")).toEqual([])
     expect(rules("return env.ROADMAP_FRAME_DB ?? join(homedir(), '.roadmap', 'frame.sqlite')")).toEqual([])
+    expect(rules("return join(homedir(), 'Library', 'Application Support', 'Kehikot', 'modules')")).toEqual([])
+    expect(rules("const m = join(homedir(), 'Library', 'Application Support', 'Kehikot')")).toEqual([])
     expect(rules("return join(homedir(), '.claude.json')")).toEqual([])
     expect(rules("const AGENTS = join(homedir(), 'Library', 'LaunchAgents')")).toEqual([])
     expect(rules("const dir = mkdtempSync(join(tmpdir(), 'x-'))")).toEqual([])
@@ -82,7 +84,7 @@ describe('the boundary holds', () => {
   if (!siblings) {
     console.warn(
       'storage-boundary: SKIPPING the workspace scan — no sibling repos found '
-        + `(looked for ${missing.join(', ') || 'the roadmap, the protocol and ~/.roadmap/modules'}).`,
+        + `(looked for ${missing.join(', ') || 'the protocol and the module registry'}).`,
     )
   }
   test.skipIf(!siblings)('every workspace repo stores nothing outside .kehikot/ (bun run check:storage)', () => {

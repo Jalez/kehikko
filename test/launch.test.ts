@@ -167,7 +167,8 @@ describe('what a module the host started is given', () => {
      * The one test in this file that runs a process, and it earns it.
      *
      * Every module in this workspace decides who may frame it from
-     * `ROADMAP_ORIGIN`, defaulting to the browser's origin. The desktop shell's
+     * `KEHIKOT_ORIGIN` (older ones `ROADMAP_ORIGIN`), defaulting to the
+     * browser's origin. The desktop shell's
      * window is `tauri://localhost` and it sets that variable on the host it
      * launches — so a module the host starts is framed correctly only if this
      * spawn passes the environment through. Get it wrong and the failure is a
@@ -178,12 +179,15 @@ describe('what a module the host started is given', () => {
     const wrote = join(root, 'env.txt')
     writeFileSync(
       join(root, RUN_SCRIPT),
-      `#!/bin/sh\nprintf '%s %s' "\${ROADMAP_ORIGIN:-none}" "\${PORT:-none}" > ${wrote}\n`,
+      `#!/bin/sh\nprintf '%s %s %s' "\${KEHIKOT_ORIGIN:-none}" "\${ROADMAP_ORIGIN:-none}" "\${PORT:-none}" > ${wrote}\n`,
     )
     chmodSync(join(root, RUN_SCRIPT), 0o755)
 
-    const before = process.env.ROADMAP_ORIGIN
-    process.env.ROADMAP_ORIGIN = 'tauri://localhost'
+    /* Set under the new name only: a module still reading the old one must
+       see it too. */
+    const before = { kehikot: process.env.KEHIKOT_ORIGIN, roadmap: process.env.ROADMAP_ORIGIN }
+    process.env.KEHIKOT_ORIGIN = 'tauri://localhost'
+    delete process.env.ROADMAP_ORIGIN
     try {
       const can = startable(registration({ dir: root }))
       expect(can.ok).toBe(true)
@@ -193,10 +197,12 @@ describe('what a module the host started is given', () => {
       for (let waited = 0; waited < 60 && !existsSync(wrote); waited += 1) {
         await new Promise((wake) => setTimeout(wake, 50))
       }
-      expect(readFileSync(wrote, 'utf8')).toBe('tauri://localhost 7999')
+      expect(readFileSync(wrote, 'utf8')).toBe('tauri://localhost tauri://localhost 7999')
     } finally {
-      if (before === undefined) delete process.env.ROADMAP_ORIGIN
-      else process.env.ROADMAP_ORIGIN = before
+      if (before.kehikot === undefined) delete process.env.KEHIKOT_ORIGIN
+      else process.env.KEHIKOT_ORIGIN = before.kehikot
+      if (before.roadmap === undefined) delete process.env.ROADMAP_ORIGIN
+      else process.env.ROADMAP_ORIGIN = before.roadmap
     }
   })
 })

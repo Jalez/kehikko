@@ -28,7 +28,7 @@ import { listProjects, projectById } from './projects.ts'
  * The ask was one sentence: *"Can we save the kehikko with its layout etc in
  * .kehikot folder so that if we do want to open the same kehikko in another
  * computer it's not a hassle to do?"* Everything in `canvases.ts` lives in
- * `~/.roadmap/frame.sqlite`, which is one file on one machine, and a layout a
+ * the machine's `frame.sqlite` (`machineDirs.ts`), which is one file on one machine, and a layout a
  * person spent an afternoon on is stranded there. Every module already keeps
  * its material for a project under `<project>/.kehikot/<module>/`, and the
  * user has been emphatic that everything Kehikot keeps about a project goes in

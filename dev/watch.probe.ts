@@ -18,7 +18,7 @@
  * is the right number and why making it fast enough to test comfortably would
  * be making it the polling loop this host refuses.
  *
- * Nothing here touches ~/.roadmap. The modules directory and the database are
+ * Nothing here touches this machine's real Kehikot data (or the old ~/.roadmap). The modules directory and the database are
  * both temporary and both removed at the end, which is the only reason it is
  * safe to run beside a live host.
  */
@@ -75,7 +75,7 @@ function fakeModule(): Bun.Subprocess {
 const say = (line: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${line}`)
 
 const server = Bun.spawn(['bun', 'run', 'server/server.ts'], {
-  env: { ...process.env, PORT: String(API), ROADMAP_FRAME_DB: db, ROADMAP_MODULES_DIR: modules },
+  env: { ...process.env, PORT: String(API), KEHIKOT_FRAME_DB: db, KEHIKOT_MODULES_DIR: modules },
   stdout: 'inherit',
   stderr: 'inherit',
 })

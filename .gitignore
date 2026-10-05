@@ -16,8 +16,8 @@ dist
 # inside it (`bun run build:sidecar`). A build artifact, never served in dev.
 dist-sidecar
 
-# The canvases live in ~/.roadmap/frame.sqlite by default. This only catches a
-# stray one written here by an override during development.
+# The canvases live in ~/Library/Application Support/Kehikot/frame.sqlite by
+# default. This only catches a stray one written here by an override during development.
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

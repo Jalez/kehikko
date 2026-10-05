@@ -73,12 +73,23 @@ modules. Each module is a separate repository you clone, install and register:
 ```bash
 git clone https://github.com/Jalez/kehikko-checklist
 cd kehikko-checklist && bun install
-bun run register               # writes ~/.roadmap/modules/roadmap.checklist.json
+bun run register               # writes the module's registration file (see below)
 ./run.sh                       # serves on its own port
 ```
 
 Reload the host and it is there. The host sweeps that registry directory —
 nothing has a module list compiled into it.
+
+**Where this machine's state lives.** The module registry and the canvases
+cache live in `~/Library/Application Support/Kehikot/` (`modules/`,
+`frame.sqlite`; `$XDG_DATA_HOME/kehikot` off macOS), spelled once in
+`server/machineDirs.ts`. `KEHIKOT_MODULES_DIR` and `KEHIKOT_FRAME_DB` point
+either somewhere else. They used to live in `~/.roadmap/`: on its first start a
+host copies `~/.roadmap/frame.sqlite` (a consistent `VACUUM INTO` snapshot, safe
+while an older host has it open) and the registrations across, and never
+changes anything under `~/.roadmap`. Modules that still register in
+`~/.roadmap/modules` keep working — the host reads it as a fallback, and on an
+id registered in both places the more recently written file wins.
 
 Then **add a project**: the button at the end of the project list opens a folder
 browser. Point it at a repository you work in.
@@ -118,15 +129,16 @@ it never overwrites, and leaves both and logs both paths if both exist.
 
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a
-reason: the module registry `~/.roadmap/modules`, the host's canvases cache
-`~/.roadmap/frame.sqlite`, Claude's own `~/.claude*` config, the roadmap
+reason: the module registry and canvases cache under
+`~/Library/Application Support/Kehikot/` (and the retired `~/.roadmap/modules`
+modules still register in), Claude's own `~/.claude*` config, the roadmap
 service's `~/Library/LaunchAgents` / `~/Library/Logs` and its
 `~/.innovium-roadmap.running` marker, and temp dirs. Anything else needs a
 `// kehikot-storage: allow <reason>` comment on the line, and a reviewer who
 agrees.
 
 **Check it:** `bun run check:storage` scans this host, the protocol
-and every module registered in `~/.roadmap/modules`, and fails on any code that
+and every registered module, and fails on any code that
 stores data outside `.kehikot/`. `bun test` runs the same scan
 (`test/storage-boundary.test.ts`), and `run.sh` prints the violations loudly at
 startup without refusing to start.
@@ -393,11 +405,12 @@ Three restraints matter more than the saving:
   for silence nobody asked for, which is where all of this began.
 
 A started module inherits the host's whole environment, which matters for one
-variable: modules read `ROADMAP_ORIGIN` to decide who may frame them, and a
-Tauri window is `tauri://localhost` rather than the browser default. The desktop
-shell sets it on the host it launches; passing the environment through is all
-that has to happen for every module the host starts to be framed correctly.
-Nothing here names the variable.
+variable: modules read `KEHIKOT_ORIGIN` (older ones `ROADMAP_ORIGIN`) to decide
+who may frame them, and a Tauri window is `tauri://localhost` rather than the
+browser default. The desktop shell sets it on the host it launches; passing the
+environment through is nearly all that has to happen for every module the host
+starts to be framed correctly — the host only copies whichever name is set into
+the other, so old and new modules agree.
 
 Nothing waits, either. Starting is a spawn and the answer says `starting`
 immediately — a cold host with six down modules on the open kehikko answers in
@@ -421,7 +434,7 @@ across a fold.
 layer sits under it so the module stays clickable. A control that does not opt
 in will look dead.
 
-**Start it with `./run.sh`.** Anything else loses `KEHIKKO_ROADMAP_DIR`, which
+**Start it with `./run.sh`.** Anything else loses `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`), which
 seeds the first project, and `epics.list` then honestly answers with nothing — a
 failure where every layer reports correctly and the map is simply empty.
 
