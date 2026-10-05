@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { canonicalModuleId, LEGACY_WELL_KNOWN, LIMITS, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
@@ -52,6 +52,14 @@ import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
+import { createServer } from 'node:net'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { versionsDir } from './machineDirs.ts'
+import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
+import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
+import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
+import { within } from './takeover.ts'
 import { resolve } from 'node:path'
 import { embeddedPage, servePage } from './page.ts'
 import pkg from '../package.json' with { type: 'json' }
@@ -299,6 +307,8 @@ async function survey(): Promise<{
     }
   }
   forgetUnregistered(db, found.registrations.map((r) => r.id))
+  lastPresences.clear()
+  for (const presence of presences) lastPresences.set(presence.id, presence)
 
   return {
     /*
@@ -410,6 +420,162 @@ const nursery = new Nursery()
 
 /** When each module was last on a kehikko somebody had open. */
 const idleness = new Idleness()
+
+/* ------------------------------------------------------------------ *
+ * Module versions: a container pinned to a tag runs that tag, beside the
+ * module's own checkout. See `versions.ts`, `versionRuns.ts` and `pins.ts`.
+ * ------------------------------------------------------------------ */
+
+const VERSIONS = versionsDir()
+const materialiser = new SourceMaterialiser(VERSIONS)
+const facts = new FactsStore(VERSIONS)
+const tagLister = new TagLister()
+/** The version processes this host started, keyed `<module>@<tag>`. Separate from `nursery`, whose keys are module ids. */
+const versionNursery = new Nursery()
+
+/** How long a freshly installed version gets to answer: a first Vite start optimises its dependencies. */
+const VERSION_ANSWERS_WITHIN_MS = 90_000
+
+/** Where a version last ran, so a host that restarted can find the process it left. */
+function portFile(id: string, tag: string): string {
+  return join(VERSIONS, id, `${tag}.port`)
+}
+
+/** Whether nothing holds a port on loopback, by trying to hold it for a moment. */
+function bindable(port: number): Promise<boolean> {
+  return new Promise((done) => {
+    const probe = createServer()
+    probe.once('error', () => done(false))
+    probe.listen(port, '127.0.0.1', () => probe.close(() => done(true)))
+  })
+}
+
+function portOfUrl(url: string): number | null {
+  try {
+    const port = new URL(url).port
+    return port ? Number(port) : null
+  } catch {
+    return null
+  }
+}
+
+async function registrationOf(id: string) {
+  return registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+}
+
+const versionRuns = new VersionRuns({
+  materialiser,
+  async source(id) {
+    const registration = await registrationOf(id)
+    if (!registration) return { why: `${id} is not registered on this computer` }
+    if (!registration.dir) return { why: `${id} is registered without a directory, so there is no repository to read its versions from` }
+    const remote = await remoteOf(registration.dir)
+    if (!remote) return { why: `${registration.dir} has no remote to fetch versions from` }
+    return { id, name: known(db).get(id) ?? id, dir: registration.dir, remote }
+  },
+  /* A version's process outlives a host restart, as a module's does. It is
+     taken back only when the process on its remembered port is proven, by its
+     working directory, to be running from THIS version's tree — a tree this
+     host made, under its own directory, which nothing else runs from. */
+  async adoptable(id, tag, tree: Tree) {
+    let port: number
+    try {
+      port = Number(readFileSync(portFile(id, tag), 'utf8').trim())
+    } catch {
+      return null
+    }
+    if (!Number.isInteger(port) || port <= 0) return null
+    try {
+      const pid = await systemProcesses.listenerOf(port)
+      if (pid === null) return null
+      const cwd = await systemProcesses.cwdOf(pid)
+      return cwd && within(cwd, tree.dir) ? port : null
+    } catch {
+      return null
+    }
+  },
+  /* Beside the module's own port: modules on this machine sit ten apart, so
+     the five above a module's port are its own to use. Then anything free. */
+  async port(id, taken) {
+    const registration = await registrationOf(id)
+    const base = registration ? portOfUrl(registration.url) : null
+    const candidates = base === null ? [] : [5, 6, 7, 8, 9].map((n) => base + n)
+    for (const port of candidates) {
+      if (!taken.has(port) && (await bindable(port))) return port
+    }
+    return new Promise((done) => {
+      const probe = createServer()
+      probe.once('error', () => done(null))
+      probe.listen(0, '127.0.0.1', () => {
+        const address = probe.address()
+        const port = typeof address === 'object' && address ? address.port : null
+        probe.close(() => done(port))
+      })
+    })
+  },
+  spawn(key, tree, port, log) {
+    const at = key.lastIndexOf('@')
+    const id = key.slice(0, at)
+    const tag = key.slice(at + 1)
+    /* Its own registry: a module's dev server registers wherever it answers,
+       and a version answering on its own port must not rewrite the
+       registration that points at the module's checkout. */
+    const registry = join(VERSIONS, id, `${tag}.registry`)
+    mkdirSync(registry, { recursive: true })
+    const url = `http://127.0.0.1:${port}`
+    const ran = start({
+      dir: tree.dir,
+      script: tree.script,
+      port,
+      url,
+      command: `PORT=${port} ${tree.script}`,
+      env: { KEHIKOT_MODULES_DIR: registry, ROADMAP_MODULES_DIR: registry },
+      log,
+    })
+    if (!ran.ok || !ran.child) return { ok: false, why: ran.why ?? 'it could not be started' }
+    versionNursery.keep(key, { child: ran.child, at: Date.now(), url })
+    writeFileSync(portFile(id, tag), `${port}\n`)
+    return { ok: true }
+  },
+  async answered(origin) {
+    const until = Date.now() + VERSION_ANSWERS_WITHIN_MS
+    while (Date.now() < until) {
+      if (await answered(origin, [WELL_KNOWN, LEGACY_WELL_KNOWN])) return true
+    }
+    return false
+  },
+  stop(key, instance: Instance) {
+    if (versionNursery.holds(key)) {
+      versionNursery.stop(key)
+      return
+    }
+    /* Adopted after a restart: stopped only through the same proof it was
+       adopted by — see `takeOver`, which signals nothing unless the listener
+       runs from the tree. */
+    const tree = materialiser.prepared(instance.id, instance.tag)
+    if (!tree || instance.port === null) return
+    void takeOver(key, { dir: tree.dir, script: tree.script, port: instance.port, url: instance.origin ?? '', command: '' }, systemProcesses)
+  },
+  changed: () => wakes.registryChanged(),
+  log: (line) => console.log(line),
+})
+
+const pins = new Pins({
+  db,
+  runs: versionRuns,
+  facts,
+  tags: tagLister,
+  materialiser,
+  runner: runQuietly,
+  registration: registrationOf,
+  latest: (id) => lastPresences.get(id) ?? null,
+  look: (id, origin) => look({ id, url: origin, file: `version of ${id}` }),
+  wake: (canvas) => wakes.woke(canvas),
+  keep: (project) => keep(db, project),
+})
+
+/** Each module's presence from the last sweep, for the names and versions the picker shows. */
+const lastPresences = new Map<string, Presence>()
 
 /** When the host last ran a module's script, for as long as that is news. */
 const starting = new Map<string, number>()
@@ -536,6 +702,12 @@ function govern(presences: readonly Presence[], mayStart = true): void {
 /** The same decision, from standings the caller already gathered. */
 function act(standing: readonly Standing[], now: number, mayStart: boolean): void {
   if (mayStart) for (const id of toStart(standing)) begin(id)
+
+  /* The versions containers are pinned to, by the same rule as the modules:
+     started for an open kehikko, stopped when nothing pins them or nobody has
+     looked for the grace period. See `versionRuns.ts`. */
+  const canvases = listCanvases(db)
+  versionRuns.reconcile(pinUses(canvases), pinsNeeded(canvases, new Set(openness.every(now))), mayStart)
 
   for (const id of toStop(standing, now)) {
     const was = nursery.stop(id)
@@ -788,7 +960,36 @@ const server = Bun.serve({
          whatever was just run, and the container says so instead of sitting on
          a sentence about a program that is not running. */
       govern(view.presences)
-      return json(told(view))
+      const open = new Set(openness.every())
+      pins.recordLatest(open, view.presences)
+      return json({ ...told(view), pins: await pins.views(open) })
+    }
+
+    /* A module's versions, for the picker in a container's header: its own
+       checkout first, then its tags, each marked for that kehikko's project. */
+    if (url.pathname === '/host/versions' && request.method === 'GET') {
+      const module = moduleIn(url.searchParams.get('module'))
+      const kehikko = Number(url.searchParams.get('kehikko'))
+      if (!module || !Number.isInteger(kehikko) || kehikko <= 0) {
+        return json({ error: 'Name a module and a kehikko: /host/versions?module=…&kehikko=…' }, 400)
+      }
+      const listed = await pins.list(module, kehikko, url.searchParams.get('fresh') === '1')
+      return 'why' in listed ? json({ error: listed.why }, listed.status) : json(listed)
+    }
+
+    /* Pin a container to a version, or back to latest with `version: null`. */
+    if (url.pathname === '/host/versions' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { module?: unknown; kehikko?: unknown; version?: unknown } | null
+      const module = moduleIn(body?.module)
+      const kehikko = body?.kehikko
+      if (!module || typeof kehikko !== 'number' || !Number.isInteger(kehikko) || kehikko <= 0) {
+        return json({ error: 'A pin names a module, a kehikko, and a version (null for latest).' }, 400)
+      }
+      const version = body?.version === null || body?.version === undefined ? null : body.version
+      if (version !== null && typeof version !== 'string') return json({ error: 'version is a tag such as v1.2.0, or null.' }, 400)
+      const pinned = await pins.pin(kehikko, module, version)
+      if (!pinned.ok) return json({ error: pinned.why }, pinned.status)
+      return json({ ok: true, text: pinned.text })
     }
 
     /* One question from one framed module.
@@ -1239,6 +1440,9 @@ const server = Bun.serve({
         checked: new Date().toISOString(),
         checkouts: [...checkouts, ...unreadable],
         restartable: RESTART_FILE !== null,
+        /* Which modules have containers pinned to a version, so the panel can
+           say so and the header does not count them as waiting. */
+        pins: pinSummary(listCanvases(db)),
       })
     }
 
@@ -1718,6 +1922,10 @@ const server = Bun.serve({
           epicsChanged: (project) => wakes.epicsChanged(project),
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           trackers,
+          versions: {
+            list: (module, kehikko) => pins.list(module, kehikko, true),
+            pin: (kehikko, module, version) => pins.pin(kehikko, module, version),
+          },
           /* A sweep, so that an agent reading a canvas is told which of the
              containers on it hold a program that is actually answering. It is
              the same sweep the page asks for on load — N requests to N

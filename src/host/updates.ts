@@ -32,9 +32,17 @@ const readingSchema = z.union([checkoutSchema, unreadableSchema])
 export type Checkout = z.infer<typeof checkoutSchema>
 export type Reading = z.infer<typeof readingSchema>
 
+/** How many containers pin a module to a version, and which versions. See `pinSummary` in `server/pins.ts`. */
+export interface PinCount {
+  containers: number
+  versions: string[]
+}
+
 export interface Check {
   checked: Date
   checkouts: Reading[]
+  /** Per module id: its pinned containers. Empty from a host older than versions. */
+  pins: Record<string, PinCount>
   /** Whether the desktop app can restart this host — see `/host/restart`. */
   restartable: boolean
 }
@@ -48,9 +56,14 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
   const response = await globalThis.fetch(`/host/updates${fetch ? '?fetch=1' : ''}`, { signal })
   if (!response.ok) throw new Error(await reason(response))
   const body = z
-    .object({ checked: z.string(), checkouts: z.array(readingSchema), restartable: z.boolean().default(false) })
+    .object({
+      checked: z.string(),
+      checkouts: z.array(readingSchema),
+      restartable: z.boolean().default(false),
+      pins: z.record(z.string(), z.object({ containers: z.number(), versions: z.array(z.string()) })).default({}),
+    })
     .parse(await response.json())
-  return { checked: new Date(body.checked), checkouts: body.checkouts, restartable: body.restartable }
+  return { checked: new Date(body.checked), checkouts: body.checkouts, restartable: body.restartable, pins: body.pins }
 }
 
 const updatedSchema = z.object({
@@ -94,8 +107,10 @@ export async function requestRestart(): Promise<string | null> {
 }
 
 /** How many commits, across everything, are waiting. */
-export function waiting(checkouts: readonly Reading[]): number {
-  return checkouts.reduce((sum, one) => sum + (isCheckout(one) ? one.behind : 0), 0)
+export function waiting(checkouts: readonly Reading[], pins: Readonly<Record<string, PinCount>> = {}): number {
+  /* A module with pinned containers is not counted: those containers run the
+     version they were pinned to, whatever its checkout is behind by. */
+  return checkouts.reduce((sum, one) => sum + (isCheckout(one) && !Object.hasOwn(pins, one.id) ? one.behind : 0), 0)
 }
 
 /** "just now", "4 minutes ago", "2 hours ago", or a date. */

@@ -307,6 +307,8 @@ describe('the host’s server, running', () => {
       expect(door.tools.tools?.map((t) => t.name).sort()).toEqual([
         'create_epic',
         'mark_disposition',
+        'module_versions',
+        'pin_version',
         'place_modules',
         'read_canvas',
         'read_tracker',

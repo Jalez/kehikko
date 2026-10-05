@@ -94,6 +94,12 @@ export interface FramedModule {
   id: string
   name: string
   version: string
+  /**
+   * The format the module writes its project data in — the protocol's
+   * `dataVersion`, 1 when the manifest is silent. Carried for the data guard
+   * on pinned versions; see `server/dataVersions.ts`.
+   */
+  dataVersion: number
   summary: string
   /** What this module says its presence obliges an agent to do. */
   guidance: string
@@ -355,6 +361,7 @@ export async function look(
       id: manifest.id,
       name: manifest.name,
       version: manifest.version,
+      dataVersion: manifest.dataVersion,
       summary: manifest.summary,
       /**
        * What this module says its presence obliges an agent to do.

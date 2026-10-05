@@ -6,9 +6,10 @@ import { dirname, join } from 'node:path'
 /**
  * Where this machine's own Kehikot state lives — spelled once, here.
  *
- * Two things are machine-level rather than project-level: the canvases cache
- * (`frame.sqlite`) and the module registry (`modules/<id>.json`). Everything
- * else belongs under `<project>/.kehikot/`.
+ * Three things are machine-level rather than project-level: the canvases cache
+ * (`frame.sqlite`), the module registry (`modules/<id>.json`) and the module
+ * versions a container can be pinned to (`versions/`). Everything else belongs
+ * under `<project>/.kehikot/`.
  *
  * They used to live in `~/.roadmap/`, named after the retired prototype. They
  * now live in `~/Library/Application Support/Kehikot/` on macOS (the place the
@@ -54,6 +55,18 @@ export function frameDbFile(env: Env = process.env): string {
 /** The module registry. `KEHIKOT_MODULES_DIR` (or the old `ROADMAP_MODULES_DIR`) overrides it. */
 export function modulesDir(env: Env = process.env): string {
   return env.KEHIKOT_MODULES_DIR || env.ROADMAP_MODULES_DIR || join(machineDir(env), 'modules')
+}
+
+/**
+ * Where module VERSIONS are materialised: one bare mirror per module and one
+ * working tree per module and tag, `versions/<module>/repo.git` and
+ * `versions/<module>/<tag>/` — see `server/versionRuns.ts`. Machine-level
+ * because it is program code, not anybody's project data, and because two
+ * projects pinned to the same tag run the same tree. `KEHIKOT_VERSIONS_DIR`
+ * overrides it (tests, scratch hosts).
+ */
+export function versionsDir(env: Env = process.env): string {
+  return env.KEHIKOT_VERSIONS_DIR || join(machineDir(env), 'versions')
 }
 
 /**

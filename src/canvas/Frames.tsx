@@ -152,7 +152,10 @@ export function Frames({
         const visible = shown && !!rect
         return (
         <div
-          key={module.id}
+          /* The entry is in the key, so a page whose container switched version
+             — a different address, on the version's own port — is a new
+             document rather than the old one pointed somewhere else. */
+          key={`${module.id}|${module.entry}`}
           data-frame={module.id}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{

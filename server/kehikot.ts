@@ -19,6 +19,7 @@ import {
   type Subject,
 } from './canvases.ts'
 import { listProjects, projectById } from './projects.ts'
+import { isVersionTag, TAG_MAX } from './versions.ts'
 
 /**
  * A project's kehikot, as a file in the project — the copy that travels.
@@ -218,6 +219,7 @@ export const PORTABLE_PLACEMENT_FIELDS = [
   'selected',
   'filters',
   'refreshEvery',
+  'version',
 ] as const satisfies readonly (keyof Placement)[]
 
 type UntaughtPlacementField = Exclude<keyof Placement, (typeof PORTABLE_PLACEMENT_FIELDS)[number]>
@@ -308,6 +310,16 @@ const containerSchema = z
       )
       .default({}),
     refreshEvery: z.number().max(REFRESH_EVERY_MAX).nullable().default(null),
+    /* Which version the container runs — a semver tag — or absent for latest.
+       Written only when the container is pinned, so a file with no pins is
+       still one an older host (whose schema is strict) can read. A tag that is
+       not semver is refused with the file, like any other malformed field. */
+    version: z
+      .string()
+      .max(TAG_MAX)
+      .refine(isVersionTag, 'is not a version tag such as v1.2.0')
+      .nullable()
+      .optional(),
   })
   .strict()
 
@@ -402,6 +414,7 @@ function toContainer(p: Placement): FileContainer {
     selected: p.selected,
     filters: p.filters,
     refreshEvery: p.refreshEvery,
+    ...(p.version ? { version: p.version } : {}),
   }
 }
 
@@ -432,6 +445,7 @@ function fromContainer(c: FileContainer): PlacementInput {
     selected: c.selected,
     filters: c.filters,
     refreshEvery: c.refreshEvery,
+    version: c.version ?? null,
   }
 }
 
