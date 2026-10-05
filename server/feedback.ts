@@ -140,15 +140,27 @@ export function ghTrouble(ran: Ran): string {
   return (ran.err || ran.out || 'gh failed and did not say why').split('\n').slice(-2).join(' ')
 }
 
-type Found = { ok: true; repo: string; dir: string } | { ok: false; why: string; status: number }
+type Found = { ok: true; repo: string; dir: string | null } | { ok: false; why: string; status: number }
 
 export interface Deps {
   run: Runner
   /** The registration under an id, from the server's last sweep. */
-  registration(id: string): { id: string; dir?: string } | null | Promise<{ id: string; dir?: string } | null>
+  registration(id: string): Filed | null | Promise<Filed | null>
   /** The module's own version, as its manifest says; null when it cannot be read. */
   version(id: string): Promise<string | null>
   now?(): number
+}
+
+/**
+ * Where feedback on an id goes: a directory whose origin remote is read, or —
+ * for a host compiled into the desktop app, which has no checkout to read — a
+ * repository named outright. Never taken from a request.
+ */
+export interface Filed {
+  id: string
+  dir?: string
+  /** `owner/repo`, used as-is and with no commit in the stamp. */
+  repo?: string
 }
 
 export interface Sent {
@@ -169,6 +181,7 @@ export function feedbackDesk(deps: Deps) {
   async function repoOf(id: string): Promise<Found> {
     const registration = await deps.registration(id)
     if (!registration) return { ok: false, why: 'No module is registered under that id.', status: 404 }
+    if (!registration.dir && registration.repo) return { ok: true, repo: registration.repo, dir: null }
     if (!registration.dir) {
       return {
         ok: false,
@@ -225,7 +238,9 @@ export function feedbackDesk(deps: Deps) {
     if (!found.ok) return found
     const [version, head] = await Promise.all([
       deps.version(sent.module).catch(() => null),
-      deps.run(['git', '-C', found.dir, 'rev-parse', '--short', 'HEAD']),
+      found.dir
+        ? deps.run(['git', '-C', found.dir, 'rev-parse', '--short', 'HEAD'])
+        : Promise.resolve<Ran>({ code: null, out: '', err: '' }),
     ])
     const body = composeBody(
       sent.body,
