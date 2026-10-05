@@ -264,17 +264,19 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * default and it is a decision, because of one variable in particular.
  *
  * Every module in this workspace decides who may frame it from
- * `ROADMAP_ORIGIN`, falling back to `http://127.0.0.1:4181` — the browser. A
+ * `KEHIKOT_ORIGIN` (formerly `ROADMAP_ORIGIN`, which modules still read until
+ * they are updated), falling back to `http://127.0.0.1:4181` — the browser. A
  * Tauri window's origin is `tauri://localhost`, which that fallback does not
  * include, so a module started under the desktop shell without the variable
  * serves a `frame-ancestors` header that refuses the very window framing it.
  * The container draws blank and the reason is one line in a console nobody has
  * open.
  *
- * The desktop shell sets `ROADMAP_ORIGIN` on the host process it launches. So
- * inheriting the environment is the whole of what has to happen: a module the
- * host starts is framed correctly by whatever started the host, and nothing
- * here names the variable, reads it, or has an opinion about it. A person
+ * The desktop shell sets `KEHIKOT_ORIGIN` on the host process it launches. So
+ * inheriting the environment is nearly the whole of what has to happen: a
+ * module the host starts is framed correctly by whatever started the host. The
+ * one thing done here is spelling it both ways (`originEnv`), so a module still
+ * reading the old name sees the same value as one reading the new. A person
  * running `./run.sh` in a terminal passes nothing and their modules take the
  * browser default, which is what they want.
  *
@@ -284,11 +286,21 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * module started by the host should be the same program in the same
  * environment, or "start it yourself and see" stops being useful advice.
  */
+/**
+ * The frame origin under both its names, `KEHIKOT_ORIGIN` first. Empty when
+ * neither is set, so a module falls back to its browser default as before.
+ * The old name goes once every module reads the new one.
+ */
+export function originEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const origin = env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN
+  return origin ? { KEHIKOT_ORIGIN: origin, ROADMAP_ORIGIN: origin } : {}
+}
+
 export function start(run: Runnable): Started {
   try {
     const child = spawn(run.script, [], {
       cwd: run.dir,
-      env: { ...process.env, ...(run.port === null ? {} : { PORT: String(run.port) }) },
+      env: { ...process.env, ...originEnv(process.env), ...(run.port === null ? {} : { PORT: String(run.port) }) },
       detached: true,
       stdio: 'ignore',
       shell: false,

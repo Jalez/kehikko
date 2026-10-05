@@ -468,13 +468,14 @@ export function addProject(
  *
  * ## The seed
  *
- * `KEHIKKO_ROADMAP_DIR` still means what it meant: where this host's epics come
+ * `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`, still read as a fallback)
+ * still means what it meant: where this host's epics come
  * from. `run.sh` defaults it and says so in the terminal, and an existing setup
  * has to keep starting — a host that suddenly had no projects would be a
  * regression a person meets before they meet the feature. So on a database with
  * no projects in it, that directory becomes the first one.
  *
- * With no `KEHIKKO_ROADMAP_DIR` and no projects, the seed is the person's home
+ * With no `KEHIKOT_SEED_PROJECT` and no projects, the seed is the person's home
  * folder. That is a guess and it is deliberately a visible one: home certainly
  * exists, it holds no `.kehikot/roadmap/epics`, so the header says there are no epics here
  * — which is true — and "add a project" is one press away. The alternative was
@@ -500,7 +501,7 @@ export function adopt(
   const orphans = listCanvases(db).filter((canvas) => canvas.project === null)
 
   if (!projects.length) {
-    const named = env.KEHIKKO_ROADMAP_DIR
+    const named = env.KEHIKOT_SEED_PROJECT || env.KEHIKKO_ROADMAP_DIR
     const seed = named && existsSync(named) ? named : homedir()
     /* A seed that cannot be added is not fatal. The host starts, the header
        says there is no project, and "add a project" still works — a far better
