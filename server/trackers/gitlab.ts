@@ -26,7 +26,7 @@ import type { Source } from './sources.ts'
  *
  * Lifted in substance from `innovium-roadmap`'s `src/trackers/gitlab.ts`, which
  * solved this against a real self-hosted GitLab: batched GraphQL by `iids`,
- * chunked at fifty so one refusal costs one batch, and — the part that matters
+ * chunked at twenty-five so one refusal costs one batch, and — the part that matters
  * most — which merge request delivers which issue decided by the merge
  * request's OWN description ("Closes #2274"), never by GitLab's related-MR list,
  * which attaches a merge request to any issue it so much as mentions.
@@ -180,32 +180,46 @@ export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
 
 const GRAPH_PEOPLE = 'labels { nodes { title } } assignees { nodes { name username } } author { name username }'
 
-/** GraphQL for issues and merge requests by iid. The path passed `NAME` in `sources.ts`. */
+/**
+ * GraphQL for issues and merge requests by iid. The path passed `NAME` in `sources.ts`.
+ *
+ * Every connection carries `first:` equal to its iid count. GitLab costs a
+ * query statically and, without `first:`, assumes a page of a hundred and
+ * multiplies the nested fields by it — 397 for even one issue and one merge
+ * request, against a limit of 250 (Jalez/kehikko#28).
+ */
 export function refsQuery(source: Source, issues: readonly number[], merges: readonly number[]): string {
   const parts: string[] = []
   if (issues.length) {
-    parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}]) { nodes {
+    parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes {
       iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE} } }`)
   }
   if (merges.length) {
-    parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}]) { nodes {
+    parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid state title webUrl draft createdAt updatedAt closedAt mergedAt description approved
       headPipeline { status } ${GRAPH_PEOPLE} } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
 
+/** As `refsQuery`: `first:` on every connection, for the same reason. */
 export function detailQuery(source: Source, issues: readonly number[], merges: readonly number[]): string {
   const parts: string[] = []
-  if (issues.length) parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}]) { nodes { iid description } }`)
+  if (issues.length) parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes { iid description } }`)
   if (merges.length) {
-    parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}]) { nodes {
+    parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid description diffHeadSha diffStats { path additions deletions } approvedBy { nodes { name username } } } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
 
 /** How many pages of a hundred a listing of `limit` takes. */
+/** References per GraphQL query: GitLab's complexity grows with it (148 at 25 + 25, against a limit of 250). */
+const BATCH = 25
+
+/** GitLab's refusal of a query it costs too high. */
+const COMPLEXITY = /Query has complexity of \d+, which exceeds max complexity of \d+/
+
 const pagesFor = (limit: number) => Math.max(1, Math.ceil(limit / 100))
 
 export function gitlabAdapter(run: Runner): Adapter {
@@ -231,21 +245,23 @@ export function gitlabAdapter(run: Runner): Adapter {
     return out.slice(0, limit)
   }
 
-  /** Read these iids by GraphQL, fifty at a time. */
+  /**
+   * Read these iids by GraphQL, `BATCH` at a time. A batch GitLab refuses costs
+   * only that batch: the rows of the others are kept, and the refused refs are
+   * handed back as `unread` with GitLab's own words, so the source's error and
+   * those refs' `failed` say what happened without discarding the good rows.
+   * A complexity refusal ("Query has complexity of N, which exceeds max
+   * complexity of M") is retried with the batch halved, down to one reference;
+   * only then is that batch given up.
+   */
   async function byIids(source: Source, issues: number[], merges: number[], now: string): Promise<Read> {
     const rows: TrackerRow[] = []
     const seenIssues = new Set<number>()
     const seenMerges = new Set<number>()
-    const groups = Math.max(Math.ceil(issues.length / 50), Math.ceil(merges.length / 50))
-    for (let g = 0; g < groups; g += 1) {
-      const i = issues.slice(g * 50, g * 50 + 50)
-      const m = merges.slice(g * 50, g * 50 + 50)
-      const ran = await graph(refsQuery(source, i, m), source)
-      const answer = obj(parsed(ran))
-      const data = obj(obj(answer.data).project)
-      if (!Object.keys(data).length) {
-        return { ok: false, why: list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) || trouble(ran, 'glab', source.host) : trouble(ran, 'glab', source.host) }
-      }
+    const unread: Array<{ number: number; kind: 'issue' | 'change' }> = []
+    let why = ''
+
+    const take = (data: Record<string, unknown>) => {
       for (const node of nodes(data.issues)) {
         const made = issueRow(source, node, now)
         if (made) {
@@ -261,13 +277,45 @@ export function gitlabAdapter(run: Runner): Adapter {
         }
       }
     }
+
+    /** One batch; on a complexity refusal, its two halves. */
+    async function batch(i: number[], m: number[]): Promise<void> {
+      const ran = await graph(refsQuery(source, i, m), source)
+      const answer = obj(parsed(ran))
+      const data = obj(obj(answer.data).project)
+      if (Object.keys(data).length) return take(data)
+      const first = list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
+      const refusal = COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
+      const size = i.length + m.length
+      if (refusal && size > 1) {
+        const half = Math.ceil(size / 2)
+        const items = [...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const }))]
+        for (const part of [items.slice(0, half), items.slice(half)]) {
+          await batch(
+            part.filter((one) => one.kind === 'issue').map((one) => one.number),
+            part.filter((one) => one.kind === 'change').map((one) => one.number),
+          )
+        }
+        return
+      }
+      if (!why) why = first || trouble(ran, 'glab', source.host)
+      unread.push(...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const })))
+    }
+
+    const groups = Math.max(Math.ceil(issues.length / BATCH), Math.ceil(merges.length / BATCH))
+    for (let g = 0; g < groups; g += 1) {
+      await batch(issues.slice(g * BATCH, (g + 1) * BATCH), merges.slice(g * BATCH, (g + 1) * BATCH))
+    }
+    const cannot = (n: number, kind: 'issue' | 'change') => unread.some((u) => u.number === n && u.kind === kind)
+    if (unread.length && !rows.length) return { ok: false, why }
     return {
       ok: true,
       rows,
       notFound: [
-        ...issues.filter((n) => !seenIssues.has(n)).map((number) => ({ number, kind: 'issue' as const })),
-        ...merges.filter((n) => !seenMerges.has(n)).map((number) => ({ number, kind: 'change' as const })),
+        ...issues.filter((n) => !seenIssues.has(n) && !cannot(n, 'issue')).map((number) => ({ number, kind: 'issue' as const })),
+        ...merges.filter((n) => !seenMerges.has(n) && !cannot(n, 'change')).map((number) => ({ number, kind: 'change' as const })),
       ],
+      ...(unread.length ? { unread: { why: clip(`${why} (${unread.length} of ${issues.length + merges.length} references not read)`, LIMITS.REASON), refs: unread } } : {}),
     }
   }
 
