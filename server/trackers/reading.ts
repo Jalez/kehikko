@@ -480,20 +480,23 @@ export class Trackers {
           listedNow.add(key)
         }
         const have = new Set(got.map(rowIdentity))
+        let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
         const rest = [...wanted.entries()].filter(([id]) => !have.has(id)).map(([, w]) => w)
         if (rest.length) {
           const read: Read = await adapter.refs(source, rest, now)
           if (!read.ok) return errors.set(key, read.why)
           got = [...got, ...read.rows]
-          }
-        errors.set(key, null)
+          unread = read.unread
+        }
+        const refused = new Set((unread?.refs ?? []).map((r) => identity(source, r.kind, r.number)))
+        errors.set(key, unread?.why ?? null)
         fresh.push(...got)
         /* Asked for, answered for, and not among the rows: either the tracker
            said so, or what it said would not make a row. Either way it is not
            asked again until something names it afresh, so no question and no
            read can chase each other. */
         const made = new Set(got.map(rowIdentity))
-        for (const [id] of wanted) if (!made.has(id)) gone.add(id)
+        for (const [id] of wanted) if (!made.has(id) && !refused.has(id)) gone.add(id)
       }),
     )
 

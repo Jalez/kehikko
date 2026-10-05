@@ -9,7 +9,7 @@ import { answer, answerCall } from '../server/answers.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
 import { githubAdapter } from '../server/trackers/github.ts'
-import { declaredIssues, gitlabAdapter } from '../server/trackers/gitlab.ts'
+import { declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
 import { readingFile, refsInEpic, Trackers } from '../server/trackers/reading.ts'
 import { readConfig, sourceFor, sourceOfRemote, sourcesOf, type Source } from '../server/trackers/sources.ts'
 import { toWireContext } from '../src/host/context.ts'
@@ -160,6 +160,70 @@ describe('GitLab through glab', () => {
     expect(byRef.get('!8')).toMatchObject({ draft: true, pipeline: 'running', review: 'required' })
     expect('stateReason' in byRef.get('#12')!).toBe(false)
     expect('closedByMerge' in byRef.get('#13')!).toBe(false)
+  })
+
+  test('both by-iid queries carry first: equal to the iid count (GitLab costs a connection without it at a page of 100)', () => {
+    const issues = [1, 2, 3]
+    const merges = [4, 5]
+    for (const query of [refsQuery(gl, issues, merges), detailQuery(gl, issues, merges)]) {
+      expect(query).toMatch(/issues\(iids: \[[^\]]*\], first: 3\)/)
+      expect(query).toMatch(/mergeRequests\(iids: \[[^\]]*\], first: 2\)/)
+    }
+  })
+
+  /** A glab that answers each by-iid query from the iids in it. */
+  const graphql = (answerFor: (issues: number[], merges: number[]) => Ran) =>
+    runner([
+      ['glab api --hostname gitlab.example.org graphql', (argv) => {
+        const q = argv.find((a) => a.startsWith('query=')) ?? ''
+        const iids = (what: string) => {
+          const m = q.match(new RegExp(`${what}\\(iids: \\[([^\\]]*)\\]`))
+          return m ? [...m[1]!.matchAll(/"(\d+)"/g)].map((x) => Number(x[1])) : []
+        }
+        return answerFor(iids('issues'), iids('mergeRequests'))
+      }],
+    ])
+  const nodesOf = (issues: number[]) => ({ data: { project: { issues: { nodes: issues.map((iid) => ({ iid: String(iid), state: 'opened', title: `t${iid}`, webUrl: `w${iid}` })) } } } })
+  const refusal = ok({ errors: [{ message: 'Query has complexity of 397, which exceeds max complexity of 250' }] }, 1)
+
+  test('a complexity refusal halves the batch and recovers', async () => {
+    const sizes: number[] = []
+    const run = graphql((issues) => {
+      sizes.push(issues.length)
+      return issues.length > 5 ? refusal : ok(nodesOf(issues))
+    })
+    const wanted: Wanted[] = Array.from({ length: 20 }, (_, i) => ({ number: i + 1, kind: 'issue' as const }))
+    const read = await gitlabAdapter(run).refs(gl, wanted, NOW.toISOString())
+    if (!read.ok) throw new Error(read.why)
+    expect(read.rows.map((r) => r.number).sort((a, b) => a - b)).toEqual(wanted.map((w) => w.number))
+    expect(read.unread).toBeUndefined()
+    expect(sizes).toEqual([20, 10, 5, 5, 10, 5, 5])
+  })
+
+  test('batches are twenty-five iids, and one permanently refused batch costs only its refs', async () => {
+    const run = graphql((issues) => (issues.includes(30) || issues.length === 1 && issues[0] === 30 ? refusal : ok(nodesOf(issues))))
+    const wanted: Wanted[] = Array.from({ length: 30 }, (_, i) => ({ number: i + 1, kind: 'issue' as const }))
+    const read = await gitlabAdapter(run).refs(gl, wanted, NOW.toISOString())
+    if (!read.ok) throw new Error(read.why)
+    /* 1..25 in one batch; 26..30 refused, halved down to the lone 30. */
+    expect(read.rows.map((r) => r.number)).toHaveLength(29)
+    expect(read.unread?.refs).toEqual([{ number: 30, kind: 'issue' }])
+    expect(read.unread?.why).toContain('Query has complexity of 397')
+    expect(read.notFound).toEqual([])
+    expect(Math.max(...run.asked.map((a) => (a.find((x) => x.startsWith('query='))?.match(/"\d+"/g) ?? []).length))).toBeLessThanOrEqual(25)
+  })
+
+  test('a failing batch marks only its refs failed in the shared reading, keeping the other rows', async () => {
+    const bad = (issues: number[]) => issues.includes(30)
+    const run = graphql((issues) => (bad(issues) ? ok({ errors: [{ message: 'boom' }] }, 1) : ok(nodesOf(issues))))
+    const adapter = gitlabAdapter(run)
+    const wanted: Wanted[] = Array.from({ length: 30 }, (_, i) => ({ number: i + 1, kind: 'issue' as const }))
+    const read = await adapter.refs(gl, wanted, NOW.toISOString())
+    if (!read.ok) throw new Error(read.why)
+    expect(read.rows).toHaveLength(25)
+    expect(read.unread?.refs.map((r) => r.number)).toEqual([26, 27, 28, 29, 30])
+    expect(read.unread?.why).toContain('boom')
+    expect(read.notFound).toEqual([])
   })
 
   test('a host behind a VPN is a sentence about the network, not about the project', async () => {

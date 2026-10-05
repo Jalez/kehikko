@@ -32,6 +32,8 @@ export type Read =
       rows: TrackerRow[]
       /** Numbers asked for that the tracker says do not exist, with the kind asked where it was known. */
       notFound: Array<{ number: number; kind: 'issue' | 'change' | null }>
+      /** Numbers the tracker refused to answer (not "does not exist"); the rows above are the rest. */
+      unread?: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> }
     }
   | { ok: false; why: string }
 
