@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:sidecar": "bun dev/build-sidecar.ts",
     "serve": "bun run server/server.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",

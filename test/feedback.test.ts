@@ -272,3 +272,30 @@ describe('spawnRunner', () => {
     expect(ran.timedOut).toBe(true)
   })
 })
+
+describe('a host compiled into the desktop app', () => {
+  /* No checkout to ask: the repository is named, nothing runs in a directory,
+     and the stamp carries the version without a commit. */
+  test('files on the named repository with no commit in the stamp', async () => {
+    const { run, calls } = fake((argv) =>
+      argv[2] === 'create' ? ok('https://github.com/Jalez/kehikko/issues/4') : { code: 1, out: '', err: 'unexpected' },
+    )
+    const desk = feedbackDesk({
+      run,
+      registration: (id) => (id === 'host' ? { id, repo: 'Jalez/kehikko' } : null),
+      version: async () => '0.1.0',
+    })
+    const made = await desk.route(
+      new Request('http://x/host/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ module: 'host', title: 'hi', body: 'there' }),
+      }),
+      new URL('http://x/host/feedback'),
+    )
+    expect(made!.status).toBe(201)
+    expect(calls.every((call) => call.argv[0] !== 'git')).toBe(true)
+    const create = calls.find((call) => call.argv[2] === 'create')!
+    expect(create.argv).toContain('Jalez/kehikko')
+    expect(create.stdin).toContain('module host 0.1.0 ·')
+  })
+})

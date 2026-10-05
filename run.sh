@@ -39,6 +39,12 @@
 # tree, an edit visible on save. `vite.config.ts` already proxies `/host` to the
 # small server, so the page talks to one origin either way and nothing about the
 # arrangement changes when it is not being edited.
+#
+# The one build that does exist is the desktop app's: `bun run build:sidecar`
+# compiles the host into a single binary with the page embedded in it (see
+# `dev/build-sidecar.ts` and `server/page.ts`). The built page lives only inside
+# that binary — it is built to a temporary directory and removed — so nothing
+# here can find one, and this script never serves it.
 set -eu
 cd "$(dirname "$0")"
 

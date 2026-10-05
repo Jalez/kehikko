@@ -51,6 +51,8 @@ import { Wakes } from './wake.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { resolve } from 'node:path'
+import { embeddedPage, servePage } from './page.ts'
+import pkg from '../package.json' with { type: 'json' }
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -66,12 +68,25 @@ import { resolve } from 'node:path'
  * comes from asking the program, on every sweep.
  */
 
-const PORT = Number(process.env.PORT ?? 4180)
+/**
+ * Whether this host is the desktop app's compiled sidecar, with the page inside
+ * it, or a development host beside Vite. Decided by whether a page was handed
+ * over at all — see `page.ts` — and never by a variable somebody must set.
+ */
+const PAGE = embeddedPage()
+const BUNDLED = PAGE !== null
+
+/* 4170 bundled, so the app's host and a development host on 4180 can run side
+   by side on one machine without either claiming the other's port. */
+const PORT = Number(process.env.PORT ?? (BUNDLED ? 4170 : 4180))
 
 /* `HOST_ID` — what this host calls itself at its own MCP door, and what its
    folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
    so the door and the folder cannot drift apart. */
-const HOST_VERSION = '0.1.0'
+const HOST_VERSION: string = pkg.version
+
+/** The repository feedback on the host itself is filed in, when there is no checkout to ask. */
+const HOST_REPO = 'Jalez/kehikko'
 
 /**
  * The canvases, opened once for the life of the process.
@@ -153,12 +168,18 @@ const registered = new Map<string, import('./registrations.ts').Registration>()
 /** Where the desktop shell watches for a restart request, when it started this host. */
 const RESTART_FILE = process.env.KEHIKKO_RESTART_FILE?.trim() || null
 
-/** Where this host's own code lives: the checkout `run.sh` was started in. */
-const HOST_DIR = resolve(import.meta.dir, '..')
+/**
+ * Where this host's own code lives: the checkout `run.sh` was started in.
+ *
+ * Null when bundled. A compiled binary's `import.meta.dir` is inside its own
+ * virtual filesystem, not a checkout, and there is nothing there to read or
+ * update: the desktop app's own updater replaces the whole binary.
+ */
+const HOST_DIR: string | null = BUNDLED ? null : resolve(import.meta.dir, '..')
 
-/** The host, then every registered module that names a directory. */
+/** The host (when it is a checkout), then every registered module that names a directory. */
 function updatePlaces(): Place[] {
-  const places: Place[] = [{ id: 'host', name: 'kehikko host', dir: HOST_DIR }]
+  const places: Place[] = HOST_DIR ? [{ id: 'host', name: 'kehikko host', dir: HOST_DIR }] : []
   for (const registration of registered.values()) {
     if (registration.dir) places.push({ id: registration.id, name: registration.id, dir: registration.dir })
   }
@@ -178,7 +199,11 @@ const feedback = feedbackDesk({
     /* `host` is this program itself: feedback on Kehikot goes to the
        repository this host is running from, found the same way as a module's. */
     id === 'host'
-      ? { id: 'host', dir: HOST_DIR }
+      ? HOST_DIR
+        ? { id: 'host', dir: HOST_DIR }
+        : /* Bundled: no checkout to read a remote from, so the repository is
+             named, and the stamp carries the version without a commit. */
+          { id: 'host', repo: HOST_REPO }
       : (registered.get(id) ?? (await readRegistrations(registryDir())).registrations.find((r) => r.id === id) ?? null),
   version: async (id) => {
     if (id === 'host') return HOST_VERSION
@@ -676,6 +701,12 @@ setInterval(() => {
  * host is broken.
  */
 function elsewhere(): Response {
+  if (BUNDLED) {
+    return new Response('There is nothing at this address.\n', {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  }
   return new Response(
     `This is the host's API and not its page. The canvas is on port ${PORT + 1}.\n` +
       'Both are started by ./run.sh — this one answers /host/modules and /host/call.\n',
@@ -1472,7 +1503,12 @@ const server = Bun.serve({
      * before this host has decided anything at all.
      */
     if (url.pathname === '/host/hello' && request.method === 'GET') {
-      return json({ ok: true, kehikko: true, version: HOST_VERSION, api: PORT, page: PORT + 1 })
+      return json({ ok: true, kehikko: true, version: HOST_VERSION, api: PORT, page: BUNDLED ? PORT : PORT + 1 })
+    }
+
+    /* Whether this host is up, for the desktop app that started it. */
+    if (url.pathname === '/host/health' && request.method === 'GET') {
+      return json({ ok: true, version: HOST_VERSION, bundled: BUNDLED })
     }
 
     if (url.pathname === '/host/quiet' && request.method === 'GET') {
@@ -1636,6 +1672,12 @@ const server = Bun.serve({
       return answered.body === null
         ? new Response(null, { status: answered.status })
         : json(answered.body, answered.status)
+    }
+
+    /* Bundled, everything that is not the API is the page. */
+    if (PAGE && !url.pathname.startsWith('/host/')) {
+      const page = servePage(PAGE, request, url.pathname)
+      if (page) return page
     }
 
     return elsewhere()
