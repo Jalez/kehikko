@@ -13,7 +13,7 @@
         "@radix-ui/react-tooltip": "^1.2.16",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#module-versions",
+        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#main",
         "lucide-react": "^0.544.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -376,7 +376,7 @@
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
-    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#99d48fefeedc41d004769267f38ae14bd448e325", { "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "zod": "^3.23.8" }, "optionalPeers": ["react"], "bin": { "kehikko-create": "./bin/create.ts" } }, "99d48fefeedc41d004769267f38ae14bd448e325"],
+    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#a8959284b0fbf60c3c2b751d7e1366718cbbef33", { "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "zod": "^3.23.8" }, "optionalPeers": ["react"], "bin": { "kehikko-create": "./bin/create.ts" } }, "a8959284b0fbf60c3c2b751d7e1366718cbbef33"],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 
