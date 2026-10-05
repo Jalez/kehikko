@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b4 pass/)
+    expect(out).toMatch(/\b8 pass/)
   }, 60_000)
 }
 
@@ -68,7 +68,41 @@ afterEach(() => {
   act(() => unmount?.())
   unmount = null
   document.body.innerHTML = ''
+  delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 })
+
+/* A stand-in for the desktop app's updater (kehikko-desktop#8): the three
+   commands through `__TAURI_INTERNALS__`, and `push` plays the shell calling
+   `window.kehikotAppUpdate`. */
+type AppStatus = {
+  enabled: boolean
+  current: string
+  state: string
+  version: string | null
+  progress: number | null
+  error: string | null
+  checkedAt: number | null
+}
+function standIn(first: Partial<AppStatus>) {
+  let now: AppStatus = { enabled: true, current: '0.1.1', state: 'uptodate', version: null, progress: null, error: null, checkedAt: 1, ...first }
+  const calls: string[] = []
+  ;(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+    invoke: async (cmd: string) => {
+      calls.push(cmd)
+      if (cmd === 'check_for_update') now = { ...now, state: now.state === 'ready' ? 'ready' : 'checking' }
+      return cmd === 'apply_update' ? null : now
+    },
+  }
+  return {
+    calls,
+    async push(next: Partial<AppStatus>) {
+      now = { ...now, ...next }
+      await act(async () => (globalThis as { kehikotAppUpdate?: (s: unknown) => void }).kehikotAppUpdate?.(now))
+    },
+  }
+}
+
+const indicatorText = () => document.querySelector('[data-testid="updates-indicator"]')?.textContent ?? ''
 
 const checkout = (id: string, behind: number, more: Json = {}) => ({
   id,
@@ -156,7 +190,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-level"]')?.textContent).toContain('learning')
   })
 
-  test('nothing needing attention is one calm sentence and Check again', async () => {
+  test('nothing needing attention is one calm sentence and Check now', async () => {
     answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('host', 0), checkout('notes', 0)]) : {})
     const host = await mount()
     await press(host)
@@ -165,7 +199,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-calm"]')).not.toBeNull()
     expect(text()).toContain('Everything is up to date')
     expect(text()).toContain('Last checked just now')
-    expect(text()).toContain('Check again')
+    expect(text()).toContain("Check now")
     expect(document.querySelectorAll('[data-testid="updates-row"]')).toHaveLength(0)
     expect(text()).not.toContain('others up to date')
   })
@@ -192,4 +226,92 @@ describe.skipIf(!inChild)('the updates panel', () => {
       expect(restart).toBe(restartable)
     })
   }
+
+  test('no engine, and an engine that is not enabled, leave no app row and a quiet icon', async () => {
+    for (const engine of [null, { enabled: false, state: 'idle' }]) {
+      if (engine) standIn(engine)
+      answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('notes', 0)]) : {})
+      const host = await mount()
+      await settle()
+      expect(indicatorText()).toBe('')
+      await press(host)
+      await settle()
+      expect(document.querySelector('[data-testid="updates-app"]')).toBeNull()
+      expect(text()).toContain('Everything is up to date')
+      act(() => unmount?.())
+      unmount = null
+      document.body.innerHTML = ''
+    }
+  })
+
+  test('the app row comes first and follows the push through every state', async () => {
+    const engine = standIn({ state: 'uptodate' })
+    answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('notes', 0)]) : {})
+    const host = await mount()
+    await settle()
+    expect(engine.calls).toContain('update_status')
+    expect(indicatorText()).toBe('')
+    await press(host)
+    await settle()
+    const app = () => document.querySelector('[data-testid="updates-app"]') as HTMLElement | null
+    expect(app()?.textContent).toContain('Kehikot app')
+    expect(app()?.textContent).toContain('0.1.1')
+    expect(app()?.dataset.state).toBe('uptodate')
+    const calm = document.querySelector('[data-testid="updates-calm"]')!
+    expect(app()!.compareDocumentPosition(calm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await engine.push({ state: 'downloading', version: '0.1.2', progress: 0.45 })
+    expect(app()?.dataset.state).toBe('updating')
+    expect(app()?.textContent).toContain('Downloading 0.1.2 · 45%')
+    expect(indicatorText()).toBe('Downloading Kehikot 0.1.2 · 45%')
+    expect(text()).toContain('Every module is up to date')
+
+    await engine.push({ state: 'ready', progress: null })
+    expect(app()?.dataset.state).toBe('ready')
+    expect(indicatorText()).toBe('Restart to update')
+    const restart = [...app()!.querySelectorAll('button')].find((b) => b.textContent === 'Restart to update')!
+    await act(async () => restart.click())
+    expect(engine.calls).toContain('apply_update')
+    expect(app()?.textContent).toContain('Installing 0.1.2')
+
+    await engine.push({ state: 'failed', error: 'the signature did not verify' })
+    expect(app()?.textContent).toContain('Failed: the signature did not verify')
+    expect(indicatorText()).toBe('Update failed')
+  })
+
+  test('Check now checks the app and every module at once', async () => {
+    const engine = standIn({ state: 'uptodate' })
+    const asked: string[] = []
+    answer = async (url) => {
+      if (url.startsWith('/host/updates')) asked.push(url)
+      return url.startsWith('/host/updates') ? check([checkout('notes', 0)]) : {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    asked.length = 0
+    const now = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Check now')!
+    await act(async () => now.click())
+    await settle()
+    expect(engine.calls).toContain('check_for_update')
+    expect(asked).toEqual(['/host/updates?fetch=1'])
+  })
+
+  test('module updates are counted in the one indicator, with blocked ones left out', async () => {
+    answer = async (url) =>
+      url.startsWith('/host/updates')
+        ? check([
+            checkout('a', 1),
+            checkout('b', 2),
+            checkout('c', 3),
+            checkout('d', 1, { blocked: 'there are uncommitted changes' }),
+          ])
+        : {}
+    const host = await mount()
+    await press(host)
+    await settle()
+    expect(indicatorText()).toBe('3 updates')
+    const blocked = [...document.querySelectorAll('[data-testid="updates-row"]')].find((r) => r.textContent?.includes('uncommitted'))
+    expect((blocked as HTMLElement | undefined)?.dataset.state).toBe('blocked')
+  })
 })

@@ -18,11 +18,29 @@ import {
   type Outcome,
   type Reading,
 } from '@/host/updates.ts'
+import { connect, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
+import { APP_ROW_ID, indicator, moduleRow, stateText, updateRows, type UpdateRow } from '@/host/updateModel.ts'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
 
 /**
- * Whether what this app runs is behind GitHub, and catching it up.
+ * One update system: the desktop app itself and every module, in one menu and
+ * one header indicator.
+ *
+ * ## The app and the modules, together
+ *
+ * Inside the desktop app the shell's updater (kehikko-desktop#8) checks,
+ * downloads and verifies new versions of the app on its own; this page is its
+ * only UI (`host/appUpdate.ts`). Its status and the module checkouts are read
+ * into the same rows with the same states (`host/updateModel.ts`), so the menu
+ * lists "Kehikot app" first and then the modules, "Check now" checks both, and
+ * the header shows one line about all of it — "Downloading Kehikot 0.1.2 · 45%",
+ * "Restart to update", "3 updates" — or only the quiet icon when there is
+ * nothing to say. Outside the app (a browser tab, a dev host) there is no app
+ * row at all. The app row moves live from the shell's push; the module rows
+ * move with the checks below.
+ *
+ * ## Whether what this app runs is behind GitHub, and catching it up
  *
  * ## Two ways a check happens
  *
@@ -30,8 +48,8 @@ import { KehikkoMark } from './Mark.tsx'
  * and when the window comes back into focus after ten minutes away. A quiet
  * check only moves the dot on the button and the time in its tooltip.
  *
- * Out loud, when the button is pressed: a panel slides out from under the
- * button and checks at once, with the kehikko mark drawing itself while it
+ * Out loud, when the menu opens on a check older than ten minutes, or on
+ * "Check now": the panel checks at once, with the kehikko mark drawing itself while it
  * waits, and then shows — in the same panel, which never gives way to a second
  * one — what is behind and what can be done about it. Everything slow in it —
  * the check and each update — can be cancelled, and Cancel closes the request,
@@ -101,6 +119,17 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const busy = useRef(false)
   /** The job in flight, so a press can stop a quiet check and wait it out. */
   const pending = useRef<Promise<void> | null>(null)
+  /** The desktop app's updater: its last status, and the commands. Null outside the app. */
+  const [app, setApp] = useState<AppUpdateStatus | null>(null)
+  const engine = useRef<AppEngine | null>(null)
+
+  /* Listen to the shell's push, and ask once now — which is also what tells
+     the shell this page draws updates, so it keeps its own alert to itself. */
+  useEffect(() => {
+    const link = connect(setApp)
+    engine.current = link.engine
+    return () => link.stop()
+  }, [])
 
   /* The tooltip's "4 minutes ago" has to move while nobody is touching it. */
   useEffect(() => {
@@ -174,12 +203,34 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
 
   const cancel = () => controller.current?.abort()
 
+  /** "Check now": the app's updater and every module, at once. */
+  const checkAll = () => {
+    const link = engine.current
+    if (link) {
+      void link.check().then((status) => {
+        if (status) setApp(status)
+      })
+    }
+    void run(true)
+  }
+
+  const applyApp = () => {
+    const link = engine.current
+    if (!link) return
+    /* The shell pushes `installing` and then relaunches; say so meanwhile. */
+    setApp((was) => (was && was.state === 'ready' ? { ...was, state: 'installing' } : was))
+    void link.apply()
+  }
+
   const onOpenChange = (next: boolean) => {
     if (next) {
       setOpen(true)
       setOutcomes({})
       setShowLevel(false)
-      void run(true)
+      /* Opening shows what is known. A check older than the focus threshold
+         is refreshed out loud; a fresh one is not asked again, so opening the
+         menu to press "Restart to update" does not first wait on git. */
+      if (Date.now() - last.current > ON_FOCUS_AFTER_MS) void run(true)
     } else {
       /* Closing while something runs cancels it — a panel that closes on a
          job that carries on unseen is a job nobody can see finish. */
@@ -246,12 +297,18 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   }
 
   const count = check ? waiting(check.checkouts) : 0
-  const checking = phase.kind === 'checking' || quietly
-  const label = tooltipFor(check, failed, count, now, checking && !open)
   const checkouts = check?.checkouts ?? []
+  const updating = phase.kind === 'updating' ? phase : null
+  const rows = updateRows(app, checkouts, outcomes, updating ? (updating.ids[updating.at] ?? null) : null)
+  const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
+  const shown = indicator(rows)
+  const checking = phase.kind === 'checking' || quietly || appOne?.state === 'checking'
+  const label = [tooltipFor(check, failed, count, now, checking && !open), appOne ? `Kehikot app ${appOne.current}: ${stateText(appOne).toLowerCase()}` : null]
+    .filter(Boolean)
+    .join(' · ')
   const { attention, level } = triage(checkouts, outcomes)
   const ready = attention.filter((one): one is Checkout => isCheckout(one) && one.behind > 0 && one.blocked === null)
-  const updating = phase.kind === 'updating' ? phase : null
+  const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
   const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
   const status = restarting
     ? 'Restarting Kehikot so the updated host runs…'
@@ -267,15 +324,21 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            aria-label={count ? `updates — ${count} new commits` : 'check for updates'}
+            size={shown ? 'sm' : 'icon'}
+            aria-label={shown ? `updates — ${shown.label}` : 'check for updates'}
             data-busy={checking || updating !== null || restarting}
-            className={`relative size-6 ${count || open ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            data-testid="updates-indicator"
+            data-tone={shown?.tone ?? 'none'}
+            className={
+              shown
+                ? `h-6 gap-1 px-1.5 text-xs font-normal ${shown.tone === 'error' ? 'text-destructive' : shown.tone === 'info' ? 'text-muted-foreground hover:text-foreground' : 'text-foreground'}`
+                : `size-6 ${open ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`
+            }
           >
             <CloudDownload
-              className={`size-3 ${checking || updating || restarting ? 'animate-pulse' : ''}`}
+              className={`size-3 ${checking || updating || restarting || shown?.tone === 'busy' ? 'animate-pulse' : ''}`}
             />
-            {count ? <span className="bg-primary absolute top-0.5 right-0.5 size-1.5 rounded-full" /> : null}
+            {shown ? <span className="tabular-nums">{shown.label}</span> : null}
           </Button>
         </PopoverTrigger>
       </Hint>
@@ -294,6 +357,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-3">
+          {appOne && !restarting ? <AppRow row={appOne} onApply={applyApp} onRetry={checkAll} /> : null}
           {restarting || phase.kind === 'checking' ? (
             <div className="flex flex-col items-center gap-3 py-4" data-testid="updates-working">
               <KehikkoMark key={restarting ? 'r' : 'c'} working className="text-foreground size-12" />
@@ -316,7 +380,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
               {check && !lastFailed && attention.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-3 text-center" data-testid="updates-calm">
                   <KehikkoMark working={false} className="text-muted-foreground size-12" />
-                  <p className="text-sm">Everything is up to date</p>
+                  <p className="text-sm">{appCalm ? 'Everything is up to date' : 'Every module is up to date'}</p>
                   <p className="text-muted-foreground text-xs">
                     Last checked {ago(check.checked, now)} (
                     {check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
@@ -329,6 +393,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                 return (
                   <Row
                     key={one.id}
+                    row={moduleRow(one, outcome, updating ? updating.ids[updating.at] === one.id : false)}
                     reading={one}
                     outcome={outcome}
                     running={updating ? updating.ids[updating.at] === one.id : false}
@@ -379,9 +444,9 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                   size="sm"
                   className="h-7 text-xs"
                   disabled={updating !== null}
-                  onClick={() => void run(true)}
+                  onClick={checkAll}
                 >
-                  Check again
+                  Check now
                 </Button>
                 {ready.length > 1 && !updating ? (
                   <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id))}>
@@ -397,8 +462,56 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   )
 }
 
+/**
+ * The desktop app itself: always the first row inside the app, in the same
+ * words as a module row. The engine downloads on its own, so the only action
+ * is "Restart to update" once an update is ready, and "Try again" after a
+ * failure.
+ */
+function AppRow({ row, onApply, onRetry }: { row: UpdateRow; onApply(): void; onRetry(): void }) {
+  return (
+    <div className="mb-2 rounded-md border px-3 py-2 text-xs" data-testid="updates-app" data-state={row.state}>
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-medium">Kehikot app</span>
+        <span className="text-muted-foreground shrink-0 font-mono text-[11px]">{row.current}</span>
+      </div>
+      <p className={row.state === 'failed' ? 'text-destructive pt-1' : row.state === 'uptodate' || row.state === 'unknown' ? 'text-muted-foreground pt-1' : 'text-foreground pt-1'}>
+        {stateText(row)}
+      </p>
+      {row.state === 'updating' && row.activity === 'downloading' ? (
+        <div
+          className="bg-muted mt-1.5 h-1 overflow-hidden rounded-full"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={row.progress === null ? undefined : Math.round(row.progress * 100)}
+        >
+          <div
+            className={`bg-foreground/60 h-full ${row.progress === null ? 'w-1/3 animate-pulse' : ''}`}
+            style={row.progress === null ? undefined : { width: `${Math.round(row.progress * 100)}%` }}
+          />
+        </div>
+      ) : null}
+      {row.state === 'ready' ? (
+        <div className="flex justify-end pt-1.5">
+          <Button size="sm" className="h-6 px-2 text-xs" onClick={onApply}>
+            Restart to update
+          </Button>
+        </div>
+      ) : row.state === 'failed' ? (
+        <div className="flex justify-end pt-1.5">
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /** One checkout that needs a person: where it is, what is coming, and what can be done. */
 function Row({
+  row,
   reading,
   outcome,
   running,
@@ -408,6 +521,8 @@ function Row({
   onRestart,
   onRestartApp,
 }: {
+  /** The same state the app row and the header indicator read. */
+  row: UpdateRow
   reading: Reading
   outcome: Outcome | null
   /** This is the checkout being updated right now. */
@@ -422,7 +537,7 @@ function Row({
 }) {
   if (!isCheckout(reading)) {
     return (
-      <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row">
+      <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
         <p className="font-medium">{reading.name}</p>
         <p className="text-muted-foreground">{reading.error}</p>
       </div>
@@ -430,7 +545,7 @@ function Row({
   }
   const one = reading
   return (
-    <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row">
+    <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">{one.name}</span>
         <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
