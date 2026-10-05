@@ -47,7 +47,7 @@
  * ## What the modules are told about it
  *
  * Nothing. A module has no business knowing whether the host drew a header
- * above its frame, and `roadmap.context` deliberately does not grow a field for
+ * above its frame, and `kehikot.context` deliberately does not grow a field for
  * it: every field in that context is something a module might reasonably behave
  * differently about, and this is not one. The frame is the same size either way
  * as far as the module is concerned — it is handed a rectangle and told how big

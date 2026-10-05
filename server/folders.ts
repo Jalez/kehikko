@@ -2,10 +2,10 @@ import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
-import { LIMITS } from 'roadmap-module-protocol'
+import { LIMITS } from 'kehikot-module-protocol'
 
 import { within } from './projects.ts'
-import { epicsDir } from './roadmapData.ts'
+import { epicsDir } from './hostData.ts'
 
 /**
  * Walking the disk to pick a project, and why the server has to be the one
@@ -17,7 +17,7 @@ import { epicsDir } from './roadmapData.ts'
  * can work here. `showDirectoryPicker()` returns an opaque `FileSystemHandle`:
  * the page can read files THROUGH it and can never learn where it points. What
  * this host needs is the string `/Users/somebody/Projects/roadmap`, because
- * that string is what goes into `roadmap.context.projectPath` and what every
+ * that string is what goes into `kehikot.context.projectPath` and what every
  * module joins its own subdirectory onto. A handle is unusable for that, and no
  * amount of asking the browser more politely produces the path.
  *
@@ -56,7 +56,7 @@ import { epicsDir } from './roadmapData.ts'
  *
  * Three facts, all cheap and all the ones a person needs to recognise a folder
  * they meant: whether it is a git repository, whether it is a git worktree, and
- * whether it holds `.kehikot/roadmap/epics`. The last is the one that changes what a
+ * whether it holds `.kehikot/kehikko/epics`. The last is the one that changes what a
  * kehikko there can do, and showing it in the picker means nobody adds a
  * project and then wonders why the epic list is empty.
  */
@@ -68,7 +68,7 @@ export interface Entry {
   git: boolean
   /** `.git` is a FILE: a worktree, or a submodule. Both are folders you may open. */
   worktree: boolean
-  /** `.kehikot/roadmap/epics` is under it, so a kehikko here would have epics to pick. */
+  /** `.kehikot/kehikko/epics` is under it, so a kehikko here would have epics to pick. */
   epics: boolean
 }
 

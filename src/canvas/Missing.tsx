@@ -10,8 +10,8 @@ import { Hint } from './Hint.tsx'
  *
  * The arrangement is kept in the project's own folder and travels with it —
  * see `server/kehikot.ts`. The other computer will not have every module
- * registered, and a container for `roadmap.paper` arriving on a machine that
- * has never heard of `roadmap.paper` has two honest fates: drawn as a
+ * registered, and a container for `kehikot.paper` arriving on a machine that
+ * has never heard of `kehikot.paper` has two honest fates: drawn as a
  * container that says so, or taken off. The page used to take it off AND write
  * the arrangement back without it, which was defensible when the only way a
  * registration could be missing was somebody deleting the file, and is

@@ -4,7 +4,7 @@ import {
   trackerRowSchema,
   type TrackerDetailFacts,
   type TrackerRow,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 
 import { TIMEOUT_MS, type Ran } from '../feedback.ts'
 import type { Source } from './sources.ts'

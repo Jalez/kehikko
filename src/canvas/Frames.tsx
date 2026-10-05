@@ -1,4 +1,4 @@
-import type { FilterChoice, ModuleContext } from 'roadmap-module-protocol'
+import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'

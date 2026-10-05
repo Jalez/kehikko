@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { writeFileSync } from 'node:fs'
-import { LIMITS, PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
+import { canonicalModuleId, LEGACY_WELL_KNOWN, LIMITS, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -27,7 +27,7 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
-import { answered, gone, Nursery, start, startable } from './launch.ts'
+import { answered, gone, Nursery, setPageOrigins, start, startable } from './launch.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import {
   asleepLine,
@@ -81,6 +81,9 @@ const BUNDLED = PAGE !== null
 /* 4170 bundled, so the app's host and a development host on 4180 can run side
    by side on one machine without either claiming the other's port. */
 const PORT = Number(process.env.PORT ?? (BUNDLED ? 4170 : 4180))
+/* Where this host's own page is, so a module it starts allows exactly that
+   page in its `frame-ancestors` as well as the defaults — see `originEnv`. */
+setPageOrigins([`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localhost:${BUNDLED ? PORT : PORT + 1}`])
 
 /* `HOST_ID` — what this host calls itself at its own MCP door, and what its
    folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
@@ -279,7 +282,7 @@ async function survey(): Promise<{
    *
    * A module's name comes from the manifest it serves, so a module that is
    * asleep has none, and the page falls back to the id — a canvas labelled
-   * `roadmap.checklist` and `roadmap.paper`. That was invisible until modules
+   * `kehikot.checklist` and `kehikot.paper`. That was invisible until modules
    * started sleeping; now it is most of them.
    *
    * Only the NAME is remembered, and only for a presence that has none. What a
@@ -757,7 +760,8 @@ function canvasId(pathname: string): number | null {
 
 /** The module id out of a request, bounded before it is looked at. */
 function moduleIn(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
+  /* Canonical, so `roadmap.x` from anything written before the rename is `kehikot.x`. */
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? canonicalModuleId(value) : null
 }
 
 const server = Bun.serve({
@@ -828,6 +832,7 @@ const server = Bun.serve({
       if (body.method.length > LIMITS.METHOD || body.module.length > 64) {
         return json({ ok: false, reason: 'failed', error: 'A call names a module and a method.' }, 400)
       }
+      const named = canonicalModuleId(body.module)
 
       /* If nothing has swept yet — a module framed by a page that was already
          open when this server restarted — sweep once so the answer is about the
@@ -836,7 +841,7 @@ const server = Bun.serve({
 
       return json(
         await answerCall(
-          body.module,
+          named,
           body.method,
           body.params,
           (id) => callers.has(id),
@@ -1031,7 +1036,7 @@ const server = Bun.serve({
      * own host would be worse than a second route.
      *
      * `holds` is the field that matters and it is why this is not just a list.
-     * A project with no `.kehikot/roadmap/epics` and a project whose `.kehikot/roadmap/epics` is empty
+     * A project with no `.kehikot/kehikko/epics` and a project whose `.kehikot/kehikko/epics` is empty
      * both answer with no epics, and only one of those should make the header
      * say "this project has none". See `Epics.tsx`.
      */
@@ -1089,8 +1094,8 @@ const server = Bun.serve({
     /*
      * What one epic is CALLED, changed. What it IS does not move.
      *
-     * The one write this host makes into a project’s `.kehikot/roadmap/`, and the only one
-     * it will: `.kehikot/roadmap/epics/<slug>.json` is a document somebody wrote, under
+     * The one write this host makes into a project’s `.kehikot/kehikko/`, and the only one
+     * it will: `.kehikot/kehikko/epics/<slug>.json` is a document somebody wrote, under
      * their name in that repository's history, and this changes one field of it
      * and leaves every other byte alone. `retitleEpic` has the essay on why the
      * OTHER rename — the slug — is a migration across six programs rather than
@@ -1118,11 +1123,11 @@ const server = Bun.serve({
     /*
      * A new epic, from the `+` beside the epic select.
      *
-     * The second write this host makes into a project’s `.kehikot/roadmap/` — the first
+     * The second write this host makes into a project’s `.kehikot/kehikko/` — the first
      * was the retitle above — and it is a file that did not exist rather than
      * a field of one that did. `createEpic` decides everything: the slug rule,
      * the title rule, the refusal to overwrite, and that a project with no
-     * `.kehikot/roadmap/epics` gets one made. This end turns a project id into a folder,
+     * `.kehikot/kehikko/epics` gets one made. This end turns a project id into a folder,
      * as the retitle does, and says so to every page standing in that
      * project — `epicsChanged` in `wake.ts` — because a second window's
      * dropdown would otherwise not have the new row until it switched project
@@ -1293,6 +1298,7 @@ const server = Bun.serve({
       if (!body || typeof body.module !== 'string' || body.module.length > 64) {
         return json({ ok: false, why: 'A start names one module.' }, 400)
       }
+      const named = canonicalModuleId(body.module)
 
       /* Read the registrations now rather than trusting the last sweep, because
          the commonest reason to press Start is that somebody has just edited a
@@ -1302,7 +1308,7 @@ const server = Bun.serve({
          the answer is about the disk as it is at the moment of the press. It is
          one small directory read; the honesty is worth more than the map. */
       const now = await readRegistrations()
-      const registration = now.registrations.find((r) => r.id === body.module) ?? null
+      const registration = now.registrations.find((r) => r.id === named) ?? null
       const can = startable(registration)
       if (!can.ok) return json({ ok: false, why: can.why }, 409)
 
@@ -1311,7 +1317,7 @@ const server = Bun.serve({
        *
        * ## Start had quietly become a no-op
        *
-       * Modules now claim their own port — see `roadmap-module-protocol/serve`
+       * Modules now claim their own port — see `kehikot-module-protocol/serve`
        * — and a module finding its own copy already there says so and exits 0.
        * That is right for a person typing `./run.sh`, and it turned this button
        * into a lie: the spawn succeeded, the child exited immediately having
@@ -1345,23 +1351,23 @@ const server = Bun.serve({
           return json({
             ok: false,
             why:
-              `${body.module} is already running at ${can.run.url}, and its registration says to keep it. `
+              `${named} is already running at ${can.run.url}, and its registration says to keep it. `
               + 'This host will not stop it — that flag exists so nothing reaps a program holding live work. '
               + 'Stop it where you started it if you want it restarted.',
           }, 409)
         }
-        const stopped = nursery.stop(body.module)
+        const stopped = nursery.stop(named)
         if (stopped === 'not-ours') {
           /* Not started by THIS host — most often started by the host before
              it, which the desktop app restarts after a host update while the
              detached modules carry on. Restartable only when the program on
              the port is proven to run from the registered directory; see
              `takeover.ts`. */
-          const taken = await takeOver(body.module, can.run, systemProcesses)
+          const taken = await takeOver(named, can.run, systemProcesses)
           if (taken.kind === 'refused') return json({ ok: false, why: taken.why }, 409)
           if (taken.kind === 'stopped') {
             console.log(
-              `kehikko: stopped ${body.module} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
+              `kehikko: stopped ${named} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
               + `to restart it — it was running from ${can.run.dir}`,
             )
           }
@@ -1381,15 +1387,15 @@ const server = Bun.serve({
          — would make the button a way to opt out of the whole policy by
          accident, and nobody pressing it is asking for that. */
       if (ran.ok && ran.child) {
-        nursery.keep(body.module, { child: ran.child, at: Date.now(), url: can.run.url })
-        starting.set(body.module, Date.now())
-        sleeping.delete(body.module)
+        nursery.keep(named, { child: ran.child, at: Date.now(), url: can.run.url })
+        starting.set(named, Date.now())
+        sleeping.delete(named)
       }
       /* Started is not running, so the module is given a moment to come up and
          is then asked. Sweeping immediately reported every successful start as
          a failure: the spawn worked, the module answered a second later, and
          the sweep had already run before the dev server bound its port. */
-      if (ran.ok) await answered(can.run.url, WELL_KNOWN)
+      if (ran.ok) await answered(can.run.url, [WELL_KNOWN, LEGACY_WELL_KNOWN])
       const after = ran.ok ? told(await sweep()) : null
       /* The child stays on this side. It is what makes the module stoppable —
          see `Nursery` — and the page has no use for it; a handle the answer
@@ -1398,7 +1404,7 @@ const server = Bun.serve({
       const { child: _held, ...outcome } = ran
       return json({
         ...outcome,
-        presence: after?.presences.find((p) => p.id === body.module) ?? null,
+        presence: after?.presences.find((p) => p.id === named) ?? null,
       })
     }
 
@@ -1754,7 +1760,7 @@ console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`
 if (settled.seeded) {
   console.log(
     `projects are folders; the first is ${settled.seeded.name} at ${settled.seeded.path}` +
-      (settled.seeded.epics ? '' : ' (which holds no .kehikot/roadmap/epics, so kehikot there have no epics to pick)'),
+      (settled.seeded.epics ? '' : ' (which holds no .kehikot/kehikko/epics, so kehikot there have no epics to pick)'),
   )
 }
 if (settled.adopted) {

@@ -83,7 +83,7 @@ export function Projects({
         <Hint
           label={
             open
-              ? `project — ${open.path}${open.epics ? '' : ' (no .kehikot/roadmap/epics here)'}`
+              ? `project — ${open.path}${open.epics ? '' : ' (no .kehikot/kehikko/epics here)'}`
               : 'no project is open'
           }
           align="start"
@@ -256,7 +256,7 @@ export function Projects({
  * returns an opaque handle: the page may read files THROUGH it and can never
  * learn where it points. What this host needs is the string
  * `/Users/somebody/Projects/roadmap`, because that string becomes
- * `roadmap.context.projectPath` and every module joins its own subdirectory
+ * `kehikot.context.projectPath` and every module joins its own subdirectory
  * onto it. A handle cannot be turned into that, by any means, on purpose.
  *
  * So the server lists directory NAMES and this draws them. Every refusal lives
@@ -322,7 +322,7 @@ function Browser({
           <DialogTitle>Add a project</DialogTitle>
           <DialogDescription>
             A project is a folder — a repository, a git worktree, or any directory with work in it. Epics
-            come from <span className="font-mono">.kehikot/roadmap/epics</span> under it, and a project that has none is
+            come from <span className="font-mono">.kehikot/kehikko/epics</span> under it, and a project that has none is
             still a project.
           </DialogDescription>
         </DialogHeader>

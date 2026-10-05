@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
+import { PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
 import { look } from '../server/discover.ts'
 import type { Registration } from '../server/registrations.ts'
@@ -168,7 +168,7 @@ describe('a page that loads and never speaks', () => {
     conversation.receive({
       source: contentWindow,
       origin: 'null',
-      data: { type: 'roadmap.ready', id: 'example.journey-notes', protocol: PROTOCOL },
+      data: { type: 'kehikot.ready', id: 'example.journey-notes', protocol: PROTOCOL },
     })
     await Bun.sleep(90)
 

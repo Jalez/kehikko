@@ -192,7 +192,7 @@ export function rowHeightFor(
  * clipped to four", and it exists because `maxRows` clamps a DRAG and a RESIZE
  * but is not consulted by the compaction that runs when the host writes a
  * placement itself. A module asking to grow is the host writing a placement, so
- * without this a `roadmap.resize` could put a container past the bottom of a
+ * without this a `kehikot.resize` could put a container past the bottom of a
  * canvas that is supposed to have no past-the-bottom.
  *
  * The honest answer to a module that asks for more than there is room for is

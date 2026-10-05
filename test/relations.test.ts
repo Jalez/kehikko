@@ -47,24 +47,24 @@ function presence(id: string, name: string, over: Partial<FramedModule> = {}): P
 
 const NOWHERE: Placings = { onCanvas: new Set(), elsewhere: new Map() }
 
-const CHECKLIST = presence('roadmap.checklist', 'Checklist', {
-  extensions: { emits: ['roadmap.notifications@1'], consumes: [] },
+const CHECKLIST = presence('kehikot.checklist', 'Checklist', {
+  extensions: { emits: ['kehikot.notifications@1'], consumes: [] },
   reacts: ['selection'],
   declares: { protocol: '>=2', uses: ['events:emit', 'state:keep'], storage: false },
 })
-const NOTIFICATIONS = presence('roadmap.notifications', 'Notifications', {
-  extensions: { emits: [], consumes: ['roadmap.notifications@1'] },
+const NOTIFICATIONS = presence('kehikot.notifications', 'Notifications', {
+  extensions: { emits: [], consumes: ['kehikot.notifications@1'] },
 })
-const ATLAS = presence('roadmap.mapmaker', 'Atlas', {
+const ATLAS = presence('kehikot.mapmaker', 'Atlas', {
   declares: { protocol: '>=2', uses: ['epics:read', 'view:navigate', 'state:keep'], storage: false },
 })
-const REFERENCES = presence('roadmap.references', 'References', {
+const REFERENCES = presence('kehikot.references', 'References', {
   declares: { protocol: '>=2', uses: ['epics:read', 'selection:set'], storage: false },
 })
-const PAPER = presence('roadmap.paper', 'Paper', {
+const PAPER = presence('kehikot.paper', 'Paper', {
   declares: { protocol: '>=2', uses: ['epics:read'], storage: false },
 })
-const POINTER = presence('roadmap.pointer', 'Pointer', {
+const POINTER = presence('kehikot.pointer', 'Pointer', {
   declares: { protocol: '>=2', uses: ['passage:set'], storage: false },
 })
 
@@ -72,14 +72,14 @@ describe('an event between two modules', () => {
   test('names both ends, in both directions', () => {
     const found = relate([CHECKLIST, NOTIFICATIONS], NOWHERE)
 
-    const emits = found.get('roadmap.checklist')
+    const emits = found.get('kehikot.checklist')
     expect(emits).toHaveLength(1)
     expect(emits?.[0]?.kind).toBe('emits')
     expect(emits?.[0]?.direct).toBe(true)
-    expect(emits?.[0]?.extension).toBe('roadmap.notifications@1')
-    expect(emits?.[0]?.with.map((one) => one.id)).toEqual(['roadmap.notifications'])
+    expect(emits?.[0]?.extension).toBe('kehikot.notifications@1')
+    expect(emits?.[0]?.with.map((one) => one.id)).toEqual(['kehikot.notifications'])
 
-    const consumes = found.get('roadmap.notifications')
+    const consumes = found.get('kehikot.notifications')
     expect(consumes?.[0]?.kind).toBe('consumes')
     expect(consumes?.[0]?.direct).toBe(true)
     expect(consumes?.[0]?.with.map((one) => one.name)).toEqual(['Checklist'])
@@ -87,20 +87,20 @@ describe('an event between two modules', () => {
 
   test('says the counterpart is here, when it is on the open kehikko', () => {
     const found = relate([CHECKLIST, NOTIFICATIONS], {
-      onCanvas: new Set(['roadmap.checklist', 'roadmap.notifications']),
+      onCanvas: new Set(['kehikot.checklist', 'kehikot.notifications']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.checklist')?.[0]
+    const relationship = found.get('kehikot.checklist')?.[0]
     expect(relationship?.with[0]?.reach).toEqual({ where: 'here' })
     expect(sentenceFor('Checklist', relationship!)).toContain('Notifications is on this kehikko')
   })
 
   test('names the other kehikko, because the bus delivers across them', () => {
     const found = relate([CHECKLIST, NOTIFICATIONS], {
-      onCanvas: new Set(['roadmap.checklist']),
-      elsewhere: new Map([['roadmap.notifications', ['Reading']]]),
+      onCanvas: new Set(['kehikot.checklist']),
+      elsewhere: new Map([['kehikot.notifications', ['Reading']]]),
     })
-    const relationship = found.get('roadmap.checklist')?.[0]
+    const relationship = found.get('kehikot.checklist')?.[0]
     expect(relationship?.with[0]?.reach).toEqual({ where: 'elsewhere', kehikkos: ['Reading'] })
     const said = sentenceFor('Checklist', relationship!)
     expect(said).toContain('“Reading”')
@@ -109,10 +109,10 @@ describe('an event between two modules', () => {
 
   test('will not claim delivery to a module that is on no kehikko', () => {
     const found = relate([CHECKLIST, NOTIFICATIONS], {
-      onCanvas: new Set(['roadmap.checklist']),
+      onCanvas: new Set(['kehikot.checklist']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.checklist')?.[0]
+    const relationship = found.get('kehikot.checklist')?.[0]
     expect(relationship?.with[0]?.reach).toEqual({ where: 'unplaced' })
     expect(sentenceFor('Checklist', relationship!)).toContain('nothing is being carried')
   })
@@ -120,27 +120,27 @@ describe('an event between two modules', () => {
   test('a counterpart that is not answering is said to be not answering', () => {
     const silent = { ...NOTIFICATIONS, condition: 'silent' as const }
     const found = relate([CHECKLIST, silent], {
-      onCanvas: new Set(['roadmap.checklist', 'roadmap.notifications']),
+      onCanvas: new Set(['kehikot.checklist', 'kehikot.notifications']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.checklist')?.[0]
+    const relationship = found.get('kehikot.checklist')?.[0]
     expect(relationship?.with[0]?.reach).toEqual({ where: 'silent' })
     expect(sentenceFor('Checklist', relationship!)).toContain('not answering')
   })
 
   test('a module that consumes what it emits is not its own counterpart', () => {
-    const both = presence('roadmap.both', 'Both', {
-      extensions: { emits: ['roadmap.calls@1'], consumes: ['roadmap.calls@1'] },
+    const both = presence('kehikot.both', 'Both', {
+      extensions: { emits: ['kehikot.calls@1'], consumes: ['kehikot.calls@1'] },
     })
-    expect(relate([both], NOWHERE).get('roadmap.both')).toBeUndefined()
+    expect(relate([both], NOWHERE).get('kehikot.both')).toBeUndefined()
   })
 
   test('several consumers collapse to a count and the sentence names them all', () => {
-    const second = presence('roadmap.second', 'Second', {
-      extensions: { emits: [], consumes: ['roadmap.notifications@1'] },
+    const second = presence('kehikot.second', 'Second', {
+      extensions: { emits: [], consumes: ['kehikot.notifications@1'] },
     })
     const found = relate([CHECKLIST, NOTIFICATIONS, second], NOWHERE)
-    const relationship = found.get('roadmap.checklist')?.[0]
+    const relationship = found.get('kehikot.checklist')?.[0]
     expect(labelFor(relationship!)).toBe('2 modules')
     expect(sentenceFor('Checklist', relationship!)).toContain('Notifications and Second')
   })
@@ -148,25 +148,25 @@ describe('an event between two modules', () => {
 
 describe('what it refuses to draw', () => {
   test('an extension nobody consumes is not a relationship', () => {
-    expect(relate([CHECKLIST], NOWHERE).get('roadmap.checklist')).toBeUndefined()
+    expect(relate([CHECKLIST], NOWHERE).get('kehikot.checklist')).toBeUndefined()
   })
 
   test('a consumer whose emitter is not registered is not a relationship', () => {
-    expect(relate([NOTIFICATIONS], NOWHERE).get('roadmap.notifications')).toBeUndefined()
+    expect(relate([NOTIFICATIONS], NOWHERE).get('kehikot.notifications')).toBeUndefined()
   })
 
   test('a module that declares nothing of the kind gets nothing', () => {
-    expect(relate([PAPER, NOTIFICATIONS], NOWHERE).get('roadmap.paper')).toBeUndefined()
+    expect(relate([PAPER, NOTIFICATIONS], NOWHERE).get('kehikot.paper')).toBeUndefined()
   })
 
   test('a module the host never read a manifest from gets nothing', () => {
-    const quiet: Presence = { id: 'roadmap.quiet', at: 'http://127.0.0.1:2', condition: 'silent', line: '' }
-    expect(relate([quiet, CHECKLIST, NOTIFICATIONS], NOWHERE).get('roadmap.quiet')).toBeUndefined()
+    const quiet: Presence = { id: 'kehikot.quiet', at: 'http://127.0.0.1:2', condition: 'silent', line: '' }
+    expect(relate([quiet, CHECKLIST, NOTIFICATIONS], NOWHERE).get('kehikot.quiet')).toBeUndefined()
   })
 
   test('a shared subject is not drawn, however many modules share it', () => {
-    const found = relate([PAPER, presence('roadmap.citations', 'Citations')], {
-      onCanvas: new Set(['roadmap.paper', 'roadmap.citations']),
+    const found = relate([PAPER, presence('kehikot.citations', 'Citations')], {
+      onCanvas: new Set(['kehikot.paper', 'kehikot.citations']),
       elsewhere: new Map(),
     })
     expect(found.size).toBe(0)
@@ -176,10 +176,10 @@ describe('what it refuses to draw', () => {
 describe('the indirect kinds', () => {
   test('navigation is drawn from view:navigate and names nobody', () => {
     const found = relate([ATLAS, PAPER], {
-      onCanvas: new Set(['roadmap.mapmaker', 'roadmap.paper']),
+      onCanvas: new Set(['kehikot.mapmaker', 'kehikot.paper']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.mapmaker')?.[0]
+    const relationship = found.get('kehikot.mapmaker')?.[0]
     expect(relationship?.kind).toBe('navigation')
     expect(relationship?.direct).toBe(false)
     expect(relationship?.with).toEqual([])
@@ -189,19 +189,19 @@ describe('the indirect kinds', () => {
 
   test('the count is of the modules that would actually be told', () => {
     const silent = { ...PAPER, condition: 'silent' as const }
-    const found = relate([ATLAS, silent, presence('roadmap.tests', 'Tests')], {
-      onCanvas: new Set(['roadmap.mapmaker', 'roadmap.paper', 'roadmap.tests']),
+    const found = relate([ATLAS, silent, presence('kehikot.tests', 'Tests')], {
+      onCanvas: new Set(['kehikot.mapmaker', 'kehikot.paper', 'kehikot.tests']),
       elsewhere: new Map(),
     })
-    expect(found.get('roadmap.mapmaker')?.[0]?.told).toBe(1)
+    expect(found.get('kehikot.mapmaker')?.[0]?.told).toBe(1)
   })
 
   test('selection is drawn from selection:set and says who reacts is unknowable', () => {
     const found = relate([REFERENCES, PAPER], {
-      onCanvas: new Set(['roadmap.references', 'roadmap.paper']),
+      onCanvas: new Set(['kehikot.references', 'kehikot.paper']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.references')?.[0]
+    const relationship = found.get('kehikot.references')?.[0]
     expect(relationship?.kind).toBe('selection')
     expect(relationship?.role).toBe('sets')
     expect(relationship?.direct).toBe(false)
@@ -221,10 +221,10 @@ describe('the indirect kinds', () => {
        same offer, and a person deciding whether to place either is entitled to
        read which one they are being made. */
     const found = relate([REFERENCES, POINTER], {
-      onCanvas: new Set(['roadmap.references', 'roadmap.pointer']),
+      onCanvas: new Set(['kehikot.references', 'kehikot.pointer']),
       elsewhere: new Map(),
     })
-    const relationship = found.get('roadmap.pointer')?.[0]
+    const relationship = found.get('kehikot.pointer')?.[0]
     expect(relationship?.kind).toBe('passage')
     expect(relationship?.direct).toBe(false)
     const said = sentenceFor('Pointer', relationship!)
@@ -237,15 +237,15 @@ describe('the indirect kinds', () => {
 
   test('an empty kehikko is said to be empty rather than counted as one', () => {
     const found = relate([ATLAS], NOWHERE)
-    const relationship = found.get('roadmap.mapmaker')?.[0]
+    const relationship = found.get('kehikot.mapmaker')?.[0]
     expect(relationship?.told).toBe(0)
     expect(sentenceFor('Mapmaker', relationship!)).toContain('nothing else is on this one')
   })
 
   test('the badge itself carries no prose', () => {
     const found = relate([ATLAS, REFERENCES], NOWHERE)
-    expect(labelFor(found.get('roadmap.mapmaker')![0]!)).toBe('moves the epic')
-    expect(labelFor(found.get('roadmap.references')![0]!)).toBe('sets the selection')
+    expect(labelFor(found.get('kehikot.mapmaker')![0]!)).toBe('moves the epic')
+    expect(labelFor(found.get('kehikot.references')![0]!)).toBe('sets the selection')
   })
 })
 
@@ -255,22 +255,22 @@ describe('the receiving half, now that a module can declare one', () => {
      on it, and nothing may, because the context is broadcast to every framed
      module whether or not it said a word. What it buys is that a registry can
      name both ends of one relationship instead of one and a half. */
-  const NOTES = presence('roadmap.notes', 'Notes', { reacts: ['passage'] })
-  const READER = presence('roadmap.reader', 'Reader', { reacts: ['selection'] })
+  const NOTES = presence('kehikot.notes', 'Notes', { reacts: ['passage'] })
+  const READER = presence('kehikot.reader', 'Reader', { reacts: ['selection'] })
 
   test('a declared setter and a declared reactor are a nameable pair', () => {
     const found = relate([POINTER, NOTES], {
-      onCanvas: new Set(['roadmap.pointer', 'roadmap.notes']),
+      onCanvas: new Set(['kehikot.pointer', 'kehikot.notes']),
       elsewhere: new Map(),
     })
 
-    const sets = found.get('roadmap.pointer')?.[0]
+    const sets = found.get('kehikot.pointer')?.[0]
     expect(sets?.kind).toBe('passage')
     expect(sets?.role).toBe('sets')
     expect(sets?.with.map((one) => one.name)).toEqual(['Notes'])
     expect(sentenceFor('Pointer', sets!)).toContain('Notes says it reacts to a passage')
 
-    const reacts = found.get('roadmap.notes')?.[0]
+    const reacts = found.get('kehikot.notes')?.[0]
     expect(reacts?.kind).toBe('passage')
     expect(reacts?.role).toBe('reacts')
     expect(reacts?.with.map((one) => one.name)).toEqual(['Pointer'])
@@ -283,9 +283,9 @@ describe('the receiving half, now that a module can declare one', () => {
        what the badge and the sentence key off, and it stays false: two
        manifests agreeing is not the host delivering. */
     const found = relate([POINTER, NOTES], NOWHERE)
-    expect(found.get('roadmap.pointer')?.[0]?.direct).toBe(false)
-    expect(found.get('roadmap.notes')?.[0]?.direct).toBe(false)
-    const said = sentenceFor('Notes', found.get('roadmap.notes')![0]!)
+    expect(found.get('kehikot.pointer')?.[0]?.direct).toBe(false)
+    expect(found.get('kehikot.notes')?.[0]?.direct).toBe(false)
+    const said = sentenceFor('Notes', found.get('kehikot.notes')![0]!)
     expect(said).toContain('what the modules say about themselves')
     expect(said).toContain('carries nothing between these two')
   })
@@ -295,24 +295,24 @@ describe('the receiving half, now that a module can declare one', () => {
        "I have chapter three open" and "the reader is pointing at bytes 4120 to
        4180" are different claims and a person reading a badge is entitled to
        know which one a module makes. */
-    const SHOWER = presence('roadmap.paper', 'Paper', {
+    const SHOWER = presence('kehikot.paper', 'Paper', {
       declares: { protocol: '>=2', uses: ['showing:set'], storage: false, prompt: false },
     })
-    const NARROWER = presence('roadmap.checklist', 'Checklist', { reacts: ['containers'] })
+    const NARROWER = presence('kehikot.checklist', 'Checklist', { reacts: ['containers'] })
     const found = relate([SHOWER, NARROWER], NOWHERE)
 
-    const sets = found.get('roadmap.paper')?.[0]
+    const sets = found.get('kehikot.paper')?.[0]
     expect(sets?.kind).toBe('containers')
     expect(sets?.role).toBe('sets')
     expect(labelFor(sets!)).toBe('says what it shows')
     expect(sentenceFor('Paper', sets!)).toContain('picked out')
 
-    const reacts = found.get('roadmap.checklist')?.[0]
+    const reacts = found.get('kehikot.checklist')?.[0]
     expect(reacts?.kind).toBe('containers')
     expect(reacts?.role).toBe('reacts')
     expect(reacts?.direct).toBe(false)
     expect(labelFor(reacts!)).toBe('narrows to what is picked out')
-    expect(standingOf(SHOWER, found.get('roadmap.paper') ?? []).provider).toBe(true)
+    expect(standingOf(SHOWER, found.get('kehikot.paper') ?? []).provider).toBe(true)
   })
 
   test('a reactor with nothing registered that sets it is not drawn', () => {
@@ -321,13 +321,13 @@ describe('the receiving half, now that a module can declare one', () => {
        broadcast what that module sets. A reaction to something nothing on this
        machine produces is only a stranger's sentence, and repeating it would be
        the host asserting a link out of one manifest. */
-    expect(relate([NOTES, PAPER], NOWHERE).get('roadmap.notes')).toBeUndefined()
+    expect(relate([NOTES, PAPER], NOWHERE).get('kehikot.notes')).toBeUndefined()
   })
 
   test('a word this host has never heard of is drawn as nothing, not as everything', () => {
-    const odd = presence('roadmap.odd', 'Odd', { reacts: ['weather', 'passage'] })
+    const odd = presence('kehikot.odd', 'Odd', { reacts: ['weather', 'passage'] })
     const found = relate([POINTER, odd], NOWHERE)
-    const relationships = found.get('roadmap.odd') ?? []
+    const relationships = found.get('kehikot.odd') ?? []
     expect(relationships).toHaveLength(1)
     expect(relationships[0]?.kind).toBe('passage')
   })
@@ -335,24 +335,24 @@ describe('the receiving half, now that a module can declare one', () => {
   test('a module that both sets and follows a passage is not its own counterpart', () => {
     /* A notes pane is genuinely both — it follows a passage, and points at one
        when somebody presses a note. Two rows, and neither names itself. */
-    const both = presence('roadmap.both', 'Both', {
+    const both = presence('kehikot.both', 'Both', {
       reacts: ['passage'],
       declares: { protocol: '>=2', uses: ['passage:set'], storage: false },
     })
-    const alone = relate([both], NOWHERE).get('roadmap.both')
+    const alone = relate([both], NOWHERE).get('kehikot.both')
     expect(alone).toHaveLength(1)
     expect(alone?.[0]?.role).toBe('sets')
     expect(alone?.[0]?.with).toEqual([])
 
-    const withPointer = relate([both, POINTER], NOWHERE).get('roadmap.both')
+    const withPointer = relate([both, POINTER], NOWHERE).get('kehikot.both')
     expect(withPointer?.map((one) => one.role)).toEqual(['sets', 'reacts'])
   })
 
   test('a selection reactor and a passage reactor are not the same relationship', () => {
     const found = relate([REFERENCES, POINTER, NOTES, READER], NOWHERE)
-    expect(found.get('roadmap.notes')?.[0]?.kind).toBe('passage')
-    expect(found.get('roadmap.reader')?.[0]?.kind).toBe('selection')
-    expect(labelFor(found.get('roadmap.reader')![0]!)).toBe('follows the selection')
+    expect(found.get('kehikot.notes')?.[0]?.kind).toBe('passage')
+    expect(found.get('kehikot.reader')?.[0]?.kind).toBe('selection')
+    expect(labelFor(found.get('kehikot.reader')![0]!)).toBe('follows the selection')
   })
 
   test('the count of who is told is unchanged by anybody declaring a reaction', () => {
@@ -361,12 +361,12 @@ describe('the receiving half, now that a module can declare one', () => {
        not any of them said they react. If those two numbers ever differ, the
        broadcast has been filtered and a permission has been built. */
     const canvas = {
-      onCanvas: new Set(['roadmap.pointer', 'roadmap.notes', 'roadmap.paper']),
+      onCanvas: new Set(['kehikot.pointer', 'kehikot.notes', 'kehikot.paper']),
       elsewhere: new Map<string, string[]>(),
     }
-    const silentAboutIt = presence('roadmap.notes', 'Notes')
-    expect(relate([POINTER, NOTES, PAPER], canvas).get('roadmap.pointer')?.[0]?.told).toBe(2)
-    expect(relate([POINTER, silentAboutIt, PAPER], canvas).get('roadmap.pointer')?.[0]?.told).toBe(2)
+    const silentAboutIt = presence('kehikot.notes', 'Notes')
+    expect(relate([POINTER, NOTES, PAPER], canvas).get('kehikot.pointer')?.[0]?.told).toBe(2)
+    expect(relate([POINTER, silentAboutIt, PAPER], canvas).get('kehikot.pointer')?.[0]?.told).toBe(2)
   })
 })
 
@@ -375,20 +375,20 @@ describe('the two halves the list shows', () => {
     /* Six relationships must not become six names repeated: the sentence is
        about modules, and one module on the other end of three of them belongs
        in it once. */
-    const second = presence('roadmap.second', 'Second', {
-      extensions: { emits: [], consumes: ['roadmap.notifications@1'] },
+    const second = presence('kehikot.second', 'Second', {
+      extensions: { emits: [], consumes: ['kehikot.notifications@1'] },
     })
-    const hub = presence('roadmap.hub', 'Hub', {
-      extensions: { emits: ['roadmap.notifications@1'], consumes: ['roadmap.calls@1'] },
+    const hub = presence('kehikot.hub', 'Hub', {
+      extensions: { emits: ['kehikot.notifications@1'], consumes: ['kehikot.calls@1'] },
       reacts: ['passage', 'selection'],
       declares: { protocol: '>=2', uses: ['events:emit', 'passage:set'], storage: false },
     })
-    const caller = presence('roadmap.caller', 'Caller', {
-      extensions: { emits: ['roadmap.calls@1'], consumes: [] },
+    const caller = presence('kehikot.caller', 'Caller', {
+      extensions: { emits: ['kehikot.calls@1'], consumes: [] },
       reacts: ['passage'],
     })
     const found = relate([hub, NOTIFICATIONS, second, caller, REFERENCES], NOWHERE)
-    const standing = standingOf(hub, found.get('roadmap.hub') ?? [])
+    const standing = standingOf(hub, found.get('kehikot.hub') ?? [])
 
     expect(standing.consumer).toBe(true)
     expect(standing.provider).toBe(true)
@@ -400,7 +400,7 @@ describe('the two halves the list shows', () => {
 
   test('a provider with no declared audience keeps its badge and gets no list', () => {
     const found = relate([POINTER], NOWHERE)
-    const standing = standingOf(POINTER, found.get('roadmap.pointer') ?? [])
+    const standing = standingOf(POINTER, found.get('kehikot.pointer') ?? [])
     expect(standing.provider).toBe(true)
     expect(standing.consumer).toBe(false)
     /* Not "provides to: nobody". The host does not know that — it knows no
@@ -410,7 +410,7 @@ describe('the two halves the list shows', () => {
   })
 
   test('the badges are read off the module alone, so they survive an empty machine', () => {
-    const lonely = presence('roadmap.lonely', 'Lonely', { reacts: ['selection'] })
+    const lonely = presence('kehikot.lonely', 'Lonely', { reacts: ['selection'] })
     const standing = standingOf(lonely, [])
     expect(standing.consumer).toBe(true)
     expect(standing.provider).toBe(false)
@@ -428,10 +428,10 @@ describe('the two halves the list shows', () => {
        on the canvas feels it without being its correspondent. It makes a mover
        a provider and gives it no audience to print. */
     const found = relate([ATLAS, PAPER], {
-      onCanvas: new Set(['roadmap.mapmaker', 'roadmap.paper']),
+      onCanvas: new Set(['kehikot.mapmaker', 'kehikot.paper']),
       elsewhere: new Map(),
     })
-    const standing = standingOf(ATLAS, found.get('roadmap.mapmaker') ?? [])
+    const standing = standingOf(ATLAS, found.get('kehikot.mapmaker') ?? [])
     expect(standing.provider).toBe(true)
     expect(standing.providesTo).toEqual([])
     expect(standing.consumes).toEqual([])
@@ -444,15 +444,15 @@ describe('the ten modules on this machine', () => {
      draw rather than as a surprise in a popover. */
   const live: Presence[] = [
     CHECKLIST,
-    presence('roadmap.citations', 'Citations'),
-    presence('roadmap.diff', 'Diff', { reacts: ['selection'] }),
-    presence('roadmap.journeys', 'Journeys'),
+    presence('kehikot.citations', 'Citations'),
+    presence('kehikot.diff', 'Diff', { reacts: ['selection'] }),
+    presence('kehikot.journeys', 'Journeys'),
     NOTIFICATIONS,
-    presence('roadmap.orchestrator', 'Orchestrator'),
+    presence('kehikot.orchestrator', 'Orchestrator'),
     PAPER,
     REFERENCES,
-    presence('roadmap.terminal', 'Terminal'),
-    presence('roadmap.tests', 'Tests', { reacts: ['selection'] }),
+    presence('kehikot.terminal', 'Terminal'),
+    presence('kehikot.tests', 'Tests', { reacts: ['selection'] }),
   ]
 
   test('five of ten have anything to show, and the rest honestly have none', () => {
@@ -463,11 +463,11 @@ describe('the ten modules on this machine', () => {
        nobody being able to. */
     const found = relate(live, NOWHERE)
     expect([...found.keys()].sort()).toEqual([
-      'roadmap.checklist',
-      'roadmap.diff',
-      'roadmap.notifications',
-      'roadmap.references',
-      'roadmap.tests',
+      'kehikot.checklist',
+      'kehikot.diff',
+      'kehikot.notifications',
+      'kehikot.references',
+      'kehikot.tests',
     ])
   })
 
@@ -477,12 +477,12 @@ describe('the ten modules on this machine', () => {
        Checklist is on both sides at once — it follows the selection and emits
        the notifications another module shows. */
     const found = relate(live, NOWHERE)
-    const references = standingOf(REFERENCES, found.get('roadmap.references') ?? [])
+    const references = standingOf(REFERENCES, found.get('kehikot.references') ?? [])
     expect(references.provider).toBe(true)
     expect(references.consumer).toBe(false)
     expect(references.providesTo.map((one) => one.name).sort()).toEqual(['Checklist', 'Diff', 'Tests'])
 
-    const checklist = standingOf(CHECKLIST, found.get('roadmap.checklist') ?? [])
+    const checklist = standingOf(CHECKLIST, found.get('kehikot.checklist') ?? [])
     expect(checklist.consumer).toBe(true)
     expect(checklist.provider).toBe(true)
     expect(checklist.consumes.map((one) => one.name)).toEqual(['References'])
@@ -508,7 +508,7 @@ describe('the ten modules on this machine', () => {
 
   test('the paper and the citations over one corpus are not among them', () => {
     const found = relate(live, NOWHERE)
-    expect(found.has('roadmap.paper')).toBe(false)
-    expect(found.has('roadmap.citations')).toBe(false)
+    expect(found.has('kehikot.paper')).toBe(false)
+    expect(found.has('kehikot.citations')).toBe(false)
   })
 })

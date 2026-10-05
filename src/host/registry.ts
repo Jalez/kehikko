@@ -1,4 +1,4 @@
-import type { ModuleCondition } from 'roadmap-module-protocol'
+import type { Dialect, ModuleCondition } from 'kehikot-module-protocol'
 
 /**
  * What the page knows about what is registered.
@@ -24,6 +24,13 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: { id: string; label: string; scope: 'epic' | 'global' }[]
   extensions: { emits: string[]; consumes: string[] }
+  /**
+   * Which spelling of the wire the module speaks — `roadmap` for one built
+   * before the app was renamed. The conversation greets it in that dialect.
+   * Optional so a server from before this field still reads; absent is the
+   * current spelling.
+   */
+  dialect?: Dialect
   /**
    * The context kinds this module says it reacts to.
    *

@@ -18,8 +18,8 @@ let scratch: string
 let roots: string[]
 beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-folders-')))
-  mkdirSync(join(scratch, 'Projects', 'roadmap', '.kehikot', 'roadmap', 'epics'), { recursive: true })
-  mkdirSync(join(scratch, 'Projects', 'roadmap', '.git'), { recursive: true })
+  mkdirSync(join(scratch, 'Projects', 'webapp', '.kehikot', 'kehikko', 'epics'), { recursive: true })
+  mkdirSync(join(scratch, 'Projects', 'webapp', '.git'), { recursive: true })
   mkdirSync(join(scratch, 'Projects', 'plain'), { recursive: true })
   mkdirSync(join(scratch, 'Projects', 'worktree'), { recursive: true })
   writeFileSync(join(scratch, 'Projects', 'worktree', '.git'), 'gitdir: /elsewhere\n')
@@ -42,14 +42,14 @@ describe('what it lists', () => {
 
     const names = browsed.listing.entries.map((entry) => entry.name)
     /* Folders only. `notes.txt` is a file and is not a place to go. */
-    expect(names).toEqual(['plain', 'roadmap', 'worktree'])
+    expect(names).toEqual(['plain', 'webapp', 'worktree'])
 
-    const roadmap = browsed.listing.entries.find((entry) => entry.name === 'roadmap')!
-    expect(roadmap.git).toBe(true)
-    expect(roadmap.worktree).toBe(false)
+    const webapp = browsed.listing.entries.find((entry) => entry.name === 'webapp')!
+    expect(webapp.git).toBe(true)
+    expect(webapp.worktree).toBe(false)
     /* The fact that decides what a kehikko there can do, shown before the
        project is added rather than discovered after. */
-    expect(roadmap.epics).toBe(true)
+    expect(webapp.epics).toBe(true)
 
     /* `.git` as a FILE is a worktree or a submodule. Both are folders you may
        open, which is why "pick the worktree" needs no concept of its own. */
@@ -92,7 +92,7 @@ describe('what it lists', () => {
     expect(top.ok).toBe(true)
     if (top.ok) expect(top.listing.parent).toBeNull()
 
-    const inside = browse(join(scratch, 'Projects', 'roadmap'), roots)
+    const inside = browse(join(scratch, 'Projects', 'webapp'), roots)
     expect(inside.ok).toBe(true)
     if (inside.ok) expect(inside.listing.parent).toBe(join(scratch, 'Projects'))
   })
@@ -161,7 +161,7 @@ describe('what it refuses', () => {
   })
 
   test('a relative path, which would resolve against a directory nobody chose', () => {
-    const browsed = browse('Projects/roadmap', roots)
+    const browsed = browse('Projects/webapp', roots)
     expect(browsed.ok).toBe(false)
     if (!browsed.ok) expect(browsed.status).toBe(400)
   })
@@ -180,8 +180,8 @@ describe('what it refuses', () => {
 
 describe('the roots', () => {
   test('are home plus the folders already opened as projects, resolved', () => {
-    const found = rootsFor([join(scratch, 'Projects', 'roadmap')])
-    expect(found).toContain(join(scratch, 'Projects', 'roadmap'))
+    const found = rootsFor([join(scratch, 'Projects', 'webapp')])
+    expect(found).toContain(join(scratch, 'Projects', 'webapp'))
     /* Home is always one of them, because that is where a person's own work is
        and it is the only default this host can pick without guessing. */
     expect(found.length).toBeGreaterThan(1)

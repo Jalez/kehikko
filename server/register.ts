@@ -67,7 +67,7 @@ export const SCOPE = 'user' as const
 /**
  * What the server will be called.
  *
- * The id's last segment, so `roadmap.checklist` becomes `checklist`. Two
+ * The id's last segment, so `kehikot.checklist` becomes `checklist`. Two
  * reasons, and neither is brevity for its own sake. A tool reaches the agent as
  * `mcp__<server>__<tool>`, so the server name is read constantly and in full by
  * whoever is looking at a tool call. And `agents.ts` already matches on the
@@ -335,7 +335,7 @@ export async function doorFor(id: string): Promise<{ ok: true; door: Door } | { 
  * the address, not the name, to decide whether the agent has been told.
  *
  * It cannot collide with a module registered under this host's convention —
- * module ids are dotted (`roadmap.checklist`) and `serverName` takes the tail
+ * module ids are dotted (`kehikot.checklist`) and `serverName` takes the tail
  * — unless somebody registers a module whose tail is literally `kehikko`. That
  * collision is not silent: whichever of the two is connected, the other reads
  * as `elsewhere`, and the window says which address the entry points at.

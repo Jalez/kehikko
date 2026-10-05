@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { METHOD_NAMES } from 'roadmap-module-protocol'
+import { METHOD_NAMES } from 'kehikot-module-protocol'
 
 import { ANSWERED_BY_THE_SERVER, ANSWERED_BY_THE_VIEW, unanswered } from '../src/host/division.ts'
 import { makeAsk, type CanvasControls, type Picked } from '../src/host/ask.ts'
@@ -54,7 +54,7 @@ describe('the division', () => {
 describe('what a module is told', () => {
   test('a picked project comes back as one path and one name, and nothing else', async () => {
     const ask = makeAsk(
-      'roadmap.checklist',
+      'kehikot.checklist',
       canvasThatIsAsked({
         outcome: 'picked',
         project: { path: '/Users/x/thesis', name: 'thesis' },
@@ -78,13 +78,13 @@ describe('what a module is told', () => {
        that supplies `from` to `emit` and `filters.set`. */
     const seen: string[] = []
     const ask = makeAsk(
-      'roadmap.checklist',
+      'kehikot.checklist',
       canvasThatIsAsked({ outcome: 'cancelled', project: null, why: '' }, seen),
     )
 
-    await ask('projects.pick', { from: 'roadmap.notes', suggest: '/etc' })
+    await ask('projects.pick', { from: 'kehikot.notes', suggest: '/etc' })
 
-    expect(seen).toEqual(['roadmap.checklist'])
+    expect(seen).toEqual(['kehikot.checklist'])
   })
 
   test('a cancellation and a decline carry the same nothing', async () => {
@@ -92,12 +92,12 @@ describe('what a module is told', () => {
        something a module can tell apart from a refusal, a program learns about
        the disk by asking, and everything else here is decoration. */
     const cancelled = await makeAsk(
-      'roadmap.checklist',
+      'kehikot.checklist',
       canvasThatIsAsked({ outcome: 'cancelled', project: null, why: '' }),
     )('projects.pick', {})
     const declined = await makeAsk(
-      'roadmap.checklist',
-      canvasThatIsAsked({ outcome: 'declined', project: null, why: 'This roadmap will not ask right now.' }),
+      'kehikot.checklist',
+      canvasThatIsAsked({ outcome: 'declined', project: null, why: 'This host will not ask right now.' }),
     )('projects.pick', {})
 
     expect(cancelled.ok && (cancelled.data as { project: unknown }).project).toBeNull()
@@ -107,7 +107,7 @@ describe('what a module is told', () => {
   test('every outcome is ok: true — the question succeeded, the picking may not have', async () => {
     for (const outcome of ['picked', 'cancelled', 'declined'] as const) {
       const answer = await makeAsk(
-        'roadmap.checklist',
+        'kehikot.checklist',
         canvasThatIsAsked({
           outcome,
           project: outcome === 'picked' ? { path: '/p', name: 'p' } : null,
@@ -124,7 +124,7 @@ describe('what a module is told', () => {
        makes a decline uninformative. A `cancelled` carrying a path is a fault
        in this host, and it is refused here rather than at the module. */
     const ask = makeAsk(
-      'roadmap.checklist',
+      'kehikot.checklist',
       canvasThatIsAsked({
         outcome: 'cancelled',
         /* Deliberately wrong: an empty path is not a path. */

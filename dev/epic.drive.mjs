@@ -14,14 +14,14 @@
  *
  * Run it against a scratch host — its own `KEHIKOT_FRAME_DB`, its own
  * `KEHIKOT_MODULES_DIR`, a scratch project folder — because it WRITES: one
- * epic file into the project's `.kehikot/roadmap/epics`, and one into a project that had
- * no `.kehikot/roadmap/epics` at all, which it then has.
+ * epic file into the project's `.kehikot/kehikko/epics`, and one into a project that had
+ * no `.kehikot/kehikko/epics` at all, which it then has.
  *
  * Exits 0 when: the `+` is offered; typing a title derives a slug; create
  * writes the file and OPENS the epic; the same slug again is refused with the
  * server's sentence in the footer and the form still open; an epic made at
  * the MCP door appears in the dropdown without a reload and does NOT change
- * the open epic; and in a project with no `.kehikot/roadmap/epics` the `+` says the
+ * the open epic; and in a project with no `.kehikot/kehikko/epics` the `+` says the
  * directory will be made, and makes it.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -75,7 +75,7 @@ const placed = await fetch(`${API}/mcp`, {
     jsonrpc: '2.0',
     id: 0,
     method: 'tools/call',
-    params: { name: 'place_modules', arguments: { kehikko: 1, modules: ['roadmap.notes', 'roadmap.paper'] } },
+    params: { name: 'place_modules', arguments: { kehikko: 1, modules: ['kehikot.notes', 'kehikot.paper'] } },
   }),
 }).then((r) => r.json())
 console.log('door said:', placed.result?.content?.[0]?.text?.split('\n')[0])
@@ -99,7 +99,7 @@ await page.waitForTimeout(1200)
 
 const after = (await trigger.textContent())?.trim()
 check('the kehikko opened the epic it made', after === 'made-by-hand', JSON.stringify(after))
-const file = join(PROJECT, '.kehikot', 'roadmap', 'epics', 'made-by-hand.json')
+const file = join(PROJECT, '.kehikot', 'kehikko', 'epics', 'made-by-hand.json')
 check('the file exists', existsSync(file), file)
 if (existsSync(file)) console.log(readFileSync(file, 'utf8'))
 check('the form closed', !(await title.isVisible().catch(() => false)))
@@ -137,7 +137,7 @@ check('the door’s epic is in the dropdown without a reload', rows.some((r) => 
 await page.keyboard.press('Escape')
 await page.waitForTimeout(300)
 
-/* 4. A project with no .kehikot/roadmap/epics: the + says so, and makes it. */
+/* 4. A project with no .kehikot/kehikko/epics: the + says so, and makes it. */
 const thesis = join(PROJECT, '..', 'thesis')
 const added = await fetch(`${API}/host/projects`, {
   method: 'POST',
@@ -146,11 +146,11 @@ const added = await fetch(`${API}/host/projects`, {
 }).then((r) => r.json())
 const thesisId = added.project?.id
 console.log('thesis project id:', thesisId)
-await page.evaluate((id) => window.localStorage.setItem('roadmap.frame.project.v1', String(id)), thesisId)
+await page.evaluate((id) => window.localStorage.setItem('kehikot.frame.project.v1', String(id)), thesisId)
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(2500)
 console.log('epic control in thesis:', JSON.stringify((await trigger.textContent())?.trim()))
-check('the select is disabled in a project with no .kehikot/roadmap/epics', await trigger.isDisabled())
+check('the select is disabled in a project with no .kehikot/kehikko/epics', await trigger.isDisabled())
 check('the + is still offered there', await plus.isVisible())
 await plus.hover()
 await page.waitForTimeout(600)
@@ -161,7 +161,7 @@ await page.waitForTimeout(400)
 await title.type('Chapter one')
 await page.locator('button:has-text("create and open")').click()
 await page.waitForTimeout(1200)
-check('.kehikot/roadmap/epics was made in the thesis folder', existsSync(join(thesis, '.kehikot', 'roadmap', 'epics', 'chapter-one.json')))
+check('.kehikot/kehikko/epics was made in the thesis folder', existsSync(join(thesis, '.kehikot', 'kehikko', 'epics', 'chapter-one.json')))
 check('and the thesis kehikko opened it', (await trigger.textContent())?.trim() === 'chapter-one', JSON.stringify((await trigger.textContent())?.trim()))
 
 /* 5. No project at all: the + is not offered. Every project forgotten. */

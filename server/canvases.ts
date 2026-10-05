@@ -3,12 +3,15 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
+  canonicalModuleId,
+  LEGACY_MESSAGE_PREFIX,
   LIMITS,
+  MESSAGE_PREFIX,
   MODULE_ID,
   REFRESH_EVERY_MAX,
   REFRESH_EVERY_MIN,
   type FilterChoice,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import { frameDbFile } from './machineDirs.ts'
 
 /**
@@ -90,7 +93,7 @@ export interface Placement {
    * still here while another kehikko moves it around is the entire use — two
    * containers on two epics, side by side, to compare.
    *
-   * The module is told, in `roadmap.context`. A host that pinned silently would
+   * The module is told, in `kehikot.context`. A host that pinned silently would
    * leave a module describing itself as showing the open epic while it showed a
    * remembered one, unable to tell a person's pin from the canvas not having
    * moved — which is why this host refused to pin at all until the protocol
@@ -599,7 +602,55 @@ export function open(file = databaseFile()): Database {
   if (moving) {
     for (const { id } of db.query<{ id: number }, []>('select id from projects').all()) epicFromKehikot(db, id)
   }
+  renameModuleIds(db)
   return db
+}
+
+/**
+ * Every module id this database holds, in its current spelling.
+ *
+ * Modules were `roadmap.<name>` before the app was called Kehikot, and are
+ * `kehikot.<name>` now — the same module under its new name, as the protocol's
+ * `canonicalModuleId` says. Every column that holds a module id is respelled
+ * here: a placement's `module` and `prompt_for`, `module_state`, and
+ * `known_modules` when it exists.
+ *
+ * Run on every open, and idempotent: a database with nothing to respell costs
+ * four indexed `like` queries that match nothing. Every open rather than once,
+ * because an older host — the installed app — may still be writing old ids
+ * into this same file, and those are folded in the next time this one starts.
+ *
+ * Where a container is on a canvas under BOTH spellings, the new one is kept
+ * and the old row dropped: a module is on a kehikko once, and the new row is
+ * the one this host wrote. Nothing is lost that was the record — the
+ * project's `kehikot.json` is, and the database it was first copied from
+ * (`~/.roadmap/frame.sqlite`) is never touched.
+ */
+export function renameModuleIds(db: Database): void {
+  const OLD = `${LEGACY_MESSAGE_PREFIX}%`
+  const NEW = MESSAGE_PREFIX
+  const from = LEGACY_MESSAGE_PREFIX.length + 1
+  const tables = new Set(
+    db.query<{ name: string }, []>("select name from sqlite_master where type = 'table'").all().map((t) => t.name),
+  )
+  db.transaction(() => {
+    db.query(`update or ignore placements set module = ? || substr(module, ${from}) where module like ?`).run(NEW, OLD)
+    db.query(
+      `delete from placements where module like ?
+         and exists (select 1 from placements p where p.canvas = placements.canvas and p.module = ? || substr(placements.module, ${from}))`,
+    ).run(OLD, NEW)
+    db.query(`update placements set prompt_for = ? || substr(prompt_for, ${from}) where prompt_for like ?`).run(NEW, OLD)
+    db.query(`update or ignore module_state set module = ? || substr(module, ${from}) where module like ?`).run(NEW, OLD)
+    db.query(
+      `delete from module_state where module like ? and exists (select 1 from module_state m where m.module = ? || substr(module_state.module, ${from}))`,
+    ).run(OLD, NEW)
+    if (tables.has('known_modules')) {
+      db.query(`update or ignore known_modules set id = ? || substr(id, ${from}) where id like ?`).run(NEW, OLD)
+      db.query(
+        `delete from known_modules where id like ? and exists (select 1 from known_modules k where k.id = ? || substr(known_modules.id, ${from}))`,
+      ).run(OLD, NEW)
+    }
+  })()
 }
 
 /**
@@ -1243,10 +1294,14 @@ function cleaned(placements: PlacementInput[]): Placement[] {
   const kept: Placement[] = []
   for (const p of placements) {
     if (kept.length >= PLACEMENTS_MAX) break
-    if (typeof p?.i !== 'string' || !MODULE_ID.test(p.i) || seen.has(p.i)) continue
-    seen.add(p.i)
+    if (typeof p?.i !== 'string' || !MODULE_ID.test(p.i)) continue
+    /* Canonical: a container for `roadmap.notes` — from a page, a file or a
+       call written before the rename — is the container for `kehikot.notes`. */
+    const i = canonicalModuleId(p.i)
+    if (seen.has(i)) continue
+    seen.add(i)
     kept.push({
-      i: p.i,
+      i,
       x: bounded(p.x, 0, 200),
       y: bounded(p.y, 0, 10_000),
       w: bounded(p.w, 1, 200),
@@ -1264,7 +1319,7 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          own text, and they are the one who will notice it ends mid-sentence. */
       prompt: typeof p.prompt === 'string' ? p.prompt.slice(0, LIMITS.PROMPT) : '',
       promptFor:
-        typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
+        typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? canonicalModuleId(p.promptFor) : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
       /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A

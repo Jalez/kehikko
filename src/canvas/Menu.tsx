@@ -41,7 +41,7 @@ export function Remove({
   onConfirm,
 }: {
   armed: boolean
-  /** What the X is called to a screen reader: "forget roadmap". */
+  /** What the X is called to a screen reader: "forget thesis". */
   label: string
   /** What the armed X says: "remove it?" */
   question: string

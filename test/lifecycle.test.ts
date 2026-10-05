@@ -28,7 +28,7 @@ import { readRegistration } from '../server/registrations.ts'
  */
 
 const standing = (over: Partial<Standing> = {}): Standing => ({
-  id: 'roadmap.thing',
+  id: 'kehikot.thing',
   needed: false,
   answering: true,
   startable: true,
@@ -43,7 +43,7 @@ const NOW = 1_700_000_000_000
 
 describe('what the host starts', () => {
   test('a module on an open kehikko that nothing is answering for', () => {
-    expect(toStart([standing({ needed: true, answering: false })])).toEqual(['roadmap.thing'])
+    expect(toStart([standing({ needed: true, answering: false })])).toEqual(['kehikot.thing'])
   })
 
   test('nothing, for a module no open kehikko has', () => {
@@ -78,7 +78,7 @@ describe('what the host stops', () => {
     standing({ ours: true, needed: false, idleSince: NOW - GRACE_MS, ...over })
 
   test('a module it started, that nothing has needed for the grace period', () => {
-    expect(toStop([idle()], NOW)).toEqual(['roadmap.thing'])
+    expect(toStop([idle()], NOW)).toEqual(['kehikot.thing'])
   })
 
   test('never one it did not start, however idle', () => {
@@ -128,8 +128,8 @@ describe('what the host stops', () => {
 describe('when a module was last needed', () => {
   test('a module on an open kehikko is needed now', () => {
     const idleness = new Idleness()
-    idleness.noted(['roadmap.thing'], NOW)
-    expect(idleness.since('roadmap.thing', null)).toBe(NOW)
+    idleness.noted(['kehikot.thing'], NOW)
+    expect(idleness.since('kehikot.thing', null)).toBe(NOW)
   })
 
   test('one that has never been needed is measured from when the host started it', () => {
@@ -137,20 +137,20 @@ describe('when a module was last needed', () => {
        has no "last needed" at all, and measuring from zero would stop it on the
        very next tick. */
     const idleness = new Idleness()
-    expect(idleness.since('roadmap.thing', NOW)).toBe(NOW)
+    expect(idleness.since('kehikot.thing', NOW)).toBe(NOW)
   })
 
   test('the later of the two, never the earlier', () => {
     const idleness = new Idleness()
-    idleness.noted(['roadmap.thing'], NOW - 1000)
-    expect(idleness.since('roadmap.thing', NOW)).toBe(NOW)
+    idleness.noted(['kehikot.thing'], NOW - 1000)
+    expect(idleness.since('kehikot.thing', NOW)).toBe(NOW)
   })
 
   test('a module that is no longer registered is forgotten', () => {
     const idleness = new Idleness()
-    idleness.noted(['roadmap.gone'], NOW)
-    idleness.forgetAllBut(['roadmap.thing'])
-    expect(idleness.since('roadmap.gone', null)).toBe(null)
+    idleness.noted(['kehikot.gone'], NOW)
+    idleness.forgetAllBut(['kehikot.thing'])
+    expect(idleness.since('kehikot.gone', null)).toBe(null)
   })
 })
 
@@ -185,14 +185,14 @@ describe('the only processes the host may stop', () => {
     /* Not "is refused by a check" — there is nowhere for the pid to come from.
        No port, url, registration or request reaches a signal. */
     const { nursery, sent } = watched()
-    expect(nursery.stop('roadmap.terminal')).toBe('not-ours')
+    expect(nursery.stop('kehikot.terminal')).toBe('not-ours')
     expect(sent).toEqual([])
   })
 
   test('one it started is signalled, as a group, gently first', () => {
     const { nursery, sent } = watched()
-    nursery.keep('roadmap.thing', held(4242))
-    expect(nursery.stop('roadmap.thing')).toBe('stopped')
+    nursery.keep('kehikot.thing', held(4242))
+    expect(nursery.stop('kehikot.thing')).toBe('stopped')
     /* The negative pid is the process group. A run.sh is a shell that runs a
        dev server that spawns workers, and signalling the shell alone leaves the
        server up and the port held — which is the memory this whole thing is
@@ -202,8 +202,8 @@ describe('the only processes the host may stop', () => {
 
   test('and killed outright if it ignores the first signal', () => {
     const { nursery, sent, timers } = watched()
-    nursery.keep('roadmap.thing', held(4242))
-    nursery.stop('roadmap.thing')
+    nursery.keep('kehikot.thing', held(4242))
+    nursery.stop('kehikot.thing')
     timers.forEach((run) => run())
     expect(sent.map((s) => s.signal)).toEqual(['SIGTERM', 'SIGKILL'])
     expect(TERM_GRACE_MS).toBeGreaterThan(0)
@@ -212,8 +212,8 @@ describe('the only processes the host may stop', () => {
   test('a module that exits on the first signal is not killed', () => {
     const { nursery, sent, timers } = watched()
     const it = held(4242)
-    nursery.keep('roadmap.thing', it)
-    nursery.stop('roadmap.thing')
+    nursery.keep('kehikot.thing', it)
+    nursery.stop('kehikot.thing')
     it.child.living = false
     timers.forEach((run) => run())
     expect(sent.map((s) => s.signal)).toEqual(['SIGTERM'])
@@ -227,8 +227,8 @@ describe('the only processes the host may stop', () => {
        shell — so the delayed signal asks the HANDLE again and not the number. */
     const { nursery, sent, timers } = watched()
     const it = held(4242)
-    nursery.keep('roadmap.thing', it)
-    nursery.stop('roadmap.thing')
+    nursery.keep('kehikot.thing', it)
+    nursery.stop('kehikot.thing')
     it.child.living = false
     timers.forEach((run) => run())
     expect(sent).toEqual([{ pid: -4242, signal: 'SIGTERM' }])
@@ -242,21 +242,21 @@ describe('the only processes the host may stop', () => {
        recycled pid answers no. */
     const { nursery, sent } = watched()
     const it = held(4242)
-    nursery.keep('roadmap.thing', it)
+    nursery.keep('kehikot.thing', it)
     it.child.living = false
-    expect(nursery.holds('roadmap.thing')).toBe(false)
-    expect(nursery.stop('roadmap.thing')).toBe('not-ours')
+    expect(nursery.holds('kehikot.thing')).toBe(false)
+    expect(nursery.stop('kehikot.thing')).toBe('not-ours')
     expect(sent).toEqual([])
   })
 
   test('a child that has exited is forgotten rather than signalled', () => {
     const { nursery, sent } = watched()
     const it = held(4242)
-    nursery.keep('roadmap.thing', it)
+    nursery.keep('kehikot.thing', it)
     it.child.living = false
-    expect(nursery.startedAt('roadmap.thing')).toBe(null)
-    expect(nursery.holds('roadmap.thing')).toBe(false)
-    expect(nursery.stop('roadmap.thing')).toBe('not-ours')
+    expect(nursery.startedAt('kehikot.thing')).toBe(null)
+    expect(nursery.holds('kehikot.thing')).toBe(false)
+    expect(nursery.stop('kehikot.thing')).toBe('not-ours')
     expect(sent).toEqual([])
   })
 
@@ -285,11 +285,11 @@ describe('what the host keeps asking about', () => {
     /* The bug in one line. `answering: true` is what the host believes, and the
        belief is exactly what has to be re-examined; filtering on it here would
        reproduce the fault this exists to fix. */
-    expect(toWatch([standing({ needed: true, answering: true })])).toEqual(['roadmap.thing'])
+    expect(toWatch([standing({ needed: true, answering: true })])).toEqual(['kehikot.thing'])
   })
 
   test('and a silent one, because a person may have started it by hand', () => {
-    expect(toWatch([standing({ needed: true, answering: false })])).toEqual(['roadmap.thing'])
+    expect(toWatch([standing({ needed: true, answering: false })])).toEqual(['kehikot.thing'])
   })
 
   test('nothing, for a module no open kehikko has', () => {
@@ -309,7 +309,7 @@ describe('what the host keeps asking about', () => {
     /* `keep` says the host may not STOP it. It has never said anything about
        looking at it, and the module this fault was found on is a kept one. */
     expect(toWatch([standing({ needed: true, answering: true, keep: true })])).toEqual([
-      'roadmap.thing',
+      'kehikot.thing',
     ])
   })
 
@@ -334,7 +334,7 @@ describe('what the host keeps asking about', () => {
 describe('keep does not stop a module coming back', () => {
   test('a kept module that has died is started like any other', () => {
     expect(toStart([standing({ needed: true, answering: false, keep: true })])).toEqual([
-      'roadmap.thing',
+      'kehikot.thing',
     ])
   })
 
@@ -347,7 +347,7 @@ describe('keep does not stop a module coming back', () => {
 
 describe('an owner saying keep', () => {
   const read = (body: string) => {
-    const got = readRegistration('roadmap.terminal.json', body)
+    const got = readRegistration('kehikot.terminal.json', body)
     if (!got.ok) throw new Error(got.why)
     return got.registration
   }
@@ -381,7 +381,7 @@ describe('an owner saying keep', () => {
 
 describe('asleep does not read like broken', () => {
   test('the sentence says the host stopped it and that it comes back', () => {
-    const said = asleepLine('roadmap.notes', 'http://127.0.0.1:7860')
+    const said = asleepLine('kehikot.notes', 'http://127.0.0.1:7860')
     expect(said).toContain('asleep')
     expect(said).toContain('Nothing is wrong with it')
     expect(said).toContain('http://127.0.0.1:7860')
@@ -392,7 +392,7 @@ describe('asleep does not read like broken', () => {
   })
 
   test('and a start in flight says so, and says it will resolve', () => {
-    const said = startingLine('roadmap.notes', 'http://127.0.0.1:7860')
+    const said = startingLine('kehikot.notes', 'http://127.0.0.1:7860')
     expect(said).toContain('starting')
     expect(said).toContain('resolves on its own')
   })

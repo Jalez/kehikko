@@ -43,8 +43,8 @@ function legacy(home: string): { db: Database; modules: string } {
   const dir = join(home, '.roadmap')
   const modules = join(dir, 'modules')
   mkdirSync(modules, { recursive: true })
-  writeFileSync(join(modules, 'roadmap.notes.json'), JSON.stringify({ url: 'http://127.0.0.1:7001' }))
-  writeFileSync(join(modules, 'roadmap.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7002' }))
+  writeFileSync(join(modules, 'kehikot.notes.json'), JSON.stringify({ url: 'http://127.0.0.1:7001' }))
+  writeFileSync(join(modules, 'kehikot.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7002' }))
   const db = new Database(join(dir, 'frame.sqlite'), { create: true })
   db.exec('pragma journal_mode = wal')
   db.exec('pragma wal_autocheckpoint = 0')
@@ -79,7 +79,7 @@ describe('migrating from ~/.roadmap', () => {
 
     const done = migrateMachineData(env)
     expect(done.frameDb?.to).toBe(frameDbFile(env))
-    expect(done.modules).toEqual(['roadmap.notes.json', 'roadmap.paper.json'])
+    expect(done.modules).toEqual(['kehikot.notes.json', 'kehikot.paper.json'])
 
     const copied = new Database(frameDbFile(env), { readonly: true })
     expect(copied.query<{ name: string }, []>('select name from canvases order by id').all().map((r) => r.name)).toEqual([
@@ -87,10 +87,10 @@ describe('migrating from ~/.roadmap', () => {
       'only in the wal',
     ])
     copied.close()
-    expect(readdirSync(modulesDir(env)).sort()).toEqual(['roadmap.notes.json', 'roadmap.paper.json'])
+    expect(readdirSync(modulesDir(env)).sort()).toEqual(['kehikot.notes.json', 'kehikot.paper.json'])
     /* Copies keep their times, so a later rewrite of the old file is "newer". */
-    expect(Math.floor(statSync(join(modulesDir(env), 'roadmap.notes.json')).mtimeMs)).toBe(
-      Math.floor(statSync(join(home, '.roadmap', 'modules', 'roadmap.notes.json')).mtimeMs),
+    expect(Math.floor(statSync(join(modulesDir(env), 'kehikot.notes.json')).mtimeMs)).toBe(
+      Math.floor(statSync(join(home, '.roadmap', 'modules', 'kehikot.notes.json')).mtimeMs),
     )
     /* No temp files left behind. */
     expect(readdirSync(machineDir(env)).filter((name) => name.includes('migrating'))).toEqual([])
@@ -169,32 +169,32 @@ describe('the registry falls back to ~/.roadmap/modules', () => {
     mkdirSync(old, { recursive: true })
     mkdirSync(now, { recursive: true })
 
-    writeFileSync(join(old, 'roadmap.notes.json'), JSON.stringify({ url: 'http://127.0.0.1:7001' }))
+    writeFileSync(join(old, 'kehikot.notes.json'), JSON.stringify({ url: 'http://127.0.0.1:7001' }))
     /* Both have paper; the old one was rewritten more recently (a module that
        restarted on another port and still registers the old way). */
-    writeFileSync(join(now, 'roadmap.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7002' }))
-    writeFileSync(join(old, 'roadmap.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7012' }))
-    utimesSync(join(now, 'roadmap.paper.json'), 1000, 1000)
-    utimesSync(join(old, 'roadmap.paper.json'), 2000, 2000)
+    writeFileSync(join(now, 'kehikot.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7002' }))
+    writeFileSync(join(old, 'kehikot.paper.json'), JSON.stringify({ url: 'http://127.0.0.1:7012' }))
+    utimesSync(join(now, 'kehikot.paper.json'), 1000, 1000)
+    utimesSync(join(old, 'kehikot.paper.json'), 2000, 2000)
     /* Both have slides at the same time: the new directory wins the tie. */
-    writeFileSync(join(now, 'roadmap.slides.json'), JSON.stringify({ url: 'http://127.0.0.1:7003' }))
-    writeFileSync(join(old, 'roadmap.slides.json'), JSON.stringify({ url: 'http://127.0.0.1:7013' }))
-    utimesSync(join(now, 'roadmap.slides.json'), 3000, 3000)
-    utimesSync(join(old, 'roadmap.slides.json'), 3000, 3000)
+    writeFileSync(join(now, 'kehikot.slides.json'), JSON.stringify({ url: 'http://127.0.0.1:7003' }))
+    writeFileSync(join(old, 'kehikot.slides.json'), JSON.stringify({ url: 'http://127.0.0.1:7013' }))
+    utimesSync(join(now, 'kehikot.slides.json'), 3000, 3000)
+    utimesSync(join(old, 'kehikot.slides.json'), 3000, 3000)
 
     const swept = await readRegistrations()
     expect(swept.dir).toBe(now)
     expect(Object.fromEntries(swept.registrations.map((r) => [r.id, r.url]))).toEqual({
-      'roadmap.notes': 'http://127.0.0.1:7001',
-      'roadmap.paper': 'http://127.0.0.1:7012',
-      'roadmap.slides': 'http://127.0.0.1:7003',
+      'kehikot.notes': 'http://127.0.0.1:7001',
+      'kehikot.paper': 'http://127.0.0.1:7012',
+      'kehikot.slides': 'http://127.0.0.1:7003',
     })
 
     /* Given a directory, only that directory is read. */
-    expect((await readRegistrations(now)).registrations.map((r) => r.id)).toEqual(['roadmap.paper', 'roadmap.slides'])
+    expect((await readRegistrations(now)).registrations.map((r) => r.id)).toEqual(['kehikot.paper', 'kehikot.slides'])
 
     /* An overridden registry does not fall back. */
     process.env.KEHIKOT_MODULES_DIR = now
-    expect((await readRegistrations()).registrations.map((r) => r.id)).toEqual(['roadmap.paper', 'roadmap.slides'])
+    expect((await readRegistrations()).registrations.map((r) => r.id)).toEqual(['kehikot.paper', 'kehikot.slides'])
   })
 })

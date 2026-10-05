@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'roadmap-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'kehikot-module-protocol'
 
 import { Presses } from '../src/host/presses.ts'
 import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'

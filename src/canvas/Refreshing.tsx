@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'roadmap-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -19,7 +19,7 @@ import { Hint } from './Hint.tsx'
  * first one that a clock can press.
  *
  * A module says it can be read again and when it last was; the host draws this;
- * a press — or a tick — goes back as `roadmap.refresh`. Nothing here knows what
+ * a press — or a tick — goes back as `kehikot.refresh`. Nothing here knows what
  * the module reads, where from, or what it costs.
  *
  * ## Why this is in the header at all, when five modules drew their own

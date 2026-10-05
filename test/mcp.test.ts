@@ -264,7 +264,7 @@ describe('setting the module selection', () => {
       expect(done.failed).toBe(true)
     }
     const said = await call('select_modules', { kehikko: id, modules: undefined }, door())
-    expect(said.text).toContain('modules: ["roadmap.journeys"]')
+    expect(said.text).toContain('modules: ["kehikot.journeys"]')
   })
 
   test('the same id twice is one selection', async () => {

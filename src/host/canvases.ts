@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MODULE_ID } from 'roadmap-module-protocol'
+import { MODULE_ID } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -196,7 +196,9 @@ const canvasSchema = z.object({
 export type Canvas = z.infer<typeof canvasSchema>
 
 /** Which canvas this browser had open. See below for why this one thing is local. */
-export const OPEN_KEY = 'roadmap.frame.open.v1'
+export const OPEN_KEY = 'kehikot.frame.open.v1'
+/** The same key before the app was renamed. Read when the new one is absent, never written. */
+export const LEGACY_OPEN_KEY = 'roadmap.frame.open.v1'
 
 /**
  * Every kehikko, from every project, and the projects themselves.
@@ -296,7 +298,7 @@ async function reason(response: Response): Promise<string> {
  * It is not a credential and there is nothing behind it. See `/host/open` in
  * `server/server.ts`.
  */
-const PAGE_KEY = 'roadmap.frame.page.v1'
+const PAGE_KEY = 'kehikot.frame.page.v1'
 let minted: string | null = null
 export function pageId(): string {
   if (minted) return minted
@@ -468,7 +470,7 @@ export function watchCanvases(
  */
 export function readOpen(storage: Pick<Storage, 'getItem'>): number | null {
   try {
-    const raw = storage.getItem(OPEN_KEY)
+    const raw = storage.getItem(OPEN_KEY) ?? storage.getItem(LEGACY_OPEN_KEY)
     if (raw === null) return null
     const id = Number(raw)
     return Number.isInteger(id) && id > 0 ? id : null

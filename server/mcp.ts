@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, LIMITS, methodParams, type TrackerRow } from 'roadmap-module-protocol'
+import { canonicalModuleId, DISPOSITIONS, LIMITS, methodParams, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -391,8 +391,8 @@ function tools() {
             type: 'array',
             items: { type: 'string' },
             description:
-              'The module ids to select, exactly as read_canvas prints them, e.g. ["roadmap.journeys", '
-              + '"roadmap.notes"]. Every one has to be on this kehikko already; use place_modules to put one '
+              'The module ids to select, exactly as read_canvas prints them, e.g. ["kehikot.journeys", '
+              + '"kehikot.notes"]. Every one has to be on this kehikko already; use place_modules to put one '
               + 'there first. An empty list unpicks everything.',
           },
         },
@@ -420,7 +420,7 @@ function tools() {
             items: { type: 'string' },
             description:
               'The module ids to place, exactly as read_canvas prints them under "registered on this computer '
-              + 'and not on this kehikko", e.g. ["roadmap.notes"]. In the order they should be added.',
+              + 'and not on this kehikko", e.g. ["kehikot.notes"]. In the order they should be added.',
           },
         },
         required: ['modules'],
@@ -429,12 +429,12 @@ function tools() {
     {
       name: 'create_epic',
       description:
-        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/roadmap/epics/<slug>.json, with the '
+        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/kehikko/epics/<slug>.json, with the '
         + 'slug, the title and today’s date, and nothing else invented — steps and prose come later, through the '
-        + 'roadmap. The slug is derived from the title (lowercase, dashes) unless you give one. The person sees the '
+        + 'host. The slug is derived from the title (lowercase, dashes) unless you give one. The person sees the '
         + 'epic appear in their dropdown at once. It does NOT open the epic on the kehikko: which epic somebody is '
         + 'looking at is theirs to change, so if you want them to look at it, say so to them. A slug that is '
-        + 'already an epic here is refused, never overwritten. A project with no .kehikot/roadmap/epics gets the directory made.',
+        + 'already an epic here is refused, never overwritten. A project with no .kehikot/kehikko/epics gets the directory made.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -524,10 +524,10 @@ function modulesIn(
       why:
         tool === 'select_modules'
           ? 'select_modules needs modules: a list of the module ids that should end up selected, e.g. modules: '
-            + '["roadmap.journeys"]. Pass modules: [] to unpick everything. It replaces the selection rather than '
+            + '["kehikot.journeys"]. Pass modules: [] to unpick everything. It replaces the selection rather than '
             + 'adding to it, so send every id you want selected, not only the new one.'
           : 'place_modules needs modules: a list of the module ids to put on the kehikko, e.g. modules: '
-            + '["roadmap.notes"] — as read_canvas prints them under "registered on this computer and not on this '
+            + '["kehikot.notes"] — as read_canvas prints them under "registered on this computer and not on this '
             + 'kehikko".',
     }
   }
@@ -544,7 +544,9 @@ function modulesIn(
           + `${MAX_ID} characters. One of them was not.`,
       }
     }
-    const id = one.trim()
+    /* Canonical: an agent that learned `roadmap.notes` before the app was
+       renamed means the module that is `kehikot.notes` now. */
+    const id = canonicalModuleId(one.trim())
     /* A duplicate is not a second selection of the same container; it is the
        same one, and letting it through would make "how many are selected" a
        number that disagrees with what is on screen. The same rule `refsIn`
@@ -942,7 +944,7 @@ function createEpicAt(
   return {
     text:
       `Created ${made.epic.slug} ("${made.epic.title}") in ${project.name} — ${made.file}`
-      + (made.madeDirectory ? ', and made .kehikot/roadmap/epics there, which did not exist' : '')
+      + (made.madeDirectory ? ', and made .kehikot/kehikko/epics there, which did not exist' : '')
       + `. It is in the dropdown now. ${project.name} is still about ${
         readSubject(door.db, project.id)?.epic ?? 'no epic'
       }: this tool does not switch what somebody is looking at. If they should open it, ask them.`,

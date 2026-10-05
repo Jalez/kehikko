@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
-import { MODULE_ID } from 'roadmap-module-protocol'
+import { basename, join } from 'node:path'
+import { canonicalModuleId, MODULE_ID } from 'kehikot-module-protocol'
 import { legacyModulesDir, modulesDir } from './machineDirs.ts'
 
 /**
@@ -164,13 +164,17 @@ export function readRegistration(
   fileName: string,
   body: string,
 ): { ok: true; registration: Omit<Registration, 'file'> } | { ok: false; why: string } {
-  const id = fileName.replace(/\.(json|ya?ml)$/i, '')
-  if (!MODULE_ID.test(id)) {
+  const named = fileName.replace(/\.(json|ya?ml)$/i, '')
+  if (!MODULE_ID.test(named)) {
     return {
       ok: false,
-      why: `"${id}" is not a module id: lowercase letters, digits, dots and dashes, 3 to 64 characters.`,
+      why: `"${named}" is not a module id: lowercase letters, digits, dots and dashes, 3 to 64 characters.`,
     }
   }
+  /* Canonical: `roadmap.history.json`, written by a module from before the app
+     was renamed, registers the same module as `kehikot.history.json`. The file
+     is never renamed — the module that wrote it will write it again. */
+  const id = canonicalModuleId(named)
 
   let fields: Record<string, string>
   try {
@@ -268,25 +272,37 @@ export function isLoopback(hostname: string): boolean {
  * only that one is read.
  */
 export async function readRegistrations(dir?: string): Promise<RegistrationSweep> {
-  if (dir !== undefined) return sweep(dir)
-  const primary = registryDir()
-  const legacy = legacyModulesDir()
+  const primary = dir ?? registryDir()
+  const legacy = dir === undefined ? legacyModulesDir() : null
   const now = await sweep(primary)
-  if (!legacy || legacy === primary) return now
-  const old = await sweep(legacy)
-  if (!old.registrations.length && !old.rejected.length) return now
+  const old = legacy && legacy !== primary ? await sweep(legacy) : { registrations: [], rejected: [], dir: legacy ?? primary }
 
-  const byId = new Map<string, { registration: Registration; mtime: number }>()
-  for (const [list, legacyFirst] of [[old.registrations, true], [now.registrations, false]] as const) {
+  /*
+   * One registration per module, whichever files name it. Two files can: the
+   * same id in both directories, and — since the rename — `roadmap.x.json` and
+   * `kehikot.x.json` for one module, in either. The most recently modified
+   * wins, because a module that restarts on another port rewrites ITS file and
+   * the others are what it said before. Ties go to the new directory, then to
+   * the file named with the current spelling.
+   */
+  const byId = new Map<string, { registration: Registration; rank: [number, number, number] }>()
+  for (const [list, inPrimary] of [[old.registrations, 0], [now.registrations, 1]] as const) {
     for (const registration of list) {
-      const mtime = await modified(registration.file)
+      const canonicalName = basename(registration.file).startsWith(`${registration.id}.`) ? 1 : 0
+      const rank: [number, number, number] = [await modified(registration.file), inPrimary, canonicalName]
       const held = byId.get(registration.id)
-      /* `>=` for the new directory, so a tie goes to it. */
-      if (!held || (legacyFirst ? mtime > held.mtime : mtime >= held.mtime)) byId.set(registration.id, { registration, mtime })
+      if (!held || outranks(rank, held.rank)) byId.set(registration.id, { registration, rank })
     }
   }
   const registrations = [...byId.values()].map((entry) => entry.registration).sort((a, b) => a.id.localeCompare(b.id))
   return { registrations, rejected: [...now.rejected, ...old.rejected], dir: primary }
+}
+
+function outranks(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]! !== b[i]!) return a[i]! > b[i]!
+  }
+  return false
 }
 
 /** Whole milliseconds: a copy made with `utimes` keeps no finer than that, and must tie with its original. */

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { methodResults, trackerReadingResult, type TrackerRow, type TrackerSignal } from 'roadmap-module-protocol'
-import { dispositionOf, facetsOf } from 'roadmap-module-protocol/facets'
+import { methodResults, trackerReadingResult, type TrackerRow, type TrackerSignal } from 'kehikot-module-protocol'
+import { dispositionOf, facetsOf } from 'kehikot-module-protocol/facets'
 
 import { answer, answerCall } from '../server/answers.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
@@ -380,9 +380,9 @@ describe('one reading per project', () => {
   })
 
   test('an epic’s refs, and live.get’s four bags over the same reading', async () => {
-    mkdirSync(join(folder, '.kehikot', 'roadmap', 'epics'), { recursive: true })
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
     const epic = { slug: 'one', title: 'One', umbrella: 'gh#9', steps: [{ title: 's', refs: ['gh#1', 'gh#3', 'not a ref'] }] }
-    writeFileSync(join(folder, '.kehikot', 'roadmap', 'epics', 'one.json'), JSON.stringify(epic))
+    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify(epic))
     expect(refsInEpic(epic).sort()).toEqual(['gh#1', 'gh#3', 'gh#9'])
     const trackers = new Trackers({
       run: remotes,

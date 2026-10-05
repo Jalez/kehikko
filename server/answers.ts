@@ -3,7 +3,7 @@ import {
   METHOD_NAMES,
   methodParams,
   type ResponseFailureReason,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import {
   ANSWERED_BY_THE_SERVER,
   ANSWERED_BY_THE_VIEW,
@@ -13,7 +13,7 @@ import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
 import { epicsIn, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
 import type { Scope } from './trackers/reading.ts'
-import type { TrackerReading, TrackerRefreshResult } from 'roadmap-module-protocol'
+import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
 /**
  * The shared tracker reading, as this file needs it. Injected for `keep`'s
@@ -75,7 +75,7 @@ export interface TrackerDoor {
  * simply appear here.
  */
 
-/** What one answer looks like before it becomes a `roadmap.response`. */
+/** What one answer looks like before it becomes a `kehikot.response`. */
 export type Answer =
   | { ok: true; data: unknown }
   | { ok: false; reason: ResponseFailureReason; error: string }
@@ -152,7 +152,7 @@ export function answer(
    * the roadmap, correctly, with no symptom.
    *
    * Null is the ordinary state and not a failure: a host with no project open,
-   * a call from a frame on a project that has no `.kehikot/roadmap/epics`, or a test that
+   * a call from a frame on a project that has no `.kehikot/kehikko/epics`, or a test that
    * has deliberately given it nothing. Every branch below already had to answer
    * for a host holding nothing, so null needs no new sentence.
    */
@@ -234,7 +234,7 @@ export function answer(
    * Where this call's holdings are, if there are any.
    *
    * Checked per call rather than once at startup, because a refresh rewrites
-   * those files underneath a running host, because `.kehikot/roadmap/epics` can appear
+   * those files underneath a running host, because `.kehikot/kehikko/epics` can appear
    * under a project that did not have it a minute ago, and because which
    * project is being asked about is now a property of the call rather than of
    * the process.
@@ -287,7 +287,7 @@ export function answer(
   /**
    * What the trackers last reported.
    *
-   * Answered out of `.kehikot/roadmap/state/`, which a refresh writes and nobody edits by
+   * Answered out of `.kehikot/kehikko/state/`, which a refresh writes and nobody edits by
    * hand — so this host relays a reading rather than making a claim of its own.
    * `generated` travels with it and is the most important field in the answer:
    * tracker state with no date on it is last week presented as now.
@@ -402,7 +402,7 @@ export function answer(
    *
    * ## What changed
    *
-   * The protocol grew the ninth message. `roadmap.event` carries an extension
+   * The protocol grew the ninth message. `kehikot.event` carries an extension
    * payload from the host into a frame — unanswered, with no correlation id,
    * because a host that waited for acknowledgement could be hung by a container
    * nobody is looking at. The gap this refusal named is closed, and the refusal

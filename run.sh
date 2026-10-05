@@ -108,7 +108,7 @@ if [ ! -d node_modules ] || [ ! -f "$INSTALLED" ] || [ bun.lock -nt "$INSTALLED"
 fi
 
 # ---------------------------------------------------------------------------
-# Where the roadmap's own data lives — and, since projects, what that means now.
+# Where the host's own data lives — and, since projects, what that means now.
 #
 # ## It is a SEED, and only a seed
 #
@@ -117,9 +117,10 @@ fi
 # told about epics for the life of the process.
 #
 # That is no longer where epics come from. A kehikko belongs to a PROJECT, a
-# project is a folder, and epics are read from `<project>/.kehikot/roadmap/epics`
-# (once `<project>/data/epics`; the host moves a legacy one over when it adopts
-# or adds the project — see `server/roadmapData.ts`) — so a
+# project is a folder, and epics are read from `<project>/.kehikot/kehikko/epics`
+# (once `<project>/data/epics`, then `<project>/.kehikot/roadmap/epics`; the host
+# brings a legacy one over when it starts, adopts or adds the project — see
+# `server/hostData.ts`) — so a
 # person with two projects open gets two different answers, which is the whole
 # point. See `server/projects.ts`.
 #
@@ -151,10 +152,11 @@ fi
 # live in the kehikko project's `.kehikot/`), so the default is too: the
 # projects table is the answer on every start, and this variable only seeds a
 # fresh database when somebody sets it on purpose.
-# Whether a folder holds epics: `.kehikot/roadmap/epics`, or the legacy
-# `data/epics` the host will move there when it adopts the folder.
+# Whether a folder holds epics: `.kehikot/kehikko/epics`, or one of the older
+# places the host brings over when it adopts the folder — `.kehikot/roadmap/epics`
+# (from before the app was renamed) or the legacy `data/epics`.
 holds_epics() {
-  [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
+  [ -d "$1/.kehikot/kehikko/epics" ] || [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
 }
 
 # `KEHIKOT_SEED_PROJECT` is the name; `KEHIKKO_ROADMAP_DIR`, the old one, is
@@ -167,7 +169,7 @@ if [ -n "${KEHIKOT_SEED_PROJECT:-}" ]; then
   if holds_epics "$KEHIKOT_SEED_PROJECT"; then
     echo "kehikko: KEHIKOT_SEED_PROJECT seeds the FIRST project only, from $KEHIKOT_SEED_PROJECT" >&2
   else
-    echo "kehikko: KEHIKOT_SEED_PROJECT=$KEHIKOT_SEED_PROJECT holds no .kehikot/roadmap/epics; it seeds nothing." >&2
+    echo "kehikko: KEHIKOT_SEED_PROJECT=$KEHIKOT_SEED_PROJECT holds no .kehikot/kehikko/epics; it seeds nothing." >&2
   fi
 fi
 

@@ -44,7 +44,7 @@ function recording(answer: (args: string[]) => { ok: boolean; said: string } = (
 }
 
 const door: Door = {
-  module: 'roadmap.checklist',
+  module: 'kehikot.checklist',
   as: 'checklist',
   url: 'http://127.0.0.1:7860/mcp',
   transport: 'http',
@@ -52,7 +52,7 @@ const door: Door = {
 
 describe('what the host would run, before it runs it', () => {
   test('the name is the id’s last segment, which is what `claude mcp add` is usually given', () => {
-    expect(serverName('roadmap.checklist')).toBe('checklist')
+    expect(serverName('kehikot.checklist')).toBe('checklist')
     expect(serverName('checklist')).toBe('checklist')
     expect(serverName('a.b.c')).toBe('c')
   })
@@ -178,11 +178,11 @@ describe('the door comes from the registry, never from a request', () => {
     const dir = registry()
     process.env.KEHIKOT_MODULES_DIR = dir
 
-    const found = await doorFor('roadmap.not-a-thing')
+    const found = await doorFor('kehikot.not-a-thing')
     expect(found.ok).toBe(false)
     if (found.ok) return
     expect(found.status).toBe(404)
-    expect(found.why).toContain('roadmap.not-a-thing')
+    expect(found.why).toContain('kehikot.not-a-thing')
     expect(found.why).toContain(dir)
   })
 
@@ -192,7 +192,7 @@ describe('the door comes from the registry, never from a request', () => {
        registry directory. */
     const dir = registry()
     process.env.KEHIKOT_MODULES_DIR = dir
-    writeFileSync(join(dir, 'roadmap.checklist.json'), JSON.stringify({ url: 'http://127.0.0.1:7860' }))
+    writeFileSync(join(dir, 'kehikot.checklist.json'), JSON.stringify({ url: 'http://127.0.0.1:7860' }))
 
     const found = await doorFor('http://evil.example/mcp')
     expect(found.ok).toBe(false)
@@ -206,9 +206,9 @@ describe('the door comes from the registry, never from a request', () => {
        manifest field, because those send a person to different places. */
     const dir = registry()
     process.env.KEHIKOT_MODULES_DIR = dir
-    writeFileSync(join(dir, 'roadmap.quiet.json'), JSON.stringify({ url: 'http://127.0.0.1:9' }))
+    writeFileSync(join(dir, 'kehikot.quiet.json'), JSON.stringify({ url: 'http://127.0.0.1:9' }))
 
-    const found = await doorFor('roadmap.quiet')
+    const found = await doorFor('kehikot.quiet')
     expect(found.ok).toBe(false)
     if (found.ok) return
     expect(found.status).toBe(409)

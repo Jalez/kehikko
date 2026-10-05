@@ -2,12 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import { readFileSync } from 'node:fs'
-import type { FilterGroup } from 'roadmap-module-protocol'
+import type { FilterGroup } from 'kehikot-module-protocol'
 
 import { Label, saying } from '../src/canvas/Filters.tsx'
 import { chosen, narrowed, sameChoice, settle, switchedOn, toggled } from '../src/host/filters.ts'
 import { whileFrozen } from '../src/host/context.ts'
-import { LIMITS, contextSchema } from 'roadmap-module-protocol'
+import { LIMITS, contextSchema } from 'kehikot-module-protocol'
 
 /**
  * What the host does with a filter, which is as close to nothing as it can be —

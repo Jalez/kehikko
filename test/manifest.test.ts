@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PROTOCOL, WELL_KNOWN } from 'roadmap-module-protocol'
+import { PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
 import { look, resolveOnOrigin } from '../server/discover.ts'
 import type { Registration } from '../server/registrations.ts'
@@ -30,7 +30,7 @@ function serving(document: unknown, options: { status?: number; raw?: string } =
 }
 
 const good = {
-  kind: 'roadmap.module',
+  kind: 'kehikot.module',
   protocol: PROTOCOL,
   id: 'example.journey-notes',
   name: 'Journey notes',
@@ -117,7 +117,7 @@ describe('a document that is not a manifest', () => {
 
   test('a manifest without the kind word cannot become a container by accident', async () => {
     const { kind, ...withoutKind } = good
-    expect(kind).toBe('roadmap.module')
+    expect(kind).toBe('kehikot.module')
     const presence = await look(registration, serving(withoutKind))
     expect(presence.condition).toBe('silent')
   })

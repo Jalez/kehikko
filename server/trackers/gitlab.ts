@@ -1,4 +1,4 @@
-import { LIMITS, type PipelineState, type TrackerDetailFacts, type TrackerRow } from 'roadmap-module-protocol'
+import { LIMITS, type PipelineState, type TrackerDetailFacts, type TrackerRow } from 'kehikot-module-protocol'
 
 import type { Runner } from '../feedback.ts'
 import {

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
-import type { FilterGroup } from 'roadmap-module-protocol'
+import type { FilterGroup } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
 import { FeedbackButton } from './Feedback.tsx'
@@ -448,7 +448,7 @@ export function Container({
          * all without a button.
          *
          * What stays: `grow` is a column on the placement, `onGrow` is still in
-         * `App.tsx`, `onHeight` still refuses to act on `roadmap.resize` unless
+         * `App.tsx`, `onHeight` still refuses to act on `kehikot.resize` unless
          * the container has it, and `onLayoutChange` still carries it across a
          * drag. So it can be set by anything that writes a placement — the
          * host's canvas endpoint, or a future control — and a container that has

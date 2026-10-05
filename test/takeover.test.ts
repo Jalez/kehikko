@@ -74,7 +74,7 @@ describe('a listener proven to be the module', () => {
   test('running from the registered directory is stopped by group with SIGTERM', async () => {
     const root = dir()
     const { os, world } = fake({ listener: 1234, cwds: { 1234: root, 1200: root }, groups: { 1234: 1200 } })
-    expect(await takeOver('roadmap.paper', runnable(root), os)).toEqual({ kind: 'stopped', pgid: 1200, killed: false })
+    expect(await takeOver('kehikot.paper', runnable(root), os)).toEqual({ kind: 'stopped', pgid: 1200, killed: false })
     expect(world.signals).toEqual([[1200, 'SIGTERM']])
   })
 
@@ -83,14 +83,14 @@ describe('a listener proven to be the module', () => {
     const inner = join(root, 'web')
     mkdirSync(inner)
     const { os, world } = fake({ listener: 1234, cwds: { 1234: inner }, groups: { 1234: 1234 } })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('stopped')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('stopped')
     expect(world.signals).toEqual([[1234, 'SIGTERM']])
   })
 
   test('a port that never frees after SIGTERM gets SIGKILL to the same group', async () => {
     const root = dir()
     const { os, world } = fake({ listener: 1234, cwds: { 1234: root }, groups: { 1234: 1200 }, freesOn: null })
-    expect(await takeOver('roadmap.paper', runnable(root), os)).toEqual({ kind: 'stopped', pgid: 1200, killed: true })
+    expect(await takeOver('kehikot.paper', runnable(root), os)).toEqual({ kind: 'stopped', pgid: 1200, killed: true })
     expect(world.signals).toEqual([[1200, 'SIGTERM'], [1200, 'SIGKILL']])
   })
 
@@ -101,7 +101,7 @@ describe('a listener proven to be the module', () => {
       world.signals.push([pgid, signal])
       world.listener = 9999
     }
-    const taken = await takeOver('roadmap.paper', runnable(root), os)
+    const taken = await takeOver('kehikot.paper', runnable(root), os)
     expect(taken.kind).toBe('refused')
     expect(world.signals).toEqual([[1200, 'SIGTERM']])
   })
@@ -112,10 +112,10 @@ describe('refused, and nothing signalled', () => {
     const root = dir()
     const elsewhere = dir('other')
     const { os, world } = fake({ listener: 1234, cwds: { 1234: elsewhere }, groups: { 1234: 1200 } })
-    const taken = await takeOver('roadmap.paper', runnable(root), os)
+    const taken = await takeOver('kehikot.paper', runnable(root), os)
     expect(taken.kind).toBe('refused')
     if (taken.kind === 'refused') {
-      expect(taken.why).toContain('roadmap.paper is already running at http://127.0.0.1:7870 and this host did not start it')
+      expect(taken.why).toContain('kehikot.paper is already running at http://127.0.0.1:7870 and this host did not start it')
       expect(taken.why).toContain(`not running from ${root}`)
     }
     expect(world.signals).toEqual([])
@@ -124,14 +124,14 @@ describe('refused, and nothing signalled', () => {
   test('a sibling directory sharing a prefix is not inside', async () => {
     const root = dir('mod')
     const { os, world } = fake({ listener: 1234, cwds: { 1234: `${root}-evil` }, groups: { 1234: 1200 } })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 
   test('a working directory that cannot be read', async () => {
     const root = dir()
     const { os, world } = fake({ listener: 1234, groups: { 1234: 1200 } })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 
@@ -139,7 +139,7 @@ describe('refused, and nothing signalled', () => {
     test(`process group ${pgid}`, async () => {
       const root = dir()
       const { os, world } = fake({ listener: 1234, cwds: { 1234: root }, groups: { 1234: pgid } })
-      expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+      expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
       expect(world.signals).toEqual([])
     })
   }
@@ -147,7 +147,7 @@ describe('refused, and nothing signalled', () => {
   test("the host's own process group", async () => {
     const root = dir()
     const { os, world } = fake({ listener: 1234, cwds: { 1234: root }, groups: { 1234: 500 }, own: 500 })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 
@@ -155,21 +155,21 @@ describe('refused, and nothing signalled', () => {
     const root = dir()
     const home = dir('home')
     const { os, world } = fake({ listener: 1234, cwds: { 1234: root, 1200: home }, groups: { 1234: 1200 } })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 
   test('the listener cannot be looked up at all', async () => {
     const root = dir()
     const { os, world } = fake({ listenerThrows: true })
-    expect((await takeOver('roadmap.paper', runnable(root), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 
   test('a registration with no port', async () => {
     const root = dir()
     const { os, world } = fake({ listener: 1234, cwds: { 1234: root }, groups: { 1234: 1200 } })
-    expect((await takeOver('roadmap.paper', runnable(root, null), os)).kind).toBe('refused')
+    expect((await takeOver('kehikot.paper', runnable(root, null), os)).kind).toBe('refused')
     expect(world.signals).toEqual([])
   })
 })
@@ -177,7 +177,7 @@ describe('refused, and nothing signalled', () => {
 test('no listener means start normally, signalling nothing', async () => {
   const root = dir()
   const { os, world } = fake({ listener: null })
-  expect(await takeOver('roadmap.paper', runnable(root), os)).toEqual({ kind: 'nothing' })
+  expect(await takeOver('kehikot.paper', runnable(root), os)).toEqual({ kind: 'nothing' })
   expect(world.signals).toEqual([])
 })
 

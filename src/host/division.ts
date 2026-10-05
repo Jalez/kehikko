@@ -1,4 +1,4 @@
-import { METHOD_NAMES } from 'roadmap-module-protocol'
+import { METHOD_NAMES } from 'kehikot-module-protocol'
 
 /**
  * Which half of the host answers which method — and the check that nothing
@@ -62,7 +62,7 @@ export const ANSWERED_BY_THE_SERVER = [
  * ## `passage.set` is here for exactly the reason `selection.set` is
  *
  * A passage — a file, a page, a byte range, and the words that were there —
- * goes into `roadmap.context`, and the context is the canvas's to compose.
+ * goes into `kehikot.context`, and the context is the canvas's to compose.
  * There is no second argument to make and no first one to weaken: the server
  * holds no view, has no frames, and would have to push the composed context
  * back to the page over a channel invented for the purpose, whose entire cargo

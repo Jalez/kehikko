@@ -1,4 +1,4 @@
-import { LIMITS, own, type FilterChoice, type FilterGroup } from 'roadmap-module-protocol'
+import { LIMITS, own, type FilterChoice, type FilterGroup } from 'kehikot-module-protocol'
 
 /**
  * What the host does with a filter, which is as close to nothing as it can be.
@@ -222,7 +222,7 @@ export function narrowed(offer: readonly FilterGroup[], choice: Choice): boolean
  * out of a stored value and a live offer. Used to decide whether a press or a
  * re-announcement is worth a write — a module whose label carries a count
  * re-announces whenever the count changes, which is often, and every one of
- * those would otherwise be a write to the arrangement and a `roadmap.context`
+ * those would otherwise be a write to the arrangement and a `kehikot.context`
  * to every frame on the canvas.
  *
  * `Object.hasOwn` rather than `in`: both of these are keyed by strings a framed
