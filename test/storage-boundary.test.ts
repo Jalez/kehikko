@@ -7,7 +7,7 @@ import { format, scanRepo, scanText, workspace } from '../dev/storage-boundary.t
 /**
  * The storage boundary: project data lives only under `<project>/.kehikot/`.
  * See `dev/storage-boundary.ts` for the rule and the allowlist, and
- * README "Where data lives".
+ * docs/README.md, "Where data lives".
  */
 
 const rules = (text: string, file = 'store.ts') => scanText(text, file).map((v) => v.rule)
