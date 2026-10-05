@@ -15,6 +15,8 @@ export interface FramedModule {
   id: string
   name: string
   version: string
+  /** The format the module writes its project data in. Absent from a host older than versions. */
+  dataVersion?: number
   summary: string
   /** What this module says its presence implies for an agent. */
   guidance?: string
@@ -134,6 +136,8 @@ export interface RegistryView {
     rejected: { file: string; why: string }[]
   }
   protocol: number
+  /** What each container pinned to a version is doing — see `server/pins.ts`. Absent from an older host. */
+  pins?: import('./versions.ts').PinView[]
 }
 
 /**

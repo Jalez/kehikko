@@ -18,6 +18,7 @@ import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
 import { ToolsMark } from './Tools.tsx'
+import { VersionPicker } from './Versions.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -80,6 +81,10 @@ export function Container({
   onRemove,
   kehikko,
   epic,
+  canvas = null,
+  version = null,
+  current = null,
+  onVersion = () => {},
 }: {
   presence: Presence
   /** The condition as the canvas currently understands it — see `App.tsx`. */
@@ -171,6 +176,18 @@ export function Container({
   /** The open kehikko's name and epic, written under any feedback filed from here. */
   kehikko: string | null
   epic: string | null
+  /** The open kehikko's id, which a version pin is stored on. */
+  canvas?: number | null
+  /** The tag this container is pinned to, or null for latest. See `Versions.tsx`. */
+  version?: string | null
+  /**
+   * What the running copy calls itself. For a pinned container that is not
+   * running yet, `presence` is a stand-in, so the latest checkout's version
+   * would be the wrong thing to show; the caller says.
+   */
+  current?: string | null
+  /** A pin or unpin went through. */
+  onVersion?(): void
 }) {
   const name = presence.name ?? presence.id
 
@@ -414,11 +431,17 @@ export function Container({
          * on reading it, and every other thing in this header is either an
          * identity or a control.
          */}
-        {presence.module?.version ? (
-          <span className="text-muted-foreground shrink-0 font-mono text-[10px] @max-[300px]/container:hidden">
-            {presence.module.version}
-          </span>
-        ) : null}
+        {/* And a control: press it to pin this container to a tagged version
+            of its module, or back to latest. A pinned container shows its tag
+            in a tint and keeps it at any width — see `Versions.tsx`. */}
+        <VersionPicker
+          module={presence.id}
+          name={name}
+          kehikko={canvas}
+          pinned={version}
+          current={current ?? presence.module?.version ?? null}
+          onPicked={onVersion}
+        />
         <span className="flex-1" />
 
         {/* Whenever this module has an MCP door at all — loud when nothing is

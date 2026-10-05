@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { accessSync, constants, statSync } from 'node:fs'
+import { accessSync, closeSync, constants, openSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import { DEFAULT_FRAME_ORIGINS } from 'kehikot-module-protocol/serve'
 
@@ -61,6 +61,17 @@ export interface Runnable {
   url: string
   /** The line shown to a person before they press Start. */
   command: string
+  /**
+   * Variables added on top of the environment `start` composes. Set for a
+   * pinned VERSION of a module — see `server/pins.ts` — and absent for a
+   * module's own checkout, which gets exactly what it always got.
+   */
+  env?: Record<string, string>
+  /**
+   * A file the script's output is appended to, instead of being discarded.
+   * A file and not a pipe, so nothing has to drain it.
+   */
+  log?: string
 }
 
 export type Startable = { ok: true; run: Runnable } | { ok: false; why: string }
@@ -340,13 +351,20 @@ export function originEnv(
 
 export function start(run: Runnable): Started {
   try {
+    const out = run.log ? openSync(run.log, 'a') : null
     const child = spawn(run.script, [], {
       cwd: run.dir,
-      env: { ...process.env, ...originEnv(process.env), ...(run.port === null ? {} : { PORT: String(run.port) }) },
+      env: {
+        ...process.env,
+        ...originEnv(process.env),
+        ...(run.port === null ? {} : { PORT: String(run.port) }),
+        ...(run.env ?? {}),
+      },
       detached: true,
-      stdio: 'ignore',
+      stdio: out === null ? 'ignore' : ['ignore', out, out],
       shell: false,
     })
+    if (out !== null) closeSync(out)
     /* Its death, noticed. `unref` below stops the child holding this process
        open; it does not stop `exit` arriving, because reaping a child is
        something the runtime does for every child it has whether or not anybody

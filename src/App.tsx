@@ -62,6 +62,7 @@ import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, wishing } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
@@ -884,6 +885,17 @@ export function App() {
        container saying "starting" with nothing left to ask again. An interval
        simply asks at the next tick instead. */
     const again = setInterval(() => void look(), 1500)
+    return () => clearInterval(again)
+  }, [registry, look])
+
+  /* The same, while a container's pinned version is being prepared or started.
+     The server also wakes the page at every step (`wake.ts`); this is the
+     bounded fallback for a wake that was missed, and it ends when every pin
+     has either arrived or failed. */
+  useEffect(() => {
+    const preparing = (registry?.pins ?? []).some((pin) => ['preparing', 'starting'].includes(pin.state))
+    if (!preparing) return
+    const again = setInterval(() => void look(), 2000)
     return () => clearInterval(again)
   }, [registry, look])
 
@@ -2137,6 +2149,8 @@ export function App() {
              often it reads. */
           filters: before?.filters ?? {},
           refreshEvery: before?.refreshEvery ?? null,
+          /* And the version: a drag is not a choice of which version runs. */
+          version: before?.version ?? null,
         }
       })
       /*
@@ -2425,6 +2439,20 @@ export function App() {
     return map
   }, [registry])
 
+  /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
+  const pinViews = useMemo(() => {
+    const map = new Map<string, PinView>()
+    for (const pin of registry?.pins ?? []) map.set(`${pin.kehikko}|${pin.module}`, pin)
+    return map
+  }, [registry])
+
+  /** A ready version's presence by `<module>@<tag>`, for a page kept loaded on another kehikko. */
+  const readyVersions = useMemo(() => {
+    const map = new Map<string, Presence>()
+    for (const pin of registry?.pins ?? []) if (pin.state === 'ready' && pin.presence) map.set(`${pin.module}@${pin.version}`, pin.presence)
+    return map
+  }, [registry])
+
   /** The kehikot of the open project, which is what the header lists. */
   const here = useMemo(() => inProject(canvases, projectId), [canvases, projectId])
 
@@ -2495,16 +2523,37 @@ export function App() {
    * it exists to do.
    */
   const loadedRef = useRef<Set<string>>(new Set())
+  /**
+   * Which version each loaded page is of: the open kehikko's pin when the
+   * module is on it, else whatever it was last loaded as. One page per module,
+   * still — a module is on a kehikko at most once, so two versions of it are
+   * never on screen together, and switching to a kehikko pinned differently
+   * reloads that one page at the other version's address. See `Frames.tsx`.
+   */
+  const loadedVersionRef = useRef<Map<string, string | null>>(new Map())
   const framings = useMemo<Framing[]>(() => {
     const loaded = loadedRef.current
+    const loadedVersion = loadedVersionRef.current
     const anywhere = new Set(everyPlaced(canvases))
     for (const id of [...loaded]) {
       if (!anywhere.has(id) || !byId.has(id)) loaded.delete(id)
     }
     const onOpen = new Set<string>()
+    /* The presence a page is framed from: the module's own, or its pinned
+       version's — which on the open kehikko is that kehikko's pin view, so a
+       version the data guard blocks here is never framed here. */
+    const framedAs = new Map<string, Presence | undefined>()
     for (const p of placements) {
       onOpen.add(p.i)
-      if (byId.get(p.i)?.module) loaded.add(p.i)
+      loadedVersion.set(p.i, p.version ?? null)
+      const resolved = pinnedPresence(byId.get(p.i), p.version ?? null, open ? pinViews.get(`${open.id}|${p.i}`) : undefined)
+      framedAs.set(p.i, resolved.waiting ? undefined : resolved.presence)
+      if (!resolved.waiting && resolved.presence?.module) loaded.add(p.i)
+    }
+    const presenceOf = (id: string): Presence | undefined => {
+      if (framedAs.has(id)) return framedAs.get(id)
+      const version = loadedVersion.get(id) ?? null
+      return version ? readyVersions.get(`${id}@${version}`) : byId.get(id)
     }
 
     /* Sorted by id, and see `Frames.tsx`: this order must have nothing to do
@@ -2513,7 +2562,7 @@ export function App() {
     return [...loaded]
       .sort()
       .map((id) => {
-        const module = byId.get(id)?.module
+        const module = presenceOf(id)?.module
         if (!module) return null
         const found = live[id]
         return {
@@ -2527,7 +2576,7 @@ export function App() {
           shown:
             onOpen.has(id) &&
             !placements.find((p) => p.i === id)?.collapsed &&
-            (found?.condition ?? byId.get(id)?.condition) === 'ready' &&
+            (found?.condition ?? presenceOf(id)?.condition) === 'ready' &&
             !!found,
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
@@ -2546,7 +2595,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -2859,7 +2908,14 @@ export function App() {
           resizeHandles={['se']}
         >
           {containers.map((placement) => {
-            const presence = byId.get(placement.i)
+            /* A pinned container shows its version's presence, or the pin's
+               sentence while the version is on its way — never the latest
+               copy's page. See `pinnedPresence`. */
+            const { presence, waiting } = pinnedPresence(
+              byId.get(placement.i),
+              placement.version ?? null,
+              open ? pinViews.get(`${open.id}|${placement.i}`) : undefined,
+            )
             if (!presence) {
               return (
                 <div key={placement.i}>
@@ -2867,7 +2923,7 @@ export function App() {
                 </div>
               )
             }
-            const found = live[presence.id]
+            const found = waiting ? undefined : live[presence.id]
             return (
               <div key={placement.i}>
                 <Container
@@ -2924,6 +2980,12 @@ export function App() {
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
                   epic={about.epic}
+                  canvas={open?.id ?? null}
+                  version={placement.version ?? null}
+                  current={waiting ? null : (presence.module?.version ?? null)}
+                  /* The server has written the pin and woken this page for the
+                     kehikko; looking again picks up what the version is doing. */
+                  onVersion={() => void look()}
                 />
               </div>
             )

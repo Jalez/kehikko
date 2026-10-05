@@ -1,5 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
-import { isCheckout, type Outcome, type Reading } from './updates.ts'
+import { isCheckout, type Outcome, type PinCount, type Reading } from './updates.ts'
 
 /**
  * One update system: the desktop app's own updater and the module checkouts,
@@ -19,7 +19,7 @@ import { isCheckout, type Outcome, type Reading } from './updates.ts'
  * | `ready`     | `ready`: restart to update | updated, and needs a restart to run it   |
  * | `failed`    | `failed` + its error      | unreadable, unreachable, or an update failed |
  * | `blocked`   | —                         | behind, but refused: uncommitted changes… |
- * | `pinned`    | —                         | reserved for version pinning (issue #30)  |
+ * | `pinned`    | —                         | containers are pinned to a tagged version |
  */
 export type UpdateState =
   | 'unknown'
@@ -87,8 +87,22 @@ export function appRow(status: AppUpdateStatus | null): UpdateRow | null {
   }
 }
 
-/** A module checkout's row, given what was just done to it. */
-export function moduleRow(reading: Reading, outcome: Outcome | null | undefined, running: boolean): UpdateRow {
+/**
+ * A module checkout's row, given what was just done to it.
+ *
+ * `pins` is how many containers pin this module to a version. Such a module
+ * is `pinned` where it would otherwise be up to date, available or blocked:
+ * those containers run the tag they were pinned to, and a new commit on the
+ * checkout is not something they are waiting for — so the header does not
+ * count it. Updating the checkout is still offered in the panel, for the
+ * containers that run latest.
+ */
+export function moduleRow(
+  reading: Reading,
+  outcome: Outcome | null | undefined,
+  running: boolean,
+  pins?: PinCount,
+): UpdateRow {
   const base: UpdateRow = {
     id: reading.id,
     source: 'module',
@@ -109,6 +123,14 @@ export function moduleRow(reading: Reading, outcome: Outcome | null | undefined,
     return outcome.restart ? { ...row, state: 'ready', reason: outcome.note } : { ...row, state: 'uptodate', reason: outcome.note }
   }
   if (outcome?.kind === 'restarted') return row
+  if (pins && pins.containers > 0) {
+    return {
+      ...row,
+      state: 'pinned',
+      version: pins.versions.join(', '),
+      reason: `${pins.containers} container${pins.containers === 1 ? '' : 's'} pinned to ${pins.versions.join(', ')}`,
+    }
+  }
   if (reading.behind > 0) {
     return reading.blocked === null ? { ...row, state: 'available' } : { ...row, state: 'blocked', reason: reading.blocked }
   }
@@ -122,9 +144,12 @@ export function updateRows(
   checkouts: readonly Reading[],
   outcomes: Readonly<Record<string, Outcome>>,
   running: string | null,
+  pins: Readonly<Record<string, PinCount>> = {},
 ): UpdateRow[] {
   const first = appRow(app)
-  const modules = checkouts.map((one) => moduleRow(one, outcomes[one.id], running === one.id))
+  const modules = checkouts.map((one) =>
+    moduleRow(one, outcomes[one.id], running === one.id, Object.hasOwn(pins, one.id) ? pins[one.id] : undefined),
+  )
   return first ? [first, ...modules] : modules
 }
 
@@ -183,8 +208,10 @@ export function stateText(row: UpdateRow): string {
       return `Failed: ${row.reason ?? 'no reason given'}`
     case 'blocked':
       return `Not updated automatically: ${row.reason ?? 'no reason given'}`
-    case 'pinned':
-      return `Pinned${row.version ? ` to ${row.version}` : ''}`
+    case 'pinned': {
+      const pinned = row.reason ?? `Pinned${row.version ? ` to ${row.version}` : ''}`
+      return row.behind > 0 ? `${pinned} · latest has ${row.behind} new commit${row.behind === 1 ? '' : 's'}` : pinned
+    }
   }
 }
 

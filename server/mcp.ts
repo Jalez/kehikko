@@ -8,6 +8,7 @@ import { createEpic } from './holdings.ts'
 import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
 import type { WhichKehikko } from './open.ts'
+import type { Pinned, VersionListing } from './pins.ts'
 import { place } from '../src/host/canvases.ts'
 import { granted, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
@@ -151,6 +152,11 @@ export interface Door {
   seen(): Promise<Sighting[]>
   /** The shared tracker reading, for `read_tracker`. Absent, the tool says so. */
   trackers?: TrackerDoor
+  /** A module's versions and a container's pin, for `module_versions` and `pin_version`. See `pins.ts`. */
+  versions?: {
+    list(module: string, kehikko: number): Promise<VersionListing | { why: string; status: number }>
+    pin(kehikko: number, module: string, version: string | null): Promise<Pinned>
+  }
 }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
@@ -162,6 +168,8 @@ export const TOOL_NAMES = [
   'create_epic',
   'mark_disposition',
   'read_tracker',
+  'module_versions',
+  'pin_version',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -308,6 +316,7 @@ function canvasText(db: Database, canvas: Canvas, how: string, seen: Sighting[])
       const marks = [
         p.selected ? 'SELECTED' : null,
         p.pinned ? 'pinned' : null,
+        p.version ? `runs version ${p.version}, not latest` : null,
         p.collapsed ? 'folded to its header' : null,
         /* What the host last saw of the program, which is not the same question
            as what is arranged. A container for a module that is not running is a
@@ -510,7 +519,73 @@ function tools() {
         },
       },
     },
+    {
+      name: 'module_versions',
+      description:
+        'The versions a module on a kehikko can run: "latest" — the module’s own checkout, which is what every '
+        + 'container runs unless pinned — and the semver tags on its repository, newest first. Each tag says '
+        + 'whether this host can speak to it (known once it has been prepared once), whether the data guard '
+        + 'refuses it for this kehikko’s project (a version whose data format is older than the one the project’s '
+        + 'data is already in), and whether it is already prepared or running. Also says which version this '
+        + 'container is pinned to. Reads the tags from the repository, without a token.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          module: { type: 'string', description: 'The module id, as read_canvas prints it, e.g. "kehikot.notes".' },
+        },
+        required: ['module'],
+      },
+    },
+    {
+      name: 'pin_version',
+      description:
+        'Make one container run a given version of its module, or go back to latest. The same choice a person '
+        + 'makes from the version in the container’s header, and they see it change. Per container: other '
+        + 'kehikot holding the same module keep their own version, and containers pinned to the same version share '
+        + 'one process. The first time a version is used it is fetched, checked out and installed, which takes a '
+        + 'minute; the container says so while it happens. Refused, with the reason, for a tag that is not one of '
+        + 'the module’s versions, one this host cannot speak to, and one the data guard blocks. The module’s own '
+        + 'checkout is never switched.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          module: { type: 'string', description: 'The module id of a container on this kehikko.' },
+          version: {
+            type: ['string', 'null'],
+            description: 'A tag module_versions lists, e.g. "v1.2.0" — or null (or "latest") to unpin.',
+          },
+        },
+        required: ['module', 'version'],
+      },
+    },
   ]
+}
+
+/** One listing, written out for an agent. */
+function versionsText(listing: VersionListing, canvas: Canvas, how: string): string {
+  const lines = [
+    `${listing.name} (${listing.module}) on kehikko ${canvas.id} (${canvas.name}), ${how}.`,
+    `This container runs: ${listing.pinned ? `${listing.pinned} (pinned)` : 'latest'}.`,
+    `latest — the module's own checkout${listing.latest.version ? `, which calls itself ${listing.latest.version}` : ''}${
+      listing.latest.commit ? ` at ${listing.latest.commit}` : ''
+    }${listing.latest.dataVersion !== null ? `, data format ${listing.latest.dataVersion}` : ''}.`,
+  ]
+  if (listing.recorded !== null) lines.push(`This project's data is in format ${listing.recorded}.`)
+  if (listing.error) lines.push(listing.error)
+  if (listing.hint) lines.push(listing.hint)
+  for (const one of listing.versions) {
+    const marks = [
+      one.tag === listing.pinned ? 'PINNED HERE' : null,
+      one.running ? 'running' : one.prepared ? 'prepared' : null,
+      one.dataVersion !== null ? `data format ${one.dataVersion}` : null,
+      one.compatible === false ? `INCOMPATIBLE: ${one.incompatible ?? 'speaks another protocol'}` : one.compatible === null ? 'protocol checked when first prepared' : null,
+      one.blocked ? `BLOCKED: ${one.blocked}` : null,
+    ].filter((mark): mark is string => mark !== null)
+    lines.push(`  ${one.tag}${marks.length ? ` — ${marks.join('; ')}` : ''}`)
+  }
+  return lines.join('\n')
 }
 
 /** The module ids out of an argument, bounded — or a sentence saying what was wrong with them. */
@@ -579,6 +654,23 @@ export async function call(
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
+  if (name === 'module_versions' || name === 'pin_version') {
+    if (!door.versions) return { text: 'This host does not run module versions.', failed: true }
+    const module = typeof args.module === 'string' && args.module.length <= MAX_ID ? canonicalModuleId(args.module) : null
+    if (!module) return { text: `${name} needs module: a module id as read_canvas prints it, e.g. "kehikot.notes".`, failed: true }
+    if (name === 'module_versions') {
+      const listed = await door.versions.list(module, canvas.id)
+      if ('why' in listed) return { text: listed.why, failed: true }
+      return { text: versionsText(listed, canvas, where.how), failed: false }
+    }
+    const raw = args.version
+    if (raw !== null && raw !== 'latest' && (typeof raw !== 'string' || raw.length > 64)) {
+      return { text: 'pin_version needs version: a tag module_versions lists, e.g. "v1.2.0", or null for latest.', failed: true }
+    }
+    const pinned = await door.versions.pin(canvas.id, module, raw === null || raw === 'latest' ? null : raw)
+    if (!pinned.ok) return { text: `${pinned.why} Nothing was changed.`, failed: true }
+    return { text: pinned.text, failed: false }
+  }
 
   const asked = modulesIn(args.modules, 'select_modules')
   if (!asked.ok) return { text: asked.why, failed: true }

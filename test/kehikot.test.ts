@@ -84,6 +84,7 @@ const everything: Placement = {
   selected: true,
   filters: { scope: 'chapter', kind: 'todo' },
   refreshEvery: 15,
+  version: 'v1.2.0',
 }
 
 const another: Placement = {
@@ -101,6 +102,7 @@ const another: Placement = {
   selected: false,
   filters: {},
   refreshEvery: null,
+  version: null,
 }
 
 /** What a canvas looks like with everything that is local to one machine taken off. */
@@ -195,7 +197,7 @@ describe('the round trip: this computer, the file, another computer', () => {
       "name": "writing",
       "containers": [
         {"module":"kehikot.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
-        {"module":"kehikot.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"kehikot.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15}
+        {"module":"kehikot.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"kehikot.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15,"version":"v1.2.0"}
       ]
     }
   ]

@@ -121,6 +121,13 @@ const placementSchema = z.object({
    * `REFRESH_EVERY_MIN`/`MAX` in the protocol.
    */
   refreshEvery: z.number().int().nullable().default(null),
+  /**
+   * Which version of its module this container runs — a semver tag such as
+   * `v1.2.0` — or `null` for latest, the module's own checkout. Per container;
+   * see `version` on `Placement` in `server/canvases.ts`. Defaulted, so an
+   * arrangement stored before versions existed runs latest, as it always did.
+   */
+  version: z.string().nullable().default(null),
 })
 
 /**
@@ -578,6 +585,9 @@ export function place(placements: readonly Placement[], id: string): Placement[]
          minutes would be spending somebody's rate limit on a decision they
          never made. */
       refreshEvery: null,
+      /* Latest. A new container runs the module's own checkout until somebody
+         picks a version in its header. */
+      version: null,
     },
   ]
 }

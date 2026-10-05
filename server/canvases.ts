@@ -13,6 +13,7 @@ import {
   type FilterChoice,
 } from 'kehikot-module-protocol'
 import { frameDbFile } from './machineDirs.ts'
+import { isVersionTag } from './versions.ts'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -269,6 +270,23 @@ export interface Placement {
    * The bounds are the protocol's `REFRESH_EVERY_MIN` and `REFRESH_EVERY_MAX`.
    */
   refreshEvery: number | null
+  /**
+   * Which version of its module this container runs: a semver tag such as
+   * `v1.2.0`, or `null` for "latest" — the module's own checkout, exactly as
+   * before versions existed.
+   *
+   * Per CONTAINER, which is the decision on issue #30: two kehikot can hold
+   * the same module at two versions, and that is what makes comparing them
+   * possible. Containers pinned to the same tag share one process; a second
+   * process exists only when a second version is wanted. See
+   * `server/versionRuns.ts`.
+   *
+   * Not to be confused with `pinned`, which is older and means something else
+   * entirely: a container that stops hearing about the canvas. A container is
+   * "pinned to v1.2.0" in the header; the field is called `version` so the two
+   * never share a name in code.
+   */
+  version: string | null
 }
 
 export interface Canvas {
@@ -363,6 +381,7 @@ export type PlacementInput = Omit<
   | 'selected'
   | 'filters'
   | 'refreshEvery'
+  | 'version'
 > & {
   grow?: boolean
   pinned?: boolean
@@ -374,6 +393,8 @@ export type PlacementInput = Omit<
   selected?: boolean
   filters?: FilterChoice
   refreshEvery?: number | null
+  /** Absent or anything but a version tag means latest. */
+  version?: string | null
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -535,6 +556,9 @@ export function open(file = databaseFile()): Database {
      what a column defaulting to 0 could not have said without inventing an
      interval of no length. */
   add(db, 'placements', 'refresh_every', 'integer')
+  /* Which version a container runs, as a tag; NULL is latest, which is what
+     every container written before versions existed has been running. */
+  add(db, 'placements', 'version', 'text')
   add(db, 'canvases', 'selection', 'text')
   /*
    * Which project a kehikko is in, added to databases written before projects
@@ -770,10 +794,11 @@ export function listCanvases(db: Database): Canvas[] {
         selected: number
         filters: string
         refresh_every: number | null
+        version: string | null
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version from placements order by canvas, module',
     )
     .all()
 
@@ -790,6 +815,7 @@ export function listCanvases(db: Database): Canvas[] {
       selected,
       filters,
       refresh_every: refreshEvery,
+      version,
       ...rest
     } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
@@ -813,6 +839,9 @@ export function listCanvases(db: Database): Canvas[] {
          hand-edited. An interval of zero — or of a year — reaching the page
          would be a timer nobody could reason about. */
       refreshEvery: everyIn(refreshEvery),
+      /* Read through the same check as on the way in: a hand-edited row that
+         is not a tag runs latest rather than something nobody can name. */
+      version: isVersionTag(version) ? version : null,
     }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
@@ -914,7 +943,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -933,6 +962,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.selected ? 1 : 0,
           JSON.stringify(p.filters),
           p.refreshEvery,
+          p.version,
         )
       }
     }
@@ -1344,6 +1374,10 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          other, and the fact that this host ships the one that normally posts
          here is not a reason to trust what arrives. */
       refreshEvery: everyIn(p.refreshEvery),
+      /* A semver tag or latest. Whether the tag exists and may run here is
+         decided where a pin is MADE — `server/pins.ts` — and this only keeps
+         a row from holding something that is not a version at all. */
+      version: isVersionTag(p.version) ? p.version : null,
     })
   }
   return kept

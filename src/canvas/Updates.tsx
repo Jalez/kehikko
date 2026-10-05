@@ -296,10 +296,11 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
     }
   }
 
-  const count = check ? waiting(check.checkouts) : 0
+  const pins = check?.pins ?? {}
+  const count = check ? waiting(check.checkouts, pins) : 0
   const checkouts = check?.checkouts ?? []
   const updating = phase.kind === 'updating' ? phase : null
-  const rows = updateRows(app, checkouts, outcomes, updating ? (updating.ids[updating.at] ?? null) : null)
+  const rows = updateRows(app, checkouts, outcomes, updating ? (updating.ids[updating.at] ?? null) : null, pins)
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
   const checking = phase.kind === 'checking' || quietly || appOne?.state === 'checking'
@@ -393,7 +394,12 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                 return (
                   <Row
                     key={one.id}
-                    row={moduleRow(one, outcome, updating ? updating.ids[updating.at] === one.id : false)}
+                    row={moduleRow(
+                      one,
+                      outcome,
+                      updating ? updating.ids[updating.at] === one.id : false,
+                      Object.hasOwn(pins, one.id) ? pins[one.id] : undefined,
+                    )}
                     reading={one}
                     outcome={outcome}
                     running={updating ? updating.ids[updating.at] === one.id : false}
@@ -428,6 +434,11 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                       {level.map((one) => (
                         <li key={one.id} className="flex items-center gap-2">
                           <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
+                          {Object.hasOwn(pins, one.id) ? (
+                            <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
+                              {pins[one.id]!.containers} pinned to {pins[one.id]!.versions.join(', ')}
+                            </span>
+                          ) : null}
                           <span className="shrink-0 font-mono text-[11px]">
                             {one.branch ?? 'detached'} @ {one.commit}
                           </span>
@@ -552,6 +563,11 @@ function Row({
           {one.branch ?? 'detached'} @ {one.commit}
         </span>
       </div>
+      {row.state === 'pinned' ? (
+        <p className="pt-1 text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
+          {row.reason}
+        </p>
+      ) : null}
       <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
         {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
         {one.fetchFailed ? (
