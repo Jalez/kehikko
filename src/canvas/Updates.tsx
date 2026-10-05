@@ -207,7 +207,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
           ...was,
           [id]: {
             kind: 'updated',
-            note: noteFor(id, done.changed.length, done.installed, done.restart),
+            note: noteFor(id, done.changed.length, done.installed, done.restart, done.lockfileReset),
             restart: done.restart,
             installFailed: done.installFailed,
           },
@@ -495,8 +495,8 @@ function Row({
   )
 }
 
-function noteFor(id: string, changed: number, installed: boolean, restart: 'host' | 'module' | null): string {
-  const files = `${changed} file${changed === 1 ? '' : 's'} changed${installed ? ', dependencies installed' : ''}.`
+function noteFor(id: string, changed: number, installed: boolean, restart: 'host' | 'module' | null, lockfileReset = false): string {
+  const files = `${changed} file${changed === 1 ? '' : 's'} changed${lockfileReset ? ', a stale bun.lock from an earlier install was reset' : ''}${installed ? ', dependencies installed' : ''}.`
   if (id === 'host') {
     return restart === 'host'
       ? `Updated — ${files} The page reloads itself, but the host’s server changed too: quit and reopen Kehikot to run it.`
