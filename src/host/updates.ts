@@ -16,6 +16,7 @@ const checkoutSchema = z.object({
   branch: z.string().nullable(),
   commit: z.string(),
   dirty: z.boolean(),
+  staleLock: z.boolean().optional(),
   upstream: z.string().nullable(),
   behind: z.number(),
   ahead: z.number(),
@@ -57,6 +58,7 @@ const updatedSchema = z.object({
   changed: z.array(z.string()),
   installed: z.boolean(),
   installFailed: z.string().nullable(),
+  lockfileReset: z.boolean().optional(),
   restart: z.enum(['host', 'module']).nullable(),
 })
 

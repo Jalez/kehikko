@@ -46,6 +46,12 @@ export interface Checkout {
   commit: string
   /** Changes to tracked files. Untracked files are not counted. */
   dirty: boolean
+  /**
+   * The only tracked change is `bun.lock`, which a plain `bun install` run by a
+   * `run.sh` rewrites when it re-resolves a git dependency. Nobody edited it,
+   * so an update resets it instead of refusing.
+   */
+  staleLock?: boolean
   /** `origin/main`, or null when the branch tracks nothing. */
   upstream: string | null
   behind: number
@@ -168,6 +174,7 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
 
   const status = await git(dir, ['status', '--porcelain', '--untracked-files=no'])
   const dirty = status.ok ? status.out.length > 0 : false
+  const staleLock = status.ok && dirty && onlyLockfile(status.out)
 
   let ahead = 0
   let behind = 0
@@ -195,6 +202,7 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
     branch,
     commit: head.out,
     dirty,
+    staleLock,
     upstream,
     behind,
     ahead,
@@ -206,11 +214,18 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
   return checkout
 }
 
+/** Whether `git status --porcelain` lists `bun.lock` and nothing else. */
+function onlyLockfile(porcelain: string): boolean {
+  const lines = porcelain.split('\n').filter(Boolean)
+  /* `git()` trims the output, which eats the leading space of ` M bun.lock`; only an unstaged edit counts. */
+  return lines.length === 1 && lines[0] === 'M bun.lock'
+}
+
 /** Why an update would refuse, as a sentence, or null when it would go ahead. */
-export function blockedBy(c: Pick<Checkout, 'branch' | 'upstream' | 'dirty' | 'ahead' | 'behind'>): string | null {
+export function blockedBy(c: Pick<Checkout, 'branch' | 'upstream' | 'dirty' | 'ahead' | 'behind'> & { staleLock?: boolean }): string | null {
   if (!c.branch) return 'not on a branch (a detached checkout), so there is nothing to catch up with'
   if (!c.upstream) return `the branch ${c.branch} tracks no remote branch`
-  if (c.dirty) return 'there are uncommitted changes; commit or stash them first'
+  if (c.dirty && !c.staleLock) return 'there are uncommitted changes; commit or stash them first'
   if (c.ahead > 0)
     return `${c.branch} has ${c.ahead} commit${c.ahead === 1 ? '' : 's'} of its own that ${c.upstream} does not — pull or push it by hand`
   if (c.behind === 0) return 'already up to date'
@@ -226,6 +241,8 @@ export interface Updated {
   installed: boolean
   /** Why install failed, when it did. The update itself still happened. */
   installFailed: string | null
+  /** `bun.lock` held only an install's rewrite and was reset before merging. */
+  lockfileReset: boolean
 }
 
 export type Updating = Updated | { ok: false; why: string; status: number }
@@ -255,6 +272,13 @@ export async function update(place: Place, signal?: AbortSignal): Promise<Updati
   if (!from.ok) return { ok: false, why: from.why, status: 500 }
 
   if (signal?.aborted) return { ok: false, why: `Cancelled — ${place.name} was not changed.`, status: 499 }
+  /* The lock is install residue, not work: take it back so the merge can move,
+     and install afterwards because node_modules may match the discarded lock. */
+  const lockfileReset = before.staleLock === true
+  if (lockfileReset) {
+    const reset = await git(place.dir, ['checkout', '--', 'bun.lock'])
+    if (!reset.ok) return { ok: false, why: `${place.name} was not updated: could not reset bun.lock: ${reset.why}`, status: 409 }
+  }
   const merged = await git(place.dir, ['merge', '--ff-only', '--quiet', '@{u}'])
   if (!merged.ok) return { ok: false, why: `${place.name} was not updated: ${merged.why}`, status: 409 }
 
@@ -263,7 +287,7 @@ export async function update(place: Place, signal?: AbortSignal): Promise<Updati
 
   let installed = false
   let installFailed: string | null = null
-  const dependencies = changed.some((file) => file === 'package.json' || file === 'bun.lock')
+  const dependencies = lockfileReset || changed.some((file) => file === 'package.json' || file === 'bun.lock')
   if (dependencies && existsSync(join(place.dir, 'bun.lock'))) {
     const child = Bun.spawn(['bun', 'install'], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
     const stop = () => child.kill()
@@ -276,7 +300,7 @@ export async function update(place: Place, signal?: AbortSignal): Promise<Updati
     else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
   }
 
-  return { ok: true, checkout: await readCheckout(place, false), changed, installed, installFailed }
+  return { ok: true, checkout: await readCheckout(place, false), changed, installed, installFailed, lockfileReset }
 }
 
 /**

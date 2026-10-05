@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -112,6 +112,64 @@ describe('updating a checkout', () => {
     expect(done).toMatchObject({ ok: false, status: 409 })
     if (done.ok) return
     expect(done.why).toContain('uncommitted')
+  })
+
+  test('a bun.lock an install rewrote is reset, merged over and reinstalled', async () => {
+    const { place, push, here } = repos()
+    push('package.json', '{"name":"x"}\n', 'add package')
+    run(here, 'pull', '--quiet')
+    push('bun.lock', 'lock one\n', 'add lock')
+    run(here, 'pull', '--quiet')
+    push('bun.lock', 'lock two\n', 'new lock')
+    writeFileSync(join(here, 'bun.lock'), 'rewritten by install\n')
+    const reading = await read(place)
+    expect(reading).toMatchObject({ dirty: true, staleLock: true, blocked: null })
+    const done = await update(place)
+    expect(done.ok).toBe(true)
+    if (!done.ok) return
+    expect(done.lockfileReset).toBe(true)
+    expect(done.installed).toBe(true)
+    /* The real `bun install` ran on the merged tree; whatever it left, the install's rewrite is gone. */
+    expect(run(here, 'status', '--porcelain', '--untracked-files=no')).not.toContain('rewritten')
+    const lock = join(here, 'bun.lock')
+    if (existsSync(lock)) expect(readFileSync(lock, 'utf8')).not.toContain('rewritten by install')
+  })
+
+  test('reinstalls after a lock reset even when the incoming commits leave dependencies alone', async () => {
+    const { place, push, here } = repos()
+    push('bun.lock', 'lock one\n', 'add lock')
+    run(here, 'pull', '--quiet')
+    push('a.txt', 'two\n', 'second')
+    writeFileSync(join(here, 'bun.lock'), 'rewritten\n')
+    await read(place)
+    const done = await update(place)
+    expect(done).toMatchObject({ ok: true, lockfileReset: true })
+    if (done.ok) expect(done.changed).toEqual(['a.txt'])
+  })
+
+  test('bun.lock plus another modified file still refuses, and touches nothing', async () => {
+    const { place, push, here } = repos()
+    push('bun.lock', 'lock one\n', 'add lock')
+    run(here, 'pull', '--quiet')
+    push('a.txt', 'two\n', 'second')
+    writeFileSync(join(here, 'bun.lock'), 'rewritten\n')
+    writeFileSync(join(here, 'a.txt'), 'mine\n')
+    await read(place)
+    const done = await update(place)
+    expect(done).toMatchObject({ ok: false, status: 409 })
+    if (done.ok) return
+    expect(done.why).toContain('uncommitted')
+    expect(readFileSync(join(here, 'bun.lock'), 'utf8')).toBe('rewritten\n')
+  })
+
+  test('untracked files alone do not block, and nothing is reset or reinstalled', async () => {
+    const { place, push, here } = repos()
+    push('a.txt', 'two\n', 'second')
+    writeFileSync(join(here, 'notes.txt'), 'mine\n')
+    const reading = await read(place)
+    expect(reading).toMatchObject({ dirty: false, staleLock: false, blocked: null })
+    const done = await update(place)
+    expect(done).toMatchObject({ ok: true, lockfileReset: false, installed: false })
   })
 
   test('a cancel before the merge changes nothing', async () => {
