@@ -1,7 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MODULE_ID } from 'roadmap-module-protocol'
+import { legacyModulesDir, modulesDir } from './machineDirs.ts'
 
 /**
  * Where the host looks, and the whole of what it is told.
@@ -98,11 +98,12 @@ export interface RegistrationSweep {
 /**
  * The directory registrations live in.
  *
- * `ROADMAP_MODULES_DIR` overrides it, which is what makes the host testable
- * without a person's real modules directory taking part in a test run.
+ * See `machineDirs.ts`. `KEHIKOT_MODULES_DIR` overrides it, which is what makes
+ * the host testable without a person's real modules directory taking part in a
+ * test run.
  */
 export function registryDir(env: Record<string, string | undefined> = process.env): string {
-  return env.ROADMAP_MODULES_DIR ?? join(homedir(), '.roadmap', 'modules')
+  return modulesDir(env)
 }
 
 /**
@@ -249,14 +250,55 @@ export function isLoopback(hostname: string): boolean {
 }
 
 /**
- * Sweep the directory once.
+ * Sweep the registry once.
  *
  * A missing directory is not an error and not an empty answer either: it is
  * reported as a sweep of zero files over a named directory, so the page can say
  * where it looked. "No modules" and "no such directory" are two different
  * things to be told, and only one of them is fixed by starting a program.
+ *
+ * ## Two directories, for now
+ *
+ * Called with no directory, this also reads the retired `~/.roadmap/modules`
+ * (`legacyModulesDir`), because modules register themselves and, until they
+ * are updated, they still write there. On an id present in both, the file
+ * modified most recently wins, ties to the new directory: a module that
+ * restarts on another port rewrites ITS file, and the copy the host made when
+ * it migrated must not keep pointing at the old port. Called with a directory,
+ * only that one is read.
  */
-export async function readRegistrations(dir = registryDir()): Promise<RegistrationSweep> {
+export async function readRegistrations(dir?: string): Promise<RegistrationSweep> {
+  if (dir !== undefined) return sweep(dir)
+  const primary = registryDir()
+  const legacy = legacyModulesDir()
+  const now = await sweep(primary)
+  if (!legacy || legacy === primary) return now
+  const old = await sweep(legacy)
+  if (!old.registrations.length && !old.rejected.length) return now
+
+  const byId = new Map<string, { registration: Registration; mtime: number }>()
+  for (const [list, legacyFirst] of [[old.registrations, true], [now.registrations, false]] as const) {
+    for (const registration of list) {
+      const mtime = await modified(registration.file)
+      const held = byId.get(registration.id)
+      /* `>=` for the new directory, so a tie goes to it. */
+      if (!held || (legacyFirst ? mtime > held.mtime : mtime >= held.mtime)) byId.set(registration.id, { registration, mtime })
+    }
+  }
+  const registrations = [...byId.values()].map((entry) => entry.registration).sort((a, b) => a.id.localeCompare(b.id))
+  return { registrations, rejected: [...now.rejected, ...old.rejected], dir: primary }
+}
+
+/** Whole milliseconds: a copy made with `utimes` keeps no finer than that, and must tie with its original. */
+async function modified(file: string): Promise<number> {
+  try {
+    return Math.floor((await stat(file)).mtimeMs)
+  } catch {
+    return 0
+  }
+}
+
+async function sweep(dir: string): Promise<RegistrationSweep> {
   let names: string[]
   try {
     names = await readdir(dir)

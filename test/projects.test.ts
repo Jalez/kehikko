@@ -236,7 +236,13 @@ describe('the kehikot that were written before projects existed', () => {
     rmSync(file, { force: true })
   })
 
-  test('KEHIKKO_ROADMAP_DIR still seeds the first project, so an existing setup starts', () => {
+  test('KEHIKOT_SEED_PROJECT seeds the first project', () => {
+    const roadmap = withEpics('roadmap')
+    const settled = adopt(db, { KEHIKOT_SEED_PROJECT: roadmap, KEHIKKO_ROADMAP_DIR: '/nowhere/at/all' })
+    expect(settled.seeded?.path).toBe(require('node:fs').realpathSync(roadmap))
+  })
+
+  test('the old KEHIKKO_ROADMAP_DIR still seeds the first project, so an existing setup starts', () => {
     const roadmap = withEpics('roadmap')
     const settled = adopt(db, { KEHIKKO_ROADMAP_DIR: roadmap })
     expect(settled.seeded?.path).toBe(require('node:fs').realpathSync(roadmap))

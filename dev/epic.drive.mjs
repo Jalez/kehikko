@@ -12,8 +12,8 @@
  * a page that is sitting still — none of which a test without a browser can
  * see, and this host has no DOM harness.
  *
- * Run it against a scratch host — its own `ROADMAP_FRAME_DB`, its own
- * `ROADMAP_MODULES_DIR`, a scratch project folder — because it WRITES: one
+ * Run it against a scratch host — its own `KEHIKOT_FRAME_DB`, its own
+ * `KEHIKOT_MODULES_DIR`, a scratch project folder — because it WRITES: one
  * epic file into the project's `.kehikot/roadmap/epics`, and one into a project that had
  * no `.kehikot/roadmap/epics` at all, which it then has.
  *

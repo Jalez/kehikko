@@ -16,8 +16,9 @@
  * worked — and each put somebody's work where the next program would not look.
  *
  * So the rule is checked, not asked for. This walks the source of this host,
- * the protocol, and every module registered in
- * `~/.roadmap/modules/*.json` (each names its `dir`), READ-ONLY, and reports
+ * the protocol, and every module in the registry
+ * (`Application Support/Kehikot/modules/*.json`, and the retired
+ * `~/.roadmap/modules`; each names its `dir`), READ-ONLY, and reports
  * every line that builds a storage path outside `.kehikot/`.
  *
  * ## What it flags
@@ -60,6 +61,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
+import { legacyModulesDir, modulesDir } from '../server/machineDirs.ts'
 
 export interface Violation {
   repo: string
@@ -85,14 +87,25 @@ export interface Repo {
  */
 export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; file?: RegExp }> = [
   {
+    id: 'machine-dir',
+    match: /Application Support['"`]?\s*,\s*['"`]Kehikot|Application Support\/Kehikot|['"`]\.local['"`]\s*,\s*['"`]share|XDG_DATA_HOME/,
+    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry and the canvases cache (host server/machineDirs.ts)',
+  },
+  {
     id: 'module-registry',
     match: /\.roadmap['"`]?\s*,\s*['"`]modules|\.roadmap\/modules/,
-    reason: '~/.roadmap/modules is the machine\'s module registry (protocol src/serve/registry.ts, each module\'s register.ts)',
+    reason: '~/.roadmap/modules is the RETIRED module registry: modules still register there until they move to Application Support/Kehikot/modules, and the host reads it as a fallback',
   },
   {
     id: 'frame-db',
     match: /frame\.sqlite/,
-    reason: '~/.roadmap/frame.sqlite is the host\'s canvases cache; <project>/.kehikot/kehikot.json is the record',
+    reason: 'frame.sqlite is the host\'s canvases cache (Application Support/Kehikot; once ~/.roadmap); <project>/.kehikot/kehikot.json is the record',
+  },
+  {
+    id: 'frame-db-migrate',
+    match: /new Database\(from, \{ readonly: true \}\)/,
+    file: /(^|\/)server\/machineDirs\.ts$/,
+    reason: 'the host opening the retired ~/.roadmap/frame.sqlite READ-ONLY to snapshot it into the new home',
   },
   {
     id: 'frame-db-open',
@@ -298,14 +311,19 @@ export function workspace(env: Record<string, string | undefined> = process.env)
     { name: 'kehikko', dir: host },
     { name: 'kehikko-protocol', dir: env.KEHIKOT_SCAN_PROTOCOL ?? join(projects, 'kehikko-protocol') },
   ]
-  const registry = env.ROADMAP_MODULES_DIR ?? join(home, '.roadmap', 'modules')
-  let files: string[] = []
-  try {
-    files = readdirSync(registry).filter((name) => name.endsWith('.json')).sort()
-  } catch {
-    /* No registry on this machine; nothing registered to scan. */
+  /* The registry, and the retired one modules may still write to. */
+  const registries = [modulesDir({ ...env, HOME: home }), legacyModulesDir({ ...env, HOME: home })].filter(
+    (dir): dir is string => dir !== null,
+  )
+  const files: Array<{ registry: string; file: string }> = []
+  for (const registry of registries) {
+    try {
+      for (const file of readdirSync(registry).filter((name) => name.endsWith('.json')).sort()) files.push({ registry, file })
+    } catch {
+      /* No registry here; nothing registered to scan. */
+    }
   }
-  for (const file of files) {
+  for (const { registry, file } of files) {
     try {
       const dir = (JSON.parse(readFileSync(join(registry, file), 'utf8')) as { dir?: unknown }).dir
       /* Named by the registration's id rather than the folder: two checkouts

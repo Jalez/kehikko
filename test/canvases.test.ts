@@ -587,8 +587,12 @@ describe('a container folded down to its header', () => {
 
 describe('where the file is', () => {
   test('the environment can move it, which is what makes this testable', () => {
-    expect(databaseFile({ ROADMAP_FRAME_DB: '/tmp/somewhere.sqlite' })).toBe('/tmp/somewhere.sqlite')
-    expect(databaseFile({})).toMatch(/\.roadmap\/frame\.sqlite$/)
+    expect(databaseFile({ KEHIKOT_FRAME_DB: '/tmp/somewhere.sqlite' })).toBe('/tmp/somewhere.sqlite')
+    /* The old name is still honoured, and the new one wins. */
+    expect(databaseFile({ ROADMAP_FRAME_DB: '/tmp/old.sqlite' })).toBe('/tmp/old.sqlite')
+    expect(databaseFile({ KEHIKOT_FRAME_DB: '/tmp/new.sqlite', ROADMAP_FRAME_DB: '/tmp/old.sqlite' })).toBe('/tmp/new.sqlite')
+    expect(databaseFile({ HOME: '/Users/x' })).not.toContain('.roadmap')
+    expect(databaseFile({ HOME: '/Users/x' })).toMatch(/frame\.sqlite$/)
   })
 })
 

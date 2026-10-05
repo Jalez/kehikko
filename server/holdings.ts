@@ -28,7 +28,7 @@ import { EPICS_REL, epicsDir, stateDir } from './roadmapData.ts'
  * So the root is a PARAMETER now and never an environment lookup. Every
  * function here takes the project folder it is to read under, and the caller —
  * `server.ts`, which knows which project the call was made from — is the one
- * that decides. `KEHIKKO_ROADMAP_DIR` survives as the seed for the first
+ * that decides. `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`) survives as the seed for the first
  * project and nothing else reads it; see `adopt()` in `projects.ts`.
  *
  * ## Not every project has any

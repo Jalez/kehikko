@@ -266,7 +266,7 @@ export async function repoint(existing: string, door: Door, run: Runner = runCla
  * reach at a url.
  */
 export async function doorFor(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
-  const now = await readRegistrations(registryDir())
+  const now = await readRegistrations()
   const registration = now.registrations.find((r) => r.id === id)
   if (!registration) {
     return {

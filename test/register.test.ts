@@ -171,12 +171,12 @@ describe('the door comes from the registry, never from a request', () => {
   }
   afterEach(() => {
     for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true })
-    delete process.env.ROADMAP_MODULES_DIR
+    delete process.env.KEHIKOT_MODULES_DIR
   })
 
   test('an unknown module id is refused, and the refusal says where it looked', async () => {
     const dir = registry()
-    process.env.ROADMAP_MODULES_DIR = dir
+    process.env.KEHIKOT_MODULES_DIR = dir
 
     const found = await doorFor('roadmap.not-a-thing')
     expect(found.ok).toBe(false)
@@ -191,7 +191,7 @@ describe('the door comes from the registry, never from a request', () => {
        will register: the string is only ever matched against filenames in the
        registry directory. */
     const dir = registry()
-    process.env.ROADMAP_MODULES_DIR = dir
+    process.env.KEHIKOT_MODULES_DIR = dir
     writeFileSync(join(dir, 'roadmap.checklist.json'), JSON.stringify({ url: 'http://127.0.0.1:7860' }))
 
     const found = await doorFor('http://evil.example/mcp')
@@ -205,7 +205,7 @@ describe('the door comes from the registry, never from a request', () => {
        has to be about the module not answering rather than about a missing
        manifest field, because those send a person to different places. */
     const dir = registry()
-    process.env.ROADMAP_MODULES_DIR = dir
+    process.env.KEHIKOT_MODULES_DIR = dir
     writeFileSync(join(dir, 'roadmap.quiet.json'), JSON.stringify({ url: 'http://127.0.0.1:9' }))
 
     const found = await doorFor('roadmap.quiet')
