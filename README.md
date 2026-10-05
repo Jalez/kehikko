@@ -1,5 +1,9 @@
 # Kehikot
 
+> **Download the app:** [Kehikot for macOS](https://github.com/Jalez/kehikko-desktop/releases/latest)
+> (Apple Silicon and Intel; signed, notarized and self-updating). This repository
+> is the host it bundles. Each release's host is tagged here as `app-v<version>`.
+
 **A local-first workbench where you and your coding agent look at the same
 project through the same containers.**
 
