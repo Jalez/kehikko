@@ -93,7 +93,9 @@ export function loadReading(projectPath: string): Stored {
   if (!file) return empty()
   try {
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
-    return parsed.success ? parsed.data : empty()
+    /* Linked again on the way in: a file written before the links were worked
+       out over the whole reading is put right without waiting for a read. */
+    return parsed.success ? { ...parsed.data, rows: backLinked(parsed.data.rows) } : empty()
   } catch {
     return empty()
   }
@@ -126,6 +128,64 @@ function saveReading(projectPath: string, stored: Stored): void {
 const identity = (s: Pick<Source, 'tracker' | 'host' | 'repo'>, kind: 'issue' | 'change' | null, number: number) =>
   `${sourceKey(s)}|${s.tracker === 'github' ? 'n' : (kind ?? 'issue')}|${number}`
 const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
+
+/**
+ * Give each issue the changes in the reading that declare it, and say it was
+ * closed by a merge when one of them merged (Jalez/kehikko#38).
+ *
+ * Over the WHOLE reading, every time rows are merged into it, and not over the
+ * rows of one read: an issue and the change that delivers it are often read by
+ * different reads — one in a listing, the other by name — and an issue read
+ * again by name arrives from GitLab with no links at all. Worked out per read,
+ * the link exists only when both happened to arrive together.
+ *
+ * A change's own `closes` is the claim; `closed-by` is its mirror. So a mirror
+ * naming a held change that no longer makes the claim is taken off — but only
+ * when that change was read after the issue, since otherwise the link is the
+ * tracker's own newer word about the issue (GitHub hands an issue its closers).
+ * A link to a change the reading does not hold is left alone: nothing here
+ * can say it is wrong.
+ */
+function backLinked(rows: TrackerRow[]): TrackerRow[] {
+  /* Refs are spelled per source, so `#12` is only itself within one. */
+  const within = (row: TrackerRow, ref: string) => `${sourceKey(row)}|${ref}`
+  const changes = new Map<string, TrackerRow>()
+  const declarers = new Map<string, TrackerRow[]>()
+  for (const one of rows) {
+    if (one.kind !== 'change') continue
+    changes.set(within(one, one.ref), one)
+    for (const link of one.links) {
+      if (link.relation === 'closes') declarers.set(within(one, link.ref), [...(declarers.get(within(one, link.ref)) ?? []), one])
+    }
+  }
+  return rows.map((one) => {
+    if (one.kind !== 'issue') return one
+    const by = declarers.get(within(one, one.ref)) ?? []
+    const declaring = new Set(by.map((d) => d.ref))
+    const withdrawn = one.links
+      .filter((link) => link.relation === 'closed-by' && !declaring.has(link.ref))
+      .map((link) => changes.get(within(one, link.ref)))
+      .filter((change): change is TrackerRow => change !== undefined && change.readAt > one.readAt)
+    const known = new Set(one.links.map((l) => l.ref))
+    const added = by.filter((d) => !known.has(d.ref))
+    const merged = by.some((d) => d.state === 'merged')
+    if (!withdrawn.length && !added.length && (!merged || one.closedByMerge === true)) return one
+    const gone = new Set(withdrawn.map((c) => c.ref))
+    const { closedByMerge: was, ...rest } = one
+    /* True when a declarer merged. Never false from this alone: a change
+       outside the reading may be the one that closed it. And when the merged
+       change it rested on has withdrawn, it is unknown again, not still true. */
+    const closedByMerge = merged ? true : withdrawn.some((c) => c.state === 'merged') ? undefined : was
+    return {
+      ...rest,
+      links: [
+        ...one.links.filter((l) => !gone.has(l.ref)),
+        ...added.map((d) => ({ ref: d.ref, relation: 'closed-by' as const })),
+      ].slice(0, LIMITS.TRACKER_LINKS),
+      ...(closedByMerge !== undefined ? { closedByMerge } : {}),
+    }
+  })
+}
 
 /** Every ref spelling an epic names, in `refs` arrays and `ref`/`umbrella` fields at any depth. */
 export function refsInEpic(epic: unknown): string[] {
@@ -572,7 +632,7 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: [...byId.values()].slice(0, LIMITS.TRACKER_ROWS),
+      rows: backLinked([...byId.values()]).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),
