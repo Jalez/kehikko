@@ -554,6 +554,88 @@ describe('an issue carries every held change that declares it', () => {
   })
 })
 
+/**
+ * Jalez/kehikko#36: `live.get` says which change delivers which issue from the
+ * same reading, as the old refresher's `links` and `ghLinks` did.
+ */
+describe('live.get folds changes under their issues from the reading', () => {
+  const known = () => true
+  const epicFile = (epic: object) => {
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify({ slug: 'one', title: 'One', ...epic }))
+  }
+  const closes = (...refs: string[]) => ({ links: refs.map((ref) => ({ ref, relation: 'closes' as const })) })
+
+  test('GitHub: under the issue as the epic spells it, by the pull request’s number', async () => {
+    epicFile({ steps: [{ title: 's', refs: ['gh:Jalez/kehikko#2', 'gh#3', 'gh#5', 'gh#6'] }] })
+    const rows = [
+      ghRow(2),
+      ghRow(3, { kind: 'change', state: 'merged', ...closes('gh#2') }),
+      /* Named by the epic, for an issue the epic does not name. */
+      ghRow(5, { kind: 'change', ...closes('gh#70') }),
+      /* Closed by a pull request the epic does not name, and by one nobody holds. */
+      ghRow(6, { links: [{ ref: 'gh#90', relation: 'closed-by' }] }),
+      ghRow(8, { kind: 'change', ...closes('gh#6') }),
+    ]
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const live = trackers.live(folder, 'one')!
+    expect(live.ghLinks).toEqual({ 'gh:Jalez/kehikko#2': [3], 'gh#70': [5], 'gh#6': [90, 8] })
+    expect(live.links).toEqual({})
+  })
+
+  test('GitLab: under the issue’s number, and a merge request that declares nothing folds nowhere', async () => {
+    const glRemotes = runner([['git -C', ok('origin\thttps://gitlab.example.org/group/project.git (fetch)')]])
+    const glRow = (kind: 'issue' | 'change', number: number, over: Partial<TrackerRow> = {}): TrackerRow => ({
+      ...ghRow(number),
+      ref: `${kind === 'change' ? '!' : '#'}${number}`,
+      tracker: 'gitlab',
+      host: 'gitlab.example.org',
+      repo: 'group/project',
+      kind,
+      ...over,
+    })
+    epicFile({ steps: [{ title: 's', refs: ['#2252', '!3053', '!3058', '!3070'] }] })
+    const rows = [
+      glRow('issue', 2252),
+      glRow('change', 3053, closes('#2252')),
+      glRow('change', 3058, closes('#2252')),
+      glRow('change', 3070),
+    ]
+    const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { epic: 'one' })
+    const live = trackers.live(folder, 'one')!
+    expect(live.links).toEqual({ '2252': [3053, 3058] })
+    expect(live.ghLinks).toEqual({})
+    expect(Object.keys(live.mrs as object).sort()).toEqual(['3053', '3058', '3070'])
+  })
+
+  test('and the answer merges them with the links a state file already had', async () => {
+    epicFile({ steps: [{ title: 's', refs: ['gh#2', 'gh#3'] }] })
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'state'), { recursive: true })
+    writeFileSync(
+      join(folder, '.kehikot', 'kehikko', 'state', 'one.json'),
+      JSON.stringify({
+        generated: '2026-10-01T00:00:00.000Z',
+        ghIssues: {},
+        ghPrs: {},
+        ghLinks: { 'gh#2': [1, 3], 'gh#4': [9] },
+        ghPartOf: { 'gh#2': [11] },
+        links: { '12': [7] },
+      }),
+    )
+    const rows = [ghRow(2), ghRow(3, { kind: 'change', ...closes('gh#2') }), ghRow(20, { kind: 'change', ...closes('gh#2') })]
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const given = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    if (!given.ok) throw new Error(given.error)
+    const live = given.data as Record<string, unknown>
+    expect(live.ghLinks).toEqual({ 'gh#2': [1, 3, 20], 'gh#4': [9] })
+    expect(live.links).toEqual({ '12': [7] })
+    expect(live.ghPartOf).toEqual({ 'gh#2': [11] })
+  })
+})
+
 describe('the methods, answered', () => {
   const known = () => true
   test('tracker.get is answered from the reading, in the protocol’s shape', async () => {

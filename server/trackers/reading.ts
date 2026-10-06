@@ -383,11 +383,42 @@ export class Trackers {
    * the old refresher wrote (`opened`, `closed`, `merged`). Null when the
    * reading holds none of the epic's refs. Starts a read for the rest, as `get`
    * does.
+   *
+   * With them, which change delivers which issue, in the refresher's two maps:
+   * `links`, a GitLab issue's number to its merge requests' numbers, and
+   * `ghLinks`, a GitHub issue's ref as the epic spells it to its pull requests'
+   * numbers. A change is under an issue only where a row's link says so — a
+   * `closes` on the change or its `closed-by` mirror on the issue — which for
+   * GitLab is a closing keyword, "part of" or "implements" in the merge
+   * request's own description (`DECLARATION` in `gitlab.ts`), and for GitHub
+   * its closing references. A change that only mentions an issue has no link
+   * and folds nowhere.
    */
   live(root: string, epic: string): Record<string, unknown> | null {
     const got = this.get(root, { epic })
     if ('refused' in got || !got.rows.length) return null
     const bags: Record<'issues' | 'mrs' | 'ghIssues' | 'ghPrs', Record<string, unknown>> = { issues: {}, mrs: {}, ghIssues: {}, ghPrs: {} }
+    const links: Record<string, number[]> = {}
+    const ghLinks: Record<string, number[]> = {}
+    const spelled = new Map(got.rows.filter((row) => row.kind === 'issue').map((row) => [rowIdentity(row), row.ref]))
+    for (const row of got.rows) {
+      for (const link of row.links) {
+        const other = readTrackerRef(link.ref)
+        if (!other) continue
+        let issue: string
+        let change: number
+        if (row.kind === 'issue' && link.relation === 'closed-by') {
+          issue = row.tracker === 'github' ? row.ref : String(row.number)
+          change = other.number
+        } else if (row.kind === 'change' && link.relation === 'closes') {
+          /* An issue the epic does not name has no spelling of the epic's; the link's own stands. */
+          issue = row.tracker === 'github' ? (spelled.get(identity(row, 'issue', other.number)) ?? link.ref) : String(other.number)
+          change = row.number
+        } else continue
+        const map = row.tracker === 'github' ? ghLinks : links
+        if (!map[issue]?.includes(change)) map[issue] = [...(map[issue] ?? []), change]
+      }
+    }
     for (const row of got.rows) {
       const entry: Record<string, unknown> = {
         state: row.state === 'open' ? 'opened' : row.state,
@@ -404,7 +435,7 @@ export class Trackers {
       if (row.tracker === 'github') bags[row.kind === 'change' ? 'ghPrs' : 'ghIssues'][row.ref] = entry
       else bags[row.kind === 'change' ? 'mrs' : 'issues'][String(row.number)] = entry
     }
-    return { generated: got.at, ...bags }
+    return { generated: got.at, ...bags, links, ghLinks }
   }
 
   #find(byId: Map<string, TrackerRow>, source: Source, kind: 'issue' | 'change' | null, number: number) {
