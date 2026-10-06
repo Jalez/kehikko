@@ -478,7 +478,7 @@ function scopeOf(scope: Partial<Record<'refs' | 'epic' | 'project', unknown>>): 
   return { project: true }
 }
 
-/** The state file's bags with the reading's laid over them, newest `generated` winning. */
+/** The state file's bags with the reading's laid over them, newest `generated` winning, and the links of both. */
 function overlay(
   file: Record<string, unknown> | null,
   reading: Record<string, unknown> | null,
@@ -493,6 +493,19 @@ function overlay(
       ...(was && typeof was === 'object' && !Array.isArray(was) ? was : {}),
       ...(now && typeof now === 'object' && !Array.isArray(now) ? now : {}),
     }
+  }
+  /* Which change delivers which issue: both say, and neither knows all of it —
+     the file holds changes the reading never read, the reading ones newer than
+     the file. Each issue gets the numbers of both. */
+  for (const map of ['links', 'ghLinks']) {
+    const merged: Record<string, unknown[]> = {}
+    for (const from of [file[map], reading[map]]) {
+      if (!from || typeof from !== 'object' || Array.isArray(from)) continue
+      for (const [issue, changes] of Object.entries(from)) {
+        if (Array.isArray(changes)) merged[issue] = [...new Set([...(merged[issue] ?? []), ...changes])]
+      }
+    }
+    out[map] = merged
   }
   const a = typeof file.generated === 'string' ? file.generated : ''
   const b = typeof reading.generated === 'string' ? reading.generated : ''
