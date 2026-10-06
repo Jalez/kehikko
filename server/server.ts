@@ -205,7 +205,9 @@ const contentWatch = new ContentWatch({
   sourceOf: (folder) => {
     for (const id of callers.keys()) {
       try {
-        if (moduleFolder(id) === folder) return id
+        /* Under the name it has now: a module registered from before the
+           rename reports as the same one, and must be the same source. */
+        if (moduleFolder(id) === folder) return canonicalModuleId(id)
       } catch {
         /* An id that names no folder keeps none. */
       }
