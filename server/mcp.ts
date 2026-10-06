@@ -146,6 +146,8 @@ export interface Door {
   wake(kehikko: number): void
   /** Say that a project's epics are not what the page last read. See `wake.ts`. */
   epicsChanged(project: number): void
+  /** The door wrote this epic: every container showing it reads it again. See `server/content.ts`. */
+  epicWritten?(project: number, slug: string): void
   /** A project's dispositions file changed; see `dispositionsChanged` in `wake.ts`. */
   dispositionsChanged(project: number): void
   /** Every registered module and whether it is answering, from a sweep. */
@@ -1032,6 +1034,7 @@ function createEpicAt(
      not changed, and a wake that said it had would have the page re-read an
      arrangement that is exactly what it already shows. */
   door.epicsChanged(project.id)
+  door.epicWritten?.(project.id, made.epic.slug)
 
   return {
     text:

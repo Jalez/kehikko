@@ -172,6 +172,15 @@ export function answer(
   }),
   /** The shared tracker reading. Absent, the tracker methods are refused with a sentence saying so. */
   trackers: TrackerDoor | null = null,
+  /**
+   * Where a module's report of its own write goes: `content.changed`.
+   *
+   * Injected for `mark`'s reason — this file decides, the server keeps the
+   * list and wakes the pages; see `server/content.ts`. Given the module that
+   * asked, which is the source: a report names an epic and never whose
+   * material it is. The default refuses, as `mark`'s does.
+   */
+  report: ((module: string, root: string, epic: string | null) => void) | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -374,6 +383,21 @@ export function answer(
     return notMineToSay('tracker.refresh is answered when the read lands; this host asked the wrong half of itself.')
 
   /**
+   * A module's own material changed, and every container in the project is to
+   * hear. Nothing is written and nothing is read: the host does not open a
+   * module's files to see whether the report is true, any more than it opens
+   * the file a passage points into. A report standing in no project is
+   * refused with a sentence, because told to nobody is not told.
+   */
+  case 'content.changed': {
+    if (!report) return notMineToSay('This host was not given anybody to tell. Nothing was announced.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is nobody to tell that anything changed.')
+    const { epic } = parsed.data as { epic?: string }
+    report(moduleId, root, epic ?? null)
+    return nothingToShow('content.changed', { announced: true })
+  }
+
+  /**
    * A write, refused. `ok: true` would cost nothing today and would mean a
    * module's button turning green over a report that exists nowhere — the
    * module believes work was filed, the person believes it was filed, and there
@@ -493,12 +517,13 @@ export async function answerCall(
   root: string | null,
   mark: (module: string, root: string | null, marking: Marking) => Marked,
   trackers: TrackerDoor | null,
+  report: ((module: string, root: string, epic: string | null) => void) | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report)
   }
   const parsed = params.get(method)!.safeParse(rawParams ?? {})
-  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers)
+  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report)
   if (!trackers) return notMineToSay('This host was not given a tracker reading to refresh.')
   if (!root) {
     return nothingToShow('tracker.refresh', {

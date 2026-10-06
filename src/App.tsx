@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
+import type { ContentChange, Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -292,6 +292,13 @@ export function App() {
    * running, and how each source fared. See `server/trackers/reading.ts`.
    */
   const [tracker, setTracker] = useState<TrackerState>({ at: null, refreshing: false, sources: [] })
+  /**
+   * What has changed in the material kept for the open project's epics, for
+   * `context.content`. Empty until the server says something changed: a
+   * module loads what it shows when its epic opens, and this is only ever the
+   * reason to read it again. See `server/content.ts`.
+   */
+  const [rewritten, setRewritten] = useState<ContentChange[]>([])
   const [live, setLive] = useState<Record<string, Live>>({})
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
@@ -604,6 +611,12 @@ export function App() {
           }
         })()
       },
+      /* Material kept for the project's epics changed — the host's own write,
+         a module's report, or an edit to the project's files. The list came
+         with the news and goes straight into the context. */
+      (project, changes) => {
+        if (project === projectRef.current) setRewritten(changes)
+      },
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -680,6 +693,9 @@ export function App() {
      what starts the project's first read — never the host's startup. */
   useEffect(() => {
     setTracker({ at: null, refreshing: false, sources: [] })
+    /* Another project's changes are not this one's. Nothing is fetched in
+       their place: every container reads its material afresh on the switch. */
+    setRewritten([])
     if (projectId === null) return
     const stop = new AbortController()
     void (async () => {
@@ -1217,13 +1233,13 @@ export function App() {
       toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
         at: trackerAt,
         refreshing: trackerBusy,
-      }),
+      }, rewritten),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy],
+    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten],
   )
 
   /**
