@@ -689,6 +689,22 @@ export class Trackers {
   }
 
   /**
+   * Something that is not this host rewrote the project's `state/`, which
+   * `live` reads under the reading. The view is not what it was, so `at` moves
+   * and every module that reacts to `tracker` asks again.
+   *
+   * Nothing is said for a project that has never been read: the first look
+   * starts its first read, and that read is told when it lands.
+   */
+  stateChanged(root: string): void {
+    const held = this.#of(root)
+    if (held.stored.at === null) return
+    held.stored.at = this.#now().toISOString()
+    saveReading(root, held.stored)
+    this.#told(root, { at: held.stored.at, refreshing: held.running !== null })
+  }
+
+  /**
    * The schedule: every project somebody has looked at in the last half hour
    * is read whole once its `every` has passed. Called on a minute tick by the
    * server; never at startup, and never for a project nobody is looking at.

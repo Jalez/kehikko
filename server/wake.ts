@@ -1,3 +1,5 @@
+import type { ContentChange } from 'kehikot-module-protocol'
+
 /**
  * Telling the page that something other than the page changed a kehikko.
  *
@@ -97,6 +99,10 @@ export type News =
      the signal itself — `context.tracker` is two small facts, and making every
      page fetch them back would be a round trip per page per read. */
   | { tracker: number; at: string | null; refreshing: boolean }
+  /* The sixth kind: material kept for a project's epics changed. Carries the
+     signal for `tracker`'s reason — `context.content` is a short list of who
+     and when, and it is all a page would fetch. Never the material. */
+  | { content: number; changes: ContentChange[] }
 
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
@@ -153,6 +159,10 @@ export class Wakes {
    * which is the tick-driven read this file refuses. What this host wrote,
    * this host says; what something else wrote is read on the next project
    * switch, as before.
+   *
+   * That is still true of the DROPDOWN. What an epic holds is another matter
+   * and is watched — `ContentWatch` in `content.ts` says why, and what it does
+   * about the objection above.
    */
   epicsChanged(project: number): void {
     this.#tell({ epics: project })
@@ -179,6 +189,17 @@ export class Wakes {
    */
   trackerChanged(project: number, signal: { at: string | null; refreshing: boolean }): void {
     this.#tell({ tracker: project, at: signal.at, refreshing: signal.refreshing })
+  }
+
+  /**
+   * Say that the material kept for a project's epics changed: an epic the
+   * host wrote, a module's report of its own write, or an edit to the
+   * project's `.kehikot/` by something else. See `server/content.ts`. The
+   * page puts the list in `context.content`, and every module that `reacts`
+   * to `content` re-reads what it shows.
+   */
+  contentChanged(project: number, changes: ContentChange[]): void {
+    this.#tell({ content: project, changes })
   }
 
   #tell(news: News): void {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MODULE_ID } from 'kehikot-module-protocol'
+import { MODULE_ID, contentSignalSchema, type ContentChange } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -412,6 +412,12 @@ export function watchCanvases(
    * `trackerChanged` in `server/wake.ts`. The signal comes with the news.
    */
   read?: (project: number, signal: { at: string | null; refreshing: boolean }) => void,
+  /**
+   * Material kept for a project's epics changed — see `contentChanged` in
+   * `server/wake.ts`. The list comes with the news, held to the protocol's
+   * shape: a list this page cannot read is news that does not happen.
+   */
+  rewritten?: (project: number, changes: ContentChange[]) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -456,6 +462,11 @@ export function watchCanvases(
         && (tracked.at === null || typeof tracked.at === 'string') && typeof tracked.refreshing === 'boolean'
       ) {
         read?.(tracked.tracker, { at: tracked.at, refreshing: tracked.refreshing })
+      }
+      const changed = parsed as { content?: unknown; changes?: unknown }
+      if (typeof changed?.content === 'number' && Number.isInteger(changed.content)) {
+        const changes = contentSignalSchema.safeParse(changed.changes)
+        if (changes.success) rewritten?.(changed.content, changes.data)
       }
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
