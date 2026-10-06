@@ -2,6 +2,7 @@ import {
   contextSchema,
   passageSchema,
   type CanvasContainer,
+  type ContentChange,
   type Disposition,
   type ModuleContext,
   type Passage,
@@ -198,6 +199,13 @@ export function toWireContext(
    * behind `tracker.get`; see `server/trackers/reading.ts`.
    */
   tracker: TrackerSignal = { at: null, refreshing: false },
+  /**
+   * What has changed in the material kept for the open project's epics: the
+   * last change per source and epic, as the server last said it. Per project,
+   * like the tracker signal, and like it only the signal — a module re-reads
+   * the material itself. See `server/content.ts`.
+   */
+  content: readonly ContentChange[] = [],
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -232,6 +240,7 @@ export function toWireContext(
     containers,
     dispositions,
     tracker,
+    content,
   })
   if (parsed.success) return parsed.data
 
@@ -291,6 +300,7 @@ export function toWireContext(
        nothing about whether somebody called #2274 a duplicate. */
     dispositions,
     tracker,
+    content,
   })
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
@@ -380,11 +390,17 @@ export function whileFrozen(
      the work, and a pinned Journeys still showing yesterday's states after a
      person pressed "Refresh all" would be the frozen theme again. */
   const reread = sameProject && JSON.stringify(held.tracker) !== JSON.stringify(told.tracker)
-  if (!relit && !refiltered && !remarked && !reread) return null
+  /* And so does what changed in the material, for the same reason once more:
+     a container pinned on an epic still shows that epic's steps, and one that
+     went on showing them as they were before an agent added a ref would be
+     frozen in the one way a pin does not mean. The pin holds WHICH epic; it
+     never held that the epic stopped changing. */
+  const rewritten = sameProject && JSON.stringify(held.content) !== JSON.stringify(told.content)
+  if (!relit && !refiltered && !remarked && !reread && !rewritten) return null
   return {
     ...held,
     theme: told.theme,
     filters: told.filters,
-    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker } : {}),
+    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker, content: told.content } : {}),
   }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { canonicalModuleId, LEGACY_WELL_KNOWN, LIMITS, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { canonicalModuleId, CONTENT_HOST, LEGACY_WELL_KNOWN, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -50,6 +50,8 @@ import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
+import { Contents, ContentWatch, folderSource } from './content.ts'
+import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { createServer } from 'node:net'
@@ -176,6 +178,67 @@ const trackers = new Trackers({
    whole once its `every` minutes have passed. A minute tick that decides
    nothing for a project nobody is looking at. */
 setInterval(() => trackers.tick(), 60_000).unref?.()
+
+/**
+ * What has changed in the material kept for each project's epics, and the
+ * news of it to every page standing in that project. See `server/content.ts`.
+ */
+const contents = new Contents({
+  told: (root, changes) => {
+    for (const project of listProjects(db)) {
+      if (project.path === root) wakes.contentChanged(project.id, changes)
+    }
+  },
+})
+
+/**
+ * The `.kehikot/` of every project a screen is standing in, watched for the
+ * writes nothing tells this host about: a module's server answering its own
+ * MCP door, an agent or a person editing a file.
+ */
+const contentWatch = new ContentWatch({
+  changed: (root, source, epic) => void contents.announce(root, source, epic),
+  stateChanged: (root) => trackers.stateChanged(root),
+  /* The registered module whose folder this is; the folder drops the id's
+     prefix, so the registry is asked rather than the name rebuilt. A folder
+     no registered module claims is named the way a module of today would be. */
+  sourceOf: (folder) => {
+    for (const id of callers.keys()) {
+      try {
+        if (moduleFolder(id) === folder) return id
+      } catch {
+        /* An id that names no folder keeps none. */
+      }
+    }
+    return folderSource(folder)
+  },
+  log: (line) => console.warn(line),
+})
+
+/** Watch the projects that have a screen, and stop watching the ones that lost theirs. */
+function watchOpenProjects(): void {
+  const open = new Set(openness.every())
+  const roots = new Set<string>()
+  for (const canvas of listCanvases(db)) {
+    if (!open.has(canvas.id) || canvas.project === null) continue
+    const root = projectById(db, canvas.project)?.path
+    if (root) roots.add(root)
+  }
+  contentWatch.watching([...roots])
+}
+/* A page that moved to another project without reopening its stream is caught
+   here rather than never. */
+setInterval(() => watchOpenProjects(), 60_000).unref?.()
+
+/**
+ * The host wrote an epic itself: every container showing it is told, and the
+ * watcher is told too, so it does not announce the same write a second time
+ * when the file event arrives.
+ */
+function epicWritten(root: string, slug: string): void {
+  contentWatch.noted(root, join(epicsDir(root), `${slug}.json`))
+  contents.announce(root, CONTENT_HOST, slug)
+}
 
 /** The open project's folder, when the call named a project this host has. */
 function rootOf(project: unknown): string | null {
@@ -1060,6 +1123,13 @@ const server = Bun.serve({
             return done
           },
           trackers,
+          /* A module's report of its own write. Signed with the module that
+             asked, and the watcher is told so the file event for the same
+             write says nothing more. */
+          (module, root, epic) => {
+            contentWatch.reported(root, module)
+            contents.announce(root, module, epic)
+          },
         ),
       )
     }
@@ -1318,6 +1388,9 @@ const server = Bun.serve({
 
       const said = retitleEpic(project.path, body.slug as string, body.title as string)
       if (!said.ok) return json({ error: said.why }, said.status)
+      /* The title is part of what `epic.get` answers, so a container showing
+         this epic reads it again. */
+      epicWritten(project.path, said.epic.slug)
       return json({ epic: said.epic })
     }
 
@@ -1349,6 +1422,7 @@ const server = Bun.serve({
       const made = createEpic(project.path, { slug: body.slug, title: body.title })
       if (!made.ok) return json({ error: made.why }, made.status)
       wakes.epicsChanged(project.id)
+      epicWritten(project.path, made.epic.slug)
       return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
     }
 
@@ -1375,6 +1449,7 @@ const server = Bun.serve({
         keep(db, project.id)
       }
       wakes.epicsChanged(project.id)
+      epicWritten(project.path, body.slug as string)
       return json({ deleted: body.slug })
     }
 
@@ -1868,6 +1943,9 @@ const server = Bun.serve({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
           if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
+          /* A screen is standing in a project: its `.kehikot/` is watched for
+             as long as one is. See `ContentWatch`. */
+          watchOpenProjects()
           /* The news is written as it was given. `Wakes` decides what shapes
              travel — see `News` there — and a server that rebuilt the object
              here would be a second place for the two ends to disagree. */
@@ -1881,6 +1959,7 @@ const server = Bun.serve({
              — which is the whole reason the page identifies itself here. What
              any other connection or the page itself has said is untouched. */
           openness.closed(connection)
+          watchOpenProjects()
         },
       })
       return new Response(stream, {
@@ -1920,6 +1999,10 @@ const server = Bun.serve({
           which: () => openness.open(),
           wake: (kehikko) => wakes.woke(kehikko),
           epicsChanged: (project) => wakes.epicsChanged(project),
+          epicWritten: (project, slug) => {
+            const root = projectById(db, project)?.path
+            if (root) epicWritten(root, slug)
+          },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           trackers,
           versions: {
