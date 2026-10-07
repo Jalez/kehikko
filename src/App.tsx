@@ -3106,7 +3106,7 @@ function Nothing({ registry, looking }: { registry: RegistryView | null; looking
       ) : registered ? (
         <p>
           {registered} module{registered === 1 ? '' : 's'} registered, none on this kehikko. Put one here from
-          <span className="text-foreground"> modules</span>, above right.
+          <span className="text-foreground"> Kehikko modules</span>, above right.
         </p>
       ) : (
         <p>
