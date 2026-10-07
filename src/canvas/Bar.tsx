@@ -36,10 +36,12 @@ import { TrackerReading } from './TrackerReading.tsx'
  * control changes everything to its right and nothing to its left. Putting the
  * kehikko first, which is where it used to be, meant the narrowest thing on
  * screen was also the first, and the two selects that decide what it CONTAINS
- * came after it or, in the epic's case, was a box you typed a slug into. There is no dashboard, no home screen, no activity summary and
- * no marketplace, because the host has nothing to put on one — it holds no data
- * about anybody's work, installs nothing, and updates nothing. A host that drew
- * a home screen would be drawing one about somebody else's programs.
+ * came after it or, in the epic's case, was a box you typed a slug into. There is no dashboard, no home screen and no activity summary,
+ * because the host has nothing to put on one — it holds no data about
+ * anybody's work. A host that drew a home screen would be drawing one about
+ * somebody else's programs. What it does carry is a list of the modules it
+ * vouches for, in the module menu, so one that is not on the machine can be
+ * found and installed without a terminal; see `Modules.tsx`.
  *
  * Every control here is an icon and every icon has a tooltip. See `Hint.tsx`
  * for why that is a rule rather than a nicety, and why `title` was not enough.
@@ -362,6 +364,7 @@ export function Bar({
               open={open}
               onPlace={onPlace}
               onUnplace={onUnplace}
+              onLookAgain={onLookAgain}
             />
           </PopoverContent>
         </Popover>

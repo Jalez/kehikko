@@ -10,14 +10,14 @@
   the pre-rename `.kehikot/roadmap/` is copied over on start and read as a
   fallback, never written).
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
-  says so (`~/Library/Application Support/Kehikot/` — `modules/` registry and
-  `frame.sqlite` — `~/.claude*`, `~/Library/LaunchAgents|Logs`, the old service
+  says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
+  `frame.sqlite`, `versions/` and `installed/` — `~/.claude*`, `~/Library/LaunchAgents|Logs`, the old service
   marker, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers. The retired `~/.roadmap` is only ever READ (copied once at startup,
   and `~/.roadmap/modules` read as a registry fallback) — never write to it.
-- Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_ORIGIN`,
+- Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT` (old `ROADMAP_*` / `KEHIKKO_ROADMAP_DIR` names are
   read as fallbacks). Process plumbing between the desktop shell and this host
@@ -37,3 +37,15 @@
   messages). The host finds them at the old path, and `Conversation` posts to
   them through `toDialect` (`FramedModule.dialect`). Never compare a raw
   message type or module id against one spelling.
+
+## The official module list
+
+- `modules.json` is the list of modules this host vouches for, versioned with
+  it (`server/official.ts`). Adding a module to the app's list is adding an
+  entry there: id, name, `owner/repo`, first port, summary, tags.
+- Installing one (`server/installs.ts`) clones it under the machine
+  directory's `installed/<id>/`, runs `bun install --frozen-lockfile` and writes
+  its registration. The repository and paths come from the list, never from a
+  request. After that it is an ordinary registered module.
+- A registered module not on the list can be proposed for it
+  (`server/proposals.ts`), which files an issue here through the person's `gh`.

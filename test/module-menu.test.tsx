@@ -58,6 +58,37 @@ describe('where a module is filed', () => {
   })
 })
 
+describe('what the official list adds', () => {
+  const entry = (over: { id: string; name: string; tags: string[]; installed: boolean }) => ({ repo: `Jalez/${over.name.toLowerCase()}`, summary: `${over.name}, from the list.`, ...over })
+  const official = [
+    entry({ id: 'kehikot.paper', name: 'Paper', tags: ['writing'], installed: true }),
+    entry({ id: 'kehikot.slides', name: 'Slides', tags: ['writing'], installed: false }),
+    entry({ id: 'kehikot.atlas', name: 'Atlas', tags: ['planning'], installed: false }),
+  ]
+
+  test('modules not on this machine, on their shelves, after the ones that are', () => {
+    const sections = arrange(rowsOf([paper, mine], new Set(), official))
+    expect(sections.map((s) => s.heading)).toEqual(['Planning', 'Reading and writing', 'Music theory'])
+    expect(sections[1]!.rows.map((r) => [r.id, r.kind])).toEqual([['kehikot.paper', 'registered'], ['kehikot.slides', 'available']])
+    expect(matches(sections[0]!.rows[0]!, 'atlas planning')).toBe(true)
+  })
+
+  test('a registered module is marked official or not, and unknown when there is no list', () => {
+    const [a, b] = rowsOf([paper, mine], new Set(), official)
+    expect([a!.kind === 'registered' && a!.official, b!.kind === 'registered' && b!.official]).toEqual([true, false])
+    const [c] = rowsOf([mine], new Set())
+    expect(c!.kind === 'registered' && c!.official).toBeNull()
+  })
+
+  test('what a module says about itself wins; the list fills in for one that has never answered', () => {
+    const silent = presence({ id: 'kehikot.slides' })
+    const [fresh] = rowsOf([silent], new Set(), official)
+    expect(fresh).toMatchObject({ name: 'Slides', summary: 'Slides, from the list.', tags: ['writing'] })
+    const [told] = rowsOf([paper], new Set(), official)
+    expect(told).toMatchObject({ summary: 'The paper, read as prose.', tags: ['writing', 'reading'] })
+  })
+})
+
 describe('what a search finds', () => {
   const [row] = rowsOf([diff], new Set())
 

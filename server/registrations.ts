@@ -8,9 +8,11 @@ import { legacyModulesDir, modulesDir } from './machineDirs.ts'
  *
  * A registration is a file in a directory. Its NAME is the module's id and its
  * CONTENTS say where that module answers. Nothing else about a module is known
- * before the manifest is fetched, and that is deliberate: the host installs
- * nothing, downloads nothing, and holds no catalogue. A program is present
- * because somebody put a file here, and absent because they did not.
+ * before the manifest is fetched, and that is deliberate. A program is present
+ * because a file was put here, and absent because none was. The host writes
+ * one itself in exactly one case — a person pressing Install on a module from
+ * the official list, `installs.ts` — and that file is the same file anybody
+ * else would have written.
  *
  * The id comes from the file name rather than from a field inside the file for
  * one reason: a registration must not be able to claim to be for a module it is

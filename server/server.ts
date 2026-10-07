@@ -54,10 +54,13 @@ import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
+import { installDesk } from './installs.ts'
+import { OFFICIAL } from './official.ts'
+import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { versionsDir } from './machineDirs.ts'
+import { installsDir, versionsDir } from './machineDirs.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
@@ -316,6 +319,33 @@ const feedback = feedbackDesk({
     if (!registration) return null
     return (await look(registration)).module?.version ?? null
   },
+})
+
+/* The official module list: what is on it, and installing one that is not on
+   this machine yet. What is registered is read from the disk at the press, so
+   an install never races a sweep's map. See `installs.ts`. */
+const installs = installDesk({
+  list: OFFICIAL,
+  run: runQuietly,
+  root: installsDir(),
+  registry: registryDir(),
+  registered: async () =>
+    (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url) })),
+  installed: () => wakes.registryChanged(),
+})
+
+/* Proposing a registered module for that list, as an issue in this host's
+   repository. See `proposals.ts`. */
+const proposals = proposalDesk({
+  list: OFFICIAL,
+  run: spawnRunner,
+  repo: HOST_REPO,
+  registration: async (id) => registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
+  manifest: async (id) => {
+    const registration = registered.get(id)
+    return registration ? ((await look(registration)).module ?? null) : null
+  },
+  remembered: (id) => known(db).get(id) ?? null,
 })
 
 const json = (body: unknown, status = 200) =>
@@ -1569,6 +1599,10 @@ const server = Bun.serve({
     /* The issues this person opened on a module, and a new one. `feedback.ts`. */
     const feedbackAnswer = await feedback.route(request, url)
     if (feedbackAnswer) return feedbackAnswer
+
+    /* The official module list, installing from it, and proposing for it. */
+    const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url))
+    if (officialAnswer) return officialAnswer
 
     /*
      * Start a module that is not running.

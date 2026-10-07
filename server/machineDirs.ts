@@ -6,10 +6,11 @@ import { dirname, join } from 'node:path'
 /**
  * Where this machine's own Kehikot state lives — spelled once, here.
  *
- * Three things are machine-level rather than project-level: the canvases cache
- * (`frame.sqlite`), the module registry (`modules/<id>.json`) and the module
- * versions a container can be pinned to (`versions/`). Everything else belongs
- * under `<project>/.kehikot/`.
+ * Four things are machine-level rather than project-level: the canvases cache
+ * (`frame.sqlite`), the module registry (`modules/<id>.json`), the module
+ * versions a container can be pinned to (`versions/`) and the official modules
+ * installed from the app (`installed/`). Everything else belongs under
+ * `<project>/.kehikot/`.
  *
  * They used to live in `~/.roadmap/`, named after the retired prototype. They
  * now live in `~/Library/Application Support/Kehikot/` on macOS (the place the
@@ -67,6 +68,16 @@ export function modulesDir(env: Env = process.env): string {
  */
 export function versionsDir(env: Env = process.env): string {
   return env.KEHIKOT_VERSIONS_DIR || join(machineDir(env), 'versions')
+}
+
+/**
+ * Where official modules installed from the app are cloned: one checkout per
+ * module id, `installed/<id>/` — see `server/installs.ts`. Machine-level for
+ * `versionsDir`'s reason: it is program code, and it must never land in
+ * somebody's own working copy. `KEHIKOT_INSTALLS_DIR` overrides it.
+ */
+export function installsDir(env: Env = process.env): string {
+  return env.KEHIKOT_INSTALLS_DIR || join(machineDir(env), 'installed')
 }
 
 /**
