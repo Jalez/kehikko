@@ -170,6 +170,41 @@ describe('installing an official module', () => {
     expect(calls.some((call) => call.argv.join(' ') === `git -C ${join(root, 'kehikot.slides')} remote get-url origin`)).toBe(true)
   })
 
+  test('a clone left by a failed attempt is brought up to date before it is installed again', async () => {
+    let installs = 0
+    const { desk, calls, root } = world((argv) => {
+      if (argv[0] === 'bun') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
+      if (argv.includes('get-url')) return { ok: true, out: 'https://github.com/Jalez/kehikko-slides.git' }
+      return { ok: true, out: '' }
+    })
+    await desk.install('kehikot.slides')
+    await settled(desk, 'kehikot.slides')
+    await desk.install('kehikot.slides')
+    expect((await settled(desk, 'kehikot.slides')).installed).toBe(true)
+    const said = calls.map((call) => call.argv.join(' '))
+    const pull = said.indexOf(`git -C ${join(root, 'kehikot.slides')} pull --ff-only --quiet`)
+    /* The fix for a repository that would not install arrives as a commit, so
+       the pull has to come BEFORE the second install, not merely happen. */
+    expect(pull).toBeGreaterThan(-1)
+    expect(pull).toBeLessThan(said.lastIndexOf('bun install --frozen-lockfile'))
+  })
+
+  test('a clone that cannot be updated is still tried, and the failure says both things', async () => {
+    const { desk } = world((argv) => {
+      if (argv[0] === 'bun') return { ok: false, why: 'lockfile is frozen' }
+      if (argv.includes('get-url')) return { ok: true, out: 'https://github.com/Jalez/kehikko-slides.git' }
+      if (argv.includes('pull')) return { ok: false, why: 'could not resolve host github.com' }
+      return { ok: true, out: '' }
+    })
+    await desk.install('kehikot.slides')
+    await settled(desk, 'kehikot.slides')
+    await desk.install('kehikot.slides')
+    expect((await settled(desk, 'kehikot.slides')).install).toEqual({
+      state: 'failed',
+      why: 'Slides was cloned, and its dependencies could not be installed: lockfile is frozen — and the clone, left by an earlier attempt, could not be brought up to date first: could not resolve host github.com',
+    })
+  })
+
   test('a directory in the way that is not this module is never cloned over', async () => {
     const { desk, calls, root } = world((argv) => (argv.includes('get-url') ? { ok: true, out: 'git@github.com:somebody/else.git' } : { ok: true, out: '' }))
     mkdirSync(join(root, 'kehikot.slides'), { recursive: true })
