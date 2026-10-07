@@ -38,17 +38,15 @@ import type { Epics as Held } from './projects.ts'
  * The empty string for a title with nothing usable in it. Not a fallback, not
  * `untitled`: an epic called "!!!" has no slug, and the server saying so is the
  * right answer, not this function guessing one.
+ *
+ * The protocol's function, handed on. It was this file's own until a part's
+ * id came to be derived from its heading by the same rule in a second
+ * program; the argument at the top of this file — one derivation, or a person
+ * and an agent get two slugs for the same words — is the argument for it
+ * being one function across programs as well as across the two halves of
+ * this one. `test/epics-made.test.ts` holds it to the slugs it always made.
  */
-export function slugFrom(title: string): string {
-  return title
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80)
-    .replace(/-+$/, '')
-}
+export { slugFrom } from 'kehikot-module-protocol'
 
 /**
  * What "new epic…" at the end of the epic menu does, given the state the menu is in.

@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
-import { focusSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
+import { focusSaid, goneSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -53,6 +53,12 @@ import { Hint } from './Hint.tsx'
  * bar of quiet ones — and it carries its own clear button outside the menu, so
  * undoing it is one press and does not have to be found.
  *
+ * ## And when what it was narrowed to is gone, that has to be seen too
+ *
+ * A part can be removed while it is picked. The focus then stops applying,
+ * which is right, and used to stop applying in silence, which was not: see
+ * `goneSaid` in `host/parts.ts`.
+ *
  * ## The menu stays open while boxes are pressed
  *
  * Picking two parts is two presses, and a menu that shut after the first would
@@ -74,6 +80,7 @@ export function Parts({
   if (parts.length === 0) return null
   const on = pickedIn(parts, picked)
   const said = focusSaid(parts, picked)
+  const gone = goneSaid(parts, picked)
 
   return (
     <span className="inline-flex shrink-0 items-center" data-narrowed={said.narrowed ? '' : undefined}>
@@ -147,6 +154,30 @@ export function Parts({
             className="h-6 rounded-l-none border-l border-l-white/25 px-1 text-xs"
             onClick={() => onPick([])}
           >
+            <X className="size-3" />
+          </Button>
+        </Hint>
+      ) : null}
+      {/*
+        A stored pick that names a part the epic no longer has. It narrows
+        nothing — `pickedIn` sees to that — and that is exactly why it is
+        said: the bar has just gone from a filled, named focus to "all
+        parts", every module has widened, and without this nothing on screen
+        says why. Amber and not filled: it is news about the focus, not a
+        focus. One press forgets it; see `goneSaid` for why it is a press and
+        not something the page does by itself.
+      */}
+      {gone ? (
+        <Hint label={gone.hint}>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-gone={gone.gone.length}
+            aria-label={`${gone.label} — forget ${gone.gone.length === 1 ? 'it' : 'them'}`}
+            className="ml-1 h-6 gap-1 px-1.5 text-[11px] text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+            onClick={() => onPick(gone.kept)}
+          >
+            <span>{gone.label}</span>
             <X className="size-3" />
           </Button>
         </Hint>

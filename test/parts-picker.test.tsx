@@ -62,4 +62,20 @@ describe('the parts control', () => {
     expect(html).toContain('all parts')
     expect(html).not.toContain('data-narrowed')
   })
+
+  test('and the bar says the part is gone, with one press to forget it', () => {
+    const html = draw(parts, ['a-part-that-was-removed'])
+    expect(html).toContain('data-gone="1"')
+    expect(html).toContain('a picked part is gone')
+    /* Nothing of the kind when every stored pick is a part, or none is stored. */
+    expect(draw(parts, [])).not.toContain('data-gone')
+    expect(draw(parts, ['the-agent-seam'])).not.toContain('data-gone')
+  })
+
+  test('one part gone and one still here: still narrowed to the one, and still said', () => {
+    const html = draw(parts, ['the-agent-seam', 'a-part-that-was-removed'])
+    expect(html).toContain('data-narrowed')
+    expect(html).toContain('focused on 1 of 3 parts of this epic')
+    expect(html).toContain('data-gone="1"')
+  })
 })
