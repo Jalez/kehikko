@@ -89,7 +89,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'machine-dir',
     match: /Application Support['"`]?\s*,\s*['"`]Kehikot|Application Support\/Kehikot|['"`]\.local['"`]\s*,\s*['"`]share|XDG_DATA_HOME/,
-    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache and the materialised module versions (host server/machineDirs.ts)',
+    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions and the official modules installed from the app (host server/machineDirs.ts)',
   },
   {
     id: 'module-registry',

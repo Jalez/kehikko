@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowDownLeft, ArrowUpRight, Compass, Eye, MousePointerClick } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import type { Canvas } from '@/host/canvases.ts'
-import { arrange, attention, rowsOf, type Row } from '@/host/moduleMenu.ts'
+import { arrange, attention, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
+import { fetchOfficial, installOfficial, proposeModule, type OfficialModule, type Proposal } from '@/host/official.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import {
   labelFor,
@@ -41,6 +42,13 @@ import { Hint } from './Hint.tsx'
  * What is on this kehikko first, then one section per category, taken from the
  * tags each module declares about itself — the host keeps no table of which
  * module is which. A box at the top narrows by name, summary and tag.
+ *
+ * ## What is not on this machine
+ *
+ * Modules on the official list that are not installed are on their shelves
+ * too, under the registered ones and greyed, each with one button that clones,
+ * installs and registers it — `server/installs.ts`. A registered module that
+ * is not on the list can be proposed for it from its details.
  */
 export function ModuleList({
   registry,
@@ -49,6 +57,7 @@ export function ModuleList({
   open,
   onPlace,
   onUnplace,
+  onLookAgain,
 }: {
   registry: RegistryView | null
   onCanvas: Set<string>
@@ -56,14 +65,18 @@ export function ModuleList({
   open: Canvas | null
   onPlace(id: string): void
   onUnplace(id: string): void
+  /** Sweep the registry again: an install has just registered something. */
+  onLookAgain?(): void
 }) {
   const [query, setQuery] = useState('')
+  const official = useOfficial(onLookAgain)
 
   if (!registry) return <p className="text-muted-foreground p-4 text-sm">Asking the host…</p>
 
   const { presences, sweep } = registry
+  const rows = rowsOf(presences, onCanvas, official.list)
 
-  if (!presences.length) {
+  if (!rows.length) {
     return (
       <div className="space-y-2 p-4 text-sm">
         {/* Where it looked, said out loud. "No modules" and "no such directory"
@@ -100,7 +113,7 @@ export function ModuleList({
   }
   const placings: Placings = { onCanvas, elsewhere }
   const relationships = relate(presences, placings)
-  const sections = arrange(rowsOf(presences, onCanvas), query)
+  const sections = arrange(rows, query)
 
   return (
     <div className="flex max-h-[70vh] flex-col">
@@ -123,15 +136,19 @@ export function ModuleList({
                 {section.heading}
               </h3>
               <ul className="divide-y">
-                {section.rows.map((row) => (
-                  <ModuleRow
-                    key={row.id}
-                    row={row}
-                    relationships={relationships.get(row.id) ?? []}
-                    onPlace={() => onPlace(row.id)}
-                    onUnplace={() => onUnplace(row.id)}
-                  />
-                ))}
+                {section.rows.map((row) =>
+                  row.kind === 'available' ? (
+                    <AvailableRow key={row.id} row={row} onInstall={() => official.install(row.id)} refused={official.refused.get(row.id) ?? null} />
+                  ) : (
+                    <ModuleRow
+                      key={row.id}
+                      row={row}
+                      relationships={relationships.get(row.id) ?? []}
+                      onPlace={() => onPlace(row.id)}
+                      onUnplace={() => onUnplace(row.id)}
+                    />
+                  ),
+                )}
               </ul>
             </section>
           ))
@@ -147,13 +164,104 @@ export function ModuleList({
   )
 }
 
+/**
+ * The official list, kept while the menu is open.
+ *
+ * Read when the menu opens and again every second and a half while something
+ * is installing — the one time the answer changes without anybody pressing
+ * anything. When a module that was not installed becomes installed, the
+ * registry is swept, so its row turns into an ordinary one with an add button.
+ *
+ * A host from before the list answers 404, and then there is no list: nothing
+ * extra is drawn and nothing is offered.
+ */
+const INSTALL_POLL_MS = 1500
+
+function useOfficial(onInstalled?: () => void) {
+  const [list, setList] = useState<OfficialModule[] | null>(null)
+  const [refused, setRefused] = useState<ReadonlyMap<string, string>>(new Map())
+  const [asked, setAsked] = useState(0)
+  const installed = useRef<Set<string> | null>(null)
+  const told = useRef(onInstalled)
+  told.current = onInstalled
+
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void fetchOfficial()
+      .then((got) => {
+        if (!alive) return
+        const now = new Set(got.filter((one) => one.installed).map((one) => one.id))
+        const before = installed.current
+        installed.current = now
+        if (before && [...now].some((id) => !before.has(id))) told.current?.()
+        setList(got)
+        if (got.some((one) => one.install?.state === 'installing')) timer = setTimeout(() => setAsked((n) => n + 1), INSTALL_POLL_MS)
+      })
+      .catch(() => {
+        if (alive) setList(null)
+      })
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [asked])
+
+  function install(id: string) {
+    setRefused((was) => new Map([...was].filter(([one]) => one !== id)))
+    void installOfficial(id)
+      .catch((error: unknown) => setRefused((was) => new Map(was).set(id, (error as Error).message)))
+      .finally(() => setAsked((n) => n + 1))
+  }
+
+  return { list, refused, install }
+}
+
+/**
+ * An official module that is not on this machine: what it is, and one button.
+ *
+ * Greyed, because it cannot be placed yet, and under the registered rows of
+ * its shelf, because what is here comes before what could be. While it
+ * installs the button says which step it is on; a failure is the server's
+ * sentence, and the button tries again.
+ */
+function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall(): void; refused: string | null }) {
+  const install = row.entry.install
+  const working = install?.state === 'installing'
+  const failed = install?.state === 'failed' ? install.why : refused
+  return (
+    <li className="flex items-start gap-2.5 p-3">
+      <span className="border-muted-foreground/50 mt-1.5 size-1.5 shrink-0 rounded-full border" aria-label="not installed" title="not installed" />
+      <div className="min-w-0 flex-1 opacity-70">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{row.name}</span>
+          <Badge variant="outline" className="text-muted-foreground shrink-0">
+            not installed
+          </Badge>
+        </div>
+        {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
+        {failed ? (
+          <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+            {failed}
+          </p>
+        ) : null}
+      </div>
+      <Hint label={`clone ${row.entry.repo}, install it and register it on this computer`} side="left">
+        <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
+          {working ? `${install.step}…` : failed ? 'try again' : 'install'}
+        </Button>
+      </Hint>
+    </li>
+  )
+}
+
 function ModuleRow({
   row,
   relationships,
   onPlace,
   onUnplace,
 }: {
-  row: Row
+  row: Registered
   /** What this module touches, and how. Empty for most of them, honestly. */
   relationships: readonly Relationship[]
   onPlace(): void
@@ -247,7 +355,7 @@ function ModuleRow({
  * A native disclosure rather than a tooltip on the dot, because an address is
  * something a person copies, and a tooltip closes when the pointer leaves it.
  */
-function Details({ row, shown }: { row: Row; shown: string | null }) {
+function Details({ row, shown }: { row: Registered; shown: string | null }) {
   const { presence } = row
   /* The sentence is left out when the row already says it: as the summary of a
      module that is answering, or inside the line about what to do. */
@@ -274,7 +382,69 @@ function Details({ row, shown }: { row: Row; shown: string | null }) {
         ) : null}
       </dl>
       {line ? <p className="mt-1 leading-relaxed">{line}</p> : null}
+      {row.official === false ? <Propose id={row.id} name={row.name} /> : null}
     </details>
+  )
+}
+
+/**
+ * Propose a registered module for the official list.
+ *
+ * Only for a module that is not on it. One press asks, a second files: the
+ * proposal is an issue in Kehikot's repository under the person's own GitHub
+ * account, and that is not something to do on a single click. A module that
+ * cannot be proposed — no public repository — is told so in the server's
+ * sentence, here, instead of filing an issue nobody could follow.
+ */
+function Propose({ id, name }: { id: string; name: string }) {
+  const [at, setAt] = useState<'idle' | 'asking' | 'sending'>('idle')
+  const [filed, setFiled] = useState<Proposal | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
+
+  if (filed) {
+    return (
+      <p className="mt-1.5 leading-relaxed">
+        {filed.existing ? 'Already proposed: ' : 'Proposed: '}
+        <a className="text-foreground underline" href={filed.url} target="_blank" rel="noreferrer">
+          #{filed.number}
+        </a>
+      </p>
+    )
+  }
+
+  function send() {
+    setAt('sending')
+    setRefused(null)
+    void proposeModule(id)
+      .then(setFiled)
+      .catch((error: unknown) => setRefused((error as Error).message))
+      .finally(() => setAt('idle'))
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      {at === 'asking' ? (
+        <p className="leading-relaxed">
+          This opens an issue on Kehikot&rsquo;s repository from your GitHub account, filled in from what {name} says
+          about itself.{' '}
+          <button type="button" className="text-foreground underline" onClick={send}>
+            File it
+          </button>{' '}
+          <button type="button" className="underline" onClick={() => setAt('idle')}>
+            Cancel
+          </button>
+        </p>
+      ) : (
+        <button type="button" className="hover:text-foreground underline disabled:no-underline" disabled={at === 'sending'} onClick={() => setAt('asking')}>
+          {at === 'sending' ? 'Filing the proposal…' : 'Propose for the official list'}
+        </button>
+      )}
+      {refused ? (
+        <p role="alert" className="leading-relaxed text-amber-600 dark:text-amber-400">
+          {refused}
+        </p>
+      ) : null}
+    </div>
   )
 }
 

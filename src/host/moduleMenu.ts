@@ -1,3 +1,4 @@
+import type { OfficialModule } from './official.ts'
 import type { Presence } from './registry.ts'
 
 /**
@@ -48,26 +49,70 @@ export function shelfOf(tags: readonly string[]): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** One line of the list. */
-export interface Row {
+interface Line {
   id: string
   name: string
   /** What it is, in a sentence; empty when nobody has said. */
   summary: string
   tags: readonly string[]
   placed: boolean
-  presence: Presence
 }
 
-export function rowsOf(presences: readonly Presence[], placed: ReadonlySet<string>): Row[] {
-  return presences.map((presence) => ({
-    id: presence.id,
-    name: presence.name ?? presence.id,
-    summary: presence.summary ?? presence.module?.summary ?? '',
-    tags: presence.tags ?? presence.module?.tags ?? [],
-    placed: placed.has(presence.id),
-    presence,
-  }))
+/** A module registered on this machine. */
+export interface Registered extends Line {
+  kind: 'registered'
+  presence: Presence
+  /**
+   * Whether it is on the official list. Null when the list could not be read —
+   * a host older than the list — and then nothing is offered either way.
+   */
+  official: boolean | null
+}
+
+/** An official module that is not on this machine yet. */
+export interface Available extends Line {
+  kind: 'available'
+  placed: false
+  entry: OfficialModule
+}
+
+/** One line of the list. */
+export type Row = Registered | Available
+
+/**
+ * Every line: what is registered, then what the official list has that this
+ * machine does not.
+ *
+ * A registered module describes itself, and what it says — now, or the last
+ * time it was awake — is what is shown. The list's own summary and tags fill
+ * in only for one that has never answered here, which is exactly the module
+ * somebody has just installed.
+ */
+export function rowsOf(
+  presences: readonly Presence[],
+  placed: ReadonlySet<string>,
+  official: readonly OfficialModule[] | null = null,
+): Row[] {
+  const listed = new Map((official ?? []).map((entry) => [entry.id, entry]))
+  const here = new Set(presences.map((presence) => presence.id))
+  const registered: Row[] = presences.map((presence) => {
+    const entry = listed.get(presence.id)
+    const tags = presence.tags ?? presence.module?.tags ?? []
+    return {
+      kind: 'registered',
+      id: presence.id,
+      name: presence.name ?? entry?.name ?? presence.id,
+      summary: presence.summary || presence.module?.summary || entry?.summary || '',
+      tags: tags.length ? tags : (entry?.tags ?? []),
+      placed: placed.has(presence.id),
+      presence,
+      official: official ? entry !== undefined : null,
+    }
+  })
+  const available: Row[] = (official ?? [])
+    .filter((entry) => !entry.installed && !here.has(entry.id))
+    .map((entry) => ({ kind: 'available', id: entry.id, name: entry.name, summary: entry.summary, tags: entry.tags, placed: false, entry }))
+  return [...registered, ...available]
 }
 
 /**
@@ -91,9 +136,10 @@ export interface Section<R> {
 
 /**
  * The list in the order it is drawn: what is on this kehikko, then one section
- * per shelf. Each row appears once.
+ * per shelf. Each row appears once, and on a shelf what is installed comes
+ * before what could be.
  */
-export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed'>>(
+export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed'> & { kind?: Row['kind'] }>(
   rows: readonly R[],
   query = '',
 ): Section<R>[] {
@@ -113,7 +159,10 @@ export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' |
   }
   return [...byHeading.entries()]
     .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
-    .map(([heading, held]) => ({ heading, rows: held.sort((a, b) => a.name.localeCompare(b.name)) }))
+    .map(([heading, held]) => ({
+      heading,
+      rows: held.sort((a, b) => Number(a.kind === 'available') - Number(b.kind === 'available') || a.name.localeCompare(b.name)),
+    }))
 }
 
 /**
