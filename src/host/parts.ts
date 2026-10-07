@@ -1,7 +1,13 @@
-import { LIMITS, PART_ID, stepPart, type EpicPart } from 'kehikot-module-protocol'
+import {
+  LIMITS,
+  PART_ID,
+  partsOf,
+  slugFrom,
+  stepPart,
+  type EpicPart,
+  type JourneyPart,
+} from 'kehikot-module-protocol'
 import { z } from 'zod'
-
-import { slugFrom } from './epics.ts'
 
 /**
  * The parts of an epic, and the ones a person has picked out.
@@ -59,20 +65,26 @@ import { slugFrom } from './epics.ts'
  * restated once — this host shipped parts while still locked to a protocol
  * from before the field — and the copies went the day the lock moved.
  *
- * What stays here is what is this host's own: `Part`, which is one part as
- * the host reads it off an epic and carries a count of steps the wire has no
- * use for, and the reading itself.
+ * ## And so is the reading, now
+ *
+ * Which group is called what — the paragraph headed "The id" above — is
+ * `partsOf` in the protocol, and no longer a function in this file; see the
+ * note where it is handed on, below. The paragraph stays because it is still
+ * true and still the reason, and because the rule it describes is one this
+ * host depends on: the project's stored focus is a list of those ids.
+ *
+ * What stays here is what is this host's own: which parts a PERSON picked
+ * (`partIdsIn`, `pickedIn`, `toggled`), how they go out on the wire
+ * (`partsOnWire`), and the words the bar says about them (`focusSaid`).
  */
 
-/** One part of an epic, as this host reads it off the epic's file. */
-export interface Part {
-  id: string
-  heading: string
-  /** The refs listed under the heading, and the refs of the steps assigned here. */
-  refs: string[]
-  /** How many steps say they are in this part. */
-  steps: number
-}
+/**
+ * One part of an epic, as this host reads it off a record: its id, its
+ * heading, the refs listed under the heading together with those of the steps
+ * assigned to it, and how many steps that is. The protocol's `JourneyPart`,
+ * under the name this host has always used for it.
+ */
+export type Part = JourneyPart
 
 /** What the page is sent for one epic, and what the server answers with. */
 export const partSchema = z.object({
@@ -83,82 +95,32 @@ export const partSchema = z.object({
 })
 
 /**
- * The part a step says it is in, or null — the protocol's reading, and no
- * longer one of this host's own.
+ * The reading itself — which groups are parts, what each is called, and which
+ * part a step says it is in — is the protocol's, handed on from here so that
+ * what imports it from this file goes on finding it.
  *
- * It was written here first, and then a second program needed it: the
- * Journeys module, which keeps the steps and shows only the ones in a picked
- * part. Two functions deciding what counts as an assignment are a step that
- * is in a part on this host's bar and in none on that module's page. So it is
- * `stepPart` in `kehikot-module-protocol` now, and handed on from here only so
- * that what imports it from this file goes on finding it.
+ * All three were written here first. `stepPart` went when a second program
+ * needed it: the Journeys module, which keeps the steps and shows only the
+ * ones in a picked part. `partsOf` and `slugFrom` have gone the same way now
+ * and for a sharper reason. Journeys can FILE a step under a part, and when
+ * it does it writes the part's id onto the group — the id it worked out. Had
+ * that been worked out by a second copy of the function below, the day the
+ * copies differed by one character a step filed on that module's page would
+ * be in a part this host's bar has never heard of, with both programs
+ * correct about their own function.
  *
- * The derivation of a part's id from its heading, below, is the next thing to
- * go the same way and for the same reason.
+ * So there is one derivation, `partsOf` in `kehikot-module-protocol`, and this
+ * file holds none. `test/parts.test.ts` was this host's specification of it
+ * and still passes word for word against the protocol's — which is the proof
+ * that no id moved when the copy was deleted: every group in every file on
+ * disk is called what it was called the day before.
+ *
+ * What is bounded is unchanged and is the protocol's too: `LIMITS.PARTS` parts
+ * and `LIMITS.PART_REFS` refs each, because the list goes out in a context
+ * broadcast to every frame. Nothing in it throws; an epic with a malformed
+ * `groups` costs that epic its parts and nothing else.
  */
-export { stepPart }
-
-/** Refs out of whatever a file holds under `refs`: short non-empty strings, once each, bounded. */
-function refsOf(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  const out: string[] = []
-  for (const one of raw) {
-    if (typeof one !== 'string') continue
-    const ref = one.trim()
-    if (!ref || ref.length > LIMITS.REF || out.includes(ref)) continue
-    out.push(ref)
-  }
-  return out
-}
-
-/**
- * Every part an epic has, in the file's order.
- *
- * `[]` for an epic with no `groups`, which is most of them, and for anything
- * that is not an epic at all. Nothing here throws: this is called on every
- * listing of a project's epics, and one epic with a malformed `groups` must
- * cost that epic its parts and nothing else.
- *
- * Bounded at `LIMITS.PARTS` parts and `LIMITS.PART_REFS` refs each, because the list
- * goes out in a context broadcast to every frame. What is past either bound is
- * not sent; the epic file is where the whole of it is.
- */
-export function partsOf(epic: unknown): Part[] {
-  if (!epic || typeof epic !== 'object') return []
-  const { groups, steps } = epic as { groups?: unknown; steps?: unknown }
-  if (!Array.isArray(groups)) return []
-
-  const parts: Part[] = []
-  const taken = new Set<string>()
-  groups.forEach((group, index) => {
-    if (parts.length >= LIMITS.PARTS) return
-    if (!group || typeof group !== 'object') return
-    const { id: written, heading: said, refs } = group as { id?: unknown; heading?: unknown; refs?: unknown }
-    const heading = typeof said === 'string' ? said.trim().slice(0, LIMITS.TITLE) : ''
-    const wanted =
-      typeof written === 'string' && PART_ID.test(written) ? written : slugFrom(heading) || `part-${index + 1}`
-    let id = wanted
-    for (let n = 2; taken.has(id); n += 1) id = `${wanted.slice(0, 76)}-${n}`
-    taken.add(id)
-    parts.push({ id, heading: heading || id, refs: refsOf(refs), steps: 0 })
-  })
-
-  /* The steps that say which part they are in bring their refs with them. */
-  if (Array.isArray(steps)) {
-    const byId = new Map(parts.map((part) => [part.id, part]))
-    for (const step of steps) {
-      const assigned = stepPart(step)
-      const part = assigned === null ? undefined : byId.get(assigned)
-      if (!part) continue
-      part.steps += 1
-      for (const ref of refsOf((step as { refs?: unknown }).refs)) {
-        if (!part.refs.includes(ref)) part.refs.push(ref)
-      }
-    }
-  }
-  for (const part of parts) part.refs = part.refs.slice(0, LIMITS.PART_REFS)
-  return parts
-}
+export { partsOf, slugFrom, stepPart }
 
 /**
  * Part ids, bounded before they are stored or compared.
@@ -191,6 +153,52 @@ export function partIdsIn(raw: unknown): string[] {
  */
 export function pickedIn(parts: readonly Part[], stored: readonly string[]): string[] {
   return parts.filter((part) => stored.includes(part.id)).map((part) => part.id)
+}
+
+/**
+ * The stored picks that name NO part of this epic, and what the bar says
+ * about them; `null` when every stored pick is a part, which is nearly always.
+ *
+ * `pickedIn` already stops such a pick applying, and that half was always
+ * right: a focus on a part that is gone must not hide everything. What it
+ * left was the other half of the same event. Somebody focuses on a part; the
+ * part is removed — in the Journeys module, which can do that from its page
+ * now — and the bar goes from a filled, named control back to a quiet "all
+ * parts" with nothing to say that anything happened. Every module on the
+ * canvas widened, correctly, and the person was not told why.
+ *
+ * And the id was still in the store. A part made later under the same
+ * heading gets the same id, so the old focus would come back by itself, on a
+ * part the person had never picked.
+ *
+ * So it is said, and it is one press to forget: `kept` is the list to store
+ * instead — the picks that are still parts. Not forgotten without the press.
+ * The list of parts this page holds is read again on every change to the
+ * journeys, and for the moment between a part being made in one window and
+ * this one hearing of it, a pick of that part looks exactly like a pick of
+ * nothing; a page that tidied up by itself would undo it.
+ */
+export function goneSaid(
+  parts: readonly Part[],
+  stored: readonly string[],
+): { gone: string[]; kept: string[]; label: string; hint: string } | null {
+  const has = new Set(parts.map((part) => part.id))
+  const gone = stored.filter((id) => !has.has(id))
+  if (gone.length === 0) return null
+  const kept = pickedIn(parts, stored)
+  const one = gone.length === 1
+  return {
+    gone,
+    kept,
+    label: one ? 'a picked part is gone' : `${gone.length} picked parts are gone`,
+    hint:
+      `this project was focused on ${one ? 'a part' : `${gone.length} parts`} this epic no longer has ` +
+      `(${gone.join(', ')}) — removed, or given another id, since. ${one ? 'It narrows' : 'They narrow'} nothing: ` +
+      (kept.length === 0
+        ? 'every module is shown the whole epic. '
+        : `the focus is the ${kept.length === 1 ? 'one part' : `${kept.length} parts`} still here. `) +
+      'Press to forget it',
+  }
 }
 
 /**
