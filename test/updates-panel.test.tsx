@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b8 pass/)
+    expect(out).toMatch(/\b13 pass/)
   }, 60_000)
 }
 
@@ -313,5 +313,82 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(indicatorText()).toBe('3 updates')
     const blocked = [...document.querySelectorAll('[data-testid="updates-row"]')].find((r) => r.textContent?.includes('uncommitted'))
     expect((blocked as HTMLElement | undefined)?.dataset.state).toBe('blocked')
+  })
+
+  /* A module that was updated and has to be restarted: the header says
+     "Restart to update", and a press on it has to do that. It used to be only
+     the panel's toggle, and opening the panel threw the restart offer away. */
+  async function updatedAwaitingRestart(restart: 'module' | 'host' = 'module', restartable = false) {
+    const id = restart === 'host' ? 'host' : 'a'
+    const posts: { url: string; body: Json }[] = []
+    let behind = 1
+    answer = async (url, init) => {
+      if (init?.method === 'POST') {
+        posts.push({ url, body: init.body ? (JSON.parse(String(init.body)) as Json) : {} })
+        if (url === '/host/updates') {
+          behind = 0
+          return { ok: true, checkout: checkout(id, 0), changed: ['manifest.ts'], installed: false, installFailed: null, lockfileReset: false, restart }
+        }
+        return { ok: true }
+      }
+      return url.startsWith('/host/updates') ? check([checkout(id, behind), checkout('b', 0)], restartable) : {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    const update = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Update') as HTMLButtonElement
+    await act(async () => update.click())
+    await settle()
+    expect(indicatorText()).toBe('Restart to update')
+    return { host, posts }
+  }
+
+  test('pressing "Restart to update" restarts the module that is waiting, and says so', async () => {
+    const { host, posts } = await updatedAwaitingRestart()
+    await press(host)
+    await settle()
+    expect(posts.filter((one) => one.url === '/host/start').map((one) => one.body)).toEqual([{ module: 'a' }])
+    expect(panels()).toHaveLength(1)
+    expect(text()).toContain('Restarted — it is running the new code.')
+    expect(indicatorText()).toBe('')
+  })
+
+  test('the press restarts from a closed panel too, and opens it on the result', async () => {
+    const { host, posts } = await updatedAwaitingRestart()
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    await settle()
+    expect(panels()).toHaveLength(0)
+    expect(indicatorText()).toBe('Restart to update')
+    await press(host)
+    await settle()
+    expect(posts.filter((one) => one.url === '/host/start')).toHaveLength(1)
+    expect(text()).toContain('Restarted — it is running the new code.')
+  })
+
+  test('a restart the host refuses is shown, with the panel open', async () => {
+    const { host } = await updatedAwaitingRestart()
+    const was = answer
+    answer = async (url, init) => (url === '/host/start' ? { ok: false, why: 'a has no run.sh to start it with.' } : was(url, init))
+    await press(host)
+    await settle()
+    expect(panels()).toHaveLength(1)
+    expect(text()).toContain('a has no run.sh to start it with.')
+  })
+
+  test('an updated host is restarted through the app when the app can do it', async () => {
+    const { host, posts } = await updatedAwaitingRestart('host', true)
+    await press(host)
+    await settle()
+    expect(posts.map((one) => one.url)).toContain('/host/restart')
+    expect(text()).toContain('Restarting Kehikot')
+  })
+
+  test('with nothing the press can restart, it opens the panel on what to do instead of closing it', async () => {
+    const { host, posts } = await updatedAwaitingRestart('host', false)
+    await press(host)
+    await settle()
+    expect(posts.some((one) => one.url === '/host/restart')).toBe(false)
+    expect(panels()).toHaveLength(1)
+    expect(text()).toContain('quit and reopen Kehikot')
   })
 })

@@ -112,6 +112,8 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const [notice, setNotice] = useState<string | null>(null)
   /** Asked the app to restart; the window is about to go. */
   const [restarting, setRestarting] = useState(false)
+  /** Modules being restarted right now, so a second press does not start a second copy. */
+  const [restartingIds, setRestartingIds] = useState<readonly string[]>([])
   /** The level checkouts are listed, not just counted. */
   const [showLevel, setShowLevel] = useState(false)
   const [now, setNow] = useState(() => new Date())
@@ -225,7 +227,10 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const onOpenChange = (next: boolean) => {
     if (next) {
       setOpen(true)
-      setOutcomes({})
+      /* What was done last time is cleared, except an update still waiting on
+         a restart: that is not history, it is the thing the header is asking
+         for, and forgetting it here took the restart button away with it. */
+      setOutcomes((was) => Object.fromEntries(Object.entries(was).filter(([, outcome]) => awaitsRestart(outcome))))
       setShowLevel(false)
       /* Opening shows what is known. A check older than the focus threshold
          is refreshed out loud; a fresh one is not asked again, so opening the
@@ -281,7 +286,9 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
     )
 
   const restart = async (id: string) => {
+    setRestartingIds((was) => (was.includes(id) ? was : [...was, id]))
     const why = await restartModule(id)
+    setRestartingIds((was) => was.filter((one) => one !== id))
     setOutcomes((was) => ({ ...was, [id]: why ? { kind: 'failed', why } : { kind: 'restarted' } }))
   }
 
@@ -294,6 +301,31 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
       setRestarting(false)
       setNotice(why)
     }
+  }
+
+  /**
+   * What a press on the header's "Restart to update" does: restart everything
+   * that is waiting on one.
+   *
+   * The header button is the panel's trigger, and for a while that is all it
+   * was — it said "Restart to update" and a press opened or closed the panel,
+   * where the real button was. A control is what it says on it. So the press
+   * restarts every module that was updated and needs it, then the app or the
+   * host when one of those is waiting (last, because that takes this page with
+   * it), and the panel is opened — never closed — to show what happened.
+   *
+   * A host whose server changed, in a Kehikot the app cannot restart, is the
+   * one thing left: nothing here can restart it, and the open panel says to
+   * quit and reopen.
+   */
+  const restartWaiting = async () => {
+    setOpen(true)
+    const modules = Object.entries(outcomes)
+      .filter(([id, outcome]) => outcome.kind === 'updated' && outcome.restart === 'module' && !restartingIds.includes(id))
+      .map(([id]) => id)
+    await Promise.all(modules.map((id) => restart(id)))
+    if (appOne?.state === 'ready') applyApp()
+    else if (offersAppRestart(outcomes.host, check?.restartable ?? false)) await restartApp()
   }
 
   const pins = check?.pins ?? {}
@@ -322,12 +354,21 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <Hint label={label} align="end">
-        <PopoverTrigger asChild>
+        <PopoverTrigger
+          asChild
+          onClick={(event) => {
+            /* While it says "Restart to update" it restarts; see `restartWaiting`.
+               Prevented, so the same press does not also toggle the panel. */
+            if (shown?.tone !== 'action') return
+            event.preventDefault()
+            void restartWaiting()
+          }}
+        >
           <Button
             variant="ghost"
             size={shown ? 'sm' : 'icon'}
             aria-label={shown ? `updates — ${shown.label}` : 'check for updates'}
-            data-busy={checking || updating !== null || restarting}
+            data-busy={checking || updating !== null || restarting || restartingIds.length > 0}
             data-testid="updates-indicator"
             data-tone={shown?.tone ?? 'none'}
             className={
@@ -403,6 +444,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                     reading={one}
                     outcome={outcome}
                     running={updating ? updating.ids[updating.at] === one.id : false}
+                    restarting={restartingIds.includes(one.id)}
                     disabled={updating !== null}
                     onUpdate={() => void updateAll([one.id])}
                     onCancel={cancel}
@@ -526,6 +568,7 @@ function Row({
   reading,
   outcome,
   running,
+  restarting,
   disabled,
   onUpdate,
   onCancel,
@@ -538,6 +581,8 @@ function Row({
   outcome: Outcome | null
   /** This is the checkout being updated right now. */
   running: boolean
+  /** Its module is being restarted right now. */
+  restarting: boolean
   /** Something else is being updated; this one waits. */
   disabled: boolean
   onUpdate(): void
@@ -603,8 +648,8 @@ function Row({
             </Button>
           ) : null}
           {outcome.restart === 'module' ? (
-            <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestart}>
-              Restart {one.name}
+            <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" disabled={restarting} onClick={onRestart}>
+              {restarting ? 'Restarting…' : `Restart ${one.name}`}
             </Button>
           ) : null}
         </div>
@@ -624,6 +669,11 @@ function Row({
       ) : null}
     </div>
   )
+}
+
+/** An update that still needs a restart to run: kept across opening the panel. */
+function awaitsRestart(outcome: Outcome): boolean {
+  return outcome.kind === 'updated' && outcome.restart !== null
 }
 
 function noteFor(id: string, changed: number, installed: boolean, restart: 'host' | 'module' | null, lockfileReset = false): string {
