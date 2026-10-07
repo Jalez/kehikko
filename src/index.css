@@ -415,3 +415,27 @@
 }
 @keyframes updates-fade-in { from { opacity: 0; } }
 @keyframes updates-fade-out { to { opacity: 0; } }
+
+/*
+ * The container a person was just sent to.
+ *
+ * One press in the bar can end in a module scrolled into view — "divide this
+ * epic into parts" lands on Journeys — and on a canvas of nine containers the
+ * scroll alone does not say which one. So it is outlined for a moment, in the
+ * colour a picked part is filled with, and the outline fades by itself. Inset,
+ * for the reason the selection ring is: eight pixels of margin separate two
+ * containers and an outline drawn outside the border would touch the next one.
+ * Set and removed on the element by `land` in `canvas/Dividing.ts`.
+ */
+[data-module][data-landed='true'] {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  animation: kehikko-landed 2600ms ease-out 1 forwards;
+}
+@keyframes kehikko-landed {
+  0%, 70% { outline-color: var(--primary); }
+  100% { outline-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-module][data-landed='true'] { animation: none; }
+}

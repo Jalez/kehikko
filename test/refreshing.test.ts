@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'kehikot-module-protocol'
 
 import { Presses } from '../src/host/presses.ts'
+
+/** A frame nobody walks in this file. */
+const unwalked = () => Promise.resolve({ found: false, why: '' })
 import { createCanvas, editCanvas, listCanvases, open } from '../server/canvases.ts'
 
 /**
@@ -22,7 +25,7 @@ describe('a press, and the frame that is standing when it happens', () => {
   test('a refresh reaches the frame that joined', () => {
     const presses = new Presses()
     let asked = 0
-    presses.join('a.one', { clear: () => {}, refresh: () => (asked += 1) })
+    presses.join('a.one', { clear: () => {}, refresh: () => (asked += 1), walk: unwalked })
     expect(presses.refresh('a.one')).toBe(true)
     expect(asked).toBe(1)
   })
@@ -35,7 +38,7 @@ describe('a press, and the frame that is standing when it happens', () => {
    */
   test('and a refresh at a frame that has left reaches nothing at all', () => {
     const presses = new Presses()
-    presses.join('a.one', { clear: () => {}, refresh: () => {} })
+    presses.join('a.one', { clear: () => {}, refresh: () => {}, walk: unwalked })
     presses.leave('a.one')
     expect(presses.refresh('a.one')).toBe(false)
   })
@@ -49,7 +52,7 @@ describe('a press, and the frame that is standing when it happens', () => {
   test('refreshing is not clearing', () => {
     const presses = new Presses()
     const done: string[] = []
-    presses.join('a.one', { clear: () => done.push('clear'), refresh: () => done.push('refresh') })
+    presses.join('a.one', { clear: () => done.push('clear'), refresh: () => done.push('refresh'), walk: unwalked })
     presses.refresh('a.one')
     presses.press('a.one')
     expect(done).toEqual(['refresh', 'clear'])

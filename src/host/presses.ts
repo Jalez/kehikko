@@ -53,6 +53,32 @@ export interface Pressable {
    * no call.
    */
   refresh(): void
+  /**
+   * Walk this module to something on its own page, and hear whether it found
+   * it. See `Conversation.goto`.
+   *
+   * Here for the reason `clear` is: a walk is a press. It happens at a moment
+   * and has no value that could be re-sent on a reload — a canvas that
+   * scrolled a module to its parts box again every time the page was opened
+   * would be a canvas with a mind of its own. It is the first press with an
+   * ANSWER, which the protocol gives a walk and gives nothing else: found, or
+   * not and why. The one caller is the parts control in the bar, sending a
+   * person to where an epic is divided into parts; see `host/dividing.ts`.
+   */
+  walk(target: WalkTarget): Promise<Walked>
+}
+
+/** What a walk names: the triple `kehikot.goto` carries. */
+export interface WalkTarget {
+  ref?: string
+  step?: number
+  epic?: string
+}
+
+/** What a module answered a walk with. A module that never answers is `found: false`. */
+export interface Walked {
+  found: boolean
+  why: string
 }
 
 /**
@@ -113,5 +139,15 @@ export class Presses {
     if (!frame) return false
     frame.refresh()
     return true
+  }
+
+  /**
+   * Walk one module, if it is there — or `null` when it is not, which is not
+   * the same answer as a module that was there and found nothing: the caller
+   * is waiting for a frame to arrive and has to be able to tell.
+   */
+  walk(id: string, target: WalkTarget): Promise<Walked> | null {
+    const frame = this.frames.get(id)
+    return frame ? frame.walk(target) : null
   }
 }

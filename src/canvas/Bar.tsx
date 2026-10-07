@@ -13,7 +13,7 @@ import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
-import { Parts } from './Parts.tsx'
+import { Parts, type Undividing } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
@@ -82,6 +82,7 @@ export function Bar({
   parts,
   pickedParts,
   onParts,
+  undivided = null,
   onPlace,
   onUnplace,
   focus,
@@ -130,6 +131,8 @@ export function Bar({
   /** The ids of the ones the project is pointed at. Empty is the whole epic. */
   pickedParts: readonly string[]
   onParts(ids: string[]): void
+  /** Where parts are made, and the press that goes there, for an epic with none. See `host/dividing.ts`. */
+  undivided?: Undividing | null
   onPlace(id: string): void
   onUnplace(id: string): void
   /** Whether the container headers are out of the layout. See `host/focus.ts`. */
@@ -213,10 +216,10 @@ export function Bar({
         {/*
          * Which parts of that epic. Directly after the epic and before the
          * kehikko, because it depends on the first and not on the second: a
-         * kehikko is a layout and carries no focus. Draws nothing for an epic
-         * with no parts. See `Parts.tsx`.
+         * kehikko is a layout and carries no focus. For an epic with no
+         * parts it draws the way to make some. See `Parts.tsx`.
          */}
-        <Parts parts={parts} picked={pickedParts} onPick={onParts} />
+        <Parts parts={parts} picked={pickedParts} onPick={onParts} epic={subject.epic} undivided={undivided} />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
 
