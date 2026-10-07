@@ -91,6 +91,8 @@ export function installDesk(deps: Deps) {
     const step = (now: Step) => jobs.set(entry.id, { state: 'installing', step: now })
 
     step('cloning')
+    /** Why a clone left by an earlier attempt could not be updated, when it could not. */
+    let stale: string | null = null
     if (existsSync(dir)) {
       /* Something is already there. It is used only when it is this module's
          own repository — what an earlier attempt left after cloning and then
@@ -99,6 +101,16 @@ export function installDesk(deps: Deps) {
       if (!remote.ok || githubRepo(remote.out)?.toLowerCase() !== entry.repo.toLowerCase()) {
         throw new Error(`${dir} already exists and is not a checkout of ${entry.repo}. Move it away and install again.`)
       }
+      /* And brought level with its repository first. The usual reason an
+         earlier attempt cloned and then failed is something IN the
+         repository — a lockfile this machine's bun will not take — and the
+         fix for that arrives as a commit. Installing the old clone again
+         would fail the same way for ever, with the fix one pull away.
+         Fast-forward only: nothing here is anybody's work, and if it cannot
+         fast-forward the install goes on with what is there and says so
+         should it then fail. */
+      const pulled = await deps.run(['git', '-C', dir, 'pull', '--ff-only', '--quiet'], { timeoutMs: CLONE_TIMEOUT_MS })
+      if (!pulled.ok) stale = pulled.why
     } else {
       mkdirSync(deps.root, { recursive: true })
       /* Over https first, which needs no account for a public repository, and
@@ -112,7 +124,10 @@ export function installDesk(deps: Deps) {
 
     step('installing')
     const installed = await deps.run(['bun', 'install', '--frozen-lockfile'], { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS })
-    if (!installed.ok) throw new Error(`${entry.name} was cloned, and its dependencies could not be installed: ${installed.why}`)
+    if (!installed.ok) {
+      const old = stale ? ` — and the clone, left by an earlier attempt, could not be brought up to date first: ${stale}` : ''
+      throw new Error(`${entry.name} was cloned, and its dependencies could not be installed: ${installed.why}${old}`)
+    }
 
     step('registering')
     const registered = await deps.registered()
