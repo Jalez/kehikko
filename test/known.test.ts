@@ -6,8 +6,8 @@ import { ensureKnown, forgetUnregistered, known, remember } from '../server/know
 /**
  * Remembering what a module is called.
  *
- * The behaviour under test is narrow on purpose: a name, for a module that
- * cannot currently give one, and nothing else. The tests that matter are the
+ * The behaviour under test is narrow on purpose: a name, a summary and tags,
+ * for a module that cannot currently give them, and nothing else. The tests that matter are the
  * ones about the edges of that — a rename, an id nobody registers any more, and
  * the refusal to store an empty name — because those are where a memory starts
  * saying something that is no longer true.
@@ -23,7 +23,7 @@ describe('what a module is called', () => {
   test('a name given once is given back', () => {
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper')
-    expect(known(db).get('kehikot.paper')).toBe('Paper')
+    expect(known(db).get('kehikot.paper')?.name).toBe('Paper')
   })
 
   test('a rename replaces the old name rather than keeping the first', () => {
@@ -32,7 +32,7 @@ describe('what a module is called', () => {
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper')
     remember(db, 'kehikot.paper', 'Reader')
-    expect(known(db).get('kehikot.paper')).toBe('Reader')
+    expect(known(db).get('kehikot.paper')?.name).toBe('Reader')
     expect(known(db).size).toBe(1)
   })
 
@@ -42,7 +42,7 @@ describe('what a module is called', () => {
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper')
     remember(db, 'kehikot.paper', '')
-    expect(known(db).get('kehikot.paper')).toBe('Paper')
+    expect(known(db).get('kehikot.paper')?.name).toBe('Paper')
   })
 
   test('an id with no name is not stored at all', () => {
@@ -70,11 +70,27 @@ describe('what a module is called', () => {
     expect(known(db).size).toBe(2)
   })
 
+  test('the summary and the tags are kept with the name, and follow it', () => {
+    const db = fresh()
+    remember(db, 'kehikot.paper', 'Paper', { summary: 'The paper, as prose.', tags: ['writing', 'reading'] })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'The paper, as prose.', tags: ['writing', 'reading'] })
+    remember(db, 'kehikot.paper', 'Paper', { summary: 'Read as prose.', tags: [] })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'Read as prose.', tags: [] })
+  })
+
+  test('a table from before the summary and the tags gains them, empty, and keeps its names', () => {
+    const db = new Database(':memory:')
+    db.exec('create table known_modules (id text primary key, name text not null, seen integer not null)')
+    db.query('insert into known_modules (id, name, seen) values (?, ?, ?)').run('kehikot.paper', 'Paper', 1)
+    ensureKnown(db)
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: '', tags: [] })
+  })
+
   test('the table can be made twice without complaint', () => {
     /* It is made on every start, and a host restarts often. */
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper')
     ensureKnown(db)
-    expect(known(db).get('kehikot.paper')).toBe('Paper')
+    expect(known(db).get('kehikot.paper')?.name).toBe('Paper')
   })
 })

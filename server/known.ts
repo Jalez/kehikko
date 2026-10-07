@@ -27,11 +27,18 @@ import type { Database } from 'bun:sqlite'
  * `asleep`; the name only says what to call the thing that is not answering.
  *
  * The line is worth holding, so what is remembered is deliberately thin: the
- * name, and nothing else. Not the summary, not the guidance, not the tools, not
- * the protocol range — those ARE claims about what a module currently offers,
- * and a host repeating them for a program that is not running would be
- * answering for it. A person needs to know which container is which. They do
- * not need a sleeping module's description of itself.
+ * name, the one-line summary and the tags. All three say what a module IS, for
+ * a person choosing one from a list, and none of them goes stale by the module
+ * stopping. Not the guidance, not the tools, not the protocol range — those ARE
+ * claims about what a module currently offers, and a host repeating them for a
+ * program that is not running would be answering for it.
+ *
+ * The summary and the tags were not remembered at first, and the module list
+ * is why they are now. Most modules are asleep most of the time, so a list
+ * that could describe only the running ones described almost nothing, and
+ * filled the gap with a sentence about why each one was not answering. A list
+ * also cannot be grouped by category when the category is known only for
+ * whatever happens to be awake.
  *
  * Kept in the host's own database rather than written back into the
  * registration file, because the registration is the person's — they wrote it,
@@ -47,6 +54,19 @@ export function ensureKnown(db: Database): void {
       seen  integer not null
     )
   `)
+  /* Two columns newer than the table. A database made before them gains them
+     here, empty, and the next sweep that finds the module awake fills them. */
+  const has = new Set(db.query<{ name: string }, []>('pragma table_info(known_modules)').all().map((c) => c.name))
+  if (!has.has('summary')) db.exec("alter table known_modules add column summary text not null default ''")
+  if (!has.has('tags')) db.exec("alter table known_modules add column tags text not null default '[]'")
+}
+
+/** What the host keeps about a module for when it is not answering. */
+export interface Known {
+  name: string
+  summary: string
+  /** Most fitting first, as the manifest gave them. */
+  tags: string[]
 }
 
 /**
@@ -56,16 +76,35 @@ export function ensureKnown(db: Database): void {
  * memory follows a module that has been renamed rather than pinning the first
  * answer it ever gave.
  */
-export function remember(db: Database, id: string, name: string, now = Date.now()): void {
+export function remember(
+  db: Database,
+  id: string,
+  name: string,
+  about: { summary?: string; tags?: readonly string[] } = {},
+  now = Date.now(),
+): void {
   if (!id || !name) return
-  db.query('insert into known_modules (id, name, seen) values (?, ?, ?) on conflict(id) do update set name = excluded.name, seen = excluded.seen')
-    .run(id, name, now)
+  db.query(
+    `insert into known_modules (id, name, summary, tags, seen) values (?, ?, ?, ?, ?)
+     on conflict(id) do update set name = excluded.name, summary = excluded.summary, tags = excluded.tags, seen = excluded.seen`,
+  ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), now)
 }
 
-/** Every name the host has been told, by module id. */
-export function known(db: Database): Map<string, string> {
-  const rows = db.query<{ id: string; name: string }, []>('select id, name from known_modules').all()
-  return new Map(rows.map((row) => [row.id, row.name]))
+/** Everything the host has been told, by module id. */
+export function known(db: Database): Map<string, Known> {
+  const rows = db
+    .query<{ id: string; name: string; summary: string; tags: string }, []>('select id, name, summary, tags from known_modules')
+    .all()
+  return new Map(rows.map((row) => [row.id, { name: row.name, summary: row.summary, tags: tagsIn(row.tags) }]))
+}
+
+function tagsIn(text: string): string[] {
+  try {
+    const value: unknown = JSON.parse(text)
+    return Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   type Manifest,
   type ModuleCondition,
 } from 'kehikot-module-protocol'
+import { z } from 'zod'
 import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
 
@@ -83,6 +84,15 @@ export interface Presence {
    * under it naming the same program two different ways.
    */
   name?: string
+  /**
+   * What the module is, in its own line, and the categories it files itself
+   * under. Beside `name` and for its reason: the module list describes and
+   * groups every registered module, and most of them are not answering. Read
+   * off the manifest when there was one; filled from what the host remembers
+   * (`known.ts`) when there was not.
+   */
+  summary?: string
+  tags?: string[]
   /** Present exactly when the condition is `ready`. URLs already resolved. */
   module?: FramedModule
   /** Both numbers, whenever the host had both. The reason `incompatible` is legible. */
@@ -101,6 +111,8 @@ export interface FramedModule {
    */
   dataVersion: number
   summary: string
+  /** The categories the module files itself under, most fitting first. See `tagsOf`. */
+  tags: string[]
   /** What this module says its presence obliges an agent to do. */
   guidance: string
   /** Absolute, on the module's own origin, ready to be a frame's `src`. */
@@ -129,6 +141,25 @@ export interface FramedModule {
    */
   reacts: Manifest['reacts']
   declares: Manifest['declares']
+}
+
+/**
+ * The tags a manifest gives, read off the raw document.
+ *
+ * The host's own reading rather than `manifestSchema`'s, with the protocol's
+ * bounds restated (`LIMITS.TAG`, `LIMITS.TAGS`): a host built against a
+ * protocol from before `tags` parses a manifest with a schema that drops the
+ * field, and the list would come out empty for a module that had said where it
+ * belongs. Anything that is not a short list of category words is no tags —
+ * the module is then filed under "other", which is where one that said nothing
+ * goes.
+ */
+const tagsSchema = z.array(z.string().regex(/^[a-z][a-z0-9-]{0,23}$/)).max(5)
+
+export function tagsOf(raw: unknown): string[] {
+  if (typeof raw !== 'object' || raw === null) return []
+  const read = tagsSchema.safeParse((raw as { tags?: unknown }).tags)
+  return read.success ? [...new Set(read.data)] : []
 }
 
 /** How long the host waits for a manifest before calling the program silent. */
@@ -293,6 +324,7 @@ export async function look(
 
   const manifest = parsed.data
   const range = manifest.declares.protocol
+  const tags = tagsOf(raw)
 
   /* Two comparisons, not one, and the protocol package says why in `speaks`:
      a permissive range from a module that says it was built against protocol 9
@@ -306,6 +338,8 @@ export async function look(
       condition: 'incompatible',
       reached: true,
       name: manifest.name,
+      summary: manifest.summary,
+      tags,
       line: `${manifest.name} was built against protocol ${manifest.protocol}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
     }
@@ -318,6 +352,8 @@ export async function look(
       condition: 'incompatible',
       reached: true,
       name: manifest.name,
+      summary: manifest.summary,
+      tags,
       line: `${manifest.name} speaks protocol ${range}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
     }
@@ -355,6 +391,8 @@ export async function look(
     condition: 'ready',
     reached: true,
     name: manifest.name,
+    summary: manifest.summary,
+    tags,
     line: manifest.summary || `${manifest.name} ${manifest.version}`,
     protocols: { host: PROTOCOL, module: manifest.protocol, range },
     module: {
@@ -363,6 +401,7 @@ export async function look(
       version: manifest.version,
       dataVersion: manifest.dataVersion,
       summary: manifest.summary,
+      tags,
       /**
        * What this module says its presence obliges an agent to do.
        *
