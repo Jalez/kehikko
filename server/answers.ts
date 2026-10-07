@@ -11,7 +11,7 @@ import {
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
-import { epicsIn, listEpics, readEpic, readLive, readSteps } from './holdings.ts'
+import { epicsIn, listEpics, readEpic, readLive, readStepsSaid } from './holdings.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
@@ -283,14 +283,40 @@ export function answer(
     return nothingToShow('epic.get', found)
   }
 
+  /**
+   * An epic's steps — or where they are, when they are not here.
+   *
+   * `{ steps }` for an epic whose steps are stored, and `{ steps: [] }` for
+   * one nobody has written any for. Those are both "nothing to show" in this
+   * file's sense: the host looked, and the list is the true answer.
+   *
+   * An epic written as a paper is neither. Its record carries `"steps": []`
+   * and a `stepsFrom`, the steps are the paper's sections, and this host
+   * cannot read a paper. Answering `{ steps: [] }` there is the lie this
+   * host has told before — an epic with twenty sections reported as having no
+   * steps — and it is a lie precisely because it is well-formed.
+   *
+   * So that answer has **no `steps` at all**: `{ stepsFrom: { projector,
+   * where, why } }`, the record's own field under the record's own name. Not
+   * a refusal, which would carry the where as prose in an error string and
+   * tell a module the question failed when it was answered. And not
+   * `{ steps: [], stepsFrom }`, which is the same lie with a footnote: a
+   * module that reads `steps` and nothing else — every module written before
+   * today — would count an empty list. With the key absent there is no list
+   * to count, and a module that looks for `stepsFrom` can say WHERE.
+   *
+   * The protocol leaves this answer's content to the host on purpose, so no
+   * shape is broken by it; `README.md` says what a module should read.
+   */
   case 'steps.list': {
     if (!dir) {
       return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
     }
     const { epic } = parsed.data as { epic: string }
-    const steps = readSteps(dir, epic)
-    if (steps === null) return notMineToSay('There is no epic here under that name.')
-    return nothingToShow('steps.list', { steps })
+    const said = readStepsSaid(dir, epic)
+    if (said === null) return notMineToSay('There is no epic here under that name.')
+    if (said.kind === 'elsewhere') return nothingToShow('steps.list', { stepsFrom: said.from })
+    return nothingToShow('steps.list', { steps: said.kind === 'stored' ? said.steps : [] })
   }
 
   /**

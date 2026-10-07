@@ -128,7 +128,10 @@ path is built with the protocol's helpers — `KEHIKOT_DIR`, `kehikotDir`,
 and never anchored at a program's own folder (`import.meta.dir`, `__dirname`,
 `process.cwd()`, a repo `ROOT`) or the home directory. The host's own data is
 `.kehikot/kehikko/epics/` and `.kehikot/kehikko/state/`, beside
-`.kehikot/kehikko/kehikot.json`; papers are `.kehikot/paper/<epic>/`. The host
+`.kehikot/kehikko/kehikot.json`; papers are `.kehikot/paper/<epic>/`. One file
+of a module's is READ by the host and never written: `.kehikot/journeys/journeys.json`,
+for an epic's steps, through the protocol's own reader — see the section on
+whose the steps are, below. The host
 brings older layouts there when it starts, adopts or adds a project
 (`server/hostData.ts`): `.kehikot/roadmap/{epics,state}` (from before the app
 was renamed) is COPIED and left where it is, and read as a fallback while the
@@ -150,6 +153,73 @@ and every registered module, and fails on any code that
 stores data outside `.kehikot/`. `bun test` runs the same scan
 (`test/storage-boundary.test.ts`), and `run.sh` prints the violations loudly at
 startup without refusing to start.
+
+## An epic's steps are the Journeys module's, and the host reads them there
+
+Every epic used to exist twice in a project: the host's file,
+`.kehikot/kehikko/epics/<slug>.json`, and the Journeys module's record in
+`.kehikot/journeys/journeys.json`, which is where a step is actually edited.
+Nothing kept the two in step. The host has not written steps to its own file
+since it stopped being the place they are edited, so that file is a snapshot —
+and in one real project it was three steps behind, nine against twelve, with
+every answer correct about the copy it happened to read.
+
+The owner decided who owns what:
+
+| | |
+|---|---|
+| **Journeys** | the steps, the groups (which the host reads as the epic's **parts**), and the prose around them |
+| **The host** | the epic's slug, its title, and whether it exists |
+
+So `epicOf` in `server/holdings.ts` — the one reader, which
+`test/one-reader.test.ts` holds to being one — prefers the project's journey
+record for a slug, and everything the host says about an epic's steps moved
+with that one function: `epic.get`, `steps.list`, the size and parts on a row
+of `epics.list`, `context.parts`, and the tracker's scope.
+
+- **With a record**, the answer is the record, whole, under the host's own slug
+  and title. Whole and not merged: a field somebody deleted from the journey
+  must not go on being answered out of a stale file.
+- **With no record** — Journeys never installed, no journey begun for this
+  epic, a file or a record that will not read — the answer is the host's own
+  file, exactly as before.
+- **Existence is the host's.** A record for a slug with no epic file is a
+  journey nothing points at, and is not an epic. Deleting an epic removes the
+  host's file and nothing of the module's.
+- **The title is the host's.** A retitle writes the host's file and shows at
+  once; the journey's own `title` is not what the host answers with.
+
+The host does not parse a module's private format to do this. The shape of the
+record is the protocol's (`journey.ts`), and so are `readJourneys` and
+`journeyIn`, which open the file and take one record out of it; nothing in this
+host spells that path.
+
+**`steps.list` for an epic whose steps are kept elsewhere.** Some epics are
+written as a paper, and their steps are the paper's sections: the record carries
+`"steps": []` and a `stepsFrom`, and that array does not mean there are none.
+The host never answers "no steps" for one:
+
+```ts
+{ steps: [...] }   // stored
+{ steps: [] }      // nobody has written any
+{ stepsFrom: { projector, where, why } }   // kept elsewhere: NO `steps` key at all
+```
+
+A module that reads `steps` finds no list to count rather than an empty one,
+and a module that looks for `stepsFrom` can say where the steps are. For the
+same reason the row in `epics.list` carries `stepsFrom` and **no `size`** for
+such an epic — a count of what is here would be a count with the steps left out.
+
+**A change to the journeys is announced as a change to the steps.** When
+Journeys reports a write, or `.kehikot/journeys/` changes on disk, `context.content`
+gains an entry for `kehikot.journeys` **and** one for `host`, in one telling, so
+a module that listens only for the host's epics re-asks `steps.list` too
+(`server/content.ts`).
+
+Still open: the tracker's scope for an epic is the refs in `refs` arrays and in
+`ref` / `umbrella` fields, as it always was. Journeys keeps more — `watch`,
+`containers`, what blocks what, what settles what — and whether a host should
+read the trackers for those as well has not been decided, so it does not.
 
 ## An epic has parts, and the project can be pointed at some of them
 

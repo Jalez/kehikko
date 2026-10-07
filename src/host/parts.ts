@@ -1,4 +1,4 @@
-import { LIMITS, PART_ID, type EpicPart } from 'kehikot-module-protocol'
+import { LIMITS, PART_ID, stepPart, type EpicPart } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import { slugFrom } from './epics.ts'
@@ -83,16 +83,20 @@ export const partSchema = z.object({
 })
 
 /**
- * The part a step says it is in, or null.
+ * The part a step says it is in, or null — the protocol's reading, and no
+ * longer one of this host's own.
  *
- * Read off whatever is there, because a step is somebody's JSON: anything that
- * is not an id is no assignment, and the step belongs to the epic as a whole.
+ * It was written here first, and then a second program needed it: the
+ * Journeys module, which keeps the steps and shows only the ones in a picked
+ * part. Two functions deciding what counts as an assignment are a step that
+ * is in a part on this host's bar and in none on that module's page. So it is
+ * `stepPart` in `kehikot-module-protocol` now, and handed on from here only so
+ * that what imports it from this file goes on finding it.
+ *
+ * The derivation of a part's id from its heading, below, is the next thing to
+ * go the same way and for the same reason.
  */
-export function stepPart(step: unknown): string | null {
-  if (!step || typeof step !== 'object') return null
-  const part = (step as { part?: unknown }).part
-  return typeof part === 'string' && PART_ID.test(part) ? part : null
-}
+export { stepPart }
 
 /** Refs out of whatever a file holds under `refs`: short non-empty strings, once each, bounded. */
 function refsOf(raw: unknown): string[] {
