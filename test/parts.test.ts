@@ -19,10 +19,12 @@ import { listEpics } from '../server/holdings.ts'
 import { PORTABLE_CANVAS_FIELDS, PORTABLE_SUBJECT_FIELDS, keep, kehikotFile, parse, serialize, syncProject } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { toWireContext, whileFrozen } from '../src/host/context.ts'
+import { epicSchema } from '../src/host/projects.ts'
 import {
   focusSaid,
   partIdsIn,
   partsOf,
+  partSchema,
   partsOnWire,
   pickedIn,
   stepPart,
@@ -463,5 +465,59 @@ describe('every module is told every part', () => {
     /* When something that does pass a pin moves, the held parts ride along. */
     const relit = whileFrozen(held, { ...wire([]), theme: 'dark' })
     expect((relit as typeof held).parts.find((part) => part.picked)?.id).toBe('the-agent-seam')
+  })
+})
+
+/**
+ * The files a part owns (protocol 0.32.0).
+ *
+ * A group of a journey may name files of the epic's paper. The reading is the
+ * protocol's (`partsOf`); what is this host's is carrying them, twice: from
+ * the server to the page, through a schema that used to strip the key, and
+ * from the page onto the wire, through a function that used to build a part
+ * out of four named fields. Either one dropping them is silent — the paper
+ * module is told every part owns nothing and says so, correctly, about a
+ * journey that says otherwise.
+ */
+describe('the files a part owns are carried, and only when there are some', () => {
+  const record = {
+    groups: [
+      { heading: 'The design', refs: ['gh#1'], files: ['chapters/design.tex', './chapters/protocol.tex'] },
+      { heading: 'The rest', refs: [] },
+    ],
+  }
+  const parts = partsOf(record)
+
+  test('the page keeps what the server read', () => {
+    const epic = epicSchema.parse({ slug: 'a-paper', parts: JSON.parse(JSON.stringify(parts)) })
+    expect(epic.parts).toEqual(parts)
+    expect(epic.parts[0]?.files).toEqual(['chapters/design.tex', 'chapters/protocol.tex'])
+    expect('files' in epic.parts[1]!).toBe(false)
+  })
+
+  test('and the wire carries them, picked or not, so a module can count what is outside', () => {
+    const wire = partsOnWire(parts, ['the-rest'])
+    expect(wire).toEqual([
+      { id: 'the-design', heading: 'The design', refs: ['gh#1'], picked: false, files: ['chapters/design.tex', 'chapters/protocol.tex'] },
+      { id: 'the-rest', heading: 'The rest', refs: [], picked: true },
+    ])
+    expect(partsSchema.parse(wire)).toEqual(wire)
+    const sent = toWireContext({ epic: 'a-paper', project: null }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], wire)
+    expect(sent.parts).toEqual(wire)
+  })
+
+  test('a part that names none has no such key, at either step', () => {
+    for (const part of partsOnWire(partsOf({ groups: [{ heading: 'Plain' }, { heading: 'Empty', files: [] }] }), [])) {
+      expect(Object.keys(part).sort()).toEqual(['heading', 'id', 'picked', 'refs'])
+    }
+    expect(Object.keys(partSchema.parse({ id: 'plain' })).sort()).toEqual(['heading', 'id', 'refs', 'steps'])
+  })
+
+  test('a name that is a way out of the paper is refused by the page, not carried', () => {
+    expect(partSchema.safeParse({ id: 'a', files: ['../secrets.tex'] }).success).toBe(false)
+    expect(partSchema.safeParse({ id: 'a', files: ['/etc/passwd'] }).success).toBe(false)
+    expect(partSchema.safeParse({ id: 'a', files: Array.from({ length: LIMITS.PART_FILES + 1 }, (_, i) => `f${i}.tex`) }).success).toBe(false)
+    /* And `partsOf` never produces one, so this only ever meets a hand-made answer. */
+    expect(partsOf({ groups: [{ heading: 'A', files: ['../x.tex', 'ok.tex'] }] })[0]?.files).toEqual(['ok.tex'])
   })
 })

@@ -1,4 +1,5 @@
 import {
+  isPartFile,
   LIMITS,
   PART_ID,
   partsOf,
@@ -92,6 +93,16 @@ export const partSchema = z.object({
   heading: z.string().max(LIMITS.TITLE).default(''),
   refs: z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.PART_REFS).default([]),
   steps: z.number().int().min(0).default(0),
+  /* The files of the epic's paper this part owns, each relative to the
+     paper's folder (`chapters/design.tex`) — the protocol's 0.32.0. OPTIONAL
+     and not defaulted, for the protocol's own reason: `partsOf` leaves the key
+     off a part that names none, and a part is compared whole in this host's
+     tests and in the string `App.tsx` watches for a change of focus. This
+     schema used to have no such line, and a `z.object` without one STRIPS the
+     key: the server read the files off the journey, the page parsed them away,
+     and a module that narrows a paper was told every part owned nothing.
+     An entry not in `partFile`'s form is refused, as on the wire. */
+  files: z.array(z.string().refine(isPartFile)).max(LIMITS.PART_FILES).optional(),
 })
 
 /**
@@ -216,12 +227,22 @@ export function toggled(parts: readonly Part[], stored: readonly string[], id: s
 /** `context.parts`: every part of the open epic, each saying whether it is picked. */
 export function partsOnWire(parts: readonly Part[], stored: readonly string[]): EpicPart[] {
   const picked = pickedIn(parts, stored)
-  return parts.slice(0, LIMITS.PARTS).map((part) => ({
-    id: part.id,
-    heading: part.heading,
-    refs: part.refs.slice(0, LIMITS.PART_REFS),
-    picked: picked.includes(part.id),
-  }))
+  return parts.slice(0, LIMITS.PARTS).map((part) => {
+    const sent: EpicPart = {
+      id: part.id,
+      heading: part.heading,
+      refs: part.refs.slice(0, LIMITS.PART_REFS),
+      picked: picked.includes(part.id),
+    }
+    /* A part's files go out only when it names some. The key is ABSENT
+       otherwise and never `[]`: that is the shape `partsOf` reads and the
+       shape the protocol's `partSchema` parses to, so a part with no files is
+       still `{ id, heading, refs, picked }` exactly, to every module and to
+       every comparison that was written before a part could own a file. */
+    const files = (part.files ?? []).slice(0, LIMITS.PART_FILES)
+    if (files.length) sent.files = files
+    return sent
+  })
 }
 
 /**
