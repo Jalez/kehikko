@@ -20,17 +20,25 @@ import { z } from 'zod'
  * The selection lives beside the epic rather than on the kehikko, because a
  * ref is picked out OF an epic. Changing the epic clears it — `edited` below,
  * mirroring `setSubject` on the server, which is the owner of the rule.
+ *
+ * Between the two is `parts`: the ids of the parts of the epic the person has
+ * pointed the project at, and empty for the whole epic. It is here, keyed by
+ * project like the rest, for the reason the epic is — and `subjectOf` still
+ * cannot be handed a kehikko, so a layout cannot come to carry a focus by
+ * accident. It is cleared with the selection when the epic changes.
  */
 
 export interface ProjectSubject {
   epic: string | null
+  /** Part ids picked out of the epic. Empty is the whole epic. */
+  parts: string[]
   selection: string[]
 }
 
 /** Every project's subject, by project id. */
 export type Subjects = Record<number, ProjectSubject>
 
-export const NOTHING: ProjectSubject = Object.freeze({ epic: null, selection: [] }) as ProjectSubject
+export const NOTHING: ProjectSubject = Object.freeze({ epic: null, parts: [], selection: [] }) as ProjectSubject
 
 /**
  * The server's list, as a record by project id. Defaulted to empty so an older
@@ -41,13 +49,15 @@ export const subjectsSchema = z
     z.object({
       project: z.number().int(),
       epic: z.string().nullable(),
+      /* Defaulted, so a server from before parts answers "the whole epic". */
+      parts: z.array(z.string()).max(64).default([]),
       selection: z.array(z.string()).max(64).default([]),
     }),
   )
   .default([])
   .transform((rows) => {
     const out: Subjects = {}
-    for (const row of rows) out[row.project] = { epic: row.epic, selection: row.selection }
+    for (const row of rows) out[row.project] = { epic: row.epic, parts: row.parts, selection: row.selection }
     return out
   })
 
@@ -59,19 +69,22 @@ export function subjectOf(subjects: Subjects, project: number | null): ProjectSu
 
 export interface SubjectEdit {
   epic?: string | null
+  parts?: string[]
   selection?: string[]
 }
 
 /**
  * A subject after an edit, by the server's rule: a DIFFERENT epic clears the
  * selection unless the same edit says what it is to be, and the same epic
- * again keeps what was picked.
+ * again keeps what was picked. The parts follow the selection exactly, and no
+ * epic has no parts.
  */
 export function edited(was: ProjectSubject, edit: SubjectEdit): ProjectSubject {
   const epic = edit.epic !== undefined ? edit.epic : was.epic
-  const selection =
-    edit.selection !== undefined ? [...edit.selection] : epic !== was.epic ? [] : was.selection
-  return { epic, selection }
+  const moved = epic !== was.epic
+  const selection = edit.selection !== undefined ? [...edit.selection] : moved ? [] : was.selection
+  const parts = epic === null ? [] : edit.parts !== undefined ? [...edit.parts] : moved ? [] : was.parts
+  return { epic, parts, selection }
 }
 
 /** The record with one project's subject edited, and the others untouched. */
@@ -91,7 +104,13 @@ export async function editSubject(project: number, edit: SubjectEdit): Promise<P
     throw new Error(typeof body?.error === 'string' ? body.error : `the host's server answered ${response.status}`)
   }
   const parsed = z
-    .object({ subject: z.object({ epic: z.string().nullable(), selection: z.array(z.string()) }) })
+    .object({
+      subject: z.object({
+        epic: z.string().nullable(),
+        parts: z.array(z.string()).default([]),
+        selection: z.array(z.string()),
+      }),
+    })
     .parse(await response.json())
   return parsed.subject
 }

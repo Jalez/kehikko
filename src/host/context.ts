@@ -10,6 +10,7 @@ import {
 } from 'kehikot-module-protocol'
 
 import { sameChoice } from './filters.ts'
+import { withParts, type ContextWithParts, type WirePart } from './parts.ts'
 import type { Project } from './projects.ts'
 
 /**
@@ -56,6 +57,17 @@ import type { Project } from './projects.ts'
  * switching kehikko never changes it, and changing it never changes the
  * kehikko. The selection — refs picked out OF the epic — is held beside it and
  * cleared whenever it moves.
+ *
+ * ## And so do the parts of it that are picked out
+ *
+ * A large epic is divided into parts, and a person may point the workspace at
+ * one or several — see `parts.ts`. The subject is then the epic, the parts
+ * picked out of it, and the selection: three widths of one fact, all held per
+ * project. The middle one is the easiest to put in the wrong place, because a
+ * focus FEELS like a view and a kehikko is a view. It is not one. A kehikko
+ * that remembered a focus would make the layout dropdown change what a person
+ * is working on, which is the bug in the paragraph above, one level down.
+ * Nothing picked is the whole epic, and that is where every epic starts.
  *
  * The move is to stop reading `context` as "the document you have open" and
  * start reading it as "what this workspace is about". Under that reading the
@@ -206,7 +218,23 @@ export function toWireContext(
    * the material itself. See `server/content.ts`.
    */
   content: readonly ContentChange[] = [],
-): ModuleContext {
+  /**
+   * The parts of the open epic, each saying whether it is picked out —
+   * composed by `partsOnWire` in `host/parts.ts` out of the epic's own file
+   * and the project's stored focus.
+   *
+   * Part of what the canvas is ABOUT, like the epic: it changes when a person
+   * picks in the bar and at no other time. It is an argument rather than a
+   * field on `Subject` only because of where it comes from — the list is read
+   * off the project's epics, which the page holds separately — and it is put
+   * onto the context by `withParts` rather than through `contextSchema`, which
+   * in the protocol this host is locked to has not heard of it.
+   *
+   * No kehikko is consulted for it, here or anywhere: see `Subject` in
+   * `server/canvases.ts`.
+   */
+  parts: readonly WirePart[] = [],
+): ContextWithParts {
   /**
    * The passage, checked on its own before anything else is composed.
    *
@@ -242,7 +270,7 @@ export function toWireContext(
     tracker,
     content,
   })
-  if (parsed.success) return parsed.data
+  if (parsed.success) return withParts(parsed.data, parts)
 
   /* An epic slug the schema will not take.
    *
@@ -302,11 +330,13 @@ export function toWireContext(
     tracker,
     content,
   })
-  if (bare.success) return bare.data
+  /* The parts go with the epic they are parts of, for the selection's reason:
+     this context names no epic, so there is nothing for them to divide. */
+  if (bare.success) return withParts(bare.data, [])
   /* Belt and braces: this function must not throw. It is called during render,
      and a host that white-screens because somebody named a canvas something the
      schema dislikes would be a host taking every module down with it. */
-  return contextSchema.parse({
+  return withParts(contextSchema.parse({
     epic: null,
     project: null,
     projectPath: null,
@@ -319,7 +349,7 @@ export function toWireContext(
        cannot fail. The containers are not here either, for the same reason:
        they are built out of module ids and modules' own claims, and one of
        those refusing is not something this branch may find out about. */
-  })
+  }), [])
 }
 
 /**
@@ -396,6 +426,11 @@ export function whileFrozen(
      frozen in the one way a pin does not mean. The pin holds WHICH epic; it
      never held that the epic stopped changing. */
   const rewritten = sameProject && JSON.stringify(held.content) !== JSON.stringify(told.content)
+  /* The parts picked out of the epic do NOT pass a pin, and are not listed
+     here on purpose. They are what the container is about — the epic, one
+     step narrower — and a container pinned on "the posting seam" that widened
+     when somebody cleared the bar would not have been held at all. `...held`
+     below keeps the parts it was pinned with. */
   if (!relit && !refiltered && !remarked && !reread && !rewritten) return null
   return {
     ...held,

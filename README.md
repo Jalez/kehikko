@@ -110,7 +110,8 @@ A **project** is the container. A **kehikko** is one named canvas inside it:
 which containers, arranged where — a layout, and nothing more. An **epic** is
 what the project is currently about, picked once per project; every kehikko in
 it shows the same one. Switching kehikko never changes the epic, and switching
-epic never changes the kehikko. Not every project has epics, and one that does
+epic never changes the kehikko. The parts of the epic a person has focused on are
+the project's too, for the same reason. Not every project has epics, and one that does
 not says so rather than showing an empty picker.
 
 Modules keep their data in `<project>/.kehikot/<module>/` as plain JSON — beside
@@ -149,6 +150,44 @@ and every registered module, and fails on any code that
 stores data outside `.kehikot/`. `bun test` runs the same scan
 (`test/storage-boundary.test.ts`), and `run.sh` prints the violations loudly at
 startup without refusing to start.
+
+## An epic has parts, and the project can be pointed at some of them
+
+A large epic is divided into **parts**: one level deep, a heading and what is
+under it. A part is one of the `groups` an epic file has always had —
+
+```json
+"groups": [
+  { "heading": "The posting seam", "refs": ["gh#1", "gh#3", "gh#2"] },
+  { "id": "agents", "heading": "The agent seam", "refs": ["gh#4"] }
+]
+```
+
+— and every epic already on disk that has groups has parts, with nothing
+migrated. A part's id is the `id` written beside its heading when there is one,
+and otherwise the heading as a slug (`the-posting-seam`); write the id down
+before rewording a heading, because the id is what a step and a stored focus
+hold on to.
+
+A **step says which part it is in**: `"part": "the-posting-seam"` on the step.
+It is not worked out from the refs the step names, and a step with no `part`
+belongs to the epic as a whole. The host folds an assigned step's refs into its
+part, so a module that only knows references narrows correctly.
+
+When the open epic has parts, a control appears in the bar directly after the
+epic: a list of checkboxes, where nothing ticked means the whole epic. Ticking
+some points every module at those parts. The control is filled and names what
+it is narrowed to for as long as it is, with a clear button beside it — a focus
+that hid things without saying so is the failure it is built against.
+
+The focus is the **project's**, held beside its epic and its selection
+(`projects.parts`, and a top-level `"parts"` in `kehikot.json`, written only
+when some are picked). It is never a kehikko's: switching layout changes
+neither the epic nor what is picked out of it. Switching epic clears it.
+
+Modules are told through `context.parts` — every part of the open epic, with
+its refs and whether it is picked — so that one which narrows can say how much
+it left out. See `src/host/parts.ts`, and `parts.ts` in the protocol.
 
 ## An epic can be retitled here, and cannot be re-slugged
 

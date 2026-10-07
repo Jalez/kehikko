@@ -1280,24 +1280,28 @@ const server = Bun.serve({
     }
 
     /*
-     * What one project is about: its epic, and the refs picked out of it.
+     * What one project is about: its epic, the parts of it picked out, and the
+     * refs picked out of it.
      *
      * Its own flat path rather than a field on the projects PATCH, because the
      * two are different kinds of write: sharing is a write to a `.gitignore`,
      * and this is a write to the database and the project's `kehikot.json`.
-     * Only `epic` and `selection` are read off the body, one at a time, for the
-     * reason the canvas PATCH gives. The rule that a new epic clears the
-     * selection is in `setSubject`, not here.
+     * Only `epic`, `parts` and `selection` are read off the body, one at a
+     * time, for the reason the canvas PATCH gives. The rule that a new epic
+     * clears the parts and the selection is in `setSubject`, not here. There
+     * is no kehikko in this body and there must not be: what a project is
+     * about is not a property of a layout.
      */
     if (url.pathname === '/host/subject' && request.method === 'PATCH') {
       const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; epic?: unknown; selection?: unknown }
+        | { project?: unknown; epic?: unknown; parts?: unknown; selection?: unknown }
         | null
       if (!body || typeof body.project !== 'number') {
         return json({ error: 'A change to what a project is about names the project.' }, 400)
       }
       const said = setSubject(db, body.project, {
         ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
+        ...(Array.isArray(body.parts) ? { parts: body.parts as string[] } : {}),
         ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
       })
       if (!said) return json({ error: 'There is no project with that id.' }, 404)
