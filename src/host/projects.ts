@@ -7,7 +7,7 @@ import {
   type TrackerRefreshResult,
   type TrackerSource,
 } from 'kehikot-module-protocol'
-import { PARTS_MAX, partSchema } from './parts.ts'
+import { partSchema } from './parts.ts'
 import { z } from 'zod'
 
 /**
@@ -148,7 +148,7 @@ export const epicSchema = z.object({
      server from before parts were read — both mean there is nothing to focus
      on, and the picker is not drawn. `catch` rather than a refusal: parts that
      will not read must not cost the page its list of epics. */
-  parts: z.array(partSchema).max(PARTS_MAX).catch([]).default([]),
+  parts: z.array(partSchema).max(LIMITS.PARTS).catch([]).default([]),
 })
 export type Epic = z.infer<typeof epicSchema>
 

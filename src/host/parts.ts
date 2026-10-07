@@ -1,4 +1,4 @@
-import { LIMITS, type ModuleContext } from 'kehikot-module-protocol'
+import { LIMITS, PART_ID, type EpicPart } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import { slugFrom } from './epics.ts'
@@ -51,23 +51,18 @@ import { slugFrom } from './epics.ts'
  * and two readings of what a part is would be the disagreement this workspace
  * keeps meeting.
  *
- * ## The bounds are the protocol's, restated
+ * ## The bounds and the wire shape are the protocol's
  *
- * `context.parts` arrived in protocol 0.29 and this host is locked to an
- * earlier one, so `LIMITS.PARTS` and `LIMITS.PART_REFS` are not there to
- * import and `contextSchema` drops the field. Until the lock moves, the two
- * numbers and the shape are restated below — as `tagsOf` in
- * `server/discover.ts` restates the tag bounds — and `withParts` puts the list
- * onto the context after the protocol's schema has had its say. When the lock
- * is bumped: import `partsSchema` and the limits, and delete the copies.
+ * `PART_ID`, `LIMITS.PARTS`, `LIMITS.PART_REFS` and the shape of one part in
+ * `context.parts` (`EpicPart`, checked by `partsSchema` inside
+ * `contextSchema`) are imported, and nothing here restates them. They were
+ * restated once — this host shipped parts while still locked to a protocol
+ * from before the field — and the copies went the day the lock moved.
+ *
+ * What stays here is what is this host's own: `Part`, which is one part as
+ * the host reads it off an epic and carries a count of steps the wire has no
+ * use for, and the reading itself.
  */
-
-/** `PART_ID` in the protocol: lowercase letters, digits and dashes, at most eighty. */
-const PART_ID = /^[a-z0-9-]{1,80}$/
-/** `LIMITS.PARTS` in the protocol. */
-export const PARTS_MAX = 32
-/** `LIMITS.PART_REFS` in the protocol. */
-export const PART_REFS_MAX = 256
 
 /** One part of an epic, as this host reads it off the epic's file. */
 export interface Part {
@@ -83,22 +78,9 @@ export interface Part {
 export const partSchema = z.object({
   id: z.string().regex(PART_ID),
   heading: z.string().max(LIMITS.TITLE).default(''),
-  refs: z.array(z.string().min(1).max(LIMITS.REF)).max(PART_REFS_MAX).default([]),
+  refs: z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.PART_REFS).default([]),
   steps: z.number().int().min(0).default(0),
 })
-
-/** One part as `context.parts` spells it: the protocol's `partSchema`, restated. */
-export const wirePartSchema = z.object({
-  id: z.string().regex(PART_ID),
-  heading: z.string().max(LIMITS.TITLE).default(''),
-  refs: z.array(z.string().min(1).max(LIMITS.REF)).max(PART_REFS_MAX).default([]),
-  picked: z.boolean().default(false),
-})
-export type WirePart = z.infer<typeof wirePartSchema>
-export const wirePartsSchema = z.array(wirePartSchema).max(PARTS_MAX)
-
-/** A context with the parts on it. `ModuleContext` itself once the lock is on a protocol that has them. */
-export type ContextWithParts = ModuleContext & { parts: WirePart[] }
 
 /**
  * The part a step says it is in, or null.
@@ -133,7 +115,7 @@ function refsOf(raw: unknown): string[] {
  * listing of a project's epics, and one epic with a malformed `groups` must
  * cost that epic its parts and nothing else.
  *
- * Bounded at `PARTS_MAX` parts and `PART_REFS_MAX` refs each, because the list
+ * Bounded at `LIMITS.PARTS` parts and `LIMITS.PART_REFS` refs each, because the list
  * goes out in a context broadcast to every frame. What is past either bound is
  * not sent; the epic file is where the whole of it is.
  */
@@ -145,7 +127,7 @@ export function partsOf(epic: unknown): Part[] {
   const parts: Part[] = []
   const taken = new Set<string>()
   groups.forEach((group, index) => {
-    if (parts.length >= PARTS_MAX) return
+    if (parts.length >= LIMITS.PARTS) return
     if (!group || typeof group !== 'object') return
     const { id: written, heading: said, refs } = group as { id?: unknown; heading?: unknown; refs?: unknown }
     const heading = typeof said === 'string' ? said.trim().slice(0, LIMITS.TITLE) : ''
@@ -170,7 +152,7 @@ export function partsOf(epic: unknown): Part[] {
       }
     }
   }
-  for (const part of parts) part.refs = part.refs.slice(0, PART_REFS_MAX)
+  for (const part of parts) part.refs = part.refs.slice(0, LIMITS.PART_REFS)
   return parts
 }
 
@@ -180,7 +162,7 @@ export function partsOf(epic: unknown): Part[] {
  * The same shape of function as `refsIn` in `server/canvases.ts` and for its
  * reason: this arrives from a request body, a hand-edited `kehikot.json` or a
  * column on somebody's own disk. Anything that is not an id is dropped, a
- * duplicate is not a second pick, and the list stops at `PARTS_MAX`.
+ * duplicate is not a second pick, and the list stops at `LIMITS.PARTS`.
  */
 export function partIdsIn(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
@@ -188,7 +170,7 @@ export function partIdsIn(raw: unknown): string[] {
   for (const one of raw) {
     if (typeof one !== 'string' || !PART_ID.test(one) || out.includes(one)) continue
     out.push(one)
-    if (out.length >= PARTS_MAX) break
+    if (out.length >= LIMITS.PARTS) break
   }
   return out
 }
@@ -220,28 +202,14 @@ export function toggled(parts: readonly Part[], stored: readonly string[], id: s
 }
 
 /** `context.parts`: every part of the open epic, each saying whether it is picked. */
-export function partsOnWire(parts: readonly Part[], stored: readonly string[]): WirePart[] {
+export function partsOnWire(parts: readonly Part[], stored: readonly string[]): EpicPart[] {
   const picked = pickedIn(parts, stored)
-  return parts.slice(0, PARTS_MAX).map((part) => ({
+  return parts.slice(0, LIMITS.PARTS).map((part) => ({
     id: part.id,
     heading: part.heading,
-    refs: part.refs.slice(0, PART_REFS_MAX),
+    refs: part.refs.slice(0, LIMITS.PART_REFS),
     picked: picked.includes(part.id),
   }))
-}
-
-/**
- * A context with the parts put onto it.
- *
- * After the protocol's schema rather than through it, because the schema this
- * host is locked to has never heard of the field and strips it. The list is
- * checked here instead, by the restated shape above, and a list that will not
- * parse becomes no parts — nothing narrowed, the state every module already
- * handles — rather than a context that could not go out.
- */
-export function withParts(context: ModuleContext, parts: readonly WirePart[]): ContextWithParts {
-  const checked = wirePartsSchema.safeParse(parts)
-  return { ...context, parts: checked.success ? checked.data : [] }
 }
 
 /**

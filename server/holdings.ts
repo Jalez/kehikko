@@ -130,9 +130,9 @@ export function listEpics(dir: string): EpicSummary[] {
     if (!file.endsWith('.json')) continue
     const slug = file.slice(0, -'.json'.length)
     if (!SLUG.test(slug)) continue
-    const epic = read(join(epicsDir(dir), file))
-    if (!epic) continue
-    epics.push(summarise(slug, epic))
+    const own = read(join(epicsDir(dir), file))
+    if (!own) continue
+    epics.push(summarise(slug, epicOf(dir, slug, own)))
   }
 
   return epics.sort((a, b) => (a.title ?? a.slug).localeCompare(b.title ?? b.slug))
@@ -171,10 +171,73 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
   return summary
 }
 
-/** One epic, exactly as it is written down. `null` when there is no such file. */
+/**
+ * One epic, as this host answers about it. `null` when it holds no such epic.
+ *
+ * ## The one reader
+ *
+ * Everything this host says about an epic's steps, its groups and the
+ * references it names is said out of what this returns, or out of `epicOf`
+ * below, which is the same thing for a caller that already has the file in
+ * its hand:
+ *
+ * - `epic.get` — the object itself (`answers.ts`);
+ * - `steps.list` — `readSteps`, below;
+ * - `epics.list`, and the summary a retitle or a create answers with —
+ *   `summarise`, which is where `partsOf` gets its groups and steps and where
+ *   the size is counted;
+ * - the parts in `context.parts` — the page composes them from that list;
+ * - the tracker's scope for an epic and for a project — `epicRefs` and
+ *   `allEpicRefs` in `trackers/reading.ts`.
+ *
+ * That is one function on purpose and `test/one-reader.test.ts` holds it to
+ * one. Two readings of an epic are how a step count on a row disagrees with
+ * the steps a module is handed, and how a tracker reads eleven issues for an
+ * epic whose steps name fourteen — with every one of those answers correct
+ * about the thing it happened to read.
+ *
+ * Whether the epic EXISTS is a different question and stays this host's
+ * alone: it exists when there is a file for it in `.kehikot/kehikko/epics`.
+ */
 export function readEpic(dir: string, slug: string): Record<string, unknown> | null {
   if (!SLUG.test(slug)) return null
-  return read(join(epicsDir(dir), `${slug}.json`))
+  const own = read(join(epicsDir(dir), `${slug}.json`))
+  return own ? epicOf(dir, slug, own) : null
+}
+
+/**
+ * The epic this host answers about, given the file it holds for it.
+ *
+ * ## Today it is the file
+ *
+ * `own` is what is written in `.kehikot/kehikko/epics/<slug>.json`, and it is
+ * handed back as it is. Nothing has written steps to that file since the
+ * roadmap this host was stopped being the place they are edited; it is a
+ * snapshot, and in at least one project it is three steps behind.
+ *
+ * ## And this is the one place that changes
+ *
+ * The steps, the groups and the prose are the Journeys module's now, kept in
+ * `.kehikot/journeys/journeys.json`; this host keeps the slug, the title and
+ * whether the epic exists. The protocol describes that record and reads it
+ * (`journeyIn`, and `readJourneys` behind `/serve`), so that this host is not
+ * parsing a module's private format. When the lock is on a protocol that has
+ * them, THIS function prefers the record for `slug` in project `dir` and
+ * falls back to `own` when the project has none — which includes a project
+ * where Journeys was never installed. Nothing else in this host has to move:
+ * every caller above already asks here.
+ *
+ * It takes `own` rather than reading it because three of its callers have
+ * already read the file — `listEpics` walking the directory, `retitleEpic`
+ * holding the bytes it is about to write back, `createEpic` holding what it
+ * just wrote — and two reads of one file are two different files if anything
+ * writes between them.
+ */
+function epicOf(dir: string, slug: string, own: Record<string, unknown>): Record<string, unknown> {
+  /* Named and unused until the record is read; see above. */
+  void dir
+  void slug
+  return own
 }
 
 export type Retitled = { ok: true; epic: EpicSummary } | { ok: false; why: string; status: number }
@@ -285,7 +348,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
      `shareKehikot` gives about the `.gitignore`: pressing a control that is
      already where you pressed it must not put a modified file in somebody's
      `git status`. */
-  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epic) }
+  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)) }
 
   const next = withTitle(raw, wanted)
   if (next === null) {
@@ -302,7 +365,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, { ...epic, title: wanted }) }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, { ...epic, title: wanted })) }
 }
 
 /**
@@ -447,7 +510,7 @@ export function createEpic(
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, epic), file: path, madeDirectory }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)), file: path, madeDirectory }
 }
 
 export type Deleted = { ok: true } | { ok: false; why: string; status: number }
@@ -668,7 +731,13 @@ export function readLive(dir: string, slug: string): Record<string, unknown> | n
   return read(join(stateDir(dir), `${slug}.json`))
 }
 
-/** The steps of one epic, when it has any written down. */
+/**
+ * The steps of one epic, when it has any written down. `null` when there is
+ * no such epic.
+ *
+ * Out of `readEpic` and nothing else, so `steps.list` and `epic.get` cannot
+ * hand a module two different sets of steps for one epic.
+ */
 export function readSteps(dir: string, slug: string): unknown[] | null {
   const epic = readEpic(dir, slug)
   if (!epic) return null
