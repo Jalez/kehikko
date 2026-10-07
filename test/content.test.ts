@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { CONTENT_HOST, LIMITS, contentSignalSchema, contentStamp, kehikotDir } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
-import { Contents, ContentWatch, folderSource } from '../server/content.ts'
+import { Contents, ContentWatch, folderSource, stepsAreKeptBy } from '../server/content.ts'
 import { epicsDir, stateDir } from '../server/hostData.ts'
 import { Wakes, type News } from '../server/wake.ts'
 import { toWireContext, whileFrozen } from '../src/host/context.ts'
@@ -45,6 +45,77 @@ describe('what the host keeps about what changed', () => {
     expect(contentSignalSchema.safeParse(kept).success).toBe(true)
     expect(kept.some((one) => one.epic === 'e-0')).toBe(false)
     expect(kept.at(-1)?.epic).toBe(`e-${LIMITS.CONTENT}`)
+  })
+})
+
+/**
+ * This host answers an epic's steps out of the Journeys module's file. So a
+ * step saved there changes what `steps.list` and `epic.get` say, with nothing
+ * of the host's own written — and a module listening only for the host's
+ * epics would go on showing the steps from before.
+ */
+describe('a change to the journeys is a change to the steps this host answers with', () => {
+  const hostOnly = { sources: [CONTENT_HOST], epic: 'x' }
+
+  test('a module listening for the host’s epics re-asks when Journeys saves a step', () => {
+    const contents = new Contents()
+    const before = contentStamp(contents.of('/p'), hostOnly)
+    const after = contentStamp(contents.announce('/p', 'kehikot.journeys', 'x'), hostOnly)
+    expect(after).not.toBe(before)
+    /* Under both names: it is the module's change, and it is the host's answer that moved. */
+    expect(contents.of('/p').map((one) => `${one.source} ${one.epic}`).sort()).toEqual(['host x', 'kehikot.journeys x'])
+  })
+
+  test('and when the file moved without anybody saying which journey, for whichever epic is open', () => {
+    const contents = new Contents()
+    const after = contentStamp(contents.announce('/p', 'kehikot.journeys', null), hostOnly)
+    expect(after).toContain(`${CONTENT_HOST} *`)
+    expect(contentStamp(contents.of('/p'), { sources: [CONTENT_HOST], epic: 'another-epic' })).toBe(after)
+  })
+
+  test('it is one telling, not two', () => {
+    const told: number[] = []
+    const contents = new Contents({ told: (_root, changes) => void told.push(changes.length) })
+    contents.announce('/p', 'kehikot.journeys', 'x')
+    expect(told).toEqual([2])
+  })
+
+  test('a step saved for one epic does not move a module showing another', () => {
+    const contents = new Contents()
+    const other = { sources: [CONTENT_HOST], epic: 'y' }
+    const before = contentStamp(contents.of('/p'), other)
+    expect(contentStamp(contents.announce('/p', 'kehikot.journeys', 'x'), other)).toBe(before)
+  })
+
+  test('every save moves it again, even two in one millisecond', () => {
+    const contents = new Contents({ now: () => new Date('2026-10-07T10:00:00.000Z') })
+    const first = contentStamp(contents.announce('/p', 'kehikot.journeys', 'x'), hostOnly)
+    const second = contentStamp(contents.announce('/p', 'kehikot.journeys', 'x'), hostOnly)
+    expect(second).not.toBe(first)
+  })
+
+  test('a Journeys registered from before the rename is the same module', () => {
+    expect(stepsAreKeptBy('kehikot.journeys')).toBe(true)
+    expect(stepsAreKeptBy('roadmap.journeys')).toBe(true)
+    const contents = new Contents()
+    contents.announce('/p', 'roadmap.journeys', 'x')
+    expect(contents.of('/p').some((one) => one.source === CONTENT_HOST && one.epic === 'x')).toBe(true)
+  })
+
+  test('no other module’s change is the host’s', () => {
+    for (const source of ['kehikot.notes', 'kehikot.checklist', 'kehikot.journeys-extra', CONTENT_HOST]) {
+      expect(stepsAreKeptBy(source)).toBe(false)
+    }
+    const contents = new Contents()
+    contents.announce('/p', 'kehikot.notes', 'x')
+    expect(contents.of('/p').map((one) => one.source)).toEqual(['kehikot.notes'])
+  })
+
+  test('it stays inside what the protocol will carry', () => {
+    const contents = new Contents()
+    for (let i = 0; i <= LIMITS.CONTENT; i += 1) contents.announce('/p', 'kehikot.journeys', `e-${i}`)
+    expect(contentSignalSchema.safeParse(contents.of('/p')).success).toBe(true)
+    expect(contents.of('/p').at(-1)).toMatchObject({ source: CONTENT_HOST, epic: `e-${LIMITS.CONTENT}` })
   })
 })
 

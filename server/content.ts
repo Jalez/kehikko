@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { basename, dirname, join, sep } from 'node:path'
-import { CONTENT_HOST, EPIC_SLUG, LIMITS, MODULE_ID, kehikotDir, type ContentChange } from 'kehikot-module-protocol'
+import {
+  CONTENT_HOST,
+  EPIC_SLUG,
+  JOURNEYS_MODULE,
+  LIMITS,
+  MODULE_ID,
+  canonicalModuleId,
+  kehikotDir,
+  type ContentChange,
+} from 'kehikot-module-protocol'
 import { HOST_FOLDER, LEGACY_DATA_DIR, epicsDir, stateDir } from './hostData.ts'
 
 /** `roadmap`: the host's folder from before the rename, still read where the new one is not there. */
@@ -33,6 +42,24 @@ const LEGACY_FOLDER = basename(LEGACY_DATA_DIR)
  * What is kept is the last instant per source and epic, per project, and it is
  * kept in memory only: a host that starts again says nothing has changed since
  * it started, which is true, and costs a module at most one re-read.
+ *
+ * ## A change to the journeys is a change to what this host answers
+ *
+ * This host reads an epic's steps and groups out of the Journeys module's
+ * file — `epicOf` in `holdings.ts` — so the day a step is saved there,
+ * `steps.list`, `epic.get`, the row in `epics.list` and `context.parts` all
+ * answer differently, and nothing of this host's own was written. A module
+ * listening for `CONTENT_HOST` — "the epics the host keeps changed" — would
+ * hear nothing and go on showing the steps from before.
+ *
+ * So a change by `JOURNEYS_MODULE` is announced twice in one telling: as that
+ * module's, which is what it is, and as the host's for the same epic, which
+ * is what it does to this host's answers. Here, in the one place every
+ * announcement passes through, so that the module's own report
+ * (`content.changed`) and the watcher's sighting of the file are covered
+ * alike and neither can be the path that forgot. When the watcher is the one
+ * that saw it the epic is null — it knows whose folder moved and not which
+ * record — and a module takes a null as any epic of that source.
  */
 
 export interface ContentsOptions {
@@ -66,18 +93,41 @@ export class Contents {
    * would be a change nobody heard.
    */
   announce(root: string, source: string, epic: string | null = null): ContentChange[] {
-    const held = this.#held.get(root) ?? []
+    /* The steps this host answers with are the journeys': see the head of
+       this file. One telling for both, so a container is woken once. */
+    const sources = stepsAreKeptBy(source) ? [source, CONTENT_HOST] : [source]
+    let held = this.#held.get(root) ?? []
+    for (const one of sources) held = this.#moved(held, one, epic)
+    /* Newest kept. One dropped moves the stamp of a module that was showing it
+       and costs that module a re-read; see `contentSignalSchema`. */
+    const kept = held.slice(-LIMITS.CONTENT)
+    this.#held.set(root, kept)
+    this.#told(root, [...kept])
+    return [...kept]
+  }
+
+  /** The list with one `(source, epic)` moved to now, and to the end. */
+  #moved(held: ContentChange[], source: string, epic: string | null): ContentChange[] {
     const before = held.find((one) => one.source === source && one.epic === epic)
     let at = this.#now().getTime()
     if (before && at <= Date.parse(before.at)) at = Date.parse(before.at) + 1
     const rest = held.filter((one) => one !== before)
     rest.push({ source, epic, at: new Date(at).toISOString() })
-    /* Newest kept. One dropped moves the stamp of a module that was showing it
-       and costs that module a re-read; see `contentSignalSchema`. */
-    const kept = rest.slice(-LIMITS.CONTENT)
-    this.#held.set(root, kept)
-    this.#told(root, [...kept])
-    return [...kept]
+    return rest
+  }
+}
+
+/**
+ * Whether a source is the module this host reads an epic's steps from.
+ *
+ * Under the name it has now: a Journeys registered from before the rename is
+ * the same module, and its changes are changes to the same steps.
+ */
+export function stepsAreKeptBy(source: string): boolean {
+  try {
+    return canonicalModuleId(source) === JOURNEYS_MODULE
+  } catch {
+    return false
   }
 }
 
