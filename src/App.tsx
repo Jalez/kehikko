@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { CONTENT_HOST, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { ContentChange, Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
+import type { ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -54,7 +54,7 @@ import {
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { toWireContext, type Subject } from './host/context.ts'
-import { partsOnWire, type Part, type WirePart } from './host/parts.ts'
+import { partsOnWire, type Part } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -1276,7 +1276,7 @@ export function App() {
       toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
         at: trackerAt,
         refreshing: trackerBusy,
-      }, rewritten, JSON.parse(narrowedTo) as WirePart[]),
+      }, rewritten, JSON.parse(narrowedTo) as EpicPart[]),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the

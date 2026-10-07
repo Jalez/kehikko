@@ -171,12 +171,21 @@ describe('the categories a module files itself under', () => {
     expect(presence.tags).toEqual([])
   })
 
-  test('are read by the host itself, so anything that is not a short list of words is no tags', () => {
+  test('are the protocol’s to read, and a word said twice is one category', async () => {
     expect(tagsOf({ tags: ['code', 'review', 'code'] })).toEqual(['code', 'review'])
-    expect(tagsOf({ tags: ['Two Words'] })).toEqual([])
-    expect(tagsOf({ tags: 'code' })).toEqual([])
-    expect(tagsOf({ tags: ['a', 'b', 'c', 'd', 'e', 'f'] })).toEqual([])
-    expect(tagsOf({})).toEqual([])
-    expect(tagsOf(null)).toEqual([])
+    const presence = await look(registration, serving({ ...good, tags: ['code', 'review', 'code'] }))
+    expect(presence.tags).toEqual(['code', 'review'])
+    expect(presence.module?.tags).toEqual(['code', 'review'])
+  })
+
+  /* The host's own reading used to turn these into no tags. `manifestSchema`
+     has had the field since 0.28 and refuses the manifest, as it does for any
+     other field it cannot read — and the sentence names the field. */
+  test('that are not a short list of words make a manifest this host cannot read, and it says which field', async () => {
+    for (const tags of [['Two Words'], 'code', ['a', 'b', 'c', 'd', 'e', 'f']]) {
+      const presence = await look(registration, serving({ ...good, tags }))
+      expect(presence.condition).toBe('silent')
+      expect(presence.line).toContain('tags')
+    }
   })
 })

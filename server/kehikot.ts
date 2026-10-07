@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { canonicalModuleId, LIMITS, MODULE_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
+import { canonicalModuleId, LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import {
@@ -18,7 +18,7 @@ import {
   type PlacementInput,
   type Subject,
 } from './canvases.ts'
-import { PARTS_MAX, partIdsIn } from '../src/host/parts.ts'
+import { partIdsIn } from '../src/host/parts.ts'
 import { listProjects, projectById } from './projects.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 
@@ -349,7 +349,7 @@ const epicSchema = z.string().trim().min(1).max(80).nullable().default(null)
 const selectionSchema = z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.REFS).default([])
 /* Part ids, in the shape `partIdsIn` keeps. Optional in the file: absent is
    the whole epic. */
-const partsSchema = z.array(z.string().regex(/^[a-z0-9-]{1,80}$/, 'is not a part id')).max(PARTS_MAX).default([])
+const partsSchema = z.array(z.string().regex(PART_ID, 'is not a part id')).max(LIMITS.PARTS).default([])
 
 const kehikkoFields = {
   key: z.string().regex(KEY, 'is not a key: lowercase letters, digits and dashes'),

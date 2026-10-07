@@ -10,7 +10,6 @@ import {
   type Manifest,
   type ModuleCondition,
 } from 'kehikot-module-protocol'
-import { z } from 'zod'
 import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
 
@@ -144,22 +143,21 @@ export interface FramedModule {
 }
 
 /**
- * The tags a manifest gives, read off the raw document.
+ * The tags a manifest gives, each once, in the order it gave them.
  *
- * The host's own reading rather than `manifestSchema`'s, with the protocol's
- * bounds restated (`LIMITS.TAG`, `LIMITS.TAGS`): a host built against a
- * protocol from before `tags` parses a manifest with a schema that drops the
- * field, and the list would come out empty for a module that had said where it
- * belongs. Anything that is not a short list of category words is no tags —
- * the module is then filed under "other", which is where one that said nothing
- * goes.
+ * Off the PARSED manifest: `tags` is `manifestSchema`'s since protocol 0.28,
+ * with its bounds (`LIMITS.TAG`, `LIMITS.TAGS`). This host used to read the
+ * raw document itself with those bounds restated, because it was locked to a
+ * protocol whose schema dropped the field. What is left is the one thing the
+ * schema does not do: a word said twice is one category.
+ *
+ * One thing changed with the lock and is worth knowing. The host's own reading
+ * turned a `tags` it could not read into no tags; the protocol's schema
+ * refuses the manifest, so such a module is now `silent`, with a sentence
+ * naming `tags` — the same as for any other field it cannot read.
  */
-const tagsSchema = z.array(z.string().regex(/^[a-z][a-z0-9-]{0,23}$/)).max(5)
-
-export function tagsOf(raw: unknown): string[] {
-  if (typeof raw !== 'object' || raw === null) return []
-  const read = tagsSchema.safeParse((raw as { tags?: unknown }).tags)
-  return read.success ? [...new Set(read.data)] : []
+export function tagsOf(manifest: Pick<Manifest, 'tags'>): string[] {
+  return [...new Set(manifest.tags)]
 }
 
 /** How long the host waits for a manifest before calling the program silent. */
@@ -324,7 +322,7 @@ export async function look(
 
   const manifest = parsed.data
   const range = manifest.declares.protocol
-  const tags = tagsOf(raw)
+  const tags = tagsOf(manifest)
 
   /* Two comparisons, not one, and the protocol package says why in `speaks`:
      a permissive range from a module that says it was built against protocol 9

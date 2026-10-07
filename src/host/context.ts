@@ -1,16 +1,17 @@
 import {
   contextSchema,
+  partsSchema,
   passageSchema,
   type CanvasContainer,
   type ContentChange,
   type Disposition,
+  type EpicPart,
   type ModuleContext,
   type Passage,
   type TrackerSignal,
 } from 'kehikot-module-protocol'
 
 import { sameChoice } from './filters.ts'
-import { withParts, type ContextWithParts, type WirePart } from './parts.ts'
 import type { Project } from './projects.ts'
 
 /**
@@ -226,15 +227,15 @@ export function toWireContext(
    * Part of what the canvas is ABOUT, like the epic: it changes when a person
    * picks in the bar and at no other time. It is an argument rather than a
    * field on `Subject` only because of where it comes from — the list is read
-   * off the project's epics, which the page holds separately — and it is put
-   * onto the context by `withParts` rather than through `contextSchema`, which
-   * in the protocol this host is locked to has not heard of it.
+   * off the project's epics, which the page holds separately. It goes through
+   * `contextSchema` with everything else; see `divided` below for what happens
+   * to a list that will not parse.
    *
    * No kehikko is consulted for it, here or anywhere: see `Subject` in
    * `server/canvases.ts`.
    */
-  parts: readonly WirePart[] = [],
-): ContextWithParts {
+  parts: readonly EpicPart[] = [],
+): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
    *
@@ -253,6 +254,12 @@ export function toWireContext(
    */
   const pointing = passage === null || passageSchema.safeParse(passage).success ? passage : null
 
+  /* The parts, failed separately for the passage's reason. A list that will
+     not parse becomes no parts — nothing narrowed, the state every module
+     already handles — rather than a context that fell through to the fallback
+     below and lost its epic over a heading. */
+  const divided = partsSchema.safeParse(parts).success ? parts : []
+
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     /* Name and path, filled in from one project in one expression. Two nullable
@@ -269,8 +276,9 @@ export function toWireContext(
     dispositions,
     tracker,
     content,
+    parts: divided,
   })
-  if (parsed.success) return withParts(parsed.data, parts)
+  if (parsed.success) return parsed.data
 
   /* An epic slug the schema will not take.
    *
@@ -331,12 +339,13 @@ export function toWireContext(
     content,
   })
   /* The parts go with the epic they are parts of, for the selection's reason:
-     this context names no epic, so there is nothing for them to divide. */
-  if (bare.success) return withParts(bare.data, [])
+     this context names no epic, so there is nothing for them to divide. The
+     schema's own default says so: `[]`. */
+  if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
      and a host that white-screens because somebody named a canvas something the
      schema dislikes would be a host taking every module down with it. */
-  return withParts(contextSchema.parse({
+  return contextSchema.parse({
     epic: null,
     project: null,
     projectPath: null,
@@ -349,7 +358,7 @@ export function toWireContext(
        cannot fail. The containers are not here either, for the same reason:
        they are built out of module ids and modules' own claims, and one of
        those refusing is not something this branch may find out about. */
-  }), [])
+  })
 }
 
 /**

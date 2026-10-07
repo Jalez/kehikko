@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
-import { contextSchema } from 'kehikot-module-protocol'
+import { LIMITS, contextSchema, partsSchema, type EpicPart, type ModuleContext } from 'kehikot-module-protocol'
 
 import {
   createCanvas,
@@ -20,8 +20,6 @@ import { PORTABLE_CANVAS_FIELDS, PORTABLE_SUBJECT_FIELDS, keep, kehikotFile, par
 import { addProject, type Project } from '../server/projects.ts'
 import { toWireContext, whileFrozen } from '../src/host/context.ts'
 import {
-  PARTS_MAX,
-  PART_REFS_MAX,
   focusSaid,
   partIdsIn,
   partsOf,
@@ -29,7 +27,6 @@ import {
   pickedIn,
   stepPart,
   toggled,
-  withParts,
   type Part,
 } from '../src/host/parts.ts'
 import { edited, subjectsSchema, NOTHING } from '../src/host/subject.ts'
@@ -126,12 +123,13 @@ describe('a part is one of the epic’s groups', () => {
   })
 
   test('both lists are bounded, at the protocol’s numbers', () => {
-    const many = { groups: Array.from({ length: PARTS_MAX + 5 }, (_, i) => ({ heading: `Part ${i}` })) }
-    expect(partsOf(many)).toHaveLength(PARTS_MAX)
-    const wide = { groups: [{ heading: 'Wide', refs: Array.from({ length: PART_REFS_MAX + 9 }, (_, i) => `gh#${i}`) }] }
-    expect(partsOf(wide)[0]?.refs).toHaveLength(PART_REFS_MAX)
-    expect(PARTS_MAX).toBe(32)
-    expect(PART_REFS_MAX).toBe(256)
+    const many = { groups: Array.from({ length: LIMITS.PARTS + 5 }, (_, i) => ({ heading: `Part ${i}` })) }
+    expect(partsOf(many)).toHaveLength(LIMITS.PARTS)
+    const wide = { groups: [{ heading: 'Wide', refs: Array.from({ length: LIMITS.PART_REFS + 9 }, (_, i) => `gh#${i}`) }] }
+    expect(partsOf(wide)[0]?.refs).toHaveLength(LIMITS.PART_REFS)
+    /* And what leaves is what the protocol's own schema takes. */
+    expect(partsSchema.safeParse(partsOnWire(partsOf(many), [])).success).toBe(true)
+    expect(partsSchema.safeParse(partsOnWire(partsOf(wide), [])).success).toBe(true)
   })
 })
 
@@ -213,7 +211,7 @@ describe('the picker’s arithmetic', () => {
   test('ids are bounded before they are stored', () => {
     expect(partIdsIn(['a', 'a', '', 'Not An Id', 7, null, 'b'])).toEqual(['a', 'b'])
     expect(partIdsIn('a')).toEqual([])
-    expect(partIdsIn(Array.from({ length: 99 }, (_, i) => `p${i}`))).toHaveLength(PARTS_MAX)
+    expect(partIdsIn(Array.from({ length: 99 }, (_, i) => `p${i}`))).toHaveLength(LIMITS.PARTS)
   })
 })
 
@@ -425,12 +423,20 @@ describe('every module is told every part', () => {
   })
 
   test('a module built against a protocol from before parts reads the same context it always did', () => {
-    /* `contextSchema` here IS that older protocol's: it drops the field and
-       keeps the rest, which is what such a module's own parse does. */
+    /* Such a module's own parse drops the one field it has never heard of and
+       keeps the rest. So: take the field away, and a focused context and an
+       unfocused one are the same context. */
+    const older = (context: ModuleContext) => {
+      const { parts: _unheardOf, ...rest } = context
+      return rest
+    }
+    expect(older(wire(['the-agent-seam']))).toEqual(older(wire([])))
+    expect(older(wire(['the-agent-seam'])).epic).toBe('the-roadmap-tracks-itself')
+  })
+
+  test('the context that leaves is one the protocol’s own schema takes whole, parts and all', () => {
     const sent = wire(['the-agent-seam'])
-    const read = contextSchema.parse(sent)
-    expect(read).toEqual(contextSchema.parse(wire([])))
-    expect(read.epic).toBe('the-roadmap-tracks-itself')
+    expect(contextSchema.parse(sent)).toEqual(sent)
   })
 
   test('an epic the context cannot name takes its parts with it', () => {
@@ -440,9 +446,13 @@ describe('every module is told every part', () => {
   })
 
   test('a list that will not parse is no parts, not a context that could not go out', () => {
-    const context = toWireContext({ epic: 'x', project: null }, 'light')
-    expect(withParts(context, [{ id: 'Not An Id', heading: '', refs: [], picked: true }]).parts).toEqual([])
-    expect(withParts(context, partsOnWire(parts, ['the-agent-seam'])).parts).toHaveLength(3)
+    const sent = (list: EpicPart[]) =>
+      toWireContext({ epic: 'x', project: null }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], list)
+    const refused = sent([{ id: 'Not An Id', heading: '', refs: [], picked: true }])
+    expect(refused.parts).toEqual([])
+    /* And it cost the context nothing else: the epic is still named. */
+    expect(refused.epic).toBe('x')
+    expect(sent(partsOnWire(parts, ['the-agent-seam'])).parts).toHaveLength(3)
   })
 
   test('a pinned container keeps the parts it was pinned with', () => {
