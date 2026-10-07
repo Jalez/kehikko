@@ -373,7 +373,7 @@ describe('a selection is what somebody picked out, and the host holds it without
     setSubject(db, project, { epic: 'one' })
     expect(readSubject(db, project)?.selection).toEqual(['gh#1'])
     setSubject(db, project, { epic: 'two' })
-    expect(readSubject(db, project)).toEqual({ epic: 'two', selection: [] })
+    expect(readSubject(db, project)).toEqual({ epic: 'two', parts: [], selection: [] })
   })
 })
 

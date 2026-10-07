@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
+import { CONTENT_HOST, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
 import type { ContentChange, Disposition, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
@@ -54,6 +54,7 @@ import {
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { toWireContext, type Subject } from './host/context.ts'
+import { partsOnWire, type Part, type WirePart } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -615,7 +616,23 @@ export function App() {
          a module's report, or an edit to the project's files. The list came
          with the news and goes straight into the context. */
       (project, changes) => {
-        if (project === projectRef.current) setRewritten(changes)
+        if (project !== projectRef.current) return
+        setRewritten(changes)
+        /* And when it is one of the host's own epic files that changed, the
+           list of epics is read again — because the parts an epic is divided
+           into are read off that file, and somebody who has just added a
+           group to it by hand, or assigned a step to a part, is looking at the
+           bar to see it arrive. Only for the host's entries: a journey saved
+           in a module's own store changes nothing this list shows. */
+        if (!changes.some((change) => change.source === CONTENT_HOST)) return
+        void (async () => {
+          try {
+            const found = await fetchEpics(project)
+            if (project === projectRef.current) setHeld(found)
+          } catch {
+            /* The list the page has is the list it had. */
+          }
+        })()
       },
     )
     return stop
@@ -995,6 +1012,32 @@ export function App() {
   const subject = useMemo<Subject>(() => ({ epic: about.epic, project }), [about.epic, project])
 
   /**
+   * The parts the open epic is divided into, read off the project's own list
+   * of epics, and `context.parts` composed from them and the project's stored
+   * focus.
+   *
+   * Two inputs and neither is the open kehikko: `held` is the project's epics
+   * and `about` is the project's subject. `openId` can change all day and this
+   * does not move — the same guarantee `about` gives for the epic, and the
+   * reason a layout cannot come to carry a focus.
+   *
+   * Empty while the epics are still being read. That briefly sends "nothing is
+   * narrowed" to modules on a reload of a focused project, which is the safe
+   * direction to be wrong in for a moment: a module shows too much and then
+   * narrows, and never hides something on the strength of a list that has not
+   * arrived.
+   *
+   * `narrowedTo` is the list as one string, for the reason `picked` is a joined
+   * string: `partsOnWire` builds fresh rows on every render, and the context
+   * memo below must depend on what they say and not on which objects say it.
+   */
+  const epicParts = useMemo<readonly Part[]>(
+    () => (about.epic === null ? [] : (held?.epics.find((one) => one.slug === about.epic)?.parts ?? [])),
+    [held, about.epic],
+  )
+  const narrowedTo = JSON.stringify(partsOnWire(epicParts, about.parts))
+
+  /**
    * Change what the open project is about, on screen now and on the server at
    * once — no debounce, because nobody drags an epic.
    *
@@ -1233,13 +1276,13 @@ export function App() {
       toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
         at: trackerAt,
         refreshing: trackerBusy,
-      }, rewritten),
+      }, rewritten, JSON.parse(narrowedTo) as WirePart[]),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten],
+    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten, narrowedTo],
   )
 
   /**
@@ -2709,6 +2752,12 @@ export function App() {
         onCreate={() => void onCreate()}
         onDelete={(id) => void onDelete(id)}
         onSubject={setSubject}
+        parts={epicParts}
+        pickedParts={about.parts}
+        /* Written at once, like the epic: `changeSubject` puts it on screen
+           and on the server, and `setSubject` there is what clears it when
+           the epic moves. */
+        onParts={(ids) => changeSubject({ parts: ids })}
         onPlace={onPlace}
         onUnplace={onUnplace}
         focus={focus}

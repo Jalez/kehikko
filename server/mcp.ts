@@ -291,6 +291,16 @@ function canvasText(db: Database, canvas: Canvas, how: string, seen: Sighting[])
       ? `epic: ${about.epic} (the project's; every kehikko in it is on the same epic)`
       : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
   )
+  /* Said only when the project is narrowed. Nothing picked is the whole epic,
+     which the line above already means; a focus is the thing an agent would
+     otherwise not know it was standing in. Ids as stored — one that names no
+     part of the epic's file simply does not apply. */
+  if (about?.epic && about.parts.length) {
+    lines.push(
+      `parts of the epic picked out: ${about.parts.join(', ')} — every module here is pointed at those parts only; `
+        + 'the rest of the epic is still there.',
+    )
+  }
   lines.push(
     about?.selection.length
       ? `refs picked out in this project: ${about.selection.join(', ')}`

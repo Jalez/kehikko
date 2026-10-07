@@ -6,12 +6,14 @@ import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
+import type { Part } from '@/host/parts.ts'
 import { attention } from '@/host/moduleMenu.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
+import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
@@ -77,6 +79,9 @@ export function Bar({
   onCreate,
   onDelete,
   onSubject,
+  parts,
+  pickedParts,
+  onParts,
   onPlace,
   onUnplace,
   focus,
@@ -120,6 +125,11 @@ export function Bar({
   onCreate(): void
   onDelete(id: number): void
   onSubject(subject: Subject): void
+  /** The parts the open epic is divided into. Empty when it has none, and when no epic is open. */
+  parts: readonly Part[]
+  /** The ids of the ones the project is pointed at. Empty is the whole epic. */
+  pickedParts: readonly string[]
+  onParts(ids: string[]): void
   onPlace(id: string): void
   onUnplace(id: string): void
   /** Whether the container headers are out of the layout. See `host/focus.ts`. */
@@ -199,6 +209,14 @@ export function Bar({
           onCreate={onCreateEpic}
           onDelete={onDeleteEpic}
         />
+
+        {/*
+         * Which parts of that epic. Directly after the epic and before the
+         * kehikko, because it depends on the first and not on the second: a
+         * kehikko is a layout and carries no focus. Draws nothing for an epic
+         * with no parts. See `Parts.tsx`.
+         */}
+        <Parts parts={parts} picked={pickedParts} onPick={onParts} />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
 

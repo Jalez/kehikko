@@ -5,6 +5,7 @@ import { EPIC_SLUG } from 'kehikot-module-protocol'
 
 import { slugFrom } from '../src/host/epics.ts'
 
+import { partsOf, type Part } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
 
 /**
@@ -99,6 +100,12 @@ export interface EpicSummary {
   lede?: string
   /** How many things this epic names, when the file says. Never invented. */
   size?: number
+  /**
+   * The parts this epic is divided into — its `groups`, with an id each and
+   * the refs of the steps assigned to them folded in. Present only when the
+   * file has some. See `src/host/parts.ts`.
+   */
+  parts?: Part[]
 }
 
 /**
@@ -156,6 +163,11 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
   if (lede) summary.lede = lede
   const size = countOf(epic)
   if (size !== null) summary.size = size
+  /* Absent rather than `[]` for an epic with none, for the reason `size` is
+     absent rather than zero: the list is then exactly what it was before
+     parts were read at all. */
+  const parts = partsOf(epic)
+  if (parts.length) summary.parts = parts
   return summary
 }
 
