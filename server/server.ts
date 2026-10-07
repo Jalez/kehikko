@@ -358,17 +358,22 @@ async function survey(): Promise<{
    * `kehikot.checklist` and `kehikot.paper`. That was invisible until modules
    * started sleeping; now it is most of them.
    *
-   * Only the NAME is remembered, and only for a presence that has none. What a
-   * module currently offers — its summary, its tools, its protocol range — is a
-   * claim about a running program, and the host does not make those on behalf
-   * of something that is not answering. See `known.ts`.
+   * What a module IS is remembered — its name, its one-line summary and its
+   * tags — and only for a presence that has none. What it currently offers —
+   * its tools, its guidance, its protocol range — is a claim about a running
+   * program, and the host does not make those on behalf of something that is
+   * not answering. See `known.ts`.
    */
   const remembered = known(db)
   for (const presence of presences) {
-    if (presence.name) remember(db, presence.id, presence.name)
+    if (presence.name) remember(db, presence.id, presence.name, { summary: presence.summary, tags: presence.tags })
     else {
       const was = remembered.get(presence.id)
-      if (was) presence.name = was
+      if (was) {
+        presence.name = was.name
+        presence.summary = was.summary
+        presence.tags = was.tags
+      }
     }
   }
   forgetUnregistered(db, found.registrations.map((r) => r.id))
@@ -392,6 +397,9 @@ async function survey(): Promise<{
       ...presence,
       state: readState(db, presence.id),
       agent: awarenessOf(presence.module?.mcp?.url ?? null, presence.id, knows),
+      /* Where the registration says the program lives, for the details under a
+         row in the module list. Absent for a module somebody starts themselves. */
+      dir: registered.get(presence.id)?.dir,
     })),
     /* The host's own door, read against the same `knows` in the same sweep.
        This is the whole of what the page needs to draw the plug on the host's
@@ -536,7 +544,7 @@ const versionRuns = new VersionRuns({
     if (!registration.dir) return { why: `${id} is registered without a directory, so there is no repository to read its versions from` }
     const remote = await remoteOf(registration.dir)
     if (!remote) return { why: `${registration.dir} has no remote to fetch versions from` }
-    return { id, name: known(db).get(id) ?? id, dir: registration.dir, remote }
+    return { id, name: known(db).get(id)?.name ?? id, dir: registration.dir, remote }
   },
   /* A version's process outlives a host restart, as a module's does. It is
      taken back only when the process on its remembered port is proven, by its
@@ -1118,7 +1126,7 @@ const server = Bun.serve({
              give, or its id. Every page in the project is woken only when the
              file actually changed. */
           (module, root, marking) => {
-            const done = setDisposition(root, marking, known(db).get(module) ?? module)
+            const done = setDisposition(root, marking, known(db).get(module)?.name ?? module)
             if (done.ok && done.changed && typeof body.project === 'number') {
               wakes.dispositionsChanged(body.project)
             }

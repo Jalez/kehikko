@@ -18,6 +18,8 @@ export interface FramedModule {
   /** The format the module writes its project data in. Absent from a host older than versions. */
   dataVersion?: number
   summary: string
+  /** The categories the module files itself under. Absent from a host older than tags. */
+  tags?: string[]
   /** What this module says its presence implies for an agent. */
   guidance?: string
   entry: string
@@ -86,6 +88,21 @@ export interface Presence {
   lifecycle?: 'starting' | 'asleep'
   /** What the module calls itself, when the host read a manifest at all. */
   name?: string
+  /**
+   * What the module is, in a sentence, and where it files itself. Beside
+   * `name` and remembered by the host like it, so a module that is asleep is
+   * still described and still on its shelf. Absent from an older host.
+   */
+  summary?: string
+  tags?: string[]
+  /**
+   * Whether anything at all answered at the address. A silent module that was
+   * reached is an address held by something else; one that was not is simply
+   * not running. See `attention` in `moduleMenu.ts`.
+   */
+  reached?: boolean
+  /** Where the registration says the program lives, when it says. */
+  dir?: string
   module?: FramedModule
   protocols?: { host: number; module: number | null; range: string }
   /**

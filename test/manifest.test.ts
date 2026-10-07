@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
-import { look, resolveOnOrigin } from '../server/discover.ts'
+import { look, resolveOnOrigin, tagsOf } from '../server/discover.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -154,5 +154,29 @@ describe('a module may describe itself and not somebody else', () => {
     expect(resolveOnOrigin('http://127.0.0.1:9999/app', AT)).toBeNull()
     expect(resolveOnOrigin('//example.com/app', AT)).toBeNull()
     expect(resolveOnOrigin('javascript:alert(1)', AT)).toBeNull()
+  })
+})
+
+describe('the categories a module files itself under', () => {
+  test('are carried beside the name and the summary, most fitting first', async () => {
+    const presence = await look(registration, serving({ ...good, tags: ['writing', 'reading'] }))
+    expect(presence.tags).toEqual(['writing', 'reading'])
+    expect(presence.summary).toBe(good.summary)
+    expect(presence.module?.tags).toEqual(['writing', 'reading'])
+  })
+
+  test('are empty for a manifest that gives none, which is a module filed under other', async () => {
+    const presence = await look(registration, serving(good))
+    expect(presence.condition).toBe('ready')
+    expect(presence.tags).toEqual([])
+  })
+
+  test('are read by the host itself, so anything that is not a short list of words is no tags', () => {
+    expect(tagsOf({ tags: ['code', 'review', 'code'] })).toEqual(['code', 'review'])
+    expect(tagsOf({ tags: ['Two Words'] })).toEqual([])
+    expect(tagsOf({ tags: 'code' })).toEqual([])
+    expect(tagsOf({ tags: ['a', 'b', 'c', 'd', 'e', 'f'] })).toEqual([])
+    expect(tagsOf({})).toEqual([])
+    expect(tagsOf(null)).toEqual([])
   })
 })
