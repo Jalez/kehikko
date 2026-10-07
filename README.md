@@ -259,6 +259,16 @@ Modules are told through `context.parts` — every part of the open epic, with
 its refs and whether it is picked — so that one which narrows can say how much
 it left out. See `src/host/parts.ts`, and `parts.ts` in the protocol.
 
+A part may also name the **files of the epic's paper** it owns (protocol
+0.32.0): `"files": ["chapters/design.tex"]` on the group, each relative to
+`<project>/.kehikot/paper/<epic>/`. The host does not open them and does not
+check they exist — the paper is the Paper module's. It reads them with the
+protocol's `partsOf`, shows how many a part has in the picker beside its steps
+and refs, and sends them on in `context.parts[].files`, so a module that shows
+the paper can narrow to a part's own files. The key is absent on a part that
+names none, at every step, so a part with no files is the same four fields it
+always was.
+
 ## An epic can be retitled here, and cannot be re-slugged
 
 "Rename this epic" names two operations, and the picker offers one of them. The

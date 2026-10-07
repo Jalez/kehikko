@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { Parts } from '../src/canvas/Parts.tsx'
+import { Parts, countOf } from '../src/canvas/Parts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import type { Part } from '../src/host/parts.ts'
 
@@ -77,5 +77,17 @@ describe('the parts control', () => {
     expect(html).toContain('data-narrowed')
     expect(html).toContain('focused on 1 of 3 parts of this epic')
     expect(html).toContain('data-gone="1"')
+  })
+
+  test('a row says what the part holds, files of the paper among it, and never a zero', () => {
+    expect(countOf(parts[0]!)).toBe('2 refs')
+    expect(countOf(parts[1]!)).toBe('2 steps · 1 ref')
+    expect(countOf(parts[2]!)).toBe('')
+    /* A part of a paper may hold nothing but files; it must not read as empty. */
+    expect(countOf({ id: 'design', heading: 'Design', refs: [], steps: 0, files: ['chapters/design.tex'] })).toBe('1 file')
+    expect(
+      countOf({ id: 'design', heading: 'Design', refs: ['gh#1'], steps: 3, files: ['chapters/a.tex', 'chapters/b.tex'] }),
+    ).toBe('3 steps · 1 ref · 2 files')
+    expect(countOf({ id: 'design', heading: 'Design', refs: [], steps: 0, files: [] })).toBe('')
   })
 })

@@ -139,8 +139,8 @@ export function Parts({
           {said.narrowed ? (
             <p className="text-muted-foreground border-t px-2 pt-1.5 pb-1 text-[11px] leading-snug">
               Every module is told. One that follows the focus shows these parts only and says how much it left
-              out; one that has not learned to still shows the whole epic. Steps and references in no part
-              belong to the epic as a whole, and are outside any focus.
+              out; one that has not learned to still shows the whole epic. Steps, references and files of
+              the paper in no part belong to the epic as a whole, and are outside any focus.
             </p>
           ) : null}
         </DropdownMenuContent>
@@ -198,10 +198,20 @@ export function Parts({
  */
 const BOX = 'pointer-events-none dark:data-[state=checked]:bg-primary'
 
-/** "3 refs", "2 steps · 5 refs", or nothing at all — never a zero dressed as a count. */
-function countOf(part: Part): string {
+/**
+ * "3 refs", "2 steps · 5 refs · 1 file", or nothing at all — never a zero
+ * dressed as a count.
+ *
+ * Files are counted with the rest because they are the third thing a part can
+ * hold, and for a paper they are the only thing: a part of a paper with no
+ * steps and no references used to read as blank here, and blank is this
+ * column's word for "picking this shows nothing".
+ */
+export function countOf(part: Part): string {
   const said: string[] = []
+  const files = part.files?.length ?? 0
   if (part.steps) said.push(`${part.steps} ${part.steps === 1 ? 'step' : 'steps'}`)
   if (part.refs.length) said.push(`${part.refs.length} ${part.refs.length === 1 ? 'ref' : 'refs'}`)
+  if (files) said.push(`${files} ${files === 1 ? 'file' : 'files'}`)
   return said.join(' · ')
 }
