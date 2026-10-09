@@ -1,4 +1,4 @@
-import type { Dialect, ModuleCondition } from 'kehikot-module-protocol'
+import type { Build, Dialect, ModuleCondition } from 'kehikot-module-protocol'
 
 /**
  * What the page knows about what is registered.
@@ -49,6 +49,12 @@ export interface FramedModule {
    */
   reacts?: string[]
   declares: { protocol: string; uses: string[]; storage: boolean; prompt?: boolean }
+  /**
+   * What the server answering now is built from: version, commit, when its
+   * process started, and the protocol package it has. Null or absent for a
+   * module from before build identities, and from an older host.
+   */
+  build?: Build | null
 }
 
 /**
@@ -108,6 +114,8 @@ export interface Presence {
   /** Where the registration says the program lives, when it says. */
   dir?: string
   module?: FramedModule
+  /** What is wrong with what a ready module says about itself, as sentences. Absent when nothing is. */
+  warnings?: string[]
   protocols?: { host: number; module: number | null; range: string }
   /**
    * Whatever this host is keeping for the module, or null when it keeps

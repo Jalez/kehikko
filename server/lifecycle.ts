@@ -390,6 +390,35 @@ export function lifecycleOf(silent: boolean, doing: Doing, now: number): Lifecyc
   return doing.asleep ? 'asleep' : undefined
 }
 
+/**
+ * How long the host leaves a module alone after it stops answering, when the
+ * host did not start it.
+ *
+ * Somebody else was running it, and the commonest reason for it to go is that
+ * they are restarting it: Ctrl-C, up-arrow, enter. The host now hears it go
+ * within a few milliseconds (`tether.ts`), and a host that started its own
+ * copy that instant would race theirs for the port — measured: both came up,
+ * one moved itself to the next port and rewrote the registration to it, and
+ * the canvas framed the wrong one. So for this long the container says the
+ * module stopped answering and who is expected to bring it back, the host asks
+ * once a second whether it has, and only after that does the ordinary rule
+ * apply and the host start it.
+ *
+ * A dev server takes one to six seconds to come back, so eight covers a
+ * restart by hand; a module that died for good is started eight seconds after
+ * it went, where the watch alone used to notice inside thirty. A press on
+ * Start is never held: that is the person saying so.
+ */
+export const THEIRS_TO_RESTART_MS = 8_000
+
+/** Said on a container whose module somebody else was running, for `THEIRS_TO_RESTART_MS` after it went. */
+export function theirsLine(id: string, at: string): string {
+  return (
+    `${id} stopped answering at ${at} a moment ago. This host did not start it, so it is giving whoever did `
+    + `${Math.round(THEIRS_TO_RESTART_MS / 1000)} seconds to bring it back before it starts it itself — or start it now.`
+  )
+}
+
 /** Said on a container whose module the host has just run. */
 export function startingLine(id: string, at: string): string {
   return (

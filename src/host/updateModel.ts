@@ -54,12 +54,16 @@ export interface UpdateRow {
   activity: 'downloading' | 'installing' | 'updating' | 'applying' | 'restarting' | null
   /** A failed module can be started again from its row. */
   retry?: boolean
+  /** What that button says, when "Try again" is not it: nothing was tried on a module that is only running old code. */
+  retryWord?: string
 }
 
 /** What the server says about one module beyond its checkout. See `Check.progress` and `Check.stale`. */
 export interface Told {
   phase?: Phase
   stale?: string
+  /** Its own build identity says its server is behind its checkout: the server's sentence, shown as it is. */
+  older?: string
 }
 
 export const APP_ROW_ID = 'app'
@@ -140,6 +144,7 @@ export function moduleRow(
   }
   /* Left on old code — unless there is something newer to take, which is the
      better thing to offer: an update restarts it, or says again why it cannot. */
+  if (told.older && reading.behind === 0) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart' }
   if (told.stale && reading.behind === 0) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true }
   if (pins && pins.containers > 0) {
     return {

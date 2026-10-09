@@ -34,6 +34,7 @@ export function VersionPicker({
   kehikko,
   pinned,
   current,
+  protocol = null,
   onPicked,
 }: {
   module: string
@@ -44,6 +45,8 @@ export function VersionPicker({
   pinned: string | null
   /** What the running copy calls itself. */
   current: string | null
+  /** The protocol package the running copy is built with, when it says. Said in the hint. */
+  protocol?: string | null
   /** After a pin or unpin went through: the page re-reads the canvas and the modules. */
   onPicked(): void
 }) {
@@ -92,7 +95,7 @@ export function VersionPicker({
       }}
     >
       <Hint
-        label={pinned ? `${name} is pinned to ${pinned} on this kehikko — press to change` : `${name} runs latest — press to pick a version`}
+        label={versionHint(name, pinned, protocol)}
         side="bottom"
       >
         <PopoverTrigger asChild>
@@ -132,6 +135,18 @@ export function VersionPicker({
       </PopoverContent>
     </Popover>
   )
+}
+
+/**
+ * What the version in a header says when pointed at: whether the container is
+ * pinned, and the protocol package the running module is built with when it
+ * states one.
+ */
+export function versionHint(name: string, pinned: string | null, protocol: string | null): string {
+  const built = protocol ? ` · built with protocol ${protocol}` : ''
+  return pinned
+    ? `${name} is pinned to ${pinned} on this kehikko${built} — press to change`
+    : `${name} runs latest${built} — press to pick a version`
 }
 
 /**

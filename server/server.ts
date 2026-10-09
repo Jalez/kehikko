@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { canonicalModuleId, CONTENT_HOST, LEGACY_WELL_KNOWN, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, canonicalModuleId, CONTENT_HOST, LEGACY_WELL_KNOWN, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -26,16 +26,19 @@ import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
-import { fetchManifest, look, type Presence } from './discover.ts'
-import { answered, gone, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
+import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
+import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import {
   exitedLine,
   Idleness,
   inFlight,
+  INSTALLING_FOR_MS,
   lifecycleLine,
   lifecycleOf,
   MIN_RUN_MS,
+  theirsLine,
+  THEIRS_TO_RESTART_MS,
   toStart,
   unansweringLine,
   toStop,
@@ -47,7 +50,8 @@ import {
 } from './lifecycle.ts'
 import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
-import { Staleness } from './stale.ts'
+import { behindCheckout, Staleness } from './stale.ts'
+import { Tethers } from './tether.ts'
 import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
 import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
@@ -718,6 +722,44 @@ const progress = new Map<string, UpdateStep>()
 /** Which modules are running older code than their checkout. See `stale.ts`. */
 const staleness = new Staleness()
 
+/** The app is stopping this host, and the host is stopping what it started. Nothing is started from here on. */
+let going = false
+
+/**
+ * Modules somebody else was running that have just stopped answering, and
+ * when. The host does not start one while it is here: `THEIRS_TO_RESTART_MS`
+ * in `lifecycle.ts` has why. `theirReturn` takes it out again.
+ */
+const theirs = new Map<string, number>()
+
+/**
+ * Ask once a second whether a module that somebody else was running has come
+ * back, and when it has — or when its time is up — look properly, decide, and
+ * tell the pages. After the time is up the deciding is the ordinary rule: a
+ * module an open kehikko has, that nothing answers for, is started.
+ */
+function theirReturn(id: string): void {
+  const again = async () => {
+    const went = theirs.get(id)
+    if (went === undefined) return
+    const registration = registered.get(id)
+    const back = registration ? await fetchManifest(registration.url).then((got) => (got.ok ? true : got.reached), () => false) : false
+    if (registration && !back && Date.now() - went < THEIRS_TO_RESTART_MS) {
+      setTimeout(() => void again(), 1_000).unref()
+      return
+    }
+    theirs.delete(id)
+    try {
+      const view = await sweep()
+      govern(view.presences)
+    } catch {
+      /* Nothing found out; the watch asks within half a minute. */
+    }
+    wakes.registryChanged()
+  }
+  setTimeout(() => void again(), 1_000).unref()
+}
+
 /**
  * Which modules are on a kehikko that a live page says it has open.
  *
@@ -825,6 +867,11 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
  * says so, with the button on it, which is where this began.
  */
 function begin(id: string): void {
+  /* A host on its way out starts nothing: see `leave` below. */
+  if (going) return
+  /* Somebody else was running it and it has only just gone: theirs to bring
+     back first. See `THEIRS_TO_RESTART_MS`. */
+  if (theirs.has(id)) return
   const can = startable(registered.get(id) ?? null)
   if (!can.ok) return
   const ran = run(id, can.run)
@@ -850,6 +897,8 @@ function run(id: string, runnable: Runnable): Started {
     logged = false
   }
   const at = Date.now()
+  /* Run now — by a press, an update, or the ordinary rule — so no longer waited for. */
+  theirs.delete(id)
   const ran = start(logged ? { ...runnable, log } : runnable, (code) => {
     exits.set(id, code)
     void ended(id, at, code)
@@ -868,6 +917,40 @@ function run(id: string, runnable: Runnable): Started {
 function halt(id: string): ReturnType<Nursery['stop']> {
   runs.delete(id)
   return nursery.stop(id)
+}
+
+/*
+ * The app going away takes the modules this host started with it.
+ *
+ * Only for a host the desktop app started (`RESTART_FILE` is how it says so),
+ * and only on the signal the app stops it with — quitting, "Restart to
+ * update", and the restart this host asks for itself all end in the same
+ * `SIGTERM` to this process. The modules are in process groups of their own
+ * (`start` spawns them detached), so that signal never reached them: they
+ * went on running under the next host, which found them answering, had not
+ * started them, and so could neither restart them nor say what code they were
+ * on. Stopped here, the next host starts each one itself, on its checkout as
+ * it is then.
+ *
+ * Never a module this host did not start — the nursery holds nothing for one —
+ * and never one whose registration says `keep`. A host run from a terminal is
+ * not the app, and its modules outlive it as before.
+ */
+if (RESTART_FILE) {
+  const leave = (signal: NodeJS.Signals) => {
+    if (going) return
+    going = true
+    const stopping = nursery.ids.filter((id) => registered.get(id)?.keep !== true)
+    /* Their exits are this host's doing, not news to act on. */
+    for (const id of stopping) runs.delete(id)
+    console.log(
+      `kehikko: ${signal} — the app is stopping this host`
+        + (stopping.length ? `; stopping the modules it started: ${stopping.join(', ')}` : '; it holds no modules to stop'),
+    )
+    void leaving(stopping.map((id) => nursery.release(id)).filter((held) => held !== null)).finally(() => process.exit(0))
+  }
+  process.on('SIGTERM', () => leave('SIGTERM'))
+  process.on('SIGHUP', () => leave('SIGHUP'))
 }
 
 /**
@@ -923,7 +1006,34 @@ async function ended(id: string, at: number, code: number | null): Promise<void>
  */
 function govern(presences: readonly Presence[], mayStart = true): void {
   const now = Date.now()
+  notice(presences, now)
   act(standings(presences, now), now, mayStart)
+}
+
+/** Whose process was answering for each module when it was last seen answering. */
+const answeredBy = new Map<string, 'ours' | 'theirs'>()
+
+/**
+ * See a module somebody else was running go, wherever the sweep that shows it
+ * came from — the tether, the watch, a page saying its module went quiet — so
+ * the host does not start a copy of its own in the same breath. See
+ * `THEIRS_TO_RESTART_MS`. Something the host itself has in hand (an update, a
+ * restart) is the host's doing and is not waited on.
+ */
+function notice(presences: readonly Presence[], now: number): void {
+  for (const presence of presences) {
+    const id = presence.id
+    if (presence.reached) {
+      answeredBy.set(id, nursery.holds(id) ? 'ours' : 'theirs')
+      theirs.delete(id)
+      continue
+    }
+    const was = answeredBy.get(id)
+    answeredBy.delete(id)
+    if (was !== 'theirs' || theirs.has(id) || inHand.has(id) || working.has(id)) continue
+    theirs.set(id, now)
+    theirReturn(id)
+  }
 }
 
 /** The same decision, from standings the caller already gathered. */
@@ -943,6 +1053,44 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
     starting.delete(id)
     console.log(`kehikko: stopped ${id} — no open kehikko has had it for the grace period`)
   }
+
+  tether(standing)
+}
+
+/**
+ * A held connection to each module somebody is looking at that this host did
+ * not start, so its going is heard when it goes instead of at the next watch.
+ * See `tether.ts`. A drop is a reason to look, and looking is the watch, asked
+ * of that one module.
+ */
+const tethers = new Tethers((id, quick) => {
+  void (async () => {
+    try {
+      if (!seen) return
+      const now = Date.now()
+      const standing = standings((await seen).presences, now)
+      /* A watch already asking is asking about this one too, a moment early:
+         once it is done, ask again. */
+      while (watching) await new Promise((wake) => setTimeout(wake, 50))
+      await watch(standing, new Set([id]))
+      /* Still there, and it had been held a while: an idle connection the
+         module closed. Put it back. One that closed at once waits for the tick. */
+      if (!quick && seen) tether(standings((await seen).presences, Date.now()))
+    } catch {
+      /* Nothing found out; the watch asks within half a minute. */
+    }
+  })()
+})
+
+/** Tether exactly the modules an open kehikko has, that answer, and that this host does not hold. */
+function tether(standing: readonly Standing[]): void {
+  const want = new Map<string, string>()
+  for (const one of standing) {
+    if (!one.needed || !one.answering || one.ours || one.starting) continue
+    const url = registered.get(one.id)?.url
+    if (url) want.set(one.id, url)
+  }
+  tethers.sync(want)
 }
 
 /** One watch at a time. A slow port must not have two rounds asking about it. */
@@ -980,11 +1128,18 @@ let watching = false
  * and the only place that may start anything. A watch that had reasoned about
  * reachability on its own would be a second, worse `discover.ts`.
  */
-async function watch(standing: readonly Standing[]): Promise<void> {
+async function watch(standing: readonly Standing[], only?: ReadonlySet<string>): Promise<void> {
   if (watching) return
-  const ids = toWatch(standing)
+  const ids = toWatch(standing).filter((id) => !only || only.has(id))
   if (ids.length === 0) return
   const believed = new Map(standing.map((s) => [s.id, s.answering]))
+  /* And WHICH process answered, where the module says: another one at the same
+     address is a restart nobody told this host about, and the page framed from
+     the old one is older than its server. See `stampOf`. */
+  const stamps = new Map<string, string | null>()
+  for (const presence of (await seen?.catch(() => null))?.presences ?? []) {
+    stamps.set(presence.id, presence.module?.build ? buildStamp(presence.module.build) : null)
+  }
 
   watching = true
   try {
@@ -995,17 +1150,22 @@ async function watch(standing: readonly Standing[]): Promise<void> {
            forget it on the next tick; there is nothing to ask. */
         if (!registration) return null
         const got = await fetchManifest(registration.url)
-        return { id, reached: got.ok ? true : got.reached }
+        return { id, reached: got.ok ? true : got.reached, stamp: got.ok ? stampOf(got.text) : null }
       }),
     )
 
+    type Found = { id: string; reached: boolean; stamp: string | null }
+    const another = (one: Found): boolean => {
+      const was = stamps.get(one.id) ?? null
+      return one.reached && believed.get(one.id) === true && was !== null && one.stamp !== null && was !== one.stamp
+    }
     const changed = found.filter(
-      (one): one is { id: string; reached: boolean } => one !== null && believed.get(one.id) !== one.reached,
+      (one): one is Found => one !== null && (believed.get(one.id) !== one.reached || another(one)),
     )
     if (changed.length === 0) return
     for (const one of changed) {
       console.log(
-        `kehikko: ${one.id} is ${one.reached ? 'answering again' : 'no longer answering'} — `
+        `kehikko: ${one.id} is ${another(one) ? 'answered by another process' : one.reached ? 'answering again' : 'no longer answering'} — `
           + 'an open kehikko has it, so the host looked',
       )
     }
@@ -1058,6 +1218,9 @@ function told(view: Swept): Swept {
            stopped again or never answered. The last it printed goes with it. */
         const failed = failures.get(presence.id)
         if (failed) return { ...presence, line: failed.line, detail: failed.detail }
+        /* Somebody else's, only just gone, and not reached: who is expected to
+           bring it back, and when the host will. */
+        if (theirs.has(presence.id) && !presence.reached) return { ...presence, line: theirsLine(presence.id, presence.at) }
         if (nursery.holds(presence.id)) {
           const log = logFile(presence.id)
           return { ...presence, line: unansweringLine(presence.id, presence.at, log), detail: tail(log) }
@@ -1128,6 +1291,32 @@ setInterval(() => {
      argument without the other silently capping it. */
 }, Math.min(REAP_EVERY_MS, WATCH_EVERY_MS)).unref()
 
+/**
+ * Ask each running module's build identity whether it is behind its checkout,
+ * for the Updates panel. From the last sweep; a module that would be called
+ * stale on it is asked again first, so a restart since that sweep is not
+ * reported as old code. A module that states no build is left to the fallback.
+ */
+async function judgeStaleness(): Promise<void> {
+  const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
+  await Promise.all(
+    presences.map(async (presence) => {
+      const registration = registered.get(presence.id)
+      /* An update or a restart in hand is about to replace what is running. */
+      if (!registration?.dir || !presence.module?.build || inHand.has(presence.id)) {
+        staleness.judged(presence.id, undefined)
+        return
+      }
+      let verdict = await behindCheckout(presence.module.name, presence.module.build, registration.dir)
+      if (typeof verdict === 'string') {
+        const now = await look(registration)
+        verdict = now.module?.build ? await behindCheckout(now.module.name, now.module.build, registration.dir) : undefined
+      }
+      staleness.judged(presence.id, verdict)
+    }),
+  )
+}
+
 /** How long a pressed start waits for an answer before saying it has not come yet. */
 const ANSWERS_WITHIN_PRESS_MS = 6_000
 /** How long an update waits for the module it restarted: it may be installing, and pre-bundling after. */
@@ -1196,7 +1385,12 @@ async function haltForRestart(id: string, registration: Registration | null, run
   return { ok: true, was: 'running' }
 }
 
-type Came = { ok: true; answered: boolean; detail: string[]; presence: Presence | null } | { ok: false; why: string; detail?: string[] }
+type Came =
+  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null; waited: number; installing: boolean }
+  | { ok: false; why: string; detail?: string[] }
+
+/** From this long a wait on, a module that is still installing is waited for. See `bringUp`. */
+const PATIENT_FROM_MS = 60_000
 
 /**
  * Run a module's script and wait for it to answer, for at most `within`.
@@ -1205,20 +1399,45 @@ type Came = { ok: true; answered: boolean; detail: string[]; presence: Presence 
  * asked. The wait ends early when the process ends: a script that has exited
  * will not answer, and the reason is in what it printed.
  */
-async function bringUp(id: string, runnable: Runnable, within: number): Promise<Came> {
+async function bringUp(id: string, runnable: Runnable, within: number, onInstalling?: () => void): Promise<Came> {
   exits.delete(id)
   const ran = run(id, runnable)
   if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
   const alive = () => !ran.child || ran.child.alive()
   const paths = [WELL_KNOWN, LEGACY_WELL_KNOWN]
-  const until = Date.now() + within
+  const began = Date.now()
+  const until = began + within
+  const log = logFile(id)
   let up = false
-  /* Asked a second and a half at a time, so an exit ends the wait soon after it happens. */
-  while (!up && alive() && Date.now() < until) up = await answered(runnable.url, paths, Math.min(1500, until - Date.now()))
+  let said = false
+  /*
+   * Asked a second and a half at a time, so an exit ends the wait soon after
+   * it happens.
+   *
+   * A wait of `PATIENT_FROM_MS` or more is one somebody is watching a row for,
+   * and it does not end while the module is still installing: a first
+   * `bun install` on a slow connection outlasts two minutes, and "failed" over
+   * a process that is doing exactly what it should sent people looking for a
+   * fault. It ends when the module answers, when its process ends — a real
+   * failure, said with what it printed — or at `INSTALLING_FOR_MS`, past which
+   * a process still silent is hung (the same bound the container's own
+   * "installing" has).
+   */
+  const patient = within >= PATIENT_FROM_MS
+  for (;;) {
+    if (up || !alive()) break
+    const now = Date.now()
+    const busy = patient && now - began < INSTALLING_FOR_MS && installing(log)
+    if (busy && !said) {
+      said = true
+      onInstalling?.()
+    }
+    if (now >= until && !busy) break
+    up = await answered(runnable.url, paths, busy ? 1500 : Math.max(1, Math.min(1500, until - now)))
+  }
   /* The process ended and something else may answer there: the module was
      already running, and the copy just started stepped aside. */
   if (!up && !alive()) up = await answered(runnable.url, paths, 600)
-  const log = logFile(id)
   if (!up && !alive()) {
     const detail = tail(log)
     starting.delete(id)
@@ -1227,7 +1446,14 @@ async function bringUp(id: string, runnable: Runnable, within: number): Promise<
     return { ok: false, why: `${id} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
   }
   const view = told(await sweep())
-  return { ok: true, answered: up, detail: up ? [] : tail(log), presence: view.presences.find((p) => p.id === id) ?? null }
+  return {
+    ok: true,
+    answered: up,
+    detail: up ? [] : tail(log),
+    presence: view.presences.find((p) => p.id === id) ?? null,
+    waited: Date.now() - began,
+    installing: !up && installing(log),
+  }
 }
 
 type Restarted =
@@ -1370,12 +1596,16 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
       /* The container goes on saying it is being updated; only the row needs
          to know which step this is. */
       phase('restarting')
-      const came = await bringUp(id, can.run, ANSWERS_WITHIN_UPDATE_MS)
+      /* The row says it is installing while that is what the wait is for. */
+      const came = await bringUp(id, can.run, ANSWERS_WITHIN_UPDATE_MS, () => phase('installing'))
       if (!came.ok) outcome = { ran: 'failed', why: came.why, detail: came.detail ?? [] }
       else if (!came.answered) {
+        const waited = Math.round(came.waited / 60_000)
         outcome = {
           ran: 'failed',
-          why: `${id} was started on the new code and has not answered after ${ANSWERS_WITHIN_UPDATE_MS / 1000} seconds. It is still running; all of what it printed is in ${logFile(id)}.`,
+          why: came.installing
+            ? `${id} was started on the new code and was still installing what it needs after ${waited} minutes, without answering. It is still running; all of what it printed is in ${logFile(id)}.`
+            : `${id} was started on the new code and has not answered after ${Math.round(came.waited / 1000)} seconds. It is still running; all of what it printed is in ${logFile(id)}.`,
           detail: came.detail,
         }
       }
@@ -1953,6 +2183,7 @@ const server = Bun.serve({
       const { places, unreadable } = await topLevels(updatePlaces())
       const fetch = url.searchParams.get('fetch') === '1'
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
+      await judgeStaleness()
       return json({
         checked: new Date().toISOString(),
         checkouts: [...checkouts, ...unreadable],
@@ -1961,6 +2192,9 @@ const server = Bun.serve({
            an update still running, and a module left on old code. */
         progress: Object.fromEntries(progress),
         stale: staleness.all(),
+        /* And the ones whose own build identity says they are behind their
+           checkout — a fact, where `stale` is what the host could not rule out. */
+        older: staleness.older(),
         /* What each update would do to its module if pressed now, so the row
            can say so first. From the upstream as already fetched and the last
            sweep: no second round to the remote, and no asking of ports. */

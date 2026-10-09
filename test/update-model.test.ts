@@ -93,6 +93,11 @@ describe('a module row', () => {
     expect(stale.reason).toBe('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
     /* New commits since: the update is what is offered, not a retry that would hide it. */
     expect(moduleRow(checkout('a', 2), null, null, undefined, { stale: 'kept' })).toMatchObject({ state: 'available', behind: 2 })
+    /* Its own build identity says it is behind its checkout: the server's sentence as it is, and the button restarts. */
+    const older = moduleRow(checkout('a', 0), null, null, undefined, { older: 'Notes is running older code than its checkout.', stale: 'kept' })
+    expect(older).toMatchObject({ state: 'failed', retry: true, retryWord: 'Restart', reason: 'Notes is running older code than its checkout.' })
+    expect(stale.retryWord).toBeUndefined()
+    expect(moduleRow(checkout('a', 2), null, null, undefined, { older: 'x' })).toMatchObject({ state: 'available', behind: 2 })
     /* This page's own outcome is newer than the last check. */
     expect(moduleRow(checkout('a', 0), { kind: 'updated', note: 'n', restart: null, installFailed: null }, null, undefined, { stale: 'x' }).state).toBe('uptodate')
   })

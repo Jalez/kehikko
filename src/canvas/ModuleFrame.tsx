@@ -7,6 +7,7 @@ import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
+import { framedAddress } from '@/host/theme.ts'
 
 /**
  * A module's own page, embedded, and the conversation that goes with it.
@@ -178,7 +179,7 @@ export function ModuleFrame({
         pickProject: (from) => canvasRef.current.pickProject(from),
       }),
       {
-        ready: (p) => watcherRef.current.ready(p),
+        ready: (p, build) => watcherRef.current.ready(p, build),
         silent: (line) => watcherRef.current.silent(line),
         fault: (line) => watcherRef.current.fault(line),
         height: (px) => watcherRef.current.height(px),
@@ -338,11 +339,28 @@ export function ModuleFrame({
     conversationRef.current?.sendContext(relit)
   }, [told, pinned])
 
+  /*
+   * The frame's address: the entry, with the theme the host is drawing in NOW
+   * so the module's first paint is in it — see `framedAddress`.
+   *
+   * Decided when the address is first needed and again only if the entry
+   * itself changes, which is a different document anyway. The theme and the
+   * build are read through refs and are NOT dependencies: a new `src` reloads
+   * the module, and a person switching theme has not asked for every module on
+   * the canvas to lose what it was showing. The switch reaches the page in
+   * `kehikot.context`, as it always has.
+   */
+  const themeRef = useRef(context.theme)
+  themeRef.current = context.theme
+  const plumbedRef = useRef(!!framed.build)
+  plumbedRef.current = !!framed.build
+  const src = useMemo(() => framedAddress(framed.entry, themeRef.current, plumbedRef.current), [framed.entry])
+
   return (
     <iframe
       ref={frameRef}
       title={framed.name}
-      src={framed.entry}
+      src={src}
       /*
        * The theme's own card colour behind the document, never white.
        *

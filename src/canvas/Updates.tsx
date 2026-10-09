@@ -299,7 +299,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
         await drawn(since, abort.signal, markMs)
         replace(done.checkout)
         setOutcomes((was) => ({ ...was, [id]: outcomeOf(id, done) }))
-        if (done.module?.ran !== 'stale') setCheck((was) => (was ? { ...was, stale: without(was.stale, id) } : was))
+        if (done.module?.ran !== 'stale') setCheck((was) => (was ? { ...was, stale: without(was.stale, id), older: without(was.older, id) } : was))
       } catch (error) {
         if (error instanceof LeftRunning) {
           /* Closed after the checkout had moved: the server finishes it, and
@@ -393,6 +393,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const told: Record<string, Told> = {}
   for (const [id, reached] of Object.entries(check?.progress ?? {})) if (id !== current) told[id] = { phase: reached }
   for (const [id, why] of Object.entries(check?.stale ?? {})) told[id] = { ...told[id], stale: why }
+  for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
   const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
@@ -733,7 +734,7 @@ function Row({
           ) : null}
           {row.retry ? (
             <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRetry}>
-              Try again
+              {row.retryWord ?? 'Try again'}
             </Button>
           ) : null}
         </div>

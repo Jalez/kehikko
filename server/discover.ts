@@ -1,11 +1,15 @@
 import {
+  buildStamp,
   dialectOfKind,
   LEGACY_WELL_KNOWN,
   LIMITS,
   manifestSchema,
+  partsDeclaration,
   PROTOCOL,
+  readBuild,
   speaks,
   WELL_KNOWN,
+  type Build,
   type Dialect,
   type Manifest,
   type ModuleCondition,
@@ -105,6 +109,14 @@ export interface Presence {
   tags?: string[]
   /** Present exactly when the condition is `ready`. URLs already resolved. */
   module?: FramedModule
+  /**
+   * What is wrong with what a module that IS ready says about itself, as
+   * sentences: today, a module that neither reacts to the parts of an epic nor
+   * says why it has none (the protocol's `partsDeclaration`). Not a condition —
+   * the module works — so it is carried beside one and drawn quietly. Absent
+   * when there is nothing to say.
+   */
+  warnings?: string[]
   /** Both numbers, whenever the host had both. The reason `incompatible` is legible. */
   protocols?: { host: number; module: number | null; range: string }
 }
@@ -151,6 +163,13 @@ export interface FramedModule {
    */
   reacts: Manifest['reacts']
   declares: Manifest['declares']
+  /**
+   * What the server answering now is built from: its version, the commit it
+   * started on, when the process started, and the protocol package it has.
+   * Null for a module from before build identities, which is never called
+   * stale on the strength of it. See `stale.ts` and `src/host/standing.ts`.
+   */
+  build: Build | null
 }
 
 /**
@@ -273,6 +292,20 @@ export function resolveOnOrigin(value: string, origin: string): string | null {
  * Read the returns in order; they are the four things that can be true, and the
  * comments say why three of them are spelled `silent`.
  */
+/**
+ * The build a served manifest states, as one token, or null when it states
+ * none or cannot be read. For the watch, which asks for the manifest anyway:
+ * a different token at the same address is another process answering there.
+ */
+export function stampOf(manifestText: string): string | null {
+  try {
+    const build = readBuild((JSON.parse(manifestText) as { build?: unknown } | null)?.build)
+    return build ? buildStamp(build) : null
+  } catch {
+    return null
+  }
+}
+
 export async function look(
   registration: Registration,
   fetchImpl: typeof fetch = fetch,
@@ -394,6 +427,8 @@ export async function look(
     }
   }
 
+  const warnings = partsDeclaration(manifest)
+
   return {
     id,
     at,
@@ -404,6 +439,7 @@ export async function look(
     tags,
     line: manifest.summary || `${manifest.name} ${manifest.version}`,
     protocols: { host: PROTOCOL, module: manifest.protocol, range },
+    ...(warnings.length ? { warnings } : {}),
     module: {
       id: manifest.id,
       name: manifest.name,
@@ -451,6 +487,7 @@ export async function look(
       dialect: dialectOfKind(manifest.kind),
       reacts: manifest.reacts,
       declares: manifest.declares,
+      build: manifest.build ?? null,
     },
   }
 }

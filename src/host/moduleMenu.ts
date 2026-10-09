@@ -178,6 +178,32 @@ export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' |
  * where something answers that is not the module registered there. Each
  * sentence ends with the next step.
  */
+/**
+ * What a module that works says wrongly about itself, as sentences; empty
+ * when nothing.
+ *
+ * Not `attention`: nothing here stops the module being used and there is
+ * nothing for the person at the canvas to do — it is for whoever maintains the
+ * module. Today that is one thing, read by the host's server with the
+ * protocol's `partsDeclaration`: a module that neither reacts to the parts of
+ * an epic nor says why it has none. Drawn under the row, muted.
+ */
+export function warnings(presence: Presence): readonly string[] {
+  return presence.condition === 'ready' ? (presence.warnings ?? []) : []
+}
+
+/**
+ * The module's version as its row's details give it: what it calls itself,
+ * the commit its server started on, and the protocol package it is built
+ * with. Null when the module is not answering, so nothing is known.
+ */
+export function builtFrom(presence: Presence): { version: string; protocol: string | null } | null {
+  const module = presence.module
+  if (!module) return null
+  const commit = module.build?.commit ? ` (${module.build.commit.slice(0, 7)})` : ''
+  return { version: `${module.version}${commit}`, protocol: module.build?.protocol ?? null }
+}
+
 export function attention(presence: Presence): string | null {
   if (presence.condition === 'ready') return null
   if (presence.condition === 'incompatible') {

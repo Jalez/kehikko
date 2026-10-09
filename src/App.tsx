@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { CONTENT_HOST, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
-import { Covers, Runs, showing } from './host/standing.ts'
+import { Covers, registryBehind, Replacing, Runs, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
@@ -159,6 +159,14 @@ interface Live {
    */
   line: string | null
   fault: string | null
+  /**
+   * The build that served the page that answered, when the page says — which
+   * server PROCESS it came from. Compared with the build the module's server
+   * states now to see a page older than its server; see `isStale` in
+   * `host/standing.ts`. Null or absent for a module from before build
+   * identities, which is never called stale.
+   */
+  build?: Build | null
   /**
    * What this module last said it can be narrowed by, or nothing.
    *
@@ -1815,6 +1823,7 @@ export function App() {
         [id]: {
           condition: was[id]?.condition ?? 'ready',
           line: was[id]?.line ?? null,
+          build: was[id]?.build,
           fault: was[id]?.fault ?? null,
           filters: groups,
           clear: was[id]?.clear,
@@ -1855,6 +1864,7 @@ export function App() {
       [id]: {
         condition: was[id]?.condition ?? 'ready',
         line: was[id]?.line ?? null,
+        build: was[id]?.build,
         fault: was[id]?.fault ?? null,
         filters: was[id]?.filters,
         clear: label,
@@ -1888,6 +1898,7 @@ export function App() {
       [id]: {
         condition: was[id]?.condition ?? 'ready',
         line: was[id]?.line ?? null,
+        build: was[id]?.build,
         fault: was[id]?.fault ?? null,
         filters: was[id]?.filters,
         clear: was[id]?.clear,
@@ -2641,6 +2652,50 @@ export function App() {
    * reloads that one page at the other version's address. See `Frames.tsx`.
    */
   const loadedVersionRef = useRef<Map<string, string | null>>(new Map())
+
+  /*
+   * A page older than its server: the page said which process served it, and
+   * the module's server now states another, later one — it was restarted under
+   * a frame that stayed mounted, by somebody other than this host (`Runs` sees
+   * the host's own restarts). The page's writes would all be refused. It gets
+   * a new document, once per server process, and is covered as restarting
+   * until that answers. See `isStale` and `Replacing` in `host/standing.ts`.
+   *
+   * Only for a container on the module's own checkout: one pinned to a version
+   * is framed from another process, which `live` does not tell apart.
+   */
+  const replacing = useRef(new Replacing())
+  const lookedFor = useRef(new Map<string, string>())
+  const pinnedHere = useMemo(() => new Set(placements.filter((p) => p.version).map((p) => p.i)), [placements])
+  const staleOf = useCallback(
+    (id: string, found: Live | undefined): boolean =>
+      !pinnedHere.has(id) && found?.condition === 'ready' && replacing.current.stale(id, found.build, byId.get(id)?.module?.build),
+    [pinnedHere, byId],
+  )
+  useEffect(() => {
+    const again: string[] = []
+    let behind = false
+    for (const [id, found] of Object.entries(live)) {
+      if (pinnedHere.has(id) || found.condition !== 'ready') continue
+      const server = byId.get(id)?.module?.build
+      if (replacing.current.take(id, found.build, server)) again.push(id)
+      /* The page is AHEAD of what the last sweep read: it reloaded itself onto
+         a restarted server before this page heard of it. Look, once per page. */
+      else if (registryBehind(found.build, server) && lookedFor.current.get(id) !== found.build!.started) {
+        lookedFor.current.set(id, found.build!.started)
+        behind = true
+      }
+    }
+    if (again.length) {
+      setGenerations((was) => {
+        const next = { ...was }
+        for (const id of again) next[id] = (next[id] ?? 0) + 1
+        return next
+      })
+    }
+    if (behind) void lookRef.current?.()
+  }, [live, byId, pinnedHere])
+
   const framings = useMemo<Framing[]>(() => {
     const loaded = loadedRef.current
     const loadedVersion = loadedVersionRef.current
@@ -2692,7 +2747,7 @@ export function App() {
             !placements.find((p) => p.i === id)?.collapsed &&
             /* The same decision the container's body draws from, so a page
                and a cover are never both up, or neither. */
-            showing(presenceOf(id)!, found, askedFor === openId).kind === 'page',
+            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId).kind === 'page',
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
           /* Composed here rather than in the module, because only the host
@@ -2710,7 +2765,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -2751,13 +2806,14 @@ export function App() {
 
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
-      ready: () => {
+      ready: (_protocol, build) => {
         covers.answered(id)
         setLive((was) => ({
           ...was,
           [id]: {
             condition: 'ready',
             line: null,
+            build: build ?? null,
             fault: was[id]?.fault ?? null,
             filters: was[id]?.filters,
             clear: was[id]?.clear,
@@ -2785,6 +2841,7 @@ export function App() {
           [id]: {
             condition: was[id]?.condition ?? 'ready',
             line: was[id]?.line ?? null,
+            build: was[id]?.build,
             fault: sentence,
             filters: was[id]?.filters,
             clear: was[id]?.clear,
@@ -3071,7 +3128,7 @@ export function App() {
                      module that has been framed and has not spoken, which
                      `condition` alone cannot express: discovery said `ready`
                      because the manifest read, not because the page answered. */
-                  showing={showing(presence, found, askedFor === openId)}
+                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found) }, askedFor === openId)}
                   coverDetail={waiting ? presence.line : undefined}
                   fault={found?.fault ?? null}
                   body={body(presence.id)}

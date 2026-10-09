@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { Nursery, TERM_GRACE_MS } from '../server/launch.ts'
+import { leaving, Nursery, TERM_GRACE_MS } from '../server/launch.ts'
 import {
   asleepLine,
   GRACE_MS,
@@ -16,6 +16,8 @@ import {
   type Doing,
   toStop,
   toWatch,
+  theirsLine,
+  THEIRS_TO_RESTART_MS,
   WATCH_EVERY_MS,
   type Standing,
 } from '../server/lifecycle.ts'
@@ -456,5 +458,71 @@ describe('what is not started again on its own', () => {
 
   test('a module whose process the host started is still running: a second copy would race it for the port', () => {
     expect(toStart([standing({ needed: true, answering: false, ours: true })])).toEqual([])
+  })
+})
+
+describe('a host the app is stopping takes what it started with it', () => {
+  test('only what the nursery holds can be handed over, and it is held no longer', () => {
+    const { nursery } = watched()
+    /* A module this host did not start: there is nothing to hand over. */
+    expect(nursery.release('kehikot.terminal')).toBeNull()
+    const it = held(4242)
+    nursery.keep('kehikot.thing', it)
+    expect(nursery.release('kehikot.thing')).toBe(it)
+    expect(nursery.holds('kehikot.thing')).toBe(false)
+    expect(nursery.release('kehikot.thing')).toBeNull()
+  })
+
+  test('a process that has already ended is not handed over', () => {
+    const { nursery } = watched()
+    const it = held(4242)
+    nursery.keep('kehikot.thing', it)
+    it.child.living = false
+    expect(nursery.release('kehikot.thing')).toBeNull()
+  })
+
+  test('each group is asked to leave, and the wait ends when they have', async () => {
+    const sent: { pid: number; signal: string }[] = []
+    const a = held(4242)
+    const b = held(4343)
+    const before = Date.now()
+    await leaving([a, b], 2_000, (pid, signal) => {
+      sent.push({ pid, signal })
+      /* Both leave on the first signal. */
+      if (pid === -4242) a.child.living = false
+      if (pid === -4343) b.child.living = false
+    })
+    expect(sent).toEqual([
+      { pid: -4242, signal: 'SIGTERM' },
+      { pid: -4343, signal: 'SIGTERM' },
+    ])
+    expect(Date.now() - before).toBeLessThan(1_000)
+  })
+
+  test('one that ignores it is killed when the wait is over, and one that left is not signalled again', async () => {
+    const sent: { pid: number; signal: string }[] = []
+    const stubborn = held(4242)
+    const polite = held(4343)
+    await leaving([stubborn, polite], 120, (pid, signal) => {
+      sent.push({ pid, signal })
+      if (pid === -4343) polite.child.living = false
+    })
+    expect(sent).toEqual([
+      { pid: -4242, signal: 'SIGTERM' },
+      { pid: -4343, signal: 'SIGTERM' },
+      { pid: -4242, signal: 'SIGKILL' },
+    ])
+  })
+})
+
+describe('a module somebody else was running, just gone', () => {
+  test('the sentence says who is expected to bring it back, for how long, and that it can be started now', () => {
+    expect(theirsLine('kehikot.notes', 'http://127.0.0.1:7920')).toBe(
+      'kehikot.notes stopped answering at http://127.0.0.1:7920 a moment ago. This host did not start it, so it is giving whoever did '
+        + '8 seconds to bring it back before it starts it itself — or start it now.',
+    )
+    /* Longer than a dev server takes to come back, far shorter than the watch. */
+    expect(THEIRS_TO_RESTART_MS).toBeGreaterThanOrEqual(6_000)
+    expect(THEIRS_TO_RESTART_MS).toBeLessThan(WATCH_EVERY_MS)
   })
 })

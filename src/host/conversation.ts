@@ -6,6 +6,7 @@ import {
   moduleMessageSchema,
   PROTOCOL,
   toDialect,
+  type Build,
   type Dialect,
   type FilterGroup,
   type ModuleContext,
@@ -75,7 +76,8 @@ export type Ask = (method: string, params: unknown) => Promise<Answer>
  * the same in either case — go and look at the program.
  */
 export interface ConversationWatcher {
-  ready(moduleProtocol: number): void
+  /** `build` is what served the page, when it says: see `isStale` in `standing.ts`. */
+  ready(moduleProtocol: number, build?: Build | null): void
   silent(line: string): void
   /** Something the module did that is worth a line but is not a condition. */
   fault(line: string): void
@@ -494,7 +496,7 @@ export class Conversation {
           `The page framed as ${this.moduleId} answered as ${message.id}. The host is talking to the frame it mounted; the name is wrong somewhere.`,
         )
       }
-      this.watcher.ready(message.protocol)
+      this.watcher.ready(message.protocol, message.build ?? null)
       return true
     }
 
