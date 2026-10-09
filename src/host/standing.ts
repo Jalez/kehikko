@@ -112,6 +112,7 @@ export const RELOAD_GRACE_MS = 250
  *  - `loaded`: the frame's `load` fired; the host has greeted. Armed after the
  *    grace, unless `answered` comes first.
  *  - `answered`: the page said `ready`. Whatever was pending is let go.
+ *  - `unmounted`: the frame went away. Forgotten at once, with nothing pending.
  *
  * The timer is injected so the arming is tested without waiting.
  */
@@ -145,9 +146,14 @@ export class Covers {
     this.#let(id)
   }
 
-  /** The frame is gone; nothing is owed to it. */
+  /**
+   * The frame is gone, and what its page had said goes with it. Otherwise the
+   * module coming back is drawn for one render as the page it used to be —
+   * over a document that has not loaded — before `mounted` covers it.
+   */
   unmounted(id: string): void {
     this.#let(id)
+    this.drop(id)
   }
 
   #let(id: string): void {

@@ -113,9 +113,15 @@ describe('arming the cover', () => {
     const { covers: c, dropped } = covers()
     c.mounted('a')
     expect(dropped).toEqual(['a'])
-    c.unmounted('a')
     c.mounted('a')
     expect(dropped).toEqual(['a', 'a'])
+  })
+
+  test('a frame that goes away takes what its page had said with it, so coming back is never drawn as the old page', () => {
+    const { covers: c, dropped } = covers()
+    c.answered('a')
+    c.unmounted('a')
+    expect(dropped).toEqual(['a'])
   })
 
   test('a reload that answers within the grace shows no cover at all', () => {
@@ -145,8 +151,9 @@ describe('arming the cover', () => {
     c.loaded('a')
     expect(time.pending()).toBe(1)
     c.unmounted('a')
+    expect(dropped).toEqual(['a'])
     time.elapse()
-    expect(dropped).toEqual([])
+    expect(dropped).toEqual(['a'])
   })
 
   test('one module answering does not let go of another’s cover', () => {

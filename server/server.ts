@@ -1243,6 +1243,19 @@ async function restart(id: string, registration: Registration | null, runnable: 
 type UpdateStep = 'updating' | 'applying' | 'installing' | 'restarting'
 type Phase = (now: UpdateStep) => void
 
+/** How long a module the host may not stop is given to end by itself after its server files changed. */
+const ENDS_ITSELF_WITHIN_MS = 4_000
+
+/** Whether nothing answers at a module's address any more, asked for a few seconds. */
+async function wentAway(registration: Registration): Promise<boolean> {
+  const until = Date.now() + ENDS_ITSELF_WITHIN_MS
+  while (Date.now() < until) {
+    if (!(await look(registration)).reached) return true
+    await new Promise((wake) => setTimeout(wake, 300))
+  }
+  return false
+}
+
 /** The host's own checkout: nothing here can restart this process, so it only says whether it must be. */
 async function updateHost(place: Place, signal: AbortSignal, phase: Phase): Promise<unknown> {
   const done = await update(place, signal, { merged: () => phase('applying'), installing: () => phase('installing') })
@@ -1323,6 +1336,16 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
       installing: () => phase('installing'),
     })
     if (!done.ok) return { error: done.why }
+
+    /* Refused, but look at what is true: a module whose server files changed
+       usually ends by itself (a Vite config reload exits the process), and one
+       that has is not running old code — it is not running, and is started. */
+    if ((outcome as ModuleOutcome).ran === 'stale' && can.ok && registration && (await wentAway(registration))) {
+      owed = true
+      outcome = { ran: 'restarted' }
+      working.set(id, 'updating')
+      wakes.registryChanged()
+    }
 
     if (owed && can.ok) {
       /* The container goes on saying it is being updated; only the row needs
