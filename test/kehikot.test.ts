@@ -174,7 +174,7 @@ describe('the round trip: this computer, the file, another computer', () => {
     /* The ids are not — they are this machine's row numbers and nothing more. */
     expect(listCanvases(there).map((c) => c.project)).toEqual([q.id, q.id])
     /* And what the project is about travels once, with the project. */
-    expect(readSubject(there, q.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105', '!44'] })
+    expect(readSubject(there, q.id)).toEqual({ epic: 'modes-are-modules', parts: [], selection: ['gh#105', '!44'] })
   })
 
   test('the file is one a person can read, diff and merge', () => {
@@ -407,7 +407,7 @@ describe('a file that will not read', () => {
       filters: {},
       refreshEvery: null,
     })
-    expect(read.ok && read.subject).toEqual({ epic: null, selection: [] })
+    expect(read.ok && read.subject).toEqual({ epic: null, parts: [], selection: [] })
   })
 
   /*
@@ -544,7 +544,7 @@ describe('the epic is the project’s, and the kehikko is only a layout', () => 
     setSubject(store, p.id, { epic: 'modes-are-modules', selection: ['gh#1'] })
     editCanvas(store, one.id, { placements: [everything] })
     editCanvas(store, two.id, { name: 'renamed', placements: [another] })
-    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#1'] })
+    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', parts: [], selection: ['gh#1'] })
   })
 
   test('changing the epic leaves every kehikko exactly as it was', () => {
@@ -582,7 +582,7 @@ describe('the epic is the project’s, and the kehikko is only a layout', () => 
     const q = project(there, dir)
     setSubject(there, q.id, { epic: 'stale' })
     expect(syncProject(there, q)).toMatchObject({ outcome: 'read', changed: true })
-    expect(readSubject(there, q.id)).toEqual({ epic: 'pulled', selection: ['gh#9'] })
+    expect(readSubject(there, q.id)).toEqual({ epic: 'pulled', parts: [], selection: ['gh#9'] })
     expect(syncProject(there, q)).toMatchObject({ outcome: 'read', changed: false })
   })
 })
@@ -604,7 +604,7 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
     const store = db()
     const p = project(store, dir)
     expect(syncProject(store, p)).toMatchObject({ outcome: 'read', changed: true })
-    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105'] })
+    expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', parts: [], selection: ['gh#105'] })
     expect(listCanvases(store).map((c) => c.key)).toEqual(['blank', 'writing', 'review'])
 
     /* Read once: the old per-kehikko fields are not written back. */
@@ -623,7 +623,7 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
     const store = db()
     const p = project(store, dir)
     syncProject(store, p)
-    expect(readSubject(store, p.id)).toEqual({ epic: null, selection: [] })
+    expect(readSubject(store, p.id)).toEqual({ epic: null, parts: [], selection: [] })
   })
 })
 
@@ -660,8 +660,8 @@ describe('the move in the database, from per-kehikko epics to the project', () =
       { name: 'review', epic: 'something-else' },
     ])
     const store = openDb(file)
-    expect(readSubject(store, 1)).toEqual({ epic: 'modes-are-modules', selection: ['gh#105'] })
-    expect(readSubject(store, 2)).toEqual({ epic: null, selection: [] })
+    expect(readSubject(store, 1)).toEqual({ epic: 'modes-are-modules', parts: [], selection: ['gh#105'] })
+    expect(readSubject(store, 2)).toEqual({ epic: null, parts: [], selection: [] })
     store.close()
   })
 
@@ -675,7 +675,7 @@ describe('the move in the database, from per-kehikko epics to the project', () =
     const review = listCanvases(store).find((c) => c.name === 'review')!.id
     const writing = listCanvases(store).find((c) => c.name === 'writing')!.id
     expect(hintSubject(store, review)).toBe(1)
-    expect(readSubject(store, 1)).toEqual({ epic: 'something-else', selection: ['gh#1'] })
+    expect(readSubject(store, 1)).toEqual({ epic: 'something-else', parts: [], selection: ['gh#1'] })
 
     /* A later load on another kehikko — the switch the person reported — does
        not move the epic. */
@@ -707,7 +707,7 @@ describe('the move in the database, from per-kehikko epics to the project', () =
   test('a fresh database has nothing to move', () => {
     const store = db()
     const p = project(store, folder())
-    expect(readSubject(store, p.id)).toEqual({ epic: null, selection: [] })
+    expect(readSubject(store, p.id)).toEqual({ epic: null, parts: [], selection: [] })
     const made = createCanvas(store, 'one', p.id)
     expect(hintSubject(store, made.id)).toBeNull()
   })

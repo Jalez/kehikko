@@ -107,6 +107,22 @@ describe('what the page does with each kind of news', () => {
     one.stop()
   })
 
+  test('changed content is handed over with its project, and a list it cannot read is not', () => {
+    const heard: unknown[] = []
+    const stop = watchCanvases(7, () => {}, undefined, undefined, undefined, undefined, (project, changes) =>
+      heard.push([project, changes]),
+    )
+    const source = FakeSource.last
+    const changes = [{ source: 'kehikot.journeys', epic: 'x', at: '2026-10-06T10:00:00.000Z' }]
+    source?.send(JSON.stringify({ content: 3, changes }))
+    /* Held to the protocol's shape: a server newer than this page, or a
+       malformed one, is news that does not happen rather than half a list. */
+    source?.send(JSON.stringify({ content: 3, changes: [{ source: 'Not An Id', at: 'yesterday' }] }))
+    source?.send(JSON.stringify({ content: 'three', changes }))
+    expect(heard).toEqual([[3, changes]])
+    stop()
+  })
+
   test('a caller that wants only kehikot may pass no sweep, and nothing breaks', () => {
     /* The argument is optional, and a `registry` arriving at a listener that
        did not ask for it must not be a thrown error inside an event handler. */

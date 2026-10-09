@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
-import { look, resolveOnOrigin } from '../server/discover.ts'
+import { look, resolveOnOrigin, tagsOf } from '../server/discover.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -154,5 +154,38 @@ describe('a module may describe itself and not somebody else', () => {
     expect(resolveOnOrigin('http://127.0.0.1:9999/app', AT)).toBeNull()
     expect(resolveOnOrigin('//example.com/app', AT)).toBeNull()
     expect(resolveOnOrigin('javascript:alert(1)', AT)).toBeNull()
+  })
+})
+
+describe('the categories a module files itself under', () => {
+  test('are carried beside the name and the summary, most fitting first', async () => {
+    const presence = await look(registration, serving({ ...good, tags: ['writing', 'reading'] }))
+    expect(presence.tags).toEqual(['writing', 'reading'])
+    expect(presence.summary).toBe(good.summary)
+    expect(presence.module?.tags).toEqual(['writing', 'reading'])
+  })
+
+  test('are empty for a manifest that gives none, which is a module filed under other', async () => {
+    const presence = await look(registration, serving(good))
+    expect(presence.condition).toBe('ready')
+    expect(presence.tags).toEqual([])
+  })
+
+  test('are the protocol’s to read, and a word said twice is one category', async () => {
+    expect(tagsOf({ tags: ['code', 'review', 'code'] })).toEqual(['code', 'review'])
+    const presence = await look(registration, serving({ ...good, tags: ['code', 'review', 'code'] }))
+    expect(presence.tags).toEqual(['code', 'review'])
+    expect(presence.module?.tags).toEqual(['code', 'review'])
+  })
+
+  /* The host's own reading used to turn these into no tags. `manifestSchema`
+     has had the field since 0.28 and refuses the manifest, as it does for any
+     other field it cannot read — and the sentence names the field. */
+  test('that are not a short list of words make a manifest this host cannot read, and it says which field', async () => {
+    for (const tags of [['Two Words'], 'code', ['a', 'b', 'c', 'd', 'e', 'f']]) {
+      const presence = await look(registration, serving({ ...good, tags }))
+      expect(presence.condition).toBe('silent')
+      expect(presence.line).toContain('tags')
+    }
   })
 })

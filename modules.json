@@ -1,0 +1,22 @@
+{
+  "modules": [
+    { "id": "kehikot.journeys", "name": "Journeys", "repo": "Jalez/kehikko-journeys", "port": 7840, "tags": ["planning"], "summary": "What has to become true for a user, step by step, and where every piece of it stands." },
+    { "id": "kehikot.references", "name": "References", "repo": "Jalez/kehikko-references", "port": 7820, "tags": ["planning", "review"], "summary": "Every issue, merge request and pull request in this project, from GitHub and GitLab, as one list." },
+    { "id": "kehikot.checklist", "name": "Checklist", "repo": "Jalez/kehikko-checklist", "port": 7860, "tags": ["planning", "review"], "summary": "Checklists somebody wrote, held against the issues, changes, paper files and sections they were assigned to." },
+    { "id": "kehikot.atlas", "name": "Atlas", "repo": "Jalez/kehikko-atlas", "port": 7830, "tags": ["planning"], "summary": "A map of the territory: which projects exist, and which epics are in each of them." },
+    { "id": "kehikot.paper", "name": "Paper", "repo": "Jalez/kehikko-paper", "port": 7870, "tags": ["writing", "reading"], "summary": "The paper this epic is aimed at, read as prose: sections, figures and tables rather than markup." },
+    { "id": "kehikot.slides", "name": "Slides", "repo": "Jalez/kehikko-slides", "port": 7990, "tags": ["writing"], "summary": "Presentation decks for a paper: Markdown slides that follow the paper as you read and present." },
+    { "id": "kehikot.citations", "name": "Citations", "repo": "Jalez/kehikko-citations", "port": 7930, "tags": ["writing", "reading"], "summary": "The academic references a document cites: every entry in its .bib, and which of them the prose names." },
+    { "id": "kehikot.notes", "name": "Notes", "repo": "Jalez/kehikko-notes", "port": 7940, "tags": ["reading", "writing"], "summary": "Notes anchored to a place in a document, narrowing as the reader narrows." },
+    { "id": "kehikot.learning", "name": "Learning", "repo": "Jalez/kehikko-learning", "port": 7950, "tags": ["reading"], "summary": "Multiple-choice questions anchored to passages of a paper, and what a reader answered." },
+    { "id": "kehikot.source", "name": "Source", "repo": "Jalez/kehikko-source", "port": 7980, "tags": ["code"], "summary": "The file the canvas is pointed at, with the range a passage carries highlighted. It reads and never writes." },
+    { "id": "kehikot.diff", "name": "Diff", "repo": "Jalez/kehikko-diff", "port": 7890, "tags": ["code", "review"], "summary": "The diff of whichever change is selected on the canvas, file by file." },
+    { "id": "kehikot.review", "name": "Review", "repo": "Jalez/kehikko-review", "port": 8000, "tags": ["review", "code"], "summary": "Comment on exact lines of a change, commit by commit, and send it as one review with a verdict." },
+    { "id": "kehikot.explorer", "name": "Explorer", "repo": "Jalez/kehikko-explorer", "port": 7970, "tags": ["code"], "summary": "The working tree of the open project, read one directory at a time. Pressing a file points the canvas at it." },
+    { "id": "kehikot.terminal", "name": "Terminal", "repo": "Jalez/kehikko-terminal", "port": 7920, "tags": ["code"], "summary": "A real terminal on this machine. Your shell, in a container, with nothing else in it." },
+    { "id": "kehikot.tests", "name": "Tests", "repo": "Jalez/kehikko-tests", "port": 7900, "tags": ["tests", "code"], "summary": "How this project is tested, and what was actually run against the change you are looking at." },
+    { "id": "kehikot.history", "name": "History", "repo": "Jalez/kehikko-history", "port": 7960, "tags": ["code"], "summary": "A project's git history: what is committed and what is not, with commit and discard by file." },
+    { "id": "kehikot.orchestrator", "name": "Orchestrator", "repo": "Jalez/kehikko-orchestrator", "port": 7850, "tags": ["agents"], "summary": "Start a session on what you picked, and watch what it says." },
+    { "id": "kehikot.notifications", "name": "Notifications", "repo": "Jalez/kehikko-notifications", "port": 7910, "tags": ["agents"], "summary": "What every module on this machine has said happened, newest first, with who said it." }
+  ]
+}

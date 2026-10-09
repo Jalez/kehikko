@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { canonicalModuleId, LIMITS, MODULE_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
+import { canonicalModuleId, LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import {
@@ -18,6 +18,7 @@ import {
   type PlacementInput,
   type Subject,
 } from './canvases.ts'
+import { partIdsIn } from '../src/host/parts.ts'
 import { listProjects, projectById } from './projects.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 
@@ -82,6 +83,10 @@ import { isVersionTag, TAG_MAX } from './versions.ts'
  *     in the project's trackers, which are the same trackers on the other
  *     machine. They are the PROJECT's, not any kehikko's: a kehikko is a
  *     layout, and every layout works with every epic.
+ *   - The `parts` of that epic the project is focused on, beside them and for
+ *     their reason — a part id is read off the epic's own file, which travels
+ *     with the project. Written only when some are picked; see "The shape of
+ *     the file".
  *   - A kehikko's `key` (its identity — see `Canvas.key`) and `name`.
  *   - Every placement, whole: `module` (stored as `i` — the grid library's
  *     word — and written here under a name a person can read), `x`, `y`, `w`,
@@ -178,6 +183,16 @@ import { isVersionTag, TAG_MAX } from './versions.ts'
  * thing for it to do; it would otherwise drop the project's epic on its next
  * write.
  *
+ * `parts` — the part ids picked out of the epic — is a third key at the top,
+ * between `epic` and `selection`, and it is written ONLY when it is not empty.
+ * Absent means the whole epic. That is deliberate twice over: a project nobody
+ * has focused keeps byte-for-byte the file it had, so adopting this host
+ * changes no file and makes no diff; and the version stays 2, because a host
+ * from before parts still reads every file that does not use them. One that
+ * meets the key refuses the file with a sentence, as it would an unknown
+ * version, and for the same reason — it would otherwise drop the focus on its
+ * next write.
+ *
  * Indented JSON with a fixed key order and a trailing newline, and every
  * container on ONE line, so that a moved container is one changed line in a
  * diff and a person can read the arrangement down the page. Containers are in
@@ -233,7 +248,14 @@ void everyPlacementFieldTravels
 export const PORTABLE_CANVAS_FIELDS = ['key', 'name'] as const satisfies readonly (keyof Canvas)[]
 
 /** What the file says once, about the project rather than about any kehikko. */
-export const PORTABLE_SUBJECT_FIELDS = ['epic', 'selection'] as const satisfies readonly (keyof Subject)[]
+export const PORTABLE_SUBJECT_FIELDS = ['epic', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
+
+type UntaughtSubjectField = Exclude<keyof Subject, (typeof PORTABLE_SUBJECT_FIELDS)[number]>
+/* The same device as the placements': a field added to `Subject` and not to
+   the list above stops this line compiling. What a project is about is the
+   project's and travels with it; a field that should not would be the first. */
+const everySubjectFieldTravels: [UntaughtSubjectField] extends [never] ? true : UntaughtSubjectField = true
+void everySubjectFieldTravels
 
 /** And the ones that do not, each named so the split is complete rather than implied. */
 export const LOCAL_CANVAS_FIELDS = ['id', 'project'] as const satisfies readonly (keyof Canvas)[]
@@ -325,6 +347,9 @@ const containerSchema = z
 
 const epicSchema = z.string().trim().min(1).max(80).nullable().default(null)
 const selectionSchema = z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.REFS).default([])
+/* Part ids, in the shape `partIdsIn` keeps. Optional in the file: absent is
+   the whole epic. */
+const partsSchema = z.array(z.string().regex(PART_ID, 'is not a part id')).max(LIMITS.PARTS).default([])
 
 const kehikkoFields = {
   key: z.string().regex(KEY, 'is not a key: lowercase letters, digits and dashes'),
@@ -375,6 +400,7 @@ const fileSchema = z
   .object({
     version: z.literal(VERSION),
     epic: epicSchema,
+    parts: partsSchema,
     selection: selectionSchema,
     kehikot: z.array(kehikkoSchema).max(500),
   })
@@ -457,7 +483,7 @@ function toKehikko(canvas: Canvas): FileKehikko {
   }
 }
 
-const NO_SUBJECT: Subject = { epic: null, selection: [] }
+const NO_SUBJECT: Subject = { epic: null, parts: [], selection: [] }
 
 /**
  * The text of the file for these kehikot — the same bytes for the same input,
@@ -474,6 +500,8 @@ export function serialize(canvases: readonly Canvas[], subject: Subject = NO_SUB
     '{',
     `  "version": ${VERSION},`,
     `  "epic": ${JSON.stringify(subject.epic)},`,
+    /* Only when some are picked — see "The shape of the file". */
+    ...(subject.parts.length ? [`  "parts": ${JSON.stringify(subject.parts)},`] : []),
     `  "selection": ${JSON.stringify(subject.selection)},`,
     '  "kehikot": [',
   ]
@@ -537,7 +565,8 @@ export function parse(text: string): Parsed {
       const first = old.data.kehikot.find((k) => k.epic !== null)
       return {
         ok: true,
-        subject: first ? { epic: first.epic, selection: first.selection } : { epic: null, selection: [] },
+        /* Version 1 is from before parts: the whole epic. */
+        subject: first ? { epic: first.epic, parts: [], selection: first.selection } : NO_SUBJECT,
         kehikot: old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko),
         older: true,
       }
@@ -549,7 +578,13 @@ export function parse(text: string): Parsed {
   if (read.success) {
     return {
       ok: true,
-      subject: { epic: read.data.epic, selection: read.data.selection },
+      /* No epic has no parts — `setSubject`'s rule, applied to a file somebody
+         may have edited by hand. */
+      subject: {
+        epic: read.data.epic,
+        parts: read.data.epic === null ? [] : partIdsIn(read.data.parts),
+        selection: read.data.selection,
+      },
       kehikot: read.data.kehikot,
       older: false,
     }
@@ -700,7 +735,11 @@ export function syncProject(db: Database, project: { id: number; path: string })
        kehikot are: bounding on the way in is a difference worth writing. */
     const before = readSubject(db, project.id) ?? NO_SUBJECT
     if (serialize([], before) !== serialize([], read.subject)) {
-      setSubject(db, project.id, { epic: read.subject.epic, selection: read.subject.selection })
+      setSubject(db, project.id, {
+        epic: read.subject.epic,
+        parts: read.subject.parts,
+        selection: read.subject.selection,
+      })
       changed = true
     }
     return changed

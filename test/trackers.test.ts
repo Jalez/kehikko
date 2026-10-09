@@ -402,6 +402,240 @@ describe('one reading per project', () => {
   })
 })
 
+/**
+ * Jalez/kehikko#38: which change delivers which issue is worked out over the
+ * whole reading, so it does not matter which read brought either side in.
+ */
+describe('an issue carries every held change that declares it', () => {
+  const glRemotes = runner([['git -C', ok('origin\thttps://gitlab.example.org/group/project.git (fetch)')]])
+  const glRow = (kind: 'issue' | 'change', number: number, over: Partial<TrackerRow> = {}): TrackerRow => ({
+    ref: `${kind === 'change' ? '!' : '#'}${number}`,
+    tracker: 'gitlab',
+    host: 'gitlab.example.org',
+    repo: 'group/project',
+    number,
+    kind,
+    state: 'open',
+    title: `${kind} ${number}`,
+    url: `https://gitlab.example.org/group/project/-/${kind}/${number}`,
+    labels: [],
+    assignees: [],
+    links: [],
+    readAt: NOW.toISOString(),
+    ...over,
+  })
+  /** An adapter whose listing and whose by-ref answers are set apart, as the two reads are. */
+  function twoReads(listed: () => TrackerRow[], named: () => TrackerRow[]): Adapter {
+    return {
+      async list() {
+        return { ok: true as const, rows: listed(), notFound: [] }
+      },
+      async refs(_source: Source, wanted: readonly Wanted[]) {
+        const rows = named().filter((r) => wanted.some((w) => w.number === r.number && (w.kind === null || w.kind === r.kind)))
+        return { ok: true as const, rows, notFound: [] }
+      },
+      async detail() {
+        return new Map()
+      },
+    }
+  }
+  const closes12 = { links: [{ ref: '#12', relation: 'closes' as const }] }
+  const rowOf = (trackers: Trackers, ref: string) => {
+    const got = trackers.get(folder, { refs: [ref] })
+    if ('refused' in got) throw new Error(got.refused)
+    return got.rows[0]!
+  }
+  /** A clock that moves, so a later read is later. */
+  const clock = () => {
+    let at = NOW.getTime()
+    return () => new Date((at += 60_000))
+  }
+
+  test('an issue read by ref after its merge request was listed keeps the back-link', async () => {
+    /* The listing, as the GitLab adapter hands it over: the issue already linked. */
+    const listed = [
+      glRow('change', 7, { state: 'merged', ...closes12 }),
+      glRow('issue', 12, { state: 'closed', closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] }),
+    ]
+    const trackers = new Trackers({
+      run: glRemotes,
+      adapters: { gitlab: twoReads(() => listed, () => [glRow('issue', 12, { state: 'closed' })]) },
+      now: () => NOW,
+    })
+    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { refs: ['#12'] })
+    expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
+    expect(facetsOf(rowOf(trackers, '#12'))).toEqual(['issue:closed', 'closed:done'])
+  })
+
+  test('and the reverse: a merge request listed after its issue was read by ref', async () => {
+    let listed: TrackerRow[] = []
+    const trackers = new Trackers({
+      run: glRemotes,
+      adapters: { gitlab: twoReads(() => listed, () => [glRow('issue', 12, { state: 'closed' })]) },
+      now: () => NOW,
+    })
+    await trackers.refresh(folder, { refs: ['#12'] })
+    expect(rowOf(trackers, '#12').links).toEqual([])
+    /* The issue is too old for the listing; only its merge request is in it. */
+    listed = [glRow('change', 7, { state: 'merged', ...closes12 })]
+    await trackers.refresh(folder, { project: true })
+    expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
+    /* And a second host process reads it back linked. */
+    const again = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => []) }, now: () => NOW })
+    expect(rowOf(again, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by' }])
+  })
+
+  test('a merge request read by ref alone links the issue already held', async () => {
+    const named = [glRow('issue', 12), glRow('change', 7, closes12), glRow('change', 8, closes12)]
+    const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => named) }, now: () => NOW })
+    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { refs: ['!7'] })
+    await trackers.refresh(folder, { refs: ['!8'] })
+    expect(rowOf(trackers, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by' }, { ref: '!8', relation: 'closed-by' }])
+    /* Open declarers say nothing about how it closed. */
+    expect('closedByMerge' in rowOf(trackers, '#12')).toBe(false)
+  })
+
+  test('a merge request that stops declaring an issue drops off it', async () => {
+    const now = clock()
+    let declares = true
+    const merge = () => glRow('change', 7, { state: 'merged', readAt: now().toISOString(), ...(declares ? closes12 : {}) })
+    const trackers = new Trackers({
+      run: glRemotes,
+      adapters: { gitlab: twoReads(() => [], () => [glRow('issue', 12, { state: 'closed', readAt: now().toISOString() }), merge()]) },
+      now,
+    })
+    await trackers.refresh(folder, { refs: ['#12', '!7'] })
+    expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
+    declares = false
+    await trackers.refresh(folder, { refs: ['!7'] })
+    expect(rowOf(trackers, '#12').links).toEqual([])
+    expect('closedByMerge' in rowOf(trackers, '#12')).toBe(false)
+  })
+
+  test('a reading stored before this is linked when it is loaded', () => {
+    const file = readingFile(folder)!
+    mkdirSync(join(folder, '.kehikot', 'kehikko'), { recursive: true })
+    writeFileSync(file, JSON.stringify({
+      version: 1,
+      at: NOW.toISOString(),
+      fullAt: NOW.toISOString(),
+      sources: [{ ...gl, at: NOW.toISOString(), error: null }],
+      rows: [glRow('change', 7, { state: 'merged', ...closes12 }), glRow('issue', 12, { state: 'closed' })],
+      asked: ['#12'],
+      detailed: [],
+      notFound: [],
+    }))
+    const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => []) }, now: () => NOW })
+    expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
+  })
+
+  test('GitHub the same: a listed issue is linked to a pull request read by ref, and keeps closers nobody holds', async () => {
+    /* GitHub's own word for #2, read by ref: closed by a pull request the reading does not hold. */
+    const named = [
+      ghRow(2, { state: 'closed', closedByMerge: false, links: [{ ref: 'gh#90', relation: 'closed-by' }] }),
+      ghRow(3, { kind: 'change', state: 'merged', links: [{ ref: 'gh#1', relation: 'closes' }, { ref: 'gh#2', relation: 'closes' }] }),
+    ]
+    const trackers = new Trackers({
+      run: remotes,
+      adapters: { github: twoReads(() => [ghRow(1, { state: 'closed' })], () => named) },
+      now: () => NOW,
+    })
+    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { refs: ['gh#2', 'gh#3'] })
+    const got = trackers.get(folder, { refs: ['gh#1', 'gh#2'] })
+    if ('refused' in got) throw new Error(got.refused)
+    expect(got.rows[0]).toMatchObject({ closedByMerge: true, links: [{ ref: 'gh#3', relation: 'closed-by' }] })
+    expect(got.rows[1]).toMatchObject({
+      closedByMerge: true,
+      links: [{ ref: 'gh#90', relation: 'closed-by' }, { ref: 'gh#3', relation: 'closed-by' }],
+    })
+  })
+})
+
+/**
+ * Jalez/kehikko#36: `live.get` says which change delivers which issue from the
+ * same reading, as the old refresher's `links` and `ghLinks` did.
+ */
+describe('live.get folds changes under their issues from the reading', () => {
+  const known = () => true
+  const epicFile = (epic: object) => {
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify({ slug: 'one', title: 'One', ...epic }))
+  }
+  const closes = (...refs: string[]) => ({ links: refs.map((ref) => ({ ref, relation: 'closes' as const })) })
+
+  test('GitHub: under the issue as the epic spells it, by the pull request’s number', async () => {
+    epicFile({ steps: [{ title: 's', refs: ['gh:Jalez/kehikko#2', 'gh#3', 'gh#5', 'gh#6'] }] })
+    const rows = [
+      ghRow(2),
+      ghRow(3, { kind: 'change', state: 'merged', ...closes('gh#2') }),
+      /* Named by the epic, for an issue the epic does not name. */
+      ghRow(5, { kind: 'change', ...closes('gh#70') }),
+      /* Closed by a pull request the epic does not name, and by one nobody holds. */
+      ghRow(6, { links: [{ ref: 'gh#90', relation: 'closed-by' }] }),
+      ghRow(8, { kind: 'change', ...closes('gh#6') }),
+    ]
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const live = trackers.live(folder, 'one')!
+    expect(live.ghLinks).toEqual({ 'gh:Jalez/kehikko#2': [3], 'gh#70': [5], 'gh#6': [90, 8] })
+    expect(live.links).toEqual({})
+  })
+
+  test('GitLab: under the issue’s number, and a merge request that declares nothing folds nowhere', async () => {
+    const glRemotes = runner([['git -C', ok('origin\thttps://gitlab.example.org/group/project.git (fetch)')]])
+    const glRow = (kind: 'issue' | 'change', number: number, over: Partial<TrackerRow> = {}): TrackerRow => ({
+      ...ghRow(number),
+      ref: `${kind === 'change' ? '!' : '#'}${number}`,
+      tracker: 'gitlab',
+      host: 'gitlab.example.org',
+      repo: 'group/project',
+      kind,
+      ...over,
+    })
+    epicFile({ steps: [{ title: 's', refs: ['#2252', '!3053', '!3058', '!3070'] }] })
+    const rows = [
+      glRow('issue', 2252),
+      glRow('change', 3053, closes('#2252')),
+      glRow('change', 3058, closes('#2252')),
+      glRow('change', 3070),
+    ]
+    const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { epic: 'one' })
+    const live = trackers.live(folder, 'one')!
+    expect(live.links).toEqual({ '2252': [3053, 3058] })
+    expect(live.ghLinks).toEqual({})
+    expect(Object.keys(live.mrs as object).sort()).toEqual(['3053', '3058', '3070'])
+  })
+
+  test('and the answer merges them with the links a state file already had', async () => {
+    epicFile({ steps: [{ title: 's', refs: ['gh#2', 'gh#3'] }] })
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'state'), { recursive: true })
+    writeFileSync(
+      join(folder, '.kehikot', 'kehikko', 'state', 'one.json'),
+      JSON.stringify({
+        generated: '2026-10-01T00:00:00.000Z',
+        ghIssues: {},
+        ghPrs: {},
+        ghLinks: { 'gh#2': [1, 3], 'gh#4': [9] },
+        ghPartOf: { 'gh#2': [11] },
+        links: { '12': [7] },
+      }),
+    )
+    const rows = [ghRow(2), ghRow(3, { kind: 'change', ...closes('gh#2') }), ghRow(20, { kind: 'change', ...closes('gh#2') })]
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const given = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    if (!given.ok) throw new Error(given.error)
+    const live = given.data as Record<string, unknown>
+    expect(live.ghLinks).toEqual({ 'gh#2': [1, 3, 20], 'gh#4': [9] })
+    expect(live.links).toEqual({ '12': [7] })
+    expect(live.ghPartOf).toEqual({ 'gh#2': [11] })
+  })
+})
+
 describe('the methods, answered', () => {
   const known = () => true
   test('tracker.get is answered from the reading, in the protocol’s shape', async () => {

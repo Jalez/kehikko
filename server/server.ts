@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { canonicalModuleId, LEGACY_WELL_KNOWN, LIMITS, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { canonicalModuleId, CONTENT_HOST, LEGACY_WELL_KNOWN, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -50,12 +50,17 @@ import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
+import { Contents, ContentWatch, folderSource } from './content.ts'
+import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
+import { installDesk } from './installs.ts'
+import { OFFICIAL } from './official.ts'
+import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { versionsDir } from './machineDirs.ts'
+import { installsDir, versionsDir } from './machineDirs.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
@@ -177,6 +182,69 @@ const trackers = new Trackers({
    nothing for a project nobody is looking at. */
 setInterval(() => trackers.tick(), 60_000).unref?.()
 
+/**
+ * What has changed in the material kept for each project's epics, and the
+ * news of it to every page standing in that project. See `server/content.ts`.
+ */
+const contents = new Contents({
+  told: (root, changes) => {
+    for (const project of listProjects(db)) {
+      if (project.path === root) wakes.contentChanged(project.id, changes)
+    }
+  },
+})
+
+/**
+ * The `.kehikot/` of every project a screen is standing in, watched for the
+ * writes nothing tells this host about: a module's server answering its own
+ * MCP door, an agent or a person editing a file.
+ */
+const contentWatch = new ContentWatch({
+  changed: (root, source, epic) => void contents.announce(root, source, epic),
+  stateChanged: (root) => trackers.stateChanged(root),
+  /* The registered module whose folder this is; the folder drops the id's
+     prefix, so the registry is asked rather than the name rebuilt. A folder
+     no registered module claims is named the way a module of today would be. */
+  sourceOf: (folder) => {
+    for (const id of callers.keys()) {
+      try {
+        /* Under the name it has now: a module registered from before the
+           rename reports as the same one, and must be the same source. */
+        if (moduleFolder(id) === folder) return canonicalModuleId(id)
+      } catch {
+        /* An id that names no folder keeps none. */
+      }
+    }
+    return folderSource(folder)
+  },
+  log: (line) => console.warn(line),
+})
+
+/** Watch the projects that have a screen, and stop watching the ones that lost theirs. */
+function watchOpenProjects(): void {
+  const open = new Set(openness.every())
+  const roots = new Set<string>()
+  for (const canvas of listCanvases(db)) {
+    if (!open.has(canvas.id) || canvas.project === null) continue
+    const root = projectById(db, canvas.project)?.path
+    if (root) roots.add(root)
+  }
+  contentWatch.watching([...roots])
+}
+/* A page that moved to another project without reopening its stream is caught
+   here rather than never. */
+setInterval(() => watchOpenProjects(), 60_000).unref?.()
+
+/**
+ * The host wrote an epic itself: every container showing it is told, and the
+ * watcher is told too, so it does not announce the same write a second time
+ * when the file event arrives.
+ */
+function epicWritten(root: string, slug: string): void {
+  contentWatch.noted(root, join(epicsDir(root), `${slug}.json`))
+  contents.announce(root, CONTENT_HOST, slug)
+}
+
 /** The open project's folder, when the call named a project this host has. */
 function rootOf(project: unknown): string | null {
   if (typeof project !== 'number' || !Number.isInteger(project)) return null
@@ -253,6 +321,33 @@ const feedback = feedbackDesk({
   },
 })
 
+/* The official module list: what is on it, and installing one that is not on
+   this machine yet. What is registered is read from the disk at the press, so
+   an install never races a sweep's map. See `installs.ts`. */
+const installs = installDesk({
+  list: OFFICIAL,
+  run: runQuietly,
+  root: installsDir(),
+  registry: registryDir(),
+  registered: async () =>
+    (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url) })),
+  installed: () => wakes.registryChanged(),
+})
+
+/* Proposing a registered module for that list, as an issue in this host's
+   repository. See `proposals.ts`. */
+const proposals = proposalDesk({
+  list: OFFICIAL,
+  run: spawnRunner,
+  repo: HOST_REPO,
+  registration: async (id) => registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
+  manifest: async (id) => {
+    const registration = registered.get(id)
+    return registration ? ((await look(registration)).module ?? null) : null
+  },
+  remembered: (id) => known(db).get(id) ?? null,
+})
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -293,17 +388,22 @@ async function survey(): Promise<{
    * `kehikot.checklist` and `kehikot.paper`. That was invisible until modules
    * started sleeping; now it is most of them.
    *
-   * Only the NAME is remembered, and only for a presence that has none. What a
-   * module currently offers — its summary, its tools, its protocol range — is a
-   * claim about a running program, and the host does not make those on behalf
-   * of something that is not answering. See `known.ts`.
+   * What a module IS is remembered — its name, its one-line summary and its
+   * tags — and only for a presence that has none. What it currently offers —
+   * its tools, its guidance, its protocol range — is a claim about a running
+   * program, and the host does not make those on behalf of something that is
+   * not answering. See `known.ts`.
    */
   const remembered = known(db)
   for (const presence of presences) {
-    if (presence.name) remember(db, presence.id, presence.name)
+    if (presence.name) remember(db, presence.id, presence.name, { summary: presence.summary, tags: presence.tags })
     else {
       const was = remembered.get(presence.id)
-      if (was) presence.name = was
+      if (was) {
+        presence.name = was.name
+        presence.summary = was.summary
+        presence.tags = was.tags
+      }
     }
   }
   forgetUnregistered(db, found.registrations.map((r) => r.id))
@@ -327,6 +427,9 @@ async function survey(): Promise<{
       ...presence,
       state: readState(db, presence.id),
       agent: awarenessOf(presence.module?.mcp?.url ?? null, presence.id, knows),
+      /* Where the registration says the program lives, for the details under a
+         row in the module list. Absent for a module somebody starts themselves. */
+      dir: registered.get(presence.id)?.dir,
     })),
     /* The host's own door, read against the same `knows` in the same sweep.
        This is the whole of what the page needs to draw the plug on the host's
@@ -471,7 +574,7 @@ const versionRuns = new VersionRuns({
     if (!registration.dir) return { why: `${id} is registered without a directory, so there is no repository to read its versions from` }
     const remote = await remoteOf(registration.dir)
     if (!remote) return { why: `${registration.dir} has no remote to fetch versions from` }
-    return { id, name: known(db).get(id) ?? id, dir: registration.dir, remote }
+    return { id, name: known(db).get(id)?.name ?? id, dir: registration.dir, remote }
   },
   /* A version's process outlives a host restart, as a module's does. It is
      taken back only when the process on its remembered port is proven, by its
@@ -1053,13 +1156,20 @@ const server = Bun.serve({
              give, or its id. Every page in the project is woken only when the
              file actually changed. */
           (module, root, marking) => {
-            const done = setDisposition(root, marking, known(db).get(module) ?? module)
+            const done = setDisposition(root, marking, known(db).get(module)?.name ?? module)
             if (done.ok && done.changed && typeof body.project === 'number') {
               wakes.dispositionsChanged(body.project)
             }
             return done
           },
           trackers,
+          /* A module's report of its own write. Signed with the module that
+             asked, and the watcher is told so the file event for the same
+             write says nothing more. */
+          (module, root, epic) => {
+            contentWatch.reported(root, module)
+            contents.announce(root, module, epic)
+          },
         ),
       )
     }
@@ -1170,24 +1280,28 @@ const server = Bun.serve({
     }
 
     /*
-     * What one project is about: its epic, and the refs picked out of it.
+     * What one project is about: its epic, the parts of it picked out, and the
+     * refs picked out of it.
      *
      * Its own flat path rather than a field on the projects PATCH, because the
      * two are different kinds of write: sharing is a write to a `.gitignore`,
      * and this is a write to the database and the project's `kehikot.json`.
-     * Only `epic` and `selection` are read off the body, one at a time, for the
-     * reason the canvas PATCH gives. The rule that a new epic clears the
-     * selection is in `setSubject`, not here.
+     * Only `epic`, `parts` and `selection` are read off the body, one at a
+     * time, for the reason the canvas PATCH gives. The rule that a new epic
+     * clears the parts and the selection is in `setSubject`, not here. There
+     * is no kehikko in this body and there must not be: what a project is
+     * about is not a property of a layout.
      */
     if (url.pathname === '/host/subject' && request.method === 'PATCH') {
       const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; epic?: unknown; selection?: unknown }
+        | { project?: unknown; epic?: unknown; parts?: unknown; selection?: unknown }
         | null
       if (!body || typeof body.project !== 'number') {
         return json({ error: 'A change to what a project is about names the project.' }, 400)
       }
       const said = setSubject(db, body.project, {
         ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
+        ...(Array.isArray(body.parts) ? { parts: body.parts as string[] } : {}),
         ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
       })
       if (!said) return json({ error: 'There is no project with that id.' }, 404)
@@ -1318,6 +1432,9 @@ const server = Bun.serve({
 
       const said = retitleEpic(project.path, body.slug as string, body.title as string)
       if (!said.ok) return json({ error: said.why }, said.status)
+      /* The title is part of what `epic.get` answers, so a container showing
+         this epic reads it again. */
+      epicWritten(project.path, said.epic.slug)
       return json({ epic: said.epic })
     }
 
@@ -1349,6 +1466,7 @@ const server = Bun.serve({
       const made = createEpic(project.path, { slug: body.slug, title: body.title })
       if (!made.ok) return json({ error: made.why }, made.status)
       wakes.epicsChanged(project.id)
+      epicWritten(project.path, made.epic.slug)
       return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
     }
 
@@ -1375,6 +1493,7 @@ const server = Bun.serve({
         keep(db, project.id)
       }
       wakes.epicsChanged(project.id)
+      epicWritten(project.path, body.slug as string)
       return json({ deleted: body.slug })
     }
 
@@ -1484,6 +1603,10 @@ const server = Bun.serve({
     /* The issues this person opened on a module, and a new one. `feedback.ts`. */
     const feedbackAnswer = await feedback.route(request, url)
     if (feedbackAnswer) return feedbackAnswer
+
+    /* The official module list, installing from it, and proposing for it. */
+    const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url))
+    if (officialAnswer) return officialAnswer
 
     /*
      * Start a module that is not running.
@@ -1868,6 +1991,9 @@ const server = Bun.serve({
         start(controller) {
           controller.enqueue(encoder.encode(': listening\n\n'))
           if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
+          /* A screen is standing in a project: its `.kehikot/` is watched for
+             as long as one is. See `ContentWatch`. */
+          watchOpenProjects()
           /* The news is written as it was given. `Wakes` decides what shapes
              travel — see `News` there — and a server that rebuilt the object
              here would be a second place for the two ends to disagree. */
@@ -1881,6 +2007,7 @@ const server = Bun.serve({
              — which is the whole reason the page identifies itself here. What
              any other connection or the page itself has said is untouched. */
           openness.closed(connection)
+          watchOpenProjects()
         },
       })
       return new Response(stream, {
@@ -1920,6 +2047,10 @@ const server = Bun.serve({
           which: () => openness.open(),
           wake: (kehikko) => wakes.woke(kehikko),
           epicsChanged: (project) => wakes.epicsChanged(project),
+          epicWritten: (project, slug) => {
+            const root = projectById(db, project)?.path
+            if (root) epicWritten(root, slug)
+          },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           trackers,
           versions: {

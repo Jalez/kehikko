@@ -1,8 +1,11 @@
 import {
   contextSchema,
+  partsSchema,
   passageSchema,
   type CanvasContainer,
+  type ContentChange,
   type Disposition,
+  type EpicPart,
   type ModuleContext,
   type Passage,
   type TrackerSignal,
@@ -55,6 +58,17 @@ import type { Project } from './projects.ts'
  * switching kehikko never changes it, and changing it never changes the
  * kehikko. The selection — refs picked out OF the epic — is held beside it and
  * cleared whenever it moves.
+ *
+ * ## And so do the parts of it that are picked out
+ *
+ * A large epic is divided into parts, and a person may point the workspace at
+ * one or several — see `parts.ts`. The subject is then the epic, the parts
+ * picked out of it, and the selection: three widths of one fact, all held per
+ * project. The middle one is the easiest to put in the wrong place, because a
+ * focus FEELS like a view and a kehikko is a view. It is not one. A kehikko
+ * that remembered a focus would make the layout dropdown change what a person
+ * is working on, which is the bug in the paragraph above, one level down.
+ * Nothing picked is the whole epic, and that is where every epic starts.
  *
  * The move is to stop reading `context` as "the document you have open" and
  * start reading it as "what this workspace is about". Under that reading the
@@ -198,6 +212,29 @@ export function toWireContext(
    * behind `tracker.get`; see `server/trackers/reading.ts`.
    */
   tracker: TrackerSignal = { at: null, refreshing: false },
+  /**
+   * What has changed in the material kept for the open project's epics: the
+   * last change per source and epic, as the server last said it. Per project,
+   * like the tracker signal, and like it only the signal — a module re-reads
+   * the material itself. See `server/content.ts`.
+   */
+  content: readonly ContentChange[] = [],
+  /**
+   * The parts of the open epic, each saying whether it is picked out —
+   * composed by `partsOnWire` in `host/parts.ts` out of the epic's own file
+   * and the project's stored focus.
+   *
+   * Part of what the canvas is ABOUT, like the epic: it changes when a person
+   * picks in the bar and at no other time. It is an argument rather than a
+   * field on `Subject` only because of where it comes from — the list is read
+   * off the project's epics, which the page holds separately. It goes through
+   * `contextSchema` with everything else; see `divided` below for what happens
+   * to a list that will not parse.
+   *
+   * No kehikko is consulted for it, here or anywhere: see `Subject` in
+   * `server/canvases.ts`.
+   */
+  parts: readonly EpicPart[] = [],
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -217,6 +254,12 @@ export function toWireContext(
    */
   const pointing = passage === null || passageSchema.safeParse(passage).success ? passage : null
 
+  /* The parts, failed separately for the passage's reason. A list that will
+     not parse becomes no parts — nothing narrowed, the state every module
+     already handles — rather than a context that fell through to the fallback
+     below and lost its epic over a heading. */
+  const divided = partsSchema.safeParse(parts).success ? parts : []
+
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     /* Name and path, filled in from one project in one expression. Two nullable
@@ -232,6 +275,8 @@ export function toWireContext(
     containers,
     dispositions,
     tracker,
+    content,
+    parts: divided,
   })
   if (parsed.success) return parsed.data
 
@@ -291,7 +336,11 @@ export function toWireContext(
        nothing about whether somebody called #2274 a duplicate. */
     dispositions,
     tracker,
+    content,
   })
+  /* The parts go with the epic they are parts of, for the selection's reason:
+     this context names no epic, so there is nothing for them to divide. The
+     schema's own default says so: `[]`. */
   if (bare.success) return bare.data
   /* Belt and braces: this function must not throw. It is called during render,
      and a host that white-screens because somebody named a canvas something the
@@ -380,11 +429,22 @@ export function whileFrozen(
      the work, and a pinned Journeys still showing yesterday's states after a
      person pressed "Refresh all" would be the frozen theme again. */
   const reread = sameProject && JSON.stringify(held.tracker) !== JSON.stringify(told.tracker)
-  if (!relit && !refiltered && !remarked && !reread) return null
+  /* And so does what changed in the material, for the same reason once more:
+     a container pinned on an epic still shows that epic's steps, and one that
+     went on showing them as they were before an agent added a ref would be
+     frozen in the one way a pin does not mean. The pin holds WHICH epic; it
+     never held that the epic stopped changing. */
+  const rewritten = sameProject && JSON.stringify(held.content) !== JSON.stringify(told.content)
+  /* The parts picked out of the epic do NOT pass a pin, and are not listed
+     here on purpose. They are what the container is about — the epic, one
+     step narrower — and a container pinned on "the posting seam" that widened
+     when somebody cleared the bar would not have been held at all. `...held`
+     below keeps the parts it was pinned with. */
+  if (!relit && !refiltered && !remarked && !reread && !rewritten) return null
   return {
     ...held,
     theme: told.theme,
     filters: told.filters,
-    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker } : {}),
+    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker, content: told.content } : {}),
   }
 }

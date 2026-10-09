@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { EPIC_SLUG } from 'kehikot-module-protocol'
+import { EPIC_SLUG, journeyIn, stepsFromSchema, type StepsFrom } from 'kehikot-module-protocol'
+import { readJourneys } from 'kehikot-module-protocol/serve'
 
 import { slugFrom } from '../src/host/epics.ts'
 
+import { partsOf, type Part } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
 
 /**
@@ -97,8 +99,24 @@ export interface EpicSummary {
   title?: string
   project?: string
   lede?: string
-  /** How many things this epic names, when the file says. Never invented. */
+  /**
+   * How many things this epic names, when the file says. Never invented —
+   * and never given for an epic whose steps are kept elsewhere, where a count
+   * of what is here would be a count with the steps left out of it.
+   */
   size?: number
+  /**
+   * Where the steps are, for an epic whose steps are not here to count. Its
+   * presence is what stands in for `size`: the row cannot say how many, and
+   * says where instead. See `stepsSaid`.
+   */
+  stepsFrom?: StepsFrom
+  /**
+   * The parts this epic is divided into — its `groups`, with an id each and
+   * the refs of the steps assigned to them folded in. Present only when the
+   * file has some. See `src/host/parts.ts`.
+   */
+  parts?: Part[]
 }
 
 /**
@@ -119,13 +137,19 @@ export function listEpics(dir: string): EpicSummary[] {
     return []
   }
 
+  /* Once, for the whole listing. One listing is one reading of the Journeys
+     module's file and not a different one per row: a step saved between two
+     rows would otherwise put an epic list on screen that was never true at
+     any single moment. */
+  const journeys = readJourneys(dir)
+
   for (const file of files) {
     if (!file.endsWith('.json')) continue
     const slug = file.slice(0, -'.json'.length)
     if (!SLUG.test(slug)) continue
-    const epic = read(join(epicsDir(dir), file))
-    if (!epic) continue
-    epics.push(summarise(slug, epic))
+    const own = read(join(epicsDir(dir), file))
+    if (!own) continue
+    epics.push(summarise(slug, epicOf(dir, slug, own, journeys)))
   }
 
   return epics.sort((a, b) => (a.title ?? a.slug).localeCompare(b.title ?? b.slug))
@@ -154,15 +178,161 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
   if (project) summary.project = project
   const lede = str(epic.lede)
   if (lede) summary.lede = lede
+  const said = stepsSaid(epic)
+  if (said.kind === 'elsewhere') summary.stepsFrom = said.from
   const size = countOf(epic)
   if (size !== null) summary.size = size
+  /* Absent rather than `[]` for an epic with none, for the reason `size` is
+     absent rather than zero: the list is then exactly what it was before
+     parts were read at all. */
+  const parts = partsOf(epic)
+  if (parts.length) summary.parts = parts
   return summary
 }
 
-/** One epic, exactly as it is written down. `null` when there is no such file. */
+/**
+ * One epic, as this host answers about it. `null` when it holds no such epic.
+ *
+ * ## The one reader
+ *
+ * Everything this host says about an epic's steps, its groups and the
+ * references it names is said out of what this returns, or out of `epicOf`
+ * below, which is the same thing for a caller that already has the file in
+ * its hand:
+ *
+ * - `epic.get` — the object itself (`answers.ts`);
+ * - `steps.list` — `readStepsSaid`, below;
+ * - `epics.list`, and the summary a retitle or a create answers with —
+ *   `summarise`, which is where `partsOf` gets its groups and steps and where
+ *   the size is counted;
+ * - the parts in `context.parts` — the page composes them from that list;
+ * - the tracker's scope for an epic and for a project — `epicRefs` and
+ *   `allEpicRefs` in `trackers/reading.ts`.
+ *
+ * That is one function on purpose and `test/one-reader.test.ts` holds it to
+ * one. Two readings of an epic are how a step count on a row disagrees with
+ * the steps a module is handed, and how a tracker reads eleven issues for an
+ * epic whose steps name fourteen — with every one of those answers correct
+ * about the thing it happened to read.
+ *
+ * Whether the epic EXISTS is a different question and stays this host's
+ * alone: it exists when there is a file for it in `.kehikot/kehikko/epics`.
+ * A record in the Journeys module's file for a slug this host has no file for
+ * is a journey nothing points at, and this answers null for it.
+ */
 export function readEpic(dir: string, slug: string): Record<string, unknown> | null {
   if (!SLUG.test(slug)) return null
-  return read(join(epicsDir(dir), `${slug}.json`))
+  const own = read(join(epicsDir(dir), `${slug}.json`))
+  return own ? epicOf(dir, slug, own) : null
+}
+
+/**
+ * The epic this host answers about, given the file it holds for it.
+ *
+ * ## Whose is what
+ *
+ * Every epic used to exist twice in a project: this host's file,
+ * `.kehikot/kehikko/epics/<slug>.json`, and the Journeys module's record in
+ * `.kehikot/journeys/journeys.json`, which is where a step was actually
+ * edited. Nothing has written steps to this host's file since the roadmap it
+ * was stopped being the place they are edited; it is a snapshot, and in one
+ * real project it was three steps behind — nine here, twelve there — with
+ * every answer correct about the copy it happened to read.
+ *
+ * The owner decided, and this function is where the decision is carried out:
+ *
+ * - **Journeys owns the steps, the groups (an epic's parts) and the prose.**
+ * - **This host owns the slug, the title, and whether the epic exists.**
+ *
+ * So: when the project keeps a record for `slug`, the answer is that record,
+ * under this host's own slug and title. When it keeps none, the answer is
+ * `own`, exactly as it always was — which is every project where Journeys was
+ * never installed, every epic nobody has begun a journey for, and a record
+ * that will not read.
+ *
+ * ## The record whole, not a merge
+ *
+ * `{ ...record, slug, title }`, and deliberately not `{ ...own, ...record }`.
+ * A merge reads as the careful choice and is the one that brings the
+ * disagreement back: a field somebody deleted from the journey — an umbrella
+ * that no longer stands for it, a group that was dissolved — would go on
+ * being answered out of this host's stale file for ever, because nothing
+ * rewrites that file. What the record does not say, the epic does not say.
+ *
+ * The title is this host's when its file has one, because a retitle is
+ * written here and nowhere else and must show at once. An epic file with no
+ * title — which `listEpics` allows — takes the record's rather than none.
+ *
+ * ## Read through the protocol, never parsed here
+ *
+ * A host reading a module's file is a host parsing a private format, and the
+ * day that module reorganised it this would find nothing and fall back to the
+ * stale copy without a word. So the shape of the record is the protocol's
+ * (`journey.ts`), and so are the two things done with it: `readJourneys`
+ * opens the file — resolved, and not followed out of the project — and
+ * `journeyIn` takes one record out of it, null for every way of there being
+ * nothing to read. Null is the fallback, and the fallback is `own`.
+ *
+ * ## Nothing else in this host moves
+ *
+ * Every caller already asks here — that is what `readEpic`'s note lists and
+ * what `test/one-reader.test.ts` holds. So `epic.get`, `steps.list`, the row
+ * in `epics.list`, the parts in `context.parts` and the tracker's scope all
+ * changed their source by this one function changing, together, and none of
+ * them can have gone on reading the old place by itself.
+ *
+ * It takes `own` rather than reading it because three of its callers have
+ * already read the file — `listEpics` walking the directory, `retitleEpic`
+ * holding the bytes it is about to write back, `createEpic` holding what it
+ * just wrote — and two reads of one file are two different files if anything
+ * writes between them. `journeys` is the same argument for the other file:
+ * `listEpics` reads the document once and hands it to every row; a caller
+ * asking about one epic lets it be read here.
+ */
+function epicOf(
+  dir: string,
+  slug: string,
+  own: Record<string, unknown>,
+  journeys: unknown = readJourneys(dir),
+): Record<string, unknown> {
+  const record = journeyIn(journeys, slug)
+  if (!record) return own
+  const title = str(own.title)
+  return { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}) }
+}
+
+/**
+ * What this host can honestly say about an epic's steps.
+ *
+ * Three answers, for the reason the protocol's `stepsOf` has three — and it
+ * is not simply `stepsOf`, because the epic in hand is not always a parsed
+ * record: with no record in the project it is this host's own file, read with
+ * everything optional. So the same three-way reading is done on whatever is
+ * there.
+ *
+ * - `stored` — the steps are here.
+ * - `elsewhere` — the epic has steps, and they are kept somewhere this host
+ *   cannot read: it is written as a paper, and its steps are the paper's
+ *   sections. Its `steps` is `[]` and that array does not mean there are none.
+ *   **Never "none".** A host in this workspace once answered an epic with
+ *   twenty sections as having no steps, out of exactly that array.
+ * - `none` — nobody has written any.
+ *
+ * `stepsFrom` is held to the protocol's shape before it is believed: a
+ * malformed one is not a claim that the steps are elsewhere, and an epic with
+ * no steps and a `stepsFrom` nobody can read is answered as having none
+ * written, which is all this host can vouch for.
+ */
+export type EpicSteps =
+  | { kind: 'stored'; steps: unknown[] }
+  | { kind: 'elsewhere'; from: StepsFrom }
+  | { kind: 'none' }
+
+export function stepsSaid(epic: Record<string, unknown>): EpicSteps {
+  if (Array.isArray(epic.steps) && epic.steps.length) return { kind: 'stored', steps: epic.steps }
+  const from = stepsFromSchema.safeParse(epic.stepsFrom)
+  if (from.success) return { kind: 'elsewhere', from: from.data }
+  return { kind: 'none' }
 }
 
 export type Retitled = { ok: true; epic: EpicSummary } | { ok: false; why: string; status: number }
@@ -273,7 +443,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
      `shareKehikot` gives about the `.gitignore`: pressing a control that is
      already where you pressed it must not put a modified file in somebody's
      `git status`. */
-  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epic) }
+  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)) }
 
   const next = withTitle(raw, wanted)
   if (next === null) {
@@ -290,7 +460,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, { ...epic, title: wanted }) }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, { ...epic, title: wanted })) }
 }
 
 /**
@@ -435,7 +605,7 @@ export function createEpic(
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, epic), file: path, madeDirectory }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)), file: path, madeDirectory }
 }
 
 export type Deleted = { ok: true } | { ok: false; why: string; status: number }
@@ -656,11 +826,31 @@ export function readLive(dir: string, slug: string): Record<string, unknown> | n
   return read(join(stateDir(dir), `${slug}.json`))
 }
 
-/** The steps of one epic, when it has any written down. */
-export function readSteps(dir: string, slug: string): unknown[] | null {
+/**
+ * What one epic says about its steps: `stepsSaid` of `readEpic`. `null` when
+ * there is no such epic.
+ *
+ * Out of `readEpic` and nothing else, so `steps.list` and `epic.get` cannot
+ * hand a module two different accounts of one epic. This is what `steps.list`
+ * answers from.
+ */
+export function readStepsSaid(dir: string, slug: string): EpicSteps | null {
   const epic = readEpic(dir, slug)
-  if (!epic) return null
-  return Array.isArray(epic.steps) ? epic.steps : []
+  return epic ? stepsSaid(epic) : null
+}
+
+/**
+ * The steps stored for one epic. `null` when there is no such epic.
+ *
+ * `[]` here is "none are stored here", which is two different things — see
+ * `stepsSaid`. Anything that is going to SHOW or COUNT the answer asks
+ * `readStepsSaid`; this is for a caller that wants the stored steps and has
+ * already asked which case it is in.
+ */
+export function readSteps(dir: string, slug: string): unknown[] | null {
+  const said = readStepsSaid(dir, slug)
+  if (!said) return null
+  return said.kind === 'stored' ? said.steps : []
 }
 
 function read(path: string): Record<string, unknown> | null {
@@ -707,6 +897,12 @@ function str(value: unknown): string | undefined {
  * would be this host asserting a fact it does not have.
  */
 function countOf(epic: Record<string, unknown>): number | null {
+  /* An epic whose steps are kept elsewhere has no size this host can give.
+     Its `exists` and `open` could be counted, and the number would be about
+     the epic with its steps left out — a row saying "4" beside an epic with
+     twenty sections. No size given is the true answer, and `stepsFrom` on the
+     row says why. */
+  if (stepsSaid(epic).kind === 'elsewhere') return null
   const steps = Array.isArray(epic.steps) ? epic.steps.length : 0
   const exists = Array.isArray(epic.exists) ? epic.exists.length : 0
   const open = Array.isArray(epic.open) ? epic.open.length : 0

@@ -93,7 +93,9 @@ export function loadReading(projectPath: string): Stored {
   if (!file) return empty()
   try {
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
-    return parsed.success ? parsed.data : empty()
+    /* Linked again on the way in: a file written before the links were worked
+       out over the whole reading is put right without waiting for a read. */
+    return parsed.success ? { ...parsed.data, rows: backLinked(parsed.data.rows) } : empty()
   } catch {
     return empty()
   }
@@ -126,6 +128,64 @@ function saveReading(projectPath: string, stored: Stored): void {
 const identity = (s: Pick<Source, 'tracker' | 'host' | 'repo'>, kind: 'issue' | 'change' | null, number: number) =>
   `${sourceKey(s)}|${s.tracker === 'github' ? 'n' : (kind ?? 'issue')}|${number}`
 const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
+
+/**
+ * Give each issue the changes in the reading that declare it, and say it was
+ * closed by a merge when one of them merged (Jalez/kehikko#38).
+ *
+ * Over the WHOLE reading, every time rows are merged into it, and not over the
+ * rows of one read: an issue and the change that delivers it are often read by
+ * different reads — one in a listing, the other by name — and an issue read
+ * again by name arrives from GitLab with no links at all. Worked out per read,
+ * the link exists only when both happened to arrive together.
+ *
+ * A change's own `closes` is the claim; `closed-by` is its mirror. So a mirror
+ * naming a held change that no longer makes the claim is taken off — but only
+ * when that change was read after the issue, since otherwise the link is the
+ * tracker's own newer word about the issue (GitHub hands an issue its closers).
+ * A link to a change the reading does not hold is left alone: nothing here
+ * can say it is wrong.
+ */
+function backLinked(rows: TrackerRow[]): TrackerRow[] {
+  /* Refs are spelled per source, so `#12` is only itself within one. */
+  const within = (row: TrackerRow, ref: string) => `${sourceKey(row)}|${ref}`
+  const changes = new Map<string, TrackerRow>()
+  const declarers = new Map<string, TrackerRow[]>()
+  for (const one of rows) {
+    if (one.kind !== 'change') continue
+    changes.set(within(one, one.ref), one)
+    for (const link of one.links) {
+      if (link.relation === 'closes') declarers.set(within(one, link.ref), [...(declarers.get(within(one, link.ref)) ?? []), one])
+    }
+  }
+  return rows.map((one) => {
+    if (one.kind !== 'issue') return one
+    const by = declarers.get(within(one, one.ref)) ?? []
+    const declaring = new Set(by.map((d) => d.ref))
+    const withdrawn = one.links
+      .filter((link) => link.relation === 'closed-by' && !declaring.has(link.ref))
+      .map((link) => changes.get(within(one, link.ref)))
+      .filter((change): change is TrackerRow => change !== undefined && change.readAt > one.readAt)
+    const known = new Set(one.links.map((l) => l.ref))
+    const added = by.filter((d) => !known.has(d.ref))
+    const merged = by.some((d) => d.state === 'merged')
+    if (!withdrawn.length && !added.length && (!merged || one.closedByMerge === true)) return one
+    const gone = new Set(withdrawn.map((c) => c.ref))
+    const { closedByMerge: was, ...rest } = one
+    /* True when a declarer merged. Never false from this alone: a change
+       outside the reading may be the one that closed it. And when the merged
+       change it rested on has withdrawn, it is unknown again, not still true. */
+    const closedByMerge = merged ? true : withdrawn.some((c) => c.state === 'merged') ? undefined : was
+    return {
+      ...rest,
+      links: [
+        ...one.links.filter((l) => !gone.has(l.ref)),
+        ...added.map((d) => ({ ref: d.ref, relation: 'closed-by' as const })),
+      ].slice(0, LIMITS.TRACKER_LINKS),
+      ...(closedByMerge !== undefined ? { closedByMerge } : {}),
+    }
+  })
+}
 
 /** Every ref spelling an epic names, in `refs` arrays and `ref`/`umbrella` fields at any depth. */
 export function refsInEpic(epic: unknown): string[] {
@@ -323,11 +383,42 @@ export class Trackers {
    * the old refresher wrote (`opened`, `closed`, `merged`). Null when the
    * reading holds none of the epic's refs. Starts a read for the rest, as `get`
    * does.
+   *
+   * With them, which change delivers which issue, in the refresher's two maps:
+   * `links`, a GitLab issue's number to its merge requests' numbers, and
+   * `ghLinks`, a GitHub issue's ref as the epic spells it to its pull requests'
+   * numbers. A change is under an issue only where a row's link says so — a
+   * `closes` on the change or its `closed-by` mirror on the issue — which for
+   * GitLab is a closing keyword, "part of" or "implements" in the merge
+   * request's own description (`DECLARATION` in `gitlab.ts`), and for GitHub
+   * its closing references. A change that only mentions an issue has no link
+   * and folds nowhere.
    */
   live(root: string, epic: string): Record<string, unknown> | null {
     const got = this.get(root, { epic })
     if ('refused' in got || !got.rows.length) return null
     const bags: Record<'issues' | 'mrs' | 'ghIssues' | 'ghPrs', Record<string, unknown>> = { issues: {}, mrs: {}, ghIssues: {}, ghPrs: {} }
+    const links: Record<string, number[]> = {}
+    const ghLinks: Record<string, number[]> = {}
+    const spelled = new Map(got.rows.filter((row) => row.kind === 'issue').map((row) => [rowIdentity(row), row.ref]))
+    for (const row of got.rows) {
+      for (const link of row.links) {
+        const other = readTrackerRef(link.ref)
+        if (!other) continue
+        let issue: string
+        let change: number
+        if (row.kind === 'issue' && link.relation === 'closed-by') {
+          issue = row.tracker === 'github' ? row.ref : String(row.number)
+          change = other.number
+        } else if (row.kind === 'change' && link.relation === 'closes') {
+          /* An issue the epic does not name has no spelling of the epic's; the link's own stands. */
+          issue = row.tracker === 'github' ? (spelled.get(identity(row, 'issue', other.number)) ?? link.ref) : String(other.number)
+          change = row.number
+        } else continue
+        const map = row.tracker === 'github' ? ghLinks : links
+        if (!map[issue]?.includes(change)) map[issue] = [...(map[issue] ?? []), change]
+      }
+    }
     for (const row of got.rows) {
       const entry: Record<string, unknown> = {
         state: row.state === 'open' ? 'opened' : row.state,
@@ -344,7 +435,7 @@ export class Trackers {
       if (row.tracker === 'github') bags[row.kind === 'change' ? 'ghPrs' : 'ghIssues'][row.ref] = entry
       else bags[row.kind === 'change' ? 'mrs' : 'issues'][String(row.number)] = entry
     }
-    return { generated: got.at, ...bags }
+    return { generated: got.at, ...bags, links, ghLinks }
   }
 
   #find(byId: Map<string, TrackerRow>, source: Source, kind: 'issue' | 'change' | null, number: number) {
@@ -572,7 +663,7 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: [...byId.values()].slice(0, LIMITS.TRACKER_ROWS),
+      rows: backLinked([...byId.values()]).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),
@@ -595,6 +686,22 @@ export class Trackers {
       }
     }
     return { outcome: 'read', at: now, why: '' }
+  }
+
+  /**
+   * Something that is not this host rewrote the project's `state/`, which
+   * `live` reads under the reading. The view is not what it was, so `at` moves
+   * and every module that reacts to `tracker` asks again.
+   *
+   * Nothing is said for a project that has never been read: the first look
+   * starts its first read, and that read is told when it lands.
+   */
+  stateChanged(root: string): void {
+    const held = this.#of(root)
+    if (held.stored.at === null) return
+    held.stored.at = this.#now().toISOString()
+    saveReading(root, held.stored)
+    this.#told(root, { at: held.stored.at, refreshing: held.running !== null })
   }
 
   /**

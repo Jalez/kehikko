@@ -12,6 +12,7 @@ import {
   REFRESH_EVERY_MIN,
   type FilterChoice,
 } from 'kehikot-module-protocol'
+import { partIdsIn } from '../src/host/parts.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
 
@@ -433,15 +434,47 @@ export interface CanvasEdit {
  * `server/kehikot.ts`. The selection is one JSON column rather than rows for
  * the reason it always was: it is read whole, written whole, and never queried
  * across.
+ *
+ * ## And the parts of the epic picked out, between the two
+ *
+ * An epic may be divided into parts — see `src/host/parts.ts` — and a person
+ * may point the project at one or several of them. That is a third width of
+ * the same fact: narrower than the epic, wider than a selection. So it is the
+ * third field here, held on the PROJECT for the reason the other two are.
+ *
+ * It is `parts`, a list of part ids, and EMPTY MEANS THE WHOLE EPIC — which is
+ * what every project had before the column existed and what the column
+ * defaults to, so nothing has to be migrated and nothing changes for anybody
+ * who never picks one.
+ *
+ * It is not on a kehikko, and it must never be put on one. The paragraph at
+ * the top of this essay is the reason: a kehikko that remembered a focus would
+ * make the layout dropdown a focus switch, which is the reported bug — "when I
+ * switch the kehikko it also switches the epic" — committed again one level
+ * down. `Canvas` has no such field and `PORTABLE_CANVAS_FIELDS` in
+ * `kehikot.ts` would refuse to compile with one that had not been argued for.
+ *
+ * And it goes when the epic goes. A part is a part OF an epic, exactly as a
+ * ref is picked out of one: carried into another epic the ids would name
+ * nothing, or — worse — name a part that happens to share a heading. So
+ * `setSubject` clears it on a change of epic, on the same line that clears the
+ * selection.
+ *
+ * Ids are stored as given and not checked against the epic's file here. This
+ * module does not read epics, and the file is edited under a running host; an
+ * id that names no part simply does not apply — see `pickedIn`.
  */
 export interface Subject {
   epic: string | null
+  parts: string[]
   selection: string[]
 }
 
 /** What a project's subject may be changed to. Absent means unchanged; `null` means cleared. */
 export interface SubjectEdit {
   epic?: string | null
+  /** The part ids picked out. `[]` is the whole epic. */
+  parts?: string[]
   selection?: string[]
 }
 
@@ -623,6 +656,11 @@ export function open(file = databaseFile()): Database {
   add(db, 'projects', 'epic', 'text')
   add(db, 'projects', 'selection', "text not null default '[]'")
   add(db, 'projects', 'subject_pending', 'integer not null default 0')
+  /* The parts of the epic a project is focused on — see `Subject`. A JSON list
+     of part ids for the reason `selection` is one, and `'[]'` by default,
+     which is "the whole epic": a database from before parts existed reads as
+     every project on all of its epic, which is what it was. */
+  add(db, 'projects', 'parts', "text not null default '[]'")
   if (moving) {
     for (const { id } of db.query<{ id: number }, []>('select id from projects').all()) epicFromKehikot(db, id)
   }
@@ -699,7 +737,7 @@ export function epicFromKehikot(db: Database, project: number): void {
         order by rank, id limit 1`,
     )
     .get(project)
-  db.query('update projects set epic = ?, selection = ?, subject_pending = 1 where id = ?').run(
+  db.query("update projects set epic = ?, parts = '[]', selection = ?, subject_pending = 1 where id = ?").run(
     first ? subject(first.epic) : null,
     JSON.stringify(first ? refsFrom(first.selection) : []),
     project,
@@ -1048,21 +1086,26 @@ export function ensureCanvases(db: Database, project: number | null = null): Can
  */
 export function readSubject(db: Database, project: number): Subject | null {
   const row = db
-    .query<{ epic: string | null; selection: string | null }, [number]>(
-      'select epic, selection from projects where id = ?',
+    .query<{ epic: string | null; parts: string | null; selection: string | null }, [number]>(
+      'select epic, parts, selection from projects where id = ?',
     )
     .get(project)
-  return row ? { epic: subject(row.epic), selection: refsFrom(row.selection) } : null
+  return row ? { epic: subject(row.epic), parts: partsFrom(row.parts), selection: refsFrom(row.selection) } : null
 }
 
 /** Every project's subject, by project id. For the page, which holds them all. */
-export function listSubjects(db: Database): { project: number; epic: string | null; selection: string[] }[] {
+export function listSubjects(db: Database): ({ project: number } & Subject)[] {
   return db
-    .query<{ id: number; epic: string | null; selection: string | null }, []>(
-      'select id, epic, selection from projects order by rank, id',
+    .query<{ id: number; epic: string | null; parts: string | null; selection: string | null }, []>(
+      'select id, epic, parts, selection from projects order by rank, id',
     )
     .all()
-    .map((row) => ({ project: row.id, epic: subject(row.epic), selection: refsFrom(row.selection) }))
+    .map((row) => ({
+      project: row.id,
+      epic: subject(row.epic),
+      parts: partsFrom(row.parts),
+      selection: refsFrom(row.selection),
+    }))
 }
 
 /**
@@ -1074,6 +1117,10 @@ export function listSubjects(db: Database): { project: number; epic: string | nu
  * every module at something that is not in front of them. The same epic again
  * is not a change, and keeps what was picked.
  *
+ * The parts picked out of the epic follow the same rule on the same line, for
+ * the same reason: a part is a part of ONE epic. A different epic starts on
+ * the whole of itself, unless the same edit names parts of it.
+ *
  * Any explicit write also settles the one-time move from per-kehikko epics —
  * see `hintSubject` — because a person who has picked an epic has said which
  * one they meant, and nothing remembered from before may overrule that.
@@ -1082,14 +1129,18 @@ export function setSubject(db: Database, project: number, edit: SubjectEdit): Su
   const before = readSubject(db, project)
   if (!before) return null
   const epic = edit.epic !== undefined ? subject(edit.epic) : before.epic
-  const selection =
-    edit.selection !== undefined ? refsIn(edit.selection) : epic !== before.epic ? [] : before.selection
-  db.query('update projects set epic = ?, selection = ?, subject_pending = 0 where id = ?').run(
+  const moved = epic !== before.epic
+  const selection = edit.selection !== undefined ? refsIn(edit.selection) : moved ? [] : before.selection
+  /* No epic has no parts, whatever the edit says: there is nothing for an id
+     to be a part of. */
+  const parts = epic === null ? [] : edit.parts !== undefined ? partIdsIn(edit.parts) : moved ? [] : before.parts
+  db.query('update projects set epic = ?, parts = ?, selection = ?, subject_pending = 0 where id = ?').run(
     epic,
+    JSON.stringify(parts),
     JSON.stringify(selection),
     project,
   )
-  return { epic, selection }
+  return { epic, parts, selection }
 }
 
 /**
@@ -1127,7 +1178,9 @@ export function hintSubject(db: Database, canvas: number): number | null {
     .get(canvas)
   db.run('update projects set subject_pending = 0')
   if (!row || row.project === null || row.pending !== 1 || subject(row.epic) === null) return null
-  db.query('update projects set epic = ?, selection = ? where id = ?').run(
+  /* The epic moves, so what was picked out of the old one goes — `setSubject`'s
+     rule, restated because this write does not go through it. */
+  db.query("update projects set epic = ?, parts = '[]', selection = ? where id = ?").run(
     subject(row.epic),
     JSON.stringify(refsFrom(row.selection)),
     row.project,
@@ -1156,6 +1209,20 @@ function refsFrom(raw: string | null): string[] {
   try {
     const parsed: unknown = JSON.parse(raw)
     return Array.isArray(parsed) ? refsIn(parsed) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The picked parts, read back out of their column. `refsFrom`'s shape and
+ * `refsFrom`'s reason: a column that will not read is no focus, which is the
+ * whole epic — the one direction a broken value may fail in.
+ */
+function partsFrom(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    return partIdsIn(JSON.parse(raw))
   } catch {
     return []
   }
