@@ -29,6 +29,7 @@ import {
   pickedIn,
   stepPart,
   toggled,
+  alone,
   type Part,
 } from '../src/host/parts.ts'
 import { edited, subjectsSchema, NOTHING } from '../src/host/subject.ts'
@@ -191,6 +192,18 @@ describe('the picker’s arithmetic', () => {
     expect(two).toEqual(['the-posting-seam', 'what-the-page-shows'])
     expect(toggled(parts, two, 'what-the-page-shows')).toEqual(['the-posting-seam'])
     expect(toggled(parts, ['the-posting-seam'], 'the-posting-seam')).toEqual([])
+  })
+
+  test('a name picks its part alone, in one list, and a second press has nothing to write', () => {
+    expect(alone(parts, [], 'the-agent-seam')).toEqual(['the-agent-seam'])
+    expect(alone(parts, ['the-posting-seam', 'what-the-page-shows'], 'the-agent-seam')).toEqual(['the-agent-seam'])
+    expect(alone(parts, ['the-posting-seam', 'the-agent-seam'], 'the-agent-seam')).toEqual(['the-agent-seam'])
+    /* Already the only one: it stays, and `null` is "write nothing". */
+    expect(alone(parts, ['the-agent-seam'], 'the-agent-seam')).toBeNull()
+    /* A stored id that names nothing is dropped by this press too. */
+    expect(alone(parts, ['the-agent-seam', 'a-part-that-was-renamed'], 'the-agent-seam')).toEqual(['the-agent-seam'])
+    /* And a name that is no part of this epic picks nothing. */
+    expect(alone(parts, ['the-agent-seam'], 'a-part-that-was-renamed')).toBeNull()
   })
 
   test('a stored id that names no part does not apply, and never hides everything', () => {
