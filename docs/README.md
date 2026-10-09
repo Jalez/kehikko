@@ -62,7 +62,7 @@ drawers.
 
 ## Status
 
-Working and used daily by its author; not packaged for strangers yet. Twelve
+Working and used daily by its author; not packaged for strangers yet. Eighteen
 modules, each its own repository. Expect to run a few dev servers and to edit a
 path or two. The protocol between host and module is stable enough that modules
 built weeks apart still interoperate; the setup story is the rough part.
