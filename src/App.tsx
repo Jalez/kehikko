@@ -2677,7 +2677,10 @@ export function App() {
         const found = live[id]
         return {
           module,
-          generation: generations[id] ?? 0,
+          /* Only for the module's own checkout: a container pinned to a
+             version is served by another process, which an update of the
+             checkout does not touch. */
+          generation: loadedVersion.get(id) ? 0 : (generations[id] ?? 0),
           rect: rects[id] ?? null,
           /* A folded container's page is HIDDEN, by the same path a page on another
              kehikko is hidden — kept at its size, kept running, and not shown.
