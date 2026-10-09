@@ -167,7 +167,7 @@ describe('what a module the host started is given', () => {
      * The one test in this file that runs a process, and it earns it.
      *
      * Every module in this workspace decides who may frame it from
-     * `KEHIKOT_ORIGINS` (older ones `KEHIKOT_ORIGIN` or `ROADMAP_ORIGIN`),
+     * `KEHIKOT_ORIGINS` (older ones the single `KEHIKOT_ORIGIN`),
      * defaulting to the browser's origin. The desktop shell's
      * window is `tauri://localhost` and it sets that variable on the host it
      * launches — so a module the host starts is framed correctly only if this
@@ -183,8 +183,8 @@ describe('what a module the host started is given', () => {
     )
     chmodSync(join(root, RUN_SCRIPT), 0o755)
 
-    /* Set under the new name only: a module still reading the old one must
-       see it too. */
+    /* The old name is not passed on: the only modules that read it alone
+       speak a dialect this host no longer greets (`originEnv`). */
     const before = { kehikot: process.env.KEHIKOT_ORIGIN, roadmap: process.env.ROADMAP_ORIGIN }
     process.env.KEHIKOT_ORIGIN = 'tauri://localhost'
     delete process.env.ROADMAP_ORIGIN
@@ -197,14 +197,14 @@ describe('what a module the host started is given', () => {
       for (let waited = 0; waited < 60 && !existsSync(wrote); waited += 1) {
         await new Promise((wake) => setTimeout(wake, 50))
       }
-      /* All three names carry the one list, the shell's origin first: every
+      /* Both current names carry the one list, the shell's origin first: every
          module puts whichever it reads straight into `frame-ancestors`. */
       const [kehikot, roadmap, list, port] = readFileSync(wrote, 'utf8').split('\n')
       expect(list!.split(' ')[0]).toBe('tauri://localhost')
       expect(list!.split(' ')).toContain('http://127.0.0.1:4181')
       expect(list!.split(' ')).toContain('http://127.0.0.1:4170')
       expect(kehikot).toBe(list)
-      expect(roadmap).toBe(list)
+      expect(roadmap).toBe('none')
       expect(port).toBe('7999')
     } finally {
       if (before.kehikot === undefined) delete process.env.KEHIKOT_ORIGIN

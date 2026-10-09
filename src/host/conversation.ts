@@ -5,9 +5,7 @@ import {
   MESSAGE,
   moduleMessageSchema,
   PROTOCOL,
-  toDialect,
   type Build,
-  type Dialect,
   type FilterGroup,
   type ModuleContext,
 } from 'kehikot-module-protocol'
@@ -185,14 +183,6 @@ export class Conversation {
   private readonly name: string
   private readonly readyTimeoutMs: number
   private readonly wentTimeoutMs: number
-  /**
-   * The spelling this module hears: `roadmap` for one built against the
-   * protocol from before the rename, which listens for `roadmap.hello` and
-   * nothing else. Everything this class builds is canonical and is respelled
-   * only in `post`. What it RECEIVES needs no such care: the protocol's schemas
-   * read both spellings and hand back the canonical one.
-   */
-  readonly dialect: Dialect
 
   constructor(
     private readonly frame: Pick<HTMLIFrameElement, 'contentWindow'>,
@@ -209,15 +199,12 @@ export class Conversation {
     options: {
       /** What the module calls itself, for the sentences a person reads. */
       name?: string
-      /** Which spelling of the wire the module speaks. From its manifest's kind; see `FramedModule.dialect`. */
-      dialect?: Dialect
       session?: string
       readyTimeoutMs?: number
       wentTimeoutMs?: number
     } = {},
   ) {
     this.name = options.name ?? moduleId
-    this.dialect = options.dialect ?? 'kehikot'
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
@@ -593,7 +580,7 @@ export class Conversation {
     if (!target) return
     /* See the essay above: `'*'` is the only address an opaque frame has, and
        the frame handle is the address that matters. */
-    target.postMessage(toDialect(message, this.dialect), this.origin ?? '*')
+    target.postMessage(message, this.origin ?? '*')
   }
 }
 

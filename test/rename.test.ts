@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { Database } from 'bun:sqlite'
-import { LEGACY_WELL_KNOWN, MESSAGE, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { MESSAGE, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
 import { Conversation, type Answer } from '@/host/conversation.ts'
 import { toWireContext } from '@/host/context.ts'
@@ -47,25 +47,22 @@ function servingAt(path: string, document: unknown) {
   return { fetchImpl, asked }
 }
 
-describe('an unchanged module is found', () => {
-  test('at the old well-known path, under its old kind, as the same module', async () => {
-    const { fetchImpl, asked } = servingAt(LEGACY_WELL_KNOWN, oldManifest)
-    const presence = await look({ id: 'kehikot.notes', url: AT, file: '/r/roadmap.notes.json' }, fetchImpl)
-    expect(asked).toEqual([WELL_KNOWN, LEGACY_WELL_KNOWN])
-    expect(presence.condition).toBe('ready')
-    expect(presence.module?.id).toBe('kehikot.notes')
-    expect(presence.module?.dialect).toBe('roadmap')
-    expect(presence.module?.extensions.emits).toEqual(['kehikot.notifications@1'])
+describe('a module from before the rename is not found', () => {
+  test('the old well-known path is not asked, and the old kind is not a manifest', async () => {
+    const old = servingAt('/.well-known/roadmap-module.json', oldManifest)
+    const presence = await look({ id: 'kehikot.notes', url: AT, file: '/r/roadmap.notes.json' }, old.fetchImpl)
+    expect(old.asked).toEqual([WELL_KNOWN])
+    expect(presence.condition).toBe('silent')
   })
 
-  test('a current module is asked once, at the current path, and speaks the current dialect', async () => {
-    const { fetchImpl, asked } = servingAt(WELL_KNOWN, { ...oldManifest, kind: 'kehikot.module', id: 'kehikot.notes' })
+  test('a current module is asked once, at the current path', async () => {
+    const { fetchImpl, asked } = servingAt(WELL_KNOWN, { ...oldManifest, kind: 'kehikot.module', id: 'kehikot.notes', extensions: { emits: ['kehikot.notifications@1'], consumes: [] }, partless: 'Notes on a file, not on a part.' })
     const presence = await look({ id: 'kehikot.notes', url: AT, file: '/r/kehikot.notes.json' }, fetchImpl)
     expect(asked).toEqual([WELL_KNOWN])
-    expect(presence.module?.dialect).toBe('kehikot')
+    expect(presence.condition).toBe('ready')
   })
 
-  test('nothing at either path is still said about the current one', async () => {
+  test('nothing at the path is said about that path', async () => {
     const { fetchImpl } = servingAt('/nowhere', {})
     const presence = await look({ id: 'kehikot.notes', url: AT, file: '/r/x.json' }, fetchImpl)
     expect(presence.condition).toBe('silent')
@@ -191,38 +188,8 @@ const quiet = () => ({
 
 const nothing: Answer = { ok: true, data: null }
 
-describe('talking to an unchanged module', () => {
-  test('it is greeted, and told everything after, in its own dialect', () => {
-    const { frame, sent } = frameAndWindow()
-    const conversation = new Conversation(frame, 'kehikot.notes', null, async () => nothing, quiet(), {
-      dialect: 'roadmap',
-    })
-    conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
-    conversation.sendClear()
-    expect(sent.map((m) => m.type)).toEqual(['roadmap.hello', 'roadmap.clear'])
-  })
-
-  test('its old-spelled answers are understood, and its old id is not a fault', () => {
-    const { frame, contentWindow } = frameAndWindow()
-    const faults: string[] = []
-    const ready: number[] = []
-    const conversation = new Conversation(
-      frame,
-      'kehikot.notes',
-      null,
-      async () => nothing,
-      { ...quiet(), fault: (line: string) => faults.push(line), ready: (p: number) => ready.push(p) },
-      { dialect: 'roadmap' },
-    )
-    conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
-    expect(
-      conversation.receive({ source: contentWindow, origin: 'null', data: { type: 'roadmap.ready', id: 'roadmap.notes', protocol: PROTOCOL } }),
-    ).toBe(true)
-    expect(ready).toEqual([PROTOCOL])
-    expect(faults).toEqual([])
-  })
-
-  test('a current module is greeted in the current dialect', () => {
+describe('talking to a module', () => {
+  test('a module is greeted in the one spelling there is', () => {
     const { frame, sent } = frameAndWindow()
     const conversation = new Conversation(frame, 'kehikot.notes', null, async () => nothing, quiet())
     conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
@@ -237,17 +204,20 @@ describe('who may frame a module this host starts', () => {
     for (const origin of ['http://127.0.0.1:4181', 'http://127.0.0.1:4170', 'tauri://localhost', 'http://127.0.0.1:4291']) {
       expect(list).toContain(origin)
     }
-    /* The single names carry the same list: every module from before the
-       rename puts them straight into `frame-ancestors`. */
+    /* The single name carries the same list: a module reading it puts it
+       straight into `frame-ancestors`. The pre-rename name is not set — only a
+       module this host can no longer greet reads it alone. */
     expect(env.KEHIKOT_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
-    expect(env.ROADMAP_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
+    expect('ROADMAP_ORIGIN' in env).toBe(false)
   })
 
   test('the origins the host was started with come first, and nothing is lost', () => {
     const env = originEnv({ ROADMAP_ORIGIN: 'tauri://localhost http://tauri.localhost' }, [])
     expect(env.KEHIKOT_ORIGINS!.startsWith('tauri://localhost http://tauri.localhost ')).toBe(true)
     expect(env.KEHIKOT_ORIGINS!.split(' ')).toContain('http://127.0.0.1:4181')
-    expect(env.ROADMAP_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
+    /* Read from the host's own environment still (the line above), never passed on. */
+    expect(env.KEHIKOT_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
+    expect('ROADMAP_ORIGIN' in env).toBe(false)
   })
 
   test('a list the host was given is kept, first', () => {

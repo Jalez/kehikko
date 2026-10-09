@@ -174,24 +174,13 @@ export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' |
  * says so; a sentence on every row said it so often that the one row with a
  * real fault did not stand out.
  *
- * Two things are trouble: a module this host cannot speak to, and an address
- * where something answers that is not the module registered there. Each
- * sentence ends with the next step.
+ * Three things are trouble: a module this host cannot speak to, a module whose
+ * manifest this host refuses (`refused` — since protocol 1.0.0 that is also one
+ * that does not say how it relates to the parts of an epic; before, that was a
+ * quiet warning under a working row), and an address where something answers
+ * that is not the module registered there. Each sentence ends with the next
+ * step.
  */
-/**
- * What a module that works says wrongly about itself, as sentences; empty
- * when nothing.
- *
- * Not `attention`: nothing here stops the module being used and there is
- * nothing for the person at the canvas to do — it is for whoever maintains the
- * module. Today that is one thing, read by the host's server with the
- * protocol's `partsDeclaration`: a module that neither reacts to the parts of
- * an epic nor says why it has none. Drawn under the row, muted.
- */
-export function warnings(presence: Presence): readonly string[] {
-  return presence.condition === 'ready' ? (presence.warnings ?? []) : []
-}
-
 /**
  * The module's version as its row's details give it: what it calls itself,
  * the commit its server started on, and the protocol package it is built
@@ -210,6 +199,11 @@ export function attention(presence: Presence): string | null {
     const newer = presence.protocols && presence.protocols.module !== null && presence.protocols.module > presence.protocols.host
     return `${presence.line} ${newer ? 'Update Kehikot to use it.' : 'Update the module to use it.'}`
   }
+  /* The module answered and its manifest was refused (`discover.ts`): starting
+     it again serves the same manifest, so say what does change it. Before the
+     lifecycle check on purpose — a module the host just started and then
+     refused must not sit there saying only "starting". */
+  if (presence.refused) return `${presence.line} Update the module to use it.`
   if (presence.lifecycle || !presence.reached) return null
   return `${presence.line} Check what is running at ${presence.at}, then start the module again.`
 }

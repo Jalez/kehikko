@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import type { Canvas } from '@/host/canvases.ts'
-import { arrange, attention, builtFrom, rowsOf, warnings, type Available, type Registered } from '@/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, proposeModule, type OfficialModule, type Proposal } from '@/host/official.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import {
@@ -295,13 +295,6 @@ function ModuleRow({
             {trouble}
           </p>
         ) : null}
-        {/* Where trouble is said, and quieter than it: the module works, and
-            this is for whoever maintains it. See `warnings`. */}
-        {warnings(presence).map((warning) => (
-          <p key={warning} data-warning="" className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
-            <span className="text-amber-600 dark:text-amber-400">Warning:</span> {warning}
-          </p>
-        ))}
         {/*
          * What it touches. Absent entirely when it touches nothing, which is
          * seven of the eleven modules on this machine — and that absence is the

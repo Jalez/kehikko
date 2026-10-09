@@ -95,9 +95,10 @@ cache live in `~/Library/Application Support/Kehikot/` (`modules/`,
 either somewhere else. They used to live in `~/.roadmap/`: on its first start a
 host copies `~/.roadmap/frame.sqlite` (a consistent `VACUUM INTO` snapshot, safe
 while an older host has it open) and the registrations across, and never
-changes anything under `~/.roadmap`. Modules that still register in
-`~/.roadmap/modules` keep working — the host reads it as a fallback, and on an
-id registered in both places the more recently written file wins.
+changes anything under `~/.roadmap`. A registration still sitting in
+`~/.roadmap/modules` stays in the list — the host reads that directory as a
+fallback, and on an id registered in both places the more recently written
+file wins.
 
 Then **add a project**: the button at the end of the project list opens a folder
 browser. Point it at a repository you work in.
@@ -502,9 +503,10 @@ starts, so any of this applies to the next session and not to one already open.
 
 A module is any program that serves three things:
 
-1. `/.well-known/kehikot-module.json` — a manifest describing itself (a
-   module built before the rename serves `/.well-known/roadmap-module.json`,
-   which the host still reads; see "The rename" below)
+1. `/.well-known/kehikot-module.json` — a manifest describing itself, which
+   must say how the module relates to the parts of an epic (`reacts: ['parts']`
+   or a `partless` sentence); a manifest that says neither is refused, and the
+   modules list says what to add
 2. a page the host frames
 3. optionally, an MCP server
 
@@ -579,9 +581,10 @@ more than one host on one machine — the development page (4181), the desktop
 app's page (4170), and the desktop window (`tauri://localhost`). So the host
 passes `KEHIKOT_ORIGINS`, a space-separated list of all of them plus its own
 page, to every module it starts (`frameOrigins` in the protocol's `/serve`
-reads it), and puts the same list in `KEHIKOT_ORIGIN` and `ROADMAP_ORIGIN`:
-modules from before the rename read only those, and already put whatever is in
-them straight into `frame-ancestors`. Whatever the desktop shell set on the
+reads it), and puts the same list in `KEHIKOT_ORIGIN`: a module that reads
+only the single name already puts whatever is in it straight into
+`frame-ancestors`. (`ROADMAP_ORIGIN` is no longer passed on: only a module from
+before the rename reads it alone, and this host no longer greets one.) Whatever the desktop shell set on the
 host comes first in the list.
 
 Nothing waits, either. Starting is a spawn and the answer says `starting`
@@ -701,10 +704,16 @@ This app was called "roadmap" before it was Kehikot, and so were its names:
 `roadmap-module-protocol`, `roadmap.module`, `roadmap.*` messages,
 `roadmap.<name>` module ids, `<project>/.kehikot/roadmap/`. They are
 `kehikot-module-protocol`, `kehikot.module`, `kehikot.*`, `kehikot.<name>` and
-`<project>/.kehikot/kehikko/` now, and an unchanged module keeps working:
+`<project>/.kehikot/kehikko/` now. What is on a person's disk from before is
+still read; the old wire is not:
 
-- The host finds it at the old well-known path, greets it in its own dialect
-  and reads what it says in either (`dialect.ts` in the protocol).
+- A module built against the protocol from before 0.25 — serving
+  `roadmap.module` at `/.well-known/roadmap-module.json` and speaking
+  `roadmap.*` — is no longer found or greeted (protocol 1.0.0 removed that
+  dialect). It has to move to `kehikot-module-protocol`.
+- `~/.roadmap` is copied over once and its `modules/` read as a fallback (see
+  "Where this machine's state lives" above), and `<project>/.kehikot/roadmap/` is read while the new
+  folder is missing.
 - `roadmap.<name>` is the same module as `kehikot.<name>` everywhere an id
   comes in — registrations (both file names, newest wins), manifests, the
   canvases database (respelled on every start), a project's `kehikot.json`
@@ -712,4 +721,4 @@ This app was called "roadmap" before it was Kehikot, and so were its names:
 - A module's own data stays where it is: `moduleFolder` gives both ids the
   same folder.
 
-What a module changes to move over is listed in the protocol's README.
+What a module changes to move over is listed in the protocol's `MIGRATING.md`.

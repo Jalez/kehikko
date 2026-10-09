@@ -266,8 +266,9 @@ export function isLoopback(hostname: string): boolean {
  * ## Two directories, for now
  *
  * Called with no directory, this also reads the retired `~/.roadmap/modules`
- * (`legacyModulesDir`), because modules register themselves and, until they
- * are updated, they still write there. On an id present in both, the file
+ * (`legacyModulesDir`), because modules register themselves and one from
+ * before the rename wrote there. The protocol package stopped reading that
+ * directory in 1.0.0, so this is the host's own fallback and the only one. On an id present in both, the file
  * modified most recently wins, ties to the new directory: a module that
  * restarts on another port rewrites ITS file, and the copy the host made when
  * it migrated must not keep pointing at the old port. Called with a directory,
