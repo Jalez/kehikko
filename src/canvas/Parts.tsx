@@ -297,7 +297,10 @@ function Undivided({
             </p>
           ) : null}
           {said.press ? (
-            <Button size="sm" className="h-7 w-full justify-center px-2 text-xs whitespace-normal" data-divide onClick={undivided.press}>
+            /* As tall as its words: every one of these presses is two lines
+               at this width, and a fixed height let the second spill out of
+               the button. */
+            <Button size="sm" className="h-auto min-h-7 w-full justify-center px-2 py-1 text-xs whitespace-normal" data-divide onClick={undivided.press}>
               {said.press}
             </Button>
           ) : null}

@@ -1,5 +1,6 @@
 import { JOURNEYS_MODULE } from 'kehikot-module-protocol'
 
+import { SQUEEZED_ROWS } from './columns.ts'
 import type { OfficialModule } from './official.ts'
 
 /**
@@ -255,5 +256,28 @@ export function unansweredSaid(name: string): string {
   return (
     `${name} is on this kehikko and has not answered yet, so its parts were not opened. When its container has loaded, `
     + `press “divide into parts” in it — or press this again.`
+  )
+}
+
+/**
+ * Whether the container a person was just sent to is too short to work in.
+ *
+ * `rows` is what the column grants it (`granted` in `columns.ts`), or null
+ * when it is not on the kehikko. A column is a fixed budget handed out from
+ * the top, so a Journeys under a paper that fills the screen is drawn at the
+ * floor — three rows, a header and a line — and that is where the press
+ * lands: on the right place, opened, in a strip nobody can read a list of
+ * chapters in. The host does not take rows from the container above to fix
+ * that; whose rows they are is the person's to say, with a drag. It says so.
+ */
+export function cramped(rows: number | null): boolean {
+  return rows !== null && rows <= SQUEEZED_ROWS
+}
+
+/** What to say when the press arrived in a container squeezed to its floor. */
+export function crampedSaid(name: string): string {
+  return (
+    `${name} is open on this epic’s parts, in a container only a few rows tall. `
+    + `Give it height to work in: drag the bottom corner of the container above it up, or its own corner down.`
   )
 }

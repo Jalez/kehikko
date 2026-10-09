@@ -14,6 +14,7 @@ import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
 import { useDividing } from './canvas/Dividing.ts'
+import { MAKER } from './host/dividing.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -2153,11 +2154,13 @@ export function App() {
    * way, and "no parts" is a statement about an epic: said during a reload it
    * would be said, for half a second, about every divided epic there is.
    */
+  const makerRows = useMemo(() => granted(open?.placements ?? NO_PLACEMENTS).get(MAKER) ?? null, [open?.placements])
   const dividing = useDividing({
     epic: about.epic,
     canvas: openId,
     registered: registry?.presences ?? NO_PRESENCES,
     placements: open?.placements ?? NO_PLACEMENTS,
+    rows: makerRows,
     presses,
     onPlace,
     onCollapse,

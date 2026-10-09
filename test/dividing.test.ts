@@ -4,6 +4,8 @@ import { JOURNEYS_MODULE } from 'kehikot-module-protocol'
 import {
   MAKER,
   PARTS_REF,
+  cramped,
+  crampedSaid,
   makerOf,
   nextMove,
   unansweredSaid,
@@ -157,6 +159,25 @@ describe('what the bar says about an epic with no parts', () => {
       'Journeys is on this kehikko and did not open its parts — it answered “Nothing in this journey names journeys:parts.”. '
         + 'Press “divide into parts” in Journeys itself; if there is no such press, it is an older Journeys and wants updating.',
     )
+  })
+})
+
+describe('a press that arrived in a container squeezed to its floor', () => {
+  test('three rows or fewer is too short to divide an epic in; more is not, and neither is not being there', () => {
+    expect(cramped(3)).toBe(true)
+    expect(cramped(1)).toBe(true)
+    expect(cramped(4)).toBe(false)
+    expect(cramped(10)).toBe(false)
+    expect(cramped(null)).toBe(false)
+  })
+
+  test('is said in the bar’s entry, with how to give it room, and the press stays', () => {
+    const said = undividedSaid({ at: 'here', name: 'Journeys', collapsed: false }, null, crampedSaid('Journeys'))
+    expect(said.trouble).toBe(
+      'Journeys is open on this epic’s parts, in a container only a few rows tall. '
+        + 'Give it height to work in: drag the bottom corner of the container above it up, or its own corner down.',
+    )
+    expect(said.press).toBe('divide this epic into parts in Journeys')
   })
 })
 

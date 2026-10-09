@@ -5,6 +5,8 @@ import {
   MAKER,
   PARTS_REF,
   WALK_WITHIN_MS,
+  cramped,
+  crampedSaid,
   makerOf,
   nextMove,
   unansweredSaid,
@@ -71,6 +73,7 @@ export function useDividing({
   canvas,
   registered,
   placements,
+  rows,
   presses,
   onPlace,
   onCollapse,
@@ -84,6 +87,8 @@ export function useDividing({
   registered: readonly { id: string; name?: string }[]
   /** What is on the open kehikko. */
   placements: readonly { i: string; collapsed?: boolean }[]
+  /** The rows the column grants Journeys on the open kehikko, or null when it is not there. See `cramped`. */
+  rows: number | null
   presses: Presses
   onPlace(id: string): void
   onCollapse(id: string, collapsed: boolean): void
@@ -137,8 +142,8 @@ export function useDividing({
   const name = maker.name
   /* Through refs: the effect below must re-run when the MOVE changes and not
      when a sweep hands back an equal list in a new array. */
-  const act = useRef({ onPlace, onCollapse, onLookAgain, presses, read })
-  act.current = { onPlace, onCollapse, onLookAgain, presses, read }
+  const act = useRef({ onPlace, onCollapse, onLookAgain, presses, read, rows })
+  act.current = { onPlace, onCollapse, onLookAgain, presses, read, rows }
 
   useEffect(() => {
     if (!wanting) return
@@ -205,6 +210,9 @@ export function useDividing({
       if (stopped) return
       if (out?.found) {
         land(MAKER)
+        /* Arrived, and in a strip: said, so the bar's entry stays open on the
+           sentence instead of closing over a container nobody can work in. */
+        if (cramped(act.current.rows)) setTrouble(crampedSaid(name))
         setWanting(null)
         return
       }
