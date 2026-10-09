@@ -196,7 +196,7 @@ export function ModuleFrame({
            host would otherwise be tempted to infer from when it last asked. */
         refreshable: (state) => watcherRef.current.refreshable(state),
       },
-      { name: framed.name, dialect: framed.dialect },
+      { name: framed.name },
     )
     conversationRef.current = conversation
 
@@ -264,7 +264,7 @@ export function ModuleFrame({
       conversationRef.current = null
       onDocumentRef.current?.(framed.id, 'unmounted')
     }
-  }, [framed.id, framed.name, framed.entry, framed.dialect, origin, bus, presses])
+  }, [framed.id, framed.name, framed.entry, origin, bus, presses])
 
   /**
    * Context, re-sent whenever it changes — unless this container is pinned.

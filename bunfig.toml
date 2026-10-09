@@ -1,0 +1,5 @@
+# Before any test file is loaded: every machine-level location this host can
+# write is pointed at a scratch directory, and a test that leaves one resolving
+# under the real home fails. See `test/setup.ts`.
+[test]
+preload = ["./test/setup.ts"]

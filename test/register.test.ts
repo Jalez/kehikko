@@ -169,9 +169,14 @@ describe('the door comes from the registry, never from a request', () => {
     made.push(path)
     return path
   }
+  /* Put back what was there, never `delete`: after a delete, every later test
+     in this process resolves the person's REAL registry (`test/setup.ts` fails
+     the test that leaves it so). */
+  const before = process.env.KEHIKOT_MODULES_DIR
   afterEach(() => {
     for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true })
-    delete process.env.KEHIKOT_MODULES_DIR
+    if (before === undefined) delete process.env.KEHIKOT_MODULES_DIR
+    else process.env.KEHIKOT_MODULES_DIR = before
   })
 
   test('an unknown module id is refused, and the refusal says where it looked', async () => {

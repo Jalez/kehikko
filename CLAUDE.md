@@ -15,16 +15,28 @@
   marker, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
-  helpers. The retired `~/.roadmap` is only ever READ (copied once at startup,
-  and `~/.roadmap/modules` read as a registry fallback) — never write to it.
-- Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_ORIGIN`,
+  helpers. The retired `~/.roadmap` is only ever READ (copied once at startup
+  by `migrateMachineData`, and `~/.roadmap/modules` read as a registry fallback
+  by `readRegistrations`) — never write to it. The protocol package (1.0.0)
+  no longer reads `~/.roadmap` at all, so these two are the only things
+  standing between an install that has not migrated and an empty app: keep
+  them, and their tests in `test/machineDirs.test.ts`.
+- Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
+  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
-  `KEHIKOT_SEED_PROJECT` (old `ROADMAP_*` / `KEHIKKO_ROADMAP_DIR` names are
-  read as fallbacks). Process plumbing between the desktop shell and this host
+  `KEHIKOT_SEED_PROJECT`. The HOST still reads the old `ROADMAP_FRAME_DB`,
+  `ROADMAP_MODULES_DIR`, `ROADMAP_ORIGIN` and `KEHIKKO_ROADMAP_DIR` as
+  fallbacks for its own settings; the protocol and the modules do not, so
+  always set the `KEHIKOT_` name. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
   `KEHIKKO_PORT`, `KEHIKKO_API_PORT`) keeps its `KEHIKKO_` name.
 - Run `bun run check:storage` before finishing; it scans this host,
   the protocol and every registered module, and fails on violations.
+- Tests never reach the real machine: `test/setup.ts` (preloaded through
+  `bunfig.toml`) points every location above, and `CLAUDE_CONFIG`, at a scratch
+  directory and fails a test that leaves one resolving under the real home. A
+  test that moves one of those variables restores what it found — never
+  `delete`. A new machine-level location goes in that file's `LOCATIONS`.
 
 ## The rename from "roadmap"
 
@@ -32,11 +44,20 @@
   `kehikot.<name>`; a `roadmap.<name>` id from a registration, a manifest, a
   database row, a `kehikot.json` or an MCP call is the SAME module — pass it
   through `canonicalModuleId` (protocol) wherever a module id comes in.
-- Modules built against the protocol before 0.25 speak the old dialect
-  (`roadmap.module` at `/.well-known/roadmap-module.json`, `roadmap.*`
-  messages). The host finds them at the old path, and `Conversation` posts to
-  them through `toDialect` (`FramedModule.dialect`). Never compare a raw
-  message type or module id against one spelling.
+- That respelling is the HOST's job since protocol 1.0.0: the protocol's
+  schemas carry an id as written, and the canvases database is respelled on
+  open (`renameModuleIds` in `server/canvases.ts`, which writes the old
+  `'roadmap.'` prefix out itself). `roadmap.<name>.json` in the registry
+  registers `kehikot.<name>`.
+- The old DIALECT is gone (protocol 1.0.0): a module built against the
+  protocol before 0.25 (`roadmap.module` at `/.well-known/roadmap-module.json`,
+  `roadmap.*` messages) is not asked for and not greeted. There is one
+  spelling of the wire; `Conversation` posts a message as built.
+- A manifest must say how the module relates to the parts of an epic
+  (`reacts: ['parts']` or a `partless` sentence, not both); the protocol's
+  schema refuses one that does not. `look` in `server/discover.ts` marks that
+  presence `refused`, and the modules list says the protocol's sentence and
+  "Update the module to use it." (`attention` in `src/host/moduleMenu.ts`).
 
 ## The official module list
 

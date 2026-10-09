@@ -211,8 +211,8 @@ export async function answered(
   wellKnown: string | readonly string[],
   within: number = ANSWERS_WITHIN_MS,
 ): Promise<boolean> {
-  /* Every path given counts: a module from before the rename serves its
-     manifest only at the old well-known path, and 404s the new one. */
+  /* Every path given counts. Callers pass one, `WELL_KNOWN`: the pre-rename
+     path was the second, until protocol 1.0.0 stopped serving it. */
   const paths = typeof wellKnown === 'string' ? [wellKnown] : wellKnown
   const until = Date.now() + within
   while (Date.now() < until) {
@@ -289,8 +289,8 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * default and it is a decision, because of one variable in particular.
  *
  * Every module in this workspace decides who may frame it from
- * `KEHIKOT_ORIGIN` (formerly `ROADMAP_ORIGIN`, which modules still read until
- * they are updated), falling back to `http://127.0.0.1:4181` — the browser. A
+ * `KEHIKOT_ORIGINS` (or the single `KEHIKOT_ORIGIN`), falling back to
+ * `http://127.0.0.1:4181` — the browser. A
  * Tauri window's origin is `tauri://localhost`, which that fallback does not
  * include, so a module started under the desktop shell without the variable
  * serves a `frame-ancestors` header that refuses the very window framing it.
@@ -300,9 +300,8 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * The desktop shell sets `KEHIKOT_ORIGIN` on the host process it launches. So
  * inheriting the environment is nearly the whole of what has to happen: a
  * module the host starts is framed correctly by whatever started the host. What
- * is done here (`originEnv`) is spelling the single origin both ways, so a
- * module still reading the old name sees the same value as one reading the new,
- * and widening it to the list of every origin that may frame it. A person
+ * is done here (`originEnv`) is widening it to the list of every origin that
+ * may frame it, under both the list's name and the single one. A person
  * running `./run.sh` in a terminal passes nothing and their modules take the
  * browser default, which is what they want.
  *
@@ -337,23 +336,28 @@ export function setPageOrigins(origins: readonly string[]): void {
  * never could: the same module is framed by the development page and by the
  * installed app on one machine.
  *
- * `KEHIKOT_ORIGIN` and `ROADMAP_ORIGIN` are set to the SAME list. Every module
- * from before the rename reads one of those and interpolates it straight into
- * `frame-ancestors 'self' ${...}` — the desktop shell already relies on that,
- * passing four origins in it — so a list there is what they already expect,
- * and it is what makes an unchanged module started by this host frameable by
- * the development page AND the installed app rather than whichever started it.
- * The single names go once every module reads the list.
+ * `KEHIKOT_ORIGIN` is set to the SAME list. A module that reads only the single
+ * name interpolates it straight into `frame-ancestors 'self' ${...}` — the
+ * desktop shell already relies on that, passing four origins in it — so a list
+ * there is what it already expects.
+ *
+ * `ROADMAP_ORIGIN` is still READ from this host's own environment (an old
+ * script that starts the host with it keeps working) and is no longer SET for
+ * the modules it starts. The only modules that read that name alone are built
+ * against the protocol from before 0.25, and they speak the `roadmap` dialect
+ * that this host, on protocol 1.0.0, neither asks for nor greets — telling one
+ * who may frame it would frame nothing. That holds for a module VERSION a
+ * project pins too (`versionRuns.ts`): a tag that old is never found answering.
  */
 export function originEnv(
   env: Record<string, string | undefined>,
   pageOrigins: readonly string[] = ownPageOrigins,
-): Record<string, string> {
+): { KEHIKOT_ORIGINS: string; KEHIKOT_ORIGIN: string } {
   const single = env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN
   const words = (value: string | undefined) => (value ?? '').split(/\s+/).filter(Boolean)
   const list = [...new Set([...words(env.KEHIKOT_ORIGINS), ...words(single), ...pageOrigins, ...DEFAULT_FRAME_ORIGINS])]
   const all = list.join(' ')
-  return { KEHIKOT_ORIGINS: all, KEHIKOT_ORIGIN: all, ROADMAP_ORIGIN: all }
+  return { KEHIKOT_ORIGINS: all, KEHIKOT_ORIGIN: all }
 }
 
 /**

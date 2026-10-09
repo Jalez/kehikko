@@ -39,6 +39,7 @@ const good = {
   entry: '/app',
   modes: [{ id: 'notes', label: 'Notes' }],
   declares: { protocol: `>=${PROTOCOL}`, uses: ['epics:read'], storage: false },
+  partless: 'Notes belong to the epic, not to a part of it.',
 }
 
 describe('a manifest the host can honour', () => {
@@ -75,21 +76,38 @@ describe('what a module says about its build and about parts', () => {
     expect(odd.module?.build).toBeNull()
   })
 
-  test('a module that neither reacts to parts nor says why is ready, with a warning', async () => {
-    const presence = await look(registration, serving(good))
-    expect(presence.condition).toBe('ready')
-    expect(presence.warnings).toHaveLength(1)
-    expect(presence.warnings![0]).toContain('example.journey-notes does not say how it relates to the parts of an epic')
+  test('a module that neither reacts to parts nor says why is not read, and the line says what to add', async () => {
+    const { partless: _partless, ...neither } = good
+    const presence = await look(registration, serving(neither))
+    expect(presence.condition).toBe('silent')
+    expect(presence.line).toContain('partless — example.journey-notes does not say how it relates to the parts of an epic')
+    expect(presence.line).toContain("Add 'parts' to reacts")
+    /* It is the module itself that answered: marked so, and said whole. */
+    expect(presence.refused).toBe(true)
+    expect(presence.reached).toBe(true)
+    expect(presence.line).toBe(
+      `example.journey-notes is running at ${AT}, but this host cannot use its manifest: partless — example.journey-notes does not say how it relates to the parts of an epic. Add 'parts' to reacts and narrow with the protocol’s focus helpers, or set partless to one sentence saying why nothing in it belongs to a part.`,
+    )
   })
 
-  test('one that reacts to parts, or declares itself partless, has none', async () => {
-    expect((await look(registration, serving({ ...good, reacts: ['parts'] }))).warnings).toBeUndefined()
-    expect((await look(registration, serving({ ...good, partless: 'Notes belong to the epic, not to a part of it.' }))).warnings).toBeUndefined()
+  test('an unreadable manifest from some other program is not this module being refused', async () => {
+    const presence = await look(registration, serving({ ...good, id: 'example.somebody-else', modes: 'none' }))
+    expect(presence.condition).toBe('silent')
+    expect(presence.refused).toBeUndefined()
+    expect(presence.line).toContain('Something is answering at')
+  })
+
+  test('one that reacts to parts, or declares itself partless, is ready', async () => {
+    const { partless: _partless, ...neither } = good
+    expect((await look(registration, serving({ ...neither, reacts: ['parts'] }))).condition).toBe('ready')
+    expect((await look(registration, serving(good))).condition).toBe('ready')
   })
 
   test('one that says both is told it is one or the other', async () => {
-    const presence = await look(registration, serving({ ...good, reacts: ['parts'], partless: 'Nothing here is in a part.' }))
-    expect(presence.warnings?.[0]).toContain('It is one or the other')
+    const presence = await look(registration, serving({ ...good, reacts: ['parts'] }))
+    expect(presence.condition).toBe('silent')
+    expect(presence.line).toContain('It is one or the other')
+    expect(presence.refused).toBe(true)
   })
 
   test('the stamp of a served manifest names the process, and is null where there is none to name', () => {

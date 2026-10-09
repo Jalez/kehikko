@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ModuleList } from '../src/canvas/Modules.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { arrange, attention, builtFrom, HERE, matches, OTHER, rowsOf, shelfOf, warnings } from '../src/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, HERE, matches, OTHER, rowsOf, shelfOf } from '../src/host/moduleMenu.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
@@ -176,8 +176,17 @@ describe('what a module is built from, and what it says wrongly about itself', (
     ...over,
   })
   const build = { version: '1.4.0', commit: 'abc1234def5678', started: '2026-10-09T10:00:00.000Z', protocol: '0.36.0' }
-  const WARNING =
-    'kehikot.diff does not say how it relates to the parts of an epic. Add \'parts\' to reacts and narrow with the protocol’s focus helpers, or set partless to one sentence saying why nothing in it belongs to a part.'
+  /* What `look` says of a module whose manifest the protocol refuses — see
+     'a module that neither reacts to parts nor says why' in manifest.test.ts. */
+  const REFUSED: Presence = {
+    id: 'kehikot.diff',
+    at: 'http://127.0.0.1:7890',
+    condition: 'silent',
+    reached: true,
+    refused: true,
+    line:
+      'kehikot.diff is running at http://127.0.0.1:7890, but this host cannot use its manifest: partless — kehikot.diff does not say how it relates to the parts of an epic. Add \'parts\' to reacts and narrow with the protocol’s focus helpers, or set partless to one sentence saying why nothing in it belongs to a part.',
+  }
 
   test('the version, the commit its server started on, and the protocol package', () => {
     expect(builtFrom({ ...diff, module: module({ build }) })).toEqual({ version: '1.4.0 (abc1234)', protocol: '0.36.0' })
@@ -188,13 +197,14 @@ describe('what a module is built from, and what it says wrongly about itself', (
     expect(builtFrom(paper)).toBeNull()
   })
 
-  test('warnings are a ready module’s, and never trouble', () => {
-    const warned = { ...diff, module: module({ build }), warnings: [WARNING] }
-    expect(warnings(warned)).toEqual([WARNING])
-    expect(attention(warned)).toBeNull()
-    expect(warnings(diff)).toEqual([])
-    /* A module that is not answering is not described by what it once said. */
-    expect(warnings({ ...paper, warnings: [WARNING] })).toEqual([])
+  test('a refused manifest is trouble, says what to add, and does not say to start it again', () => {
+    const said = attention(REFUSED)
+    expect(said).toContain('does not say how it relates to the parts of an epic')
+    expect(said).toContain("Add 'parts' to reacts")
+    expect(said!.endsWith('Update the module to use it.')).toBe(true)
+    expect(said).not.toContain('start the module again')
+    /* Even while the host says it is starting it: the answer is already in. */
+    expect(attention({ ...REFUSED, lifecycle: 'starting' })).toBe(said)
   })
 
   const draw = (presences: Presence[]) =>
@@ -219,12 +229,12 @@ describe('what a module is built from, and what it says wrongly about itself', (
     expect(draw([{ ...diff, module: module() }])).not.toContain('<dt>protocol</dt>')
   })
 
-  test('a module that declares nothing about parts gets one quiet line, and one that does gets none', () => {
-    const html = draw([{ ...diff, module: module({ build }), warnings: [WARNING] }])
-    expect(html).toContain('data-warning=""')
+  test('a module that declares nothing about parts is refused where module problems are shown', () => {
+    const html = draw([REFUSED])
+    expect(html).toContain('role="alert"')
     expect(html).toContain('does not say how it relates to the parts of an epic')
-    /* Quiet: not an alert. */
-    expect(html).not.toContain('role="alert"')
-    expect(draw([{ ...diff, module: module({ build }) }])).not.toContain('data-warning')
+    expect(html).toContain('Update the module to use it.')
+    /* The quiet warning line a ready module used to get for this is gone. */
+    expect(html).not.toContain('data-warning')
   })
 })

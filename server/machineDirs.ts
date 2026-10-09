@@ -26,7 +26,10 @@ import { dirname, join } from 'node:path'
  * ## The old home is read, never written
  *
  * `~/.roadmap` is copied from once (`migrateMachineData`) and its `modules/`
- * is read as a fallback for modules that still register there. Nothing here
+ * is read as a fallback for modules that still register there. Since protocol
+ * 1.0.0 the protocol package reads nothing under `~/.roadmap` (`legacyRegistryDir`
+ * is gone), so this file is the ONLY reader left: remove it and an install
+ * that has not migrated starts with no modules and no canvases. Nothing here
  * deletes, moves or edits anything under it: an older host — the installed app,
  * or a checkout on another branch — may still have that database open.
  */
@@ -97,8 +100,11 @@ export function installsDir(env: Env = process.env): string {
  * pointed somewhere on purpose, so a test's scratch registry never picks up a
  * person's real modules.
  *
- * Modules register themselves through the protocol's `registerAt` and their own
- * `register.ts`, and until those move, they still write here.
+ * Modules register themselves, and one built against the protocol from before
+ * 0.25 writes here. No current module does — but a registration somebody
+ * already has here names a module on their disk, and this fallback is what
+ * keeps it in their list (`readRegistrations`; held by 'the registry falls back
+ * to ~/.roadmap/modules' in `test/machineDirs.test.ts`).
  */
 export function legacyModulesDir(env: Env = process.env): string | null {
   if (env.KEHIKOT_MODULES_DIR || env.ROADMAP_MODULES_DIR) return null

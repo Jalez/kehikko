@@ -4,7 +4,6 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   canonicalModuleId,
-  LEGACY_MESSAGE_PREFIX,
   LIMITS,
   MESSAGE_PREFIX,
   MODULE_ID,
@@ -689,9 +688,11 @@ export function open(file = databaseFile()): Database {
  * (`~/.roadmap/frame.sqlite`) is never touched.
  */
 export function renameModuleIds(db: Database): void {
-  const OLD = `${LEGACY_MESSAGE_PREFIX}%`
+  /* The prefix module ids carried before the rename. The protocol no longer names it; this is the host's own stored data. */
+  const BEFORE = 'roadmap.'
+  const OLD = `${BEFORE}%`
   const NEW = MESSAGE_PREFIX
-  const from = LEGACY_MESSAGE_PREFIX.length + 1
+  const from = BEFORE.length + 1
   const tables = new Set(
     db.query<{ name: string }, []>("select name from sqlite_master where type = 'table'").all().map((t) => t.name),
   )

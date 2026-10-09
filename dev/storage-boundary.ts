@@ -94,7 +94,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'module-registry',
     match: /\.roadmap['"`]?\s*,\s*['"`]modules|\.roadmap\/modules/,
-    reason: '~/.roadmap/modules is the RETIRED module registry (named after the app before it was Kehikot): modules built against kehikot-module-protocol < 0.25 still register there, the host reads it as a fallback, and the protocol reads it once to carry a registration\'s fields over',
+    reason: '~/.roadmap/modules is the RETIRED module registry (named after the app before it was Kehikot): modules built against kehikot-module-protocol < 0.25 registered there, and the host reads it as a fallback and copies it over once (the protocol itself stopped reading it in 1.0.0)',
   },
   {
     id: 'frame-db',

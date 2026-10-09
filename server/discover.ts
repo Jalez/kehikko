@@ -1,16 +1,12 @@
 import {
   buildStamp,
-  dialectOfKind,
-  LEGACY_WELL_KNOWN,
   LIMITS,
   manifestSchema,
-  partsDeclaration,
   PROTOCOL,
   readBuild,
   speaks,
   WELL_KNOWN,
   type Build,
-  type Dialect,
   type Manifest,
   type ModuleCondition,
 } from 'kehikot-module-protocol'
@@ -110,13 +106,14 @@ export interface Presence {
   /** Present exactly when the condition is `ready`. URLs already resolved. */
   module?: FramedModule
   /**
-   * What is wrong with what a module that IS ready says about itself, as
-   * sentences: today, a module that neither reacts to the parts of an epic nor
-   * says why it has none (the protocol's `partsDeclaration`). Not a condition —
-   * the module works — so it is carried beside one and drawn quietly. Absent
-   * when there is nothing to say.
+   * Set when the registered module itself answered and its manifest is one
+   * this host will not read — since protocol 1.0.0 that includes a manifest
+   * that neither reacts to the parts of an epic nor says why it has none
+   * (`partless`). Still `silent` (nothing can be framed), but it is not an
+   * address held by something else, and starting it again changes nothing:
+   * the page says to update the module instead. See `attention`.
    */
-  warnings?: string[]
+  refused?: true
   /** Both numbers, whenever the host had both. The reason `incompatible` is legible. */
   protocols?: { host: number; module: number | null; range: string }
 }
@@ -144,13 +141,6 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: Manifest['modes']
   extensions: Manifest['extensions']
-  /**
-   * Which spelling of the wire this module speaks: `roadmap` for a module
-   * built against the protocol from before the rename, which serves
-   * `kind: "roadmap.module"`. The page greets it in that dialect and respells
-   * everything it posts into the frame — see `dialect.ts` in the protocol.
-   */
-  dialect: Dialect
   /**
    * What the module says it REACTS to, out of the context every frame is sent.
    *
@@ -209,30 +199,10 @@ export async function fetchManifest(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = MANIFEST_TIMEOUT_MS,
 ): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean }> {
-  /* The current path, and on a plain 404 the one a module from before the
-     rename serves (`/.well-known/roadmap-module.json`). Only on a 404: a module
-     that answered the first path with anything else has answered, and asking
-     it again somewhere else would be looking for a second opinion. */
-  const first = await fetchManifestAt(origin, WELL_KNOWN, fetchImpl, timeoutMs)
-  if (first.ok || !first.notFound) return strip(first)
-  const second = await fetchManifestAt(origin, LEGACY_WELL_KNOWN, fetchImpl, timeoutMs)
-  if (second.ok) return second
-  /* Both missing: say so about the path this host asks for first. */
-  return second.notFound ? strip(first) : strip(second)
-}
-
-function strip(
-  read: { ok: true; text: string } | { ok: false; why: string; reached: boolean; notFound?: boolean },
-): { ok: true; text: string } | { ok: false; why: string; reached: boolean } {
-  return read.ok ? read : { ok: false, why: read.why, reached: read.reached }
-}
-
-async function fetchManifestAt(
-  origin: string,
-  path: string,
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean; notFound?: boolean }> {
+  /* One path. A module from before the rename serves its manifest at
+     `/.well-known/roadmap-module.json`; since protocol 1.0.0 that is not asked,
+     and such a module reads as answering 404 here. */
+  const path = WELL_KNOWN
   const url = new URL(path, origin).toString()
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
@@ -243,7 +213,7 @@ async function fetchManifestAt(
       redirect: 'error',
     })
     if (!response.ok) {
-      return { ok: false, why: `answered ${response.status} at ${path}`, reached: true, notFound: response.status === 404 }
+      return { ok: false, why: `answered ${response.status} at ${path}`, reached: true }
     }
     const text = await response.text()
     if (text.length > LIMITS.MANIFEST_BYTES) {
@@ -355,6 +325,21 @@ export async function look(
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     const where = first?.path.length ? first.path.join('.') : 'the document'
+    /* The program that answered calls itself what the registration calls it:
+       this IS the module, and what is wrong is what it says about itself. The
+       protocol's sentence (for a missing parts declaration, the whole of
+       `partsDeclaration`) is carried as written — it says what to add. */
+    if (typeof raw === 'object' && raw !== null && (raw as { id?: unknown }).id === id) {
+      const why = (first?.message ?? 'malformed').replace(/\.$/, '')
+      return {
+        id,
+        at,
+        condition: 'silent',
+        reached: true,
+        refused: true,
+        line: `${id} is running at ${at}, but this host cannot use its manifest: ${where} — ${why}.`,
+      }
+    }
     return {
       id,
       at,
@@ -427,8 +412,6 @@ export async function look(
     }
   }
 
-  const warnings = partsDeclaration(manifest)
-
   return {
     id,
     at,
@@ -439,7 +422,6 @@ export async function look(
     tags,
     line: manifest.summary || `${manifest.name} ${manifest.version}`,
     protocols: { host: PROTOCOL, module: manifest.protocol, range },
-    ...(warnings.length ? { warnings } : {}),
     module: {
       id: manifest.id,
       name: manifest.name,
@@ -484,7 +466,6 @@ export async function look(
         : null,
       modes: manifest.modes,
       extensions: manifest.extensions,
-      dialect: dialectOfKind(manifest.kind),
       reacts: manifest.reacts,
       declares: manifest.declares,
       build: manifest.build ?? null,

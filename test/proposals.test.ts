@@ -29,7 +29,6 @@ const scores = {
   mcp: { url: 'http://127.0.0.1:8010/mcp', transport: 'http', about: 'Read and edit scores.' },
   modes: [{ id: 'scores', label: 'Scores', scope: 'epic' }],
   extensions: { emits: [], consumes: [] },
-  dialect: 'kehikot',
   reacts: ['passage'],
   declares: { protocol: '>=2 <3', uses: ['epics:read'], storage: true, prompt: false },
 } as unknown as FramedModule

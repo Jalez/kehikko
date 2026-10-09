@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, canonicalModuleId, CONTENT_HOST, LEGACY_WELL_KNOWN, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -633,7 +633,15 @@ const versionRuns = new VersionRuns({
     const tag = key.slice(at + 1)
     /* Its own registry: a module's dev server registers wherever it answers,
        and a version answering on its own port must not rewrite the
-       registration that points at the module's checkout. */
+       registration that points at the module's checkout.
+
+       `ROADMAP_MODULES_DIR` is still set beside the current name, and only
+       here: a pinned tag can be older than the module's checkout, and a tree
+       from before the rename reads that name alone. This host (protocol 1.0.0)
+       will not find such a version answering, but it does START it, and
+       without the old name it would register itself in `~/.roadmap/modules` —
+       which `readRegistrations` still reads as a fallback — over the
+       registration this is here to protect. */
     const registry = join(VERSIONS, id, `${tag}.registry`)
     mkdirSync(registry, { recursive: true })
     const url = `http://127.0.0.1:${port}`
@@ -654,7 +662,7 @@ const versionRuns = new VersionRuns({
   async answered(origin) {
     const until = Date.now() + VERSION_ANSWERS_WITHIN_MS
     while (Date.now() < until) {
-      if (await answered(origin, [WELL_KNOWN, LEGACY_WELL_KNOWN])) return true
+      if (await answered(origin, [WELL_KNOWN])) return true
     }
     return false
   },
@@ -1404,7 +1412,7 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
   const ran = run(id, runnable)
   if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
   const alive = () => !ran.child || ran.child.alive()
-  const paths = [WELL_KNOWN, LEGACY_WELL_KNOWN]
+  const paths = [WELL_KNOWN]
   const began = Date.now()
   const until = began + within
   const log = logFile(id)

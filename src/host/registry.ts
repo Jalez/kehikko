@@ -1,4 +1,4 @@
-import type { Build, Dialect, ModuleCondition } from 'kehikot-module-protocol'
+import type { Build, ModuleCondition } from 'kehikot-module-protocol'
 
 /**
  * What the page knows about what is registered.
@@ -28,13 +28,6 @@ export interface FramedModule {
   mcp: { url: string; transport: string; about: string } | null
   modes: { id: string; label: string; scope: 'epic' | 'global' }[]
   extensions: { emits: string[]; consumes: string[] }
-  /**
-   * Which spelling of the wire the module speaks — `roadmap` for one built
-   * before the app was renamed. The conversation greets it in that dialect.
-   * Optional so a server from before this field still reads; absent is the
-   * current spelling.
-   */
-  dialect?: Dialect
   /**
    * The context kinds this module says it reacts to.
    *
@@ -114,8 +107,8 @@ export interface Presence {
   /** Where the registration says the program lives, when it says. */
   dir?: string
   module?: FramedModule
-  /** What is wrong with what a ready module says about itself, as sentences. Absent when nothing is. */
-  warnings?: string[]
+  /** The module itself answered, and its manifest is one this host will not read. See `attention` in `moduleMenu.ts`. */
+  refused?: true
   protocols?: { host: number; module: number | null; range: string }
   /**
    * Whatever this host is keeping for the module, or null when it keeps
