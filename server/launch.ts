@@ -206,11 +206,15 @@ const ASK_EVERY_MS = 300
  * that starts and exits has run, and a script still compiling has not finished
  * being useful. The manifest answering is the fact worth reporting.
  */
-export async function answered(origin: string, wellKnown: string | readonly string[]): Promise<boolean> {
+export async function answered(
+  origin: string,
+  wellKnown: string | readonly string[],
+  within: number = ANSWERS_WITHIN_MS,
+): Promise<boolean> {
   /* Every path given counts: a module from before the rename serves its
      manifest only at the old well-known path, and 404s the new one. */
   const paths = typeof wellKnown === 'string' ? [wellKnown] : wellKnown
-  const until = Date.now() + ANSWERS_WITHIN_MS
+  const until = Date.now() + within
   while (Date.now() < until) {
     try {
       for (const path of paths) {
@@ -270,8 +274,9 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  * it and should outlive this host too — a person restarting the canvas has not
  * asked for their modules to be killed. Output goes to `ignore` rather than to
  * a pipe: a pipe nobody drains fills, and a filled pipe blocks the child, so a
- * module would freeze after its first few hundred lines of logging. Whoever
- * wants the logs runs the script themselves.
+ * module would freeze after its first few hundred lines of logging. With
+ * `run.log` it goes to that file instead, which the child appends to itself —
+ * see `moduleLog.ts`.
  *
  * The script is spawned directly rather than through a shell — no `sh -c`, no
  * string interpolation — so nothing in a registration can become shell.
@@ -349,7 +354,12 @@ export function originEnv(
   return { KEHIKOT_ORIGINS: all, KEHIKOT_ORIGIN: all, ROADMAP_ORIGIN: all }
 }
 
-export function start(run: Runnable): Started {
+/**
+ * `exited` is told once, with the script's exit code (null when a signal ended
+ * it), when the process this call created ends. It is how the host learns that
+ * a module it started has died without asking its port on a timer.
+ */
+export function start(run: Runnable, exited?: (code: number | null) => void): Started {
   try {
     const out = run.log ? openSync(run.log, 'a') : null
     const child = spawn(run.script, [], {
@@ -371,8 +381,9 @@ export function start(run: Runnable): Started {
        is waiting. This listener is the whole of how the host knows that the
        process it started is the process still wearing that pid. */
     let gone = child.pid === undefined
-    child.on('exit', () => {
+    child.on('exit', (code) => {
       gone = true
+      exited?.(code)
     })
     child.on('error', () => {
       gone = true

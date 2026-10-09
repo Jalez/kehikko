@@ -121,7 +121,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'launchd',
     match: /Library['"`]?\s*,\s*['"`](?:LaunchAgents|Logs)|Library\/(?:LaunchAgents|Logs)/,
-    reason: '~/Library/LaunchAgents and ~/Library/Logs are where macOS keeps the roadmap service\'s plist and logs',
+    reason: '~/Library/LaunchAgents and ~/Library/Logs are where macOS keeps the roadmap service\'s plist and logs, and ~/Library/Logs/Kehikot the output of the modules the host starts (host server/machineDirs.ts `logsDir`)',
   },
   {
     id: 'service-marker',

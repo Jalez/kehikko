@@ -5,7 +5,7 @@ import type { ConversationWatcher } from '@/host/conversation.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
-import { ModuleFrame } from './ModuleFrame.tsx'
+import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
 
 /**
  * Every module's page, loaded once, positioned over the container that asked for it.
@@ -97,6 +97,7 @@ export function Frames({
   bus,
   presses,
   watcherFor,
+  onDocument,
   moving,
 }: {
   framings: readonly Framing[]
@@ -122,6 +123,8 @@ export function Frames({
    */
   presses: Presses
   watcherFor(id: string): ConversationWatcher
+  /** A frame's document was mounted, finished loading, or went away — what arms the cover. */
+  onDocument(id: string, event: DocumentEvent): void
   /**
    * The container being dragged or resized right now, if any.
    *
@@ -177,6 +180,7 @@ export function Frames({
             bus={bus}
             presses={presses}
             watcher={watcherFor(module.id)}
+            onDocument={onDocument}
             state={state}
             pinned={pinned}
             prompt={prompt}

@@ -74,6 +74,11 @@ export interface Presence {
    */
   lifecycle?: Lifecycle
   /**
+   * The last lines a module this host started printed, when that start failed
+   * or has not answered. Set in `server.ts` beside `lifecycle`, never here.
+   */
+  detail?: string[]
+  /**
    * What the module calls itself, when the host got far enough to find out.
    *
    * Carried separately from `module`, which exists only for a module that will

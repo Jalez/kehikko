@@ -5,6 +5,8 @@ import type { ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, M
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
+import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
+import { Covers, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
@@ -257,6 +259,8 @@ export function App() {
   const [looking, setLooking] = useState(true)
   const [canvases, setCanvases] = useState<Canvas[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
+  /** The kehikko the server had been told about when it was last asked what is running. */
+  const [askedFor, setAskedFor] = useState<number | null>(null)
   /**
    * The projects, and which one is open.
    *
@@ -459,8 +463,13 @@ export function App() {
    */
   useEffect(() => {
     let here = true
-    void reportOpen(openId).then(() => {
-      if (here) void lookRef.current?.()
+    void reportOpen(openId).then(async () => {
+      if (!here) return
+      await lookRef.current?.()
+      /* The server has now been asked knowing what this page has open. Until
+         then a module that is not running may only be one it has not been
+         asked to start — see `asked` in `host/standing.ts`. */
+      if (here) setAskedFor(openId)
     })
     const gone = () => void reportOpen(null)
     window.addEventListener('pagehide', gone)
@@ -909,11 +918,13 @@ export function App() {
    * server stops saying that after `STARTING_FOR_MS` whatever happens, so the
    * loop has an end even if the module never comes up — and the end is a
    * container saying the module was run and did not answer, with the button on
-   * it. The same argument `ConnectingPanel` makes: it may move because it
+   * it. The same argument `ModuleCover` makes: it may move because it
    * resolves, both ways, on its own.
    */
   useEffect(() => {
-    const starting = (registry?.presences ?? []).some((presence) => presence.lifecycle === 'starting')
+    const starting = (registry?.presences ?? []).some(
+      (presence) => presence.lifecycle !== undefined && presence.lifecycle !== 'asleep',
+    )
     if (!starting) return
     /* An interval rather than one timeout, because `look` declines to run while
        another sweep is in flight — and a single dropped retry would leave the
@@ -2661,8 +2672,9 @@ export function App() {
           shown:
             onOpen.has(id) &&
             !placements.find((p) => p.i === id)?.collapsed &&
-            (found?.condition ?? presenceOf(id)?.condition) === 'ready' &&
-            !!found,
+            /* The same decision the container's body draws from, so a page
+               and a cover are never both up, or neither. */
+            showing(presenceOf(id)!, found, askedFor === openId).kind === 'page',
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
           /* Composed here rather than in the module, because only the host
@@ -2680,7 +2692,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -2704,9 +2716,25 @@ export function App() {
     settle()
   }, [measure, settle, openId, placements, containers.length])
 
+  /* Arms the cover: forgetting what a conversation found is what puts it up.
+     See `Covers` in `host/standing.ts` for when, and for the grace. */
+  const covers = useMemo(
+    () =>
+      new Covers((id) =>
+        setLive((was) => {
+          if (!(id in was)) return was
+          const { [id]: _gone, ...rest } = was
+          return rest
+        }),
+      ),
+    [],
+  )
+  const onDocument = useCallback((id: string, event: DocumentEvent) => covers[event](id), [covers])
+
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
-      ready: () =>
+      ready: () => {
+        covers.answered(id)
         setLive((was) => ({
           ...was,
           [id]: {
@@ -2717,7 +2745,8 @@ export function App() {
             clear: was[id]?.clear,
             refresh: was[id]?.refresh,
           },
-        })),
+        }))
+      },
       silent: (sentence) =>
         setLive((was) => ({
           ...was,
@@ -2749,7 +2778,7 @@ export function App() {
       clearable: (label) => onClearable(id, label),
       refreshable: (state) => onRefreshable(id, state),
     }),
-    [onHeight, onOffer, onClearable, onRefreshable],
+    [covers, onHeight, onOffer, onClearable, onRefreshable],
   )
 
   return (
@@ -3020,15 +3049,13 @@ export function App() {
               <div key={placement.i}>
                 <Container
                   presence={presence}
-                  condition={found?.condition ?? presence.condition}
-                  line={found?.line ?? presence.line}
-                  fault={found?.fault ?? null}
-                  /* `live` gains an entry the moment the conversation says
-                     anything — ready, silent, or a fault. Until then this
-                     module has been framed and has not spoken, which is the one
-                     thing `condition` cannot express: discovery said `ready`
+                  /* The page, the cover, or a notice. Nothing found yet is a
+                     module that has been framed and has not spoken, which
+                     `condition` alone cannot express: discovery said `ready`
                      because the manifest read, not because the page answered. */
-                  settled={found !== undefined}
+                  showing={showing(presence, found, askedFor === openId)}
+                  coverDetail={waiting ? presence.line : undefined}
+                  fault={found?.fault ?? null}
                   body={body(presence.id)}
                   grow={placement.grow}
                   onGrow={(grow) => onGrow(presence.id, grow)}
@@ -3112,6 +3139,7 @@ export function App() {
           bus={bus}
           presses={presses}
           watcherFor={watcherFor}
+          onDocument={onDocument}
           moving={moving}
         />
       </main>

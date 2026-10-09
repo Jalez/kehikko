@@ -443,6 +443,14 @@ export function watchCanvases(
   where.searchParams.set('page', pageId())
   if (kehikko !== null) where.searchParams.set('kehikko', String(kehikko))
   const stream = new EventSource(where.pathname + where.search)
+  /* A stream that had to reconnect may have missed a wake while it was away —
+     the host restarted, the machine slept. Looking again on every reopening
+     after the first is what catches up. */
+  let opened = false
+  stream.onopen = () => {
+    if (opened) looked?.()
+    opened = true
+  }
   stream.onmessage = (event) => {
     try {
       const parsed: unknown = JSON.parse(event.data)

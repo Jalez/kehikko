@@ -10,10 +10,11 @@ import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
-import { ConditionDot, ConditionPanel, ConnectingPanel } from './Conditions.tsx'
+import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { FeedbackButton } from './Feedback.tsx'
 import { FilterButton } from './Filters.tsx'
 import { RefreshButton } from './Refreshing.tsx'
+import type { Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
@@ -52,10 +53,9 @@ import { VersionPicker } from './Versions.tsx'
  */
 export function Container({
   presence,
-  condition,
-  line,
+  showing,
+  coverDetail,
   fault,
-  settled,
   body,
   grow,
   onGrow,
@@ -87,19 +87,14 @@ export function Container({
   onVersion = () => {},
 }: {
   presence: Presence
-  /** The condition as the canvas currently understands it — see `App.tsx`. */
-  condition: Presence['condition']
-  line: string
-  fault: string | null
   /**
-   * Has the conversation reached a resting point?
-   *
-   * False from the moment the frame is mounted until the module answers the
-   * greeting or the greeting times out. Discovery has already said `ready` by
-   * then — it read the manifest — so `condition` alone cannot tell a page that
-   * is still arriving from one that has arrived and is showing nothing.
+   * What this container shows — the page, the cover, or a notice — decided
+   * once, in `host/standing.ts`, for this body and the frames layer alike.
    */
-  settled: boolean
+  showing: Showing
+  /** A second line for the cover, when something more specific is known (a pinned version being prepared). */
+  coverDetail?: string
+  fault: string | null
   /** Where the module's page goes. Handed to the canvas so it can be measured. */
   body: (element: HTMLElement | null) => void
   /** Whether this container follows the height its module asks for. */
@@ -190,6 +185,10 @@ export function Container({
   onVersion?(): void
 }) {
   const name = presence.name ?? presence.id
+  /* For the dot and the header's controls, which are the page's and are
+     offered only while the page is what is showing. */
+  const condition: Presence['condition'] =
+    showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
 
   return (
     /*
@@ -397,7 +396,10 @@ export function Container({
           />
         </Hint>
 
-        <ConditionDot condition={condition} lifecycle={presence.lifecycle} />
+        <ConditionDot
+          condition={condition}
+          lifecycle={showing.kind === 'cover' ? showing.state : showing.kind === 'notice' && showing.asleep ? 'asleep' : undefined}
+        />
         {/*
          * The name, and the module's own description behind it.
          *
@@ -506,7 +508,7 @@ export function Container({
          * effect. The choice is kept; unfolding brings the control back exactly
          * as it was.
          */}
-        {condition === 'ready' && !collapsed ? (
+        {showing.kind === 'page' && !collapsed ? (
           <FilterButton
             groups={filters}
             chosen={chosen}
@@ -537,7 +539,7 @@ export function Container({
          * is exactly the failure the arm exists for, and it costs nothing to
          * not offer it in the one state where the mistake is most likely.
          */}
-        {condition === 'ready' && !collapsed ? (
+        {showing.kind === 'page' && !collapsed ? (
           <ClearButton label={clear} name={name} onClear={onClear} />
         ) : null}
 
@@ -555,7 +557,7 @@ export function Container({
          * exactly the same reason. The setting is kept; unfolding brings the
          * control back with the interval it had.
          */}
-        {condition === 'ready' && !collapsed ? (
+        {showing.kind === 'page' && !collapsed ? (
           <RefreshButton
             state={refresh}
             every={refreshEvery}
@@ -663,18 +665,20 @@ export function Container({
           showing through it. A notice, when there is one, is opaque and takes
           the pointer again; there is no page behind it worth seeing. */}
       <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
-        {condition === 'ready' && !settled ? (
+        {/* Not ready yet, and on its way: one cover, whichever moment it is. */}
+        {showing.kind === 'cover' ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
-            <ConnectingPanel at={presence.at} />
+            <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} />
           </div>
         ) : null}
 
-        {condition === 'ready' ? null : (
+        {showing.kind === 'notice' ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
             <ConditionPanel
-              condition={condition}
-              lifecycle={presence.lifecycle}
-              line={line}
+              condition={showing.condition}
+              lifecycle={showing.asleep ? 'asleep' : undefined}
+              line={showing.line}
+              detail={presence.detail}
               at={presence.at}
               protocols={presence.protocols}
             >
@@ -683,18 +687,15 @@ export function Container({
                   panel already says which protocol each side speaks, which is
                   the thing to act on.
 
-                  And not while the host is already starting it. The button
-                  would offer to do the thing being done, and pressing it would
-                  spawn a second copy racing the first for the port. `asleep`
+                  A module the host is already starting never reaches here: it
+                  is a cover, with no button to spawn a second copy. `asleep`
                   keeps the button: the host will start it when this kehikko
                   next asks, and somebody who would rather not wait for that has
                   every right to say so now. */}
-              {condition === 'silent' && presence.lifecycle !== 'starting' ? (
-                <Start module={presence.id} onStarted={onStarted} />
-              ) : null}
+              {showing.condition === 'silent' ? <Start module={presence.id} onStarted={onStarted} /> : null}
             </ConditionPanel>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* A fault is not a condition. The module is working; it did one thing the

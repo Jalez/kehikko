@@ -172,8 +172,14 @@ export interface Standing {
    * seen" mean "idle since the epoch".
    */
   idleSince: number | null
-  /** A start this host asked for is still in flight. */
+  /** A start, an install, an update or a restart this host is running is still in flight. */
   starting: boolean
+  /**
+   * The host ran it and it stopped again without answering. Not started a
+   * second time on its own: the container says what it printed and offers the
+   * button, and a press, an update or the module answering clears this.
+   */
+  failed?: boolean
 }
 
 /**
@@ -186,7 +192,10 @@ export interface Standing {
  */
 export function toStart(standings: readonly Standing[]): string[] {
   return standings
-    .filter((s) => s.needed && !s.answering && s.startable && !s.starting)
+    /* `ours` and not answering is a process this host started that is still
+       running and has not bound its port — compiling, or hung. A second copy
+       beside it would race it for the port. */
+    .filter((s) => s.needed && !s.answering && s.startable && !s.starting && !s.failed && !s.ours)
     .map((s) => s.id)
 }
 
@@ -326,9 +335,60 @@ export function toStop(standings: readonly Standing[], now: number, grace = GRAC
  * Neither is a fourth condition. The vocabulary stays at three words — see the
  * essay in `Conditions.tsx` — and this is a fact about what the host did,
  * carried beside the condition rather than inside it, the same way
- * `ConnectingPanel` is a state of the page rather than a state of the program.
+ * `ModuleCover` is a state of the page rather than a state of the program.
  */
-export type Lifecycle = 'starting' | 'asleep'
+export type Lifecycle = 'starting' | 'installing' | 'updating' | 'restarting' | 'asleep'
+
+/** The words that mean the host is doing something that ends on its own. */
+export function inFlight(lifecycle: Lifecycle | undefined): boolean {
+  return lifecycle !== undefined && lifecycle !== 'asleep'
+}
+
+/**
+ * How long a module may be described as installing before the host stops
+ * claiming so. A first `bun install` and the pre-bundle after it take a minute
+ * or two; ten is past any of them, and a process still silent then is hung.
+ */
+export const INSTALLING_FOR_MS = 10 * 60_000
+
+/**
+ * A process this host started that lived less than this is one that failed to
+ * start, not one that ran and died — it is reported, not started again.
+ */
+export const MIN_RUN_MS = 10_000
+
+/** Everything `lifecycleOf` may know about what the host is doing to one module. */
+export interface Doing {
+  /** An update or a restart the host is running for it right now. */
+  work: 'updating' | 'restarting' | null
+  /** When the host last ran its script, while that is still news. */
+  ranAt: number | null
+  /** The process the host started is still running. */
+  alive: boolean
+  /** That process's output says it is installing its dependencies. */
+  installing: boolean
+  /** The host stopped it because nothing needed it. */
+  asleep: boolean
+}
+
+/**
+ * The one place that decides which word the host puts beside a module.
+ *
+ * `silent` is whether nothing answered at its address. An update or a restart
+ * the host is running wins over that, because the host is about to take the
+ * page away whatever it answers this second. Everything else is said only of a
+ * module that is not answering: one that is up needs no explanation.
+ */
+export function lifecycleOf(silent: boolean, doing: Doing, now: number): Lifecycle | undefined {
+  if (doing.work) return doing.work
+  if (!silent) return undefined
+  if (doing.ranAt !== null) {
+    const since = now - doing.ranAt
+    if (doing.alive && doing.installing && since < INSTALLING_FOR_MS) return 'installing'
+    if (since < STARTING_FOR_MS) return 'starting'
+  }
+  return doing.asleep ? 'asleep' : undefined
+}
 
 /** Said on a container whose module the host has just run. */
 export function startingLine(id: string, at: string): string {
@@ -336,6 +396,56 @@ export function startingLine(id: string, at: string): string {
     `${id} is starting. This kehikko has it, so the host ran its run.sh; ` +
     `it has not answered at ${at} yet. This resolves on its own — the container becomes the module, ` +
     `or says the module was run and did not answer.`
+  )
+}
+
+/** Said while a module the host ran is installing its dependencies. */
+export function installingLine(id: string): string {
+  return `${id} is installing what it needs. The host ran its run.sh, and that is installing its dependencies before it starts — the first time takes a minute.`
+}
+
+/** Said from the moment an update decides the module must be restarted, until it is. */
+export function updatingLine(id: string): string {
+  return `${id} is being updated. The host stopped it to move it to the new code, and starts it again when that is in place.`
+}
+
+/** Said while the host is stopping a running module and starting it again. */
+export function restartingLine(id: string): string {
+  return `${id} is restarting. The host stopped it and ran its run.sh again; the container becomes the module when it answers.`
+}
+
+/** The line for one in-flight word. */
+export function lifecycleLine(lifecycle: Lifecycle, id: string, at: string): string {
+  switch (lifecycle) {
+    case 'starting':
+      return startingLine(id, at)
+    case 'installing':
+      return installingLine(id)
+    case 'updating':
+      return updatingLine(id)
+    case 'restarting':
+      return restartingLine(id)
+    case 'asleep':
+      return asleepLine(id, at)
+  }
+}
+
+/**
+ * Said on a container whose module the host ran and which stopped again.
+ * `code` is the script's exit code, or null when a signal ended it.
+ */
+export function exitedLine(id: string, at: string, code: number | null, log: string): string {
+  return (
+    `${id} was started and stopped again${code === null ? '' : ` (exit code ${code})`} without answering at ${at}. ` +
+    `The last of what it printed is below; all of it is in ${log}.`
+  )
+}
+
+/** Said when the process is still running and has still not answered. */
+export function unansweringLine(id: string, at: string, log: string): string {
+  return (
+    `${id} was started and is still running, but has not answered at ${at}. ` +
+    `The last of what it printed is below; all of it is in ${log}. Starting it again stops that process first.`
   )
 }
 
