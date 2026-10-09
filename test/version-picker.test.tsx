@@ -191,10 +191,10 @@ describe('Updates, with pinned containers', () => {
   const pins = { 'kehikot.notes': { containers: 2, versions: ['v1.2.0'] } }
 
   test('a module with pinned containers says so', () => {
-    const row = moduleRow(checkout('kehikot.notes', 0), null, false, pins['kehikot.notes'])
+    const row = moduleRow(checkout('kehikot.notes', 0), null, null, pins['kehikot.notes'])
     expect(row).toMatchObject({ state: 'pinned', version: 'v1.2.0', reason: '2 containers pinned to v1.2.0' })
     expect(stateText(row)).toBe('2 containers pinned to v1.2.0')
-    const behind = moduleRow(checkout('kehikot.notes', 3), null, false, pins['kehikot.notes'])
+    const behind = moduleRow(checkout('kehikot.notes', 3), null, null, pins['kehikot.notes'])
     expect(stateText(behind)).toBe('2 containers pinned to v1.2.0 · latest has 3 new commits')
   })
 
@@ -207,7 +207,7 @@ describe('Updates, with pinned containers', () => {
   })
 
   test('an update in flight or just failed still says that, pinned or not', () => {
-    expect(moduleRow(checkout('kehikot.notes', 3), null, true, pins['kehikot.notes']).state).toBe('updating')
-    expect(moduleRow(checkout('kehikot.notes', 3), { kind: 'failed', why: 'no' }, false, pins['kehikot.notes']).state).toBe('failed')
+    expect(moduleRow(checkout('kehikot.notes', 3), null, 'updating', pins['kehikot.notes']).state).toBe('updating')
+    expect(moduleRow(checkout('kehikot.notes', 3), { kind: 'failed', why: 'no' }, null, pins['kehikot.notes']).state).toBe('failed')
   })
 })

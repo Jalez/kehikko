@@ -2,6 +2,8 @@ import { CircleSlash, Moon, PlugZap, Unplug } from 'lucide-react'
 import type { ModuleCondition } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils'
+import { COVER_WORDS, type Waiting } from '@/host/standing.ts'
+import { KehikkoMark } from './Mark.tsx'
 
 /**
  * The three conditions, made distinguishable at a glance.
@@ -46,11 +48,12 @@ import { cn } from '@/lib/utils'
  * vocabulary a person learns stays at three words; what is added is not a new
  * kind of program state but a fact about what the HOST did, which is a
  * different sort of thing and is drawn like one — a moon rather than an unplugged
- * cable, and no offer to start something that is already starting.
+ * cable for a module put to sleep, and `ModuleCover` for everything that is on
+ * its way: starting, installing, updating, restarting, loading.
  */
 
 /** What the host has lately done, when it has done anything. See the essay above. */
-export type Lifecycle = 'starting' | 'asleep'
+export type Lifecycle = 'starting' | 'installing' | 'updating' | 'restarting' | 'asleep'
 
 const dots: Record<ModuleCondition, string> = {
   ready: 'bg-emerald-400',
@@ -66,12 +69,17 @@ const dots: Record<ModuleCondition, string> = {
  * that is about to change on its own. Neither is a colour: `silent` is already
  * the absence of one, and asleep is less than that rather than other than it.
  */
-const lifecycles: Record<Lifecycle, string> = {
-  starting: 'bg-neutral-400 animate-pulse',
+const WAITING = 'bg-neutral-400 animate-pulse'
+const lifecycles: Record<Lifecycle | 'loading', string> = {
+  starting: WAITING,
+  installing: WAITING,
+  updating: WAITING,
+  restarting: WAITING,
+  loading: WAITING,
   asleep: 'bg-neutral-600',
 }
 
-export function ConditionDot({ condition, lifecycle }: { condition: ModuleCondition; lifecycle?: Lifecycle }) {
+export function ConditionDot({ condition, lifecycle }: { condition: ModuleCondition; lifecycle?: Lifecycle | 'loading' }) {
   const said = lifecycle ?? condition
   return (
     <span
@@ -97,19 +105,23 @@ export function ConditionPanel({
   condition,
   lifecycle,
   line,
+  detail,
   at,
   protocols,
   children,
 }: {
   condition: ModuleCondition
-  lifecycle?: Lifecycle
+  /** Only ever `asleep` here: every word that ends on its own is `ModuleCover`'s. */
+  lifecycle?: 'asleep'
   line: string
+  /** The last lines a module the host started printed, when its start failed. */
+  detail?: string[]
   at: string
   protocols?: { host: number; module: number | null; range: string }
   children?: React.ReactNode
 }) {
-  /* A moon for a module the host put down, a pulsing cable for one it has just
-     run, and the unplugged cable only for silence nobody asked for. The icon is
+  /* A moon for a module the host put down, and the unplugged cable only for
+     silence nobody asked for. The icon is
      what a person reads before the sentence — a container that shows the fault
      symbol and then explains it is fine has already said the wrong thing. */
   const Icon =
@@ -133,11 +145,6 @@ export function ConditionPanel({
         className={cn(
           'size-6',
           condition === 'incompatible' ? 'text-amber-400' : 'text-neutral-500',
-          /* One slow pulse while a start is in flight, and the same argument
-             `ConnectingPanel` makes below: it may move because it resolves,
-             both ways, quickly, and without implying that waiting is progress
-             being measured. Asleep does not move, because nothing is happening. */
-          lifecycle === 'starting' ? 'animate-pulse' : '',
         )}
         aria-hidden
       />
@@ -168,6 +175,17 @@ export function ConditionPanel({
         </dl>
       ) : null}
 
+      {/* What the program itself said before it stopped. Left-aligned and
+          monospaced because it is output, not a sentence of the host's. */}
+      {detail?.length ? (
+        <pre
+          data-testid="condition-detail"
+          className="bg-muted text-muted-foreground max-h-32 w-full max-w-[64ch] overflow-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug whitespace-pre-wrap"
+        >
+          {detail.join('\n')}
+        </pre>
+      ) : null}
+
       <p className="text-muted-foreground font-mono text-xs break-all">{at}</p>
       {children}
     </div>
@@ -175,38 +193,39 @@ export function ConditionPanel({
 }
 
 /**
- * A module whose page is loading, and which has not answered yet.
+ * The one cover for every moment a module's page is not ready yet.
  *
  * ## Why this is not a condition
  *
  * `ready`, `incompatible` and `silent` are what the host knows about a program.
- * This is not one of them: discovery has already said `ready`, the manifest read
- * fine, and the only thing outstanding is that the page has not finished
- * arriving and speaking. Making it a fourth condition would put a transient
- * fact into the vocabulary a person uses for lasting ones.
+ * This is none of them: something is on its way — the host ran the script, it
+ * is installing, it is being restarted for an update, or the page is loading
+ * and has not answered — and each of those ends on its own, as the module's
+ * page or as a notice saying why not. Making them conditions would put
+ * transient facts into the vocabulary a person uses for lasting ones.
  *
- * ## Why it may exist at all
+ * ## One design, and the sentence says which
  *
- * The rule is that nothing moves on a timer nobody asked for, and that no
- * spinner is shown which cannot resolve. This one resolves both ways and
- * quickly: the module answers and the container becomes its page, or the greeting
- * goes unanswered and the conversation's own timeout turns this into the silent
- * notice, which says so in a sentence. There is no third outcome and no path
- * where this stays on screen.
+ * The same mark, in the same place, for all of them, so a module that goes
+ * from "Updating" to "Loading" does not redraw the container twice on the way.
+ * The mark is keyed on nothing: it draws itself once when the cover goes up
+ * and breathes after. Only the sentence changes (`COVER_WORDS`).
  *
- * So it is allowed to move — one slow pulse, no spinner, nothing that suggests
- * progress is being measured, because none is. What it must not do is imply
- * that waiting longer will help.
+ * It is drawn by the host, on the theme's own card colour, over a frame that
+ * is hidden while it is up — so nothing a module's document does or does not
+ * paint in its first moments is ever on screen.
  */
-export function ConnectingPanel({ at }: { at: string }) {
+export function ModuleCover({ state, at, detail }: { state: Waiting; at: string; detail?: string }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center">
-      {/* The same size and place the icon takes in `ConditionPanel`, so the
-          swap from this to a notice does not move anything the eye is on. */}
-      <Unplug className="size-6 animate-pulse text-neutral-600" aria-hidden />
-      <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">
-        Loading its page, and waiting for it to answer.
-      </p>
+    <div
+      className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center"
+      data-testid="module-cover"
+      data-state={state}
+      role="status"
+    >
+      <KehikkoMark working className="text-muted-foreground size-10" />
+      <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{COVER_WORDS[state]}</p>
+      {detail ? <p className="text-muted-foreground/80 max-w-[46ch] text-balance text-xs">{detail}</p> : null}
       <p className="text-muted-foreground/70 font-mono text-[11px]">{at}</p>
     </div>
   )

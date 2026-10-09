@@ -45,7 +45,20 @@ export interface Check {
   pins: Record<string, PinCount>
   /** Whether the desktop app can restart this host — see `/host/restart`. */
   restartable: boolean
+  /** Updates the server is still running, by checkout id — so a page that reloaded mid-update says so. */
+  progress: Record<string, Phase>
+  /** Modules the server knows are running older code than their checkout, with why. */
+  stale: Record<string, string>
+  /** What each waiting update would do to its running module — `previewUpdate` in `server/restart.ts`. */
+  previews: Record<string, Preview>
 }
+
+export type Preview = 'page' | 'restart' | 'self' | 'kept'
+
+/** What an update is doing right now. */
+/** `applying` is the checkout having moved: from there nothing is cancelled. */
+export type Phase = 'updating' | 'applying' | 'installing' | 'restarting'
+const phaseSchema = z.enum(['updating', 'applying', 'installing', 'restarting'])
 
 export function isCheckout(reading: Reading): reading is Checkout {
   return !('error' in reading)
@@ -61,10 +74,30 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
       checkouts: z.array(readingSchema),
       restartable: z.boolean().default(false),
       pins: z.record(z.string(), z.object({ containers: z.number(), versions: z.array(z.string()) })).default({}),
+      progress: z.record(z.string(), phaseSchema).default({}),
+      stale: z.record(z.string(), z.string()).default({}),
+      previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
     })
     .parse(await response.json())
-  return { checked: new Date(body.checked), checkouts: body.checkouts, restartable: body.restartable, pins: body.pins }
+  return {
+    checked: new Date(body.checked),
+    checkouts: body.checkouts,
+    restartable: body.restartable,
+    pins: body.pins,
+    progress: body.progress,
+    stale: body.stale,
+    previews: body.previews,
+  }
 }
+
+/** What the update came to for the module itself — `ModuleOutcome` in `server/server.ts`. */
+const moduleOutcomeSchema = z.union([
+  z.object({ ran: z.enum(['page', 'restarted', 'started', 'idle']) }),
+  z.object({ ran: z.literal('stale'), why: z.string() }),
+  z.object({ ran: z.literal('failed'), why: z.string(), detail: z.array(z.string()).default([]) }),
+])
+
+export type ModuleOutcome = z.infer<typeof moduleOutcomeSchema>
 
 const updatedSchema = z.object({
   checkout: readingSchema,
@@ -72,13 +105,28 @@ const updatedSchema = z.object({
   installed: z.boolean(),
   installFailed: z.string().nullable(),
   lockfileReset: z.boolean().optional(),
-  restart: z.enum(['host', 'module']).nullable(),
+  /** Only ever the host's own checkout: a module is restarted by the update itself. */
+  restart: z.enum(['host']).nullable(),
+  module: moduleOutcomeSchema.nullable().default(null),
 })
 
 export type Updated = z.infer<typeof updatedSchema>
 
-/** Fast-forward one checkout. Refusals come back as the server's sentence. */
-export async function applyUpdate(id: string, signal?: AbortSignal): Promise<Updated> {
+/**
+ * Raised when the request was closed after the checkout had already moved.
+ * The server finishes such an update on its own, so the caller must read what
+ * is true rather than say it was not changed.
+ */
+export class LeftRunning extends Error {}
+
+/**
+ * Fast-forward one checkout, and restart its module when that is needed.
+ *
+ * The answer is a stream of lines: `{phase}` as the server moves from the
+ * merge to an install to a restart — told to `onPhase` — then `{done}` or
+ * `{error}`. Refusals come back as the server's sentence.
+ */
+export async function applyUpdate(id: string, signal?: AbortSignal, onPhase?: (phase: Phase) => void): Promise<Updated> {
   const response = await fetch('/host/updates', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -86,18 +134,65 @@ export async function applyUpdate(id: string, signal?: AbortSignal): Promise<Upd
     signal,
   })
   if (!response.ok) throw new Error(await reason(response))
-  return updatedSchema.parse(await response.json())
+  let moved = false
+  let ended: Updated | null = null
+  const take = (line: string) => {
+    if (!line.trim()) return
+    const said = z
+      .object({ phase: phaseSchema.optional(), done: updatedSchema.optional(), error: z.string().optional() })
+      .parse(JSON.parse(line))
+    if (said.error !== undefined) throw new Error(said.error)
+    if (said.phase) {
+      if (said.phase !== 'updating') moved = true
+      onPhase?.(said.phase)
+    }
+    if (said.done) ended = said.done
+  }
+  try {
+    const reader = response.body?.getReader()
+    if (!reader) for (const line of (await response.text()).split('\n')) take(line)
+    else {
+      const decoder = new TextDecoder()
+      let held = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        held += decoder.decode(value, { stream: true })
+        const lines = held.split('\n')
+        held = lines.pop() ?? ''
+        for (const line of lines) take(line)
+      }
+      take(held)
+    }
+  } catch (error) {
+    if (signal?.aborted && moved) throw new LeftRunning()
+    throw error
+  }
+  if (!ended) throw new Error('the update ended without saying what it came to')
+  return ended
 }
 
-/** Restart a module so it runs what was pulled — the same Start the canvas offers. */
-export async function restartModule(id: string): Promise<string | null> {
+/**
+ * Start a module again after an update that could not — the retry on its row.
+ * The same Start the canvas offers. Null when it answers; otherwise why not,
+ * with the last it printed when the host has that.
+ */
+export async function restartModule(id: string): Promise<{ why: string; detail: string[] } | null> {
   const response = await fetch('/host/start', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ module: id }),
   })
-  const body = (await response.json().catch(() => null)) as { ok?: boolean; why?: string } | null
-  return body?.ok ? null : (body?.why ?? 'it could not be restarted, and the host did not say why')
+  const body = (await response.json().catch(() => null)) as {
+    ok?: boolean
+    why?: string
+    detail?: string[]
+    presence?: { condition?: string } | null
+  } | null
+  if (body?.ok && body.presence?.condition === 'ready') return null
+  const detail = Array.isArray(body?.detail) ? body.detail : []
+  if (body?.ok) return { why: 'It was started and has not answered yet.', detail }
+  return { why: body?.why ?? 'it could not be restarted, and the host did not say why', detail }
 }
 
 /** Ask the desktop app to restart, so an updated host server runs. Null when it was asked. */
@@ -130,19 +225,25 @@ async function reason(response: Response): Promise<string> {
   return `the host's server answered ${response.status}`
 }
 
-/** What pressing Update or Restart in the panel came to, for one checkout. */
+/**
+ * What pressing Update in the panel came to, for one checkout.
+ *
+ * `restart` is only ever about the HOST's own checkout: a module is restarted
+ * by the update itself, so there is no outcome that waits on one. `retry` is a
+ * module that was updated and did not come back, which can be started again.
+ */
 export type Outcome =
-  | { kind: 'updated'; note: string; restart: 'host' | 'module' | null; installFailed: string | null }
-  | { kind: 'failed'; why: string }
-  | { kind: 'restarted' }
+  | { kind: 'updated'; note: string; restart: 'host' | null; installFailed: string | null }
+  | { kind: 'failed'; why: string; detail?: string[]; retry?: boolean }
 
 /**
  * Whether a checkout gets a row of its own in the panel: it is behind, it
- * could not be read, GitHub could not be reached for it, or something was just
- * done to it. Everything else is level and quiet, and is only counted.
+ * could not be read, GitHub could not be reached for it, something was just
+ * done to it, or the server says something is (`flagged`: an update still
+ * running, or a module left on old code). Everything else is level and quiet.
  */
-export function needsAttention(reading: Reading, outcome: Outcome | null | undefined): boolean {
-  if (outcome) return true
+export function needsAttention(reading: Reading, outcome: Outcome | null | undefined, flagged = false): boolean {
+  if (outcome || flagged) return true
   if (!isCheckout(reading)) return true
   return reading.behind > 0 || reading.fetchFailed !== null
 }
@@ -151,11 +252,12 @@ export function needsAttention(reading: Reading, outcome: Outcome | null | undef
 export function triage(
   checkouts: readonly Reading[],
   outcomes: Readonly<Record<string, Outcome>>,
+  flagged: ReadonlySet<string> = new Set(),
 ): { attention: Reading[]; level: Checkout[] } {
   const attention: Reading[] = []
   const level: Checkout[] = []
   for (const one of checkouts) {
-    if (needsAttention(one, outcomes[one.id])) attention.push(one)
+    if (needsAttention(one, outcomes[one.id], flagged.has(one.id))) attention.push(one)
     else if (isCheckout(one)) level.push(one)
   }
   attention.sort((a, b) => weight(b) - weight(a))

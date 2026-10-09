@@ -214,6 +214,16 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
   return checkout
 }
 
+/**
+ * The files an update of this checkout would change: what differs between it
+ * and its upstream as last fetched. Local — nothing is asked of the remote —
+ * so it is exactly as fresh as the "N new commits" beside it.
+ */
+export async function incomingFiles(dir: string): Promise<string[]> {
+  const diff = await git(dir, ['diff', '--name-only', 'HEAD', '@{u}'])
+  return diff.ok && diff.out ? diff.out.split('\n') : []
+}
+
 /** Whether `git status --porcelain` lists `bun.lock` and nothing else. */
 function onlyLockfile(porcelain: string): boolean {
   const lines = porcelain.split('\n').filter(Boolean)
@@ -258,12 +268,24 @@ export type Updating = Updated | { ok: false; why: string; status: number }
  *
  * ## Cancelling
  *
- * Up to the merge, a cancel means nothing changed. The merge itself is one
- * quick local step and is not interrupted halfway. After it, a cancel stops
- * the `bun install` and says so — the code has moved, and the dependencies
- * will be installed by the next update or by hand.
+ * Up to the merge, a cancel means nothing changed. From the merge on nothing
+ * is cancelled: the code has moved, and stopping halfway would leave new code
+ * beside old dependencies, or a module stopped for a restart it never got. A
+ * request that closes after the merge is finished anyway.
+ *
+ * ## The two hooks
+ *
+ * `merged` is awaited between the merge and the install, with the files that
+ * changed — where the caller stops a module that has to be restarted, before
+ * its dependencies move under it. `installing` is told when `bun install`
+ * starts.
  */
-export async function update(place: Place, signal?: AbortSignal): Promise<Updating> {
+export interface UpdateHooks {
+  merged?(changed: string[]): Promise<void> | void
+  installing?(): void
+}
+
+export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHooks = {}): Promise<Updating> {
   const before = await readCheckout(place, false)
   if ('error' in before) return { ok: false, why: before.error, status: 409 }
   if (before.blocked) return { ok: false, why: `${place.name} was not updated: ${before.blocked}.`, status: 409 }
@@ -285,18 +307,17 @@ export async function update(place: Place, signal?: AbortSignal): Promise<Updati
   const diff = await git(place.dir, ['diff', '--name-only', from.out, 'HEAD'])
   const changed = diff.ok && diff.out ? diff.out.split('\n') : []
 
+  await hooks.merged?.(changed)
+
   let installed = false
   let installFailed: string | null = null
   const dependencies = lockfileReset || changed.some((file) => file === 'package.json' || file === 'bun.lock')
   if (dependencies && existsSync(join(place.dir, 'bun.lock'))) {
+    hooks.installing?.()
     const child = Bun.spawn(['bun', 'install'], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
-    const stop = () => child.kill()
-    signal?.addEventListener('abort', stop, { once: true })
     const err = await new Response(child.stderr).text()
     const code = await child.exited
-    signal?.removeEventListener('abort', stop)
     if (code === 0) installed = true
-    else if (signal?.aborted) installFailed = 'cancelled while installing dependencies — run `bun install` there before restarting it'
     else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
   }
 

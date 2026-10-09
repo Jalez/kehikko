@@ -30,6 +30,9 @@ import type { FramedModule } from '@/host/registry.ts'
  * wondering which of them is confused.
  */
 
+/** What happened to a frame's document. See `Covers` in `host/standing.ts`. */
+export type DocumentEvent = 'mounted' | 'loaded' | 'unmounted'
+
 export function ModuleFrame({
   module: framed,
   context,
@@ -37,6 +40,7 @@ export function ModuleFrame({
   bus,
   presses,
   watcher,
+  onDocument,
   state,
   pinned,
   prompt,
@@ -61,6 +65,13 @@ export function ModuleFrame({
    */
   presses: Presses
   watcher: ConversationWatcher
+  /**
+   * Told when this frame's document is mounted, every time it finishes
+   * loading, and when it goes — which is what puts the host's cover back up
+   * over a page that is not ready. The frame cannot see a navigation begin
+   * (the document is on another origin), so `loaded` is the earliest it knows.
+   */
+  onDocument?: (id: string, event: DocumentEvent) => void
   /**
    * Whatever the host is keeping for this module, or null when it keeps
    * nothing. Handed straight into the greeting and never read here.
@@ -124,6 +135,8 @@ export function ModuleFrame({
   watcherRef.current = watcher
   const canvasRef = useRef(canvas)
   canvasRef.current = canvas
+  const onDocumentRef = useRef(onDocument)
+  onDocumentRef.current = onDocument
   /* What this module says it consumes, read through a ref for the same reason
      as everything else here: a manifest re-read that changed the array identity
      must not tear down the conversation and reload the page. The bus reads it
@@ -195,8 +208,12 @@ export function ModuleFrame({
     }
     window.addEventListener('message', onMessage)
 
-    const onLoad = () => conversation.greet(contextRef.current, stateRef.current)
+    const onLoad = () => {
+      conversation.greet(contextRef.current, stateRef.current)
+      onDocumentRef.current?.(framed.id, 'loaded')
+    }
     frame.addEventListener('load', onLoad)
+    onDocumentRef.current?.(framed.id, 'mounted')
 
     /*
      * Signed up for events for as long as this conversation exists, and on the
@@ -244,6 +261,7 @@ export function ModuleFrame({
       window.removeEventListener('message', onMessage)
       conversation.close()
       conversationRef.current = null
+      onDocumentRef.current?.(framed.id, 'unmounted')
     }
   }, [framed.id, framed.name, framed.entry, framed.dialect, origin, bus, presses])
 
@@ -325,7 +343,22 @@ export function ModuleFrame({
       ref={frameRef}
       title={framed.name}
       src={framed.entry}
-      className="h-full w-full border-0 bg-white"
+      /*
+       * The theme's own card colour behind the document, never white.
+       *
+       * A module's document is empty until its script has run, and an empty
+       * document has the default `color-scheme`, light. A frame whose own
+       * scheme differs from its document's is given an OPAQUE canvas by the
+       * browser — so under the dark theme (`color-scheme: dark` on the page)
+       * every reload of a module was a white rectangle for some tens of
+       * milliseconds, whatever was behind it. Saying `light` here matches the
+       * empty document, the canvas stays transparent, and what shows is this
+       * element's background. A module that then declares its own dark scheme
+       * paints its own dark canvas. Measured in WebKit: 50 ms of #ffffff
+       * before, the card colour after, and the module's first paint unchanged.
+       */
+      className="bg-card h-full w-full border-0"
+      style={{ colorScheme: 'light' }}
       /*
        * `allow-scripts` because a module is a program. `allow-forms` and
        * `allow-popups` because a module is a program somebody chose to run and

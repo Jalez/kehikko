@@ -28,12 +28,12 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b13 pass/)
+    expect(out).toMatch(/\b15 pass/)
   }, 60_000)
 }
 
 type Json = Record<string, unknown>
-let answer: (url: string, init?: RequestInit) => Promise<Json>
+let answer: (url: string, init?: RequestInit) => Promise<Json | Response>
 let release: (() => void) | null = null
 
 let React: typeof import('react')
@@ -48,6 +48,7 @@ beforeAll(async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const body = await answer(String(url), init)
+    if (body instanceof Response) return body
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   }) as typeof fetch
   React = await import('react')
@@ -205,10 +206,10 @@ describe.skipIf(!inChild)('the updates panel', () => {
   })
 
   for (const restartable of [true, false]) {
-    test(`Restart Kehikot after a host update ${restartable ? 'is' : 'is not'} offered when the app ${restartable ? 'can' : 'cannot'} restart`, async () => {
+    test(`Restart the host after a host update ${restartable ? 'is' : 'is not'} offered when the app ${restartable ? 'can' : 'cannot'} restart`, async () => {
       answer = async (url, init) => {
         if (init?.method === 'POST') {
-          return { checkout: checkout('host', 0), changed: ['server/x.ts'], installed: false, installFailed: null, restart: 'host' }
+          return { done: { checkout: checkout('host', 0), changed: ['server/x.ts'], installed: false, installFailed: null, restart: 'host', module: null } }
         }
         return url.startsWith('/host/updates') ? check([checkout('host', 1), checkout('notes', 0)], restartable) : {}
       }
@@ -222,7 +223,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
       expect(panels()).toHaveLength(1)
       const row = document.querySelector('[data-testid="updates-row"]')
       expect(row?.textContent).toContain('Updated')
-      const restart = [...document.querySelectorAll('button')].some((b) => b.textContent === 'Restart Kehikot')
+      const restart = [...panels()[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Restart the host')
       expect(restart).toBe(restartable)
     })
   }
@@ -315,23 +316,53 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect((blocked as HTMLElement | undefined)?.dataset.state).toBe('blocked')
   })
 
-  /* A module that was updated and has to be restarted: the header says
-     "Restart to update", and a press on it has to do that. It used to be only
-     the panel's toggle, and opening the panel threw the restart offer away. */
-  async function updatedAwaitingRestart(restart: 'module' | 'host' = 'module', restartable = false) {
-    const id = restart === 'host' ? 'host' : 'a'
+  /*
+   * Updating a module restarts it as part of the update. The server says how
+   * far it has got, line by line, and what it came to; no row and no header
+   * ever asks for a restart of a module.
+   */
+  const updatedLine = (module: Json | null, more: Json = {}) => ({
+    done: { checkout: checkout('a', 0), changed: ['doors.ts'], installed: false, installFailed: null, lockfileReset: false, restart: null, module, ...more },
+  })
+
+  /** The server's stream, with a gate before each line so a test can look at every step. */
+  function streamed(lines: Json[]) {
+    const gates: (() => void)[] = []
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for (const line of lines) {
+          await new Promise<void>((open) => gates.push(open))
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
+        }
+        controller.close()
+      },
+    })
+    return {
+      response: new Response(body, { status: 200 }),
+      async next() {
+        await act(async () => {
+          gates.shift()?.()
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        })
+      },
+    }
+  }
+
+  async function updating(lines: Json[], more: { stale?: Json; progress?: Json } = {}) {
     const posts: { url: string; body: Json }[] = []
+    const stream = streamed(lines)
     let behind = 1
     answer = async (url, init) => {
       if (init?.method === 'POST') {
         posts.push({ url, body: init.body ? (JSON.parse(String(init.body)) as Json) : {} })
         if (url === '/host/updates') {
           behind = 0
-          return { ok: true, checkout: checkout(id, 0), changed: ['manifest.ts'], installed: false, installFailed: null, lockfileReset: false, restart }
+          return stream.response
         }
-        return { ok: true }
+        return { ok: true, presence: { condition: 'ready' } }
       }
-      return url.startsWith('/host/updates') ? check([checkout(id, behind), checkout('b', 0)], restartable) : {}
+      return url.startsWith('/host/updates') ? { ...check([checkout('a', behind), checkout('b', 0)]), ...more } : {}
     }
     const host = await mount()
     await press(host)
@@ -339,55 +370,152 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const update = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Update') as HTMLButtonElement
     await act(async () => update.click())
     await settle()
-    expect(indicatorText()).toBe('Restart to update')
-    return { host, posts }
+    return { host, posts, stream }
   }
 
-  test('pressing "Restart to update" restarts the module that is waiting, and says so', async () => {
-    const { host, posts } = await updatedAwaitingRestart()
-    await press(host)
+  const running = () => document.querySelector('[data-testid="updates-running"]')?.textContent ?? ''
+  const buttons = () => [...document.querySelectorAll('button')].map((b) => b.textContent)
+
+  test('an update that needs a restart does it itself: the row says each step and ends on running the new code', async () => {
+    const { posts, stream } = await updating([{ phase: 'updating' }, { phase: 'installing' }, { phase: 'restarting' }, updatedLine({ ran: 'restarted' })])
+    await stream.next()
+    expect(running()).toContain('Updating…')
+    expect(running()).toContain('Cancel')
+    await stream.next()
+    expect(running()).toContain('Installing what changed…')
+    /* The checkout has moved: nothing is cancelled from here on. */
+    expect(running()).not.toContain('Cancel')
+    await stream.next()
+    expect(running()).toContain('Restarting…')
+    expect(indicatorText()).toBe('Restarting a')
+    await stream.next()
     await settle()
-    expect(posts.filter((one) => one.url === '/host/start').map((one) => one.body)).toEqual([{ module: 'a' }])
-    expect(panels()).toHaveLength(1)
-    expect(text()).toContain('Restarted — it is running the new code.')
+    expect(text()).toContain('Updated — running the new code. It was restarted, which ended anything it was running.')
+    /* No second press: nothing was asked of `/host/start`, and nothing offers to. */
+    expect(posts.map((one) => one.url)).toEqual(['/host/updates'])
+    expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
+    expect(text()).not.toContain('Restart it')
     expect(indicatorText()).toBe('')
   })
 
-  test('the press restarts from a closed panel too, and opens it on the result', async () => {
-    const { host, posts } = await updatedAwaitingRestart()
-    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  test('a page-only update, and one for a module nothing has open, say so and ask for nothing', async () => {
+    const first = await updating([updatedLine({ ran: 'page' }, { changed: ['src/app.tsx'] })])
+    await first.stream.next()
     await settle()
-    expect(panels()).toHaveLength(0)
-    expect(indicatorText()).toBe('Restart to update')
-    await press(host)
+    expect(text()).toContain('Updated — running the new code. Only its page changed')
+    expect(indicatorText()).toBe('')
+    act(() => unmount?.())
+    unmount = null
+    document.body.innerHTML = ''
+
+    const second = await updating([updatedLine({ ran: 'idle' })])
+    await second.stream.next()
     await settle()
-    expect(posts.filter((one) => one.url === '/host/start')).toHaveLength(1)
-    expect(text()).toContain('Restarted — it is running the new code.')
+    expect(text()).toContain('It is not running; it starts on the new code when a kehikko that has it is opened.')
+    expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
   })
 
-  test('a restart the host refuses is shown, with the panel open', async () => {
-    const { host } = await updatedAwaitingRestart()
-    const was = answer
-    answer = async (url, init) => (url === '/host/start' ? { ok: false, why: 'a has no run.sh to start it with.' } : was(url, init))
+  test('a module that did not come back says what it printed, and Try again starts it', async () => {
+    const { posts, stream } = await updating([
+      { phase: 'restarting' },
+      updatedLine({ ran: 'failed', why: 'a was started and stopped again without answering.', detail: ['error: cannot find module ./gone.ts'] }),
+    ])
+    await stream.next()
+    await stream.next()
+    await settle()
+    const failed = document.querySelector('[data-testid="updates-failed"]')
+    expect(failed?.textContent).toContain('Updated, but it did not start on the new code.')
+    expect(failed?.textContent).toContain('error: cannot find module ./gone.ts')
+    expect(indicatorText()).toBe('')
+    const again = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Try again') as HTMLButtonElement
+    await act(async () => again.click())
+    await settle()
+    expect(posts.filter((one) => one.url === '/host/start').map((one) => one.body)).toEqual([{ module: 'a' }])
+    expect(text()).toContain('Updated — running the new code.')
+  })
+
+  test('what the server still knows is shown by a page that did nothing: an update running, a module left on old code', async () => {
+    answer = async (url) =>
+      url.startsWith('/host/updates')
+        ? { ...check([checkout('a', 0), checkout('b', 0), checkout('c', 0)]), progress: { a: 'restarting' }, stale: { b: 'its registration says to keep it.' } }
+        : {}
+    const host = await mount()
     await press(host)
     await settle()
-    expect(panels()).toHaveLength(1)
-    expect(text()).toContain('a has no run.sh to start it with.')
+    const rows = [...document.querySelectorAll('[data-testid="updates-row"]')] as HTMLElement[]
+    expect(rows.map((row) => row.dataset.state).sort()).toEqual(['failed', 'updating'])
+    expect(text()).toContain('Restarting…')
+    expect(text()).toContain('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
+    expect(indicatorText()).toBe('Restarting a')
+    expect(text()).not.toContain('Restart to update')
   })
+
+  test('the row says before the press what the update will do, and "Update all" names what will be restarted', async () => {
+    answer = async (url) =>
+      url.startsWith('/host/updates')
+        ? { ...check([checkout('terminal', 1), checkout('notes', 2), checkout('paper', 1), checkout('idle', 1)]), previews: { terminal: 'restart', notes: 'page', paper: 'self' } }
+        : {}
+    const host = await mount()
+    await press(host)
+    await settle()
+    const said = Object.fromEntries(
+      ([...document.querySelectorAll('[data-testid="updates-row"]')] as HTMLElement[]).map((row) => [
+        row.querySelector('.font-medium')?.textContent,
+        row.querySelector('[data-testid="updates-preview"]')?.textContent,
+      ]),
+    )
+    expect(said).toEqual({
+      terminal: 'It will be restarted, which ends anything it is running.',
+      notes: 'Only its page changes; nothing is restarted.',
+      paper: 'It restarts itself on this change, which ends anything it is running.',
+      /* Not running: nothing to end, so nothing is said. */
+      idle: '',
+    })
+    /* Still one press: the button is the same button. */
+    expect(buttons().filter((label) => label === 'Update')).toHaveLength(4)
+    expect(document.querySelector('[data-testid="updates-preview-all"]')?.textContent).toBe(
+      'terminal and paper will be restarted, which ends anything they are running.',
+    )
+  })
+
+  async function hostUpdated(restartable: boolean) {
+    const posts: string[] = []
+    let behind = 1
+    answer = async (url, init) => {
+      if (init?.method === 'POST') {
+        posts.push(url)
+        if (url === '/host/updates') {
+          behind = 0
+          return { done: { checkout: checkout('host', 0), changed: ['server/x.ts'], installed: false, installFailed: null, restart: 'host', module: null } }
+        }
+        return { ok: true }
+      }
+      return url.startsWith('/host/updates') ? check([checkout('host', behind), checkout('b', 0)], restartable) : {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    const update = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Update') as HTMLButtonElement
+    await act(async () => update.click())
+    await settle()
+    /* The host's own checkout, in the host's own words — never the app's. */
+    expect(indicatorText()).toBe('Restart the host')
+    return { host, posts }
+  }
 
   test('an updated host is restarted through the app when the app can do it', async () => {
-    const { host, posts } = await updatedAwaitingRestart('host', true)
+    const { host, posts } = await hostUpdated(true)
     await press(host)
     await settle()
-    expect(posts.map((one) => one.url)).toContain('/host/restart')
+    expect(posts).toContain('/host/restart')
     expect(text()).toContain('Restarting Kehikot')
   })
 
   test('with nothing the press can restart, it opens the panel on what to do instead of closing it', async () => {
-    const { host, posts } = await updatedAwaitingRestart('host', false)
+    const { host, posts } = await hostUpdated(false)
     await press(host)
     await settle()
-    expect(posts.some((one) => one.url === '/host/restart')).toBe(false)
+    expect(posts.includes('/host/restart')).toBe(false)
     expect(panels()).toHaveLength(1)
     expect(text()).toContain('quit and reopen Kehikot')
   })

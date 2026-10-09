@@ -54,30 +54,35 @@ describe('what gets a row of its own in the panel', () => {
     const outcomes: Outcome[] = [
       { kind: 'updated', note: 'Updated', restart: null, installFailed: null },
       { kind: 'failed', why: 'no' },
-      { kind: 'restarted' },
+      { kind: 'failed', why: 'it did not come back', retry: true },
     ]
     for (const outcome of outcomes) expect(needsAttention(one(0), outcome)).toBe(true)
+  })
+
+  test('and so does one the server says something about, with nothing done on this page', () => {
+    expect(needsAttention(one(0), null, true)).toBe(true)
+    const { attention } = triage([one(0, { id: 'a' }), one(0, { id: 'b' })], {}, new Set(['b']))
+    expect(attention.map((r) => r.id)).toEqual(['b'])
   })
 
   test('the level rest is counted apart, and the pressing come first', () => {
     const level = (id: string) => one(0, { id })
     const { attention, level: rest } = triage(
       [level('a'), one(0, { id: 'f', fetchFailed: 'offline' }), level('b'), unreadable, one(3, { id: 'n' }), level('c')],
-      { b: { kind: 'restarted' } },
+      { b: { kind: 'updated', note: 'Updated', restart: null, installFailed: null } },
     )
     expect(attention.map((r) => r.id)).toEqual(['n', 'u', 'f', 'b'])
     expect(rest.map((r) => r.id)).toEqual(['a', 'c'])
   })
 })
 
-describe('Restart Kehikot', () => {
+describe('Restart the host', () => {
   const host: Outcome = { kind: 'updated', note: '', restart: 'host', installFailed: null }
   test('is offered only when the host server changed and the app can restart it', () => {
     expect(offersAppRestart(host, true)).toBe(true)
     expect(offersAppRestart(host, false)).toBe(false)
-    expect(offersAppRestart({ ...host, restart: 'module' }, true)).toBe(false)
     expect(offersAppRestart({ ...host, restart: null }, true)).toBe(false)
-    expect(offersAppRestart({ kind: 'restarted' }, true)).toBe(false)
+    expect(offersAppRestart({ kind: 'failed', why: 'no' }, true)).toBe(false)
     expect(offersAppRestart(null, true)).toBe(false)
   })
 })

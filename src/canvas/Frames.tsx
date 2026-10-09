@@ -5,7 +5,7 @@ import type { ConversationWatcher } from '@/host/conversation.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
-import { ModuleFrame } from './ModuleFrame.tsx'
+import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
 
 /**
  * Every module's page, loaded once, positioned over the container that asked for it.
@@ -70,6 +70,12 @@ export interface Rect {
 
 export interface Framing {
   module: FramedModule
+  /**
+   * Counts the restarts the host has done to this module while its frame stayed
+   * mounted. In the key, so each one is a new document from the new server —
+   * see `restarted` in `host/standing.ts`.
+   */
+  generation: number
   /** Where its container's body is, or `null` if that container is not on screen. */
   rect: Rect | null
   /** On the open canvas, greeted, and answering. Anything else is hidden. */
@@ -97,6 +103,7 @@ export function Frames({
   bus,
   presses,
   watcherFor,
+  onDocument,
   moving,
 }: {
   framings: readonly Framing[]
@@ -122,6 +129,8 @@ export function Frames({
    */
   presses: Presses
   watcherFor(id: string): ConversationWatcher
+  /** A frame's document was mounted, finished loading, or went away — what arms the cover. */
+  onDocument(id: string, event: DocumentEvent): void
   /**
    * The container being dragged or resized right now, if any.
    *
@@ -148,14 +157,14 @@ export function Frames({
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, rect, shown, state, pinned, prompt, filters }) => {
+      {framings.map(({ module, generation, rect, shown, state, pinned, prompt, filters }) => {
         const visible = shown && !!rect
         return (
         <div
           /* The entry is in the key, so a page whose container switched version
              — a different address, on the version's own port — is a new
              document rather than the old one pointed somewhere else. */
-          key={`${module.id}|${module.entry}`}
+          key={`${module.id}|${module.entry}|${generation}`}
           data-frame={module.id}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{
@@ -177,6 +186,7 @@ export function Frames({
             bus={bus}
             presses={presses}
             watcher={watcherFor(module.id)}
+            onDocument={onDocument}
             state={state}
             pinned={pinned}
             prompt={prompt}

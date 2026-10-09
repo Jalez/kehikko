@@ -71,6 +71,18 @@ export function versionsDir(env: Env = process.env): string {
 }
 
 /**
+ * Where the output of the modules this host starts is kept, one file per
+ * module — see `server/moduleLog.ts`. `~/Library/Logs/Kehikot` on macOS, where
+ * Console looks; beside the rest of the machine's Kehikot state elsewhere.
+ * `KEHIKOT_LOGS_DIR` overrides it (tests, scratch hosts).
+ */
+export function logsDir(env: Env = process.env, platform: string = process.platform): string {
+  if (env.KEHIKOT_LOGS_DIR) return env.KEHIKOT_LOGS_DIR
+  if (platform === 'darwin') return join(home(env), 'Library', 'Logs', 'Kehikot')
+  return join(machineDir(env, platform), 'logs')
+}
+
+/**
  * Where official modules installed from the app are cloned: one checkout per
  * module id, `installed/<id>/` — see `server/installs.ts`. Machine-level for
  * `versionsDir`'s reason: it is program code, and it must never land in

@@ -27,21 +27,28 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
-import { answered, gone, Nursery, setPageOrigins, start, startable } from './launch.ts'
+import { answered, gone, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import {
-  asleepLine,
+  exitedLine,
   Idleness,
-  startingLine,
-  STARTING_FOR_MS,
+  inFlight,
+  lifecycleLine,
+  lifecycleOf,
+  MIN_RUN_MS,
   toStart,
+  unansweringLine,
   toStop,
   toWatch,
   WATCH_EVERY_MS,
+  type Doing,
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
-import { readRegistrations, registryDir, type RegistrationSweep } from './registrations.ts'
+import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
+import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
+import { Staleness } from './stale.ts'
+import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
 import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
 import { toolsAt } from './tools.ts'
@@ -52,7 +59,7 @@ import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
-import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
+import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { installDesk } from './installs.ts'
 import { OFFICIAL } from './official.ts'
@@ -687,6 +694,31 @@ const starting = new Map<string, number>()
 const sleeping = new Map<string, number>()
 
 /**
+ * The run of each module's script this host is waiting to hear the end of,
+ * by when it was started. An exit is acted on only when it is still the run
+ * named here — one the host stopped on purpose, or replaced, is taken out first.
+ */
+const runs = new Map<string, number>()
+
+/** The exit code of each module's last run that has ended; null when a signal ended it. */
+const exits = new Map<string, number | null>()
+
+/** A module the host ran that stopped again without answering, until something clears it. */
+const failures = new Map<string, { line: string; detail: string[] }>()
+
+/** An update or a restart the host is running for a module right now. */
+const working = new Map<string, 'updating' | 'restarting'>()
+
+/** The modules an update or a restart has in hand. Nothing else starts those meanwhile, and their exits are not news. */
+const inHand = new Set<string>()
+
+/** What an update has reached, per checkout, for a page that was not there when it began. */
+const progress = new Map<string, UpdateStep>()
+
+/** Which modules are running older code than their checkout. See `stale.ts`. */
+const staleness = new Staleness()
+
+/**
  * Which modules are on a kehikko that a live page says it has open.
  *
  * The whole activation rule, and it is one sentence: a module is needed when
@@ -708,13 +740,23 @@ function neededNow(now = Date.now()): Set<string> {
   return needed
 }
 
-/** Whether a start the host asked for is still recent enough to be called one. */
+/** What the host is doing to one module, for `lifecycleOf`. */
+function doing(id: string): Doing {
+  const ranAt = starting.get(id) ?? null
+  const alive = nursery.holds(id)
+  return {
+    work: working.get(id) ?? null,
+    ranAt,
+    alive,
+    /* Read only for a start still in flight: it is a file read. */
+    installing: ranAt !== null && alive && installing(logFile(id)),
+    asleep: sleeping.has(id),
+  }
+}
+
+/** Whether a start, install, update or restart the host is running for it is still in flight. */
 function isStarting(id: string, now: number): boolean {
-  const at = starting.get(id)
-  if (at === undefined) return false
-  if (now - at < STARTING_FOR_MS) return true
-  starting.delete(id)
-  return false
+  return inFlight(lifecycleOf(true, doing(id), now))
 }
 
 /**
@@ -740,6 +782,8 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
   idleness.forgetAllBut(here)
   for (const id of [...starting.keys()]) if (!here.has(id)) starting.delete(id)
   for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
+  for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
+  staleness.forgetAllBut(here)
   for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
 
   return presences.map((presence) => {
@@ -756,7 +800,10 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
       ours: startedAt !== null,
       keep: registration?.keep === true,
       idleSince: idleness.since(presence.id, startedAt),
-      starting: isStarting(presence.id, now),
+      /* An update in hand counts too: it decides for itself whether to start
+         the module again, and nothing else may in the meantime. */
+      starting: isStarting(presence.id, now) || inHand.has(presence.id),
+      failed: failures.has(presence.id),
     }
   })
 }
@@ -780,13 +827,90 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
 function begin(id: string): void {
   const can = startable(registered.get(id) ?? null)
   if (!can.ok) return
-  const ran = start(can.run)
+  const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
+  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko has it (pid ${ran.child.pid})`)
+}
+
+/**
+ * Run one module's script. The only place this host does.
+ *
+ * Its output goes to the module's log, the child goes into the nursery, and
+ * the host is told when it ends — see `ended`. Whatever was believed about the
+ * module before (asleep, failed, behind its checkout) stops being believed: a
+ * process started now runs the checkout as it is now.
+ */
+function run(id: string, runnable: Runnable): Started {
+  const log = logFile(id)
+  let logged = true
+  try {
+    openRun(log)
+  } catch {
+    /* A log that cannot be written is not a reason to refuse to start. */
+    logged = false
+  }
   const at = Date.now()
-  nursery.keep(id, { child: ran.child, at, url: can.run.url })
+  const ran = start(logged ? { ...runnable, log } : runnable, (code) => {
+    exits.set(id, code)
+    void ended(id, at, code)
+  })
+  if (!ran.ok || !ran.child) return ran
+  nursery.keep(id, { child: ran.child, at, url: runnable.url })
+  runs.set(id, at)
   starting.set(id, at)
   sleeping.delete(id)
-  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko has it (pid ${ran.child.pid})`)
+  failures.delete(id)
+  staleness.fresh(id)
+  return ran
+}
+
+/** Stop a module this host holds, on purpose: its exit is not news. */
+function halt(id: string): ReturnType<Nursery['stop']> {
+  runs.delete(id)
+  return nursery.stop(id)
+}
+
+/**
+ * A process this host started has ended.
+ *
+ * This is how a dead module stops looking alive without waiting for the
+ * thirty-second watch: the runtime says so, once, and the host looks. Nothing
+ * is polled. A module the host did not start still waits for the watch — there
+ * is no handle to hear from.
+ *
+ * What it does depends on what the process had done. One that ended before it
+ * ever answered, or within `MIN_RUN_MS`, failed to start: the container says
+ * what it printed and it is NOT started again, or a broken module would be
+ * spawned in a loop. One that had been running is a module that died — a Vite
+ * config reload ends the process on purpose — and the ordinary policy starts
+ * it again if a kehikko still has it.
+ */
+async function ended(id: string, at: number, code: number | null): Promise<void> {
+  if (runs.get(id) !== at) return
+  runs.delete(id)
+  /* An update or a restart in hand already knows, and decides for itself. */
+  if (working.has(id) || inHand.has(id)) return
+  try {
+    /* A sweep already in flight may have asked before the process ended. */
+    if (sweeping) await sweeping.catch(() => null)
+    const view = await sweep()
+    const presence = view.presences.find((one) => one.id === id)
+    /* Something answers there: this module was already running, and the copy
+       the host started stepped aside, which is what it is meant to do. */
+    if (!presence || presence.reached) return
+    const neverAnswered = starting.has(id)
+    if (neverAnswered || Date.now() - at < MIN_RUN_MS) {
+      starting.delete(id)
+      failures.set(id, { line: exitedLine(id, presence.at, code, logFile(id)), detail: tail(logFile(id)) })
+      console.log(`kehikko: ${id} stopped again${code === null ? '' : ` (exit code ${code})`} without answering — see ${logFile(id)}`)
+    } else {
+      console.log(`kehikko: ${id} is no longer running — the process the host started ended`)
+    }
+    govern(view.presences)
+    wakes.registryChanged()
+  } catch {
+    /* Nothing found out; the watch asks again within half a minute. */
+  }
 }
 
 /**
@@ -813,7 +937,7 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
   versionRuns.reconcile(pinUses(canvases), pinsNeeded(canvases, new Set(openness.every(now))), mayStart)
 
   for (const id of toStop(standing, now)) {
-    const was = nursery.stop(id)
+    const was = halt(id)
     if (was !== 'stopped') continue
     sleeping.set(id, now)
     starting.delete(id)
@@ -910,14 +1034,13 @@ async function watch(standing: readonly Standing[]): Promise<void> {
  * back — however it came back — stops being described as asleep here, which is
  * how a module the other agent restarted by hand loses the word.
  */
-function lifecycleOf(presence: Presence, now: number): Lifecycle | undefined {
+function saidOf(presence: Presence, now: number): Lifecycle | undefined {
   if (presence.condition !== 'silent') {
     starting.delete(presence.id)
     sleeping.delete(presence.id)
-    return undefined
+    failures.delete(presence.id)
   }
-  if (isStarting(presence.id, now)) return 'starting'
-  return sleeping.has(presence.id) ? 'asleep' : undefined
+  return lifecycleOf(presence.condition === 'silent', doing(presence.id), now)
 }
 
 /** A sweep as the page receives it, with the host's own lifecycle words on it. */
@@ -925,21 +1048,27 @@ function told(view: Swept): Swept {
   const now = Date.now()
   return {
     ...view,
-    presences: view.presences.map((presence) => {
-      const lifecycle = lifecycleOf(presence, now)
-      if (!lifecycle) return presence
+    presences: view.presences.map((seen) => {
+      const startedAt = nursery.startedAt(seen.id)
+      const presence = startedAt === null ? seen : { ...seen, run: startedAt }
+      const lifecycle = saidOf(presence, now)
+      if (!lifecycle) {
+        if (presence.condition !== 'silent') return presence
+        /* Not running, and the host knows more than that: it ran it, and it
+           stopped again or never answered. The last it printed goes with it. */
+        const failed = failures.get(presence.id)
+        if (failed) return { ...presence, line: failed.line, detail: failed.detail }
+        if (nursery.holds(presence.id)) {
+          const log = logFile(presence.id)
+          return { ...presence, line: unansweringLine(presence.id, presence.at, log), detail: tail(log) }
+        }
+        return presence
+      }
       /* The line is replaced, not appended to. `discover.ts` wrote a good
          sentence about a program that is not running and does not know why;
          this host DOES know why, and showing both would be the container saying
-         two things about one fact. See `lifecycle.ts` for the two sentences. */
-      return {
-        ...presence,
-        lifecycle,
-        line:
-          lifecycle === 'starting'
-            ? startingLine(presence.id, presence.at)
-            : asleepLine(presence.id, presence.at),
-      }
+         two things about one fact. See `lifecycle.ts` for the sentences. */
+      return { ...presence, lifecycle, line: lifecycleLine(lifecycle, presence.id, presence.at) }
     }),
   }
 }
@@ -984,6 +1113,8 @@ setInterval(() => {
       const now = Date.now()
       const standing = standings((await seen).presences, now)
       act(standing, now, false)
+      /* The logs of what is running, kept to their bound. A stat each. */
+      for (const id of nursery.ids) trim(logFile(id))
       /* Not awaited: the reaper's decision is arithmetic and is already made,
          and the watch is network. A tick that waited on half a dozen ports
          before reaping would make reclaiming memory depend on a module being
@@ -996,6 +1127,273 @@ setInterval(() => {
   /* The sooner of the two, so that either constant may be lowered on its own
      argument without the other silently capping it. */
 }, Math.min(REAP_EVERY_MS, WATCH_EVERY_MS)).unref()
+
+/** How long a pressed start waits for an answer before saying it has not come yet. */
+const ANSWERS_WITHIN_PRESS_MS = 6_000
+/** How long an update waits for the module it restarted: it may be installing, and pre-bundling after. */
+const ANSWERS_WITHIN_UPDATE_MS = 120_000
+
+/** For each module checkout that is behind and running: what its update would do. See `previewUpdate`. */
+async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<string, UpdatePreview>> {
+  const presences = seen ? (await seen.catch(() => null))?.presences ?? [] : []
+  const said: Record<string, UpdatePreview> = {}
+  for (const one of checkouts) {
+    if ('error' in one || one.id === 'host' || one.behind === 0 || one.blocked !== null) continue
+    const running = presences.find((presence) => presence.id === one.id)?.reached === true
+    if (!running) continue
+    const preview = previewUpdate(await incomingFiles(one.dir), serverGraph(one.dir), {
+      running,
+      keep: registered.get(one.id)?.keep === true,
+    })
+    if (preview) said[one.id] = preview
+  }
+  return said
+}
+
+type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: string }
+
+/**
+ * Stop a module so that it can be started again, if this host may.
+ *
+ * Stopping is only ever something this host may do to a program it started,
+ * and `keep` is how somebody says not even then — see the essay in
+ * `lifecycle.ts`. The one widening: a module the nursery does not hold may
+ * still be stopped when the program on its port is proven to be running from
+ * the registered directory — the modules a previous host started and this one
+ * inherited. The proof and its limits are in `takeover.ts`.
+ */
+async function haltForRestart(id: string, registration: Registration | null, runnable: Runnable): Promise<Halted> {
+  const standing = registration ? await look(registration) : null
+  if (!standing?.reached) {
+    /* Nothing answers, but a process this host started may still be there —
+       compiling, or hung. It goes first, or two copies race for the port. */
+    if (nursery.holds(id)) halt(id)
+    return { ok: true, was: 'not-running' }
+  }
+  if (registration?.keep === true) {
+    return {
+      ok: false,
+      why:
+        `${id} is running at ${runnable.url}, and its registration says to keep it. `
+        + 'This host will not stop it — that flag exists so nothing reaps a program holding live work. '
+        + 'Stop it where you started it if you want it restarted.',
+    }
+  }
+  if (halt(id) === 'not-ours') {
+    const taken = await takeOver(id, runnable, systemProcesses)
+    if (taken.kind === 'refused') return { ok: false, why: taken.why }
+    if (taken.kind === 'stopped') {
+      console.log(
+        `kehikko: stopped ${id} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
+        + `to restart it — it was running from ${runnable.dir}`,
+      )
+    }
+  }
+  /* Its own port has to come free before the replacement asks for it, or the
+     new process finds the old one still listening, decides a copy of itself is
+     already running, and exits. */
+  await gone(runnable.url, WELL_KNOWN)
+  return { ok: true, was: 'running' }
+}
+
+type Came = { ok: true; answered: boolean; detail: string[]; presence: Presence | null } | { ok: false; why: string; detail?: string[] }
+
+/**
+ * Run a module's script and wait for it to answer, for at most `within`.
+ *
+ * Started is not running, so the module is given time to come up and is then
+ * asked. The wait ends early when the process ends: a script that has exited
+ * will not answer, and the reason is in what it printed.
+ */
+async function bringUp(id: string, runnable: Runnable, within: number): Promise<Came> {
+  exits.delete(id)
+  const ran = run(id, runnable)
+  if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
+  const alive = () => !ran.child || ran.child.alive()
+  const paths = [WELL_KNOWN, LEGACY_WELL_KNOWN]
+  const until = Date.now() + within
+  let up = false
+  /* Asked a second and a half at a time, so an exit ends the wait soon after it happens. */
+  while (!up && alive() && Date.now() < until) up = await answered(runnable.url, paths, Math.min(1500, until - Date.now()))
+  /* The process ended and something else may answer there: the module was
+     already running, and the copy just started stepped aside. */
+  if (!up && !alive()) up = await answered(runnable.url, paths, 600)
+  const log = logFile(id)
+  if (!up && !alive()) {
+    const detail = tail(log)
+    starting.delete(id)
+    runs.delete(id)
+    failures.set(id, { line: exitedLine(id, runnable.url, exits.get(id) ?? null, log), detail })
+    return { ok: false, why: `${id} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
+  }
+  const view = told(await sweep())
+  return { ok: true, answered: up, detail: up ? [] : tail(log), presence: view.presences.find((p) => p.id === id) ?? null }
+}
+
+type Restarted =
+  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null }
+  | { ok: false; why: string; detail?: string[]; refused?: boolean }
+
+/**
+ * Stop a module if it is running, start it, and say what came of it.
+ *
+ * One path for the Start button on a container, the retry in the Updates
+ * panel, and the restart an update does by itself — so what "restart" means,
+ * and every reason it is refused, is written once.
+ */
+async function restart(id: string, registration: Registration | null, runnable: Runnable, within: number): Promise<Restarted> {
+  const mine = !inHand.has(id)
+  inHand.add(id)
+  try {
+    const halted = await haltForRestart(id, registration, runnable)
+    if (!halted.ok) return { ...halted, refused: true }
+    /* Said only of a module that was running: one that was not is starting. */
+    if (halted.was === 'running') working.set(id, 'restarting')
+    wakes.registryChanged()
+    return await bringUp(id, runnable, within)
+  } finally {
+    working.delete(id)
+    if (mine) inHand.delete(id)
+    wakes.registryChanged()
+  }
+}
+
+/** `applying` is the checkout having moved: from there nothing is cancelled. */
+type UpdateStep = 'updating' | 'applying' | 'installing' | 'restarting'
+type Phase = (now: UpdateStep) => void
+
+/** How long a module the host may not stop is given to end by itself after its server files changed. */
+const ENDS_ITSELF_WITHIN_MS = 4_000
+
+/** Whether nothing answers at a module's address any more, asked for a few seconds. */
+async function wentAway(registration: Registration): Promise<boolean> {
+  const until = Date.now() + ENDS_ITSELF_WITHIN_MS
+  while (Date.now() < until) {
+    if (!(await look(registration)).reached) return true
+    await new Promise((wake) => setTimeout(wake, 300))
+  }
+  return false
+}
+
+/** The host's own checkout: nothing here can restart this process, so it only says whether it must be. */
+async function updateHost(place: Place, signal: AbortSignal, phase: Phase): Promise<unknown> {
+  const done = await update(place, signal, { merged: () => phase('applying'), installing: () => phase('installing') })
+  if (!done.ok) return { error: done.why }
+  return { done: { ...done, restart: hostNeedsRestart(done.changed) ? 'host' : null, module: null } }
+}
+
+/**
+ * What an update came to for the module itself, after its checkout moved.
+ *
+ *  - `page`: only its page changed, which reloads itself. Nothing was restarted.
+ *  - `restarted`: the host stopped it and it answers again, on the new code.
+ *  - `started`: it was not running but a kehikko has it, so the host started it.
+ *  - `idle`: it is not running and nothing open has it. It starts on the new code when next opened.
+ *  - `stale`: it is still running the old code, and `why` says what stops this host restarting it.
+ *  - `failed`: the host stopped it and it did not come back; `why` and `detail` say what it printed.
+ */
+type ModuleOutcome =
+  | { ran: 'page' | 'restarted' | 'started' | 'idle' }
+  | { ran: 'stale'; why: string }
+  | { ran: 'failed'; why: string; detail: string[] }
+
+/**
+ * Update one module and leave it running what was pulled, with no second press.
+ *
+ * `restartDecision` says whether the change needs a restart at all (see
+ * `restart.ts` for the rule and why it errs towards restarting). When it does,
+ * the module is stopped BEFORE its dependencies are installed, so the old
+ * process is never running over a half-replaced `node_modules`, and started
+ * again after. From the stop until it answers, nothing else may start it
+ * (`inHand`) and its container says what is happening (`working`).
+ *
+ * The module may have ended by itself in the meantime — a Vite config reload
+ * exits the process — and that changes nothing: it is not answering, so it is
+ * started, and what starts now runs the checkout as it is now.
+ */
+async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Promise<unknown> {
+  const id = place.id
+  const registration = await registrationOf(id)
+  const can = startable(registration)
+  inHand.add(id)
+  let outcome: ModuleOutcome = { ran: 'page' }
+  /* Whether the host has taken the module down and owes it a start. */
+  let owed = false
+  try {
+    const done = await update(place, signal, {
+      async merged(changed) {
+        phase('applying')
+        const decision = restartDecision(changed, serverGraph(place.dir))
+        if (!decision.restart) return
+        const running = registration ? (await look(registration)).reached : false
+        if (!running && !nursery.holds(id) && !neededNow().has(id)) {
+          outcome = { ran: 'idle' }
+          return
+        }
+        if (!can.ok) {
+          outcome = running ? { ran: 'stale', why: can.why } : { ran: 'idle' }
+          return
+        }
+        /* Said BEFORE the module is stopped, so the cover is up when its page
+           loses its server and not a moment after. A registration that says
+           `keep` is refused without anything being stopped, so it is not said. */
+        if (registration?.keep !== true) {
+          working.set(id, 'updating')
+          wakes.registryChanged()
+        }
+        const halted = await haltForRestart(id, registration, can.run)
+        if (!halted.ok) {
+          working.delete(id)
+          wakes.registryChanged()
+          outcome = { ran: 'stale', why: halted.why }
+          return
+        }
+        owed = true
+        outcome = { ran: halted.was === 'running' ? 'restarted' : 'started' }
+        console.log(`kehikko: updating ${id} needs a restart (${decision.because.join(', ')})`)
+      },
+      installing: () => phase('installing'),
+    })
+    if (!done.ok) return { error: done.why }
+
+    /* Refused, but look at what is true: a module whose server files changed
+       usually ends by itself (a Vite config reload exits the process), and one
+       that has is not running old code — it is not running, and is started. */
+    if ((outcome as ModuleOutcome).ran === 'stale' && can.ok && registration && (await wentAway(registration))) {
+      owed = true
+      outcome = { ran: 'restarted' }
+      working.set(id, 'updating')
+      wakes.registryChanged()
+    }
+
+    if (owed && can.ok) {
+      /* The container goes on saying it is being updated; only the row needs
+         to know which step this is. */
+      phase('restarting')
+      const came = await bringUp(id, can.run, ANSWERS_WITHIN_UPDATE_MS)
+      if (!came.ok) outcome = { ran: 'failed', why: came.why, detail: came.detail ?? [] }
+      else if (!came.answered) {
+        outcome = {
+          ran: 'failed',
+          why: `${id} was started on the new code and has not answered after ${ANSWERS_WITHIN_UPDATE_MS / 1000} seconds. It is still running; all of what it printed is in ${logFile(id)}.`,
+          detail: came.detail,
+        }
+      }
+    }
+    /* Assigned inside the hook, which the compiler does not follow. */
+    const came = outcome as ModuleOutcome
+    if (came.ran === 'stale') staleness.leftBehind(id, came.why)
+    return { done: { ...done, restart: null, module: came } }
+  } finally {
+    working.delete(id)
+    inHand.delete(id)
+    /* Whatever happened, the pages hear what is true now. */
+    void sweep()
+      .then((view) => govern(view.presences))
+      .catch(() => null)
+      .finally(() => wakes.registryChanged())
+  }
+}
 
 /**
  * Where the page is, which is not here.
@@ -1559,6 +1957,14 @@ const server = Bun.serve({
         checked: new Date().toISOString(),
         checkouts: [...checkouts, ...unreadable],
         restartable: RESTART_FILE !== null,
+        /* What only this server knows, so a page that reloads still reads it:
+           an update still running, and a module left on old code. */
+        progress: Object.fromEntries(progress),
+        stale: staleness.all(),
+        /* What each update would do to its module if pressed now, so the row
+           can say so first. From the upstream as already fetched and the last
+           sweep: no second round to the remote, and no asking of ports. */
+        previews: await updatePreviews(checkouts),
         /* Which modules have containers pinned to a version, so the panel can
            say so and the header does not count them as waiting. */
         pins: pinSummary(listCanvases(db)),
@@ -1592,12 +1998,45 @@ const server = Bun.serve({
       const { places } = await topLevels(updatePlaces())
       const place = places.find((one) => one.id === body.id)
       if (!place) return json({ error: `There is no checkout called ${body.id} to update.` }, 404)
-      const done = await update(place, request.signal)
-      if (!done.ok) return json({ error: done.why }, done.status)
-      return json({
-        ...done,
-        restart: place.id === 'host' ? (hostNeedsRestart(done.changed) ? 'host' : null) : done.changed.length ? 'module' : null,
-      })
+      if (progress.has(place.id)) return json({ error: `${place.name} is already being updated.` }, 409)
+      /* An install and a restart outlast the idle timeout, and a line is only
+         written when something changes. */
+      server.timeout(request, 0)
+      /* One JSON object per line: `{phase}` as the update moves, then `{done}`
+         or `{error}`. It is finished whether or not anybody is still reading —
+         see "Cancelling" in `updates.ts`. */
+      const encoder = new TextEncoder()
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            const say = (line: unknown) => {
+              try {
+                controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
+              } catch {
+                /* Nobody is reading any more. */
+              }
+            }
+            const phase: Phase = (now) => {
+              progress.set(place.id, now)
+              say({ phase: now })
+            }
+            try {
+              phase('updating')
+              say(place.id === 'host' ? await updateHost(place, request.signal, phase) : await updateModule(place, request.signal, phase))
+            } catch (error) {
+              say({ error: (error as Error).message })
+            } finally {
+              progress.delete(place.id)
+              try {
+                controller.close()
+              } catch {
+                /* Already closed by the reader going away. */
+              }
+            }
+          },
+        }),
+        { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' } },
+      )
     }
 
     /* The issues this person opened on a module, and a new one. `feedback.ts`. */
@@ -1672,66 +2111,15 @@ const server = Bun.serve({
        * the registered directory — the case of modules a previous host started
        * and this one inherited. The proof and its limits are in `takeover.ts`.
        */
-      const standing = registration ? await look(registration) : null
-      if (standing?.reached) {
-        if (registration?.keep === true) {
-          return json({
-            ok: false,
-            why:
-              `${named} is already running at ${can.run.url}, and its registration says to keep it. `
-              + 'This host will not stop it — that flag exists so nothing reaps a program holding live work. '
-              + 'Stop it where you started it if you want it restarted.',
-          }, 409)
-        }
-        const stopped = nursery.stop(named)
-        if (stopped === 'not-ours') {
-          /* Not started by THIS host — most often started by the host before
-             it, which the desktop app restarts after a host update while the
-             detached modules carry on. Restartable only when the program on
-             the port is proven to run from the registered directory; see
-             `takeover.ts`. */
-          const taken = await takeOver(named, can.run, systemProcesses)
-          if (taken.kind === 'refused') return json({ ok: false, why: taken.why }, 409)
-          if (taken.kind === 'stopped') {
-            console.log(
-              `kehikko: stopped ${named} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
-              + `to restart it — it was running from ${can.run.dir}`,
-            )
-          }
-        }
-        /* Its own port has to come free before the replacement asks for it, or
-           the new process finds the old one still listening, decides a copy of
-           itself is already running, and exits — which is the very thing this
-           branch exists to get past. */
-        await gone(can.run.url, WELL_KNOWN)
-      }
-
-      const ran = start(can.run)
-      /* A press is a start like any other, so its child goes into the nursery
-         beside the ones the policy asked for. Held to the same rule afterwards:
-         the host started it, so the host may stop it when nothing has needed it
-         for the grace period. The alternative — a pressed module living forever
-         — would make the button a way to opt out of the whole policy by
-         accident, and nobody pressing it is asking for that. */
-      if (ran.ok && ran.child) {
-        nursery.keep(named, { child: ran.child, at: Date.now(), url: can.run.url })
-        starting.set(named, Date.now())
-        sleeping.delete(named)
-      }
-      /* Started is not running, so the module is given a moment to come up and
-         is then asked. Sweeping immediately reported every successful start as
-         a failure: the spawn worked, the module answered a second later, and
-         the sweep had already run before the dev server bound its port. */
-      if (ran.ok) await answered(can.run.url, [WELL_KNOWN, LEGACY_WELL_KNOWN])
-      const after = ran.ok ? told(await sweep()) : null
-      /* The child stays on this side. It is what makes the module stoppable —
-         see `Nursery` — and the page has no use for it; a handle the answer
-         carried only because the spawn produced it is not something to serialise
-         into JSON and hand to a browser. */
-      const { child: _held, ...outcome } = ran
+      const done = await restart(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
+      if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [] }, 409)
       return json({
-        ...outcome,
-        presence: after?.presences.find((p) => p.id === named) ?? null,
+        ok: true,
+        command: can.run.command,
+        /* The last it printed, when it has not answered — so the page can say
+           more than "run it yourself and see". */
+        ...(done.answered ? {} : { detail: done.detail }),
+        presence: done.presence,
       })
     }
 
@@ -1908,6 +2296,14 @@ const server = Bun.serve({
         return json({ ok: false, error: 'No module is registered under that id.' }, 404)
       }
       const presence = await look(registration)
+      if (!presence.reached) {
+        /* A page reported that its module stopped answering, and nothing is
+           listening there: the container must not wait for the watch to say so. */
+        void sweep()
+          .then((view) => govern(view.presences))
+          .catch(() => null)
+          .finally(() => wakes.registryChanged())
+      }
       if (presence.condition !== 'ready' || !presence.module) {
         /* It is not answering at all any more, which `discover.ts` already has
            a careful sentence for. Hand that back rather than inventing a second
@@ -1976,6 +2372,11 @@ const server = Bun.serve({
      * a report it then never restored.
      */
     if (url.pathname === '/host/watch' && request.method === 'GET') {
+      /* No idle timeout on this one. Nothing is sent until something happens,
+         so the server's thirty seconds closed every quiet stream, and a wake
+         sent while the page was reconnecting was a wake nobody heard — a
+         container left on what was true before a restart. */
+      server.timeout(request, 0)
       const encoder = new TextEncoder()
       let stop: (() => void) | null = null
       const said = url.searchParams.get('page')

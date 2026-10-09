@@ -38,10 +38,13 @@ export function Start({
 }) {
   const [running, setRunning] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
+  /** The last lines it printed, when the host has them. */
+  const [printed, setPrinted] = useState<string[]>([])
 
   const press = async () => {
     setRunning(true)
     setSaid(null)
+    setPrinted([])
     try {
       const response = await fetch('/host/start', {
         method: 'POST',
@@ -52,6 +55,7 @@ export function Start({
         ok?: boolean
         why?: string
         command?: string
+        detail?: string[]
         presence?: { condition?: string } | null
       }
 
@@ -68,13 +72,11 @@ export function Start({
         return
       }
 
-      /* Ran, and still not answering. Said plainly, with the command, because
-         the next thing a person will do is run it themselves and read what it
-         prints — and this host deliberately discards the module's output rather
-         than holding a pipe nobody drains. */
-      setSaid(
-        `It was started and has not answered yet. If it does not appear, run it yourself and see what it says: ${body.command ?? ''}`,
-      )
+      /* Ran, and still not answering. Said plainly, with what it has printed
+         so far — the host keeps a module's output now (`server/moduleLog.ts`) —
+         and the command, for running it by hand. */
+      setSaid(`It was started and has not answered yet. To run it yourself: ${body.command ?? ''}`)
+      setPrinted(Array.isArray(body.detail) ? body.detail : [])
       onStarted()
     } catch (error) {
       /* The shared sentence — see `host/reachable.ts`. This was the fourth
@@ -92,6 +94,11 @@ export function Start({
         {running ? 'starting…' : 'start it'}
       </Button>
       {said ? <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">{said}</p> : null}
+      {printed.length ? (
+        <pre className="bg-muted text-muted-foreground max-h-28 w-full max-w-[64ch] overflow-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug whitespace-pre-wrap">
+          {printed.join('\n')}
+        </pre>
+      ) : null}
     </div>
   )
 }

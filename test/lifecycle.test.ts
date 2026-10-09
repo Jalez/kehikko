@@ -6,7 +6,14 @@ import {
   GRACE_MS,
   Idleness,
   startingLine,
+  exitedLine,
+  inFlight,
+  INSTALLING_FOR_MS,
+  lifecycleLine,
+  lifecycleOf,
+  STARTING_FOR_MS,
   toStart,
+  type Doing,
   toStop,
   toWatch,
   WATCH_EVERY_MS,
@@ -395,5 +402,59 @@ describe('asleep does not read like broken', () => {
     const said = startingLine('kehikot.notes', 'http://127.0.0.1:7860')
     expect(said).toContain('starting')
     expect(said).toContain('resolves on its own')
+  })
+})
+
+describe('what the host says it is doing', () => {
+  const idle: Doing = { work: null, ranAt: null, alive: false, installing: false, asleep: false }
+
+  test('nothing, of a module that answers and that the host is not touching', () => {
+    expect(lifecycleOf(false, idle, NOW)).toBeUndefined()
+    expect(lifecycleOf(false, { ...idle, ranAt: NOW - 1000, alive: true }, NOW)).toBeUndefined()
+  })
+
+  test('an update or a restart in hand is said even while the old process still answers', () => {
+    expect(lifecycleOf(false, { ...idle, work: 'updating' }, NOW)).toBe('updating')
+    expect(lifecycleOf(true, { ...idle, work: 'restarting' }, NOW)).toBe('restarting')
+  })
+
+  test('starting, for as long as that word is true', () => {
+    expect(lifecycleOf(true, { ...idle, ranAt: NOW - 1000, alive: true }, NOW)).toBe('starting')
+    expect(lifecycleOf(true, { ...idle, ranAt: NOW - STARTING_FOR_MS - 1, alive: true }, NOW)).toBeUndefined()
+  })
+
+  test('installing is its own state, and does not lapse to "not running" after thirty seconds', () => {
+    const installs: Doing = { ...idle, ranAt: NOW - 1000, alive: true, installing: true }
+    expect(lifecycleOf(true, installs, NOW)).toBe('installing')
+    expect(lifecycleOf(true, { ...installs, ranAt: NOW - STARTING_FOR_MS * 4 }, NOW)).toBe('installing')
+    /* Bounded: ten minutes of silence is not an install any more. */
+    expect(lifecycleOf(true, { ...installs, ranAt: NOW - INSTALLING_FOR_MS - 1 }, NOW)).toBeUndefined()
+    /* And only of a process that is still there: one that exited mid-install is not installing. */
+    expect(lifecycleOf(true, { ...installs, alive: false, ranAt: NOW - STARTING_FOR_MS - 1 }, NOW)).toBeUndefined()
+  })
+
+  test('asleep only when nothing is in flight', () => {
+    expect(lifecycleOf(true, { ...idle, asleep: true }, NOW)).toBe('asleep')
+    expect(lifecycleOf(true, { ...idle, asleep: true, ranAt: NOW - 10 }, NOW)).toBe('starting')
+    expect(inFlight('asleep')).toBe(false)
+    expect(inFlight(undefined)).toBe(false)
+    for (const word of ['starting', 'installing', 'updating', 'restarting'] as const) expect(inFlight(word)).toBe(true)
+  })
+
+  test('each word has its own sentence, and a failed start names where the output is', () => {
+    const words = ['starting', 'installing', 'updating', 'restarting', 'asleep'] as const
+    expect(new Set(words.map((word) => lifecycleLine(word, 'kehikot.thing', 'http://127.0.0.1:7999'))).size).toBe(5)
+    expect(exitedLine('kehikot.thing', 'http://127.0.0.1:7999', 1, '/logs/kehikot.thing.log')).toContain('(exit code 1)')
+    expect(exitedLine('kehikot.thing', 'http://127.0.0.1:7999', null, '/logs/kehikot.thing.log')).toContain('/logs/kehikot.thing.log')
+  })
+})
+
+describe('what is not started again on its own', () => {
+  test('a module the host ran that stopped without answering: the container says so, with the button', () => {
+    expect(toStart([standing({ needed: true, answering: false, failed: true })])).toEqual([])
+  })
+
+  test('a module whose process the host started is still running: a second copy would race it for the port', () => {
+    expect(toStart([standing({ needed: true, answering: false, ours: true })])).toEqual([])
   })
 })

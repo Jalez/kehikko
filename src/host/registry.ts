@@ -85,7 +85,11 @@ export interface Presence {
    * press to start would be offering to do what is already happening. See
    * `server/lifecycle.ts`.
    */
-  lifecycle?: 'starting' | 'asleep'
+  lifecycle?: 'starting' | 'installing' | 'updating' | 'restarting' | 'asleep'
+  /** When this host started the process that is there, in ms; absent for one it did not start. */
+  run?: number
+  /** The last lines a module the host started printed, when that start failed. */
+  detail?: string[]
   /** What the module calls itself, when the host read a manifest at all. */
   name?: string
   /**

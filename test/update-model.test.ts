@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { appEngine, connect, readStatus, type AppUpdateStatus } from '../src/host/appUpdate.ts'
-import { appRow, indicator, moduleRow, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
+import { appRow, indicator, moduleNote, moduleRow, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
 import type { Reading } from '../src/host/updates.ts'
 
 /* One update model: the desktop app's updater and the module checkouts, read
@@ -57,23 +57,60 @@ describe('the app row', () => {
 
 describe('a module row', () => {
   test('maps checkouts and what was just done onto the same vocabulary', () => {
-    expect(moduleRow(checkout('a', 0), null, false).state).toBe('uptodate')
-    expect(moduleRow(checkout('a', 2), null, false)).toMatchObject({ state: 'available', behind: 2 })
-    expect(moduleRow(checkout('a', 2, { blocked: 'there are uncommitted changes' }), null, false)).toMatchObject({
+    expect(moduleRow(checkout('a', 0), null, null).state).toBe('uptodate')
+    expect(moduleRow(checkout('a', 2), null, null)).toMatchObject({ state: 'available', behind: 2 })
+    expect(moduleRow(checkout('a', 2, { blocked: 'there are uncommitted changes' }), null, null)).toMatchObject({
       state: 'blocked',
       reason: 'there are uncommitted changes',
     })
-    expect(moduleRow(checkout('a', 0, { fetchFailed: 'offline' }), null, false).state).toBe('failed')
-    expect(moduleRow({ id: 'u', name: 'u', dir: '/u', error: 'not a git checkout' }, null, false)).toMatchObject({
+    expect(moduleRow(checkout('a', 0, { fetchFailed: 'offline' }), null, null).state).toBe('failed')
+    expect(moduleRow({ id: 'u', name: 'u', dir: '/u', error: 'not a git checkout' }, null, null)).toMatchObject({
       state: 'failed',
       reason: 'not a git checkout',
     })
-    expect(moduleRow(checkout('a', 2), null, true)).toMatchObject({ state: 'updating', activity: 'updating' })
-    expect(moduleRow(checkout('a', 2), { kind: 'failed', why: 'no' }, false)).toMatchObject({ state: 'failed', reason: 'no' })
+    expect(moduleRow(checkout('a', 2), null, 'updating')).toMatchObject({ state: 'updating', activity: 'updating' })
+    expect(moduleRow(checkout('a', 2), { kind: 'failed', why: 'no' }, null)).toMatchObject({ state: 'failed', reason: 'no' })
     const updated = { kind: 'updated', note: 'Updated', installFailed: null } as const
-    expect(moduleRow(checkout('a', 0), { ...updated, restart: 'module' }, false).state).toBe('ready')
-    expect(moduleRow(checkout('a', 0), { ...updated, restart: null }, false).state).toBe('uptodate')
-    expect(moduleRow(checkout('a', 0), { kind: 'restarted' }, false).state).toBe('uptodate')
+    expect(moduleRow(checkout('a', 0), { ...updated, restart: null }, null).state).toBe('uptodate')
+    /* Only the host's own checkout is ever left waiting on a restart, and it is not the app's `ready`. */
+    expect(moduleRow(checkout('host', 0), { ...updated, restart: 'host' }, null).state).toBe('reopen')
+  })
+
+  test('every step of an update is the one `updating` state, with its own words', () => {
+    expect(stateText(moduleRow(checkout('a', 2), null, 'updating'))).toBe('Updating…')
+    expect(stateText(moduleRow(checkout('a', 0), null, 'installing'))).toBe('Installing what changed…')
+    expect(stateText(moduleRow(checkout('a', 0), null, 'restarting'))).toBe('Restarting…')
+  })
+
+  test('what the server says is read when this page did nothing: an update still running, a module left on old code', () => {
+    /* A page that reloaded mid-update has no outcome and no press of its own. */
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { phase: 'restarting' })).toMatchObject({
+      state: 'updating',
+      activity: 'restarting',
+    })
+    const stale = moduleRow(checkout('a', 0), null, null, undefined, { stale: 'its registration says to keep it.' })
+    expect(stale).toMatchObject({ state: 'failed', retry: true })
+    expect(stale.reason).toBe('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
+    /* New commits since: the update is what is offered, not a retry that would hide it. */
+    expect(moduleRow(checkout('a', 2), null, null, undefined, { stale: 'kept' })).toMatchObject({ state: 'available', behind: 2 })
+    /* This page's own outcome is newer than the last check. */
+    expect(moduleRow(checkout('a', 0), { kind: 'updated', note: 'n', restart: null, installFailed: null }, null, undefined, { stale: 'x' }).state).toBe('uptodate')
+  })
+
+  test('a module that did not come back can be retried; a refusal to update cannot', () => {
+    expect(moduleRow(checkout('a', 0), { kind: 'failed', why: 'no', retry: true }, null).retry).toBe(true)
+    expect(moduleRow(checkout('a', 2), { kind: 'failed', why: 'no' }, null).retry).toBe(false)
+  })
+
+  test('the sentence a module ends on never asks for a restart', () => {
+    for (const ran of ['page', 'restarted', 'started', 'idle'] as const) {
+      expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart it')
+      expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart to')
+    }
+    expect(moduleNote({ ran: 'restarted' })).toBe('Updated — running the new code. It was restarted, which ended anything it was running.')
+    expect(moduleNote({ ran: 'page' })).toStartWith('Updated — running the new code.')
+    /* Not running and on no open kehikko: said as it is, not as "running". */
+    expect(moduleNote({ ran: 'idle' })).toBe('Updated. It is not running; it starts on the new code when a kehikko that has it is opened.')
   })
 })
 
@@ -83,7 +120,7 @@ describe('the rows together', () => {
     expect(updateRows(status(), modules, {}, null).map((r) => r.id)).toEqual(['app', 'notes', 'paper'])
     expect(updateRows(null, modules, {}, null).map((r) => r.id)).toEqual(['notes', 'paper'])
     expect(updateRows(status({ enabled: false }), modules, {}, null).map((r) => r.id)).toEqual(['notes', 'paper'])
-    expect(updateRows(null, modules, {}, 'notes')[0]?.state).toBe('updating')
+    expect(updateRows(null, modules, {}, { id: 'notes', phase: 'updating' })[0]?.state).toBe('updating')
   })
 })
 
@@ -111,8 +148,26 @@ describe('the header indicator', () => {
       label: 'Restart to update',
       tone: 'action',
     })
-    const module = updateRows(null, [checkout('a', 0)], { a: { kind: 'updated', note: '', restart: 'module', installFailed: null } }, null)
-    expect(indicator(module)?.label).toBe('Restart to update')
+  })
+
+  test('"Restart to update" is the desktop app and nothing else', () => {
+    /* A module just updated, one left on old code, one that failed to come
+       back, one mid-restart: none of them puts those words in the header. */
+    const outcomes = {
+      a: { kind: 'updated', note: 'Updated — running the new code.', restart: null, installFailed: null },
+      b: { kind: 'failed', why: 'it did not start', retry: true },
+    } as const
+    const told = { c: { stale: 'kept' }, d: { phase: 'restarting' } } as const
+    const modules = updateRows(null, ['a', 'b', 'c', 'd'].map((id) => checkout(id, 0)), outcomes, null, {}, told)
+    expect(modules.some((row) => row.state === 'ready')).toBe(false)
+    expect(indicator(modules)).toEqual({ label: 'Restarting d', tone: 'busy' })
+    expect(indicator(modules.filter((row) => row.id !== 'd'))).toBeNull()
+    /* The host's own checkout says it is the host. */
+    const host = updateRows(null, [checkout('host', 0)], { host: { kind: 'updated', note: '', restart: 'host', installFailed: null } }, null)
+    expect(indicator(host)).toEqual({ label: 'Restart the host', tone: 'action' })
+    /* And the app's own update still wins the words. */
+    const both = updateRows(status({ state: 'ready', version: '0.1.2' }), [checkout('host', 0)], { host: { kind: 'updated', note: '', restart: 'host', installFailed: null } }, null)
+    expect(indicator(both)?.label).toBe('Restart to update')
   })
 
   test('counts the updates that can be taken, not the blocked or unreachable ones', () => {
@@ -129,7 +184,7 @@ describe('the header indicator', () => {
   })
 
   test('a module being updated, and an app update that failed', () => {
-    expect(indicator(updateRows(null, [checkout('notes', 1)], {}, 'notes'))?.label).toBe('Updating notes')
+    expect(indicator(updateRows(null, [checkout('notes', 1)], {}, { id: 'notes', phase: 'updating' }))?.label).toBe('Updating notes')
     expect(indicator(rows({ state: 'failed', error: 'x' }))).toEqual({ label: 'Update failed', tone: 'error' })
   })
 })
@@ -138,15 +193,15 @@ describe('the words for a row', () => {
   const app = (more: Partial<AppUpdateStatus>) => appRow(status(more)) as UpdateRow
   test('read the same for the app and a module', () => {
     expect(stateText(app({ state: 'uptodate' }))).toBe('Up to date')
-    expect(stateText(moduleRow(checkout('a', 0), null, false))).toBe('Up to date')
+    expect(stateText(moduleRow(checkout('a', 0), null, null))).toBe('Up to date')
     expect(stateText(app({ state: 'downloading', version: '0.1.2', progress: 0.3 }))).toBe('Downloading 0.1.2 · 30%')
     expect(stateText(app({ state: 'ready', version: '0.1.2' }))).toBe('Kehikot 0.1.2 is ready — restart to update')
     expect(stateText(app({ state: 'failed', error: 'offline' }))).toBe('Failed: offline')
-    expect(stateText(moduleRow(checkout('a', 2), null, false))).toBe('2 new commits')
-    expect(stateText(moduleRow(checkout('a', 2, { blocked: 'uncommitted changes' }), null, false))).toBe(
+    expect(stateText(moduleRow(checkout('a', 2), null, null))).toBe('2 new commits')
+    expect(stateText(moduleRow(checkout('a', 2, { blocked: 'uncommitted changes' }), null, null))).toBe(
       'Not updated automatically: uncommitted changes',
     )
-    expect(stateText({ ...moduleRow(checkout('a', 0), null, false), state: 'pinned', version: 'v1.2' })).toBe('Pinned to v1.2')
+    expect(stateText({ ...moduleRow(checkout('a', 0), null, null), state: 'pinned', version: 'v1.2' })).toBe('Pinned to v1.2')
   })
 })
 
@@ -183,5 +238,24 @@ describe('the engine', () => {
     expect(seen).toEqual(['checking', 'downloading'])
     link.stop()
     expect(g.kehikotAppUpdate).toBeUndefined()
+  })
+})
+
+describe('what an update will do, said before the press', () => {
+  test('one short line per kind, in the host’s voice', () => {
+    expect(previewText('restart')).toBe('It will be restarted, which ends anything it is running.')
+    expect(previewText('page')).toBe('Only its page changes; nothing is restarted.')
+    expect(previewText('self')).toBe('It restarts itself on this change, which ends anything it is running.')
+    expect(previewText('kept')).toBe('It is kept, so the host will not restart it — its page may still reload.')
+  })
+
+  test('"Update all" names the ones that end what they are running, and says nothing when none do', () => {
+    expect(previewAll([{ name: 'terminal', preview: 'restart' }, { name: 'notes', preview: 'page' }, { name: 'paper', preview: undefined }])).toBe(
+      'terminal will be restarted, which ends anything it is running.',
+    )
+    expect(previewAll([{ name: 'terminal', preview: 'self' }, { name: 'paper', preview: 'restart' }, { name: 'tests', preview: 'restart' }])).toBe(
+      'terminal, paper and tests will be restarted, which ends anything they are running.',
+    )
+    expect(previewAll([{ name: 'notes', preview: 'page' }, { name: 'slides', preview: 'kept' }, { name: 'paper', preview: undefined }])).toBeNull()
   })
 })
