@@ -138,7 +138,9 @@ export function moduleRow(
     /* Only the host's own checkout can be left needing a restart. */
     return outcome.restart === 'host' ? { ...row, state: 'reopen', reason: outcome.note } : { ...row, state: 'uptodate', reason: outcome.note }
   }
-  if (told.stale) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true }
+  /* Left on old code — unless there is something newer to take, which is the
+     better thing to offer: an update restarts it, or says again why it cannot. */
+  if (told.stale && reading.behind === 0) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true }
   if (pins && pins.containers > 0) {
     return {
       ...row,
@@ -154,9 +156,15 @@ export function moduleRow(
   return row
 }
 
-/** The sentence for a module that was updated and is still running what it ran before. */
+/**
+ * The sentence for a module that was updated and that this host could not
+ * restart. "May", because the host cannot see which code a running process
+ * holds: a module whose Vite restarts in-process on a config change (Explorer,
+ * Source) is on the new code with the same pid, and one whose dependencies
+ * moved is not. A build identity settles it — see `server/stale.ts`.
+ */
 export function staleNote(why: string): string {
-  return `Updated, but it is still running the old code: ${why}`
+  return `Updated, but it was not restarted and may still be running the old code: ${why}`
 }
 
 /**
@@ -168,7 +176,9 @@ export function moduleNote(module: { ran: 'page' | 'restarted' | 'started' | 'id
     case 'page':
       return 'Updated — running the new code. Only its page changed, and that reloads itself.'
     case 'restarted':
-      return 'Updated — running the new code. It was restarted.'
+      /* Said because the restart is the host's doing and takes with it whatever
+         the module held only in its process — a terminal's shell. */
+      return 'Updated — running the new code. It was restarted, which ended anything it was running.'
     case 'started':
       return 'Updated — running the new code.'
     case 'idle':

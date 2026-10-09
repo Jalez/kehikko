@@ -390,7 +390,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(indicatorText()).toBe('Restarting a')
     await stream.next()
     await settle()
-    expect(text()).toContain('Updated — running the new code. It was restarted.')
+    expect(text()).toContain('Updated — running the new code. It was restarted, which ended anything it was running.')
     /* No second press: nothing was asked of `/host/start`, and nothing offers to. */
     expect(posts.map((one) => one.url)).toEqual(['/host/updates'])
     expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
@@ -445,7 +445,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const rows = [...document.querySelectorAll('[data-testid="updates-row"]')] as HTMLElement[]
     expect(rows.map((row) => row.dataset.state).sort()).toEqual(['failed', 'updating'])
     expect(text()).toContain('Restarting…')
-    expect(text()).toContain('Updated, but it is still running the old code: its registration says to keep it.')
+    expect(text()).toContain('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
     expect(indicatorText()).toBe('Restarting a')
     expect(text()).not.toContain('Restart to update')
   })

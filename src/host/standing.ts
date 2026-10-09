@@ -64,6 +64,37 @@ export function showing(said: Said, found: Found | undefined, asked = true): Sho
   return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line }
 }
 
+/**
+ * Which modules are now served by a process the host started since the page
+ * last saw them ready.
+ *
+ * A restart can be over in half a second, with no answer in between that said
+ * the module was not running — so the frame is never unmounted, and what is
+ * still in it is the document the OLD server sent. Showing that again when the
+ * cover comes off is the stale page for a moment and then an uncovered reload.
+ * Each id `seen` returns gets a new document instead (`Framing.generation`),
+ * which is covered as loading until it answers.
+ *
+ * `run` is when the host started the process that is there (`Presence.run`),
+ * absent for one it did not start. Only a module that is ready with nothing in
+ * hand is looked at, so the new document is asked of a server that answers.
+ * A run that goes away — the host itself restarted and holds nothing — is not
+ * a restart of the module, and reloads nothing.
+ */
+export class Runs {
+  #settled = new Map<string, number | undefined>()
+
+  seen(presences: readonly { id: string; condition: ModuleCondition; lifecycle?: Said['lifecycle']; run?: number }[]): string[] {
+    const again: string[] = []
+    for (const one of presences) {
+      if (one.condition !== 'ready' || one.lifecycle) continue
+      if (one.run !== undefined && this.#settled.has(one.id) && this.#settled.get(one.id) !== one.run) again.push(one.id)
+      this.#settled.set(one.id, one.run)
+    }
+    return again
+  }
+}
+
 /** The sentence under the mark, one per state, in plain words. */
 export const COVER_WORDS: Record<Waiting, string> = {
   starting: 'Starting…',

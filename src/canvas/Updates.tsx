@@ -765,6 +765,10 @@ function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): O
     return { kind: 'failed', why: `Updated, but it did not start on the new code. ${done.module.why}`, detail: done.module.detail, retry: true }
   }
   if (done.module.ran === 'stale') return { kind: 'failed', why: staleNote(done.module.why), retry: true }
+  /* Commits that cancel out: the checkout moved and no file is different. */
+  if (done.module.ran === 'page' && done.changed.length === 0) {
+    return { kind: 'updated', note: 'Updated. No file it runs is different, so nothing was restarted.', restart: null, installFailed: done.installFailed }
+  }
   return { kind: 'updated', note: moduleNote(done.module), restart: null, installFailed: done.installFailed }
 }
 

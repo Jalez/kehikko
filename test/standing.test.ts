@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { COVER_WORDS, Covers, isStale, showing, type Said } from '../src/host/standing.ts'
+import { COVER_WORDS, Covers, isStale, Runs, showing, type Said } from '../src/host/standing.ts'
 
 /**
  * What a container shows — the page, the cover, or a notice — and when the
@@ -163,5 +163,38 @@ describe('arming the cover', () => {
     c.answered('a')
     time.elapse()
     expect(dropped).toEqual(['b'])
+  })
+})
+
+describe('a restart that was over before anything said the module was down', () => {
+  const ready = (id: string, run?: number) => ({ id, condition: 'ready' as const, run })
+
+  test('a module ready on a new process of the host’s gets a new document', () => {
+    const runs = new Runs()
+    expect(runs.seen([ready('a', 100), ready('b', 100)])).toEqual([])
+    expect(runs.seen([ready('a', 200), ready('b', 100)])).toEqual(['a'])
+    expect(runs.seen([ready('a', 200), ready('b', 100)])).toEqual([])
+  })
+
+  test('one the host inherited and then restarted does too', () => {
+    const runs = new Runs()
+    runs.seen([ready('a')])
+    expect(runs.seen([ready('a', 300)])).toEqual(['a'])
+  })
+
+  test('not while the host still has it in hand: the new document waits for a server that answers', () => {
+    const runs = new Runs()
+    runs.seen([ready('a', 100)])
+    expect(runs.seen([{ ...ready('a', 200), lifecycle: 'updating' }])).toEqual([])
+    expect(runs.seen([{ id: 'a', condition: 'silent', run: 200 }])).toEqual([])
+    expect(runs.seen([ready('a', 200)])).toEqual(['a'])
+  })
+
+  test('not on first sight, and not when the HOST restarted and holds nothing: that would reload every page', () => {
+    const runs = new Runs()
+    expect(runs.seen([ready('a', 100)])).toEqual([])
+    expect(runs.seen([ready('a')])).toEqual([])
+    /* A stop the host was refused starts nothing, so nothing is reloaded — a kept terminal keeps its page. */
+    expect(runs.seen([ready('a')])).toEqual([])
   })
 })

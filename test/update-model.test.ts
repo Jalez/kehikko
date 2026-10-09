@@ -90,7 +90,9 @@ describe('a module row', () => {
     })
     const stale = moduleRow(checkout('a', 0), null, null, undefined, { stale: 'its registration says to keep it.' })
     expect(stale).toMatchObject({ state: 'failed', retry: true })
-    expect(stale.reason).toBe('Updated, but it is still running the old code: its registration says to keep it.')
+    expect(stale.reason).toBe('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
+    /* New commits since: the update is what is offered, not a retry that would hide it. */
+    expect(moduleRow(checkout('a', 2), null, null, undefined, { stale: 'kept' })).toMatchObject({ state: 'available', behind: 2 })
     /* This page's own outcome is newer than the last check. */
     expect(moduleRow(checkout('a', 0), { kind: 'updated', note: 'n', restart: null, installFailed: null }, null, undefined, { stale: 'x' }).state).toBe('uptodate')
   })
@@ -105,7 +107,7 @@ describe('a module row', () => {
       expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart it')
       expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart to')
     }
-    expect(moduleNote({ ran: 'restarted' })).toBe('Updated — running the new code. It was restarted.')
+    expect(moduleNote({ ran: 'restarted' })).toBe('Updated — running the new code. It was restarted, which ended anything it was running.')
     expect(moduleNote({ ran: 'page' })).toStartWith('Updated — running the new code.')
     /* Not running and on no open kehikko: said as it is, not as "running". */
     expect(moduleNote({ ran: 'idle' })).toBe('Updated. It is not running; it starts on the new code when a kehikko that has it is opened.')

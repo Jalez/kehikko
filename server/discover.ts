@@ -79,6 +79,12 @@ export interface Presence {
    */
   detail?: string[]
   /**
+   * When this host started the process that is there, in ms. Absent for one it
+   * did not start. The page gives a module a new document when this changes
+   * under a frame that stayed mounted. Set in `server.ts`.
+   */
+  run?: number
+  /**
    * What the module calls itself, when the host got far enough to find out.
    *
    * Carried separately from `module`, which exists only for a module that will

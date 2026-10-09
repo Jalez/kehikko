@@ -6,7 +6,7 @@ import type { ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, M
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
 import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
-import { Covers, showing } from './host/standing.ts'
+import { Covers, Runs, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
@@ -261,6 +261,8 @@ export function App() {
   const [openId, setOpenId] = useState<number | null>(null)
   /** The kehikko the server had been told about when it was last asked what is running. */
   const [askedFor, setAskedFor] = useState<number | null>(null)
+  /** How many times the host has restarted each module under a mounted frame. See `Framing.generation`. */
+  const [generations, setGenerations] = useState<Record<string, number>>({})
   /**
    * The projects, and which one is open.
    *
@@ -768,6 +770,8 @@ export function App() {
    */
   const sweeping = useRef(false)
   const sweptAt = useRef(0)
+  /** Which process each module was last seen ready on, to see a restart. */
+  const runs = useRef(new Runs())
   /** The current `look`, for the effects declared above it. See `reportOpen`. */
   const lookRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -777,6 +781,16 @@ export function App() {
     setLooking(true)
     try {
       const view = await fetchRegistry()
+      /* A module the host has restarted gets a new document, not the one the
+         old server sent. See `Runs` in `host/standing.ts`. */
+      const again = runs.current.seen(view.presences)
+      if (again.length) {
+        setGenerations((was) => {
+          const next = { ...was }
+          for (const id of again) next[id] = (next[id] ?? 0) + 1
+          return next
+        })
+      }
       setRegistry(view)
       setTrouble(null)
       /* A sweep replaces what the server knew; it does not replace what a frame
@@ -2663,6 +2677,7 @@ export function App() {
         const found = live[id]
         return {
           module,
+          generation: generations[id] ?? 0,
           rect: rects[id] ?? null,
           /* A folded container's page is HIDDEN, by the same path a page on another
              kehikko is hidden — kept at its size, kept running, and not shown.
@@ -2692,7 +2707,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last

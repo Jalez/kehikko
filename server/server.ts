@@ -1048,7 +1048,9 @@ function told(view: Swept): Swept {
   const now = Date.now()
   return {
     ...view,
-    presences: view.presences.map((presence) => {
+    presences: view.presences.map((seen) => {
+      const startedAt = nursery.startedAt(seen.id)
+      const presence = startedAt === null ? seen : { ...seen, run: startedAt }
       const lifecycle = saidOf(presence, now)
       if (!lifecycle) {
         if (presence.condition !== 'silent') return presence
