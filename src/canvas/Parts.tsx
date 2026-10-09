@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { undividedSaid, type Going, type Maker } from '@/host/dividing.ts'
-import { focusSaid, goneSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
+import { alone, focusSaid, goneSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -77,6 +77,24 @@ import { Hint } from './Hint.tsx'
  * Picking two parts is two presses, and a menu that shut after the first would
  * make it four. Each press is written at once, like every other change to what
  * a project is about; there is no "apply".
+ *
+ * ## A row is two things to press: its box, and its name
+ *
+ * It was one. The whole row toggled its part, and going from "these three" to
+ * "just that one" was three presses and three redraws of every module. People
+ * arrive expecting what a list of ticks does everywhere else: the box adds or
+ * takes away and leaves the others alone, and the name means "this one" — the
+ * others are unticked. So the box is a real checkbox named for its part, and
+ * the name is the menu's item, saying "only" before the heading to whoever
+ * cannot see that it is not the box. Pressing the name of the only part picked
+ * changes nothing; the box is the way back to none.
+ *
+ * On the keyboard a part is still ONE stop — two a row would double the walk
+ * down the list — and the two presses are two keys: Space ticks, as it does on
+ * a checkbox, and Enter picks the part alone.
+ *
+ * Either way it is one `onPick` with the whole list: one write, one context.
+ * See `alone` in `host/parts.ts`.
  */
 export function Parts({
   parts,
@@ -143,22 +161,50 @@ export function Parts({
             <span className="text-muted-foreground shrink-0 text-[11px]">all {parts.length} parts</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {parts.map((part) => (
-            <DropdownMenuItem
-              key={part.id}
-              onSelect={(event) => {
-                event.preventDefault()
-                onPick(toggled(parts, picked, part.id))
-              }}
-            >
-              <Checkbox checked={on.includes(part.id)} tabIndex={-1} aria-hidden className={BOX} />
-              <span className="min-w-0 flex-1 truncate">{part.heading}</span>
-              {/* What is under the heading, when the file says. A part with
-                  nothing in it yet is still a part somebody can pick; the
-                  blank here is why a module then shows nothing for it. */}
-              <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{countOf(part)}</span>
-            </DropdownMenuItem>
-          ))}
+          {parts.map((part) => {
+            const ticked = on.includes(part.id)
+            const toggle = () => onPick(toggled(parts, picked, part.id))
+            return (
+              <div key={part.id} data-part={part.id} className="flex items-center">
+                <Checkbox
+                  checked={ticked}
+                  tabIndex={-1}
+                  aria-label={part.heading}
+                  className={TICK}
+                  /* The press must not take the focus out of the menu's own
+                     walk: the arrow keys belong to its items. */
+                  onPointerDown={(event) => event.preventDefault()}
+                  onCheckedChange={toggle}
+                />
+                <Hint label="only this part" side="right">
+                  <DropdownMenuItem
+                    className="min-w-0 flex-1 pl-1"
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      const next = alone(parts, picked, part.id)
+                      if (next) onPick(next)
+                    }}
+                    onKeyDown={(event) => {
+                      /* Space is the box's key. Prevented, so the menu does
+                         not also take it as a press on the name. */
+                      if (event.key !== ' ') return
+                      event.preventDefault()
+                      toggle()
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="sr-only">only </span>
+                      {part.heading}
+                    </span>
+                    {/* What is under the heading, when the file says. A part with
+                        nothing in it yet is still a part somebody can pick; the
+                        blank here is why a module then shows nothing for it. */}
+                    <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{countOf(part)}</span>
+                  </DropdownMenuItem>
+                </Hint>
+              </div>
+            )
+          })}
           {said.narrowed ? (
             <p className="text-muted-foreground border-t px-2 pt-1.5 pb-1 text-[11px] leading-snug">
               Every module is told. One that follows the focus shows these parts only and says how much it left
@@ -326,8 +372,8 @@ function Undivided({
 }
 
 /**
- * The box in a row: drawn, not pressed — the row is the control, so the menu's
- * own keyboard and its one press per row both work.
+ * The box in the first row: drawn, not pressed — "the whole epic" is one
+ * thing to press, and the row is it.
  *
  * The second class is there because the box is the whole message here. In the
  * dark theme the shared checkbox's `dark:bg-input/30` outranks its checked
@@ -336,6 +382,16 @@ function Undivided({
  * list whose only signal is the tick cannot.
  */
 const BOX = 'pointer-events-none dark:data-[state=checked]:bg-primary'
+
+/**
+ * The box in a part's row, which IS pressed. Twelve pixels is the size of
+ * every box on this host and too small a thing to aim at beside a name that
+ * does something else, so what takes the press reaches six pixels past it on
+ * every side — as far as the name and not over it. Under the pointer it wears the
+ * ring a focused box wears, which is what says the box is its own target.
+ */
+const TICK =
+  "relative mr-1 ml-2 cursor-default after:absolute after:-inset-1.5 after:content-[''] hover:border-ring hover:ring-ring/50 hover:ring-[3px] dark:data-[state=checked]:bg-primary"
 
 /**
  * "3 refs", "2 steps · 5 refs · 1 file", or nothing at all — never a zero
