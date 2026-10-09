@@ -75,7 +75,7 @@ import { z } from 'zod'
  * host depends on: the project's stored focus is a list of those ids.
  *
  * What stays here is what is this host's own: which parts a PERSON picked
- * (`partIdsIn`, `pickedIn`, `toggled`), how they go out on the wire
+ * (`partIdsIn`, `pickedIn`, `toggled`, `alone`), how they go out on the wire
  * (`partsOnWire`), and the words the bar says about them (`focusSaid`).
  */
 
@@ -222,6 +222,26 @@ export function toggled(parts: readonly Part[], stored: readonly string[], id: s
   const now = pickedIn(parts, stored)
   const next = now.includes(id) ? now.filter((one) => one !== id) : [...now, id]
   return pickedIn(parts, next)
+}
+
+/**
+ * What is picked after a part's NAME is pressed: that part, and no other.
+ *
+ * The whole list in one value, for the reason `toggled` returns one: the
+ * picker hands it on in a single press, so it is one write and one context.
+ * "Untick the rest, then tick this" as two presses would send every module a
+ * context with nothing picked in between, and a module redraws on each.
+ *
+ * `null` when that is already exactly what is stored — the name always means
+ * "just this one", so a second press has nothing to write. A stored id that
+ * names no part still counts as a difference, and is dropped, as it is by a
+ * press on a box. An id that is not a part of this epic picks nothing and
+ * writes nothing.
+ */
+export function alone(parts: readonly Part[], stored: readonly string[], id: string): string[] | null {
+  const next = pickedIn(parts, [id])
+  if (next.length === 0) return null
+  return stored.length === 1 && stored[0] === id ? null : next
 }
 
 /** `context.parts`: every part of the open epic, each saying whether it is picked. */
