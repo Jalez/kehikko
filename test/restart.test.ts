@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { restartDecision, serverGraph } from '../server/restart.ts'
+import { previewUpdate, restartDecision, serverGraph } from '../server/restart.ts'
 import { Staleness } from '../server/stale.ts'
 
 /**
@@ -102,5 +102,37 @@ describe('a module left running old code', () => {
     expect(stale.staleness('a')).toBeNull()
     stale.forgetAllBut(['a'])
     expect(stale.all()).toEqual({})
+  })
+})
+
+describe('what an update would do, said before the press', () => {
+  const graph = new Set(['vite.config.ts', 'doors.ts', 'manifest.ts'])
+  const running = { running: true, keep: false }
+  const kept = { running: true, keep: true }
+
+  test('nothing is said of a module that is not running: there is nothing to end', () => {
+    expect(previewUpdate(['doors.ts'], graph, { running: false, keep: false })).toBeNull()
+    expect(previewUpdate(['src/app.tsx'], graph, { running: false, keep: true })).toBeNull()
+  })
+
+  test('a page-only update restarts nothing, kept or not', () => {
+    expect(previewUpdate(['src/app.tsx', 'README.md'], graph, running)).toBe('page')
+    expect(previewUpdate(['src/app.tsx'], graph, kept)).toBe('page')
+  })
+
+  test('anything else restarts a module the host may stop', () => {
+    expect(previewUpdate(['doors.ts'], graph, running)).toBe('restart')
+    expect(previewUpdate(['bun.lock', 'package.json'], graph, running)).toBe('restart')
+    expect(previewUpdate(['src/app.tsx', 'run.sh'], graph, running)).toBe('restart')
+  })
+
+  test('a kept module is not promised safe: a change to what its server loads restarts it by its own hand', () => {
+    expect(previewUpdate(['doors.ts'], graph, kept)).toBe('self')
+    expect(previewUpdate(['bun.lock', 'manifest.ts'], graph, kept)).toBe('self')
+  })
+
+  test('a kept module whose dependencies alone change is not restarted', () => {
+    expect(previewUpdate(['bun.lock', 'package.json'], graph, kept)).toBe('kept')
+    expect(previewUpdate(['run.sh'], graph, kept)).toBe('kept')
   })
 })

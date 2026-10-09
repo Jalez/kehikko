@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { appEngine, connect, readStatus, type AppUpdateStatus } from '../src/host/appUpdate.ts'
-import { appRow, indicator, moduleNote, moduleRow, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
+import { appRow, indicator, moduleNote, moduleRow, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
 import type { Reading } from '../src/host/updates.ts'
 
 /* One update model: the desktop app's updater and the module checkouts, read
@@ -238,5 +238,24 @@ describe('the engine', () => {
     expect(seen).toEqual(['checking', 'downloading'])
     link.stop()
     expect(g.kehikotAppUpdate).toBeUndefined()
+  })
+})
+
+describe('what an update will do, said before the press', () => {
+  test('one short line per kind, in the host’s voice', () => {
+    expect(previewText('restart')).toBe('It will be restarted, which ends anything it is running.')
+    expect(previewText('page')).toBe('Only its page changes; nothing is restarted.')
+    expect(previewText('self')).toBe('It restarts itself on this change, which ends anything it is running.')
+    expect(previewText('kept')).toBe('It is kept, so the host will not restart it — its page may still reload.')
+  })
+
+  test('"Update all" names the ones that end what they are running, and says nothing when none do', () => {
+    expect(previewAll([{ name: 'terminal', preview: 'restart' }, { name: 'notes', preview: 'page' }, { name: 'paper', preview: undefined }])).toBe(
+      'terminal will be restarted, which ends anything it is running.',
+    )
+    expect(previewAll([{ name: 'terminal', preview: 'self' }, { name: 'paper', preview: 'restart' }, { name: 'tests', preview: 'restart' }])).toBe(
+      'terminal, paper and tests will be restarted, which ends anything they are running.',
+    )
+    expect(previewAll([{ name: 'notes', preview: 'page' }, { name: 'slides', preview: 'kept' }, { name: 'paper', preview: undefined }])).toBeNull()
   })
 })

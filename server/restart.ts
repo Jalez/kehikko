@@ -118,3 +118,30 @@ function found(base: string): string | null {
   }
   return null
 }
+
+/**
+ * What pressing Update would do to a running module, said before the press.
+ *
+ *  - `page`: only its page changes. Nothing is restarted.
+ *  - `restart`: the host will stop it and start it again, which ends whatever
+ *    it holds only in its process — a terminal's shell.
+ *  - `self`: the host may not stop it (its registration says `keep`), but a
+ *    file its server loads changes, and a Vite server restarts itself on that —
+ *    by exiting, or in place. Its state goes either way, so it is not promised
+ *    safe.
+ *  - `kept`: the host may not stop it and nothing its server loads changes —
+ *    its dependencies did. It is not restarted; its page may still reload.
+ *  - `null`: nothing to say — it is not running, so there is nothing to end.
+ */
+export type UpdatePreview = 'page' | 'restart' | 'self' | 'kept'
+
+export function previewUpdate(
+  changed: readonly string[],
+  serverFiles: ReadonlySet<string>,
+  module: { running: boolean; keep: boolean },
+): UpdatePreview | null {
+  if (!module.running) return null
+  if (!restartDecision(changed, serverFiles).restart) return 'page'
+  if (!module.keep) return 'restart'
+  return changed.some((file) => serverFiles.has(file)) ? 'self' : 'kept'
+}

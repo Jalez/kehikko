@@ -18,6 +18,7 @@ import {
   type Checkout,
   type Outcome,
   type Phase as UpdatePhase,
+  type Preview,
   type Reading,
 } from '@/host/updates.ts'
 import { connect, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
@@ -26,6 +27,8 @@ import {
   indicator,
   moduleNote,
   moduleRow,
+  previewAll,
+  previewText,
   RESTART_THE_HOST,
   RESTART_TO_UPDATE,
   staleNote,
@@ -399,6 +402,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
     .join(' · ')
   const { attention, level } = triage(checkouts, outcomes, new Set(Object.keys(told)))
   const ready = attention.filter((one): one is Checkout => isCheckout(one) && one.behind > 0 && one.blocked === null)
+  const endsAll = previewAll(ready.map((one) => ({ name: one.name, preview: check?.previews[one.id] })))
   const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
   const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
   const status = restarting
@@ -502,6 +506,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                     )}
                     reading={one}
                     outcome={outcome}
+                    preview={check && Object.hasOwn(check.previews, one.id) ? check.previews[one.id] : undefined}
                     retrying={retryingIds.includes(one.id)}
                     disabled={updating !== null}
                     onUpdate={() => void updateAll([one.id])}
@@ -551,6 +556,11 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                 </div>
               ) : null}
 
+              {ready.length > 1 && !updating && endsAll ? (
+                <p className="text-foreground px-1 text-xs" data-testid="updates-preview-all">
+                  {endsAll}
+                </p>
+              ) : null}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Button
                   variant="ghost"
@@ -627,6 +637,7 @@ function Row({
   row,
   reading,
   outcome,
+  preview,
   retrying,
   disabled,
   onUpdate,
@@ -638,6 +649,8 @@ function Row({
   row: UpdateRow
   reading: Reading
   outcome: Outcome | null
+  /** What pressing Update would do to its running module, said first. Absent when it is not running. */
+  preview?: Preview
   /** Its module is being started again from a failed row. */
   retrying: boolean
   /** Something else is being updated; this one waits. */
@@ -725,8 +738,12 @@ function Row({
           ) : null}
         </div>
       ) : one.behind && one.blocked === null ? (
-        <div className="flex justify-end pt-1.5">
-          <Button size="sm" className="h-6 px-2 text-xs" disabled={disabled} onClick={onUpdate}>
+        <div className="flex items-end gap-2 pt-1.5">
+          {/* Said before the press: there is no second button to decline. */}
+          <p className={`flex-1 ${preview === 'restart' || preview === 'self' ? 'text-foreground' : 'text-muted-foreground'}`} data-testid="updates-preview">
+            {preview ? previewText(preview) : null}
+          </p>
+          <Button size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={onUpdate}>
             Update
           </Button>
         </div>

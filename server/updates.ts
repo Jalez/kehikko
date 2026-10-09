@@ -214,6 +214,16 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
   return checkout
 }
 
+/**
+ * The files an update of this checkout would change: what differs between it
+ * and its upstream as last fetched. Local — nothing is asked of the remote —
+ * so it is exactly as fresh as the "N new commits" beside it.
+ */
+export async function incomingFiles(dir: string): Promise<string[]> {
+  const diff = await git(dir, ['diff', '--name-only', 'HEAD', '@{u}'])
+  return diff.ok && diff.out ? diff.out.split('\n') : []
+}
+
 /** Whether `git status --porcelain` lists `bun.lock` and nothing else. */
 function onlyLockfile(porcelain: string): boolean {
   const lines = porcelain.split('\n').filter(Boolean)

@@ -1,5 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
-import { isCheckout, type Outcome, type Phase, type PinCount, type Reading } from './updates.ts'
+import { isCheckout, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
 
 /**
  * One update system: the desktop app's own updater and the module checkouts,
@@ -291,4 +291,34 @@ function kehikot(version: string | null): string {
 function clamp(progress: number | null): number | null {
   if (progress === null || !Number.isFinite(progress)) return null
   return Math.min(1, Math.max(0, progress))
+}
+
+/**
+ * What an update will do to a running module, said on its row BEFORE the
+ * press — there is no separate restart to decline any more, so this is where a
+ * person learns that a shell or anything else it is running will end.
+ */
+export function previewText(preview: Preview): string {
+  switch (preview) {
+    case 'page':
+      return 'Only its page changes; nothing is restarted.'
+    case 'restart':
+      return 'It will be restarted, which ends anything it is running.'
+    case 'self':
+      return 'It restarts itself on this change, which ends anything it is running.'
+    case 'kept':
+      return 'It is kept, so the host will not restart it — its page may still reload.'
+  }
+}
+
+/** One line for "Update all": which of them end what they are running, or null when none do. */
+export function previewAll(names: readonly { name: string; preview: Preview | undefined }[]): string | null {
+  const ending = names.filter((one) => one.preview === 'restart' || one.preview === 'self').map((one) => one.name)
+  if (ending.length === 0) return null
+  return `${list(ending)} will be restarted, which ends anything ${ending.length === 1 ? 'it is' : 'they are'} running.`
+}
+
+function list(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('')
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }

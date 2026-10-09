@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b14 pass/)
+    expect(out).toMatch(/\b15 pass/)
   }, 60_000)
 }
 
@@ -448,6 +448,34 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(text()).toContain('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
     expect(indicatorText()).toBe('Restarting a')
     expect(text()).not.toContain('Restart to update')
+  })
+
+  test('the row says before the press what the update will do, and "Update all" names what will be restarted', async () => {
+    answer = async (url) =>
+      url.startsWith('/host/updates')
+        ? { ...check([checkout('terminal', 1), checkout('notes', 2), checkout('paper', 1), checkout('idle', 1)]), previews: { terminal: 'restart', notes: 'page', paper: 'self' } }
+        : {}
+    const host = await mount()
+    await press(host)
+    await settle()
+    const said = Object.fromEntries(
+      ([...document.querySelectorAll('[data-testid="updates-row"]')] as HTMLElement[]).map((row) => [
+        row.querySelector('.font-medium')?.textContent,
+        row.querySelector('[data-testid="updates-preview"]')?.textContent,
+      ]),
+    )
+    expect(said).toEqual({
+      terminal: 'It will be restarted, which ends anything it is running.',
+      notes: 'Only its page changes; nothing is restarted.',
+      paper: 'It restarts itself on this change, which ends anything it is running.',
+      /* Not running: nothing to end, so nothing is said. */
+      idle: '',
+    })
+    /* Still one press: the button is the same button. */
+    expect(buttons().filter((label) => label === 'Update')).toHaveLength(4)
+    expect(document.querySelector('[data-testid="updates-preview-all"]')?.textContent).toBe(
+      'terminal and paper will be restarted, which ends anything they are running.',
+    )
   })
 
   async function hostUpdated(restartable: boolean) {

@@ -46,7 +46,7 @@ import {
   type Standing,
 } from './lifecycle.ts'
 import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
-import { restartDecision, serverGraph } from './restart.ts'
+import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { Staleness } from './stale.ts'
 import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
@@ -59,7 +59,7 @@ import { nextConnection, Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
-import { hostNeedsRestart, readCheckout, topLevels, update, type Place } from './updates.ts'
+import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { installDesk } from './installs.ts'
 import { OFFICIAL } from './official.ts'
@@ -1133,6 +1133,23 @@ const ANSWERS_WITHIN_PRESS_MS = 6_000
 /** How long an update waits for the module it restarted: it may be installing, and pre-bundling after. */
 const ANSWERS_WITHIN_UPDATE_MS = 120_000
 
+/** For each module checkout that is behind and running: what its update would do. See `previewUpdate`. */
+async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<string, UpdatePreview>> {
+  const presences = seen ? (await seen.catch(() => null))?.presences ?? [] : []
+  const said: Record<string, UpdatePreview> = {}
+  for (const one of checkouts) {
+    if ('error' in one || one.id === 'host' || one.behind === 0 || one.blocked !== null) continue
+    const running = presences.find((presence) => presence.id === one.id)?.reached === true
+    if (!running) continue
+    const preview = previewUpdate(await incomingFiles(one.dir), serverGraph(one.dir), {
+      running,
+      keep: registered.get(one.id)?.keep === true,
+    })
+    if (preview) said[one.id] = preview
+  }
+  return said
+}
+
 type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: string }
 
 /**
@@ -1944,6 +1961,10 @@ const server = Bun.serve({
            an update still running, and a module left on old code. */
         progress: Object.fromEntries(progress),
         stale: staleness.all(),
+        /* What each update would do to its module if pressed now, so the row
+           can say so first. From the upstream as already fetched and the last
+           sweep: no second round to the remote, and no asking of ports. */
+        previews: await updatePreviews(checkouts),
         /* Which modules have containers pinned to a version, so the panel can
            say so and the header does not count them as waiting. */
         pins: pinSummary(listCanvases(db)),
