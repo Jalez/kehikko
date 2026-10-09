@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 
-import { look, resolveOnOrigin, tagsOf } from '../server/discover.ts'
+import { look, resolveOnOrigin, stampOf, tagsOf } from '../server/discover.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -60,6 +60,43 @@ describe('a manifest the host can honour', () => {
       serving({ ...good, mcp: { url: '/mcp', transport: 'http', about: 'The notes.' } }),
     )
     expect(presence.module?.mcp?.url).toBe(`${AT}/mcp`)
+  })
+})
+
+describe('what a module says about its build and about parts', () => {
+  const build = { version: '1.0.0', commit: 'abc1234def5678', started: '2026-10-09T10:00:00.000Z', protocol: '0.36.0' }
+
+  test('the build identity is carried, and a module that states none has none', async () => {
+    expect((await look(registration, serving({ ...good, partless: 'Notes belong to the epic.', build }))).module?.build).toEqual(build)
+    expect((await look(registration, serving(good))).module?.build).toBeNull()
+    /* A build the host cannot read is an absent one, never a refused manifest. */
+    const odd = await look(registration, serving({ ...good, build: { version: 7 } }))
+    expect(odd.condition).toBe('ready')
+    expect(odd.module?.build).toBeNull()
+  })
+
+  test('a module that neither reacts to parts nor says why is ready, with a warning', async () => {
+    const presence = await look(registration, serving(good))
+    expect(presence.condition).toBe('ready')
+    expect(presence.warnings).toHaveLength(1)
+    expect(presence.warnings![0]).toContain('example.journey-notes does not say how it relates to the parts of an epic')
+  })
+
+  test('one that reacts to parts, or declares itself partless, has none', async () => {
+    expect((await look(registration, serving({ ...good, reacts: ['parts'] }))).warnings).toBeUndefined()
+    expect((await look(registration, serving({ ...good, partless: 'Notes belong to the epic, not to a part of it.' }))).warnings).toBeUndefined()
+  })
+
+  test('one that says both is told it is one or the other', async () => {
+    const presence = await look(registration, serving({ ...good, reacts: ['parts'], partless: 'Nothing here is in a part.' }))
+    expect(presence.warnings?.[0]).toContain('It is one or the other')
+  })
+
+  test('the stamp of a served manifest names the process, and is null where there is none to name', () => {
+    expect(stampOf(JSON.stringify({ ...good, build }))).toBe('1.0.0+abc1234def56@2026-10-09T10:00:00.000Z')
+    expect(stampOf(JSON.stringify(good))).toBeNull()
+    expect(stampOf('not json')).toBeNull()
+    expect(stampOf('null')).toBeNull()
   })
 })
 

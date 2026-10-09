@@ -1,4 +1,4 @@
-import type { ModuleCondition } from 'kehikot-module-protocol'
+import { buildIsStale, type Build, type ModuleCondition } from 'kehikot-module-protocol'
 
 /**
  * What a container shows, decided in one place.
@@ -37,6 +37,12 @@ export interface Said {
 export interface Found {
   condition: ModuleCondition
   line: string | null
+  /**
+   * The page that answered was served by a process that is no longer the one
+   * answering at the module's address (`isStale`), and the host is replacing
+   * it. Covered as `restarting` until the new document answers.
+   */
+  stale?: boolean
 }
 
 /**
@@ -60,7 +66,7 @@ export function showing(said: Said, found: Found | undefined, asked = true): Sho
     return { kind: 'notice', condition: said.condition, asleep: said.lifecycle === 'asleep', line: said.line }
   }
   if (!found) return { kind: 'cover', state: 'loading' }
-  if (found.condition === 'ready') return { kind: 'page' }
+  if (found.condition === 'ready') return found.stale ? { kind: 'cover', state: 'restarting' } : { kind: 'page' }
   return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line }
 }
 
@@ -105,18 +111,69 @@ export const COVER_WORDS: Record<Waiting, string> = {
 }
 
 /**
- * Whether a build identity says this page, or the server behind it, is older
- * than the module's checkout.
+ * Whether a framed page is older than the server now answering for its module.
  *
  * THE SEAM, page side (the server's is `Staleness` in `server/stale.ts`).
- * Nothing can answer yet: a page does not say what it was built from. When the
- * protocol carries that, compare it with what the registry says the checkout
- * holds and return true here; `showing` then covers a stale page as
- * `restarting` while the host replaces it. Until then this is always false and
- * nothing calls it a fact.
+ * `page` is the build the page announced in `kehikot.ready` — the process that
+ * served it — and `server` is the build the module's server states now, as the
+ * last sweep read it. The protocol's `buildIsStale` says whether they are two
+ * processes; a module that states no build on either side is `unknown` there
+ * and never stale here.
+ *
+ * One thing is added to that comparison: the server's process must be the
+ * LATER one. A page that reloaded itself onto a restarted server announces the
+ * new build before this host has swept again, and for that moment the "server"
+ * in hand is the old process — the page is ahead of the registry, not behind
+ * its server (`registryBehind`), and replacing it would reload a page that had
+ * just recovered.
  */
-export function isStale(_module: { id: string; version?: string }): boolean {
-  return false
+export function isStale(page: Build | null | undefined, server: Build | null | undefined): boolean {
+  if (!page || !server || !buildIsStale(page, server)) return false
+  return later(server, page)
+}
+
+/** The page was served by a process newer than the one the registry last read: look again. */
+export function registryBehind(page: Build | null | undefined, server: Build | null | undefined): boolean {
+  if (!page || !server || !buildIsStale(page, server)) return false
+  return !later(server, page)
+}
+
+/** Whether `a`'s process started after `b`'s. Unreadable times fall back to the strings, which are ISO. */
+function later(a: Build, b: Build): boolean {
+  const [at, bt] = [Date.parse(a.started), Date.parse(b.started)]
+  return Number.isNaN(at) || Number.isNaN(bt) ? a.started > b.started : at > bt
+}
+
+/**
+ * Which stale pages the host replaces, and when it stops trying.
+ *
+ * A stale page gets a new document (`Framing.generation`), once per server
+ * process: `take` says yes the first time a page is found stale against that
+ * process and no after. A page built on the protocol's plumbing reloads itself
+ * when it notices, and Vite's client reloads it sooner still; this is for the
+ * page that does neither, and whichever comes first, the cover is the same.
+ *
+ * `stale` is what the container draws from, and it gives up where `take`
+ * already has: a NEW document that still announces another process than the
+ * one answering — a cached page, a proxy — is shown as it is rather than
+ * covered for good, since there is nothing more this host would do about it.
+ */
+export class Replacing {
+  #taken = new Map<string, { server: string; page: string }>()
+
+  stale(id: string, page: Build | null | undefined, server: Build | null | undefined): boolean {
+    if (!isStale(page, server)) return false
+    const taken = this.#taken.get(id)
+    return !(taken && taken.server === server!.started && taken.page !== page!.started)
+  }
+
+  /** Whether to give this module's frame a new document now. True once per server process. */
+  take(id: string, page: Build | null | undefined, server: Build | null | undefined): boolean {
+    if (!isStale(page, server)) return false
+    if (this.#taken.get(id)?.server === server!.started) return false
+    this.#taken.set(id, { server: server!.started, page: page!.started })
+    return true
+  }
 }
 
 /**

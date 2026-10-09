@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { COVER_WORDS, Covers, isStale, Runs, showing, type Said } from '../src/host/standing.ts'
+import { COVER_WORDS, Covers, isStale, registryBehind, Replacing, Runs, showing, type Said } from '../src/host/standing.ts'
 
 /**
  * What a container shows — the page, the cover, or a notice — and when the
@@ -78,8 +78,72 @@ describe('what a container shows', () => {
     expect(new Set(Object.values(COVER_WORDS)).size).toBe(5)
   })
 
-  test('nothing can say a page is stale yet', () => {
-    expect(isStale({ id: 'a', version: '1.0.0' })).toBe(false)
+})
+
+describe('a page older than its server', () => {
+  const build = (started: string, commit: string | null = 'abc1234') => ({ version: '1.0.0', commit, started, protocol: '0.36.0' })
+  const first = build('2026-10-09T10:00:00.000Z')
+  const second = build('2026-10-09T10:05:00.000Z')
+
+  test('the same process is not stale, and neither is a side that did not say', () => {
+    expect(isStale(first, first)).toBe(false)
+    expect(isStale(first, { ...first })).toBe(false)
+    /* A module from before build identities, on either side: never a false "stale". */
+    expect(isStale(null, second)).toBe(false)
+    expect(isStale(undefined, second)).toBe(false)
+    expect(isStale(first, null)).toBe(false)
+    expect(isStale(undefined, undefined)).toBe(false)
+  })
+
+  test('a later server process is, whether or not its code changed', () => {
+    expect(isStale(first, second)).toBe(true)
+    expect(isStale(first, build('2026-10-09T10:05:00.000Z', 'def5678'))).toBe(true)
+  })
+
+  test('a page AHEAD of what the registry last read is not stale: the registry is behind', () => {
+    expect(isStale(second, first)).toBe(false)
+    expect(registryBehind(second, first)).toBe(true)
+    expect(registryBehind(first, second)).toBe(false)
+    expect(registryBehind(first, first)).toBe(false)
+    expect(registryBehind(null, first)).toBe(false)
+  })
+
+  test('a stale page is covered as restarting, and one that is not is the page', () => {
+    const told = { condition: 'ready' as const, line: 'x' }
+    expect(showing(told, { condition: 'ready', line: null, stale: true })).toEqual({ kind: 'cover', state: 'restarting' })
+    expect(showing(told, { condition: 'ready', line: null, stale: false })).toEqual({ kind: 'page' })
+    expect(showing(told, { condition: 'ready', line: null })).toEqual({ kind: 'page' })
+  })
+
+  test('it is replaced once per server process', () => {
+    const replacing = new Replacing()
+    expect(replacing.stale('a', first, second)).toBe(true)
+    expect(replacing.take('a', first, second)).toBe(true)
+    /* Until the new document answers, it is still the old page: covered, not replaced again. */
+    expect(replacing.stale('a', first, second)).toBe(true)
+    expect(replacing.take('a', first, second)).toBe(false)
+    /* The new document, from the new server. */
+    expect(replacing.stale('a', second, second)).toBe(false)
+    expect(replacing.take('a', second, second)).toBe(false)
+    /* And the server restarts again. */
+    const third = build('2026-10-09T10:09:00.000Z')
+    expect(replacing.take('a', second, third)).toBe(true)
+  })
+
+  test('a new document that is STILL another process is shown, not covered for good', () => {
+    const replacing = new Replacing()
+    const third = build('2026-10-09T10:09:00.000Z')
+    expect(replacing.take('a', first, third)).toBe(true)
+    /* The replacement announces a build that is not the server's either. */
+    expect(replacing.stale('a', second, third)).toBe(false)
+    expect(replacing.take('a', second, third)).toBe(false)
+  })
+
+  test('a module that states no build is never replaced', () => {
+    const replacing = new Replacing()
+    expect(replacing.take('a', null, second)).toBe(false)
+    expect(replacing.take('a', first, undefined)).toBe(false)
+    expect(replacing.stale('a', undefined, undefined)).toBe(false)
   })
 })
 

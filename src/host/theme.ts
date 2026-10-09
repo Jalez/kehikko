@@ -1,3 +1,5 @@
+import { THEME_PARAM } from 'kehikot-module-protocol'
+
 /**
  * Light or dark, and where that fact lives.
  *
@@ -55,6 +57,39 @@ export const THEME_COOKIE = 'kehikko.theme'
 
 /** A year. Long enough that a preference feels kept; short enough to expire. */
 const A_YEAR = 60 * 60 * 24 * 365
+
+/**
+ * The address a module's frame is given: its entry, saying which theme the
+ * host is drawing in at that moment (`?theme=dark|light`, the protocol's
+ * `THEME_PARAM`), so the module's first paint is in it.
+ *
+ * A framed page that has never been greeted has nothing else to go on, and
+ * paints dark — under a light host, a dark rectangle for the length of a
+ * module load. The page's own blocking script reads the parameter before its
+ * first paint; see "What the host must send for an exact first paint" in the
+ * protocol's `docs/module-plumbing.md`.
+ *
+ * Whatever query the entry already has is kept, and a `theme` it carries is
+ * replaced. Only for a module that states a build identity: that is how one
+ * built on the protocol's page plumbing — which serves its page whatever the
+ * query — is told from an older one, whose own server may match its entry's
+ * address exactly and answer a query it never expected with nothing. Such a
+ * module is framed at its entry as it always was.
+ *
+ * Called when a frame's `src` is first set and never again for that document:
+ * a later change of theme reaches the page in `kehikot.context`, and changing
+ * `src` for it would reload the module.
+ */
+export function framedAddress(entry: string, theme: Theme, plumbed: boolean): string {
+  if (!plumbed) return entry
+  try {
+    const address = new URL(entry)
+    address.searchParams.set(THEME_PARAM, theme)
+    return address.toString()
+  } catch {
+    return entry
+  }
+}
 
 /**
  * What the page is currently in, read from the document itself.

@@ -446,6 +446,7 @@ export function Container({
           kehikko={canvas}
           pinned={version}
           current={current ?? presence.module?.version ?? null}
+          protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
         />
         <span className="flex-1" />

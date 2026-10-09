@@ -49,6 +49,8 @@ export interface Check {
   progress: Record<string, Phase>
   /** Modules the server knows are running older code than their checkout, with why. */
   stale: Record<string, string>
+  /** Modules whose own build identity says their server is behind their checkout, with the sentence. Empty from an older host. */
+  older: Record<string, string>
   /** What each waiting update would do to its running module — `previewUpdate` in `server/restart.ts`. */
   previews: Record<string, Preview>
 }
@@ -76,6 +78,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
       pins: z.record(z.string(), z.object({ containers: z.number(), versions: z.array(z.string()) })).default({}),
       progress: z.record(z.string(), phaseSchema).default({}),
       stale: z.record(z.string(), z.string()).default({}),
+      older: z.record(z.string(), z.string()).default({}),
       previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
     })
     .parse(await response.json())
@@ -86,6 +89,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
     pins: body.pins,
     progress: body.progress,
     stale: body.stale,
+    older: body.older,
     previews: body.previews,
   }
 }

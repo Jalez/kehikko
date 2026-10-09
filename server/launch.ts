@@ -272,7 +272,9 @@ export async function gone(origin: string, wellKnown: string): Promise<boolean> 
  *
  * `detached` and unref'd, because the module outlives the request that started
  * it and should outlive this host too — a person restarting the canvas has not
- * asked for their modules to be killed. Output goes to `ignore` rather than to
+ * asked for their modules to be killed. (The one host that does take them with
+ * it is the desktop app's, when the app stops it: see `leaving` below and
+ * `leave` in `server.ts`.) Output goes to `ignore` rather than to
  * a pipe: a pipe nobody drains fills, and a filled pipe blocks the child, so a
  * module would freeze after its first few hundred lines of logging. With
  * `run.log` it goes to that file instead, which the child appends to itself —
@@ -564,6 +566,17 @@ export class Nursery {
   }
 
   /**
+   * Hand one over to be stopped by `leaving`, and hold it no longer. Null for
+   * anything this host did not start, or whose process has already ended —
+   * the same refusal `stop` makes, from the same map.
+   */
+  release(id: string): Held | null {
+    const held = this.#alive(id)
+    if (held) this.#held.delete(id)
+    return held
+  }
+
+  /**
    * The entry, if the process behind it is still there; otherwise nothing, and
    * the stale entry is dropped as it is found.
    *
@@ -583,4 +596,43 @@ export class Nursery {
     this.#held.delete(id)
     return null
   }
+}
+
+/** How long the modules get to leave before the host that is going kills what is left. */
+export const LEAVE_WITHIN_MS = 3_000
+
+/**
+ * Stop processes this host started, on its own way out, and wait until they
+ * have gone.
+ *
+ * `Nursery.stop` signals and returns, and leaves the kill to a timer — right
+ * for a host that goes on running, and no use to one that is about to exit:
+ * the timer dies with it. So this waits. Each group is sent SIGTERM; whatever
+ * is still running after `within` is sent SIGKILL. `within` is shorter than
+ * the five seconds the desktop app gives this host before killing it, so the
+ * second signal is always sent.
+ *
+ * Takes `Held`s, which only `Nursery.release` gives out, so like `stop` it
+ * cannot be aimed at a process this host did not spawn; and it asks `alive()`
+ * of the handle before each signal, for the reason `Nursery` does.
+ */
+export async function leaving(
+  held: readonly Held[],
+  within: number = LEAVE_WITHIN_MS,
+  signal: (pid: number, sig: NodeJS.Signals) => void = (pid, sig) => {
+    process.kill(pid, sig)
+  },
+): Promise<void> {
+  const send = (one: Held, sig: NodeJS.Signals) => {
+    if (!one.child.alive()) return
+    try {
+      signal(-one.child.pid, sig)
+    } catch {
+      /* Gone between the check and the signal. */
+    }
+  }
+  for (const one of held) send(one, 'SIGTERM')
+  const until = Date.now() + within
+  while (Date.now() < until && held.some((one) => one.child.alive())) await new Promise((wake) => setTimeout(wake, 50))
+  for (const one of held) send(one, 'SIGKILL')
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { VersionList } from '../src/canvas/Versions.tsx'
+import { VersionList, versionHint } from '../src/canvas/Versions.tsx'
 import type { Presence } from '../src/host/registry.ts'
 import { indicator, moduleRow, stateText, updateRows } from '../src/host/updateModel.ts'
 import { waiting, type Reading } from '../src/host/updates.ts'
@@ -209,5 +209,17 @@ describe('Updates, with pinned containers', () => {
   test('an update in flight or just failed still says that, pinned or not', () => {
     expect(moduleRow(checkout('kehikot.notes', 3), null, 'updating', pins['kehikot.notes']).state).toBe('updating')
     expect(moduleRow(checkout('kehikot.notes', 3), { kind: 'failed', why: 'no' }, null, pins['kehikot.notes']).state).toBe('failed')
+  })
+})
+
+describe('what the version in a header says when pointed at', () => {
+  test('the protocol package the module is built with, when it states one', () => {
+    expect(versionHint('Notes', null, '0.36.0')).toBe('Notes runs latest · built with protocol 0.36.0 — press to pick a version')
+    expect(versionHint('Notes', 'v1.2.0', '0.34.0')).toBe('Notes is pinned to v1.2.0 on this kehikko · built with protocol 0.34.0 — press to change')
+  })
+
+  test('and exactly what it said before for a module that does not', () => {
+    expect(versionHint('Notes', null, null)).toBe('Notes runs latest — press to pick a version')
+    expect(versionHint('Notes', 'v1.2.0', null)).toBe('Notes is pinned to v1.2.0 on this kehikko — press to change')
   })
 })

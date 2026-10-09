@@ -120,6 +120,18 @@ async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, sign
   return { ok: false, why: (err.trim() || out.trim() || `git ${args[0]} failed`).split('\n').slice(-3).join(' ') }
 }
 
+/** The commit a checkout is on, in full, or null when that cannot be read. */
+export async function headOf(dir: string): Promise<string | null> {
+  const head = await git(dir, ['rev-parse', 'HEAD'])
+  return head.ok && head.out ? head.out : null
+}
+
+/** The files that differ between two commits of a checkout, or null when either is not in it. */
+export async function changedBetween(dir: string, from: string, to: string): Promise<string[] | null> {
+  const diff = await git(dir, ['diff', '--name-only', from, to])
+  return diff.ok ? diff.out.split('\n').filter(Boolean) : null
+}
+
 /**
  * When each repository was last fetched. A page polling, a second window and a
  * person pressing "check now" should not become three fetches in a minute.
