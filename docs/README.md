@@ -248,11 +248,48 @@ It is not worked out from the refs the step names, and a step with no `part`
 belongs to the epic as a whole. The host folds an assigned step's refs into its
 part, so a module that only knows references narrows correctly.
 
-When the open epic has parts, a control appears in the bar directly after the
-epic: a list of checkboxes, where nothing ticked means the whole epic. Ticking
-some points every module at those parts. The control is filled and names what
-it is narrowed to for as long as it is, with a clear button beside it — a focus
-that hid things without saying so is the failure it is built against.
+A control for the parts stands in the bar directly after the epic, for every
+open epic. When the epic has parts it is a list of checkboxes, where nothing
+ticked means the whole epic. Ticking some points every module at those parts.
+The control is filled and names what it is narrowed to for as long as it is,
+with a clear button beside it — a focus that hid things without saying so is
+the failure it is built against.
+
+**When the epic has no parts the control is still there**, quiet, saying "no
+parts". It used to be drawn only for an epic that already had some, so nothing
+on screen said an epic could be divided or where — the feature's one door was
+drawn after somebody had been through it. Opened, it says the epic is not
+divided yet, what a part is for, and where parts are made — in Journeys — with
+**one press** that goes there:
+
+| Journeys is… | the control says | the press |
+|---|---|---|
+| on this kehikko | "…which is on this kehikko." | *divide this epic into parts in Journeys* |
+| registered, not on this kehikko | "…which is not on this kehikko." | *put Journeys here and divide this epic into parts* |
+| not installed | "…which is not installed on this computer." | *install Journeys and divide this epic into parts* |
+
+One press in every case; what differs is how much the host does first —
+install the module from the official list, put its container on the open
+kehikko, unfold it — before it scrolls to it, marks it, and walks it to the
+place. The walk is `kehikot.goto` naming the reference `journeys:parts`, which
+Journeys reads as "where this epic is divided": its parts box, or — for an epic
+the project keeps no journey for — the offer to begin one and divide it. A walk
+was chosen because it is the one way a host points at a module that is
+ANSWERED (`kehikot.went`): an older Journeys that does not know the reference
+says it found nothing, and the control puts that sentence in front of the
+person instead of a press that did nothing. The press is for an epic and a
+kehikko and is dropped if either changes while a module installs.
+
+A column is a fixed budget of rows handed out from the top, so Journeys under a
+container that fills the screen is drawn at three rows, and the press lands
+there. The control then stays open and says so, with how to give it height; the
+host does not take rows from the container above on its own.
+
+**The host still writes no part.** Parts are Journeys' material and it is the
+only writer; this is a way there. See `src/host/dividing.ts` (the decisions,
+pure) and `src/canvas/Dividing.ts` (the effect). `journeys:parts` is spelled in
+this host and in Journeys, and belongs in the protocol beside
+`JOURNEYS_MODULE`.
 
 The focus is the **project's**, held beside its epic and its selection
 (`projects.parts`, and a top-level `"parts"` in `kehikot.json`, written only

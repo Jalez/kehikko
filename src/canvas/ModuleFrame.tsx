@@ -233,6 +233,8 @@ export function ModuleFrame({
          gone; looking the frame up at the moment it fires is what makes a
          container that was removed simply stop refreshing. */
       refresh: () => conversation.sendRefresh(),
+      /* And a walk, which is a press with an answer. See `Pressable.walk`. */
+      walk: (target) => conversation.goto(target),
     })
 
     return () => {

@@ -1,4 +1,5 @@
 import { ChevronDown, Focus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
@@ -10,6 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
+import { undividedSaid, type Going, type Maker } from '@/host/dividing.ts'
 import { focusSaid, goneSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
 import { Hint } from './Hint.tsx'
 
@@ -35,14 +38,24 @@ import { Hint } from './Hint.tsx'
  * this one". The first row says it in words, with its own tick, so the empty
  * state is an answer on screen rather than an absence.
  *
- * ## It is not drawn for an epic with no parts
+ * ## It is drawn for an epic with no parts, and says where they are made
  *
- * Most epics have none, and a disabled control saying "no parts" in the bar of
- * every one of them would be furniture. The house rule is that a control is
- * disabled rather than hidden so that an absence explains nothing — but there
- * is nothing here to explain: an epic with no parts has no narrower question
- * to ask, and the epic control beside it already says what is open. It comes
- * back the moment the epic's file has a group in it.
+ * It used not to be, and the paragraph that stood here argued for that: most
+ * epics have no parts, and a control saying "no parts" in the bar of every
+ * one of them would be furniture; "there is nothing here to explain".
+ *
+ * There was. The person who asked for parts opened their thesis — a chapter
+ * to a file, nothing divided yet — and saw no parts control at all. Nothing
+ * on screen said an epic could be divided, or where; the feature's only door
+ * was drawn after somebody had already been through it. So for an epic with
+ * no parts this is a quiet button, the same size and place as the picker it
+ * becomes, that says "no parts" and opens to one sentence and one press. The
+ * press goes to the module that makes parts, on this epic, with the place
+ * open — `host/dividing.ts` has how, and why this host still writes no part
+ * itself. See `Undivided` below.
+ *
+ * It is not drawn when NO epic is open: there is nothing to divide, and the
+ * epic control beside it is already saying so.
  *
  * ## When it is narrowed, it has to be seen
  *
@@ -69,15 +82,25 @@ export function Parts({
   parts,
   picked,
   onPick,
+  epic = null,
+  undivided = null,
 }: {
-  /** Every part of the open epic, in the epic's order. Empty draws nothing. */
+  /** Every part of the open epic, in the epic's order. Empty draws the way to make some. */
   parts: readonly Part[]
   /** The stored ids. Ones that name no part here are ignored, and dropped on the next press. */
   picked: readonly string[]
   /** What is picked now. `[]` is the whole epic. */
   onPick(ids: string[]): void
+  /** The open epic. With none there is nothing to divide, and nothing is drawn. */
+  epic?: string | null
+  /** Where parts are made and the press that goes there — what an epic with no parts draws. */
+  undivided?: Undividing | null
 }) {
-  if (parts.length === 0) return null
+  if (parts.length === 0) {
+    /* A stored pick that names nothing is still said, beside the entry: the
+       last part of an epic can be removed while it is picked. */
+    return epic !== null && undivided ? <Undivided undivided={undivided} gone={goneSaid(parts, picked)} onPick={onPick} /> : null
+  }
   const on = pickedIn(parts, picked)
   const said = focusSaid(parts, picked)
   const gone = goneSaid(parts, picked)
@@ -167,6 +190,122 @@ export function Parts({
         focus. One press forgets it; see `goneSaid` for why it is a press and
         not something the page does by itself.
       */}
+      {gone ? (
+        <Hint label={gone.hint}>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-gone={gone.gone.length}
+            aria-label={`${gone.label} — forget ${gone.gone.length === 1 ? 'it' : 'them'}`}
+            className="ml-1 h-6 gap-1 px-1.5 text-[11px] text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+            onClick={() => onPick(gone.kept)}
+          >
+            <span>{gone.label}</span>
+            <X className="size-3" />
+          </Button>
+        </Hint>
+      ) : null}
+    </span>
+  )
+}
+
+/** What `useDividing` hands the bar: where the module that makes parts is, and the press. */
+export interface Undividing {
+  maker: Maker
+  going: Going
+  trouble: string | null
+  ask(): void
+  press(): void
+}
+
+/**
+ * The parts control of an epic that has none.
+ *
+ * ## One sentence, one place, one press
+ *
+ * Opened, it says three things and each is there because its absence was the
+ * complaint: that the epic is not divided (so the control is not broken),
+ * what a part is for (so a person knows whether they want one), and WHERE
+ * parts are made, by name, with whether that module is on this kehikko, on
+ * this computer, or neither. Then one button, worded as what it does —
+ * `undividedSaid` has the words, as data.
+ *
+ * ## A popover and not the menu the picker is
+ *
+ * The picker is a list of rows somebody presses several of, and a dropdown
+ * menu is the right thing for a list. This is prose and a button, and a
+ * menu's roles — every child a `menuitem` — are wrong for a paragraph a
+ * screen reader should simply read.
+ *
+ * ## It closes itself when the person has arrived, and stays when they have not
+ *
+ * The press ends with Journeys scrolled into view on the canvas below, and a
+ * popover left standing over it would be in the way of exactly what was
+ * asked for. When the press did NOT arrive — the module did not answer, the
+ * install failed — it stays open, because the sentence saying so is in it.
+ */
+function Undivided({
+  undivided,
+  gone,
+  onPick,
+}: {
+  undivided: Undividing
+  gone: ReturnType<typeof goneSaid>
+  onPick(ids: string[]): void
+}) {
+  const [open, setOpen] = useState(false)
+  const said = undividedSaid(undivided.maker, undivided.going, undivided.trouble)
+  /* Closed on the edge from "a press is in flight" to "it is not, and nothing
+     went wrong". Not while idle: opening the popover must not close it. */
+  const was = useRef(false)
+  useEffect(() => {
+    const flying = undivided.going !== null
+    if (was.current && !flying && undivided.trouble === null) setOpen(false)
+    was.current = flying
+  }, [undivided.going, undivided.trouble])
+
+  return (
+    <span className="inline-flex shrink-0 items-center" data-undivided={undivided.maker.at}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (next) undivided.ask()
+        }}
+      >
+        <Hint label={said.hint} align="start">
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="the parts of this epic — it is not divided into parts yet"
+              className="text-muted-foreground h-6 max-w-56 gap-1 px-1.5 text-xs"
+            >
+              <Focus className="size-3 shrink-0" />
+              <span className="min-w-0 truncate">{said.label}</span>
+              <ChevronDown className="size-3 shrink-0 opacity-70" />
+            </Button>
+          </PopoverTrigger>
+        </Hint>
+        <PopoverContent align="start" className="w-80 max-w-[calc(100vw-1rem)] space-y-2 p-3 text-xs leading-snug">
+          <p className="text-foreground text-sm font-medium">parts of this epic</p>
+          <p className="text-muted-foreground">{said.lead}</p>
+          <p data-where>{said.where}</p>
+          {said.trouble ? (
+            <p role="alert" data-trouble className="text-amber-600 dark:text-amber-400">
+              {said.trouble}
+            </p>
+          ) : null}
+          {said.press ? (
+            /* As tall as its words: every one of these presses is two lines
+               at this width, and a fixed height let the second spill out of
+               the button. */
+            <Button size="sm" className="h-auto min-h-7 w-full justify-center px-2 py-1 text-xs whitespace-normal" data-divide onClick={undivided.press}>
+              {said.press}
+            </Button>
+          ) : null}
+        </PopoverContent>
+      </Popover>
       {gone ? (
         <Hint label={gone.hint}>
           <Button

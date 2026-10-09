@@ -3,6 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import { DISARM_AFTER_MS, saying } from '../src/canvas/Clearing.tsx'
 import { Presses } from '../src/host/presses.ts'
 
+/** A frame nobody walks in this file. */
+const unwalked = () => Promise.resolve({ found: false, why: '' })
+
 /**
  * The one control on this canvas that destroys something.
  *
@@ -87,8 +90,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press reaches the module it names and no other', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {} })
-    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {} })
+    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {}, walk: unwalked })
+    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {}, walk: unwalked })
 
     expect(presses.press('a.one')).toBe(true)
     expect(said).toEqual(['a'])
@@ -100,7 +103,7 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press at a module that has gone does nothing', () => {
     const presses = new Presses()
     let pressed = 0
-    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {} })
+    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {}, walk: unwalked })
     presses.leave('a.one')
 
     expect(presses.press('a.one')).toBe(false)
@@ -129,8 +132,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a frame that came back replaces the one that went', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {} })
-    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {} })
+    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {}, walk: unwalked })
+    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {}, walk: unwalked })
 
     presses.press('a.one')
     expect(said).toEqual(['new'])

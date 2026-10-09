@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { Parts, countOf } from '../src/canvas/Parts.tsx'
+import { Parts, countOf, type Undividing } from '../src/canvas/Parts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import type { Part } from '../src/host/parts.ts'
 
@@ -27,11 +27,41 @@ function draw(list: readonly Part[], picked: readonly string[]): string {
   )
 }
 
+/** The control as an epic with no parts draws it, with Journeys wherever a case puts it. */
+function undivided(maker: Undividing['maker'], more: Partial<Undividing> = {}, picked: readonly string[] = []): string {
+  return renderToStaticMarkup(
+    <TooltipProvider>
+      <Parts
+        parts={[]}
+        picked={picked}
+        onPick={() => {}}
+        epic="thesis"
+        undivided={{ maker, going: null, trouble: null, ask: () => {}, press: () => {}, ...more }}
+      />
+    </TooltipProvider>,
+  )
+}
+
 describe('the parts control', () => {
-  test('an epic with no parts draws nothing at all', () => {
+  test('with no epic open there is nothing to divide, and nothing is drawn', () => {
     expect(draw([], [])).toBe('')
-    /* Even with something stored: there is nothing for it to be a part of. */
     expect(draw([], ['the-posting-seam'])).toBe('')
+  })
+
+  test('an epic with no parts is NOT nothing: the entry is there, quiet, and says so', () => {
+    const html = undivided({ at: 'elsewhere', name: 'Journeys' })
+    expect(html).toContain('no parts')
+    expect(html).toContain('it is not divided into parts yet')
+    expect(html).toContain('data-undivided="elsewhere"')
+    /* Quiet: it is not a focus, and must not look like one. */
+    expect(html).not.toContain('data-narrowed')
+    expect(html).not.toContain('clear the focus')
+  })
+
+  test('and still says a picked part is gone, when the last part was removed while picked', () => {
+    const html = undivided({ at: 'here', name: 'Journeys', collapsed: false }, {}, ['a-part-that-was-removed'])
+    expect(html).toContain('data-gone="1"')
+    expect(html).toContain('a picked part is gone')
   })
 
   test('nothing picked says all parts, quietly, and offers no clear button', () => {

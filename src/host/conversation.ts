@@ -141,6 +141,15 @@ export const READY_TIMEOUT_MS = 4000
  */
 export const WENT_TIMEOUT_MS = 1200
 
+/**
+ * What a walk is answered with when the frame has not been greeted yet.
+ *
+ * A constant because one caller has to recognise it: a walk sent to a module
+ * that was put on the canvas a moment ago is not a walk that found nothing,
+ * it is a walk to try again when the page has loaded. See `host/dividing.ts`.
+ */
+export const NOT_GREETED = 'the module has not been greeted'
+
 interface Pending {
   resolve(answer: { found: boolean; why: string }): void
   timer: ReturnType<typeof setTimeout>
@@ -421,7 +430,7 @@ export class Conversation {
    */
   goto(target: { ref?: string; step?: number; epic?: string }): Promise<{ found: boolean; why: string }> {
     if (!this.greeted || this.closed) {
-      return Promise.resolve({ found: false, why: 'the module has not been greeted' })
+      return Promise.resolve({ found: false, why: NOT_GREETED })
     }
     const id = `g${this.nextGoto++}`
     return new Promise((resolve) => {

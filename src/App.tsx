@@ -13,6 +13,8 @@ import { Missing } from './canvas/Missing.tsx'
 import type { CanvasControls } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
+import { useDividing } from './canvas/Dividing.ts'
+import { MAKER } from './host/dividing.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -2142,6 +2144,30 @@ export function App() {
     [change, open?.placements],
   )
 
+  /**
+   * The press that takes a person to where the open epic is divided into
+   * parts, for an epic that has none. `host/dividing.ts` has the argument;
+   * `canvas/Dividing.ts` runs it.
+   *
+   * Handed to the bar only once the project's epics have been READ and the
+   * open epic is among them. `epicParts` is empty while that list is on its
+   * way, and "no parts" is a statement about an epic: said during a reload it
+   * would be said, for half a second, about every divided epic there is.
+   */
+  const makerRows = useMemo(() => granted(open?.placements ?? NO_PLACEMENTS).get(MAKER) ?? null, [open?.placements])
+  const dividing = useDividing({
+    epic: about.epic,
+    canvas: openId,
+    registered: registry?.presences ?? NO_PRESENCES,
+    placements: open?.placements ?? NO_PLACEMENTS,
+    rows: makerRows,
+    presses,
+    onPlace,
+    onCollapse,
+    onLookAgain: () => void look(),
+  })
+  const undivided = about.epic !== null && held?.epics.some((one) => one.slug === about.epic) ? dividing : null
+
   /** Turn following-the-module's-height on or off for one container. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -2758,6 +2784,7 @@ export function App() {
            and on the server, and `setSubject` there is what clears it when
            the epic moves. */
         onParts={(ids) => changeSubject({ parts: ids })}
+        undivided={undivided}
         onPlace={onPlace}
         onUnplace={onUnplace}
         focus={focus}
@@ -3146,6 +3173,11 @@ export function App() {
  * there is nothing else on screen. A black rectangle with no modules on it and
  * no words is indistinguishable from a program that failed to start.
  */
+/* Stable empties, so a hook that depends on these lists is not re-run by a
+   render in which there is simply no registry or no kehikko yet. */
+const NO_PRESENCES: readonly Presence[] = []
+const NO_PLACEMENTS: readonly Placement[] = []
+
 function Nothing({ registry, looking }: { registry: RegistryView | null; looking: boolean }) {
   const registered = registry?.presences.length ?? 0
   return (
