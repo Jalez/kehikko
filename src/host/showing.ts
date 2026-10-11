@@ -10,10 +10,10 @@ import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'kehiko
  * the vouching is the same strength for each: a frame said it, and a frame is
  * identified by its window, which nothing in a page can forge.
  *
- *   1. What the module SAID, with `showing.set`. Held per canvas per module,
- *      in memory, exactly as a passage is held — see `App.tsx` — and for the
- *      same reason: it is a claim about a running program's own state, and
- *      nobody is left to renew it once the program has gone.
+ *   1. What the module SAID, with `showing.set`. Held per module, in memory —
+ *      see `host/said.ts` — for the reason a passage is: it is a claim about
+ *      a running program's own state, and nobody is left to renew it once the
+ *      program has gone.
  *   2. What the module last POINTED at, with `passage.set`. The host already
  *      knows who called it; it simply never wrote it down. A module that only
  *      ever points is "showing" what it points at without having learned a new
@@ -78,11 +78,47 @@ import { LIMITS, type CanvasContainer, type Passage, type Showing } from 'kehiko
  * printing "Paper and Journeys are picked out" prints them in the order the
  * person sees them.
  *
- * A container's pointing goes FIRST among its documents, because it is the
- * narrowest thing there and the one its reader's finger is actually on, and
- * the list is cut at the protocol's bound afterwards. A module that said
- * sixteen documents and also points has said one more than fits; what is
- * dropped is the last of what it said, never the place the reader is standing.
+ * ## A module that says what it shows has the whole of its row
+ *
+ * The pointing is for a module that has NOT learned `showing.set`: it is the
+ * only word such a module has, and its row is what it points at. Once a module
+ * has said `showing.set`, its documents are exactly what it said, in its
+ * order, and its pointing is not added — not first, not last, not at all.
+ *
+ * It used to go first, ahead of what the module said, on the argument that the
+ * finger is the narrowest thing there. Two things were wrong with that, both
+ * measured against a paper that lists its files and also points:
+ *
+ *   - **A pointing goes stale and a statement does not.** A pointing lasts
+ *     until its module points again, and a module walked somewhere by a
+ *     neighbour's press rightly does not point — the place is the
+ *     neighbour's. So the paper's row began with `main.tex`, page 1 — where
+ *     its caret had been an hour ago — while its editor stood in
+ *     `3_methods.tex` and its `showing.set` listed the real files after it.
+ *     Every consumer here keeps one place per path and takes the first, so
+ *     they took the stale page: a notes list narrowed to page 1 of a file
+ *     nobody was looking at. The module had SAID what it shows, and the host
+ *     was putting an older remark in front of it.
+ *   - **It cost the last document.** The list is bounded
+ *     (`LIMITS.SHOWING_DOCUMENTS`), `showing.set` is refused past the bound,
+ *     and the pointing was put in front before the cut. A module showing
+ *     sixteen files and pointing into one of them had its sixteenth dropped
+ *     for a second mention of a file already listed.
+ *
+ * `showing.set` is whole replacement in the protocol's own words, and
+ * `{ refs: [], documents: [] }` is "the real call for showing nothing". A host
+ * that adds to the list makes that call impossible to mean. So nothing is
+ * added, nothing is cut — what a module can say already fits — and an empty
+ * statement is an empty row even while the module points.
+ *
+ * Nothing about where the finger is was lost: that is `context.passage`, the
+ * latest pointing on the kehikko, and it is still there at full precision. What
+ * a consumer can no longer read is an OLDER pointing by a module that also
+ * says what it shows, after a neighbour has pointed since — which is exactly
+ * the stale thing this stopped passing on.
+ *
+ * The selection is folded as it was: it is the project's live selection in its
+ * setter's row, ahead of the refs that module said, and cut at the bound.
  *
  * Pure, so `test/showing.test.ts` is a table.
  */
@@ -101,9 +137,11 @@ export function containersOf(input: {
   said: Readonly<Record<string, Showing>>
   /**
    * What each module last pointed at with `passage.set`, by module id — only
-   * the ones still pointing at something. A module that pointed at null has
-   * closed its document and is in here no more; the canvas's own `passage` is
-   * whichever of these was said last, and is not needed here to compose a row.
+   * the ones still pointing at something (`pointedBy` in `host/said.ts`). A
+   * module that pointed at null has closed its document and is in here no
+   * more; the kehikko's own `passage` is whichever of these was said last by a
+   * module placed on it, and is not needed here to compose a row. Read only
+   * for a module that has never said `showing.set`.
    */
   pointed: Readonly<Record<string, Passage>>
   selection: readonly string[]
@@ -118,11 +156,14 @@ export function containersOf(input: {
       ...(selectedBy === p.i ? selection : []),
       ...(own?.refs ?? []),
     ]).slice(0, LIMITS.REFS)
+    /* What it said, whole, when it has said anything; what it points at
+       otherwise. Never both — see the essay above. The cut is the protocol's
+       bound and takes nothing: `showing.set` is refused past it. */
     const pointing = pointed[p.i]
-    const documents = dedupeDocuments([
-      ...(pointing ? [pointing] : []),
-      ...(own?.documents ?? []),
-    ]).slice(0, LIMITS.SHOWING_DOCUMENTS)
+    const documents = dedupeDocuments(own ? own.documents : pointing ? [pointing] : []).slice(
+      0,
+      LIMITS.SHOWING_DOCUMENTS,
+    )
     return { module: p.i, selected: p.selected, showing: { refs, documents } }
   })
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { CONTENT_HOST, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, Passage, Showing } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -57,6 +58,7 @@ import {
   type Project,
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
+import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, type Part } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
@@ -1093,7 +1095,7 @@ export function App() {
     },
     [projectId],
   )
-  /* For `controls`, which is built once — see `openRef`. */
+  /* For `controls`, which is built once — see `kehikkoRef`. */
   const changeSubjectRef = useRef(changeSubject)
   changeSubjectRef.current = changeSubject
 
@@ -1147,7 +1149,11 @@ export function App() {
     [open?.id, open?.name],
   )
   /**
-   * Where somebody is pointing inside a document, per canvas, in memory only.
+   * Where somebody is pointing inside a document, per kehikko, in memory only.
+   *
+   * (The essay is the passage's; the state it describes is `said`, below it,
+   * which holds every module's pointing and from which a kehikko's passage is
+   * read.)
    *
    * ## Per-canvas, and not per-host
    *
@@ -1159,8 +1165,9 @@ export function App() {
    * made in a paper on one canvas narrowing a notes container on another, where the
    * paper is not even open; the reader would see a container filter itself down to a
    * paragraph they cannot see, on a canvas they are not on, and nothing on
-   * screen would explain it. So it is keyed by canvas, and switching canvases
-   * shows what that canvas was pointing at.
+   * screen would explain it. So a kehikko's passage is the latest pointing by
+   * a module placed ON it, and switching kehikko shows what the modules there
+   * are pointing at.
    *
    * ## Not written down, which is the one place it differs from the selection
    *
@@ -1183,47 +1190,40 @@ export function App() {
    * Nothing is lost by letting it die with the page: the pointing module is
    * loaded, shows its document, and points again. That is a passage somebody is
    * actually making, which is the only kind this field is meant to carry.
-   */
-  const [passages, setPassages] = useState<Record<number, Passage | null>>({})
-
-  /**
-   * What each container says it is showing, per canvas, in memory only.
    *
-   * Keyed like `passages` and held like `passages`, for the reason given at
-   * length above it: this is a claim about a running program's own state — "I
-   * have chapter three open" — and once the program is gone nobody is left to
-   * renew it. A host that wrote it down would be asserting, after a restart,
-   * that a module which may not even be running is showing a file it may have
-   * closed a week ago. So it lives with the page, and a module that reloads
-   * says it again.
+   * ## And beside it, what each container says it is showing
    *
-   * Beside it, what each container last POINTED at and who PICKED, on each
-   * canvas. The host always knew — `passage.set` and `selection.set` arrive
-   * from a window — and never wrote it down, because nothing needed it.
-   * `context.containers` does: a container that pointed is showing what it
-   * pointed at, and its row says so without the module having learned a new
-   * word. `host/showing.ts` composes the three into one list and has the
-   * argument for why that is a projection and not a second source.
+   * What each container says it is showing and where it last pointed, per
+   * MODULE, in memory only — and who PICKED, per project.
    *
-   * `pointings` is per MODULE and not one name per canvas, and the essay in
-   * `host/showing.ts` is why: a single "who pointed last" emptied the paper's
-   * row the moment the notes pane pointed, and every consumer narrowed to the
-   * picked-out paper emptied with it. A pointing is that container's claim
-   * about what it shows and lasts until that container points elsewhere or at
-   * nothing — the same life a `showing.set` has.
+   * In memory for the reason given at length above: a claim about a running
+   * program's own state — "I have chapter three open" — that nobody is left to
+   * renew once the program is gone. A host that wrote it down would be
+   * asserting, after a restart, that a module which may not even be running is
+   * showing a file it may have closed a week ago. So it lives with the page,
+   * and a module that reloads says it again.
+   *
+   * Per module and NOT per canvas, which is what it was: a module's page is
+   * one document shown on whichever kehikko asks for it, so what it said is
+   * true wherever it is placed, and a kehikko is told what the modules ON it
+   * said. Filed per canvas, a switch to another kehikko in the same project
+   * found nothing — no passage, every row empty — until some module happened
+   * to say something new, which a module that deduplicates never does.
+   * `host/said.ts` has the argument, and the one thing that stays per kehikko:
+   * the passage is the latest pointing among the modules placed on it, so a
+   * highlight in a paper still does not narrow a notes container on a kehikko
+   * the paper is not on.
+   *
+   * `host/showing.ts` composes the rows out of this and the selection, and has
+   * the argument for why that is a projection and not a second source.
    *
    * `selectedBy` is honest about one gap: a selection read back out of the
    * database after a reload has no setter here, and goes into nobody's row. It
    * is still `context.selection`. Inventing who picked it would be the host
-   * stating who said something it did not hear.
-   *
-   * `selectedBy` is keyed by PROJECT, unlike the two beside it, because the
-   * selection it names the setter of is the project's: a module that picked
-   * refs on one kehikko is still their setter when the person switches to
-   * another kehikko, and its row says so wherever it is placed.
+   * stating who said something it did not hear. It is keyed by PROJECT because
+   * the selection it names the setter of is the project's.
    */
-  const [said, setSaid] = useState<Record<number, Record<string, Showing>>>({})
-  const [pointings, setPointings] = useState<Record<number, Record<string, Passage>>>({})
+  const [said, setSaid] = useState<Said>(NOTHING_SAID)
   const [selectedBy, setSelectedBy] = useState<Record<number, string | null>>({})
 
   /**
@@ -1253,16 +1253,20 @@ export function App() {
   useEffect(() => {
     if (wasInProject.current === projectId) return
     wasInProject.current = projectId
-    setPassages((was) => (Object.keys(was).length === 0 ? was : {}))
-    /* And everything a container said it shows, and who pointed or picked,
-       for the passage's own reason: a document path belongs to the project
-       that was just left, and a ref was picked out of an epic in it. */
-    setSaid((was) => (Object.keys(was).length === 0 ? was : {}))
-    setPointings((was) => (Object.keys(was).length === 0 ? was : {}))
+    /* Every pointing, and everything a container said it shows, and who
+       picked: a document path belongs to the project that was just left, and
+       a ref was picked out of an epic in it. */
+    setSaid((was) => (was === NOTHING_SAID ? was : NOTHING_SAID))
     setSelectedBy((was) => (Object.keys(was).length === 0 ? was : {}))
   }, [projectId])
 
-  const passage = openId === null ? null : (passages[openId] ?? null)
+  /* The latest pointing among the modules placed on the open kehikko — see
+     `passageOn`. Switching kehikko changes who is placed, not what was said. */
+  const placedIds = (open?.placements ?? []).map((p) => p.i).join('\n')
+  const passage = useMemo(
+    () => (placedIds ? passageOn(said, placedIds.split('\n')) : null),
+    [said, placedIds],
+  )
 
   /**
    * The passage as a VALUE, for the same reason `picked` is a joined string.
@@ -1290,8 +1294,8 @@ export function App() {
    */
   const described = containersOf({
     placements: open?.placements ?? [],
-    said: (openId === null ? undefined : said[openId]) ?? {},
-    pointed: (openId === null ? undefined : pointings[openId]) ?? {},
+    said: said.showing,
+    pointed: pointedBy(said),
     selection: picked ? picked.split('\n') : [],
     selectedBy: projectId === null ? null : (selectedBy[projectId] ?? null),
   })
@@ -1375,21 +1379,10 @@ export function App() {
   const projectRef = useRef<number | null>(projectId)
   projectRef.current = projectId
 
-  /* Which canvas a passage belongs to, read when the call is MADE. A ref for
-     the reason `kehikkoRef` and `projectRef` are refs: `controls` is the object
-     every module's conversation was built with, and rebuilding it whenever
-     somebody switches canvas would rebuild every module's `ask`. */
-  const openRef = useRef<number | null>(openId)
-  openRef.current = openId
-  const setPassagesRef = useRef(setPassages)
-  setPassagesRef.current = setPassages
-  /* The same arrangement for the three records beside it. `controls` is built
-     once; these setters are stable anyway, and reading them through refs keeps
-     the pattern one pattern. */
+  /* `controls` is built once; the setters are stable anyway, and reading
+     them through refs keeps the pattern one pattern. */
   const setSaidRef = useRef(setSaid)
   setSaidRef.current = setSaid
-  const setPointingsRef = useRef(setPointings)
-  setPointingsRef.current = setPointings
   const setSelectedByRef = useRef(setSelectedBy)
   setSelectedByRef.current = setSelectedBy
 
@@ -1412,12 +1405,12 @@ export function App() {
   /**
    * A module asking where its own container's filters should go.
    *
-   * ## Held in a ref, for the reason `point` reads `openRef`
+   * ## Held in a ref, for the reason `emit` reads `kehikkoRef`
    *
    * `controls` is memoised on purpose — a new object per render would be a new
    * conversation per render — so it cannot close over `placements` or `live`,
    * which change constantly. The work is written here, fresh every render, and
-   * `controls` calls through the ref. The same shape `setPassagesRef` uses.
+   * `controls` calls through the ref. The same shape `setSaidRef` uses.
    *
    * ## What it refuses, and why refusing is the honest half
    *
@@ -1574,48 +1567,23 @@ export function App() {
         const by = refs.length ? from : null
         setSelectedByRef.current((was) => (was[id] === by ? was : { ...was, [id]: by }))
       },
-      /* What a container says it shows, held for the open canvas and only when
-         it CHANGED — the same bargain `point` keeps below, for the same reason:
-         a module that re-says an identical statement on every render must not
-         cost every frame on the canvas a context. */
-      show: (from, showing) =>
-        setSaidRef.current((was) => {
-          const id = openRef.current
-          if (id === null) return was
-          const here = was[id] ?? {}
-          if (JSON.stringify(here[from] ?? null) === JSON.stringify(showing)) return was
-          return { ...was, [id]: { ...here, [from]: showing } }
-        }),
-      /* Held for the canvas that is open, and only when it actually CHANGED.
-         A module that points on every pointer move during a drag would
-         otherwise put a `kehikot.context` into every frame on the canvas per
-         event; the sender is asked not to do that, and this is the half of the
-         bargain the host can keep on its own — a host cannot make somebody
-         else's program debounce, and it can refuse to repeat itself. */
-      point: (from, next) => {
-        const id = openRef.current
-        if (id === null) return
-        setPassagesRef.current((was) => {
-          const had = was[id] ?? null
-          if (JSON.stringify(had ?? null) === JSON.stringify(next ?? null)) return was
-          return { ...was, [id]: next }
-        })
-        /* And what THIS container is now pointing at, so the passage appears
-           in its row — and stays there when another container points next,
-           which is the bug `host/showing.ts` names. A null passage is a
-           document closed: this container's row stops showing it, and only
-           this container's. */
-        setPointingsRef.current((was) => {
-          const here = was[id] ?? {}
-          if (next === null) {
-            if (!(from in here)) return was
-            const { [from]: _gone, ...rest } = here
-            return { ...was, [id]: rest }
-          }
-          if (JSON.stringify(here[from] ?? null) === JSON.stringify(next)) return was
-          return { ...was, [id]: { ...here, [from]: next } }
-        })
-      },
+      /* What a container says it shows, held against the MODULE that said
+         it — whichever kehikko is open, and whether or not the module is on
+         it: its page is one document, and the claim is about that document.
+         Only when it CHANGED, the same bargain `point` keeps below: a module
+         that re-says an identical statement on every render must not cost
+         every frame on the canvas a context. */
+      show: (from, showing) => setSaidRef.current((was) => shown(was, from, showing)),
+      /* Held against the module, and only when it actually CHANGED. A module
+         that points on every pointer move during a drag would otherwise put a
+         `kehikot.context` into every frame on the canvas per event; the sender
+         is asked not to do that, and this is the half of the bargain the host
+         can keep on its own — a host cannot make somebody else's program
+         debounce, and it can refuse to repeat itself. Which kehikko's passage
+         it becomes is decided when the context is composed, by who is placed
+         there — see `passageOn`. A null is a document closed: this
+         container's row stops showing it, and only this container's. */
+      point: (from, next) => setSaidRef.current((was) => pointed(was, from, next)),
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
@@ -2802,7 +2770,28 @@ export function App() {
       ),
     [],
   )
-  const onDocument = useCallback((id: string, event: DocumentEvent) => covers[event](id), [covers])
+  const onDocument = useCallback(
+    (id: string, event: DocumentEvent) => {
+      /* The document that said it is gone, and so is what it said: what it
+         showed and where it pointed. Its successor — a restart, an update, a
+         pinned version's page — is greeted with a context that does not hand
+         it its predecessor's passage as though a neighbour were pointing.
+
+         `replaced` is the same thing without the frame going away: the page
+         reloaded itself in place, and its greeting is the very next thing
+         `ModuleFrame` does. So this one is flushed — the greeting reads the
+         context of the render this causes. It arrives from a frame's `load`
+         event, never from inside a render, which is where `flushSync` is
+         allowed. */
+      if (event === 'replaced') {
+        flushSync(() => setSaid((was) => forgotten(was, id)))
+        return
+      }
+      covers[event](id)
+      if (event === 'unmounted') setSaid((was) => forgotten(was, id))
+    },
+    [covers],
+  )
 
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({

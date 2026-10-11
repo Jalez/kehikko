@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Passage, Showing } from 'kehikot-module-protocol'
+import { LIMITS, type Passage, type Showing } from 'kehikot-module-protocol'
 
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import { toWireContext } from '@/host/context.ts'
@@ -115,19 +115,88 @@ describe('composing the list', () => {
     expect(rows[1]?.showing.refs).toEqual(['gh#10', 'gh#11'])
   })
 
-  test('the passage is folded into the row of the container that pointed, first', () => {
+  test('a module that only points is showing what it points at', () => {
     /* The projection the protocol's essay allows and this host says it does:
-       a module that only ever calls `passage.set` is showing what it points
-       at. The reader's finger goes first, ahead of whatever the module said. */
+       a module that only ever calls `passage.set` has no other word, and its
+       row is what it points at. */
     const rows = containersOf({
       placements: [at('kehikot.paper', 0), at('kehikot.notes', 1)],
-      said: { 'kehikot.paper': { refs: [], documents: [chapter] } },
+      said: {},
       pointed: { 'kehikot.paper': paragraph },
       selection: [],
       selectedBy: null,
     })
-    expect(rows[0]?.showing.documents).toEqual([paragraph, chapter])
+    expect(rows[0]?.showing.documents).toEqual([paragraph])
     expect(rows[1]?.showing.documents).toEqual([])
+  })
+
+  test('a module that says what it shows has the whole of its row, and its pointing is not put in front', () => {
+    /*
+     * Measured: a paper listing its files with `showing.set`, its editor in
+     * the methods chapter, and its last pointing an hour old on page 1 of
+     * `main.tex` — it had been walked since by a neighbour's press and
+     * rightly said nothing. The pointing went FIRST, and every consumer that
+     * keeps one place per path took the stale page for `main.tex`.
+     */
+    const main: Passage = { ...chapter, path: '/Users/x/thesis/main.tex' }
+    const stale: Passage = { ...main, page: 1 }
+    const rows = containersOf({
+      placements: [at('kehikot.paper', 0, true), at('kehikot.notes', 1)],
+      said: { 'kehikot.paper': { refs: [], documents: [main, chapter] } },
+      pointed: { 'kehikot.paper': stale },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[0]?.showing.documents).toEqual([main, chapter])
+    /* What a consumer does with it: the first place per path. */
+    const perPath = new Map<string, Passage>()
+    for (const one of rows[0]?.showing.documents ?? []) if (!perPath.has(one.path)) perPath.set(one.path, one)
+    expect(perPath.get(main.path)?.page).toBeNull()
+  })
+
+  test('a pointing somewhere the module does not list is not added either', () => {
+    /* The same staleness with the parts narrowed: the paper says it shows the
+       methods chapter and only that; an older pointing into `main.tex` must
+       not make its row claim a file it has said it is not showing. */
+    const elsewhere: Passage = { ...chapter, path: '/Users/x/thesis/main.tex', page: 1 }
+    const rows = containersOf({
+      placements: [at('kehikot.paper', 0)],
+      said: { 'kehikot.paper': { refs: [], documents: [chapter] } },
+      pointed: { 'kehikot.paper': elsewhere },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[0]?.showing.documents).toEqual([chapter])
+  })
+
+  test('sixteen documents said and a pointing: all sixteen are in the row, in order', () => {
+    /* The bound is the protocol's and `showing.set` is refused past it, so a
+       module can say exactly sixteen. The pointing used to be put in front
+       before the cut, and the sixteenth file was dropped for a second mention
+       of a file already listed. */
+    const files = Array.from({ length: LIMITS.SHOWING_DOCUMENTS }, (_, n): Passage => ({ ...chapter, path: `/Users/x/thesis/chapters/${n}.tex` }))
+    const rows = containersOf({
+      placements: [at('kehikot.paper', 0)],
+      said: { 'kehikot.paper': { refs: [], documents: files } },
+      pointed: { 'kehikot.paper': { ...files[4]!, from: 10, to: 20, quoted: 'ten bytes' } },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[0]?.showing.documents).toEqual(files)
+  })
+
+  test('showing nothing, said, is an empty row even while the module points', () => {
+    /* `{ refs: [], documents: [] }` is the protocol's "real call for showing
+       nothing". A host that folded the pointing in would make it impossible
+       to mean. Where the finger is stays in `context.passage`. */
+    const rows = containersOf({
+      placements: [at('kehikot.paper', 0)],
+      said: { 'kehikot.paper': { refs: [], documents: [] } },
+      pointed: { 'kehikot.paper': paragraph },
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows[0]?.showing.documents).toEqual([])
   })
 
   test('a container keeps showing what it pointed at after another container points', () => {
