@@ -31,8 +31,13 @@ import { framedAddress } from '@/host/theme.ts'
  * wondering which of them is confused.
  */
 
-/** What happened to a frame's document. See `Covers` in `host/standing.ts`. */
-export type DocumentEvent = 'mounted' | 'loaded' | 'unmounted'
+/**
+ * What happened to a frame's document. See `Covers` in `host/standing.ts` for
+ * the three it is told; `replaced` is for whoever remembers what the document
+ * SAID — the frame is the same and the page inside it is a new one, about to
+ * be greeted. It comes before that `loaded`, and before the greeting.
+ */
+export type DocumentEvent = 'mounted' | 'loaded' | 'unmounted' | 'replaced'
 
 export function ModuleFrame({
   module: framed,
@@ -209,7 +214,15 @@ export function ModuleFrame({
     }
     window.addEventListener('message', onMessage)
 
+    /* A second `load` in the same frame is a page that reloaded or navigated
+       itself: a new document, which has said nothing. Whoever holds what the
+       old one said is told BEFORE the greeting, so that the greeting does not
+       hand the new page its predecessor's passage as though a neighbour were
+       pointing there. The canvas forgets synchronously (`onDocument` in
+       `App.tsx`), which is what makes `contextRef` current on the next line. */
+    let loads = 0
     const onLoad = () => {
+      if (loads++ > 0) onDocumentRef.current?.(framed.id, 'replaced')
       conversation.greet(contextRef.current, stateRef.current)
       onDocumentRef.current?.(framed.id, 'loaded')
     }
