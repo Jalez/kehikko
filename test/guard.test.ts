@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { notFromThePage } from '../server/anyway.ts'
-import { changes, hasBody, own, ownHosts, pageOriginsOf, pressedInThePage, refusal, saysJson, type Own } from '../server/guard.ts'
+import { changes, hasBody, own, ownHosts, PAGE_ONLY, pageOriginsOf, refusal, saysJson, type Own } from '../server/guard.ts'
 
 /**
  * The rule every request passes before a route is chosen (`server/guard.ts`),
@@ -214,23 +213,41 @@ describe('the door at /mcp', () => {
   })
 })
 
-describe('a press in the page, the stricter reading', () => {
-  const origins = [PAGE, 'http://localhost:4181']
+describe('the routes that are the page’s alone', () => {
+  const body = { ...JSON_TYPE, 'content-length': '2' }
 
-  test('is an Origin of the page’s and JSON', () => {
-    expect(pressedInThePage(new Headers({ origin: PAGE, ...JSON_TYPE }), origins)).toBe(true)
-    expect(notFromThePage(new Headers({ origin: PAGE, ...JSON_TYPE }), origins)).toBeNull()
+  test('are the restart of a kept module and the two header postings', () => {
+    expect([...PAGE_ONLY].sort()).toEqual(['/host/headers', '/host/pressed', '/host/restart-anyway'])
   })
 
-  test('is not a program, another origin, or anything but JSON', () => {
-    for (const headers of [
-      { ...JSON_TYPE },
-      { origin: 'https://example.org', ...JSON_TYPE },
-      { origin: PAGE, 'content-type': 'text/plain' },
-      { origin: PAGE },
-    ] as Record<string, string>[]) {
-      expect(pressedInThePage(new Headers(headers), origins)).toBe(false)
-      expect(notFromThePage(new Headers(headers), origins)).toContain('did not come from there')
+  test('answer the page: its Origin and JSON', () => {
+    for (const pathname of PAGE_ONLY) {
+      expect(ask('POST', pathname, { origin: PAGE, 'sec-fetch-site': 'same-origin', ...body })).toBeNull()
+      expect(ask('POST', pathname, { origin: 'http://localhost:4181', 'content-type': 'application/json; charset=utf-8', 'content-length': '2' })).toBeNull()
+    }
+  })
+
+  test('answer no program, no other origin, and nothing but JSON', () => {
+    for (const pathname of PAGE_ONLY) {
+      for (const headers of [
+        { ...body },
+        { origin: 'https://example.org', ...body },
+        { origin: 'http://127.0.0.1:7920', ...body },
+        { origin: 'null', ...body },
+        { origin: PAGE, 'content-type': 'text/plain', 'content-length': '2' },
+        { origin: PAGE },
+        {},
+      ] as Record<string, string>[]) {
+        const refused = ask('POST', pathname, headers)
+        expect(refused?.status, `${pathname} ${JSON.stringify(headers)}`).toBe(403)
+        expect(refused?.why).toContain('Nothing was done.')
+      }
+    }
+  })
+
+  test('are the only ones: a program is answered at every other', () => {
+    for (const pathname of ['/host/start', '/host/restart', '/host/open', '/host/epics', '/host/agent']) {
+      expect(ask('POST', pathname, body), pathname).toBeNull()
     }
   })
 })

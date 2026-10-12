@@ -1,7 +1,5 @@
-import { MessageSquareText } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button.tsx'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +10,6 @@ import {
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { promptFor, type Placement } from '@/host/canvases.ts'
 import type { Presence } from '@/host/registry.ts'
-import { Hint } from './Hint.tsx'
 
 /**
  * What one container says to another module, and what is being said to it.
@@ -188,34 +185,5 @@ export function Prompts({
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-/** The button on a container header that opens the dialog above. */
-export function PromptButton({ wanted, onOpen }: { wanted: boolean; onOpen(): void }) {
-  return (
-    <Hint
-      label={
-        wanted
-          ? 'prompts — this module uses one, and this is where it is written'
-          : 'prompts — what this container says to another module, and what it is told'
-      }
-      side="left"
-    >
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="prompts"
-        className={
-          wanted
-            ? 'text-foreground size-6 cursor-default'
-            : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
-        }
-        onMouseDown={(event) => event.stopPropagation()}
-        onClick={onOpen}
-      >
-        <MessageSquareText className="size-3" />
-      </Button>
-    </Hint>
   )
 }

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL } from 'kehikot-module-protocol'
+import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, pressSchema } from 'kehikot-module-protocol'
+import { PRESS_BACKSTOP_MS } from 'kehikot-module-protocol/client'
 
-import { Conversation, type Answer } from '@/host/conversation.ts'
+import { Conversation, PRESSED_TIMEOUT_MS, type Answer } from '@/host/conversation.ts'
 import { kehikkoOnWire, toWireContext } from '@/host/context.ts'
 
 /**
@@ -381,7 +382,7 @@ describe('a module declares its header, and the host holds it', () => {
     expect(headers[0]!.map((item) => [item.kind, item.id])).toEqual([['switch', 'pane'], ['run', 'compile']])
     /* The schema's defaults are filled in: a run that said nothing is idle. */
     expect(headers[0]![1]).toMatchObject({ state: 'idle', agents: false })
-    /* No press, no answer: this host does not send `kehikot.press` yet. */
+    /* A declaration is not answered. */
     expect(sent).toEqual([])
     conversation.close()
   })
@@ -400,6 +401,78 @@ describe('a module declares its header, and the host holds it', () => {
     expect(headers).toEqual([])
     expect(sent).toEqual([])
     conversation.close()
+  })
+  /* The module has answered the greeting, as one that declared a header has. */
+  function ready(pressedTimeoutMs?: number) {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'kehikot.paper', null, async () => nothing, quiet(), {
+      name: 'Paper',
+      pressedTimeoutMs,
+    })
+    conversation.greet(context)
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    say({ type: MESSAGE.READY, id: 'kehikot.paper', protocol: PROTOCOL })
+    sent.length = 0
+    return { conversation, sent, say }
+  }
+
+  test('a press is one kehikot.press with an id, and its pressed settles it', async () => {
+    const { conversation, sent, say } = ready()
+    const asked = conversation.press('pane', 'pdf')
+    expect(sent).toHaveLength(1)
+    const press = sent[0]!.message as { type: string; protocol: number; id: string; item: string; value?: unknown }
+    expect(press).toMatchObject({ type: MESSAGE.PRESS, protocol: PROTOCOL, item: 'pane', value: 'pdf' })
+    expect(pressSchema.safeParse(press).success).toBe(true)
+    say({ type: MESSAGE.PRESSED, id: press.id, ok: true })
+    expect(await asked).toEqual({ ok: true, why: '' })
+    conversation.close()
+  })
+
+  test('a toggle carries the state wanted, a run carries nothing, and each has its own id', async () => {
+    const { conversation, sent, say } = ready()
+    const one = conversation.press('wrap', false)
+    const two = conversation.press('compile')
+    const [first, second] = sent.map((s) => s.message as { id: string; value?: unknown })
+    expect(first!.value).toBe(false)
+    expect('value' in second!).toBe(false)
+    expect(first!.id).not.toBe(second!.id)
+    /* Answered out of order, each lands on its own press. */
+    say({ type: MESSAGE.PRESSED, id: second!.id, ok: false, why: 'This paper has no main file to compile.' })
+    say({ type: MESSAGE.PRESSED, id: first!.id, ok: true })
+    expect(await two).toEqual({ ok: false, why: 'This paper has no main file to compile.' })
+    expect(await one).toEqual({ ok: true, why: '' })
+    conversation.close()
+  })
+
+  test('no pressed in time is "not taken", said in a sentence — and a late one settles nothing', async () => {
+    const { conversation, sent, say } = ready(10)
+    const came = await conversation.press('compile')
+    expect(came).toEqual({ ok: false, why: 'Paper did not answer the press, so it was not taken.' })
+    expect(say({ type: MESSAGE.PRESSED, id: (sent[0]!.message as { id: string }).id, ok: true })).toBe(true)
+    conversation.close()
+  })
+
+  test('the host waits longer than the module’s own client does before it answers for itself', () => {
+    expect(PRESSED_TIMEOUT_MS).toBeGreaterThan(PRESS_BACKSTOP_MS)
+  })
+
+  test('a page that has not answered the greeting is not pressed, and a closed one settles what was out', async () => {
+    const { conversation, sent } = listening()
+    expect(await conversation.press('compile')).toEqual({
+      ok: false,
+      why: 'kehikot.paper has not answered the host yet, so nothing was pressed.',
+    })
+    expect(sent).toEqual([])
+    conversation.close()
+
+    const standing = ready()
+    const out = standing.conversation.press('compile')
+    standing.conversation.close()
+    expect(await out).toEqual({ ok: false, why: 'Paper was taken off the canvas before it answered.' })
+    expect(await standing.conversation.press('compile')).toEqual({
+      ok: false,
+      why: 'Paper was taken off the canvas, so nothing was pressed.',
+    })
   })
 })
 

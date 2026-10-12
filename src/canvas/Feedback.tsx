@@ -39,6 +39,58 @@ export function FeedbackButton({
   kehikko: string | null
   epic: string | null
 }) {
+  const feedback = useFeedback(module)
+
+  return (
+    <>
+      <DropdownMenu onOpenChange={feedback.opened}>
+        <Hint label={`feedback: what you have told ${name}'s authors, and something new`} side="bottom">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`feedback on ${name}`}
+              /* `pointer-events-auto` because the container is not — see `Tools.tsx`. */
+              className="text-muted-foreground hover:text-foreground pointer-events-auto size-6 cursor-default"
+              /* Stops the grid reading the press as the start of a drag. */
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <MessageSquare className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+        </Hint>
+
+        <DropdownMenuContent align="end" className="w-80">
+          <FeedbackRows feedback={feedback} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <FeedbackDialog feedback={feedback} module={module} name={name} kehikko={kehikko} epic={epic} />
+    </>
+  )
+}
+
+/**
+ * What one module's feedback list holds, for whichever menu is showing it.
+ *
+ * Two menus do: the button above, which the host's own strip still has, and
+ * the Feedback row of a container's Frame menu (`HeaderMenus.tsx`), where the
+ * same list opens beside the menu. One reading and one dialog behind both, so
+ * the list is the same list wherever it is opened from.
+ */
+export interface FeedbackState {
+  listing: Listing | null
+  /** The one line said instead of, or under, the list: reading, a refusal, or that there is none yet. */
+  line: string | null
+  /** The menu showing this opened or closed: read on the way in, stop reading on the way out. */
+  opened(open: boolean): void
+  writing: boolean
+  write(writing: boolean): void
+  /** A send landed: show what is cached now. */
+  sent(): void
+}
+
+export function useFeedback(module: string): FeedbackState {
   const [listing, setListing] = useState<Listing | null>(() => cachedFeedback(module))
   const [loading, setLoading] = useState(false)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -66,72 +118,50 @@ export function FeedbackButton({
 
   useEffect(() => () => asking.current?.abort(), [])
 
-  const items = listing?.items ?? []
+  const opened = useCallback(
+    (open: boolean) => {
+      if (open) void load()
+      else asking.current?.abort()
+    },
+    [load],
+  )
+  const sent = useCallback(() => setListing(cachedFeedback(module)), [module])
+
   const line = trouble
     ? trouble
     : !listing
       ? loading
         ? 'reading GitHub…'
         : null
-      : items.length === 0
+      : listing.items.length === 0
         ? 'No feedback from you yet'
         : null
 
+  return { listing, line, opened, writing, write: setWriting, sent }
+}
+
+/** The list itself: what was sent, each with its status, and the way to send something new. */
+export function FeedbackRows({ feedback }: { feedback: FeedbackState }) {
+  const { listing, line } = feedback
   return (
     <>
-      <DropdownMenu
-        onOpenChange={(open) => {
-          if (open) void load()
-          else asking.current?.abort()
-        }}
-      >
-        <Hint label={`feedback: what you have told ${name}'s authors, and something new`} side="bottom">
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`feedback on ${name}`}
-              /* `pointer-events-auto` because the container is not — see `Tools.tsx`. */
-              className="text-muted-foreground hover:text-foreground pointer-events-auto size-6 cursor-default"
-              /* Stops the grid reading the press as the start of a drag. */
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <MessageSquare className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-        </Hint>
-
-        <DropdownMenuContent align="end" className="w-80">
-          <DropdownMenuLabel className="truncate">
-            your feedback{listing ? <span className="font-mono font-normal"> · {listing.repo}</span> : null}
-          </DropdownMenuLabel>
-          {items.map((item) => (
-            <DropdownMenuItem
-              key={item.number}
-              className="cursor-default text-xs"
-              title={item.url}
-              onSelect={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
-            >
-              <span className="text-muted-foreground shrink-0 font-mono text-[10px]">#{item.number}</span>
-              <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              <StatusBadge status={item.status} />
-            </DropdownMenuItem>
-          ))}
-          {line ? <p className="text-muted-foreground px-2 py-1.5 text-xs">{line}</p> : null}
-          <AddItem onAdd={() => setWriting(true)}>new feedback…</AddItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <FeedbackDialog
-        open={writing}
-        onOpenChange={setWriting}
-        module={module}
-        name={name}
-        repo={listing?.repo ?? null}
-        kehikko={kehikko}
-        epic={epic}
-        onSent={() => setListing(cachedFeedback(module))}
-      />
+      <DropdownMenuLabel className="truncate">
+        your feedback{listing ? <span className="font-mono font-normal"> · {listing.repo}</span> : null}
+      </DropdownMenuLabel>
+      {(listing?.items ?? []).map((item) => (
+        <DropdownMenuItem
+          key={item.number}
+          className="cursor-default text-xs"
+          title={item.url}
+          onSelect={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+        >
+          <span className="text-muted-foreground shrink-0 font-mono text-[10px]">#{item.number}</span>
+          <span className="min-w-0 flex-1 truncate">{item.title}</span>
+          <StatusBadge status={item.status} />
+        </DropdownMenuItem>
+      ))}
+      {line ? <p className="text-muted-foreground px-2 py-1.5 text-xs">{line}</p> : null}
+      <AddItem onAdd={() => feedback.write(true)}>new feedback…</AddItem>
     </>
   )
 }
@@ -157,25 +187,23 @@ function StatusBadge({ status }: { status: Status }) {
  * A refusal keeps the dialog and what was typed in it, with the server's
  * sentence; only a send that landed closes it.
  */
-function FeedbackDialog({
-  open,
-  onOpenChange,
+export function FeedbackDialog({
+  feedback,
   module,
   name,
-  repo,
   kehikko,
   epic,
-  onSent,
 }: {
-  open: boolean
-  onOpenChange(open: boolean): void
+  feedback: FeedbackState
   module: string
   name: string
-  repo: string | null
   kehikko: string | null
   epic: string | null
-  onSent(): void
 }) {
+  const open = feedback.writing
+  const onOpenChange = feedback.write
+  const repo = feedback.listing?.repo ?? null
+  const onSent = feedback.sent
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)

@@ -30,6 +30,7 @@ import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
+import { headersDesk } from './headers.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -1553,11 +1554,20 @@ async function keptAndRunning(): Promise<string[]> {
 }
 
 /*
+ * What the modules on an open kehikko declared for their headers, as the
+ * pages say it, and the road an agent's `press_item` takes to a frame. See
+ * `headers.ts`.
+ */
+const headerDesk = headersDesk({
+  hears: (page) => wakes.hears(page),
+  send: (order) => wakes.press(order),
+})
+
+/*
  * "Restart anyway": the one way a module that is kept is stopped, and only by
  * a person pressing twice in the page. See `anyway.ts`.
  */
 const anyway = anywayDesk({
-  pageOrigins: () => OWN.origins,
   /* The disk at the press, as `/host/start` reads it. */
   registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
   startable,
@@ -2458,6 +2468,10 @@ const server = Bun.serve({
     const anywayAnswer = await anyway.route(request, url)
     if (anywayAnswer) return anywayAnswer
 
+    /* What the page says its modules declared, and what came of a press it was handed. `headers.ts`. */
+    const headersAnswer = await headerDesk.route(request, url)
+    if (headersAnswer) return headersAnswer
+
     /*
      * What one module's door offers, and what the agent has been told about it.
      *
@@ -2661,6 +2675,8 @@ const server = Bun.serve({
           ? body.kehikko
           : null
       openness.reported(page, kehikko)
+      /* A page on its way out has no frames left to have declared anything. */
+      if (kehikko === null) headerDesk.held.forget(page)
       /* A kehikko was just opened, so the set of modules anybody is looking at
          has just changed — which is the whole trigger this design runs on. The
          page sweeps too, and the two coalesce into one (see `sweep`); this one
@@ -2735,7 +2751,7 @@ const server = Bun.serve({
              here would be a second place for the two ends to disagree. */
           stop = wakes.listen((news) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(news)}\n\n`))
-          })
+          }, page)
         },
         cancel() {
           stop?.()
@@ -2789,6 +2805,7 @@ const server = Bun.serve({
             if (root) epicWritten(root, slug)
           },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
+          headers: headerDesk.door,
           trackers,
           versions: {
             list: (module, kehikko) => pins.list(module, kehikko, true),

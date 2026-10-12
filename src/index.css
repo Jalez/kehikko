@@ -311,13 +311,18 @@
   transition: opacity 120ms ease;
 }
 
+/* And while one of its menus is open. A menu is drawn in a portal, so the
+   pointer in it is not over the header and the focus in it is not within the
+   header: without this the header faded out from under its own open menu. */
 .focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):has([data-slot='dropdown-menu-trigger'][data-state='open']) {
   height: 2rem;
 }
 
 .focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover > .container-grip,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within > .container-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within > .container-grip,
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):has([data-slot='dropdown-menu-trigger'][data-state='open']) > .container-grip {
   opacity: 1;
   pointer-events: auto;
 }

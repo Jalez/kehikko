@@ -4,6 +4,8 @@ import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { PAGE_ONLY } from '../server/guard.ts'
+
 /**
  * The rule in `server/guard.ts`, at the running server, one route family at a
  * time: a request shaped as this host's page sends it is acted on, one shaped
@@ -194,6 +196,8 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/restart-anyway', body: { module: 'kehikot.nothing', press: 'arm' } },
       { method: 'POST', path: '/host/agent', body: { module: 'kehikko', press: 'connect' } },
       { method: 'POST', path: '/host/open', body: { page: 'somebody', kehikko } },
+      { method: 'POST', path: '/host/headers', body: { page: 'somebody', kehikko, headers: {} } },
+      { method: 'POST', path: '/host/pressed', body: { page: 'somebody', id: 'nothing', ok: true, why: '' } },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },
@@ -216,7 +220,11 @@ describe('the running server and where a request came from', () => {
       /* A program that does not say JSON is refused too, when it sends a body. */
       if (family.body !== undefined) {
         const plain = await send(family.method, family.path, family.body, { 'content-type': 'text/plain' })
-        expect(plain.status, `${family.method} ${family.path} as text/plain`).toBe(415)
+        expect(plain.status, `${family.method} ${family.path} as text/plain`).toBe(PAGE_ONLY.includes(family.path) ? 403 : 415)
+      }
+      /* And the routes that are the page's alone answer no program at all. */
+      if (PAGE_ONLY.includes(family.path)) {
+        expect((await send(family.method, family.path, family.body, fromProgram())).status, `${family.path} from a program`).toBe(403)
       }
     }
     expect(await state()).toBe(before)
@@ -252,6 +260,9 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/restart-anyway', { module: 'kehikot.nothing', press: 'arm' })).status).toBe(409)
     expect((await pressed('POST', '/host/agent', { module: 'kehikko', press: 'connect' })).status).toBe(409)
     expect((await pressed('POST', '/host/open', { page: 'somebody', kehikko })).body.ok).toBe(true)
+    expect((await pressed('POST', '/host/headers', { page: 'somebody', kehikko, headers: {} })).body.ok).toBe(true)
+    /* No press is waiting on that id, which is the route's own answer. */
+    await pressed('POST', '/host/pressed', { page: 'somebody', id: 'nothing', ok: true, why: '' })
     expect((await pressed('POST', '/host/feedback', {})).status).toBe(400)
     expect((await pressed('POST', '/host/official/install', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)
     expect((await pressed('POST', '/host/official/propose', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)

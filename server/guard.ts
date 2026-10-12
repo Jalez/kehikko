@@ -32,7 +32,14 @@
  *     With neither `Origin` nor `Sec-Fetch-Site` the request is a program's,
  *     and is answered: a browser states both on anything it sends that is not
  *     its own page talking to itself.
- *  4. Everything else is a GET for the page, and is answered.
+ *  4. A few routes are the page's alone (`PAGE_ONLY`): a press that restarts
+ *     a module its registration says to keep, and what the page says about
+ *     its modules' headers and about a press it was asked to make. There a
+ *     program is refused too — the request carries an `Origin` of the page's
+ *     and JSON, or it is not answered.
+ *  5. Everything else is a GET for the page, and is answered.
+ *
+ * This is the only place any of that is decided. A route does not ask again.
  *
  * The rule covers GETs under `/host/` as well as writes, because several of
  * them do work when asked: `/host/modules` and `/host/quiet` sweep and may
@@ -63,6 +70,18 @@ export interface Refusal {
   status: 403 | 415
   why: string
 }
+
+/**
+ * The routes only this host's page may write to. A program with no browser in
+ * it is let through everywhere else; not here.
+ *
+ *  - `/host/restart-anyway` — a person's two presses (`anyway.ts`). There is
+ *    no tool for it at the door, and a script is not a person pressing.
+ *  - `/host/headers`, `/host/pressed` — a browser's word about what a frame
+ *    said, and what came of a press (`headers.ts`). A module's frame is
+ *    another origin, and so is every other site.
+ */
+export const PAGE_ONLY: readonly string[] = ['/host/restart-anyway', '/host/headers', '/host/pressed']
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */
 const LOOPBACK = ['127.0.0.1', 'localhost'] as const
@@ -153,6 +172,10 @@ const NOT_A_PROGRAM: Refusal = {
   status: 403,
   why: 'This door is for programs and not for pages: a request to it comes from no page. Nothing was done.',
 }
+const NOT_A_PRESS: Refusal = {
+  status: 403,
+  why: 'Only this host’s own page says this, and this request did not come from there. Nothing was done.',
+}
 const NOT_JSON: Refusal = {
   status: 415,
   why: 'A request that changes something here says its body is JSON (content-type: application/json). Nothing was done.',
@@ -179,7 +202,7 @@ export function refusal(asked: Asked, self: Own): Refusal | null {
     return null
   }
 
-  /* 4. A GET for the page. */
+  /* 5. A GET for the page. */
   if (!writes && !asked.pathname.startsWith('/host/')) return null
 
   /* 3. The page's vocabulary, and anything that may change something. */
@@ -192,16 +215,18 @@ export function refusal(asked: Asked, self: Own): Refusal | null {
     if (writes) return NOT_THE_PAGE
     if (site !== 'same-origin' && site !== 'none') return NOT_THE_PAGE
   }
+  /* 4. The page's alone: a program is not let through, and neither is anything but JSON. */
+  if (writes && PAGE_ONLY.includes(asked.pathname) && !pressedInThePage(headers, self.origins)) return NOT_A_PRESS
   if (writes && hasBody(headers) && !saysJson(headers)) return NOT_JSON
   return null
 }
 
 /**
  * Whether a request is a press in this host's page and nothing else: a browser
- * said it came from one of the page's origins, and it is JSON. Stricter than
- * `refusal` — a program is not a press.
+ * said it came from one of the page's origins, and it is JSON. What `refusal`
+ * asks of the routes in `PAGE_ONLY`.
  */
-export function pressedInThePage(headers: Headers, origins: readonly string[]): boolean {
+function pressedInThePage(headers: Headers, origins: readonly string[]): boolean {
   const origin = headers.get('origin')
   return origin !== null && origins.includes(origin) && saysJson(headers)
 }

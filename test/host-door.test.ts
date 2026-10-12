@@ -311,6 +311,7 @@ describe('the host’s server, running', () => {
         'module_versions',
         'pin_version',
         'place_modules',
+        'press_item',
         'read_canvas',
         'read_tracker',
         'select_modules',

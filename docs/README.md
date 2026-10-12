@@ -16,9 +16,9 @@ real terminal — on a canvas. Each one shows you something. Each one also serve
 an MCP server, so the agent in your terminal can use it. Putting a module on the
 canvas tells both of you what this work is about.
 
-Each program sits in a **container**: a box with a thin header (its name, and
-the controls to pin, fold or remove it) and the program's own page filling the
-rest. A canvas is an arrangement of containers, and you can have several
+Each program sits in a **container**: a box with a thin header (its name, the
+program's own View, Go and Run menus when it has any, and the controls to fold
+or remove it) and the program's own page filling the rest. A canvas is an arrangement of containers, and you can have several
 canvases per project — one for writing, one for reviewing, one for code.
 
 Everything runs on your own machine. Nothing is hosted, nothing phones home, and
@@ -404,6 +404,64 @@ manifest fields, read before a program runs, by somebody deciding whether to run
 it. This is a running module saying what it is showing, nothing is checked
 against it, and nothing is gated on it.
 
+## The menus a module declares and the host draws
+
+The filter was one control. Modules went on drawing the rest themselves: Source
+/ PDF tabs, a Sections select, Compile, Commit, Present — a toolbar per module,
+each laid out its own way, each taking a row out of a container that is often
+380 pixels wide.
+
+A module can hand those over too (protocol 1.1.0, `docs/header.md` there). It
+sends `kehikot.header` with its items — the whole list, every time — and the
+host draws them in the container's header as dropdown menus
+(`src/canvas/HeaderMenus.tsx`, on the full shadcn `dropdown-menu`):
+
+| kind | is | drawn as | menu |
+|---|---|---|---|
+| `switch` | one of several views | a radio group | **View** |
+| `toggle` | on or off | a checkbox item | **View** |
+| `go` | a jump to one of several places | plain items | **Go** |
+| `run` | an act | an item with its `state`, `result`, `shortcut` and, when `disabled`, the reason under it | **Run** |
+
+The kind decides the menu, so every container reads the same. A menu with
+nothing in it is not drawn, and a module that declares nothing has the header
+it always had. After them comes **Frame**, the host's own menu, on every
+container: the module's tools (the plug), feedback to its authors, and prompts.
+The checkbox, the dot and the name stay direct on the left, and fold and remove
+on the right. The filter, clear and refresh buttons are unchanged.
+
+- **The module owns all the state.** The host draws what was last declared and
+  remembers nothing. Choosing an item sends `kehikot.press` with a correlation
+  id; the module answers `kehikot.pressed` and declares its header again, and
+  the menu that is open shows the new state. A toggle and a switch leave the
+  menu open; a jump and a run close it.
+- **A press is judged first.** The host asks the protocol's `pressRefusal` of
+  the header as it stands at the press and sends nothing it refuses. It waits
+  three seconds for `pressed` (the module's own client answers within two). A
+  press that was not taken says why in the trigger's tooltip for a few seconds,
+  and under the row while the menu is open — no row under the header, no toast.
+- **`confirm` is the host's arm.** The first press changes what the row says
+  and sends nothing; the second sends. It comes down after four seconds, when
+  the menu closes, and when the item is declared differently.
+- **The header does not grow a row.** Triggers are words; under 300 pixels they
+  are icons; under 220 the three become one "⋯" with View, Go and Run as
+  sections. Folded, the module's menus are not drawn. Labels are one line, cut
+  with an ellipsis, whole in a `title`. A list of more than six options opens
+  beside the menu unless its item is alone there.
+- **A module's words are text.** Labels, groups, results and reasons are
+  rendered as text and never as markup or a link. `icon` is a name looked up in
+  a fixed table (`HEADER_ICONS`); a name that is not in it draws no icon. The
+  names are lucide's: `book-open`, `bot`, `check`, `circle-stop`, `code`,
+  `columns-2`, `compass`, `copy`, `download`, `external-link`, `eye`, `file`,
+  `file-down`, `file-text`, `folder`, `git-commit-horizontal`, `history`,
+  `image`, `layout-list`, `link`, `list`, `list-tree`, `maximize`, `monitor`,
+  `monitor-play`, `panel-left`, `pencil`, `play`, `presentation`, `printer`,
+  `refresh-cw`, `rows-3`, `save`, `scroll-text`, `search`, `settings`,
+  `square`, `terminal`, `trash-2`, `upload`, `wrap-text`, `zap`. A run and a
+  go or switch label draw one; a toggle's tick stands where its icon would.
+
+An agent reads and presses these through the host's door — below.
+
 ## A module can ask you which project, and can never ask what projects exist
 
 Every module here keeps its data inside the project it is about, in
@@ -439,17 +497,21 @@ nothing else: no program is told, started, stopped or asked anything, and the
 selection is stored with the layout, so it is still there tomorrow.
 
 The host answers MCP on its own API port, at `http://127.0.0.1:4180/mcp`, with
-five tools:
+these tools:
 
 | tool | what it does |
 |---|---|
-| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic — and which registered modules are not on it |
+| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
 | `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/kehikko/epics/<slug>.json` — without opening it |
 | `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/kehikko/dispositions.json`, signed `agent (MCP)` |
+| `read_tracker` | the project's shared tracker reading |
+| `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
+| `fold_modules` | fold containers to their headers or unfold them, on a kehikko a page has open; marked on the container as an agent's doing |
+| `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
 
-All five take an optional `kehikko` id and, without one, act on the kehikko a
+All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
 said or when two browser windows have two different ones open.
 
@@ -462,12 +524,31 @@ arranged, and refuses a module this computer has no registration for.
 `server/mcp.ts` has the argument, including the half of the original "cannot
 add" rule that did not survive and why.
 
+`press_item` is the one tool that reaches into a module, and it is narrow. It
+presses only an item the module marked `agents: true`. A run with `confirm` is
+always the person's. An item that names a `tool` is refused by naming that tool
+and the module's own MCP door, so there is one way for a program to do each
+thing. It is refused when no page has the kehikko open, because the press is
+made by that page: the server hands it one `kehikot.press` to post, down the
+`/host/watch` stream of that page alone, and waits for the page to say what
+the module answered. Every refusal names what exists. The page tells the server
+what its modules declared (`POST /host/headers`) and what came of a press
+(`POST /host/pressed`); both answer only this host's own page — JSON, with an
+`Origin` that is the page's — and the page judges an agent's press again against
+what the frame itself declared, so nothing that talked the server into something
+gets an item pressed. `value` is the option's id for a switch or a go item,
+`true` or `false` for a toggle, and absent for a run. The answer is whether the
+module took the press, not whether a run has finished; the container says
+"an agent pressed Compile" for a few seconds. The arrangement is never changed
+by it. `server/headers.ts` and `server/mcp.ts` have the argument.
+
 A tool call is visible immediately on the page, without a refresh — the server
 says a kehikko changed, or a project's epics did, over `/host/watch` and the
 page re-reads.
 
-Tell your agent about it from the strip: the plug at the right-hand end is the
-same control every container header has for its module's door. It opens a
+Tell your agent about it from the strip: the plug at the right-hand end. A
+module's own door is under **Tools…** in its container's Frame menu, whose
+trigger carries a dot while no agent has been told about it. It opens a
 window listing the two tools, says whether an agent has been told, and connects,
 disconnects or repoints on a press — never on its own. That press runs, and the
 window shows before running it:
