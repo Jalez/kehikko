@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL } from 'kehikot-module-protocol'
 
 import { Conversation, type Answer } from '@/host/conversation.ts'
-import { toWireContext } from '@/host/context.ts'
+import { kehikkoOnWire, toWireContext } from '@/host/context.ts'
 
 /**
  * The wire, tested without a browser.
@@ -570,6 +570,42 @@ describe('the context says which kehikko is being looked at', () => {
 
     expect((sent[0]!.message.context as { kehikko: unknown }).kehikko).toEqual({ id: 7, name: 'workbench' })
     conversation.close()
+  })
+
+  test('the kehikko’s key travels beside its row number, in hello and in every context after', () => {
+    const { frame, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'kehikot.claude', null, async () => nothing, quiet())
+    const here = toWireContext({ epic: null, project: null }, 'dark', [], { id: 28, name: 'writing', key: '4072c9e5' })
+
+    conversation.greet(here)
+    conversation.sendContext(here)
+
+    expect((sent[0]!.message.context as { kehikko: unknown }).kehikko).toEqual({ id: 28, name: 'writing', key: '4072c9e5' })
+    expect(sent[1]!.message.kehikko).toEqual({ id: 28, name: 'writing', key: '4072c9e5' })
+    conversation.close()
+  })
+
+  test('a key a person wrote by hand is a key', () => {
+    expect(kehikkoOnWire({ id: 1, name: 'Writing', key: 'writing' })).toEqual({ id: 1, name: 'Writing', key: 'writing' })
+    expect(kehikkoOnWire({ id: 1, name: 'Writing', key: '12345678' })?.key).toBe('12345678')
+  })
+
+  test('a key the protocol would not read is left off, and costs the context nothing else', () => {
+    const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
+    for (const key of ['Writing', 'a', '-writing', 'writing-', 'a'.repeat(33), '']) {
+      const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', ['gh#1'], { id: 2, name: 'reading', key })
+      expect(here.kehikko).toEqual({ id: 2, name: 'reading' })
+      /* Absent, not undefined: the protocol's own reading of a kehikko without one. */
+      expect(Object.hasOwn(here.kehikko!, 'key')).toBe(false)
+      expect(here.epic).toBe('modes-are-modules')
+      expect(here.projectPath).toBe('/Users/x/Projects/webapp')
+      expect(here.selection).toEqual(['gh#1'])
+    }
+  })
+
+  test('a host that has no key for a kehikko says the two fields it always said', () => {
+    expect(toWireContext({ epic: null, project: null }, 'dark', [], { id: 7, name: 'workbench' }).kehikko).toEqual({ id: 7, name: 'workbench' })
+    expect(kehikkoOnWire(null)).toBeNull()
   })
 
   test('a host with no canvas open says null rather than leaving the field off', () => {

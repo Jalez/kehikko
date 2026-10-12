@@ -59,7 +59,7 @@ import {
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
-import { toWireContext, type Subject } from './host/context.ts'
+import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, type Part } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
@@ -1201,9 +1201,13 @@ export function App() {
    * context — and post a `kehikot.context` to every framed module — whenever
    * anything about any canvas changed.
    */
+  /* `key` beside the row number: what a module files things under, because
+     it is still this kehikko's after the project is removed and added again.
+     `kehikkoOnWire` leaves out one the protocol would not read. This memo is
+     what `kehikkoRef` holds, so an event carries the same three fields. */
   const kehikko = useMemo(
-    () => (open ? { id: open.id, name: open.name } : null),
-    [open?.id, open?.name],
+    () => kehikkoOnWire(open ? { id: open.id, name: open.name, key: open.key } : null),
+    [open?.id, open?.name, open?.key],
   )
   /**
    * Where somebody is pointing inside a document, per kehikko, in memory only.

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { headerItemsSchema } from 'kehikot-module-protocol'
 
+import { fetchCanvases } from '../src/host/canvases.ts'
 import { declared, NO_HEADERS, withdrawn } from '../src/host/header.ts'
 
 /*
@@ -40,5 +41,24 @@ describe('the latest header per module', () => {
     const one = declared(declared(NO_HEADERS, 'kehikot.paper', paper), 'kehikot.slides', busy)
     expect(withdrawn(one, 'kehikot.paper')).toEqual({ 'kehikot.slides': busy })
     expect(withdrawn(one, 'kehikot.notes')).toBe(one)
+  })
+})
+
+/*
+ * The other thing the page has to hold for protocol 1.1.0: the kehikko's key,
+ * which the page's own reading of `/host/canvases` used to strip.
+ */
+describe('the page reads a kehikko’s key', () => {
+  test('it is kept from what the server sends, and a server that sends none still answers', async () => {
+    const real = globalThis.fetch
+    const row = { id: 28, name: 'writing', project: 1, placements: [] }
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ canvases: [{ ...row, key: '4072c9e5' }, { ...row, id: 29 }], projects: [] }))) as unknown as typeof fetch
+    try {
+      const { canvases } = await fetchCanvases()
+      expect(canvases.map((c) => c.key)).toEqual(['4072c9e5', undefined])
+    } finally {
+      globalThis.fetch = real
+    }
   })
 })
