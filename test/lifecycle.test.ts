@@ -11,9 +11,11 @@ import {
   INSTALLING_FOR_MS,
   lifecycleLine,
   lifecycleOf,
+  silentSaid,
   STARTING_FOR_MS,
   toStart,
   type Doing,
+  type Known,
   toStop,
   toWatch,
   theirsLine,
@@ -21,6 +23,7 @@ import {
   WATCH_EVERY_MS,
   type Standing,
 } from '../server/lifecycle.ts'
+import { look } from '../server/discover.ts'
 import { readRegistration } from '../server/registrations.ts'
 
 /**
@@ -524,5 +527,72 @@ describe('a module somebody else was running, just gone', () => {
     /* Longer than a dev server takes to come back, far shorter than the watch. */
     expect(THEIRS_TO_RESTART_MS).toBeGreaterThanOrEqual(6_000)
     expect(THEIRS_TO_RESTART_MS).toBeLessThan(WATCH_EVERY_MS)
+  })
+})
+
+/**
+ * `discover.ts` asked the address and wrote a sentence about what it found.
+ * The host replaces that sentence only when it knows something the asking did
+ * not — never when a document came back and the sentence already says what is
+ * wrong with it. "Has not answered" over a log saying "ready" sent a person to
+ * restart a module that needed updating (issue #67).
+ */
+describe('what a silent module is said to be', () => {
+  const ID = 'kehikot.thing'
+  const AT = 'http://127.0.0.1:7999'
+  const MANIFEST = {
+    protocol: 1,
+    id: ID,
+    name: 'Thing',
+    version: '0.1.0',
+    summary: 'A thing.',
+    entry: '/',
+    partless: 'Nothing in it belongs to a part of an epic.',
+    declares: { protocol: '1.x' },
+  }
+  const serving = (body: unknown) =>
+    (async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status: 200 })) as unknown as typeof fetch
+  const seen = (body: unknown) => look({ id: ID, url: AT } as Parameters<typeof look>[0], serving(body))
+  const nothing: Known = { failed: null, theirs: false, held: false, log: '/logs/kehikot.thing.log', printed: () => ['ready in 294 ms'] }
+  const held: Known = { ...nothing, held: true }
+
+  test('the host started it and refuses its manifest: the refusal is said, not "has not answered"', async () => {
+    const { partless: _, ...old } = MANIFEST
+    const presence = await seen(old)
+    expect(presence).toMatchObject({ condition: 'silent', reached: true, refused: true })
+    expect(presence.line).toContain('but this host cannot use its manifest')
+    /* Null is "leave the sentence as it is" — and no log under it. */
+    expect(silentSaid(presence, held)).toBeNull()
+    /* The same whoever started it, and after a start of the host's that failed. */
+    expect(silentSaid(presence, nothing)).toBeNull()
+    expect(silentSaid(presence, { ...held, failed: { line: 'was started and stopped again', detail: ['x'] } })).toBeNull()
+  })
+
+  test('the same for every other document that came back: its own sentence stands', async () => {
+    for (const body of ['<html>not json</html>', { nothing: 'like a manifest' }, { ...MANIFEST, id: 'kehikot.other' }, { ...MANIFEST, entry: 'http://elsewhere.example/' }]) {
+      const presence = await seen(body)
+      expect(presence).toMatchObject({ condition: 'silent', reached: true })
+      expect(silentSaid(presence, held)).toBeNull()
+    }
+  })
+
+  test('a process the host started that serves no document is still "has not answered", with what it printed', async () => {
+    const quiet = (async () => {
+      throw Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+    }) as unknown as typeof fetch
+    const down = (async () => {
+      throw new Error('refused')
+    }) as unknown as typeof fetch
+    for (const fetchImpl of [quiet, down]) {
+      const presence = await look({ id: ID, url: AT } as Parameters<typeof look>[0], fetchImpl)
+      const said = silentSaid(presence, held)
+      expect(said?.line).toContain('was started and is still running, but has not answered at http://127.0.0.1:7999')
+      expect(said?.detail).toEqual(['ready in 294 ms'])
+      expect(silentSaid(presence, nothing)).toBeNull()
+    }
+    /* A start that stopped again, and somebody else's that has just gone, as before. */
+    const gone = await look({ id: ID, url: AT } as Parameters<typeof look>[0], down)
+    expect(silentSaid(gone, { ...nothing, failed: { line: 'stopped again', detail: ['x'] } })).toEqual({ line: 'stopped again', detail: ['x'] })
+    expect(silentSaid(gone, { ...nothing, theirs: true })?.line).toBe(theirsLine(ID, AT))
   })
 })

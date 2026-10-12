@@ -26,6 +26,7 @@ function canvasThatRemembers() {
     project: () => null,
     filter: () => ({ ok: true as const, filters: {} }),
     pickProject: () => Promise.resolve({ outcome: 'declined' as const, project: null, why: '' }),
+    fold: () => ({ outcome: 'declined' as const, folded: [], unfolded: [], why: '' }),
   }
   return { controls, pointed }
 }

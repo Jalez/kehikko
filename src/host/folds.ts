@@ -5,8 +5,9 @@
  *
  * A fold made by a press needs no signature: the hand that made it is the eye
  * that sees it. A fold made by an agent at the host's door (`fold_modules` in
- * `server/mcp.ts`), or one day by a module asking the host to bring a
- * neighbour into view, happens to somebody: a container they were reading
+ * `server/mcp.ts`), or by a module asking the host to bring itself or a
+ * neighbour into view (`view.fold`, answered by `asked` below), happens to
+ * somebody: a container they were reading
  * shuts, and nothing on the canvas says why. The arrangement belongs to the
  * person, and the least a host owes them when something else touches it is to
  * say who did, on the control that puts it back.
@@ -146,6 +147,79 @@ export function reread<P extends Wished, C extends { id: number; placements: P[]
     return { ...kept, placements }
   })
   return { canvases, write }
+}
+
+/** What a module's `view.fold` came to — the protocol's `foldResult`, and the arrangement to draw. */
+export interface Asked<P> {
+  outcome: 'changed' | 'unchanged' | 'declined' | 'no-such-container'
+  /** What THIS call folded and unfolded, and nothing it left alone. */
+  folded: string[]
+  unfolded: string[]
+  why: string
+  /** The arrangement after it; the same array when nothing changed. */
+  placements: readonly P[]
+}
+
+/**
+ * A module asking the host to fold or unfold containers (`view.fold`).
+ *
+ * The same write a person's press and an agent's `fold_modules` make —
+ * `folded` in `columns.ts` — and the rules kehikko#61 sets, kept here:
+ *
+ *   - **Only on the kehikko the asker is on.** `placements` is the open
+ *     kehikko's. A module whose page is loaded but which is not placed there
+ *     is declined: it would be folding what it is not beside, on a screen it
+ *     is not on.
+ *   - **Not while the person's hand is in the way.** `busy` is a sentence
+ *     saying what they are in the middle of — a drag, a dialog — or `null`.
+ *   - **Every id has to be here.** One that is not is `no-such-container`,
+ *     and nothing is changed, so a caller never has half of what it asked.
+ *   - **A container already as asked is left alone**, and is in neither list:
+ *     the lists are what the caller hands back to undo exactly this call.
+ */
+/** How many missing ids a refusal names before it counts the rest. */
+const MISSING_NAMED = 3
+
+export function asked<P extends Wished>(
+  placements: readonly P[],
+  from: string,
+  call: { fold: readonly string[]; unfold: readonly string[] },
+  busy: string | null,
+): Asked<P> {
+  const none = (outcome: Asked<P>['outcome'], why: string): Asked<P> =>
+    ({ outcome, folded: [], unfolded: [], why, placements })
+  const on = new Map(placements.map((p) => [p.i, p]))
+  if (!on.has(from)) {
+    return none('declined', `${from} is not on the kehikko that is open, so it cannot fold or unfold anything there.`)
+  }
+  if (busy) return none('declined', busy)
+  /* Each id once: the schema allows one twice in a list, and the lists handed
+     back are what a caller undoes with. */
+  const fold = [...new Set(call.fold)]
+  const unfold = [...new Set(call.unfold)]
+  const missing = [...fold, ...unfold].filter((id) => !on.has(id))
+  if (missing.length) {
+    /* The first few by name and the rest by count. A call may name 128 ids of
+       64 characters, and the protocol's `why` holds 400: a sentence listing
+       them all would not fit the answer, and the caller would be told the
+       call failed instead of what was wrong with it. */
+    const named = missing.slice(0, MISSING_NAMED).join(', ')
+    const more = missing.length - MISSING_NAMED
+    return none(
+      'no-such-container',
+      `${named}${more > 0 ? ` and ${more} more` : ''} ${missing.length === 1 ? 'is' : 'are'} not on this kehikko. Nothing was folded or unfolded.`,
+    )
+  }
+  const folding = fold.filter((id) => !on.get(id)?.collapsed)
+  const unfolding = unfold.filter((id) => on.get(id)?.collapsed)
+  if (!folding.length && !unfolding.length) return none('unchanged', '')
+  return {
+    outcome: 'changed',
+    folded: folding,
+    unfolded: unfolding,
+    why: '',
+    placements: folded(placements, { fold: folding, unfold: unfolding }),
+  }
 }
 
 /** Who left this container as it is drawn, or `null` when nobody but the person did. */

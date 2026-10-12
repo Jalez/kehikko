@@ -127,7 +127,7 @@ describe('which kehikko is told it', () => {
  */
 describe('switching between two kehikot in one project', () => {
   const subject = { epic: 'thesis', project: { id: 1, name: 'Thesis', path: '/Users/x/thesis', epics: true, git: false, shared: false } }
-  const at = (i: string, y: number) => ({ i, x: 0, y, selected: false })
+  const at = (i: string, y: number) => ({ i, x: 0, y, selected: false, collapsed: false })
   const writing = [at(PAPER, 0), at(NOTES, 1), at(LEARNING, 2)]
   const revising = [at(PAPER, 0), at(LEARNING, 1)]
   const reading = [at(SOURCE, 0), at(LEARNING, 1)]
@@ -143,6 +143,7 @@ describe('switching between two kehikot in one project', () => {
       project: () => 1,
       filter: () => ({ ok: true as const, filters: {} }),
       pickProject: () => Promise.resolve({ outcome: 'declined' as const, project: null, why: '' }),
+      fold: () => ({ outcome: 'declined' as const, folded: [], unfolded: [], why: '' }),
     }
     const told = (placements: typeof writing): ModuleContext =>
       toWireContext(

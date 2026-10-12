@@ -1,5 +1,7 @@
 import { known, LIMITS, MESSAGE, PROTOCOL, schemaFor } from 'kehikot-module-protocol'
 
+import { kehikkoOnWire } from './context.ts'
+
 /**
  * Who hears what one module emitted, and how much of it a canvas will carry.
  *
@@ -35,10 +37,14 @@ import { known, LIMITS, MESSAGE, PROTOCOL, schemaFor } from 'kehikot-module-prot
  * sender's claim, and a receiver drawing it should say whose claim it is.
  */
 
-/** The canvas an event happened on, as the wire spells it. */
+/**
+ * The canvas an event happened on, as the wire spells it. `key` is the one a
+ * receiver that KEEPS an event files it under; see `kehikkoOnWire`.
+ */
 export interface Kehikko {
   id: number
   name: string
+  key?: string
 }
 
 /** What one framed module's conversation offers this bus. */
@@ -221,7 +227,7 @@ export class EventBus {
          consumer of one event agrees on when it happened. A receiver ordering
          by arrival would be ordering by its own scheduler. */
       at: new Date().toISOString(),
-      kehikko,
+      kehikko: kehikkoOnWire(kehikko),
     }
 
     let delivered = 0

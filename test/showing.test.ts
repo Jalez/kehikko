@@ -22,7 +22,7 @@ import { containersKey, containersOf } from '@/host/showing.ts'
 const chapter: Passage = { path: '/Users/x/thesis/chapters/3_methods.tex', page: null, from: null, to: null, quoted: '', section: null }
 const paragraph: Passage = { ...chapter, page: 3, from: 4120, to: 4180, quoted: 'the wire is narrow on purpose' }
 
-const at = (i: string, y: number, selected = false) => ({ i, x: 0, y, selected })
+const at = (i: string, y: number, selected = false, collapsed = false) => ({ i, x: 0, y, selected, collapsed })
 
 describe('the host answers the method the protocol names', () => {
   test('nothing the protocol names falls between the two halves', () => {
@@ -46,6 +46,7 @@ describe('what the canvas does when a container says what it shows', () => {
       project: () => null,
       filter: () => ({ ok: true as const, filters: {} }),
       pickProject: () => Promise.resolve({ outcome: 'declined' as const, project: null, why: '' }),
+      fold: () => ({ outcome: 'declined' as const, folded: [], unfolded: [], why: '' }),
     }
     return { controls, shown }
   }
@@ -90,6 +91,20 @@ describe('what the canvas does when a container says what it shows', () => {
 })
 
 describe('composing the list', () => {
+  test('every row says whether its container is folded to its header', () => {
+    const rows = containersOf({
+      placements: [at('kehikot.paper', 0), at('kehikot.notes', 5, false, true)],
+      said: {},
+      pointed: {},
+      selection: [],
+      selectedBy: null,
+    })
+    expect(rows.map((r) => [r.module, r.folded])).toEqual([['kehikot.paper', false], ['kehikot.notes', true]])
+    /* And it reaches every module, through the protocol's own schema. */
+    const told = toWireContext({ epic: null, project: null }, 'dark', [], { id: 1, name: 'writing' }, null, rows)
+    expect(told.containers.map((c) => c.folded)).toEqual([false, true])
+  })
+
   test('every container is a row, in reading order, whether or not it said anything', () => {
     const rows = containersOf({
       placements: [at('kehikot.notes', 5), at('kehikot.paper', 0, true), at('kehikot.journeys', 0)],

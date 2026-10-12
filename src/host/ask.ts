@@ -1,6 +1,7 @@
 import {
   methodParams,
   type FilterChoice,
+  type FoldResult,
   type Passage,
   type ProjectPickResult,
   type Showing,
@@ -30,6 +31,13 @@ export type Filtered = { ok: true; filters: FilterChoice } | { ok: false; error:
  * protocol refuses to say would leak out.
  */
 export type Picked = ProjectPickResult
+
+/**
+ * What came of asking for containers to be folded or unfolded: the protocol's
+ * own result, whole, for the reason `Picked` is one. `folded` and `unfolded`
+ * are what the call changed and nothing it left alone.
+ */
+export type Folded = FoldResult
 import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
@@ -56,7 +64,9 @@ assertEveryMethodIsAnswered()
  * what is shown is a property of the canvas. A server has no view; sending it
  * there would mean the server answering a question about a screen it cannot
  * see, then pushing the answer back to the screen over a channel that would
- * have to be invented for the purpose.
+ * have to be invented for the purpose. **`view.fold`** is the same kind of
+ * question — which containers are drawn at full height — and is answered here
+ * with it.
  *
  * **`selection.set`, `passage.set` and `events.emit` are answered here for the
  * same reason, one step further on.** None is about a screen exactly; all are
@@ -177,6 +187,19 @@ export interface CanvasControls {
    * no projects at all: see `Picked`.
    */
   pickProject(from: string): Promise<Picked>
+  /**
+   * Fold containers to their headers or unfold them, if the canvas will.
+   *
+   * `from` out of the registration, as for `emit`, and it does two jobs: the
+   * asker has to be on the kehikko that is open — a module acts only where it
+   * is — and its NAME is what the fold control says until the person presses
+   * it ("folded by Slides"). A module that could name itself would be signing
+   * somebody else's name on a container that just shut.
+   *
+   * The canvas may decline: a drag is in hand, a dialog is open. See `asked`
+   * in `host/folds.ts`.
+   */
+  fold(from: string, call: { fold: string[]; unfold: string[] }): Folded
   /**
    * Which project the canvas is standing in, as an id, read at call time.
    *
@@ -390,6 +413,22 @@ function answerInTheView(
    */
   if (method === 'projects.pick') {
     return canvas.pickProject(moduleId).then((picked) => succeeded(method, picked))
+  }
+
+  /*
+   * A module asking for containers to be folded or unfolded.
+   *
+   * Beside `view.goto` in kind: an act on the view, reported as an OUTCOME.
+   * All four outcomes are `ok: true`, for the reason a declined walk is — the
+   * call was understood, and "not during a drag" or "that module is not on
+   * this kehikko" is an answer and not a fault in the params.
+   *
+   * `parsed.data`, which has both lists filled in (the schema defaults each
+   * to `[]`) and has already refused a call naming none, or one id in both.
+   */
+  if (method === 'view.fold') {
+    const call = parsed.data as { fold: string[]; unfold: string[] }
+    return succeeded(method, canvas.fold(moduleId, call))
   }
 
   if (method === 'events.emit') {

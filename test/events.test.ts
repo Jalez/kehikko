@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
+import { eventSchema, MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 
 import { BURST, EventBus, PER_SECOND } from '../src/host/events.ts'
 
@@ -181,6 +181,26 @@ describe('what the host vouches for', () => {
     )
 
     expect(shower.heard[0]!.from).toBe('kehikot.checklist')
+  })
+
+  test('the kehikko’s key is carried with the event, for a receiver that keeps it', () => {
+    const bus = new EventBus()
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
+    bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, { ...KEHIKKO, key: '4072c9e5' })
+    expect(shower.heard[0]!.kehikko).toEqual({ id: 3, name: 'workbench', key: '4072c9e5' })
+    /* And the message is one the protocol's own schema reads. */
+    expect(eventSchema.parse(shower.heard[0]).kehikko?.key).toBe('4072c9e5')
+  })
+
+  test('a key the protocol would not read is left off the event, which is still delivered', () => {
+    const bus = new EventBus()
+    const shower = listener(['kehikot.notifications@1'])
+    bus.join('kehikot.notifications', shower)
+    const out = bus.emit('kehikot.checklist', 'kehikot.notifications@1', NOTE, { ...KEHIKKO, key: 'Not A Key' })
+    expect(out.ok && out.delivered).toBe(1)
+    expect(shower.heard[0]!.kehikko).toEqual(KEHIKKO)
+    expect(eventSchema.safeParse(shower.heard[0]).success).toBe(true)
   })
 
   test('a null kehikko is carried as null rather than dropped', () => {

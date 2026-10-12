@@ -8,17 +8,17 @@ import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
-import type { FilterGroup } from 'kehikot-module-protocol'
+import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { FeedbackButton } from './Feedback.tsx'
 import { FilterButton } from './Filters.tsx'
 import { RefreshButton } from './Refreshing.tsx'
-import type { Showing } from '@/host/standing.ts'
+import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { PromptButton } from './Prompts.tsx'
-import { Start } from './Start.tsx'
+import { Start, Update } from './Start.tsx'
 import { ToolsMark } from './Tools.tsx'
 import { VersionPicker } from './Versions.tsx'
 
@@ -121,6 +121,13 @@ export function Container({
    */
   foldedBy?: string | null
   /**
+   * What the module last declared for this container's menus
+   * (`kehikot.header`): its view switches, toggles, jumps and runs. Handed
+   * here whole and NOT DRAWN YET — the menus are kehikko#62's next step.
+   * Empty for a module that has declared nothing. See `host/header.ts`.
+   */
+  header?: readonly HeaderItem[]
+  /**
    * What this module says it can be narrowed by, right now.
    *
    * Empty for almost every module, and empty is not a state that draws
@@ -193,6 +200,7 @@ export function Container({
   onVersion?(): void
 }) {
   const name = presence.name ?? presence.id
+  const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
   const condition: Presence['condition'] =
@@ -683,13 +691,13 @@ export function Container({
           </div>
         ) : null}
 
-        {showing.kind === 'notice' ? (
+        {showing.kind === 'notice' && notice ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
             <ConditionPanel
               condition={showing.condition}
               lifecycle={showing.asleep ? 'asleep' : undefined}
-              line={showing.line}
-              detail={presence.detail}
+              line={notice.line}
+              detail={notice.detail}
               at={presence.at}
               protocols={presence.protocols}
             >
@@ -703,7 +711,9 @@ export function Container({
                   keeps the button: the host will start it when this kehikko
                   next asks, and somebody who would rather not wait for that has
                   every right to say so now. */}
-              {showing.condition === 'silent' ? <Start module={presence.id} onStarted={onStarted} /> : null}
+              {notice.offer === 'start' ? <Start module={presence.id} onStarted={onStarted} /> : null}
+              {/* Running, and refused: an update changes that, a start does not. See `noticeOf`. */}
+              {notice.offer === 'update' ? <Update /> : null}
             </ConditionPanel>
           </div>
         ) : null}

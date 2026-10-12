@@ -186,6 +186,13 @@ export type Placement = z.infer<typeof placementSchema>
 
 const canvasSchema = z.object({
   id: z.number().int(),
+  /**
+   * The kehikko's stable key, from the project's own `kehikot.json` — see
+   * `Canvas.key` in `server/canvases.ts`. Read here so the page can hand it to
+   * modules (`kehikkoOnWire` in `host/context.ts`), which file what they keep
+   * under it. Optional, so an older server still answers.
+   */
+  key: z.string().optional(),
   name: z.string(),
   /* No epic and no selection: those are the project's, not the kehikko's.
      See `host/subject.ts`. An older server still sends them, and zod drops

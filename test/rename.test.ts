@@ -184,6 +184,7 @@ const quiet = () => ({
   filters: () => {},
   clearable: () => {},
   refreshable: () => {},
+  header: () => {},
 })
 
 const nothing: Answer = { ok: true, data: null }
