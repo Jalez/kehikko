@@ -816,7 +816,7 @@ export async function call(
  * answer so the agent knows nothing moved.
  */
 async function placeOn(
-  canvas: Canvas,
+  named: Canvas,
   how: string,
   args: Record<string, unknown>,
   door: Door,
@@ -828,6 +828,13 @@ async function placeOn(
   }
 
   const seen = await door.seen()
+  /* Read again, after the sweep: what the person did while it was out is in
+     this arrangement, and nothing is awaited between here and the write, so
+     the list written is the one read here with the new containers added. */
+  const canvas = listCanvases(door.db).find((c) => c.id === named.id)
+  if (!canvas) {
+    return { text: `kehikko ${named.id} was there a moment ago and is not now; nothing was placed.`, failed: true }
+  }
   const registered = new Map(seen.map((sighting) => [sighting.id, sighting]))
   const strangers = asked.ids.filter((id) => !registered.has(id))
   if (strangers.length) {
