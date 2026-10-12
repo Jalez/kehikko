@@ -520,6 +520,14 @@ export class Nursery {
     return this.#alive(id) !== null
   }
 
+  /**
+   * The pid of the live process this host holds for that module, or null. For
+   * a sentence that names it — never for a signal: `stop` aims its own.
+   */
+  pidOf(id: string): number | null {
+    return this.#alive(id)?.child.pid ?? null
+  }
+
   /** Every module this host currently holds a live process for. */
   get ids(): string[] {
     return [...this.#held.keys()].filter((id) => this.#alive(id) !== null)

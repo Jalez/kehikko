@@ -82,6 +82,23 @@ describe('a module row', () => {
     expect(stateText(moduleRow(checkout('a', 0), null, 'restarting'))).toBe('Restarting…')
   })
 
+  test('a running module that is kept is offered "Restart anyway" wherever its restart is refused, and nowhere else', () => {
+    /* The refusal came back from a press, flagged by the server. */
+    const refused = moduleRow(checkout('a', 0), { kind: 'failed', why: 'a is running, and its registration says to keep it.', retry: true, kept: true }, null)
+    expect(refused).toMatchObject({ state: 'failed', retry: true, anyway: true })
+    /* Or the server said so on a check: left on old code, or behind by its own build. */
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { stale: 'kept', kept: true })).toMatchObject({ retry: true, anyway: true })
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { older: 'older code', kept: true })).toMatchObject({ retryWord: 'Restart', anyway: true })
+    /* A module that is not kept, a failure that is not a refusal, and a level row never get it. */
+    expect(moduleRow(checkout('a', 0), { kind: 'failed', why: 'it stopped again', retry: true }, null).anyway).toBeUndefined()
+    expect(moduleRow(checkout('a', 0), { kind: 'failed', why: 'cancelled', kept: true }, null).anyway).toBeUndefined()
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { stale: 'somebody else’s process' }).anyway).toBeUndefined()
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { kept: true })).toMatchObject({ state: 'uptodate' })
+    expect(moduleRow(checkout('a', 0), null, null, undefined, { kept: true }).anyway).toBeUndefined()
+    /* While it is being restarted there is no button at all. */
+    expect(moduleRow(checkout('a', 0), null, 'restarting', undefined, { stale: 'kept', kept: true }).anyway).toBeUndefined()
+  })
+
   test('what the server says is read when this page did nothing: an update still running, a module left on old code', () => {
     /* A page that reloaded mid-update has no outcome and no press of its own. */
     expect(moduleRow(checkout('a', 0), null, null, undefined, { phase: 'restarting' })).toMatchObject({

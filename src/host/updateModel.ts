@@ -56,6 +56,8 @@ export interface UpdateRow {
   retry?: boolean
   /** What that button says, when "Try again" is not it: nothing was tried on a module that is only running old code. */
   retryWord?: string
+  /** It is running and its registration says to keep it, so the retry is refused: "Restart anyway" is offered beside it. */
+  anyway?: boolean
 }
 
 /** What the server says about one module beyond its checkout. See `Check.progress` and `Check.stale`. */
@@ -64,6 +66,8 @@ export interface Told {
   stale?: string
   /** Its own build identity says its server is behind its checkout: the server's sentence, shown as it is. */
   older?: string
+  /** It is running, and its registration says to keep it. */
+  kept?: boolean
 }
 
 export const APP_ROW_ID = 'app'
@@ -137,15 +141,18 @@ export function moduleRow(
      which is all a page that reloaded mid-update has. */
   const phase = running ?? told.phase ?? null
   if (phase) return { ...row, state: 'updating', activity: phase }
-  if (outcome?.kind === 'failed') return { ...row, state: 'failed', reason: outcome.why, retry: outcome.retry === true }
+  if (outcome?.kind === 'failed') {
+    return { ...row, state: 'failed', reason: outcome.why, retry: outcome.retry === true, ...(outcome.retry === true && outcome.kept === true ? { anyway: true } : {}) }
+  }
   if (outcome?.kind === 'updated') {
     /* Only the host's own checkout can be left needing a restart. */
     return outcome.restart === 'host' ? { ...row, state: 'reopen', reason: outcome.note } : { ...row, state: 'uptodate', reason: outcome.note }
   }
   /* Left on old code — unless there is something newer to take, which is the
      better thing to offer: an update restarts it, or says again why it cannot. */
-  if (told.older && reading.behind === 0) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart' }
-  if (told.stale && reading.behind === 0) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true }
+  const anyway = told.kept === true ? { anyway: true } : {}
+  if (told.older && reading.behind === 0) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart', ...anyway }
+  if (told.stale && reading.behind === 0) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true, ...anyway }
   if (pins && pins.containers > 0) {
     return {
       ...row,
@@ -190,6 +197,10 @@ export function moduleNote(module: { ran: 'page' | 'restarted' | 'started' | 'id
       return 'Updated. It is not running; it starts on the new code when a kehikko that has it is opened.'
   }
 }
+
+/** What "Restart anyway" says on its two presses. The second is the one that stops the module. */
+export const RESTART_ANYWAY = 'Restart anyway'
+export const RESTART_ANYWAY_ARMED = 'Press again to restart'
 
 /** Every row: the app first (when there is one), then the modules in the order given. */
 export function updateRows(

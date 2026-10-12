@@ -90,6 +90,94 @@ export function within(path: string, root: string): boolean {
 }
 
 /**
+ * Whether the program on `run`'s port is the module, without touching it.
+ *
+ *  - `nothing`: nothing is listening.
+ *  - `proven`: the listener runs from `run.dir`, in a group that holds no more
+ *    than the module. `pid` is the listener; `pgid` is what may be signalled.
+ *  - `unproven`: `detail` says which of those could not be shown.
+ *
+ * Asked apart from the stopping so that a caller can say what it would stop
+ * before anything is stopped — see `anyway.ts`.
+ */
+export type Proof =
+  | { kind: 'nothing' }
+  | { kind: 'proven'; pid: number; pgid: number }
+  | { kind: 'unproven'; detail: string }
+
+export async function proveListener(run: Runnable, os: Processes): Promise<Proof> {
+  const unproven = (detail: string): Proof => ({ kind: 'unproven', detail })
+  if (run.port === null) return unproven('its registration names no port, so there is nothing to find it by.')
+
+  let pid: number | null
+  try {
+    pid = await os.listenerOf(run.port)
+  } catch {
+    return unproven(`this host could not ask which program is listening on port ${run.port}.`)
+  }
+  if (pid === null) return { kind: 'nothing' }
+
+  const cwd = await os.cwdOf(pid)
+  if (cwd === null || !within(cwd, run.dir)) {
+    return unproven(`the program listening on port ${run.port} is not running from ${run.dir}.`)
+  }
+
+  const pgid = await os.groupOf(pid)
+  const own = await os.ownGroup()
+  if (pgid === null || pgid <= 1 || own === null || pgid === own) {
+    return unproven(`the program on port ${run.port} shares a process group this host will not signal.`)
+  }
+  /* The leader of the group is what decides how much the group holds. Gone is
+     fine — `run.sh` may have exec'd or exited and left its server — but alive
+     and running from elsewhere means the group is more than the module. */
+  if (pgid !== pid) {
+    const leader = await os.cwdOf(pgid)
+    if (leader !== null && !within(leader, run.dir)) {
+      return unproven(`the program on port ${run.port} shares a process group with something not running from ${run.dir}.`)
+    }
+  }
+  return { kind: 'proven', pid, pgid }
+}
+
+/**
+ * Stop a group `proveListener` proved, and wait for the port: SIGTERM, a
+ * bounded wait, then SIGKILL for a listener still in that same group.
+ */
+export async function stopProven(
+  port: number,
+  pgid: number,
+  os: Processes,
+): Promise<{ kind: 'stopped'; pgid: number; killed: boolean } | { kind: 'unproven'; detail: string }> {
+  try {
+    os.signalGroup(pgid, 'SIGTERM')
+  } catch {
+    /* Gone between the look and the signal. The port will say. */
+  }
+  if (await freed(port, TERM_GRACE_MS, os)) return { kind: 'stopped', pgid, killed: false }
+
+  /* Asked again before the second signal, for the nursery's reason: in five
+     seconds the group may have gone and its number been handed on. Only a
+     listener still in the same group gets SIGKILL. */
+  let still: number | null
+  try {
+    still = await os.listenerOf(port)
+  } catch {
+    still = null
+  }
+  if (still === null) return { kind: 'stopped', pgid, killed: false }
+  if ((await os.groupOf(still)) !== pgid) {
+    return { kind: 'unproven', detail: `something else took port ${port} while the old one was stopping.` }
+  }
+  try {
+    os.signalGroup(pgid, 'SIGKILL')
+  } catch {
+    /* Gone, which is what was wanted. */
+  }
+  await freed(port, KILL_GRACE_MS, os)
+  return { kind: 'stopped', pgid, killed: true }
+}
+
+/**
  * Stop the program on `run`'s port if, and only if, it runs from `run.dir`.
  *
  * `id` is only for the sentences.
@@ -103,63 +191,11 @@ export async function takeOver(id: string, run: Runnable, os: Processes): Promis
       + 'enough when the module is fine and this container is holding a stale copy of its page.',
   })
 
-  if (run.port === null) return refuse('its registration names no port, so there is nothing to find it by.')
-
-  let pid: number | null
-  try {
-    pid = await os.listenerOf(run.port)
-  } catch {
-    return refuse(`this host could not ask which program is listening on port ${run.port}.`)
-  }
-  if (pid === null) return { kind: 'nothing' }
-
-  const cwd = await os.cwdOf(pid)
-  if (cwd === null || !within(cwd, run.dir)) {
-    return refuse(`the program listening on port ${run.port} is not running from ${run.dir}.`)
-  }
-
-  const pgid = await os.groupOf(pid)
-  const own = await os.ownGroup()
-  if (pgid === null || pgid <= 1 || own === null || pgid === own) {
-    return refuse(`the program on port ${run.port} shares a process group this host will not signal.`)
-  }
-  /* The leader of the group is what decides how much the group holds. Gone is
-     fine — `run.sh` may have exec'd or exited and left its server — but alive
-     and running from elsewhere means the group is more than the module. */
-  if (pgid !== pid) {
-    const leader = await os.cwdOf(pgid)
-    if (leader !== null && !within(leader, run.dir)) {
-      return refuse(`the program on port ${run.port} shares a process group with something not running from ${run.dir}.`)
-    }
-  }
-
-  try {
-    os.signalGroup(pgid, 'SIGTERM')
-  } catch {
-    /* Gone between the look and the signal. The port will say. */
-  }
-  if (await freed(run.port, TERM_GRACE_MS, os)) return { kind: 'stopped', pgid, killed: false }
-
-  /* Asked again before the second signal, for the nursery's reason: in five
-     seconds the group may have gone and its number been handed on. Only a
-     listener still in the same group gets SIGKILL. */
-  let still: number | null
-  try {
-    still = await os.listenerOf(run.port)
-  } catch {
-    still = null
-  }
-  if (still === null) return { kind: 'stopped', pgid, killed: false }
-  if ((await os.groupOf(still)) !== pgid) {
-    return refuse(`something else took port ${run.port} while the old one was stopping.`)
-  }
-  try {
-    os.signalGroup(pgid, 'SIGKILL')
-  } catch {
-    /* Gone, which is what was wanted. */
-  }
-  await freed(run.port, KILL_GRACE_MS, os)
-  return { kind: 'stopped', pgid, killed: true }
+  const proof = await proveListener(run, os)
+  if (proof.kind === 'unproven') return refuse(proof.detail)
+  if (proof.kind === 'nothing' || run.port === null) return { kind: 'nothing' }
+  const stopped = await stopProven(run.port, proof.pgid, os)
+  return stopped.kind === 'unproven' ? refuse(stopped.detail) : stopped
 }
 
 async function freed(port: number, ms: number, os: Processes): Promise<boolean> {
