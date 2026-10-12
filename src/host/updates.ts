@@ -7,6 +7,16 @@ import { z } from 'zod'
  * server was running for it.
  */
 
+/**
+ * Asks the updates panel in the header to open and check now. For a press
+ * somewhere else whose remedy is an update — a container whose module's
+ * manifest this host refused (`Start.tsx`). The panel listens (`Updates.tsx`).
+ */
+export const OPEN_UPDATES = 'kehikot:open-updates'
+export function openUpdates(): void {
+  window.dispatchEvent(new Event(OPEN_UPDATES))
+}
+
 const incomingSchema = z.object({ hash: z.string(), subject: z.string() })
 
 const checkoutSchema = z.object({

@@ -38,10 +38,9 @@ import {
   lifecycleLine,
   lifecycleOf,
   MIN_RUN_MS,
-  theirsLine,
+  silentSaid,
   THEIRS_TO_RESTART_MS,
   toStart,
-  unansweringLine,
   toStop,
   toWatch,
   WATCH_EVERY_MS,
@@ -1223,18 +1222,15 @@ function told(view: Swept): Swept {
       const lifecycle = saidOf(presence, now)
       if (!lifecycle) {
         if (presence.condition !== 'silent') return presence
-        /* Not running, and the host knows more than that: it ran it, and it
-           stopped again or never answered. The last it printed goes with it. */
-        const failed = failures.get(presence.id)
-        if (failed) return { ...presence, line: failed.line, detail: failed.detail }
-        /* Somebody else's, only just gone, and not reached: who is expected to
-           bring it back, and when the host will. */
-        if (theirs.has(presence.id) && !presence.reached) return { ...presence, line: theirsLine(presence.id, presence.at) }
-        if (nursery.holds(presence.id)) {
-          const log = logFile(presence.id)
-          return { ...presence, line: unansweringLine(presence.id, presence.at, log), detail: tail(log) }
-        }
-        return presence
+        const log = logFile(presence.id)
+        const said = silentSaid(presence, {
+          failed: failures.get(presence.id) ?? null,
+          theirs: theirs.has(presence.id),
+          held: nursery.holds(presence.id),
+          log,
+          printed: () => tail(log),
+        })
+        return said ? { ...presence, ...said } : presence
       }
       /* The line is replaced, not appended to. `discover.ts` wrote a good
          sentence about a program that is not running and does not know why;

@@ -71,6 +71,26 @@ export function showing(said: Said, found: Found | undefined, asked = true): Sho
 }
 
 /**
+ * What a notice says, shows under it, and offers to press.
+ *
+ * `start` for a module that is not running. Not for one whose manifest this
+ * host refused (`Presence.refused`): it IS running, starting it again serves
+ * the same manifest, and the press led back to the same notice. What changes
+ * it is updating the module, so the sentence ends the way its row in the
+ * modules list does (`attention` in `moduleMenu.ts`) and the press is the
+ * updates panel. Nothing the program printed goes under a refusal: the log
+ * says it started, which is not in question — the sentence has the detail.
+ */
+export function noticeOf(
+  notice: Extract<Showing, { kind: 'notice' }>,
+  presence: { refused?: true; detail?: string[] },
+): { line: string; detail?: string[]; offer: 'start' | 'update' | null } {
+  if (notice.condition !== 'silent') return { line: notice.line, detail: presence.detail, offer: null }
+  if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update' }
+  return { line: notice.line, detail: presence.detail, offer: 'start' }
+}
+
+/**
  * Which modules are now served by a process the host started since the page
  * last saw them ready.
  *

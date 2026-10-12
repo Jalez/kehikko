@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { COVER_WORDS, Covers, isStale, registryBehind, Replacing, Runs, showing, type Said } from '../src/host/standing.ts'
+import { COVER_WORDS, Covers, isStale, noticeOf, registryBehind, Replacing, Runs, showing, type Said } from '../src/host/standing.ts'
 
 /**
  * What a container shows — the page, the cover, or a notice — and when the
@@ -260,5 +260,32 @@ describe('a restart that was over before anything said the module was down', () 
     expect(runs.seen([ready('a')])).toEqual([])
     /* A stop the host was refused starts nothing, so nothing is reloaded — a kept terminal keeps its page. */
     expect(runs.seen([ready('a')])).toEqual([])
+  })
+})
+
+/**
+ * A notice offers what can help. Start cannot help a module that is running
+ * and whose manifest the host refused: the press came back to the same notice
+ * (issue #67). The remedy there is an update.
+ */
+describe('what a notice says and offers', () => {
+  const REFUSAL = 'kehikot.source is running at http://127.0.0.1:7980, but this host cannot use its manifest: partless — it does not say how it relates to the parts of an epic.'
+  const notice = (line: string, condition: 'silent' | 'incompatible' = 'silent') => ({ kind: 'notice', condition, asleep: false, line }) as const
+
+  test('a refused manifest: the sentence says to update, the press is the updates panel, and no log is shown', () => {
+    const said = noticeOf(notice(REFUSAL), { refused: true, detail: ['ready in 294 ms'] })
+    expect(said.line).toBe(`${REFUSAL} Update the module to use it.`)
+    expect(said.offer).toBe('update')
+    expect(said.detail).toBeUndefined()
+  })
+
+  test('a module that is not answering is exactly as it was: its sentence, what it printed, and Start', () => {
+    const line = 'kehikot.source was started and is still running, but has not answered at http://127.0.0.1:7980.'
+    expect(noticeOf(notice(line), { detail: ['compiling…'] })).toEqual({ line, detail: ['compiling…'], offer: 'start' })
+    expect(noticeOf(notice('not running'), {})).toEqual({ line: 'not running', detail: undefined, offer: 'start' })
+  })
+
+  test('an incompatible module is offered nothing: the panel says which side to update', () => {
+    expect(noticeOf(notice('speaks 3', 'incompatible'), {}).offer).toBeNull()
   })
 })
