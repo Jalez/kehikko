@@ -258,9 +258,14 @@ in its own data and publishes it as `.kehikot/<module>/parts.json`; the host
 reads that file from every folder under `.kehikot/` (`readHoldings`, which names
 no module) and unions them: `refs`, and `documents` — project-relative paths,
 whichever module keeps them. `files` is still filled for a module built before
-`documents`: the documents that have a paper-relative name. Until a module
-publishes, what the record says for the part is folded in as it always was — a
-group's `files`, and the refs of the steps filed under the part's id. The epics
+`documents`: the documents that have a paper-relative name. What the record
+says for a part — a group's `files`, and the refs of the steps filed under the
+part's id — is a fallback, decided per kind and per epic: the record's
+documents are read only while no module has published a document for any part
+of the epic, and its refs only while none has published a ref. Once somebody
+publishes a kind for the epic, what was published is the whole of it, also for
+a part the publisher left out — so a chapter moved to another part is no
+longer in the old one. The epics
 are read again on any change to the project's material, so a module publishing
 a chapter for a part is seen at once.
 

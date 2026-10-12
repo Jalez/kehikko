@@ -54,7 +54,9 @@ import { z } from 'zod'
  * References and documents, and they are not this host's: each module keeps
  * what it has for a part in its own data and publishes it, and `partsHeld`
  * unions what every module said. So one module can narrow by a document
- * another said belongs to a part, and neither knows the other exists.
+ * another said belongs to a part, and neither knows the other exists. What
+ * the epic's record used to say a part holds is read only for a kind nobody
+ * has published for the epic yet.
  *
  * ## This file is importable from both halves
  *
@@ -78,7 +80,8 @@ import { z } from 'zod'
 /**
  * One part of an epic, as this host holds it: its id, its name (`heading`, the
  * word the wire has always used), how many steps say they are in it, and what
- * the modules hold for it — references and documents, unioned. `files` is the
+ * the modules hold for it — references and documents, unioned (or, for a kind
+ * nobody has published for the epic, what its record says). `files` is the
  * paper-relative spelling of those documents that have one, for a module built
  * before a part had `documents`. See `partsHeld`.
  */
@@ -172,20 +175,41 @@ function refsIn(raw: unknown): string[] {
  * released behaviour and stays: an epic nobody has edited the parts of
  * answers exactly what it answered before the host kept a list at all.
  *
- * ## What each part holds: a union, naming nobody
+ * ## What each part holds: a union of what was published, naming nobody
  *
  * `held` is what the modules published for this epic (`readHoldings`, a sweep
  * of every folder under `.kehikot/`). A part's `refs` and `documents` are
- * that, after what the record itself says for the part: the refs listed under
- * its group and those of the steps filed under its id, and the group's
- * `files`. The record's share is first and is what a project gets today, so
- * nothing moves for a project whose modules have published nothing.
+ * that, and once somebody has published a kind for the epic, that is the
+ * whole of it.
+ *
+ * ## The record's share is a fallback, per kind, per epic
+ *
+ * The record says something for a part too: the refs listed under its group
+ * and those of the steps filed under its id, and the group's `files`. That is
+ * what a project had before any module published, and it is read only UNTIL
+ * one does:
+ *
+ * - the record's **documents** (a group's `files`) are a part's documents
+ *   only while `held` lists no document for any part of the epic;
+ * - the record's **refs** are a part's refs only while `held` lists no ref
+ *   for any part of the epic.
+ *
+ * The two are decided apart, so refs published by one module do not cost the
+ * epic the documents nobody has published yet. And the question is asked of
+ * the EPIC, not the part: a publisher that lists a chapter under another
+ * part, or leaves a part out, has said where that kind is, and the part it
+ * left out holds none. Folding the record in regardless was the fault this
+ * replaces: a chapter moved to another part stayed in the old one for good,
+ * because the record still listed it and nothing edits the record any more.
+ *
+ * So nothing moves for a project whose modules have published nothing — no
+ * file, an empty one, or one with nothing for this epic are all "nobody has".
  *
  * A group's `files` were written relative to the one folder papers were kept
  * in, and that folder is spelled by the protocol (`PAPER_MODULE`, deprecated
  * with `files`), not here. They become documents under it; `files` is then
- * read back OUT of the documents, so a document some other module published
- * under that folder reaches an older module too, and one anywhere else in the
+ * read back OUT of the documents, so a document some module published under
+ * that folder reaches an older module too, and one anywhere else in the
  * project reaches only a module that reads `documents`.
  *
  * Bounded as the wire is. `files` and `documents` are absent when empty.
@@ -216,17 +240,24 @@ export function partsHeld(listed: readonly ListedPart[] | null, epic: unknown, h
     }
   }
 
+  /* Which kinds somebody has published for this epic, under any part id —
+     one the list no longer has included: whoever wrote it publishes that
+     kind. For those the record's share is not read. */
+  const published = Object.values(held ?? {})
+  const documentsPublished = published.some((one) => one.documents.length > 0)
+  const refsPublished = published.some((one) => one.refs.length > 0)
+
   const under = `${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${slug}`
   return base.map((part) => {
     const said = held ? own(held, part.id) : undefined
-    const refs = [...part.refs]
+    const refs = refsPublished ? [] : [...part.refs]
     for (const ref of said?.refs ?? []) if (!refs.includes(ref)) refs.push(ref)
 
     const documents: string[] = []
     const put = (raw: string | null) => {
       if (raw !== null && !documents.includes(raw) && documents.length < LIMITS.PART_DOCUMENTS) documents.push(raw)
     }
-    for (const file of part.files ?? []) put(partDocument(`${under}/${file}`))
+    if (!documentsPublished) for (const file of part.files ?? []) put(partDocument(`${under}/${file}`))
     for (const document of said?.documents ?? []) put(partDocument(document))
 
     const files: string[] = []
