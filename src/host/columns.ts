@@ -383,6 +383,11 @@ export function redrawn<T extends Wished>(placements: readonly T[]): T[] {
   })
 }
 
+/** A press on one container's fold control: the state set, and every height redrawn. */
+export function pressed<T extends Wished>(placements: readonly T[], id: string, collapsed: boolean): T[] {
+  return redrawn(placements.map((p) => (p.i === id ? { ...p, collapsed } : p)))
+}
+
 /**
  * The tallest this container could become right now.
  *

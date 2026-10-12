@@ -10,7 +10,7 @@ import { call, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
 import { addProject } from '../server/projects.ts'
 import { Wakes } from '../server/wake.ts'
-import { FOLDED_ROWS, SQUEEZED_ROWS, granted, redrawn, tops } from '../src/host/columns.ts'
+import { FOLDED_ROWS, SQUEEZED_ROWS, granted, pressed, redrawn, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
 /*
@@ -95,10 +95,55 @@ describe('folding a container', () => {
   })
 
   test('it is the write the page’s own fold control makes', async () => {
-    const id = aCanvas(squeezed())
-    const pressed = redrawn(placementsNow(id).map((p) => (p.i === 'a.one' ? { ...p, collapsed: true } : p)))
-    await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
-    expect(placementsNow(id)).toEqual(pressed)
+    const byThePage = aCanvas(squeezed())
+    const byTheDoor = createCanvas(db, 'the other wire', listCanvases(db)[0]!.project).id
+    editCanvas(db, byTheDoor, { placements: placementsNow(byThePage) })
+    const before = placementsNow(byThePage)
+    const expected = [
+      { ...before[0]!, collapsed: true, h: FOLDED_ROWS },
+      { ...before[1]!, h: 20 },
+    ]
+
+    editCanvas(db, byThePage, { placements: pressed(before, 'a.one', true) })
+    await call('fold_modules', { kehikko: byTheDoor, fold: ['a.one'] }, door())
+
+    expect(placementsNow(byThePage)).toEqual(expected)
+    expect(placementsNow(byTheDoor)).toEqual(expected)
+  })
+
+  test('what the person does while the modules are being looked at is not overwritten', async () => {
+    const id = aCanvas([...squeezed(), { i: 'a.three', x: 6, y: 0, w: 6, h: 10, wish: 10 }])
+    let looked!: (sightings: Sighting[]) => void
+    const looking = new Promise<Sighting[]>((resolve) => {
+      looked = resolve
+    })
+    let sweeps = 0
+    const slow: Door = {
+      ...door(),
+      seen: () => {
+        sweeps += 1
+        return looking
+      },
+    }
+
+    const answering = call('fold_modules', { kehikko: id, fold: ['a.one'] }, slow)
+    /* The person, while the sweep is out: one container dragged and resized,
+       another taken off. */
+    editCanvas(db, id, {
+      placements: placementsNow(id)
+        .filter((p) => p.i !== 'a.three')
+        .map((p) => (p.i === 'a.two' ? { ...p, x: 6, y: 0, w: 4, h: 12, wish: 12 } : p)),
+    })
+    const theirs = placementsNow(id)
+    looked(seen)
+    const done = await answering
+
+    expect(done.failed).toBe(false)
+    expect(sweeps).toBe(1)
+    expect(placementsNow(id)).toEqual(theirs)
+    expect(one(id, 'a.one').collapsed).toBe(true)
+    expect(one(id, 'a.two')).toMatchObject({ x: 6, y: 0, w: 4, h: 12, wish: 12 })
+    expect(placementsNow(id).some((p) => p.i === 'a.three')).toBe(false)
   })
 
   test('the answer says who did it and which call puts it back, and that call does', async () => {
@@ -107,6 +152,7 @@ describe('folding a container', () => {
     const done = await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
     expect(done.text).toContain('agent (MCP)')
     expect(done.text).toContain('To put back what this call changed: fold_modules with unfold: ["a.one"].')
+    expect(done.text).toContain('only if the person has not folded or unfolded those containers themselves since')
 
     await call('fold_modules', { kehikko: id, unfold: ['a.one'] }, door())
     expect(placementsNow(id)).toEqual(before)
@@ -246,6 +292,13 @@ describe('what a fold is not', () => {
     }
     expect(placementsNow(id).some((p) => p.collapsed)).toBe(false)
     expect(woken).toEqual([])
+  })
+
+  test('a refused entry names the list it was in', async () => {
+    const id = aCanvas(squeezed())
+    const done = await call('fold_modules', { kehikko: id, fold: ['a.one'], unfold: [7] }, door())
+    expect(done.text).toContain('every entry in unfold has to be a module id')
+    expect(done.text).not.toContain('modules')
   })
 
   test('a kehikko that does not exist is refused with the list', async () => {

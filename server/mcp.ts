@@ -608,9 +608,11 @@ function tools() {
         + 'back shorter, and its column-mates are drawn shorter while it is open, as they would be under a '
         + 'person’s press. A container already as asked is left alone and named. The page does not say who '
         + 'folded, so tell the person that you did; they can undo it with one press, and the answer says which '
-        + 'call puts back what you changed — make it when you are done with the room you made. If the person '
-        + 'folds or unfolds something themselves meanwhile, that is their arrangement: read_canvas again and '
-        + 'leave it.',
+        + 'call puts back what you changed — make it when you are done with the room you made, and only for '
+        + 'containers the person has not touched since. If the person folds or unfolds something themselves '
+        + 'meanwhile, that is their arrangement: read_canvas again, leave it, and leave it out of the call that '
+        + 'puts things back, which would otherwise flip their choice. Asking for a state a container is already '
+        + 'in changes nothing.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -665,6 +667,7 @@ function versionsText(listing: VersionListing, canvas: Canvas, how: string): str
 function modulesIn(
   value: unknown,
   tool: 'select_modules' | 'place_modules' | 'fold_modules',
+  argument: 'modules' | 'fold' | 'unfold' = 'modules',
 ): { ok: true; ids: string[] } | { ok: false; why: string } {
   if (!Array.isArray(value)) {
     return {
@@ -691,7 +694,7 @@ function modulesIn(
       return {
         ok: false,
         why:
-          'every entry in modules has to be a module id as read_canvas prints it — a non-empty string of at most '
+          `every entry in ${argument} has to be a module id as read_canvas prints it — a non-empty string of at most `
           + `${MAX_ID} characters. One of them was not.`,
       }
     }
@@ -929,7 +932,7 @@ async function foldOn(
   const asked = { fold: [] as string[], unfold: [] as string[] }
   for (const key of ['fold', 'unfold'] as const) {
     if (args[key] === undefined || args[key] === null) continue
-    const ids = modulesIn(args[key], 'fold_modules')
+    const ids = modulesIn(args[key], 'fold_modules', key)
     if (!ids.ok) return { text: ids.why, failed: true }
     asked[key] = ids.ids
   }
@@ -969,16 +972,19 @@ async function foldOn(
   const leftAlone = already.length
     ? `${already.join(', ')} ${already.length === 1 ? 'was' : 'were'} already as asked and left alone.`
     : ''
-  const seen = await door.seen()
   if (!folding.length && !unfolding.length) {
     return {
       text:
         `${leftAlone} Nothing was changed on kehikko ${canvas.id} (${canvas.name}), ${how}.\n\n`
-        + canvasText(door.db, canvas, how, seen),
+        + canvasText(door.db, canvas, how, await door.seen()),
       failed: false,
     }
   }
 
+  /* Nothing is awaited between `decide` reading the arrangement and this
+     write, so the list written is the one that was read: a drag, an add or a
+     removal the person lands cannot fall in between and be overwritten. The
+     sweep `seen` makes is awaited after, as it is in `select_modules`. */
   const placements = redrawn(
     canvas.placements.map((p) =>
       folding.includes(p.i) ? { ...p, collapsed: true } : unfolding.includes(p.i) ? { ...p, collapsed: false } : p,
@@ -1009,8 +1015,11 @@ async function foldOn(
       + ' Nothing was moved, resized or removed, and no module was told.'
       + ` The person saw it happen and was not told who did it (${AGENT}), so say that you did.`
       + ` To put back what this call changed: fold_modules with ${back.join(', ')}.`
+      + ' Make that call only if the person has not folded or unfolded those containers themselves since:'
+      + ' read_canvas says how each is now, and one they changed is theirs, so leave it out. A container already'
+      + ' in the state asked for is left as it is, so asking again changes nothing.'
       + '\n\n'
-      + canvasText(door.db, written, how, seen),
+      + canvasText(door.db, written, how, await door.seen()),
     failed: false,
   }
 }

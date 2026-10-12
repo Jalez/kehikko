@@ -71,7 +71,7 @@ import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { dragged, granted, mostFor, redrawn, wishing } from './host/columns.ts'
+import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -2072,7 +2072,7 @@ export function App() {
   const onCollapse = useCallback(
     (id: string, collapsed: boolean) => {
       const placements = open?.placements ?? []
-      change({ placements: redrawn(placements.map((p) => (p.i === id ? { ...p, collapsed } : p))) })
+      change({ placements: pressed(placements, id, collapsed) })
     },
     [change, open?.placements],
   )
