@@ -225,10 +225,19 @@ export class Arms {
  * send it without asking first, and this host never says yes.
  */
 export function notFromThePage(headers: Headers, pageOrigins: readonly string[]): string | null {
+  if (fromThePage(headers, pageOrigins)) return null
+  return 'Restarting a module that is kept is a press in this host’s own page, and this request did not come from there. Nothing was stopped.'
+}
+
+/**
+ * Whether a request is one this host's own page sent: JSON, with an `Origin`
+ * that is one of the page's. The check `notFromThePage` makes, without its
+ * sentence, for the other routes only the page may reach (`headers.ts`).
+ */
+export function fromThePage(headers: Headers, pageOrigins: readonly string[]): boolean {
   const origin = headers.get('origin')
   const json = (headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')
-  if (origin !== null && json && pageOrigins.includes(origin)) return null
-  return 'Restarting a module that is kept is a press in this host’s own page, and this request did not come from there. Nothing was stopped.'
+  return origin !== null && json && pageOrigins.includes(origin)
 }
 
 /** What came of the restart, as `restart` in `server.ts` answers it. */

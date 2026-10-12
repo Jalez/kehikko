@@ -106,6 +106,45 @@ export type News =
      signal for `tracker`'s reason — `context.content` is a short list of who
      and when, and it is all a page would fetch. Never the material. */
   | { content: number; changes: ContentChange[] }
+  /* The seventh kind, and the first that is not news: an ORDER, for one page.
+     See `PressOrder`. */
+  | { press: PressOrder }
+
+/**
+ * One item of a module's header to press, handed to the page that has the
+ * module's frame.
+ *
+ * Everything else on this stream says "there is news, read it". This says
+ * "do this", and it has to: an agent's `press_item` arrives at the server,
+ * the module's frame is in a browser, and `kehikot.press` can only be posted
+ * from the document that framed it. The fold note (`FoldNote`) was the first
+ * thing here to carry more than an id, for the same shape of reason — the
+ * server knows something the page cannot read anywhere — and this is the
+ * same road taken one step further rather than a second connection beside it.
+ *
+ * It differs from every other kind in two ways, both deliberate:
+ *
+ *  - It goes to ONE page, the one named in `page`, and not to every listener.
+ *    Two windows on the same kehikko would otherwise each press, and a
+ *    compile would run twice. `Wakes.press` sends it only down that page's
+ *    streams, and the page checks the name again before acting.
+ *  - It is answered. The page posts what became of it to `/host/pressed`
+ *    with `id`, and the tool call waits for that; see `server/headers.ts`.
+ *
+ * It carries no label and nothing the module wrote: an item id, and the
+ * option or state wanted. The page looks the item up in what the frame
+ * declared to IT, and judges the press there again.
+ */
+export interface PressOrder {
+  /** The server's, unguessable, and what the page's answer is paired by. */
+  id: string
+  /** Which page is to press. See `pageId` in `src/host/canvases.ts`. */
+  page: string
+  kehikko: number
+  module: string
+  item: string
+  value?: string | boolean
+}
 
 /**
  * Who folded or unfolded which containers, when it was not the person.
@@ -131,13 +170,52 @@ type Woken = (news: News) => void
 
 export class Wakes {
   #listeners = new Set<Woken>()
+  /** Which page each stream said it is, for the one kind that is addressed. Absent for a stream that named none. */
+  #pages = new Map<Woken, string>()
 
-  /** Start hearing about changed kehikot. Call what comes back to stop. */
-  listen(woken: Woken): () => void {
+  /**
+   * Start hearing about changed kehikot. Call what comes back to stop.
+   *
+   * `page` is who is listening, when the stream said — the same id a page
+   * reports what it has open under. It is not a credential: it decides which
+   * streams an order is written to, and nothing is trusted on the strength
+   * of it.
+   */
+  listen(woken: Woken, page: string | null = null): () => void {
     this.#listeners.add(woken)
+    if (page !== null) this.#pages.set(woken, page)
     return () => {
       this.#listeners.delete(woken)
+      this.#pages.delete(woken)
     }
+  }
+
+  /** Whether a stream of this page is open right now — whether anything said to it would be heard. */
+  hears(page: string): boolean {
+    for (const listening of this.#pages.values()) if (listening === page) return true
+    return false
+  }
+
+  /**
+   * Hand one page a press to make. Answers whether any stream of that page
+   * was written to; `false` is "that page is not listening", which the
+   * caller says rather than waits out.
+   *
+   * Only that page's streams. Every other listener hears nothing at all —
+   * not even that a press happened.
+   */
+  press(order: PressOrder): boolean {
+    let told = false
+    for (const [listener, page] of [...this.#pages]) {
+      if (page !== order.page) continue
+      try {
+        listener({ press: order })
+        told = true
+      } catch {
+        /* A closed stream; see `#tell`. */
+      }
+    }
+    return told
   }
 
   /**

@@ -77,7 +77,7 @@ describe('the door says what it is and what it offers', () => {
     expect(result.capabilities).toEqual({ tools: {} })
   })
 
-  test('nine tools and no more', async () => {
+  test('ten tools and no more', async () => {
     const reply = await mcp({ id: 2, method: 'tools/list' }, door(), { name: 'kehikko', version: '0.1.0' })
     const tools = (reply.body as { result: { tools: { name: string }[] } }).result.tools
     /* The surface is still narrow on purpose, and the line has moved once:
@@ -89,7 +89,9 @@ describe('the door says what it is and what it offers', () => {
        and choose which one a container runs — a choice a person makes from
        the header and can take back with one press. Folding is the one
        act on the arrangement here: a state, undone with one press, that
-       writes nobody's height — see `test/folding.test.ts`. */
+       writes nobody's height — see `test/folding.test.ts`. And one tool
+       reaches into a module: pressing a header item the module itself marked
+       for agents — see `test/press-item.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
       'fold_modules',
@@ -97,6 +99,7 @@ describe('the door says what it is and what it offers', () => {
       'module_versions',
       'pin_version',
       'place_modules',
+      'press_item',
       'read_canvas',
       'read_tracker',
       'select_modules',
