@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
-import { fetchOfficial, installOfficial, proposeModule, type OfficialModule, type Proposal } from '@/host/official.ts'
+import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import {
   labelFor,
@@ -49,6 +49,12 @@ import { Hint } from './Hint.tsx'
  * too, under the registered ones and greyed, each with one button that clones,
  * installs and registers it — `server/installs.ts`. A registered module that
  * is not on the list can be proposed for it from its details.
+ *
+ * The list is the one the app came with under the one published now
+ * (`server/officialSource.ts`), read again when this opens. A module it lists
+ * that needs a newer app says so and has no button. When it could not be
+ * refreshed, one muted line at the foot says which list this is — and nothing
+ * else changes.
  */
 export function ModuleList({
   registry,
@@ -114,6 +120,7 @@ export function ModuleList({
   const placings: Placings = { onCanvas, elsewhere }
   const relationships = relate(presences, placings)
   const sections = arrange(rows, query)
+  const stale = staleLine(official.standing)
 
   return (
     <div className="flex max-h-[70vh] flex-col">
@@ -158,6 +165,7 @@ export function ModuleList({
         <div className="space-y-2 border-t p-3">
           <p className="text-muted-foreground font-mono text-[11px] break-all">{sweep.dir}</p>
           <Rejected rejected={sweep.rejected} />
+          {stale ? <p className="text-muted-foreground text-[11px] leading-relaxed">{stale}</p> : null}
         </div>
       </div>
     </div>
@@ -179,6 +187,7 @@ const INSTALL_POLL_MS = 1500
 
 function useOfficial(onInstalled?: () => void) {
   const [list, setList] = useState<OfficialModule[] | null>(null)
+  const [standing, setStanding] = useState<ListStanding | null>(null)
   const [refused, setRefused] = useState<ReadonlyMap<string, string>>(new Map())
   const [asked, setAsked] = useState(0)
   const installed = useRef<Set<string> | null>(null)
@@ -189,8 +198,9 @@ function useOfficial(onInstalled?: () => void) {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
     void fetchOfficial()
-      .then((got) => {
+      .then(({ modules: got, standing: how }) => {
         if (!alive) return
+        setStanding(how)
         const now = new Set(got.filter((one) => one.installed).map((one) => one.id))
         const before = installed.current
         installed.current = now
@@ -214,7 +224,7 @@ function useOfficial(onInstalled?: () => void) {
       .finally(() => setAsked((n) => n + 1))
   }
 
-  return { list, refused, install }
+  return { list, standing, refused, install }
 }
 
 /**
@@ -224,6 +234,9 @@ function useOfficial(onInstalled?: () => void) {
  * its shelf, because what is here comes before what could be. While it
  * installs the button says which step it is on; a failure is the server's
  * sentence, and the button tries again.
+ *
+ * One that needs a newer app than this one says so and has no button: the
+ * host would refuse the module once it was here.
  */
 function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall(): void; refused: string | null }) {
   const install = row.entry.install
@@ -240,17 +253,21 @@ function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall()
           </Badge>
         </div>
         {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
-        {failed ? (
+        {row.entry.newer ? (
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">Needs a newer version of Kehikot than this one.</p>
+        ) : failed ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
             {failed}
           </p>
         ) : null}
       </div>
-      <Hint label={`clone ${row.entry.repo}, install it and register it on this computer`} side="left">
-        <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
-          {working ? `${install.step}…` : failed ? 'try again' : 'install'}
-        </Button>
-      </Hint>
+      {row.entry.newer ? null : (
+        <Hint label={`clone ${row.entry.repo}, install it and register it on this computer`} side="left">
+          <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
+            {working ? `${install.step}…` : failed ? 'try again' : 'install'}
+          </Button>
+        </Hint>
+      )}
     </li>
   )
 }
@@ -293,6 +310,14 @@ function ModuleRow({
         {trouble ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
             {trouble}
+          </p>
+        ) : null}
+        {/* The list can come to name another repository for a module that is
+            already here. Nothing follows it there; the row says so. */}
+        {row.elsewhere ? (
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed break-words">
+            The official list names {row.elsewhere.listed} for this module. This one comes from {row.elsewhere.from} and
+            stays there.
           </p>
         ) : null}
         {/*

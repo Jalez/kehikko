@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { PACKAGE_VERSION } from 'kehikot-module-protocol'
+
 import { githubRepo } from './feedback.ts'
-import { officialOf, type Official } from './official.ts'
+import { meetsProtocol, officialOf, type Official } from './official.ts'
+import type { Standing } from './officialSource.ts'
 import type { Runner } from './versions.ts'
 
 /**
@@ -29,6 +32,18 @@ import type { Runner } from './versions.ts'
  * directory and the port all come from the list in this process; nothing in a
  * request is ever joined into a path or handed to git.
  *
+ * The list is the one the host was built with under the one published now
+ * (`officialSource.ts`), so it can change while the host runs. Two things
+ * follow, and both are refusals:
+ *
+ *  - An entry may ask for a newer protocol package than this host has. It is
+ *    listed, says so, and is not installed — by the page or by a request.
+ *  - An entry may come to name another repository than the one a module on
+ *    this machine was cloned from. NOTHING is repointed: a registered module
+ *    is never installed over, and a clone left in the way that is not the
+ *    entry's repository is never cloned over or pulled into (both below). The
+ *    list only says that the two differ (`from`), so a person can see it.
+ *
  * ## Why it is a job and not a request
  *
  * A clone and a dependency install take as long as a network takes. The press
@@ -44,23 +59,34 @@ export type Installing = { state: 'installing'; step: Step } | { state: 'failed'
 export interface Listed extends Official {
   installed: boolean
   install?: Installing
+  /** Set when the entry asks for a newer protocol package than this host has: what it asks for, and what this host has. */
+  newer?: { protocol: string; has: string }
+  /** Set for an installed module whose checkout is of another GitHub repository than the entry names: that repository. */
+  from?: string
 }
 
 export interface Deps {
-  list: readonly Official[]
+  /** The official list, or how to read it as it stands now. */
+  list: readonly Official[] | (() => readonly Official[])
+  /** Where a list that changes comes from: asked again when the list is read, and how current it is. */
+  source?: { refresh(): Promise<void>; standing(): Standing }
+  /** The protocol package this host has; the installed one when not given. */
+  protocol?: string
   run: Runner
   /** Where installed modules are cloned. See `installsDir`. */
   root: string
   /** Where registrations are written — the directory this host sweeps. */
   registry: string
   /** What is registered now: each id and the port it answers on, when it names one. */
-  registered(): Promise<{ id: string; port: number | null }[]>
+  registered(): Promise<{ id: string; port: number | null; dir?: string }[]>
   /** Called once a registration has been written, so pages sweep again. */
   installed?(id: string): void
 }
 
 const CLONE_TIMEOUT_MS = 5 * 60_000
 const INSTALL_TIMEOUT_MS = 10 * 60_000
+/** How long opening the list waits for a fresh one before answering with what there is. */
+const REFRESH_WAIT_MS = 1500
 
 /** Modules sit ten ports apart, and a new one never goes below this. The protocol's `create` uses the same grid. */
 const PORT_STEP = 10
@@ -77,13 +103,33 @@ export function portFor(entry: Official, taken: readonly number[]): number {
 export function installDesk(deps: Deps) {
   const jobs = new Map<string, Installing>()
 
+  const entries = () => (typeof deps.list === 'function' ? deps.list() : deps.list)
+  const unmet = (entry: Official) => (meetsProtocol(entry.protocol, deps.protocol) ? null : { protocol: entry.protocol!, has: deps.protocol ?? PACKAGE_VERSION })
+
+  /* The GitHub repository a checkout is of, asked once per directory: it is
+     read to SAY something, never to decide where anything is fetched from. */
+  const origins = new Map<string, string | null>()
+  async function originOf(dir: string): Promise<string | null> {
+    if (!origins.has(dir)) {
+      const remote = await deps.run(['git', '-C', dir, 'remote', 'get-url', 'origin']).catch(() => null)
+      origins.set(dir, remote?.ok ? githubRepo(remote.out) : null)
+    }
+    return origins.get(dir) ?? null
+  }
+
   async function list(): Promise<Listed[]> {
-    const ids = new Set((await deps.registered()).map((one) => one.id))
-    return deps.list.map((entry) => {
-      const installed = ids.has(entry.id)
-      const install = installed ? undefined : jobs.get(entry.id)
-      return { ...entry, installed, ...(install ? { install } : {}) }
-    })
+    const here = new Map((await deps.registered()).map((one) => [one.id, one]))
+    return Promise.all(
+      entries().map(async (entry) => {
+        const registered = here.get(entry.id)
+        const installed = registered !== undefined
+        const install = installed ? undefined : jobs.get(entry.id)
+        const newer = installed ? null : unmet(entry)
+        const origin = registered?.dir ? await originOf(registered.dir) : null
+        const from = origin && origin.toLowerCase() !== entry.repo.toLowerCase() ? origin : null
+        return { ...entry, installed, ...(install ? { install } : {}), ...(newer ? { newer } : {}), ...(from ? { from } : {}) }
+      }),
+    )
   }
 
   async function work(entry: Official): Promise<void> {
@@ -147,10 +193,14 @@ export function installDesk(deps: Deps) {
 
   /** Start installing one official module. Returns at once; `list` says how it is going. */
   async function install(id: string): Promise<{ ok: true; install: Installing | null } | { ok: false; why: string; status: number }> {
-    const entry = officialOf(id, deps.list)
+    const entry = officialOf(id, entries())
     if (!entry) return { ok: false, why: `${id} is not on the official module list, so there is nothing to install.`, status: 404 }
     if ((await deps.registered()).some((one) => one.id === entry.id)) {
       return { ok: false, why: `${entry.name} is already registered on this computer.`, status: 409 }
+    }
+    const newer = unmet(entry)
+    if (newer) {
+      return { ok: false, why: `${entry.name} needs a newer Kehikot than this one (protocol ${newer.protocol}; this one has ${newer.has}).`, status: 409 }
     }
     const running = jobs.get(entry.id)
     if (running?.state === 'installing') return { ok: true, install: running }
@@ -170,7 +220,13 @@ export function installDesk(deps: Deps) {
 
   /** `/host/official` (the list) and `/host/official/install`; null for any other request. */
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname === '/host/official' && request.method === 'GET') return reply({ modules: await list() })
+    if (url.pathname === '/host/official' && request.method === 'GET') {
+      /* Somebody opened the list: ask where it is published, unless that was
+         done a moment ago, and wait only briefly — a slow network delays
+         nothing but the newest entries, which the next opening has. */
+      if (deps.source) await Promise.race([deps.source.refresh(), new Promise((done) => setTimeout(done, REFRESH_WAIT_MS))])
+      return reply({ modules: await list(), ...(deps.source ? { list: deps.source.standing() } : {}) })
+    }
     if (url.pathname === '/host/official/install' && request.method === 'POST') {
       const body = (await request.json().catch(() => null)) as { module?: unknown } | null
       if (!body || typeof body.module !== 'string' || body.module.length > 64) {

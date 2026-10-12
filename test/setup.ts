@@ -33,7 +33,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
 import { agentConfigFile } from '../server/agents.ts'
-import { frameDbFile, installsDir, logsDir, modulesDir, versionsDir } from '../server/machineDirs.ts'
+import { frameDbFile, installsDir, logsDir, modulesDir, officialListFile, versionsDir } from '../server/machineDirs.ts'
 
 /* Read once, before any test can set `HOME` to something else. */
 const REAL_HOME = realpathSync(homedir())
@@ -51,6 +51,7 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_FRAME_DB', scratch: join(SCRATCH, 'frame.sqlite'), resolved: () => frameDbFile() },
   { variable: 'KEHIKOT_VERSIONS_DIR', scratch: join(SCRATCH, 'versions'), resolved: () => versionsDir() },
   { variable: 'KEHIKOT_INSTALLS_DIR', scratch: join(SCRATCH, 'installed'), resolved: () => installsDir() },
+  { variable: 'KEHIKOT_OFFICIAL_CACHE', scratch: join(SCRATCH, 'official-modules.json'), resolved: () => officialListFile() },
   { variable: 'KEHIKOT_LOGS_DIR', scratch: join(SCRATCH, 'logs'), resolved: () => logsDir() },
   { variable: 'CLAUDE_CONFIG', scratch: join(SCRATCH, 'claude.json'), resolved: () => agentConfigFile() },
 ]
@@ -61,6 +62,8 @@ function pointAtScratch(): void {
      inherited from the shell must not be what a test falls through to. */
   delete process.env.ROADMAP_MODULES_DIR
   delete process.env.ROADMAP_FRAME_DB
+  /* And no test asks GitHub for the official module list (`officialSource.ts`). */
+  process.env.KEHIKOT_OFFICIAL_LIST = 'off'
 }
 
 const under = (path: string, dir: string) => path === dir || path.startsWith(dir + sep)

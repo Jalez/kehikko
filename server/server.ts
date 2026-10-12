@@ -67,12 +67,13 @@ import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { feedbackDesk, spawnRunner } from './feedback.ts'
 import { installDesk } from './installs.ts'
-import { OFFICIAL } from './official.ts'
+import { HOST_REPO, OFFICIAL } from './official.ts'
+import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installsDir, versionsDir } from './machineDirs.ts'
+import { installsDir, officialListFile, versionsDir } from './machineDirs.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
@@ -115,8 +116,9 @@ setPageOrigins([`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localho
    so the door and the folder cannot drift apart. */
 const HOST_VERSION: string = pkg.version
 
-/** The repository feedback on the host itself is filed in, when there is no checkout to ask. */
-const HOST_REPO = 'Jalez/kehikko'
+/* `HOST_REPO` — the repository feedback on the host itself is filed in when
+   there is no checkout to ask, and where the published module list is read
+   from — comes from `official.ts`. */
 
 /**
  * The canvases, opened once for the life of the process.
@@ -333,23 +335,37 @@ const feedback = feedbackDesk({
   },
 })
 
-/* The official module list: what is on it, and installing one that is not on
-   this machine yet. What is registered is read from the disk at the press, so
-   an install never races a sweep's map. See `installs.ts`. */
+/* The official module list as it stands now: the one this host was built with,
+   under the one published on this repository's `main`. Asked for here, once,
+   and again when somebody opens the list or checks for updates — never on a
+   timer. Nothing waits for it and nothing fails with it. See
+   `officialSource.ts`, which also says who that trusts. */
+const official = officialSource({
+  builtIn: OFFICIAL,
+  url: listUrl(),
+  cache: officialListFile(),
+  log: (line) => console.log(line),
+})
+void official.refresh()
+
+/* What is on that list, and installing one that is not on this machine yet.
+   What is registered is read from the disk at the press, so an install never
+   races a sweep's map. See `installs.ts`. */
 const installs = installDesk({
-  list: OFFICIAL,
+  list: official.current,
+  source: official,
   run: runQuietly,
   root: installsDir(),
   registry: registryDir(),
   registered: async () =>
-    (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url) })),
+    (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url), dir: r.dir })),
   installed: () => wakes.registryChanged(),
 })
 
 /* Proposing a registered module for that list, as an issue in this host's
    repository. See `proposals.ts`. */
 const proposals = proposalDesk({
-  list: OFFICIAL,
+  list: official.current,
   run: spawnRunner,
   repo: HOST_REPO,
   registration: async (id) => registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
@@ -2251,6 +2267,9 @@ const server = Bun.serve({
     if (url.pathname === '/host/updates' && request.method === 'GET') {
       const { places, unreadable } = await topLevels(updatePlaces())
       const fetch = url.searchParams.get('fetch') === '1'
+      /* Somebody asked what is new: that includes which modules exist. Not
+         waited for — the answer here is about checkouts. */
+      if (fetch) void official.refresh()
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
       await judgeStaleness()
       return json({

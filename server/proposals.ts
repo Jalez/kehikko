@@ -28,7 +28,8 @@ import { officialOf, type Official } from './official.ts'
  */
 
 export interface Deps {
-  list: readonly Official[]
+  /** The official list, or how to read it as it stands now. */
+  list: readonly Official[] | (() => readonly Official[])
   run: Runner
   /** `owner/repo` proposals are filed in: the host's own. */
   repo: string
@@ -113,7 +114,7 @@ export function proposalDesk(deps: Deps) {
   async function propose(id: string): Promise<Outcome> {
     const registration = await deps.registration(id)
     if (!registration) return { ok: false, why: 'No module is registered under that id.', status: 404 }
-    if (officialOf(registration.id, deps.list)) {
+    if (officialOf(registration.id, typeof deps.list === 'function' ? deps.list() : deps.list)) {
       return { ok: false, why: `${registration.id} is already on the official module list.`, status: 409 }
     }
     if (!registration.dir) {
