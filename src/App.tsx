@@ -72,6 +72,7 @@ import { fetchRegistry, type Presence, type RegistryView } from './host/registry
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
+import { noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -268,6 +269,11 @@ export function App() {
   const [trouble, setTrouble] = useState<string | null>(null)
   const [looking, setLooking] = useState(true)
   const [canvases, setCanvases] = useState<Canvas[]>([])
+  /**
+   * Who folded or unfolded which containers on the open kehikko, when it was
+   * not the person: an agent at the host's door. See `host/folds.ts`.
+   */
+  const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
   const [openId, setOpenId] = useState<number | null>(null)
   /** The kehikko the server had been told about when it was last asked what is running. */
   const [askedFor, setAskedFor] = useState<number | null>(null)
@@ -573,14 +579,42 @@ export function App() {
   useEffect(() => {
     const stop = watchCanvases(
       openId,
-      () => {
+      (kehikko, note) => {
         void (async () => {
           if (!loaded.current) return
-          writer.flushAll()
+          /* Awaited: the re-read has to be of what the pending writes LEFT. Two
+             requests sent one after the other are not two requests answered in
+             that order, and a re-read that overtook the write would put the
+             older arrangement on screen over the one just stored. */
+          const saved = writer.pending(kehikko)
+          await writer.flushAll()
+          const before = writer.stamp()
           try {
             const found = await fetchCanvases()
-            setCanvases(found.canvases)
+            /* What the person changed while that read was out is not in it, and
+               is on its way to the server as a whole arrangement — or has
+               already arrived there, after the read was taken. Their kehikko
+               is left as they have it, so that what is on screen and what is
+               about to be stored are the same thing: their press wins, and is
+               not briefly undone in front of them. A fold from the door that
+               their arrangement crossed is put onto it — see `reread`. */
+            const theirs = new Set(
+              found.canvases.filter((c) => writer.edits(c.id) !== (before.get(c.id) ?? 0)).map((c) => c.id),
+            )
+            setCanvases((was) => {
+              const next = reread<Placement, Canvas>(was, found.canvases, theirs, note ? { kehikko, note, saved } : null)
+              /* A write from inside an updater, as the first-visit fill below
+                 does it: merged per kehikko, so being run twice is one write. */
+              if (next.write) writer.write(next.write.kehikko, { placements: next.write.placements })
+              return next.canvases
+            })
             setSubjects(found.subjects)
+            /* Signed in the same breath as the arrangement it is about, so the
+               fold and who made it are drawn together. Only for the kehikko on
+               this screen: a mark is about what somebody watched happen. */
+            if (note && kehikko === openId) {
+              setSigned((was) => ({ kehikko, marks: noted(was?.kehikko === kehikko ? was.marks : {}, note) }))
+            }
           } catch {
             /* The next wake, or the next load, will do. A canvas that could not
                be re-read is the arrangement the person already has on screen. */
@@ -1012,6 +1046,20 @@ export function App() {
   }, [registry, writer])
 
   const open = useMemo(() => canvases.find((canvas) => canvas.id === openId) ?? null, [canvases, openId])
+
+  /* A mark stands only while its container is as it was left — `standing` in
+     `host/folds.ts`. Run against every arrangement drawn, so the person's
+     press on the control, a drag, a removal or a switch of kehikko each take
+     the mark with them and nothing has to remember to clear it. */
+  useEffect(() => {
+    setSigned((was) => {
+      if (!was) return was
+      if (!open || was.kehikko !== open.id) return null
+      const kept = standing(was.marks, open.placements)
+      if (kept === was.marks) return was
+      return Object.keys(kept).length ? { kehikko: was.kehikko, marks: kept } : null
+    })
+  }, [open])
 
   /** Change the open canvas, on screen now and in the database shortly. */
   const change = useCallback(
@@ -3127,6 +3175,7 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
+                  foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
                   /* The offer is the conversation's — it dies with the program —
                      and the choice is the arrangement's. See `Live` above. */
                   filters={found?.filters ?? []}

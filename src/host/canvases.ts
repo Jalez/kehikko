@@ -3,6 +3,7 @@ import { MODULE_ID, contentSignalSchema, type ContentChange } from 'kehikot-modu
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
+import { foldNoteIn, type FoldNote } from './folds.ts'
 
 /**
  * The page's side of the canvases.
@@ -394,7 +395,11 @@ export function reportOpen(kehikko: number | null): Promise<void> {
  */
 export function watchCanvases(
   kehikko: number | null,
-  woke: (kehikko: number) => void,
+  /**
+   * A kehikko changed under this page. With a note when what changed is a
+   * fold somebody other than the person made — see `folds.ts`.
+   */
+  woke: (kehikko: number, folded: FoldNote | null) => void,
   looked?: () => void,
   /**
    * A project's epics are not what this page last read — see `epicsChanged`
@@ -455,7 +460,9 @@ export function watchCanvases(
     try {
       const parsed: unknown = JSON.parse(event.data)
       const id = (parsed as { kehikko?: unknown })?.kehikko
-      if (typeof id === 'number' && Number.isInteger(id)) woke(id)
+      if (typeof id === 'number' && Number.isInteger(id)) {
+        woke(id, foldNoteIn((parsed as { folded?: unknown }).folded))
+      }
       /* Checked for `=== true` rather than for truthiness, so that a future
          server sending something else under this name is news this page does
          not understand rather than news it half-understands. */
