@@ -1,7 +1,6 @@
 import { canonicalModuleId, headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
-import { fromThePage } from './anyway.ts'
 import type { PressOrder } from './wake.ts'
 
 /**
@@ -28,8 +27,9 @@ import type { PressOrder } from './wake.ts'
  * It is a browser's word about what a frame said. So:
  *
  *  - Both routes answer only a request this host's own page sent — JSON, with
- *    an `Origin` that is one of the page's (`fromThePage`, the check
- *    "Restart anyway" has). A module's frame is another origin, and so is any
+ *    an `Origin` that is one of the page's (`PAGE_ONLY` in `guard.ts`, the
+ *    check "Restart anyway" has, made there before a route is chosen and not
+ *    again here). A module's frame is another origin, and so is any
  *    other site: neither can declare a header for somebody else, or answer a
  *    press it was not asked to make.
  *  - Every list is parsed with the protocol's own schema, which bounds every
@@ -197,8 +197,6 @@ export class Headers {
 }
 
 export interface HeadersDeps {
-  /** Every origin this host's page is served from. */
-  pageOrigins(): readonly string[]
   /** Whether a stream of this page is open, and a way to write an order to it. See `Wakes`. */
   hears(page: string): boolean
   send(order: PressOrder): boolean
@@ -210,8 +208,8 @@ export interface HeadersDeps {
  * The two routes the page reaches, and the two things the MCP door is given.
  *
  * `POST /host/headers` `{ page, kehikko, at?, headers }` and
- * `POST /host/pressed` `{ page, id, ok, why }`. Both refuse anything that is
- * not this host's own page with 403 and a sentence.
+ * `POST /host/pressed` `{ page, id, ok, why }`. Anything that is not this
+ * host's own page was refused before it got here (`guard.ts`).
  */
 export function headersDesk(deps: HeadersDeps, held = new Headers()) {
   const short = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 64
@@ -219,15 +217,6 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
   async function route(request: Request, url: URL): Promise<Response | null> {
     const which = url.pathname === '/host/headers' ? 'headers' : url.pathname === '/host/pressed' ? 'pressed' : null
     if (which === null || request.method !== 'POST') return null
-    if (!fromThePage(request.headers, deps.pageOrigins())) {
-      return reply(
-        {
-          ok: false,
-          why: 'What a module has declared for its header, and what came of a press, are said by this host’s own page, and this request did not come from there.',
-        },
-        403,
-      )
-    }
     const text = await request.text().catch(() => '')
     if (text.length > BODY_MAX) return reply({ ok: false, why: 'That is more than any kehikko’s headers come to.' }, 413)
     let body: Record<string, unknown> | null = null

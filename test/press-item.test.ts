@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
 import { createCanvas, editCanvas, listCanvases, open, type Placement } from '../server/canvases.ts'
+import { own, refusal } from '../server/guard.ts'
 import { Headers, headersDesk } from '../server/headers.ts'
 import { call, mcp, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
@@ -67,7 +68,7 @@ beforeEach(() => {
   wakes = new Wakes()
   woken = []
   folder = mkdtempSync(join(tmpdir(), 'kehikko-press-'))
-  desk = headersDesk({ pageOrigins: () => ORIGINS, hears: (page) => wakes.hears(page), send: (order) => wakes.press(order), waitMs: 60 })
+  desk = headersDesk({ hears: (page) => wakes.hears(page), send: (order) => wakes.press(order), waitMs: 60 })
 })
 afterEach(() => {
   db.close()
@@ -88,8 +89,13 @@ function aCanvas(): number {
   return made.id
 }
 
-const post = (path: string, body: unknown, headers: Record<string, string> = { origin: PAGE, 'content-type': 'application/json' }) =>
-  desk.route(new Request(`http://127.0.0.1:4180${path}`, { method: 'POST', headers, body: JSON.stringify(body) }), new URL(`http://127.0.0.1:4180${path}`))
+/** As the server does: where a request came from is decided once, before the route (`guard.ts`). */
+const post = async (path: string, body: unknown, headers: Record<string, string> = { origin: PAGE, 'content-type': 'application/json' }) => {
+  const request = new Request(`http://127.0.0.1:4180${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+  const refused = refusal({ method: 'POST', pathname: path, headers: request.headers }, own({}, 4180, ORIGINS))
+  if (refused) return new Response(JSON.stringify({ ok: false, why: refused.why }), { status: refused.status })
+  return desk.route(request, new URL(request.url))
+}
 
 /**
  * A page with the kehikko open: its stream is listening, it has posted what

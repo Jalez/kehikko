@@ -4,7 +4,8 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { aim, anywayDesk, armedSentence, Arms, ARMED_FOR_MS, keptSentence, notFromThePage, stopAnyway, type AnywayWorld, type Came } from '../server/anyway.ts'
+import { aim, anywayDesk, armedSentence, Arms, ARMED_FOR_MS, keptSentence, stopAnyway, type AnywayWorld, type Came } from '../server/anyway.ts'
+import { own, refusal } from '../server/guard.ts'
 import { Nursery, TERM_GRACE_MS, type Runnable, type Startable } from '../server/launch.ts'
 import { mcp } from '../server/mcp.ts'
 import type { Registration } from '../server/registrations.ts'
@@ -327,7 +328,6 @@ describe('the route', () => {
     const events: string[] = []
     let now = 1000
     const built = anywayDesk({
-      pageOrigins: () => [PAGE, 'http://localhost:4181'],
       registration: async () => registration,
       startable: (one): Startable => (one?.dir ? { ok: true, run: runnable(one.dir) } : { ok: false, why: 'There is no registration for that module.' }),
       busy: () => more.busy === true,
@@ -344,6 +344,9 @@ describe('the route', () => {
     })
     const post = async (body: unknown, headers: Record<string, string> = { origin: PAGE, 'content-type': 'application/json' }) => {
       const request = new Request('http://127.0.0.1:4180/host/restart-anyway', { method: 'POST', headers, body: JSON.stringify(body) })
+      /* As the server does: where the request came from is decided once, before the route (`guard.ts`). */
+      const refused = refusal({ method: 'POST', pathname: '/host/restart-anyway', headers: request.headers }, own({}, 4180, [PAGE, 'http://localhost:4181']))
+      if (refused) return { status: refused.status, body: { ok: false, why: refused.why } as { ok: boolean; why?: string; kept?: boolean; armed?: { token: string; sentence: string; forMs: number }; presence?: unknown } }
       const response = (await built.route(request, new URL(request.url)))!
       return { status: response.status, body: (await response.json()) as { ok: boolean; why?: string; kept?: boolean; armed?: { token: string; sentence: string; forMs: number }; presence?: unknown } }
     }
@@ -375,12 +378,12 @@ describe('the route', () => {
     for (const headers of outside) {
       const answered = await post(body, headers)
       expect(answered.status).toBe(403)
-      expect(answered.body.why).toContain('did not come from there')
+      expect(answered.body.why).toContain('Nothing was done.')
       expect(answered.body.armed).toBeUndefined()
     }
     expect(restarts).toEqual([])
     expect(m.signals).toEqual([])
-    expect(notFromThePage(new Headers({ origin: 'http://localhost:4181', 'content-type': 'application/json; charset=utf-8' }), [PAGE, 'http://localhost:4181'])).toBeNull()
+    expect((await post(body, { origin: 'http://localhost:4181', 'content-type': 'application/json; charset=utf-8' })).status).toBe(200)
   })
 
   test('a module without keep is refused: its ordinary restart already restarts it', async () => {

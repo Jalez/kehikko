@@ -62,6 +62,10 @@ import { proveListener, stopProven, type Processes } from './takeover.ts'
  * module's frame and any other site are other origins. This host holds no
  * credential anywhere, so that is a check of where a request came from and not
  * of who made it — the same footing as every other press in the page.
+ *
+ * That check is not made in this file. Every request passes `refusal` in
+ * `guard.ts` before a route is chosen, and this route is one of its
+ * `PAGE_ONLY`: by the time `route` below is called, the request is the page's.
  */
 
 /** How long a first press stands. Long enough to read the sentence it produced. */
@@ -217,37 +221,12 @@ export class Arms {
   }
 }
 
-/**
- * Why a request is not a press in this host's page, or null when it is.
- *
- * A browser states where a POST came from, and cannot be made to lie about it
- * by the page it is showing. JSON is asked for as well: another origin cannot
- * send it without asking first, and this host never says yes.
- */
-export function notFromThePage(headers: Headers, pageOrigins: readonly string[]): string | null {
-  if (fromThePage(headers, pageOrigins)) return null
-  return 'Restarting a module that is kept is a press in this host’s own page, and this request did not come from there. Nothing was stopped.'
-}
-
-/**
- * Whether a request is one this host's own page sent: JSON, with an `Origin`
- * that is one of the page's. The check `notFromThePage` makes, without its
- * sentence, for the other routes only the page may reach (`headers.ts`).
- */
-export function fromThePage(headers: Headers, pageOrigins: readonly string[]): boolean {
-  const origin = headers.get('origin')
-  const json = (headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')
-  return origin !== null && json && pageOrigins.includes(origin)
-}
-
 /** What came of the restart, as `restart` in `server.ts` answers it. */
 export type Came =
   | { ok: true; answered: boolean; detail: string[]; presence: unknown }
   | { ok: false; why: string; detail?: string[] }
 
 export interface AnywayDeps {
-  /** Every origin this host's page is served from. */
-  pageOrigins(): readonly string[]
   /** The registration as it is on disk at the press. */
   registration(id: string): Promise<Registration | null>
   startable(registration: Registration | null): Startable
@@ -267,9 +246,6 @@ export interface AnywayDeps {
 export function anywayDesk(deps: AnywayDeps) {
   async function route(request: Request, url: URL): Promise<Response | null> {
     if (url.pathname !== '/host/restart-anyway' || request.method !== 'POST') return null
-    const barred = notFromThePage(request.headers, deps.pageOrigins())
-    if (barred) return reply({ ok: false, why: barred }, 403)
-
     const body = (await request.json().catch(() => null)) as { module?: unknown; press?: unknown; token?: unknown } | null
     const press = body?.press
     if (
