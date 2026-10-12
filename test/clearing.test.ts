@@ -5,6 +5,8 @@ import { Presses } from '../src/host/presses.ts'
 
 /** A frame nobody walks in this file. */
 const unwalked = () => Promise.resolve({ found: false, why: '' })
+/** Nor presses an item of its header. */
+const unpressed = () => Promise.resolve({ ok: false, why: '' })
 
 /**
  * The one control on this canvas that destroys something.
@@ -90,8 +92,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press reaches the module it names and no other', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {}, walk: unwalked })
-    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {}, walk: unwalked })
+    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {}, walk: unwalked, item: unpressed })
 
     expect(presses.press('a.one')).toBe(true)
     expect(said).toEqual(['a'])
@@ -103,7 +105,7 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press at a module that has gone does nothing', () => {
     const presses = new Presses()
     let pressed = 0
-    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {}, walk: unwalked })
+    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {}, walk: unwalked, item: unpressed })
     presses.leave('a.one')
 
     expect(presses.press('a.one')).toBe(false)
@@ -132,8 +134,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a frame that came back replaces the one that went', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {}, walk: unwalked })
-    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {}, walk: unwalked })
+    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {}, walk: unwalked, item: unpressed })
 
     presses.press('a.one')
     expect(said).toEqual(['new'])

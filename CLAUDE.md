@@ -83,3 +83,27 @@
   request. After that it is an ordinary registered module.
 - A registered module not on the list can be proposed for it
   (`server/proposals.ts`), which files an issue here through the person's `gh`.
+
+## A module's header menus, and an agent's press
+
+- A module declares its header (`kehikot.header`, protocol 1.1.0) and the host
+  draws it: `src/canvas/HeaderMenus.tsx` draws, `src/host/header.ts` holds every
+  rule (which menu, what is sent, what is refused) and is what to test. The
+  module owns all the state — the page holds the latest list per module and
+  nothing else. Never add host-side state for a switch, a toggle or a run.
+- A module's strings are text. Never render a label, group, result or reason as
+  markup or a link, and never open a URL from one. `icon` is a key in
+  `HEADER_ICONS`; add a name there (and to `docs/README.md`), never a path.
+- The header is one row. Anything added to it has to fit at 380, 280 and 200
+  pixels and folded; a module's menus are words, then icons under 300, then one
+  "⋯" under 220 (`modeFor`).
+- `press_item` (`server/mcp.ts`) presses only an item marked `agents: true`,
+  never a `confirm` run, and refuses an item with `tool` by naming it. The
+  server judges against what the page posted (`server/headers.ts`); the page
+  judges again against what the frame declared (`orderedRef` in `src/App.tsx`).
+  Keep both. `/host/headers` and `/host/pressed` answer only this host's own
+  page (`fromThePage` in `server/anyway.ts`); a new route a page posts state to
+  gets the same check.
+- An order to a page (`Wakes.press`) goes to that page's streams only. Every
+  other kind of news on `/host/watch` goes to everyone and says only that there
+  is something to re-read.

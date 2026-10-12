@@ -7,19 +7,18 @@ import {
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
+import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
-import { FeedbackButton } from './Feedback.tsx'
 import { FilterButton } from './Filters.tsx'
+import { FrameMenu, HeaderMenus, type PressNote } from './HeaderMenus.tsx'
 import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
-import { PromptButton } from './Prompts.tsx'
 import { Start, Update } from './Start.tsx'
-import { ToolsMark } from './Tools.tsx'
 import { VersionPicker } from './Versions.tsx'
 
 /**
@@ -65,6 +64,9 @@ export function Container({
   collapsed,
   onCollapse,
   foldedBy = null,
+  header = NO_HEADER,
+  onPress = unpressable,
+  pressNote = null,
   filters,
   chosen,
   onChoose,
@@ -122,11 +124,19 @@ export function Container({
   foldedBy?: string | null
   /**
    * What the module last declared for this container's menus
-   * (`kehikot.header`): its view switches, toggles, jumps and runs. Handed
-   * here whole and NOT DRAWN YET — the menus are kehikko#62's next step.
-   * Empty for a module that has declared nothing. See `host/header.ts`.
+   * (`kehikot.header`): its view switches, toggles, jumps and runs, drawn as
+   * View, Go and Run. Empty for a module that has declared nothing, which
+   * draws no module menu at all. See `HeaderMenus.tsx` and `host/header.ts`.
    */
   header?: readonly HeaderItem[]
+  /**
+   * One item of that header was chosen. Answers what became of it — taken,
+   * or not and why — once the module has said. A press, made on whichever
+   * frame is standing, like `onClear`.
+   */
+  onPress?(press: Pressing): Promise<Pressed>
+  /** An agent pressed an item here through the host's door: said on the menu's trigger for a moment. */
+  pressNote?: PressNote | null
   /**
    * What this module says it can be narrowed by, right now.
    *
@@ -467,17 +477,20 @@ export function Container({
         />
         <span className="flex-1" />
 
-        {/* Whenever this module has an MCP door at all — loud when nothing is
-            configured for it, quiet when something is. It opens the host's tools
-            window; see the essay in `Tools.tsx` for why the quiet one exists now
-            and why there is still no green tick. */}
-        <ToolsMark agent={presence.agent} name={name} onOpen={onTools} />
-
-        {/* Feedback to the module's authors, as GitHub issues. Beside the plug
-            because both are about the module as a program, and on every
-            container, folded too: a module that is not running is exactly one
-            somebody may want to report. See `Feedback.tsx`. */}
-        <FeedbackButton module={presence.id} name={name} kehikko={kehikko} epic={epic} />
+        {/*
+         * The module's own menus: View, Go and Run, from what it declared.
+         *
+         * First of everything on the right, and on the module's side of the
+         * line the filter essay below draws: they are here only because the
+         * program asked for them. Nothing at all for a module that declared
+         * nothing. Only while its page is what is showing, and not while
+         * folded — a view switch for a page nobody can see is a press with no
+         * visible effect, and the row a folded container has is the narrowest
+         * one on the canvas. See `HeaderMenus.tsx`.
+         */}
+        {showing.kind === 'page' && !collapsed ? (
+          <HeaderMenus items={header} name={name} onPress={onPress} note={pressNote} />
+        ) : null}
 
         {/*
          * There is no height toggle here any more, and the mechanism underneath
@@ -585,6 +598,23 @@ export function Container({
         ) : null}
 
         {/*
+         * Frame: what the host offers about the module as a program — its
+         * tools, feedback to its authors, prompts. One trigger where three
+         * icons stood, on every container, folded too. What each of the
+         * three said at a glance, and where that went, is in `FrameMenu`.
+         */}
+        <FrameMenu
+          module={presence.id}
+          name={name}
+          agent={presence.agent}
+          onTools={onTools}
+          prompted={presence.module?.declares.prompt === true}
+          onPrompts={onPrompts}
+          kehikko={kehikko}
+          epic={epic}
+        />
+
+        {/*
          * Fold this container down to its header, or open it again.
          *
          * Shown whatever the condition, like the pin and unlike the height
@@ -623,8 +653,6 @@ export function Container({
             {collapsed ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
           </Button>
         </Hint>
-
-        <PromptButton wanted={presence.module?.declares.prompt === true} onOpen={onPrompts} />
 
         {/*
          * There is no pin button here any more, and the pin itself is still
@@ -735,4 +763,9 @@ export function Container({
       )}
     </div>
   )
+}
+
+/** A container nobody wired a press to: said, rather than a row that does nothing. */
+function unpressable(): Promise<Pressed> {
+  return Promise.resolve({ ok: false, why: 'Nothing here takes a press.' })
 }

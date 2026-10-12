@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MODULE_ID, contentSignalSchema, type ContentChange } from 'kehikot-module-protocol'
+import { MODULE_ID, contentSignalSchema, type ContentChange, type HeaderItem } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -430,6 +430,19 @@ export function watchCanvases(
    * shape: a list this page cannot read is news that does not happen.
    */
   rewritten?: (project: number, changes: ContentChange[]) => void,
+  /**
+   * An agent asked the host's door to press one item of a module's header,
+   * and the server picked THIS page to do it — see `press` in
+   * `server/wake.ts`. The one piece of news that is an order rather than a
+   * reason to re-read; the page answers it with `answerPress`.
+   */
+  ordered?: (order: PressOrder) => void,
+  /**
+   * The stream is open: the first time, and again after every reconnection.
+   * A server that restarted has forgotten what this page told it — which
+   * headers its modules declared — and this is when to say it again.
+   */
+  opened?: () => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -458,10 +471,11 @@ export function watchCanvases(
   /* A stream that had to reconnect may have missed a wake while it was away —
      the host restarted, the machine slept. Looking again on every reopening
      after the first is what catches up. */
-  let opened = false
+  let before = false
   stream.onopen = () => {
-    if (opened) looked?.()
-    opened = true
+    if (before) looked?.()
+    before = true
+    opened?.()
   }
   stream.onmessage = (event) => {
     try {
@@ -490,12 +504,89 @@ export function watchCanvases(
         const changes = contentSignalSchema.safeParse(changed.changes)
         if (changes.success) rewritten?.(changed.content, changes.data)
       }
+      const order = pressOrderIn((parsed as { press?: unknown })?.press)
+      if (order) ordered?.(order)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */
     }
   }
   return () => stream.close()
+}
+
+/**
+ * One press an agent asked for, as the server hands it to the page that is to
+ * make it: which module on which kehikko, which item, and the option or the
+ * state wanted. `id` is the server's, and comes back with the answer.
+ */
+export interface PressOrder {
+  id: string
+  kehikko: number
+  module: string
+  item: string
+  value?: string | boolean
+}
+
+/**
+ * A press order off the stream, or `null` for anything that is not one — and
+ * for one addressed to another page. The server sends an order only down the
+ * streams of the page it chose; the check here is the page not taking that on
+ * trust.
+ */
+export function pressOrderIn(value: unknown, page: string = pageId()): PressOrder | null {
+  if (typeof value !== 'object' || value === null) return null
+  const said = value as Record<string, unknown>
+  const short = (one: unknown): one is string => typeof one === 'string' && one.length > 0 && one.length <= 64
+  if (said.page !== page) return null
+  if (!short(said.id) || !short(said.module) || !short(said.item)) return null
+  if (typeof said.kehikko !== 'number' || !Number.isInteger(said.kehikko) || said.kehikko <= 0) return null
+  if (said.value !== undefined && typeof said.value !== 'boolean' && !short(said.value)) return null
+  return {
+    id: said.id,
+    kehikko: said.kehikko,
+    module: said.module,
+    item: said.item,
+    ...(said.value === undefined ? {} : { value: said.value }),
+  }
+}
+
+/**
+ * Tell the server what each module on the open kehikko has declared for its
+ * header.
+ *
+ * The declarations live in this page — a module says them to the frame it is
+ * in — and the host's MCP door is on the server. This is how the door comes
+ * to list a container's items in `read_canvas` and to judge a `press_item`
+ * before anything is pressed. The whole map every time, like a declaration
+ * itself: it replaces what this page said before. See `server/headers.ts`.
+ *
+ * Failures are swallowed, for `reportOpen`'s reason: a post that did not land
+ * costs an agent a refusal it can act on.
+ */
+export function postHeaders(kehikko: number, headers: Readonly<Record<string, readonly HeaderItem[]>>): Promise<void> {
+  return fetch('/host/headers', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    /* `at`, so a posting that arrives after a later one does not replace it. */
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers }),
+  })
+    .then(() => undefined)
+    .catch(() => {
+      /* See above. */
+    })
+}
+
+/** Tell the server what became of a press it ordered: taken, or not and why. */
+export function answerPress(id: string, came: { ok: boolean; why: string }): Promise<void> {
+  return fetch('/host/pressed', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ page: pageId(), id, ok: came.ok, why: came.why }),
+  })
+    .then(() => undefined)
+    .catch(() => {
+      /* The server gives up on its own deadline and says no page answered. */
+    })
 }
 
 /**

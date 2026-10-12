@@ -26,7 +26,9 @@ import {
   everyPlaced,
   fetchCanvases,
   inProject,
+  answerPress,
   place,
+  postHeaders,
   promptFor,
   readOpen,
   removeCanvas,
@@ -36,6 +38,7 @@ import {
   writeOpen,
   type Canvas,
   type Placement,
+  type PressOrder,
 } from './host/canvases.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
@@ -73,7 +76,8 @@ import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
-import { declared, NO_HEADER, NO_HEADERS, withdrawn, type Headers } from './host/header.ts'
+import { agentRefusal, declared, NO_HEADER, NO_HEADERS, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
+import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -330,10 +334,25 @@ export function App() {
   /**
    * What each module last declared for its container's menus
    * (`kehikot.header`), by module id. Held and handed to the container, which
-   * does not draw it yet — see `host/header.ts`, which also says when an
-   * entry goes.
+   * draws it as its View, Go and Run menus — see `host/header.ts`, which also
+   * says when an entry goes.
    */
   const [headers, setHeaders] = useState<Headers>(NO_HEADERS)
+  /* The same, for a press: judged against what is declared at the moment of
+     the press, which a closure made at the last render does not hold. */
+  const headersRef = useRef<Headers>(headers)
+  headersRef.current = headers
+  /**
+   * What an agent last pressed in each module's header, by module id, so the
+   * container says it happened where a person would look for it. Said for a
+   * moment and never stored: a fact about one screen at one time, like who
+   * folded a container. See `PressNote` in `HeaderMenus.tsx`.
+   */
+  const [pressNotes, setPressNotes] = useState<Readonly<Record<string, PressNote>>>({})
+  /* An agent's press arrives on the stream opened far above where the frames
+     and the open kehikko are declared; `lookRef`'s arrangement, for its reason. */
+  const orderedRef = useRef<((order: PressOrder) => void) | null>(null)
+  const repostRef = useRef<(() => void) | null>(null)
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
@@ -700,6 +719,11 @@ export function App() {
           }
         })()
       },
+      /* An agent's `press_item`, handed to this page to make. */
+      (order) => orderedRef.current?.(order),
+      /* The stream opened, or reopened after the server went away: say again
+         what the modules here have declared. */
+      () => repostRef.current?.(),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -2651,6 +2675,98 @@ export function App() {
     return map
   }, [registry])
 
+  /**
+   * One item of a module's header, chosen in its container's menus.
+   *
+   * A press, like the clear and the refresh: made at the moment of the press
+   * on whichever frame is standing, never stored, never replayed. Judged
+   * first against the header as it is declared NOW (`pressing`, which asks the
+   * protocol's `pressRefusal`) — the menu a person is looking at was drawn
+   * from a list the module may since have replaced. What comes back is what
+   * the module said: taken, or not and why, and the menus say the why.
+   */
+  const byIdRef = useRef(byId)
+  byIdRef.current = byId
+  const onPressItem = useCallback(
+    (id: string, press: Pressing): Promise<Pressed> =>
+      pressing(headersRef.current[id] ?? NO_HEADER, press, byIdRef.current.get(id)?.name ?? id, (one) => presses.item(id, one)),
+    [presses],
+  )
+
+  /**
+   * An agent's `press_item`, made by this page.
+   *
+   * The door is on the server and the module's frame is here, so the server
+   * hands the press to the one page it chose (`server/headers.ts`) and waits
+   * for this page's answer. It travels the same road as a person's press from
+   * here on — `onPressItem` — after one more question the server has already
+   * asked: may an agent press this at all (`agentRefusal`). Asked again here
+   * because what the server judged is what this page POSTED, and what is held
+   * here is what the frame itself declared: the only copy a module wrote.
+   * Something that talked the server into believing an item was marked for
+   * agents has still not got it pressed.
+   *
+   * Nothing about the arrangement is touched: no container is moved, folded,
+   * selected or added by a press.
+   */
+  const openRef = useRef(open)
+  openRef.current = open
+  const made = useRef<string[]>([])
+  orderedRef.current = (order) => {
+    /* A page mid-reconnect has two streams for a moment and hears an order on
+       both. One press. */
+    if (made.current.includes(order.id)) return
+    made.current = [...made.current.slice(-31), order.id]
+    void (async () => {
+      const canvas = openRef.current
+      const press: Pressing = { item: order.item, ...(order.value === undefined ? {} : { value: order.value }) }
+      const items = headersRef.current[order.module]
+      const refused =
+        !canvas || canvas.id !== order.kehikko
+          ? `The page that was asked does not have kehikko ${order.kehikko} open any more, so nothing was pressed.`
+          : !canvas.placements.some((placement) => placement.i === order.module)
+            ? `${order.module} is not on kehikko ${order.kehikko} any more, so nothing was pressed.`
+            : !items
+              ? `${order.module} has declared no header on the page, so there is nothing to press.`
+              : agentRefusal(items, press, order.module)
+      const came: Pressed = refused ? { ok: false, why: refused } : await onPressItem(order.module, press)
+      if (came.ok) {
+        const label = items?.find((item) => item.id === order.item)?.label ?? order.item
+        setPressNotes((was) => ({
+          ...was,
+          [order.module]: { n: (was[order.module]?.n ?? 0) + 1, item: order.item, text: `an agent pressed ${label}` },
+        }))
+      }
+      await answerPress(order.id, came)
+    })()
+  }
+
+  /**
+   * What the modules on the open kehikko have declared, said to the server.
+   *
+   * So that `read_canvas` can list a container's header items and
+   * `press_item` can refuse before anything is pressed. Only the open
+   * kehikko's containers: a page loaded for the kehikko next door is declared
+   * too, and is not what anybody is looking at. Posted whole whenever it
+   * changes, and again when the stream reopens — a server that restarted
+   * has forgotten it.
+   */
+  const declaredHere = useMemo(() => {
+    if (!open) return null
+    const on: [string, Headers[string]][] = []
+    for (const placement of open.placements) {
+      const items = headers[placement.i]
+      if (items) on.push([placement.i, items])
+    }
+    return JSON.stringify(on)
+  }, [open, headers])
+  const postDeclared = useCallback(() => {
+    if (openId === null || declaredHere === null) return
+    void postHeaders(openId, Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]))
+  }, [openId, declaredHere])
+  useEffect(() => postDeclared(), [postDeclared])
+  repostRef.current = postDeclared
+
   /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
   const pinViews = useMemo(() => {
     const map = new Map<string, PinView>()
@@ -2973,7 +3089,7 @@ export function App() {
       filters: (groups) => onOffer(id, groups),
       clearable: (label) => onClearable(id, label),
       refreshable: (state) => onRefreshable(id, state),
-      /* Held, whole, and not drawn yet — see `host/header.ts`. */
+      /* Held whole, and drawn as the container's menus — see `host/header.ts`. */
       header: (items) => setHeaders((was) => declared(was, id, items)),
     }),
     [covers, onHeight, onOffer, onClearable, onRefreshable],
@@ -3263,6 +3379,10 @@ export function App() {
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
                   foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
                   header={headers[presence.id] ?? NO_HEADER}
+                  /* A press on whichever frame is standing, judged against
+                     what is declared now — see `onPressItem`. */
+                  onPress={(press) => onPressItem(presence.id, press)}
+                  pressNote={pressNotes[presence.id] ?? null}
                   /* The offer is the conversation's — it dies with the program —
                      and the choice is the arrangement's. See `Live` above. */
                   filters={found?.filters ?? []}

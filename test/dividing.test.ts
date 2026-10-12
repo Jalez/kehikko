@@ -192,6 +192,7 @@ describe('the walk itself', () => {
     presses.join(MAKER, {
       clear: () => {},
       refresh: () => {},
+      item: () => Promise.resolve({ ok: false, why: '' }),
       walk: (target) => {
         asked.push(target)
         return Promise.resolve({ found: true, why: '' })
