@@ -71,7 +71,7 @@ import { useRects } from './host/rects.ts'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { dragged, granted, mostFor, wishing } from './host/columns.ts'
+import { dragged, granted, mostFor, redrawn, wishing } from './host/columns.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -3309,24 +3309,5 @@ function same(a: readonly Placement[], b: readonly Placement[]): boolean {
       one.wish === other.wish &&
       one.collapsed === other.collapsed
     )
-  })
-}
-
-/**
- * Every placement drawn at what its wish is granted.
- *
- * This is the ONE place on the page a height is written from a rule, and every
- * gesture that changes a wish or a fold goes through it: a drag's release, a
- * press on the fold control, a module asking for room. The rule is `granted`
- * in `host/columns.ts`, and the essay there is why the wish and the height are
- * two numbers. A placement whose height does not change is returned as the
- * same object, so an arrangement that was already drawn right is `same` as
- * before and nothing is written.
- */
-function redrawn(placements: readonly Placement[]): Placement[] {
-  const heights = granted(placements)
-  return placements.map((p) => {
-    const h = heights.get(p.i)
-    return h === undefined || h === p.h ? p : { ...p, h }
   })
 }

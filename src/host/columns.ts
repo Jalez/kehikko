@@ -364,6 +364,26 @@ export function wishing(
 }
 
 /**
+ * Every placement drawn at what its wish is granted.
+ *
+ * This is the ONE place a height is written from a rule, and everything that
+ * changes a wish or a fold goes through it: a drag's release, a press on the
+ * fold control, a module asking for room, and an agent folding or unfolding
+ * at the host's door — `fold_modules` in `server/mcp.ts`. The rule is
+ * `granted`, and the essay there is why the wish and the height are two
+ * numbers. A placement whose height does not change is returned as the same
+ * object, so an arrangement that was already drawn right is the same as
+ * before and nothing is written.
+ */
+export function redrawn<T extends Wished>(placements: readonly T[]): T[] {
+  const heights = granted(placements)
+  return placements.map((p) => {
+    const h = heights.get(p.i)
+    return h === undefined || h === p.h ? p : { ...p, h }
+  })
+}
+
+/**
  * The tallest this container could become right now.
  *
  * `granted` asked with this container wishing for the whole canvas, and told

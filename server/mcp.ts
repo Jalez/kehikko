@@ -10,7 +10,7 @@ import { projectById } from './projects.ts'
 import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
 import { place } from '../src/host/canvases.ts'
-import { granted, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
+import { granted, redrawn, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
 /**
@@ -80,6 +80,30 @@ import { CANVAS_ROWS } from '../src/host/fit.ts'
  * take away, move, or re-aim anything a person put where it is. Two tools sit
  * on the near side of that line and are here; the rest are on the far side and
  * are not.
+ *
+ * ## Folding, which is neither
+ *
+ * `fold_modules` came after those two, for an agent that needs room: on a
+ * canvas of six open containers the one being talked about is a strip, and
+ * `place_modules` refuses a full kehikko outright. Folding adds nothing, so
+ * it is not on the near side of the line by the argument above. It is there
+ * by the other half of it:
+ *
+ *   - It **takes nothing away**. Folding is a state and not a height (see
+ *     `granted` in `columns.ts`): the wish a person dragged a container to is
+ *     left exactly as it was, and so is every neighbour's. What changes is
+ *     what is DRAWN, by the one rule the page's own fold control is drawn by
+ *     — `redrawn` — so an unfolded container takes rows from its column-mates
+ *     exactly as it would under a person's press, and gives them back when it
+ *     is folded again.
+ *   - It is **undone with one press**, on the control a person would have
+ *     used, and the answer says which call puts back what it changed.
+ *   - It is **one write**. Nothing here remembers that a container was folded
+ *     by an agent, so a person who unfolds it is not fought: there is nothing
+ *     left to fold it again.
+ *
+ * What it does not do is say on the canvas WHO folded. The page is woken and
+ * shows the container fold; the answer tells the agent to say that it did.
  *
  * ## Where a placed container goes, and when it does not go at all
  *
@@ -172,6 +196,7 @@ export const TOOL_NAMES = [
   'read_tracker',
   'module_versions',
   'pin_version',
+  'fold_modules',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -572,6 +597,42 @@ function tools() {
         required: ['module', 'version'],
       },
     },
+    {
+      name: 'fold_modules',
+      description:
+        'Fold containers on a kehikko down to their headers, unfold them, or both in one call — the same control '
+        + 'a person presses in a container’s header, and they see it happen. Use it to make room for what is '
+        + 'being worked on and to bring a folded module into view. Folding only: nothing is moved, resized, '
+        + 'removed or reordered, the module keeps running and keeps what is in it, and no program is told. A folded '
+        + 'container keeps the height its owner chose and is unfolded back towards it; in a full column it comes '
+        + 'back shorter, and its column-mates are drawn shorter while it is open, as they would be under a '
+        + 'person’s press. A container already as asked is left alone and named. The page does not say who '
+        + 'folded, so tell the person that you did; they can undo it with one press, and the answer says which '
+        + 'call puts back what you changed — make it when you are done with the room you made. If the person '
+        + 'folds or unfolds something themselves meanwhile, that is their arrangement: read_canvas again and '
+        + 'leave it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          fold: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'The module ids to fold to their headers, exactly as read_canvas prints them, e.g. '
+              + '["kehikot.notes"]. Every one has to be on this kehikko.',
+          },
+          unfold: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'The module ids to unfold, e.g. ["kehikot.learning"]. Every one has to be on this kehikko, and none '
+              + 'may also be in fold.',
+          },
+        },
+        required: [],
+      },
+    },
   ]
 }
 
@@ -603,7 +664,7 @@ function versionsText(listing: VersionListing, canvas: Canvas, how: string): str
 /** The module ids out of an argument, bounded — or a sentence saying what was wrong with them. */
 function modulesIn(
   value: unknown,
-  tool: 'select_modules' | 'place_modules',
+  tool: 'select_modules' | 'place_modules' | 'fold_modules',
 ): { ok: true; ids: string[] } | { ok: false; why: string } {
   if (!Array.isArray(value)) {
     return {
@@ -613,9 +674,12 @@ function modulesIn(
           ? 'select_modules needs modules: a list of the module ids that should end up selected, e.g. modules: '
             + '["kehikot.journeys"]. Pass modules: [] to unpick everything. It replaces the selection rather than '
             + 'adding to it, so send every id you want selected, not only the new one.'
-          : 'place_modules needs modules: a list of the module ids to put on the kehikko, e.g. modules: '
-            + '["kehikot.notes"] — as read_canvas prints them under "registered on this computer and not on this '
-            + 'kehikko".',
+          : tool === 'place_modules'
+            ? 'place_modules needs modules: a list of the module ids to put on the kehikko, e.g. modules: '
+              + '["kehikot.notes"] — as read_canvas prints them under "registered on this computer and not on this '
+              + 'kehikko".'
+            : 'fold and unfold are each a list of module ids as read_canvas prints them, e.g. fold: '
+              + '["kehikot.notes"], unfold: ["kehikot.learning"]. Leave out the one you do not need.',
     }
   }
   if (value.length > MAX_MODULES) {
@@ -666,6 +730,7 @@ export async function call(
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
+  if (name === 'fold_modules') return foldOn(canvas, where.how, args, door)
   if (name === 'module_versions' || name === 'pin_version') {
     if (!door.versions) return { text: 'This host does not run module versions.', failed: true }
     const module = typeof args.module === 'string' && args.module.length <= MAX_ID ? canonicalModuleId(args.module) : null
@@ -811,7 +876,7 @@ async function placeOn(
           `there is no room on kehikko ${canvas.id} (${canvas.name}) for ${id} without taking rows from a `
           + `container somebody arranged, or squeezing it under ${SQUEEZED_ROWS} rows, and this tool does neither. `
           + `${landed.length ? `${landed.map((l) => l.id).join(', ')} would have fitted, but ` : ''}`
-          + 'nothing was placed. Ask the person to fold or take something off first.',
+          + 'nothing was placed. Fold something with fold_modules, or ask the person to take something off, first.',
         failed: true,
       }
     }
@@ -835,6 +900,115 @@ async function placeOn(
         ? ` ${already.join(', ')} ${already.length === 1 ? 'was' : 'were'} already there and left alone.`
         : '')
       + ' Nothing else was moved.'
+      + '\n\n'
+      + canvasText(door.db, written, how, seen),
+    failed: false,
+  }
+}
+
+/**
+ * `fold_modules`: containers folded to their headers or unfolded, and nothing
+ * else about the arrangement touched.
+ *
+ * The write is the one the page's fold control makes — `collapsed` set, and
+ * every height redrawn from the wishes by `redrawn` — so an agent's fold is
+ * undone by the same press that undoes a person's, and what a container is
+ * unfolded towards is the wish its owner left.
+ *
+ * Refused whole for a stranger, for the reason `select_modules` is. A
+ * container already as asked is not a refusal: it is named, and it is left
+ * OUT of the call the answer offers for putting things back, so that undoing
+ * an agent's folds does not unfold what a person had folded themselves.
+ */
+async function foldOn(
+  canvas: Canvas,
+  how: string,
+  args: Record<string, unknown>,
+  door: Door,
+): Promise<{ text: string; failed: boolean }> {
+  const asked = { fold: [] as string[], unfold: [] as string[] }
+  for (const key of ['fold', 'unfold'] as const) {
+    if (args[key] === undefined || args[key] === null) continue
+    const ids = modulesIn(args[key], 'fold_modules')
+    if (!ids.ok) return { text: ids.why, failed: true }
+    asked[key] = ids.ids
+  }
+  const named = [...asked.fold, ...asked.unfold]
+  if (!named.length) {
+    return {
+      text:
+        'fold_modules needs fold, unfold or both: lists of module ids as read_canvas prints them, e.g. fold: '
+        + '["kehikot.notes"], unfold: ["kehikot.learning"]. Nothing was changed.',
+      failed: true,
+    }
+  }
+  const both = asked.fold.filter((id) => asked.unfold.includes(id))
+  if (both.length) {
+    return {
+      text: `${both.join(', ')} ${both.length === 1 ? 'is' : 'are'} in both fold and unfold, which is no instruction at all. Nothing was changed.`,
+      failed: true,
+    }
+  }
+
+  const on = new Map(canvas.placements.map((p) => [p.i, p]))
+  const strangers = named.filter((id) => !on.has(id))
+  if (strangers.length) {
+    return {
+      text:
+        `${strangers.join(', ')} ${strangers.length === 1 ? 'is not a container' : 'are not containers'} on kehikko `
+        + `${canvas.id} (${canvas.name}), so nothing was folded or unfolded. What is on it: ${
+          on.size ? [...on.keys()].join(', ') : 'nothing at all'
+        }.`,
+      failed: true,
+    }
+  }
+
+  const folding = asked.fold.filter((id) => !on.get(id)?.collapsed)
+  const unfolding = asked.unfold.filter((id) => on.get(id)?.collapsed)
+  const already = named.filter((id) => !folding.includes(id) && !unfolding.includes(id))
+  const leftAlone = already.length
+    ? `${already.join(', ')} ${already.length === 1 ? 'was' : 'were'} already as asked and left alone.`
+    : ''
+  const seen = await door.seen()
+  if (!folding.length && !unfolding.length) {
+    return {
+      text:
+        `${leftAlone} Nothing was changed on kehikko ${canvas.id} (${canvas.name}), ${how}.\n\n`
+        + canvasText(door.db, canvas, how, seen),
+      failed: false,
+    }
+  }
+
+  const placements = redrawn(
+    canvas.placements.map((p) =>
+      folding.includes(p.i) ? { ...p, collapsed: true } : unfolding.includes(p.i) ? { ...p, collapsed: false } : p,
+    ),
+  )
+  const written = editCanvas(door.db, canvas.id, { placements })
+  if (written) keep(door.db, written.project)
+  if (!written) {
+    return { text: `kehikko ${canvas.id} was there a moment ago and is not now; nothing was folded.`, failed: true }
+  }
+  /* Written first, woken after — see `select_modules`. */
+  door.wake(canvas.id)
+
+  /* A column that is full gives an unfolded container less than it asks for.
+     Said, because "unfolded" would otherwise read as "in view at its height". */
+  const short = written.placements.filter((p) => unfolding.includes(p.i) && p.h < p.wish)
+  const back = [
+    folding.length ? `unfold: ${JSON.stringify(folding)}` : null,
+    unfolding.length ? `fold: ${JSON.stringify(unfolding)}` : null,
+  ].filter((part): part is string => part !== null)
+  return {
+    text:
+      `On kehikko ${canvas.id} (${canvas.name}), ${how}:`
+      + (folding.length ? ` folded ${folding.join(', ')}.` : '')
+      + (unfolding.length ? ` unfolded ${unfolding.join(', ')}.` : '')
+      + short.map((p) => ` ${p.i} is drawn at ${p.h} of the ${p.wish} rows it asks for, because its column is full.`).join('')
+      + (leftAlone ? ` ${leftAlone}` : '')
+      + ' Nothing was moved, resized or removed, and no module was told.'
+      + ` The person saw it happen and was not told who did it (${AGENT}), so say that you did.`
+      + ` To put back what this call changed: fold_modules with ${back.join(', ')}.`
       + '\n\n'
       + canvasText(door.db, written, how, seen),
     failed: false,
@@ -1078,7 +1252,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         'The host somebody’s modules are arranged in. A kehikko is one canvas: several programs side by side '
         + 'around one project and one epic. This door reads what is arranged on one, sets which of those '
         + 'containers are picked out as targets, puts modules on a kehikko as new containers, creates epics in '
-        + 'the project a kehikko stands in, and marks why a closed ref closed. It can ADD; it cannot remove, move or resize a container, switch the '
+        + 'the project a kehikko stands in, marks why a closed ref closed, and folds a container to its header or '
+        + 'unfolds it. It can ADD, and fold; it cannot remove, move or resize a container, switch the '
         + 'kehikko, or change which epic is open — the arrangement belongs to the person looking at it, and what '
         + 'this door adds is what they can see arrive and take off with one press.',
     })
