@@ -129,6 +129,13 @@ export interface Arranged {
   x: number
   y: number
   selected: boolean
+  /**
+   * Folded to its header. Said in the row (`folded`) since protocol 1.1.0: a
+   * neighbour about to point this module reads it to know whether anything
+   * would be seen, and a module that folded something reads it to know
+   * whether a person has moved it since.
+   */
+  collapsed: boolean
 }
 
 export function containersOf(input: {
@@ -164,7 +171,7 @@ export function containersOf(input: {
       0,
       LIMITS.SHOWING_DOCUMENTS,
     )
-    return { module: p.i, selected: p.selected, showing: { refs, documents } }
+    return { module: p.i, selected: p.selected, folded: p.collapsed, showing: { refs, documents } }
   })
 }
 

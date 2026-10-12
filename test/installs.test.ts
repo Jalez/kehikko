@@ -73,6 +73,19 @@ describe('the official list', () => {
     for (const one of OFFICIAL) expect(one.repo).toMatch(/^Jalez\/kehikko-[a-z]+$/)
   })
 
+  test('Claude is on it, as its own manifest names it', () => {
+    /* id, name and preferred port are `ID`, `MANIFEST.name` and
+       `PREFERRED_PORT` in kehikko-claude's `manifest.ts`; a list that drifted
+       from them would register the module where it does not answer. */
+    expect(officialOf('kehikot.claude')).toMatchObject({
+      id: 'kehikot.claude',
+      name: 'Claude',
+      repo: 'Jalez/kehikko-claude',
+      port: 8010,
+      tags: ['agents', 'code'],
+    })
+  })
+
   test('a module is found under either spelling of its id', () => {
     expect(officialOf('roadmap.slides', [slides])?.id).toBe('kehikot.slides')
     expect(officialOf('me.scores', [slides])).toBeNull()

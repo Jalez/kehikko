@@ -1,5 +1,6 @@
 import {
   contextSchema,
+  KEHIKKO_KEY,
   partsSchema,
   passageSchema,
   type CanvasContainer,
@@ -131,6 +132,31 @@ export const NO_SUBJECT: Subject = { epic: null, project: null }
  * host stays responsible for having run it); using it is how the host finds out
  * it has drifted.
  */
+/**
+ * A kehikko as the wire spells it: `{ id, name }`, and `key` when there is one
+ * the protocol will read.
+ *
+ * The one place the key is decided, for the context and for events alike.
+ * `id` is a row number — the next integer this machine's database had free,
+ * and a different one after the project is removed and added again — so it is
+ * good for telling near from far inside one running page and for nothing a
+ * module keeps. `key` is what the project's own `kehikot.json` calls the
+ * kehikko, and is what a module files things under.
+ *
+ * A key that does not match `KEHIKKO_KEY` is left off, and nothing else is
+ * touched: the protocol's schema would refuse the whole context over it, and
+ * a module told no key is exactly where every module was before 1.1.0. The
+ * property is ABSENT then, not `undefined` — the protocol's own reading of a
+ * kehikko without one.
+ */
+export function kehikkoOnWire(
+  kehikko: { id: number; name: string; key?: string } | null,
+): { id: number; name: string; key?: string } | null {
+  if (kehikko === null) return null
+  const { id, name, key } = kehikko
+  return typeof key === 'string' && KEHIKKO_KEY.test(key) ? { id, name, key } : { id, name }
+}
+
 export function toWireContext(
   subject: Subject,
   theme: 'light' | 'dark',
@@ -166,8 +192,15 @@ export function toWireContext(
    * the same one, because the canvas is one place and they are all standing in
    * it. Nor does it decide the subject: every kehikko in a project is told the
    * project's one epic.
+   *
+   * `key` is the kehikko's name for anything a module WRITES DOWN: `id` is a
+   * row number in this machine's database and changes when the project is
+   * removed and added again, and `key` is what the project's own
+   * `kehikot.json` calls it. Sent only when it is spelled as the protocol
+   * spells one (`KEHIKKO_KEY`): a key that is not would fail the whole
+   * context, and a module without one is exactly where it was before 1.1.0.
    */
-  kehikko: { id: number; name: string } | null = null,
+  kehikko: { id: number; name: string; key?: string } | null = null,
   /**
    * Where somebody is pointing inside a document, or null.
    *
@@ -260,6 +293,10 @@ export function toWireContext(
      below and lost its epic over a heading. */
   const divided = partsSchema.safeParse(parts).success ? parts : []
 
+  /* The kehikko's key, failed separately for the passage's reason: one that is
+     not spelled as a key is left out, and the context keeps everything else. */
+  const wire = kehikkoOnWire(kehikko)
+
   const parsed = contextSchema.safeParse({
     epic: subject.epic,
     /* Name and path, filled in from one project in one expression. Two nullable
@@ -270,7 +307,7 @@ export function toWireContext(
     projectPath: subject.project?.path ?? null,
     theme,
     selection,
-    kehikko,
+    kehikko: wire,
     passage: pointing,
     containers,
     dispositions,
@@ -323,7 +360,7 @@ export function toWireContext(
     projectPath: subject.project?.path ?? null,
     theme,
     selection: [],
-    kehikko,
+    kehikko: wire,
     passage: pointing,
     /* The containers survive with the kehikko, for the kehikko's reason: they
        are the arrangement, and the arrangement has nothing to do with whether

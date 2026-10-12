@@ -295,7 +295,8 @@ export interface Canvas {
    *
    * Every route, every `localStorage` entry and every open-page report names a
    * kehikko by this, and all of those are conversations between one page and
-   * one server on one computer. It never leaves the machine: see `key`.
+   * one server on one computer. A module is told it too, to tell near from
+   * far inside one running page, and is told not to keep it: see `key`.
    */
   id: number
   /**
@@ -317,8 +318,14 @@ export interface Canvas {
    * — `writing`, `review` — and the file's schema allows it.
    *
    * Unique within a project, not globally: the file is per project, so that is
-   * the only scope in which two keys could ever meet. Never edited, never
-   * shown, never sent to a module.
+   * the only scope in which two keys could ever meet. Never edited and never
+   * shown to a person.
+   *
+   * It IS sent to modules, since protocol 1.1.0: as `context.kehikko.key` and
+   * `event.kehikko.key`, beside the `id`, because a module that keeps
+   * something per kehikko needs a name for it that is still true after the
+   * project is removed and added again — which `id` is not. See
+   * `kehikkoOnWire` in `src/host/context.ts`.
    */
   key: string
   name: string

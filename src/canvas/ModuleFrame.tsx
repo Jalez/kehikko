@@ -182,6 +182,7 @@ export function ModuleFrame({
         project: () => canvasRef.current.project(),
         filter: (from, choice) => canvasRef.current.filter(from, choice),
         pickProject: (from) => canvasRef.current.pickProject(from),
+        fold: (from, call) => canvasRef.current.fold(from, call),
       }),
       {
         ready: (p, build) => watcherRef.current.ready(p, build),
@@ -200,6 +201,9 @@ export function ModuleFrame({
            statement about its own data, and the one fact in this conversation a
            host would otherwise be tempted to infer from when it last asked. */
         refreshable: (state) => watcherRef.current.refreshable(state),
+        /* The module's menus, as declared. Held by the canvas; see
+           `host/header.ts`. */
+        header: (items) => watcherRef.current.header(items),
       },
       { name: framed.name },
     )

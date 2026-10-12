@@ -412,7 +412,7 @@ export function redrawn<T extends Wished>(placements: readonly T[]): T[] {
  * The ONE write a fold is, whoever asks for it — a person's press on the
  * control (`pressed`, below), an agent at the host's door (`fold_modules` in
  * `server/mcp.ts`), and a module asking the host to bring itself or a
- * neighbour into view when the protocol has a message for that. Nothing but
+ * neighbour into view (`view.fold`; `asked` in `folds.ts`). Nothing but
  * `collapsed` and the drawn heights changes: no wish, position or width. An id
  * that is not here is ignored, and a container already as asked stays the same
  * object.

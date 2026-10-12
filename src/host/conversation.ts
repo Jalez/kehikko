@@ -1,14 +1,24 @@
 import {
   clampHeight,
+  HOST_MESSAGES,
   LIMITS,
   looksLikeWireMessage,
   MESSAGE,
+  MODULE_MESSAGES,
   moduleMessageSchema,
   PROTOCOL,
   type Build,
   type FilterGroup,
+  type HeaderItem,
   type ModuleContext,
 } from 'kehikot-module-protocol'
+
+/**
+ * Every message type this host's build of the protocol names, in either
+ * direction. A `kehikot.` type that is not here was added by a LATER protocol
+ * than this host was built on — see `receive`.
+ */
+const NAMED = new Set<string>([...HOST_MESSAGES, ...MODULE_MESSAGES])
 
 /**
  * One conversation with one frame.
@@ -124,6 +134,17 @@ export interface ConversationWatcher {
    * other half.
    */
   refreshable(state: { can: boolean; at: string | null; busy: boolean }): void
+  /**
+   * What this module declares for its container's menus, right now
+   * (`kehikot.header`, protocol 1.1.0): its view switches, toggles, jumps and
+   * runs.
+   *
+   * The whole list every time, replacing the last — `[]` takes the module's
+   * menus away — and the module owns all the state in it: which option a
+   * switch is on, whether a run is busy. The host holds the latest and
+   * remembers nothing else. Reported like `filters`, with no reply.
+   */
+  header(items: HeaderItem[]): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -455,9 +476,19 @@ export class Conversation {
 
     if (!looksLikeWireMessage(event.data)) return false
 
+    /* A type this host has never heard of is not a mistake: a later version
+       of the protocol added it, and the module was built on that one. Dropped
+       without a word — a fault line on the frame would be the host blaming a
+       module for being newer than it is, again on every such message. Taken
+       all the same (`true`): it came from this frame and is nobody else's.
+       The protocol's rule, both directions: docs/header.md, "A message type
+       the other side does not know". */
+    if (!NAMED.has((event.data as { type: string }).type)) return true
+
     const parsed = moduleMessageSchema.safeParse(event.data)
     if (!parsed.success) {
-      /* A message with the right prefix and the wrong shape. Reported, because
+      /* A type the host KNOWS, in a shape it cannot read — or one only a host
+         says, sent by a module. Reported, because
          the alternative is a module author whose call vanishes with no trace
          anywhere — and reported without echoing the message, which is a
          document a stranger wrote. */
@@ -547,6 +578,20 @@ export class Conversation {
          only do that from an instant. What the reading contains, where it came
          from and whether it was worth making are the module's. */
       this.watcher.refreshable({ can: message.can, at: message.at, busy: message.busy })
+      return true
+    }
+
+    case MESSAGE.HEADER: {
+      /* Handed on exactly as parsed, like the offers above. The schema has
+         bounded every string, refused duplicate ids and a switch whose value
+         is not one of its options; what any item DOES is the module's. */
+      this.watcher.header(message.items)
+      return true
+    }
+
+    case MESSAGE.PRESSED: {
+      /* The answer to a `kehikot.press`, and this host sends none yet, so
+         there is nothing for one to settle. Read, and let go. */
       return true
     }
 

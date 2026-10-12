@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
 import type { Presence } from '@/host/registry.ts'
-import type { FilterGroup } from 'kehikot-module-protocol'
+import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { FeedbackButton } from './Feedback.tsx'
@@ -120,6 +120,13 @@ export function Container({
    * press on it puts the container back. See `host/folds.ts`.
    */
   foldedBy?: string | null
+  /**
+   * What the module last declared for this container's menus
+   * (`kehikot.header`): its view switches, toggles, jumps and runs. Handed
+   * here whole and NOT DRAWN YET — the menus are kehikko#62's next step.
+   * Empty for a module that has declared nothing. See `host/header.ts`.
+   */
+  header?: readonly HeaderItem[]
   /**
    * What this module says it can be narrowed by, right now.
    *

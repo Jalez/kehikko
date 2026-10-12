@@ -121,6 +121,11 @@ export const ANSWERED_BY_THE_VIEW = [
    */
   'projects.pick',
   'events.emit',
+  /* Folding is the arrangement on a screen: the placements, whether a hand is
+     on one of them, and the mark that says who folded. Only the page has
+     those, and the person watching is the point. See `asked` in
+     `host/folds.ts`. */
+  'view.fold',
 ] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */
