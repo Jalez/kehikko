@@ -226,7 +226,7 @@ describe('the picker’s arithmetic', () => {
   test('ids are bounded before they are stored', () => {
     expect(partIdsIn(['a', 'a', '', 'Not An Id', 7, null, 'b'])).toEqual(['a', 'b'])
     expect(partIdsIn('a')).toEqual([])
-    expect(partIdsIn(Array.from({ length: 99 }, (_, i) => `p${i}`))).toHaveLength(LIMITS.PARTS)
+    expect(partIdsIn(Array.from({ length: LIMITS.PARTS + 5 }, (_, i) => `p${i}`))).toHaveLength(LIMITS.PARTS)
   })
 })
 

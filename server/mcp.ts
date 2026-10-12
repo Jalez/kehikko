@@ -4,7 +4,7 @@ import { canonicalModuleId, DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, ty
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
-import { createEpic } from './holdings.ts'
+import { createEpic, editParts, readParts } from './holdings.ts'
 import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
 import type { WhichKehikko } from './open.ts'
@@ -13,6 +13,7 @@ import type { FoldNote } from './wake.ts'
 import { place } from '../src/host/canvases.ts'
 import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
+import { editIn } from '../src/host/parts.ts'
 import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, type Pressed, type Pressing } from '../src/host/header.ts'
 
 /**
@@ -244,6 +245,7 @@ export const TOOL_NAMES = [
   'select_modules',
   'place_modules',
   'create_epic',
+  'set_parts',
   'mark_disposition',
   'read_tracker',
   'module_versions',
@@ -380,15 +382,28 @@ function canvasText(
       ? `epic: ${about.epic} (the project's; every kehikko in it is on the same epic)`
       : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
   )
-  /* Said only when the project is narrowed. Nothing picked is the whole epic,
-     which the line above already means; a focus is the thing an agent would
-     otherwise not know it was standing in. Ids as stored — one that names no
-     part of the epic's file simply does not apply. */
-  if (about?.epic && about.parts.length) {
+  /* The parts of the epic, each with its id — which is what `set_parts`
+     takes and what a module files its own material under — and its name.
+     Ids of the stored picks are marked; one that names no part of the epic
+     simply does not apply, and is said so an agent is not left wondering why
+     nothing is narrowed. */
+  if (about?.epic && project) {
+    const parts = readParts(project.path, about.epic) ?? []
+    const has = new Set(parts.map((part) => part.id))
+    const on = about.parts.filter((id) => has.has(id))
+    const gone = about.parts.filter((id) => !has.has(id))
     lines.push(
-      `parts of the epic picked out: ${about.parts.join(', ')} — every module here is pointed at those parts only; `
-        + 'the rest of the epic is still there.',
+      parts.length
+        ? `parts of the epic (id — name): ${parts.map((part) => `${part.id} — ${quoted(part.heading)}${on.includes(part.id) ? ' [picked]' : ''}`).join('; ')}.`
+        : 'parts of the epic: none. set_parts adds one.',
     )
+    if (on.length) {
+      lines.push(
+        `parts of the epic picked out: ${on.join(', ')} — every module here is pointed at those parts only; `
+          + 'the rest of the epic is still there.',
+      )
+    }
+    if (gone.length) lines.push(`picked, and no longer a part of the epic (narrows nothing): ${gone.join(', ')}.`)
   }
   lines.push(
     about?.selection.length
@@ -674,6 +689,69 @@ function tools() {
       },
     },
     {
+      name: 'set_parts',
+      description:
+        'Make ONE edit to the list of parts of an epic in the project a kehikko is standing in: add a part, rename '
+        + 'one, move one, or remove one. A part belongs to the epic — an id, a name and a place in an order — and '
+        + 'every module on the kehikko narrows to the parts a person picks. The list is kept in the epic’s own file '
+        + 'and this is the same writer the person’s picker in the bar uses; they see the change at once. Name '
+        + 'exactly one of add, rename, move, remove. The id of a new part is made here from its name and never '
+        + 'changes: rename changes the name only, move the order only. remove takes the part out of the list and '
+        + 'touches nothing else — what modules filed under its id stays theirs. It does not pick or unpick a part: '
+        + 'what somebody is looking at is theirs. The answer is the whole list as it then stands. read_canvas '
+        + 'prints the ids.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          epic: {
+            type: 'string',
+            description: 'The slug of the epic. Leave it out for the epic the project is on, which read_canvas prints.',
+          },
+          add: {
+            type: 'object',
+            description: 'A new part. after: the id it goes right after; null for first; left out for last.',
+            properties: { name: { type: 'string' }, after: { type: ['string', 'null'] } },
+            required: ['name'],
+          },
+          rename: {
+            type: 'object',
+            description: 'Another name for the part with this id. Its id and its place stay.',
+            properties: { id: { type: 'string' }, name: { type: 'string' } },
+            required: ['id', 'name'],
+          },
+          move: {
+            type: 'object',
+            description: 'Put the part with this id right after another: after is that id, null for first, left out for last.',
+            properties: { id: { type: 'string' }, after: { type: ['string', 'null'] } },
+            required: ['id'],
+          },
+          remove: {
+            type: 'object',
+            description: 'Take the part with this id out of the list.',
+            properties: { id: { type: 'string' } },
+            required: ['id'],
+          },
+        },
+        required: [],
+      },
+      annotations: {
+        title: 'Edit an epic’s parts',
+        /* It writes one field of the epic's file. */
+        readOnlyHint: false,
+        /* One tool, four edits, and a hint cannot vary by argument: `remove`
+           takes an entry out and `rename` writes over a name, so the tool as
+           a whole is not additive-only and says so. What it cannot do is
+           lose anybody's material — a removed part's holdings stay with the
+           modules, and adding it again under the same name gives the same id. */
+        destructiveHint: true,
+        /* `add` twice is two parts. */
+        idempotentHint: false,
+        /* A file in the project, on this machine. */
+        openWorldHint: false,
+      },
+    },
+    {
       name: 'mark_disposition',
       description:
         'Say why a closed reference closed — done, wont-do, duplicate or superseded — in the project a kehikko is '
@@ -910,6 +988,7 @@ export async function call(
   }
   if (name === 'press_item') return pressOn(canvas, where.how, args, door)
   if (name === 'create_epic') return createEpicAt(canvas, args, door)
+  if (name === 'set_parts') return setPartsAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
@@ -1565,6 +1644,73 @@ function createEpicAt(
 }
 
 /**
+ * `set_parts`: one edit of an epic's list of parts, in the project this
+ * kehikko stands in.
+ *
+ * The arguments go through the protocol's own schema for `parts.set`, and the
+ * write is `editParts` in `holdings.ts` — the function the picker in the bar
+ * and a module's `parts.set` reach — so an agent, a module and a person are
+ * refused for the same things and a new part gets the same id whoever asked.
+ * Nothing on the canvas changes and nothing is picked.
+ */
+function setPartsAt(
+  canvas: Canvas,
+  args: Record<string, unknown>,
+  door: Door,
+): { text: string; failed: boolean } {
+  const project = canvas.project === null ? null : projectById(door.db, canvas.project)
+  if (!project) {
+    return {
+      text:
+        `kehikko ${canvas.id} (${canvas.name}) is in no project, so there is no epic whose parts could be edited. `
+        + `Name a kehikko that is in one.\n\n${roster(door.db)}`,
+      failed: true,
+    }
+  }
+  const epic = args.epic === undefined || args.epic === null ? readSubject(door.db, project.id)?.epic : args.epic
+  if (typeof epic !== 'string' || !epic) {
+    return { text: `${project.name} is on no epic, so set_parts needs epic: the slug of one of its epics.`, failed: true }
+  }
+  const given = Object.fromEntries(
+    (['add', 'rename', 'move', 'remove'] as const).filter((key) => args[key] !== undefined && args[key] !== null).map((key) => [key, args[key]]),
+  )
+  const parsed = methodParams['parts.set'].safeParse({ epic, ...given })
+  const edit = parsed.success ? editIn(parsed.data) : null
+  if (!parsed.success || !edit) {
+    const issue = parsed.success ? undefined : parsed.error.issues[0]
+    const where = issue?.path.length ? `${issue.path.join('.')}: ` : ''
+    return {
+      text:
+        `nothing was changed — ${where}${issue?.message ?? 'name exactly one of add, rename, move or remove'}. `
+        + 'set_parts takes one of add: { name, after? }, rename: { id, name }, move: { id, after? }, remove: { id }.',
+      failed: true,
+    }
+  }
+
+  const done = editParts(project.path, parsed.data.epic, edit)
+  if (done.written) door.epicWritten?.(project.id, parsed.data.epic)
+
+  const { outcome, parts, id, why } = done.result
+  const list = parts.length ? parts.map((part) => `${part.id} — ${quoted(part.name)}`).join('; ') : 'none'
+  const now = `The parts of ${parsed.data.epic} (id — name), in order: ${list}.`
+  if (outcome === 'declined') return { text: `nothing was changed — ${why}`, failed: true }
+  if (outcome === 'no-such-part') {
+    return { text: `nothing was changed — an id or an after names no part of ${parsed.data.epic}. ${now}`, failed: true }
+  }
+  const did =
+    outcome === 'unchanged'
+      ? 'It already was as asked, so nothing was written.'
+      : 'add' in edit
+        ? `Added ${id}.`
+        : 'rename' in edit
+          ? `Renamed ${id}; its id did not change.`
+          : 'move' in edit
+            ? `Moved ${id}.`
+            : `Removed ${id} from the list; what modules hold under that id was not touched.`
+  return { text: `${did} ${now}`, failed: false }
+}
+
+/**
  * One JSON-RPC request at the door.
  *
  * `initialize`, `tools/list`, `tools/call`, notifications answered with nothing,
@@ -1585,7 +1731,9 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         'The host somebody’s modules are arranged in. A kehikko is one canvas: several programs side by side '
         + 'around one project and one epic. This door reads what is arranged on one, sets which of those '
         + 'containers are picked out as targets, puts modules on a kehikko as new containers, creates epics in '
-        + 'the project a kehikko stands in, marks why a closed ref closed, folds a container to its header or '
+        + 'the project a kehikko stands in, edits the list of parts an epic is divided into (add, rename, move, '
+        + 'remove — the parts are the epic’s, and every module narrows to the ones a person picks), marks why a '
+        + 'closed ref closed, folds a container to its header or '
         + 'unfolds it on a kehikko a page has open, and presses an item of a module’s header — a view switch, a '
         + 'toggle, a jump, a run — when the module has marked that item for agents. It can ADD, FOLD and PRESS; it '
         + 'cannot remove, move, resize or reorder a container, switch the kehikko, or change which epic is open — '

@@ -1,7 +1,9 @@
 import {
   LIMITS,
   METHOD_NAMES,
+  METHODS,
   methodParams,
+  type PartsSetResult,
   type ResponseFailureReason,
 } from 'kehikot-module-protocol'
 import {
@@ -12,6 +14,7 @@ import {
 import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
 import { epicsIn, listEpics, readEpic, readLive, readStepsSaid } from './holdings.ts'
+import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
@@ -117,6 +120,33 @@ const answeredHere = new Set<string>(ANSWERED_BY_THE_SERVER)
 const answeredByTheView = new Set<string>(ANSWERED_BY_THE_VIEW)
 
 /**
+ * Where an edit of an epic's parts goes: `parts.set`.
+ *
+ * Injected for `mark`'s reason — this file decides, `editParts` in
+ * `holdings.ts` writes, and the server tells every page — and with one more
+ * question, which is new in this file: `may`.
+ *
+ * ## The one method this host holds to its grant
+ *
+ * A manifest's `declares.uses` lists the capabilities a module asks for, and
+ * until this method nothing here read it: every registered module was
+ * answered every method, and the list was what the page SHOWED a person
+ * about a module. That was tolerable while a call could at most write the
+ * caller's own state, a mark on a ref, or nothing. This one rewrites a file a
+ * person wrote, on behalf of every module on the canvas, so it is answered
+ * only for a module whose manifest asked — `METHODS['parts.set']`, the
+ * protocol's own word for the capability. One that did not is declined with a
+ * sentence its author can act on. The other methods are as they were; holding
+ * them to their grants is a change of its own.
+ */
+export interface PartsDoor {
+  /** Whether this module's manifest, as the registry last read it, asks for the capability. */
+  may(module: string, capability: string): boolean
+  /** Make the edit in this project, and say what came of it. Told to every page by the server. */
+  edit(root: string, epic: string, edit: PartsEdit, module: string): PartsSetResult
+}
+
+/**
  * Answer one call.
  *
  * `knownModule` is asked rather than assumed, and it is the caller's job to
@@ -181,6 +211,8 @@ export function answer(
    * material it is. The default refuses, as `mark`'s does.
    */
   report: ((module: string, root: string, epic: string | null) => void) | null = null,
+  /** Where `parts.set` goes, and who may ask. Absent, it is declined with a sentence saying so. */
+  divide: PartsDoor | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -424,6 +456,28 @@ export function answer(
   }
 
   /**
+   * One edit of an epic's list of parts. Every refusal is an ANSWER —
+   * `declined`, with a sentence — and none is a failure: the protocol gives
+   * this method four outcomes and all four are `ok: true`. A module that did
+   * not ask for the capability, a call standing in no project and an epic that
+   * is not one of the open project's are all "the host will not".
+   */
+  case 'parts.set': {
+    const asked = parsed.data as { epic: string }
+    const declined = (why: string) => nothingToShow('parts.set', { outcome: 'declined', parts: [], id: null, why })
+    if (!divide) return declined('This host was not given anywhere to keep an epic’s parts. Nothing was changed.')
+    if (!divide.may(moduleId, METHODS['parts.set'])) {
+      return declined(
+        `This module’s manifest does not ask for ${METHODS['parts.set']} (declares.uses), so this host does not edit an epic’s parts for it.`,
+      )
+    }
+    if (!root) return declined('This call is standing in no project, so there is no epic whose parts could be edited.')
+    const edit = editIn(parsed.data)
+    if (!edit) return declined('parts.set makes one edit: add, rename, move or remove.')
+    return nothingToShow('parts.set', divide.edit(root, asked.epic, edit, moduleId))
+  }
+
+  /**
    * A write, refused. `ok: true` would cost nothing today and would mean a
    * module's button turning green over a report that exists nowhere — the
    * module believes work was filed, the person believes it was filed, and there
@@ -557,12 +611,13 @@ export async function answerCall(
   mark: (module: string, root: string | null, marking: Marking) => Marked,
   trackers: TrackerDoor | null,
   report: ((module: string, root: string, epic: string | null) => void) | null = null,
+  divide: PartsDoor | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide)
   }
   const parsed = params.get(method)!.safeParse(rawParams ?? {})
-  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report)
+  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide)
   if (!trackers) return notMineToSay('This host was not given a tracker reading to refresh.')
   if (!root) {
     return nothingToShow('tracker.refresh', {

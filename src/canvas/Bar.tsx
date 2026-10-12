@@ -6,14 +6,14 @@ import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
-import type { Part } from '@/host/parts.ts'
+import type { Part, PartsEdit } from '@/host/parts.ts'
 import { attention } from '@/host/moduleMenu.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
-import { Parts, type Undividing } from './Parts.tsx'
+import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
@@ -82,7 +82,7 @@ export function Bar({
   parts,
   pickedParts,
   onParts,
-  undivided = null,
+  onEditParts = null,
   onPlace,
   onUnplace,
   focus,
@@ -131,8 +131,8 @@ export function Bar({
   /** The ids of the ones the project is pointed at. Empty is the whole epic. */
   pickedParts: readonly string[]
   onParts(ids: string[]): void
-  /** Where parts are made, and the press that goes there, for an epic with none. See `host/dividing.ts`. */
-  undivided?: Undividing | null
+  /** Make one edit of the open epic's list of parts; null while the epics are still being read. See `Parts.tsx`. */
+  onEditParts?: ((edit: PartsEdit) => Promise<boolean>) | null
   onPlace(id: string): void
   onUnplace(id: string): void
   /** Whether the container headers are out of the layout. See `host/focus.ts`. */
@@ -216,10 +216,10 @@ export function Bar({
         {/*
          * Which parts of that epic. Directly after the epic and before the
          * kehikko, because it depends on the first and not on the second: a
-         * kehikko is a layout and carries no focus. For an epic with no
-         * parts it draws the way to make some. See `Parts.tsx`.
+         * kehikko is a layout and carries no focus. It is also where the
+         * parts are made, renamed, moved and removed. See `Parts.tsx`.
          */}
-        <Parts parts={parts} picked={pickedParts} onPick={onParts} epic={subject.epic} undivided={undivided} />
+        <Parts parts={parts} picked={pickedParts} onPick={onParts} epic={subject.epic} onEdit={onEditParts} />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
 

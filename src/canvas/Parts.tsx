@@ -1,5 +1,5 @@
-import { ChevronDown, Focus, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, Focus, Pencil, Plus, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
@@ -11,10 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
-import { undividedSaid, type Going, type Maker } from '@/host/dividing.ts'
-import { alone, focusSaid, goneSaid, pickedIn, toggled, type Part } from '@/host/parts.ts'
+import { Input } from '@/components/ui/input.tsx'
+import { alone, focusSaid, goneSaid, pickedIn, stepTo, toggled, type Part, type PartsEdit } from '@/host/parts.ts'
 import { Hint } from './Hint.tsx'
+import { AddItem, Remove } from './Menu.tsx'
 
 /**
  * Which parts of the open epic the project is pointed at.
@@ -38,21 +38,43 @@ import { Hint } from './Hint.tsx'
  * this one". The first row says it in words, with its own tick, so the empty
  * state is an answer on screen rather than an absence.
  *
- * ## It is drawn for an epic with no parts, and says where they are made
+ * ## This is where the parts are made, too
  *
- * It used not to be, and the paragraph that stood here argued for that: most
- * epics have no parts, and a control saying "no parts" in the bar of every
- * one of them would be furniture; "there is nothing here to explain".
+ * A part belongs to the epic and to no module, so the one place it is added,
+ * renamed, moved and removed is the one place that is no module's: here. The
+ * list ends in a row that makes a part; each row has, under the pointer or
+ * the keyboard's focus and in the room its count otherwise takes, a pencil,
+ * an up, a down and a remove. So the picker is no wider and no taller for
+ * being an editor, and a row at rest is what it was.
  *
- * There was. The person who asked for parts opened their thesis — a chapter
- * to a file, nothing divided yet — and saw no parts control at all. Nothing
- * on screen said an epic could be divided, or where; the feature's only door
- * was drawn after somebody had already been through it. So for an epic with
- * no parts this is a quiet button, the same size and place as the picker it
- * becomes, that says "no parts" and opens to one sentence and one press. The
- * press goes to the module that makes parts, on this epic, with the place
- * open — `host/dividing.ts` has how, and why this host still writes no part
- * itself. See `Undivided` below.
+ * An epic with no parts draws the same control, quiet, saying "no parts", and
+ * opens straight onto that last row with the caret in it. It used to open
+ * onto a paragraph and a press that walked a person to a module; there is
+ * nowhere to walk to now.
+ *
+ * Every edit is one `onEdit`, which is one `parts.set` to the one writer
+ * (`editParts` in `server/holdings.ts`). The id a part gets is the server's
+ * to make and is never changed by a rename, so what is picked stays picked.
+ *
+ * ## Editing is in the row, and the menu is held still for it
+ *
+ * The header menus put a form where the list was (`NameForm`). That costs
+ * the list — and here the list is the point: a part is named by looking at
+ * the others. So the name is typed in the row. What makes that hard in a
+ * Radix menu is that the pointer crossing any item takes the focus, and a
+ * field that lost it would lose the caret mid-word; while a name is being
+ * typed the items do not take the focus from the pointer (`STILL`). Enter
+ * saves; Escape leaves it as it was.
+ *
+ * ## Removing asks once
+ *
+ * The X arms, and says "remove?" where it was; a second press does it. The
+ * pattern every header menu uses (`Remove` in `Menu.tsx`), for its reason. A
+ * part that was picked when it was removed is then said in the bar, as any
+ * picked part that goes is — see below.
+ *
+ * On the keyboard, on a row: F2 renames, Alt+↑ and Alt+↓ move, and Delete
+ * arms the remove and then confirms it.
  *
  * It is not drawn when NO epic is open: there is nothing to divide, and the
  * epic control beside it is already saying so.
@@ -101,9 +123,9 @@ export function Parts({
   picked,
   onPick,
   epic = null,
-  undivided = null,
+  onEdit = null,
 }: {
-  /** Every part of the open epic, in the epic's order. Empty draws the way to make some. */
+  /** Every part of the open epic, in the epic's order. Empty opens onto the row that makes one. */
   parts: readonly Part[]
   /** The stored ids. Ones that name no part here are ignored, and dropped on the next press. */
   picked: readonly string[]
@@ -111,30 +133,50 @@ export function Parts({
   onPick(ids: string[]): void
   /** The open epic. With none there is nothing to divide, and nothing is drawn. */
   epic?: string | null
-  /** Where parts are made and the press that goes there — what an epic with no parts draws. */
-  undivided?: Undividing | null
+  /**
+   * Make one edit of the epic's list, and say whether it was made. Null when
+   * the list cannot be edited from here — the epics are still being read —
+   * and then the rows are for picking only, and an epic with no parts draws
+   * nothing.
+   */
+  onEdit?: ((edit: PartsEdit) => Promise<boolean>) | null
 }) {
-  if (parts.length === 0) {
-    /* A stored pick that names nothing is still said, beside the entry: the
-       last part of an epic can be removed while it is picked. */
-    return epic !== null && undivided ? <Undivided undivided={undivided} gone={goneSaid(parts, picked)} onPick={onPick} /> : null
-  }
+  /* What is being typed: a new part's name, or another name for one part. */
+  const [typing, setTyping] = useState<'new' | { rename: string } | null>(null)
+  const [arming, setArming] = useState<string | null>(null)
+  /* When a name box goes, the caret goes with it; the menu takes the focus
+     back, so the arrow keys still walk the list. */
+  const menu = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (typing === null) menu.current?.focus({ preventScroll: true })
+  }, [typing])
+
+  const none = parts.length === 0
+  if (none && (epic === null || !onEdit)) return null
+
   const on = pickedIn(parts, picked)
   const said = focusSaid(parts, picked)
   const gone = goneSaid(parts, picked)
+  const renaming = typing !== null && typing !== 'new' ? typing.rename : null
+  /* With no parts there is one thing to do here, so it is already begun. */
+  const adding = onEdit !== null && (typing === 'new' || none)
+  const still = typing !== null || none ? STILL : undefined
 
   return (
     <span className="inline-flex shrink-0 items-center" data-narrowed={said.narrowed ? '' : undefined}>
       <DropdownMenu>
-        <Hint label={said.hint} align="start">
+        <Hint label={none ? 'this epic has no parts yet — press to add one' : said.hint} align="start">
           <DropdownMenuTrigger asChild>
             <Button
               variant={said.narrowed ? 'default' : 'ghost'}
               size="sm"
+              data-parts={parts.length}
               aria-label={
-                said.narrowed
-                  ? `focused on ${on.length} of ${parts.length} parts of this epic`
-                  : 'the parts of this epic — all of them are shown'
+                none
+                  ? 'the parts of this epic — it has none yet'
+                  : said.narrowed
+                    ? `focused on ${on.length} of ${parts.length} parts of this epic`
+                    : 'the parts of this epic — all of them are shown'
               }
               className={
                 said.narrowed
@@ -143,29 +185,66 @@ export function Parts({
               }
             >
               <Focus className="size-3 shrink-0" />
-              <span className="min-w-0 truncate">{said.label}</span>
+              <span className="min-w-0 truncate">{none ? 'no parts' : said.label}</span>
               <ChevronDown className="size-3 shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
         </Hint>
-        <DropdownMenuContent align="start" className="max-h-[60vh] w-80 overflow-auto">
+        <DropdownMenuContent
+          align="start"
+          className="max-h-[60vh] w-80 overflow-auto"
+          /* Shut and opened again, it is the list: a name left half typed, or
+             a remove left armed, is not what the next opening is for. */
+          onCloseAutoFocus={() => {
+            setTyping(null)
+            setArming(null)
+          }}
+          ref={menu}
+          /* Escape in a name box leaves the name as it was, and the menu
+             open; with no box it shuts the menu as it always did. */
+          onEscapeKeyDown={(event) => {
+            if (typing === null) return
+            event.preventDefault()
+            setTyping(null)
+          }}
+        >
           <DropdownMenuLabel>parts of this epic</DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault()
-              if (on.length) onPick([])
-            }}
-          >
-            <Checkbox checked={on.length === 0} tabIndex={-1} aria-hidden className={BOX} />
-            <span className="flex-1">the whole epic</span>
-            <span className="text-muted-foreground shrink-0 text-[11px]">all {parts.length} parts</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {none ? null : (
+            <>
+              <DropdownMenuItem
+                {...still}
+                onSelect={(event) => {
+                  event.preventDefault()
+                  if (on.length) onPick([])
+                }}
+              >
+                <Checkbox checked={on.length === 0} tabIndex={-1} aria-hidden className={BOX} />
+                <span className="flex-1">the whole epic</span>
+                <span className="text-muted-foreground shrink-0 text-[11px]">
+                  {parts.length === 1 ? 'its one part' : `all ${parts.length} parts`}
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {parts.map((part) => {
             const ticked = on.includes(part.id)
             const toggle = () => onPick(toggled(parts, picked, part.id))
+            const armed = arming === part.id
+            const up = stepTo(parts, part.id, -1)
+            const down = stepTo(parts, part.id, 1)
+            const move = (after: string | null | undefined) => {
+              setArming(null)
+              if (after !== undefined) void onEdit?.({ move: { id: part.id, after } })
+            }
+            const remove = () => {
+              setArming(null)
+              void onEdit?.({ remove: { id: part.id } })
+            }
             return (
-              <div key={part.id} data-part={part.id} className="flex items-center">
+              /* As tall with a name box in it as without, so the rows below
+                 do not jump when a rename begins. */
+              <div key={part.id} data-part={part.id} className="group/row flex min-h-8 items-center pr-1">
                 <Checkbox
                   checked={ticked}
                   tabIndex={-1}
@@ -176,41 +255,103 @@ export function Parts({
                   onPointerDown={(event) => event.preventDefault()}
                   onCheckedChange={toggle}
                 />
-                <Hint label="only this part" side="right">
-                  <DropdownMenuItem
-                    className="min-w-0 flex-1 pl-1"
-                    onSelect={(event) => {
-                      event.preventDefault()
-                      const next = alone(parts, picked, part.id)
-                      if (next) onPick(next)
-                    }}
-                    onKeyDown={(event) => {
-                      /* Space is the box's key. Prevented, so the menu does
-                         not also take it as a press on the name. */
-                      if (event.key !== ' ') return
-                      event.preventDefault()
-                      toggle()
-                    }}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      <span className="sr-only">only </span>
-                      {part.heading}
-                    </span>
-                    {/* What is under the heading, when the file says. A part with
-                        nothing in it yet is still a part somebody can pick; the
-                        blank here is why a module then shows nothing for it. */}
-                    <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{countOf(part)}</span>
-                  </DropdownMenuItem>
-                </Hint>
+                {renaming === part.id && onEdit ? (
+                  <NameBox
+                    initial={part.heading}
+                    label={`what the part ${part.heading} is called`}
+                    onSave={(name) => (name === part.heading ? true : onEdit({ rename: { id: part.id, name } }))}
+                    onDone={() => setTyping(null)}
+                  />
+                ) : (
+                  <Hint label="only this part" side="right">
+                    <DropdownMenuItem
+                      {...still}
+                      className="min-w-0 flex-1 pl-1"
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        /* An armed row is asking a question; answering it is
+                           not also a pick. */
+                        if (armed) return
+                        setArming(null)
+                        const next = alone(parts, picked, part.id)
+                        if (next) onPick(next)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === ' ') {
+                          /* Space is the box's key. Prevented, so the menu does
+                             not also take it as a press on the name. */
+                          event.preventDefault()
+                          toggle()
+                          return
+                        }
+                        if (!onEdit) return
+                        const moving = event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+                        if (event.key !== 'F2' && event.key !== 'Delete' && !moving) return
+                        event.preventDefault()
+                        if (event.key === 'F2') setTyping({ rename: part.id })
+                        else if (event.key === 'Delete') armed ? remove() : setArming(part.id)
+                        else move(event.key === 'ArrowUp' ? up : down)
+                      }}
+                    >
+                      {/* The whole name, for a row too narrow to say it. */}
+                      <span className="min-w-0 flex-1 truncate" title={part.heading}>
+                        <span className="sr-only">only </span>
+                        {part.heading}
+                      </span>
+                      {/* What is under the heading, when anything is. A part with
+                          nothing in it yet is still a part somebody can pick; the
+                          blank here is why a module then shows nothing for it. */}
+                      <span
+                        className={`text-muted-foreground shrink-0 text-[11px] tabular-nums ${onEdit ? (armed ? 'hidden' : REST) : ''}`}
+                      >
+                        {countOf(part)}
+                      </span>
+                      {onEdit ? (
+                        <span data-tools className={`shrink-0 items-center gap-1.5 ${armed ? 'inline-flex' : TOOLS}`}>
+                          {armed ? null : (
+                            <>
+                              <Tool label={`rename ${part.heading}`} title="rename (F2)" onPress={() => setTyping({ rename: part.id })}>
+                                <Pencil className="size-3" />
+                              </Tool>
+                              <Tool label={`move ${part.heading} up`} title="move up (Alt+↑)" off={up === undefined} onPress={() => move(up)}>
+                                <ArrowUp className="size-3" />
+                              </Tool>
+                              <Tool label={`move ${part.heading} down`} title="move down (Alt+↓)" off={down === undefined} onPress={() => move(down)}>
+                                <ArrowDown className="size-3" />
+                              </Tool>
+                            </>
+                          )}
+                          <Remove
+                            armed={armed}
+                            label={`remove ${part.heading}`}
+                            question="remove?"
+                            why="remove this part (Delete)"
+                            onArm={() => setArming(part.id)}
+                            onConfirm={remove}
+                          />
+                        </span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  </Hint>
+                )}
               </div>
             )
           })}
-          {said.narrowed ? (
-            <p className="text-muted-foreground border-t px-2 pt-1.5 pb-1 text-[11px] leading-snug">
-              Every module is told. One that follows the focus shows these parts only and says how much it left
-              out; one that has not learned to still shows the whole epic. Steps, references and files of
-              the paper in no part belong to the epic as a whole, and are outside any focus.
-            </p>
+          {adding && onEdit ? (
+            <div data-new-part className={`flex min-h-8 items-center gap-2 px-2 ${none ? '' : 'mt-1 border-t pt-1'}`}>
+              <Plus className="text-muted-foreground size-3 shrink-0" />
+              <NameBox
+                again
+                label="the name of a new part"
+                placeholder="name of the part"
+                onSave={(name) => onEdit({ add: { name } })}
+                onDone={() => setTyping(null)}
+              />
+            </div>
+          ) : onEdit ? (
+            <AddItem keepOpen onAdd={() => setTyping('new')}>
+              part
+            </AddItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -255,119 +396,138 @@ export function Parts({
   )
 }
 
-/** What `useDividing` hands the bar: where the module that makes parts is, and the press. */
-export interface Undividing {
-  maker: Maker
-  going: Going
-  trouble: string | null
-  ask(): void
-  press(): void
+/**
+ * Props that stop a menu item taking the focus from the pointer.
+ *
+ * Radix focuses whichever item the pointer crosses, and the content when it
+ * leaves one; both run after the item's own handler and not at all when that
+ * handler prevented the default. Spread onto every item while a name is being
+ * typed, so the caret stays in the field with the pointer anywhere.
+ */
+const STILL = {
+  onPointerMove: (event: { preventDefault(): void }) => event.preventDefault(),
+  onPointerLeave: (event: { preventDefault(): void }) => event.preventDefault(),
+}
+
+/** A row's count: drawn at rest, and gives its place to the tools under the pointer or the focus. */
+const REST = 'group-hover/row:hidden group-focus-within/row:hidden'
+
+/** A row's tools: there only under the pointer or the focus, in the place the count had. */
+const TOOLS = 'hidden group-hover/row:inline-flex group-focus-within/row:inline-flex'
+
+/**
+ * One of a row's small presses. A span and not a button, and the click
+ * stopped while the pointerdown is not, for the two reasons `RowPencil` in
+ * `Menu.tsx` gives. `off` draws it flat instead of taking it away: the first
+ * row's "up" is still where "up" is.
+ */
+function Tool({
+  label,
+  title,
+  off = false,
+  onPress,
+  children,
+}: {
+  label: string
+  title: string
+  off?: boolean
+  onPress(): void
+  children: ReactNode
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={-1}
+      aria-label={label}
+      aria-disabled={off || undefined}
+      title={title}
+      className={off ? 'text-muted-foreground shrink-0 opacity-30' : 'text-muted-foreground hover:text-foreground shrink-0'}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!off) onPress()
+      }}
+    >
+      {children}
+    </span>
+  )
 }
 
 /**
- * The parts control of an epic that has none.
+ * One name, typed in the row it belongs to.
  *
- * ## One sentence, one place, one press
+ * Enter saves and Escape leaves things as they were; there are no buttons,
+ * because the row has no room for them and the two keys are what every name
+ * box in a list answers to. Nothing typed, or nothing changed, is not a write.
+ * A refusal leaves the box standing with the name still in it — the sentence
+ * goes to the bar's error line, where every refusal in this host goes.
  *
- * Opened, it says three things and each is there because its absence was the
- * complaint: that the epic is not divided (so the control is not broken),
- * what a part is for (so a person knows whether they want one), and WHERE
- * parts are made, by name, with whether that module is on this kehikko, on
- * this computer, or neither. Then one button, worded as what it does —
- * `undividedSaid` has the words, as data.
+ * The keys stop here: the menu around it reads keystrokes as typeahead and
+ * the canvas behind it has a keyboard of its own.
  *
- * ## A popover and not the menu the picker is
- *
- * The picker is a list of rows somebody presses several of, and a dropdown
- * menu is the right thing for a list. This is prose and a button, and a
- * menu's roles — every child a `menuitem` — are wrong for a paragraph a
- * screen reader should simply read.
- *
- * ## It closes itself when the person has arrived, and stays when they have not
- *
- * The press ends with Journeys scrolled into view on the canvas below, and a
- * popover left standing over it would be in the way of exactly what was
- * asked for. When the press did NOT arrive — the module did not answer, the
- * install failed — it stays open, because the sentence saying so is in it.
+ * `again` is for the row that makes parts: a save empties the box and leaves
+ * the caret in it, since whoever adds one chapter is usually about to add the
+ * next.
  */
-function Undivided({
-  undivided,
-  gone,
-  onPick,
+function NameBox({
+  initial = '',
+  label,
+  placeholder,
+  again = false,
+  onSave,
+  onDone,
 }: {
-  undivided: Undividing
-  gone: ReturnType<typeof goneSaid>
-  onPick(ids: string[]): void
+  initial?: string
+  label: string
+  placeholder?: string
+  again?: boolean
+  onSave(name: string): Promise<boolean> | boolean
+  onDone(): void
 }) {
-  const [open, setOpen] = useState(false)
-  const said = undividedSaid(undivided.maker, undivided.going, undivided.trouble)
-  /* Closed on the edge from "a press is in flight" to "it is not, and nothing
-     went wrong". Not while idle: opening the popover must not close it. */
-  const was = useRef(false)
+  const [draft, setDraft] = useState(initial)
+  const [saving, setSaving] = useState(false)
+  const field = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
-    const flying = undivided.going !== null
-    if (was.current && !flying && undivided.trouble === null) setOpen(false)
-    was.current = flying
-  }, [undivided.going, undivided.trouble])
+    field.current?.focus()
+    field.current?.select()
+  }, [])
+  /* Disabled while it saves, which drops the caret; put back when it is not. */
+  useEffect(() => {
+    if (!saving) field.current?.focus()
+  }, [saving])
+
+  const commit = async () => {
+    const name = draft.trim()
+    if (!name) {
+      onDone()
+      return
+    }
+    setSaving(true)
+    const written = await onSave(name)
+    setSaving(false)
+    if (!written) return
+    if (again) setDraft('')
+    else onDone()
+  }
 
   return (
-    <span className="inline-flex shrink-0 items-center" data-undivided={undivided.maker.at}>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next)
-          if (next) undivided.ask()
-        }}
-      >
-        <Hint label={said.hint} align="start">
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="the parts of this epic — it is not divided into parts yet"
-              className="text-muted-foreground h-6 max-w-56 gap-1 px-1.5 text-xs"
-            >
-              <Focus className="size-3 shrink-0" />
-              <span className="min-w-0 truncate">{said.label}</span>
-              <ChevronDown className="size-3 shrink-0 opacity-70" />
-            </Button>
-          </PopoverTrigger>
-        </Hint>
-        <PopoverContent align="start" className="w-80 max-w-[calc(100vw-1rem)] space-y-2 p-3 text-xs leading-snug">
-          <p className="text-foreground text-sm font-medium">parts of this epic</p>
-          <p className="text-muted-foreground">{said.lead}</p>
-          <p data-where>{said.where}</p>
-          {said.trouble ? (
-            <p role="alert" data-trouble className="text-amber-600 dark:text-amber-400">
-              {said.trouble}
-            </p>
-          ) : null}
-          {said.press ? (
-            /* As tall as its words: every one of these presses is two lines
-               at this width, and a fixed height let the second spill out of
-               the button. */
-            <Button size="sm" className="h-auto min-h-7 w-full justify-center px-2 py-1 text-xs whitespace-normal" data-divide onClick={undivided.press}>
-              {said.press}
-            </Button>
-          ) : null}
-        </PopoverContent>
-      </Popover>
-      {gone ? (
-        <Hint label={gone.hint}>
-          <Button
-            variant="ghost"
-            size="sm"
-            data-gone={gone.gone.length}
-            aria-label={`${gone.label} — forget ${gone.gone.length === 1 ? 'it' : 'them'}`}
-            className="ml-1 h-6 gap-1 px-1.5 text-[11px] text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-            onClick={() => onPick(gone.kept)}
-          >
-            <span>{gone.label}</span>
-            <X className="size-3" />
-          </Button>
-        </Hint>
-      ) : null}
-    </span>
+    <Input
+      ref={field}
+      value={draft}
+      disabled={saving}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.key === 'Enter') void commit()
+        if (event.key === 'Escape') onDone()
+      }}
+      aria-label={label}
+      placeholder={placeholder}
+      spellCheck={false}
+      maxLength={200}
+      className="h-6 min-w-0 flex-1 px-1.5 text-xs"
+    />
   )
 }
 
@@ -398,13 +558,15 @@ const TICK =
  * dressed as a count.
  *
  * Files are counted with the rest because they are the third thing a part can
- * hold, and for a paper they are the only thing: a part of a paper with no
+ * hold, and for a part that is a chapter they are the only thing: one with no
  * steps and no references used to read as blank here, and blank is this
- * column's word for "picking this shows nothing".
+ * column's word for "picking this shows nothing". A file is a document any
+ * module said the part has; `files` is read for a list from before
+ * `documents`.
  */
 export function countOf(part: Part): string {
   const said: string[] = []
-  const files = part.files?.length ?? 0
+  const files = (part.documents ?? part.files)?.length ?? 0
   if (part.steps) said.push(`${part.steps} ${part.steps === 1 ? 'step' : 'steps'}`)
   if (part.refs.length) said.push(`${part.refs.length} ${part.refs.length === 1 ? 'ref' : 'refs'}`)
   if (files) said.push(`${files} ${files === 1 ? 'file' : 'files'}`)

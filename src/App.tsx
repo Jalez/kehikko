@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
-import { CONTENT_HOST, REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
 import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
@@ -16,8 +16,6 @@ import { Missing } from './canvas/Missing.tsx'
 import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
-import { useDividing } from './canvas/Dividing.ts'
-import { MAKER } from './host/dividing.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -50,6 +48,7 @@ import {
   fetchTracker,
   refreshTracker,
   type TrackerState,
+  editParts,
   fetchEpics,
   fetchProjects,
   forgetProject,
@@ -63,7 +62,7 @@ import {
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
-import { partsOnWire, type Part } from './host/parts.ts'
+import { partsOnWire, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -703,17 +702,19 @@ export function App() {
       (project, changes) => {
         if (project !== projectRef.current) return
         setRewritten(changes)
-        /* And when it is one of the host's own epic files that changed, the
-           list of epics is read again — because the parts an epic is divided
-           into are read off that file, and somebody who has just added a
-           group to it by hand, or assigned a step to a part, is looking at the
-           bar to see it arrive. Only for the host's entries: a journey saved
-           in a module's own store changes nothing this list shows. */
-        if (!changes.some((change) => change.source === CONTENT_HOST)) return
+        /* And the list of epics is read again, because the parts of an epic
+           are read off it — the list in the epic's own file, and for each
+           part what the modules hold. Somebody who has just added a part, or
+           tied a chapter to one in a module, is looking at the bar to see it
+           arrive. On a change from ANY source, not only the host's: what a
+           module holds for a part is published from that module's own folder
+           (`parts.json`), and its change is the only news of it there is. The
+           read is a few small local files, and a list that says what the last
+           one said is kept as the same object, so nothing downstream moves. */
         void (async () => {
           try {
             const found = await fetchEpics(project)
-            if (project === projectRef.current) setHeld(found)
+            if (project === projectRef.current) setHeld((was) => (was && JSON.stringify(was) === JSON.stringify(found) ? was : found))
           } catch {
             /* The list the page has is the list it had. */
           }
@@ -2295,30 +2296,6 @@ export function App() {
     [change, open?.placements],
   )
 
-  /**
-   * The press that takes a person to where the open epic is divided into
-   * parts, for an epic that has none. `host/dividing.ts` has the argument;
-   * `canvas/Dividing.ts` runs it.
-   *
-   * Handed to the bar only once the project's epics have been READ and the
-   * open epic is among them. `epicParts` is empty while that list is on its
-   * way, and "no parts" is a statement about an epic: said during a reload it
-   * would be said, for half a second, about every divided epic there is.
-   */
-  const makerRows = useMemo(() => granted(open?.placements ?? NO_PLACEMENTS).get(MAKER) ?? null, [open?.placements])
-  const dividing = useDividing({
-    epic: about.epic,
-    canvas: openId,
-    registered: registry?.presences ?? NO_PRESENCES,
-    placements: open?.placements ?? NO_PLACEMENTS,
-    rows: makerRows,
-    presses,
-    onPlace,
-    onCollapse,
-    onLookAgain: () => void look(),
-  })
-  const undivided = about.epic !== null && held?.epics.some((one) => one.slug === about.epic) ? dividing : null
-
   /** Turn following-the-module's-height on or off for one container. */
   const onGrow = useCallback(
     (id: string, grow: boolean) => {
@@ -2520,6 +2497,43 @@ export function App() {
       }
     },
     [projectId],
+  )
+
+  /**
+   * One edit of the open epic's list of parts, from the picker in the bar:
+   * add, rename, move or remove. Answers whether it was made.
+   *
+   * The server decides and writes (`editParts` in `server/holdings.ts`); the
+   * row it answers with replaces the one this page has, so the picker shows
+   * the edit at once and `context.parts` carries it to every module in the
+   * same render. Every other page standing in the project hears through
+   * `context.content`. A refusal is the server's own sentence on the error
+   * line, and the picker's name box is left standing.
+   */
+  const onEditParts = useCallback(
+    async (edit: PartsEdit): Promise<boolean> => {
+      const epic = about.epic
+      if (projectId === null || epic === null) return false
+      try {
+        const done = await editParts(projectId, epic, edit)
+        const row = done.epic
+        if (row) setHeld((was) => (was ? { ...was, epics: was.epics.map((one) => (one.slug === row.slug ? row : one)) } : was))
+        if (done.result.outcome === 'declined' || done.result.outcome === 'no-such-part') {
+          setTrouble(
+            done.result.outcome === 'declined'
+              ? `The parts of ${epic} were not changed: ${done.result.why}`
+              : `The parts of ${epic} were not changed: that part is no longer one of them.`,
+          )
+          return false
+        }
+        setTrouble(null)
+        return true
+      } catch (error) {
+        setTrouble(`The parts of ${epic} were not changed: ${(error as Error).message}`)
+        return false
+      }
+    },
+    [projectId, about.epic],
   )
 
   /**
@@ -3127,7 +3141,11 @@ export function App() {
            and on the server, and `setSubject` there is what clears it when
            the epic moves. */
         onParts={(ids) => changeSubject({ parts: ids })}
-        undivided={undivided}
+        /* Only once the project's epics have been READ and the open epic is
+           among them: `epicParts` is empty while that list is on its way, and
+           "no parts" said then would be said, for half a second, about every
+           epic that has some. */
+        onEditParts={about.epic !== null && held?.epics.some((one) => one.slug === about.epic) ? onEditParts : null}
         onPlace={onPlace}
         onUnplace={onUnplace}
         focus={focus}
@@ -3521,11 +3539,6 @@ export function App() {
  * there is nothing else on screen. A black rectangle with no modules on it and
  * no words is indistinguishable from a program that failed to start.
  */
-/* Stable empties, so a hook that depends on these lists is not re-run by a
-   render in which there is simply no registry or no kehikko yet. */
-const NO_PRESENCES: readonly Presence[] = []
-const NO_PLACEMENTS: readonly Placement[] = []
-
 function Nothing({ registry, looking }: { registry: RegistryView | null; looking: boolean }) {
   const registered = registry?.presences.length ?? 0
   return (

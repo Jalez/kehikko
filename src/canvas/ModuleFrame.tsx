@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
 
+import { readableBy } from '@/host/context.ts'
+
 import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
@@ -124,9 +126,23 @@ export function ModuleFrame({
      seventeen-identical-broadcasts problem this memo exists to prevent, in a
      new field. */
   const filtersKey = JSON.stringify(filters)
+  /* And the parts, cut to what THIS module can read. The host lists up to
+     `LIMITS.PARTS` (128 since protocol 1.2.0); a module built with a package
+     before that parses the context with a schema that stops at 32 and drops
+     the WHOLE message past it — no epic, no project, no greeting. `readableBy`
+     (`partsFor`) is the protocol's answer, by the version in the module's own manifest:
+     every picked part kept, the rest in order, up to what it can take; an
+     unknown build is treated as an old one. Per frame, like the pin, because
+     the context is one object shared by every frame and the builds differ. */
+  const builtWith = framed.build?.protocol ?? null
   const told: ModuleContext = useMemo(
-    () => ({ ...context, pinned, prompt, filters: JSON.parse(filtersKey) as FilterChoice }),
-    [context, pinned, prompt, filtersKey],
+    () => ({
+      ...readableBy(context, builtWith),
+      pinned,
+      prompt,
+      filters: JSON.parse(filtersKey) as FilterChoice,
+    }),
+    [context, builtWith, pinned, prompt, filtersKey],
   )
 
   const contextRef = useRef(told)
