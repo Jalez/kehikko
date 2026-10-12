@@ -383,7 +383,7 @@ describe('every outcome of one edit', () => {
 })
 
 describe('what the modules hold is unioned, and no module is named', () => {
-  test('documents and refs from every module’s folder, after what the record says', () => {
+  test('documents and refs from every module’s folder, and the record’s share of a published kind is not read', () => {
     const dir = thesis()
     writeHoldings(dir, 'kehikot.sketches', 'thesis', {
       methods: { documents: ['.kehikot/sketches/thesis/methods.svg', 'src/sim/run.ts'], refs: ['gh#40', 'gh#12'] },
@@ -393,19 +393,16 @@ describe('what the modules hold is unioned, and no module is named', () => {
       'no-such-part': { documents: ['docs/x.md'], refs: [] },
     })
     const methods = sent(dir).find((part) => part.id === 'methods')!
-    expect(methods.refs).toEqual(['gh#12', 'gh#40', 'gh#41'])
+    expect(methods.refs).toEqual(['gh#40', 'gh#12', 'gh#41'])
     expect(methods.documents).toEqual([
-      '.kehikot/paper/thesis/chapters/3_methods.tex',
       '.kehikot/sketches/thesis/methods.svg',
       'src/sim/run.ts',
       '.kehikot/paper/thesis/chapters/3b_instruments.tex',
     ])
     /* For a module that still reads `files`: the documents that have a name there. */
-    expect(methods.files).toEqual(['chapters/3_methods.tex', 'chapters/3b_instruments.tex'])
+    expect(methods.files).toEqual(['chapters/3b_instruments.tex'])
     /* A holding under an id the epic does not have is nobody's. */
     expect(sent(dir).map((part) => part.id)).toEqual(IDS)
-    /* And the parts nobody published for are what they were. */
-    expect(asBefore(sent(dir)).filter((part) => part.id !== 'methods')).toEqual(before().filter((part) => part.id !== 'methods'))
   })
 
   test('the same after the list is adopted, and for a part made in the host', () => {
@@ -441,6 +438,110 @@ describe('what the modules hold is unioned, and no module is named', () => {
     const dir = thesis()
     expect(readParts(dir, 'thesis')).toEqual(partsIn(dir))
     expect(readParts(dir, 'nope')).toBeNull()
+  })
+})
+
+describe('the record’s share is a fallback, per kind and per epic', () => {
+  /** A part as the host holds it, without its name and step count. */
+  const holds = (dir: string) => Object.fromEntries(partsIn(dir).map(({ id, refs, files, documents }) => [id, { refs, files, documents }]))
+  const paperOf = (file: string) => `.kehikot/paper/thesis/${file}`
+
+  test('nobody has published: every part is what the record says, exactly', () => {
+    const dir = thesis()
+    expect(asBefore(sent(dir))).toEqual(before())
+    for (const [id, , chapter] of CHAPTERS) {
+      expect(holds(dir)[id]).toEqual({ refs: id === 'methods' ? ['gh#12'] : [], files: [chapter], documents: [paperOf(chapter)] })
+    }
+  })
+
+  test('documents published for the epic: the record’s files are not read, for a part the publisher left out too', () => {
+    const dir = thesis()
+    /* The Methods chapter, moved to Results by whoever keeps it; five parts are not mentioned. */
+    writeHoldings(dir, 'somebody.elses', 'thesis', {
+      results: { documents: [paperOf('chapters/4_results.tex'), paperOf('chapters/3_methods.tex')], refs: [] },
+    })
+    const now = holds(dir)
+    expect(now.results).toEqual({ refs: [], files: ['chapters/4_results.tex', 'chapters/3_methods.tex'], documents: [paperOf('chapters/4_results.tex'), paperOf('chapters/3_methods.tex')] })
+    /* The part the chapter left has no document — and still its refs, a kind nobody published. */
+    expect(now.methods).toEqual({ refs: ['gh#12'], files: undefined, documents: undefined })
+    for (const id of IDS.filter((one) => one !== 'results' && one !== 'methods')) {
+      expect(now[id]).toEqual({ refs: [], files: undefined, documents: undefined })
+    }
+    /* On the wire the keys are absent, not empty. */
+    expect(sent(dir).find((part) => part.id === 'methods')).toEqual({ id: 'methods', heading: 'Methods', refs: ['gh#12'], picked: true })
+    /* The list and the steps are untouched by it. */
+    expect(partsIn(dir).map((part) => part.id)).toEqual(IDS)
+    expect(partsIn(dir).map((part) => part.steps)).toEqual([1, 1, 1, 1, 1, 1, 0])
+  })
+
+  test('documents published only under an id the epic does not have: still published', () => {
+    const dir = thesis()
+    writeHoldings(dir, 'somebody.elses', 'thesis', { 'removed-part': { documents: [paperOf('chapters/3_methods.tex')], refs: [] } })
+    expect(partsIn(dir).every((part) => part.documents === undefined && part.files === undefined)).toBe(true)
+  })
+
+  test('refs published for the epic: the record’s refs are not read, and its documents still are', () => {
+    const dir = thesis()
+    writeHoldings(dir, 'somebody.elses', 'thesis', { results: { documents: [], refs: ['gh#77'] } })
+    const now = holds(dir)
+    expect(now.results!.refs).toEqual(['gh#77'])
+    expect(now.methods!.refs).toEqual([])
+    for (const [id, , chapter] of CHAPTERS) {
+      expect(now[id]!.files).toEqual([chapter])
+      expect(now[id]!.documents).toEqual([paperOf(chapter)])
+    }
+  })
+
+  test('both kinds published, by different modules: neither is read off the record', () => {
+    const dir = thesis()
+    writeHoldings(dir, 'kehikot.sketches', 'thesis', { introduction: { documents: ['docs/intro.md'], refs: [] } })
+    writeHoldings(dir, 'somebody.elses', 'thesis', { conclusion: { documents: [], refs: ['gh#9'] } })
+    const now = holds(dir)
+    expect(now.introduction).toEqual({ refs: [], files: undefined, documents: ['docs/intro.md'] })
+    expect(now.conclusion).toEqual({ refs: ['gh#9'], files: undefined, documents: undefined })
+    expect(now.methods).toEqual({ refs: [], files: undefined, documents: undefined })
+  })
+
+  test('the refs of a step under a part made in the host are the record’s too', () => {
+    const steps = [{ title: 'S', refs: ['gh#7'], part: 'made-here' }]
+    const list = [{ id: 'made-here', name: 'Made here' }]
+    expect(partsHeld(list, { steps, groups: [] }, { other: { documents: ['a.md'], refs: [] } }, 'thesis')[0]!.refs).toEqual(['gh#7'])
+    expect(partsHeld(list, { steps, groups: [] }, { other: { documents: [], refs: ['gh#1'] } }, 'thesis')[0]).toEqual({
+      id: 'made-here',
+      heading: 'Made here',
+      refs: [],
+      steps: 1,
+    })
+  })
+
+  test('a module’s empty or absent file, or one for another epic, changes nothing', () => {
+    const dir = thesis()
+    const was = partsIn(dir)
+    /* No file at all is `was`. An empty one: */
+    writeHoldings(dir, 'kehikot.sketches', 'thesis', {})
+    expect(partsIn(dir)).toEqual(was)
+    /* Parts listed with nothing in them: */
+    writeHoldings(dir, 'somebody.elses', 'thesis', { methods: { documents: [], refs: [] }, results: { documents: [], refs: [] } })
+    expect(partsIn(dir)).toEqual(was)
+    /* Something that is not a holdings file: */
+    const folder = join(dir, '.kehikot', 'junk')
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'parts.json'), 'not json')
+    expect(partsIn(dir)).toEqual(was)
+    /* And another epic's holdings are another epic's. */
+    writeHoldings(dir, 'kehikot.other', 'another-epic', { methods: { documents: ['docs/x.md'], refs: ['gh#3'] } })
+    expect(partsIn(dir)).toEqual(was)
+    /* Handed straight in: undefined and `{}` are the same answer. */
+    expect(partsHeld(null, record, {}, 'thesis')).toEqual(partsHeld(null, record, undefined, 'thesis'))
+  })
+
+  test('the same after the list is adopted', () => {
+    const dir = thesis()
+    editParts(dir, 'thesis', { add: { name: 'Sketches' } })
+    expect(holds(dir).methods).toEqual({ refs: ['gh#12'], files: ['chapters/3_methods.tex'], documents: [paperOf('chapters/3_methods.tex')] })
+    writeHoldings(dir, 'somebody.elses', 'thesis', { sketches: { documents: [paperOf('chapters/3_methods.tex')], refs: [] } })
+    expect(holds(dir).methods).toEqual({ refs: ['gh#12'], files: undefined, documents: undefined })
+    expect(holds(dir).sketches).toEqual({ refs: [], files: ['chapters/3_methods.tex'], documents: [paperOf('chapters/3_methods.tex')] })
   })
 })
 
