@@ -149,7 +149,8 @@ export interface FramedModule {
   entry: string
   icon: string | null
   health: string | null
-  mcp: { url: string; transport: string; about: string } | null
+  /** `as` is the name the module asks its door to be registered under, when it says one. */
+  mcp: { url: string; transport: string; about: string; as?: string } | null
   modes: Manifest['modes']
   extensions: Manifest['extensions']
   /**
@@ -477,7 +478,14 @@ export async function look(
       mcp: manifest.mcp
         ? (() => {
             const url = resolveOnOrigin(manifest.mcp.url, at)
-            return url ? { url, transport: manifest.mcp.transport, about: manifest.mcp.about } : null
+            return url
+              ? {
+                  url,
+                  transport: manifest.mcp.transport,
+                  about: manifest.mcp.about,
+                  ...(manifest.mcp.as ? { as: manifest.mcp.as } : {}),
+                }
+              : null
           })()
         : null,
       modes: manifest.modes,

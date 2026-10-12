@@ -99,12 +99,34 @@ export function agentKnows(file = agentConfigFile()): Map<string, unknown> {
  *
  * A module that declares no MCP door at all gets `none`, which is not a
  * problem and must not be drawn as one.
+ *
+ * Two more, since a module may say what its door is called (`mcp.as`):
+ *
+ * - `renamed` — a server points at this door under the name this host USED to
+ *   derive for the module (`as`), and the module now asks for another (`to`).
+ *   It works today and it is not what the module is called; saying `told`
+ *   would be calling a name connected that the next press removes.
+ * - `refused` — the name the module asks for is another door's. Nothing is
+ *   registered under it and the sentence says whose it is. Never set by
+ *   `awarenessOf`: one module's awareness cannot see another module. See
+ *   `nameRefusal` in `register.ts`.
  */
 export type AgentAwareness =
   | { kind: 'none' }
   | { kind: 'told'; as: string }
   | { kind: 'elsewhere'; as: string; pointsAt: string }
   | { kind: 'untold' }
+  | { kind: 'renamed'; as: string; to: string }
+  | { kind: 'refused'; why: string }
+
+/**
+ * What a module's door is called when the module does not say: the id's last
+ * segment. Spelled here, where the reader is, and used by the writer
+ * (`serverName` in `register.ts`), so the two cannot come to disagree.
+ */
+export function tailOf(id: string): string {
+  return id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id
+}
 
 /**
  * Compare one module's door against what the agent knows.
@@ -115,22 +137,54 @@ export type AgentAwareness =
  * this door counts as told whatever it is called, and a server NAMED for this
  * module while pointing elsewhere is the interesting failure rather than a
  * match.
+ *
+ * ## When the module says what its door is called
+ *
+ * `declared` is the manifest's `mcp.as`, absent for most modules and for the
+ * host. With it, "this module's name" is that name and no longer the id's:
+ *
+ *   - A server pointing here under the declared name is `told`, and wins over
+ *     any other name that also points here.
+ *   - A server pointing here under the name this host derived before the
+ *     module declared one (the id, or its last segment) is `renamed`: the
+ *     entry this host itself wrote, under a name the module has left.
+ *   - A server pointing here under any OTHER name is still `told`. Somebody
+ *     chose that name by hand, and a name is a label somebody chose.
+ *   - Only the declared name pointing somewhere else is `elsewhere`. The old
+ *     short name pointing somewhere else is no longer this module's at all —
+ *     `claude` may be a server of the person's own — and since `elsewhere` is
+ *     what offers to remove an entry, it must not be offered for that one.
  */
-export function awarenessOf(mcpUrl: string | null, id: string, known: Map<string, unknown>): AgentAwareness {
+export function awarenessOf(
+  mcpUrl: string | null,
+  id: string,
+  known: Map<string, unknown>,
+  declared?: string | null,
+): AgentAwareness {
   if (!mcpUrl) return { kind: 'none' }
 
+  const tail = tailOf(id)
   const wanted = normalise(mcpUrl)
+  const here: string[] = []
   for (const [name, value] of known) {
     const url = urlOf(value)
-    if (url && normalise(url) === wanted) return { kind: 'told', as: name }
+    if (url && normalise(url) === wanted) here.push(name)
+  }
+  if (here.length > 0) {
+    if (!declared) return { kind: 'told', as: here[0]! }
+    if (here.includes(declared)) return { kind: 'told', as: declared }
+    const old = here.find((name) => name === tail || name === id)
+    if (old) return { kind: 'renamed', as: old, to: declared }
+    return { kind: 'told', as: here[0]! }
   }
 
   /* Nothing points here. Is something wearing this module's name? Checked
      against both the id and its last segment, since `claude mcp add` is usually
-     given a short name and `kehikot.checklist` is a mouthful. */
-  const tail = id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id
+     given a short name and `kehikot.checklist` is a mouthful — or against the
+     one name the module declared, and nothing else. */
+  const names = declared ? [declared] : [id, tail]
   for (const [name, value] of known) {
-    if (name !== id && name !== tail) continue
+    if (!names.includes(name)) continue
     const url = urlOf(value)
     if (url) return { kind: 'elsewhere', as: name, pointsAt: url }
   }

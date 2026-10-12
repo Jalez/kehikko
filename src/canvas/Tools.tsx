@@ -112,7 +112,7 @@ export function ToolsMark({
 }) {
   if (!agent || agent.kind === 'none') return null
 
-  const wrong = agent.kind === 'untold' || agent.kind === 'elsewhere'
+  const wrong = agent.kind !== 'told'
   const thing = about === 'host' ? 'this host' : 'this module'
 
   const label =
@@ -120,7 +120,11 @@ export function ToolsMark({
       ? `${name} offers tools to an agent, and no agent has been told about them. Open this to see the tools and to connect them.`
       : agent.kind === 'elsewhere'
         ? `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at ${thing}. An agent will reach that address and get nothing. Open this to repoint it.`
-        : `${name}'s tools are connected, as "${agent.as}". Open this to see what it offers, or to disconnect it.`
+        : agent.kind === 'renamed'
+          ? `${name}'s tools are connected as "${agent.as}", and the module now asks to be connected as "${agent.to}". Open this to reconnect it under that name.`
+          : agent.kind === 'refused'
+            ? agent.why
+            : `${name}'s tools are connected, as "${agent.as}". Open this to see what it offers, or to disconnect it.`
 
   return (
     <Hint label={label} side="bottom">
@@ -132,7 +136,11 @@ export function ToolsMark({
             ? 'tools not known to any agent'
             : agent.kind === 'elsewhere'
               ? 'tools configured elsewhere'
-              : 'tools, connected'
+              : agent.kind === 'renamed'
+                ? 'tools connected under an old name'
+                : agent.kind === 'refused'
+                  ? 'tools not connected: the name is taken'
+                  : 'tools, connected'
         }
         /* `pointer-events-auto` explicitly. The container is `pointer-events-none` so
            the module's page shows through it, and every part that has to be
@@ -389,6 +397,13 @@ function Connection({
             Connected as <span className="font-mono text-xs">{door.agent.as}</span>
             {where ? `, ${where}` : null}.
           </>
+        ) : door.agent.kind === 'renamed' ? (
+          <>
+            Connected as <span className="font-mono text-xs">{door.agent.as}</span>
+            {where ? `, ${where}` : null}, which is not what this module is called any more: it now
+            asks to be connected as <span className="font-mono text-xs">{door.agent.to}</span>. An
+            agent reaches its tools under the old name until it is reconnected.
+          </>
         ) : door.agent.kind === 'elsewhere' ? (
           <>
             A server called <span className="font-mono text-xs">{door.agent.as}</span> is configured
@@ -424,6 +439,26 @@ function Connection({
           </Hint>
         ) : null}
 
+        {/* The rename. One press, and it is the connect press: the server removes
+            the old name and writes the new one, in that order — see the
+            `renamed` branch of `/host/agent`. */}
+        {door.agent.kind === 'renamed' ? (
+          <Hint
+            label={`removes “${door.agent.as}” from wherever it is configured, then writes “${door.agent.to}” in ${door.writesTo} scope, by running: claude mcp remove ${door.agent.as} && ${door.command}`}
+            side="top"
+          >
+            <Button
+              size="sm"
+              className="h-7 px-3 text-xs"
+              disabled={pressing}
+              onClick={() => onPress('connect')}
+            >
+              <Plug className="size-3" />
+              {pressing ? 'reconnecting…' : `reconnect it as “${door.agent.to}”`}
+            </Button>
+          </Hint>
+        ) : null}
+
         {door.agent.kind === 'elsewhere' ? (
           <Hint
             label={`this rewrites the existing “${door.agent.as}”: it is removed from wherever it is configured, then written again in ${door.writesTo} scope pointing at ${thing}`}
@@ -441,7 +476,7 @@ function Connection({
           </Hint>
         ) : null}
 
-        {door.agent.kind === 'told' || door.agent.kind === 'elsewhere' ? (
+        {door.agent.kind === 'told' || door.agent.kind === 'elsewhere' || door.agent.kind === 'renamed' ? (
           <Hint label={`removes it wherever it is configured, by running: claude mcp remove ${door.agent.as}`} side="top">
             <Button
               variant="secondary"
@@ -466,10 +501,12 @@ function Connection({
             This writes to <span className="font-mono">{door.writesTo}</span> scope
             {door.agent.kind === 'elsewhere'
               ? ', and rewrites an entry this host did not create.'
-              : ', which is global to this machine rather than tied to one directory.'}
+              : door.agent.kind === 'renamed'
+                ? `, and removes the entry called “${door.agent.as}” first.`
+                : ', which is global to this machine rather than tied to one directory.'}
           </p>
           <p className="text-muted-foreground min-w-0 font-mono text-[11px] break-all">
-            {door.agent.kind === 'elsewhere'
+            {door.agent.kind === 'elsewhere' || door.agent.kind === 'renamed'
               ? `claude mcp remove ${door.agent.as} && ${door.command}`
               : door.command}
           </p>

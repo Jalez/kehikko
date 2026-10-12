@@ -25,7 +25,7 @@ export interface FramedModule {
   entry: string
   icon: string | null
   health: string | null
-  mcp: { url: string; transport: string; about: string } | null
+  mcp: { url: string; transport: string; about: string; as?: string } | null
   modes: { id: string; label: string; scope: 'epic' | 'global' }[]
   extensions: { emits: string[]; consumes: string[] }
   /**
@@ -65,6 +65,10 @@ export type AgentAwareness =
   | { kind: 'told'; as: string }
   | { kind: 'elsewhere'; as: string; pointsAt: string }
   | { kind: 'untold' }
+  /* The door is connected under the name the host used to derive (`as`); the module now asks for `to`. */
+  | { kind: 'renamed'; as: string; to: string }
+  /* The name the module asks for is another door's. The sentence says whose. */
+  | { kind: 'refused'; why: string }
 
 export interface Presence {
   id: string

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 
-import { look } from './discover.ts'
+import { awarenessOf, tailOf, type AgentAwareness } from './agents.ts'
+import { look, type Presence } from './discover.ts'
 import { HOST_ID } from './kehikot.ts'
 import { readRegistrations, registryDir } from './registrations.ts'
 
@@ -81,7 +82,67 @@ export const SCOPE = 'user' as const
  * press with its own sentence.
  */
 export function serverName(id: string): string {
-  return id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id
+  return tailOf(id)
+}
+
+/**
+ * What a module's door is called: the name its manifest declares (`mcp.as`,
+ * protocol 1.3.0), and `serverName(id)` when it declares none.
+ *
+ * The host names no module. `kehikot.claude` derives `claude`, which in Claude
+ * Code's own list of servers reads as something else entirely, and the fix is
+ * not a table of better names here: the module says what it is called, in the
+ * one document it already says everything else in. The protocol holds the
+ * shape — lowercase, no whitespace, cannot start with `-` — so what arrives
+ * here is already safe to hand to `claude mcp add` as an argument.
+ *
+ * Every reader of a door's name goes through this: `doorFor` for the writer,
+ * `awarenessOf` (which is given the declared name) for the reader, and the
+ * sweep and the two endpoints in `server.ts` through those.
+ */
+export function doorName(id: string, declared?: string | null): string {
+  return declared || serverName(id)
+}
+
+/**
+ * The name another registered module's door holds, as far as this host can
+ * tell — or `null` when it has no door to hold one.
+ *
+ * A module that is answering says: its declared name, the derived one, or no
+ * MCP door at all. A module that is NOT answering cannot say, and is taken to
+ * hold the name its id derives: it held that name the last time this host
+ * registered it, and a name is not freed by its owner being asleep.
+ */
+export function heldName(presence: Pick<Presence, 'id' | 'module'> | undefined, id: string): string | null {
+  if (!presence?.module) return serverName(id)
+  return presence.module.mcp ? doorName(id, presence.module.mcp.as) : null
+}
+
+/**
+ * Why a DECLARED name cannot be used, in one sentence — or `null` when it can.
+ *
+ * Only a declared name is refused. A derived name that collides is the old
+ * behaviour and stays what it was: it arrives as `elsewhere`, and the window
+ * says where the entry points. A module that ASKS for a name is different: it
+ * is asking for the host's own, or for one another module's door already has,
+ * and granting it would have two doors taking turns at one entry in somebody's
+ * configuration. So that module's door is refused — the module still frames;
+ * it is its door that is not registered — and when two modules declare the
+ * same name both are, since neither asked first in any sense this host keeps.
+ *
+ * `others` maps every OTHER registered module's id to the name it holds
+ * (`heldName`).
+ */
+export function nameRefusal(id: string, declared: string | null | undefined, others: ReadonlyMap<string, string | null>): string | null {
+  if (!declared) return null
+  if (declared === HOST_ID) {
+    return `${id} asks for its door to be connected as "${declared}", which is this host's own door, so its door is not connected. The module has to declare another name in its manifest (mcp.as).`
+  }
+  for (const [other, held] of others) {
+    if (other === id || held !== declared) continue
+    return `${id} asks for its door to be connected as "${declared}", which is the name of ${other}'s door, so its door is not connected. One of the two has to declare another name in its manifest (mcp.as).`
+  }
+  return null
 }
 
 /**
@@ -100,7 +161,7 @@ export interface Door {
    * is still not from a request.
    */
   module: string
-  /** What the server will be called, derived from the id. */
+  /** What the server will be called: what the manifest declares, else derived from the id. See `doorName`. */
   as: string
   /** The module's MCP url, resolved on its own origin by discovery. */
   url: string
@@ -264,8 +325,17 @@ export async function repoint(existing: string, door: Door, run: Runner = runCla
  * is registered under that id, the module is registered but not answering, it
  * is answering and declares no MCP door, or it declares one this host cannot
  * reach at a url.
+ *
+ * A fifth, since a module may declare its door's name: the name it asks for
+ * is another door's (`nameRefusal`). `seen` is what the last sweep found of
+ * the OTHER modules — what each one's door is called. It is not asked again
+ * here: this is one module's window, and the wait for every stopped neighbour
+ * would be this module's person's to sit through.
  */
-export async function doorFor(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
+export async function doorFor(
+  id: string,
+  seen: ReadonlyMap<string, Pick<Presence, 'id' | 'module'>> = new Map(),
+): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
   const now = await readRegistrations()
   const registration = now.registrations.find((r) => r.id === id)
   if (!registration) {
@@ -297,10 +367,29 @@ export async function doorFor(id: string): Promise<{ ok: true; door: Door } | { 
         }
   }
 
+  const others = new Map<string, string | null>()
+  for (const other of now.registrations) {
+    if (other.id !== id) others.set(other.id, heldName(seen.get(other.id), other.id))
+  }
+  const refusal = nameRefusal(id, mcp.as, others)
+  if (refusal) return { ok: false, status: 409, why: refusal }
+
   return {
     ok: true,
-    door: { module: id, as: serverName(id), url: mcp.url, transport: mcp.transport },
+    door: { module: id, as: doorName(id, mcp.as), url: mcp.url, transport: mcp.transport },
   }
+}
+
+/**
+ * What the agent has been told about a door, read against the door's own name.
+ *
+ * The one way the endpoints in `server.ts` ask, so that the name the reader
+ * matches on is the name the writer would write. A door whose name is the one
+ * its id derives declared nothing as far as the reader needs to know — which
+ * is every module that says nothing, and the host.
+ */
+export function awarenessAt(door: Door, known: Map<string, unknown>): AgentAwareness {
+  return awarenessOf(door.url, door.module, known, door.as === serverName(door.module) ? null : door.as)
 }
 
 /**
