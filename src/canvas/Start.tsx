@@ -1,8 +1,9 @@
-import { Play } from 'lucide-react'
+import { CloudDownload, Play } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { notAnswering } from '@/host/reachable.ts'
+import { openUpdates } from '@/host/updates.ts'
 
 /**
  * The button on a silent container.
@@ -99,6 +100,24 @@ export function Start({
           {printed.join('\n')}
         </pre>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * The button on a container whose module answered with a manifest this host
+ * refused. Starting it again changes nothing, so there is no `Start` here:
+ * the press opens the updates panel in the header, which checks now and lists
+ * the module with its Update when its checkout is behind.
+ */
+export function Update() {
+  return (
+    <div className="pointer-events-auto flex flex-col items-center gap-2">
+      <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" onClick={openUpdates}>
+        <CloudDownload className="size-3" />
+        check for updates
+      </Button>
+      <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">Starting it again would serve the same manifest.</p>
     </div>
   )
 }

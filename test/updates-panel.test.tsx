@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b19 pass/)
+    expect(out).toMatch(/\b20 pass/)
   }, 60_000)
 }
 
@@ -189,6 +189,28 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const show = [...document.querySelectorAll('button')].find((b) => b.textContent === 'show')!
     await act(async () => show.click())
     expect(document.querySelector('[data-testid="updates-level"]')?.textContent).toContain('learning')
+  })
+
+  test('a press elsewhere whose remedy is an update opens this panel and checks at once', async () => {
+    const { openUpdates } = await import('../src/host/updates.ts')
+    let asked = 0
+    answer = async (url) => {
+      if (!url.startsWith('/host/updates')) return {}
+      asked += 1
+      return check([checkout('host', 0), checkout('kehikot.source', 3)])
+    }
+    await mount()
+    expect(panels()).toHaveLength(0)
+
+    await act(async () => openUpdates())
+    await settle()
+
+    expect(panels()).toHaveLength(1)
+    expect(asked).toBe(1)
+    const rows = document.querySelectorAll('[data-testid="updates-row"]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.textContent).toContain('kehikot.source')
+    expect([...rows[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Update')).toBe(true)
   })
 
   test('nothing needing attention is one calm sentence and Check now', async () => {

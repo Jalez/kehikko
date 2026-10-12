@@ -480,6 +480,45 @@ export function unansweringLine(id: string, at: string, log: string): string {
   )
 }
 
+/** What this host itself knows about a silent module with nothing in flight. */
+export interface Known {
+  /** A start by this host that stopped again without answering, and what it printed. */
+  failed: { line: string; detail: string[] } | null
+  /** Somebody else was running it and it has only just gone. See `THEIRS_TO_RESTART_MS`. */
+  theirs: boolean
+  /** A process this host started for it is still running. */
+  held: boolean
+  log: string
+  /** The last of what that process printed. Asked only when it is shown. */
+  printed(): string[]
+}
+
+/**
+ * What the host says INSTEAD of `discover.ts`'s sentence about a silent module
+ * with nothing in flight, or null to leave that sentence as it is.
+ *
+ * The host knows why a program is NOT answering — it ran it, it stopped it,
+ * somebody else just did. It knows nothing better about one that answered.
+ */
+export function silentSaid(
+  presence: { id: string; at: string; reached: boolean; served?: true },
+  known: Known,
+): { line: string; detail?: string[] } | null {
+  /* A document came back, and `discover.ts` says what is wrong with it. That
+     is what is true now, whoever started the program: "has not answered" above
+     a log saying "ready" is the host contradicting its own evidence, and the
+     log is not the evidence for a manifest it refused. */
+  if (presence.served) return null
+  /* Not running, and the host knows more than that: it ran it, and it
+     stopped again or never answered. The last it printed goes with it. */
+  if (known.failed) return { line: known.failed.line, detail: known.failed.detail }
+  /* Somebody else's, only just gone, and not reached: who is expected to
+     bring it back, and when the host will. */
+  if (known.theirs && !presence.reached) return { line: theirsLine(presence.id, presence.at) }
+  if (known.held) return { line: unansweringLine(presence.id, presence.at, known.log), detail: known.printed() }
+  return null
+}
+
 /** Said on a container whose module the host stopped because nothing used it. */
 export function asleepLine(id: string, at: string): string {
   return (

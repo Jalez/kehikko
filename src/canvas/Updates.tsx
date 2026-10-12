@@ -12,6 +12,7 @@ import {
   isCheckout,
   LeftRunning,
   offersAppRestart,
+  OPEN_UPDATES,
   requestRestart,
   restartModule,
   triage,
@@ -322,6 +323,19 @@ export function Updates({
       setOpen(false)
     }
   }
+
+  /* A press elsewhere whose remedy is an update (`openUpdates`): the panel
+     opens and checks out loud, whatever the age of the last check — somebody
+     has just been told to update something. */
+  useEffect(() => {
+    const onAsked = () => {
+      setOpen(true)
+      setShowLevel(false)
+      void run(true)
+    }
+    window.addEventListener(OPEN_UPDATES, onAsked)
+    return () => window.removeEventListener(OPEN_UPDATES, onAsked)
+  }, [run])
 
   /** One or several checkouts, one after another; a cancel stops the rest. */
   const updateAll = async (ids: string[]) => {
