@@ -220,7 +220,9 @@ export function Parts({
               >
                 <Checkbox checked={on.length === 0} tabIndex={-1} aria-hidden className={BOX} />
                 <span className="flex-1">the whole epic</span>
-                <span className="text-muted-foreground shrink-0 text-[11px]">all {parts.length} parts</span>
+                <span className="text-muted-foreground shrink-0 text-[11px]">
+                  {parts.length === 1 ? 'its one part' : `all ${parts.length} parts`}
+                </span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
@@ -240,7 +242,9 @@ export function Parts({
               void onEdit?.({ remove: { id: part.id } })
             }
             return (
-              <div key={part.id} data-part={part.id} className="group/row flex items-center">
+              /* As tall with a name box in it as without, so the rows below
+                 do not jump when a rename begins. */
+              <div key={part.id} data-part={part.id} className="group/row flex min-h-8 items-center pr-1">
                 <Checkbox
                   checked={ticked}
                   tabIndex={-1}
@@ -334,7 +338,7 @@ export function Parts({
             )
           })}
           {adding && onEdit ? (
-            <div data-new-part className={`flex items-center gap-2 px-2 py-1 ${none ? '' : 'border-t'}`}>
+            <div data-new-part className={`flex min-h-8 items-center gap-2 px-2 ${none ? '' : 'mt-1 border-t pt-1'}`}>
               <Plus className="text-muted-foreground size-3 shrink-0" />
               <NameBox
                 again
