@@ -38,6 +38,7 @@ const quiet = () => ({
   filters: () => {},
   clearable: () => {},
   refreshable: () => {},
+  header: () => {},
 })
 
 const nothing: Answer = { ok: true, data: null }
@@ -291,6 +292,113 @@ describe('one question, one answer, one id', () => {
     })
 
     expect(faults).toHaveLength(0)
+    conversation.close()
+  })
+})
+
+/*
+ * The protocol's rule (docs/header.md, "A message type the other side does not
+ * know"): a type this host's protocol does not NAME was added by a later
+ * version and is dropped without a word; a type it names, in a shape it cannot
+ * read, is a fault worth a line. Told apart by `HOST_MESSAGES` and
+ * `MODULE_MESSAGES`.
+ */
+describe('a message type the host does not know is not a fault', () => {
+  function listening() {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const faults: string[] = []
+    const headers: unknown[] = []
+    const conversation = new Conversation(frame, 'kehikot.paper', null, async () => nothing, {
+      ...quiet(),
+      fault: (line) => faults.push(line),
+      header: (items) => headers.push(items),
+    }, { name: 'Paper' })
+    conversation.greet(context)
+    sent.length = 0
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    return { conversation, faults, headers, sent, say }
+  }
+
+  test('a kehikot. type from a later protocol is taken and dropped, with nothing said', () => {
+    const { conversation, faults, sent, say } = listening()
+    /* Taken: it came from this frame, so no other conversation is asked. */
+    expect(say({ type: 'kehikot.somethingnew', anything: { at: 'all' } })).toBe(true)
+    expect(say({ type: 'kehikot.' })).toBe(true)
+    expect(faults).toEqual([])
+    expect(sent).toEqual([])
+    conversation.close()
+  })
+
+  test('a type the host knows, in a shape it cannot read, is still a fault', () => {
+    const { conversation, faults, headers, say } = listening()
+    /* Two items under one id: the header's own schema refuses it. */
+    say({
+      type: MESSAGE.HEADER,
+      items: [
+        { kind: 'toggle', id: 'wrap', label: 'Wrap long lines', checked: false },
+        { kind: 'run', id: 'wrap', label: 'Compile' },
+      ],
+    })
+    expect(faults).toEqual(['Paper sent a kehikot.header the host could not read.'])
+    expect(headers).toEqual([])
+    conversation.close()
+  })
+
+  test('a message only a host says, sent by a module, is a fault: the type is known and the sender is confused', () => {
+    const { conversation, faults, say } = listening()
+    say({ type: MESSAGE.CLEAR, protocol: PROTOCOL })
+    expect(faults).toEqual(['Paper sent a kehikot.clear the host could not read.'])
+    conversation.close()
+  })
+})
+
+describe('a module declares its header, and the host holds it', () => {
+  const items = [
+    { kind: 'switch', id: 'pane', label: 'Pane', value: 'source', options: [{ id: 'source', label: 'Source' }, { id: 'pdf', label: 'PDF' }] },
+    { kind: 'run', id: 'compile', label: 'Compile', shortcut: '⌘B' },
+  ]
+
+  function listening() {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const faults: string[] = []
+    const headers: { kind: string; id: string }[][] = []
+    const conversation = new Conversation(frame, 'kehikot.paper', null, async () => nothing, {
+      ...quiet(),
+      fault: (line) => faults.push(line),
+      header: (declared) => headers.push(declared),
+    })
+    conversation.greet(context)
+    sent.length = 0
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    return { conversation, faults, headers, sent, say }
+  }
+
+  test('the items reach the canvas whole, parsed, and nothing goes back', () => {
+    const { conversation, faults, headers, sent, say } = listening()
+    say({ type: MESSAGE.HEADER, items })
+    expect(faults).toEqual([])
+    expect(headers).toHaveLength(1)
+    expect(headers[0]!.map((item) => [item.kind, item.id])).toEqual([['switch', 'pane'], ['run', 'compile']])
+    /* The schema's defaults are filled in: a run that said nothing is idle. */
+    expect(headers[0]![1]).toMatchObject({ state: 'idle', agents: false })
+    /* No press, no answer: this host does not send `kehikot.press` yet. */
+    expect(sent).toEqual([])
+    conversation.close()
+  })
+
+  test('an empty header is a declaration — the module taking its menus away — and not a silence', () => {
+    const { conversation, headers, say } = listening()
+    say({ type: MESSAGE.HEADER, items: [] })
+    expect(headers).toEqual([[]])
+    conversation.close()
+  })
+
+  test('a pressed with no press behind it is read and let go', () => {
+    const { conversation, faults, headers, sent, say } = listening()
+    expect(say({ type: MESSAGE.PRESSED, id: 'p1', ok: true })).toBe(true)
+    expect(faults).toEqual([])
+    expect(headers).toEqual([])
+    expect(sent).toEqual([])
     conversation.close()
   })
 })

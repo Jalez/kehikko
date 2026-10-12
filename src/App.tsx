@@ -13,7 +13,7 @@ import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
-import type { CanvasControls } from './host/ask.ts'
+import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
 import { useDividing } from './canvas/Dividing.ts'
@@ -72,7 +72,8 @@ import { fetchRegistry, type Presence, type RegistryView } from './host/registry
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
-import { noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
+import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
+import { declared, NO_HEADER, NO_HEADERS, withdrawn, type Headers } from './host/header.ts'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
@@ -271,7 +272,8 @@ export function App() {
   const [canvases, setCanvases] = useState<Canvas[]>([])
   /**
    * Who folded or unfolded which containers on the open kehikko, when it was
-   * not the person: an agent at the host's door. See `host/folds.ts`.
+   * not the person: an agent at the host's door, or a module asking with
+   * `view.fold`. See `host/folds.ts`.
    */
   const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
   const [openId, setOpenId] = useState<number | null>(null)
@@ -325,6 +327,13 @@ export function App() {
    */
   const [rewritten, setRewritten] = useState<ContentChange[]>([])
   const [live, setLive] = useState<Record<string, Live>>({})
+  /**
+   * What each module last declared for its container's menus
+   * (`kehikot.header`), by module id. Held and handed to the container, which
+   * does not draw it yet — see `host/header.ts`, which also says when an
+   * entry goes.
+   */
+  const [headers, setHeaders] = useState<Headers>(NO_HEADERS)
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
@@ -1589,6 +1598,56 @@ export function App() {
     return { ok: true, filters: kept }
   }
 
+  /**
+   * A module asking for containers to be folded or unfolded (`view.fold`).
+   *
+   * Through a ref for the reason `filterRef` is: the work needs this render's
+   * placements and whether a hand is on one of them.
+   *
+   * The deciding is `asked` in `host/folds.ts`; what is here is what only the
+   * page knows. **What the person is in the middle of**, each a decline with
+   * its sentence: a container being dragged or resized (the grid is drawing
+   * from the hand, and an arrangement written under it is one the release
+   * overwrites) and the project dialog, which covers the canvas so that a
+   * fold behind it would not be seen happening. Nothing else declines: where
+   * the keyboard's focus is does not, because a field of the host's that was
+   * typed in a minute ago is still the active element, and a walk-through
+   * would be refused for as long as nobody clicked elsewhere. An agent's
+   * `fold_modules` does not ask either.
+   *
+   * A fold that goes ahead is the write a press makes (`change`), and is
+   * signed with the module's NAME off the registration, on the control that
+   * puts it back. The mark goes when the person presses, by `standing`.
+   *
+   * `arrangedRef` is the open kehikko's placements as of the last fold made
+   * here, so two calls answered before a render do not each start from the
+   * arrangement the first one already changed. Every render puts it back to
+   * what is drawn.
+   */
+  const arrangedRef = useRef<{ kehikko: number | null; placements: Placement[] }>({ kehikko: null, placements: [] })
+  arrangedRef.current = { kehikko: open?.id ?? null, placements: open?.placements ?? [] }
+  const foldRef = useRef<(from: string, call: { fold: string[]; unfold: string[] }) => Folded>(() => ({
+    outcome: 'declined',
+    folded: [],
+    unfolded: [],
+    why: 'This host is not ready to fold anything yet.',
+  }))
+  foldRef.current = (from, call) => {
+    const { kehikko: on, placements } = arrangedRef.current
+    const busy = moving !== null
+      ? 'A container is being moved or resized. Ask again when it has been let go.'
+      : askingRef.current
+        ? 'The person is being asked to choose a project.'
+        : null
+    const { placements: next, ...said } = foldAsked(placements, from, call, busy)
+    if (said.outcome !== 'changed' || on === null) return said
+    arrangedRef.current = { kehikko: on, placements: next as Placement[] }
+    change({ placements: next as Placement[] })
+    const note = { by: byId.get(from)?.name ?? from, fold: said.folded, unfold: said.unfolded }
+    setSigned((was) => ({ kehikko: on, marks: noted(was?.kehikko === on ? was.marks : {}, note) }))
+    return said
+  }
+
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
     () => ({
@@ -1651,6 +1710,10 @@ export function App() {
          itself would be signing somebody else's name to a request for a
          folder. Through a ref — see `pickRef`. */
       pickProject: (from) => pickRef.current(from),
+      /* `from` out of the registration: it has to be ON the open kehikko to
+         fold anything there, and its name is what the control then says.
+         Through a ref — see `foldRef`. */
+      fold: (from, call) => foldRef.current(from, call),
     }),
     [change, bus],
   )
@@ -1752,7 +1815,7 @@ export function App() {
        * A collapsed container does not grow, and the request is not thrown away.
        *
        * `kehikot.resize` is a module saying how tall its document is. A module
-       * has not been told its container is folded — deliberately; see `onCollapse` —
+       * is not told anything about itself being folded — see `onCollapse` —
        * so it goes on measuring and asking, and honouring that here would let a
        * module force a container open that a person folded shut. The person's press
        * wins. What the module asked for becomes the wish, which is what the
@@ -2098,7 +2161,7 @@ export function App() {
    * in the meantime gives back less than was asked, and the canvas never
    * overflows, which is the bug the old unfold had.
    *
-   * ## The module keeps running, and is not told
+   * ## The module keeps running, and every module is told
    *
    * Folding is not removing. The module's document stays in the frames layer
    * with everything in it — a scroll position, a half-typed line, a shell
@@ -2107,15 +2170,23 @@ export function App() {
    * it back. A folded container's page is hidden the same way a container on another
    * canvas is hidden, which is a path this program has had since the beginning.
    *
-   * Nothing goes out on the wire, and `kehikot.context` does not grow a field.
-   * This is a real judgement call rather than an oversight: one could argue a
-   * module ought to know it is not visible so it can stop polling. It should
-   * not learn it from HERE, because it could not act on it correctly — from
-   * inside, a folded container is indistinguishable from a container on a kehikko nobody
-   * is looking at, and the protocol deliberately does not report that either.
-   * A module that stopped work on the strength of this would stop work in a
-   * case it cannot detect and resume in a case it cannot detect. Whether the
-   * host drew a container at full height is the host's business.
+   * What stood here argued against putting the fold on the wire: from inside,
+   * a folded container cannot be told from one on a kehikko nobody is looking
+   * at, so a module that stopped work on the strength of it would stop and
+   * resume in cases it cannot detect. That half still holds, and is why
+   * nothing is sent to the folded module ABOUT ITSELF — no message, no
+   * `context.folded`, and its page goes on running.
+   *
+   * What changed it is the ask `selected` met before it (see `onSelect`): a
+   * NEIGHBOUR needs the fact. A module about to point Slides at slide 6 has
+   * to know whether Slides is in view, and one that unfolded it for a
+   * walk-through has to know whether a person has moved it since, before it
+   * puts things back. So since protocol 1.1.0 every row of
+   * `context.containers` says `folded` — to every frame alike, composed in
+   * `host/showing.ts` from the same `collapsed` this press writes — and a
+   * module may ask for a fold with `view.fold` (`foldRef`, above). A press
+   * here, that ask and an agent's `fold_modules` are one write, `folded` in
+   * `host/columns.ts`, and this press is what wins over the other two.
    */
   const onCollapse = useCallback(
     (id: string, collapsed: boolean) => {
@@ -2833,10 +2904,16 @@ export function App() {
          allowed. */
       if (event === 'replaced') {
         flushSync(() => setSaid((was) => forgotten(was, id)))
+        /* Its menus too: the page that declared them is gone, and the one in
+           its place declares its own after it is greeted. */
+        setHeaders((was) => withdrawn(was, id))
         return
       }
       covers[event](id)
-      if (event === 'unmounted') setSaid((was) => forgotten(was, id))
+      if (event === 'unmounted') {
+        setSaid((was) => forgotten(was, id))
+        setHeaders((was) => withdrawn(was, id))
+      }
     },
     [covers],
   )
@@ -2858,7 +2935,9 @@ export function App() {
           },
         }))
       },
-      silent: (sentence) =>
+      silent: (sentence) => {
+        /* Its menus go with its offers: see `host/header.ts`. */
+        setHeaders((was) => withdrawn(was, id))
         setLive((was) => ({
           ...was,
           /* All three offers go with the silence. A module that stopped
@@ -2871,7 +2950,8 @@ export function App() {
              read 2 minutes ago" beside a module that has stopped answering is
              the host asserting freshness on behalf of a program that is gone. */
           [id]: { condition: 'silent', line: sentence, fault: was[id]?.fault ?? null },
-        })),
+        }))
+      },
       fault: (sentence) =>
         setLive((was) => ({
           ...was,
@@ -2889,6 +2969,8 @@ export function App() {
       filters: (groups) => onOffer(id, groups),
       clearable: (label) => onClearable(id, label),
       refreshable: (state) => onRefreshable(id, state),
+      /* Held, whole, and not drawn yet — see `host/header.ts`. */
+      header: (items) => setHeaders((was) => declared(was, id, items)),
     }),
     [covers, onHeight, onOffer, onClearable, onRefreshable],
   )
@@ -3176,6 +3258,7 @@ export function App() {
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
                   foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
+                  header={headers[presence.id] ?? NO_HEADER}
                   /* The offer is the conversation's — it dies with the program —
                      and the choice is the arrangement's. See `Live` above. */
                   filters={found?.filters ?? []}

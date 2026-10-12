@@ -29,6 +29,7 @@ function canvasThatIsAsked(answer: Picked, seen: string[] = []): CanvasControls 
       seen.push(from)
       return Promise.resolve(answer)
     },
+    fold: () => ({ outcome: 'declined' as const, folded: [], unfolded: [], why: '' }),
   }
 }
 
