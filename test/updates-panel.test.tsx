@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b15 pass/)
+    expect(out).toMatch(/\b19 pass/)
   }, 60_000)
 }
 
@@ -127,14 +127,14 @@ const check = (checkouts: Json[], restartable = false) => ({
   restartable,
 })
 
-async function mount() {
+async function mount(more: { disarmMs?: number } = {}) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => {
     root.render(
       <TooltipProvider>
-        <Updates markMs={0} />
+        <Updates markMs={0} {...more} />
       </TooltipProvider>,
     )
   })
@@ -476,6 +476,120 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-preview-all"]')?.textContent).toBe(
       'terminal and paper will be restarted, which ends anything they are running.',
     )
+  })
+
+  /* A module that is kept, behind by its own build: the owner's row. */
+  const KEPT = 'kehikot.terminal is running at http://127.0.0.1:7920, and its registration says to keep it, so this host has not stopped it — that flag exists so nothing reaps a program holding live work.'
+  const WILL_END = 'Restarting kehikot.terminal ends whatever it is running. It is holding work this host cannot see — in a terminal, the open shells and everything running in them. This host started it (process 4321) and will stop that and start it again. Press again to do it.'
+
+  async function keptRow(over: { arm?: Json; confirm?: Json; disarmMs?: number } = {}) {
+    const posts: { url: string; body: Json }[] = []
+    let restarted = false
+    answer = async (url, init) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as Json
+        posts.push({ url, body })
+        if (url === '/host/start') return new Response(JSON.stringify({ ok: false, why: KEPT, detail: [], kept: true }), { status: 409 })
+        if (url === '/host/restart-anyway' && body.press === 'arm') {
+          return over.arm
+            ? new Response(JSON.stringify(over.arm), { status: 409 })
+            : { ok: true, armed: { token: 'tok-1', sentence: WILL_END, forMs: 20_000 } }
+        }
+        if (url === '/host/restart-anyway') {
+          if (over.confirm) return new Response(JSON.stringify(over.confirm), { status: 409 })
+          restarted = true
+          return { ok: true, presence: { condition: 'ready' } }
+        }
+        return {}
+      }
+      return url.startsWith('/host/updates')
+        ? {
+            ...check([checkout('kehikot.terminal', 0), checkout('notes', 0)]),
+            ...(restarted ? {} : { older: { 'kehikot.terminal': 'Terminal is running older code than its checkout. Restart it to run them.' }, kept: ['kehikot.terminal', 'notes'] }),
+          }
+        : {}
+    }
+    const host = await mount({ disarmMs: over.disarmMs })
+    await press(host)
+    await settle()
+    const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement | undefined
+    const click = async (label: string) => {
+      await act(async () => button(label)!.click())
+      await settle()
+    }
+    return { posts, button, click }
+  }
+
+  test('a kept module’s row has "Restart anyway" beside its restart, and only that row', async () => {
+    const { posts, button, click } = await keptRow()
+    /* `notes` is kept too, and nothing is said about it: no row, no button. */
+    expect(document.querySelectorAll('[data-testid="updates-row"]')).toHaveLength(1)
+    expect(buttons().filter((label) => label === 'Restart anyway')).toHaveLength(1)
+    expect(button('Restart')).toBeDefined()
+    /* The ordinary restart is refused, in the server's words, and the way on stays. */
+    await click('Restart')
+    expect(posts.map((one) => one.url)).toEqual(['/host/start'])
+    expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(KEPT)
+    expect(text()).not.toContain('where you started it')
+    expect(buttons()).toContain('Try again')
+    expect(buttons().filter((label) => label === 'Restart anyway')).toHaveLength(1)
+  })
+
+  test('two presses: the first says what will be lost and stops nothing, the second restarts and the row says so', async () => {
+    const { posts, button, click } = await keptRow()
+    await click('Restart anyway')
+    expect(posts.map((one) => one.body)).toEqual([{ module: 'kehikot.terminal', press: 'arm' }])
+    expect(document.querySelector('[data-testid="updates-armed"]')?.textContent).toBe(WILL_END)
+    expect(button('Restart anyway')).toBeUndefined()
+    expect(button('Press again to restart')?.getAttribute('aria-pressed')).toBe('true')
+    /* No dialog of any kind: the one panel, as before. */
+    expect(panels()).toHaveLength(1)
+    expect(document.querySelector('[role="dialog"][data-slot="dialog-content"]')).toBeNull()
+
+    await click('Press again to restart')
+    expect(posts.map((one) => one.body)).toEqual([
+      { module: 'kehikot.terminal', press: 'arm' },
+      { module: 'kehikot.terminal', press: 'confirm', token: 'tok-1' },
+    ])
+    expect(text()).toContain('Updated — running the new code. It was restarted, which ended anything it was running.')
+    expect(buttons().some((label) => /anyway|press again/i.test(label ?? ''))).toBe(false)
+    expect(document.querySelector('[data-testid="updates-armed"]')).toBeNull()
+  })
+
+  test('an arm left alone comes down by itself, and so does one the panel closes over; nothing was sent', async () => {
+    const { posts, button, click } = await keptRow({ disarmMs: 40 })
+    await click('Restart anyway')
+    expect(button('Press again to restart')).toBeDefined()
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 80)))
+    expect(button('Press again to restart')).toBeUndefined()
+    expect(button('Restart anyway')?.getAttribute('aria-pressed')).toBe('false')
+    expect(document.querySelector('[data-testid="updates-armed"]')).toBeNull()
+    expect(text()).toContain('Terminal is running older code than its checkout.')
+    /* Pressing the other button takes the arm down too. */
+    await click('Restart anyway')
+    expect(button('Press again to restart')).toBeDefined()
+    await click('Restart')
+    expect(button('Press again to restart')).toBeUndefined()
+    expect(posts.filter((one) => one.body.press === 'confirm')).toEqual([])
+  })
+
+  test('a refusal on either press is the server’s sentence in the row, and the button is still there to begin again', async () => {
+    const unshown = 'kehikot.terminal was not restarted: the program on port 7920 answers as kehikot.notes, not as kehikot.terminal. This host only stops a program it can show is kehikot.terminal, and nothing was stopped.'
+    const first = await keptRow({ arm: { ok: false, kept: true, why: unshown } })
+    await first.click('Restart anyway')
+    expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(unshown)
+    expect(first.button('Press again to restart')).toBeUndefined()
+    expect(first.button('Restart anyway')).toBeDefined()
+    act(() => unmount?.())
+    unmount = null
+    document.body.innerHTML = ''
+
+    const late = 'kehikot.terminal was not restarted: this press has no first press behind it — one stands for 20 seconds, once. Nothing was stopped. Press Restart anyway to begin again.'
+    const second = await keptRow({ confirm: { ok: false, kept: true, why: late } })
+    await second.click('Restart anyway')
+    await second.click('Press again to restart')
+    expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(late)
+    expect(second.button('Restart anyway')).toBeDefined()
   })
 
   async function hostUpdated(restartable: boolean) {

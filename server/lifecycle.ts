@@ -68,6 +68,8 @@
  *     host holds a pid for, because it spawned it.
  *
  *  2. **The owner may say "keep this one".** See `keep` in `registrations.ts`.
+ *     Nothing this host does by itself gets past it. A person can: two
+ *     presses on "Restart anyway", in the page — see `anyway.ts`.
  *
  * ## Why "keep" is a field in the REGISTRATION and not in the manifest
  *

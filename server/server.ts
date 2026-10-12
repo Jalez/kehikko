@@ -27,8 +27,9 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
-import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
+import { answered, gone, leaving, Nursery, originEnv, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
+import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
   Idleness,
@@ -1347,7 +1348,25 @@ async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<str
   return said
 }
 
-type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: string }
+/** `kept`: refused because the registration says `keep`, which only a person's two presses get past. */
+type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: string; kept?: boolean }
+
+/** What `anyway.ts` may know about, and do to, running programs: the nursery, and the proof in `takeover.ts`. */
+const anywayWorld: AnywayWorld = {
+  ours: (id) => nursery.pidOf(id),
+  stopOurs: (id) => halt(id),
+  os: systemProcesses,
+  async answersAs(url) {
+    const got = await fetchManifest(url)
+    if (!got.ok) return null
+    try {
+      const id = (JSON.parse(got.text) as { id?: unknown } | null)?.id
+      return typeof id === 'string' ? id : null
+    } catch {
+      return null
+    }
+  },
+}
 
 /**
  * Stop a module so that it can be started again, if this host may.
@@ -1358,8 +1377,17 @@ type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: s
  * still be stopped when the program on its port is proven to be running from
  * the registered directory — the modules a previous host started and this one
  * inherited. The proof and its limits are in `takeover.ts`.
+ *
+ * `anyway` is a person having pressed "Restart anyway" twice on a module that
+ * is kept, with the pid the first press named. Nothing else passes it — see
+ * `anyway.ts`, which is also where that process is proven and stopped.
  */
-async function haltForRestart(id: string, registration: Registration | null, runnable: Runnable): Promise<Halted> {
+async function haltForRestart(
+  id: string,
+  registration: Registration | null,
+  runnable: Runnable,
+  anyway?: { pid: number },
+): Promise<Halted> {
   const standing = registration ? await look(registration) : null
   if (!standing?.reached) {
     /* Nothing answers, but a process this host started may still be there —
@@ -1368,13 +1396,16 @@ async function haltForRestart(id: string, registration: Registration | null, run
     return { ok: true, was: 'not-running' }
   }
   if (registration?.keep === true) {
-    return {
-      ok: false,
-      why:
-        `${id} is running at ${runnable.url}, and its registration says to keep it. `
-        + 'This host will not stop it — that flag exists so nothing reaps a program holding live work. '
-        + 'Stop it where you started it if you want it restarted.',
-    }
+    if (!anyway) return { ok: false, kept: true, why: keptSentence(id, runnable.url) }
+    const stopped = await stopAnyway(id, runnable, anyway.pid, anywayWorld)
+    if (!stopped.ok) return { ok: false, kept: true, why: stopped.why }
+    console.log(
+      `kehikko: stopped ${id} (process ${stopped.target.pid}${stopped.killed ? ', killed' : ''}) to restart it — `
+      + `its registration says to keep it, and a person pressed Restart anyway twice`
+      + (stopped.target.whose === 'ours' ? '' : `; this host had not started it, and it answered as ${id} from ${runnable.dir}`),
+    )
+    await gone(runnable.url, WELL_KNOWN)
+    return { ok: true, was: 'running' }
   }
   if (halt(id) === 'not-ours') {
     const taken = await takeOver(id, runnable, systemProcesses)
@@ -1466,7 +1497,7 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
 
 type Restarted =
   | { ok: true; answered: boolean; detail: string[]; presence: Presence | null }
-  | { ok: false; why: string; detail?: string[]; refused?: boolean }
+  | { ok: false; why: string; detail?: string[]; refused?: boolean; kept?: boolean }
 
 /**
  * Stop a module if it is running, start it, and say what came of it.
@@ -1475,11 +1506,17 @@ type Restarted =
  * panel, and the restart an update does by itself — so what "restart" means,
  * and every reason it is refused, is written once.
  */
-async function restart(id: string, registration: Registration | null, runnable: Runnable, within: number): Promise<Restarted> {
+async function restart(
+  id: string,
+  registration: Registration | null,
+  runnable: Runnable,
+  within: number,
+  anyway?: { pid: number },
+): Promise<Restarted> {
   const mine = !inHand.has(id)
   inHand.add(id)
   try {
-    const halted = await haltForRestart(id, registration, runnable)
+    const halted = await haltForRestart(id, registration, runnable, anyway)
     if (!halted.ok) return { ...halted, refused: true }
     /* Said only of a module that was running: one that was not is starting. */
     if (halted.was === 'running') working.set(id, 'restarting')
@@ -1491,6 +1528,30 @@ async function restart(id: string, registration: Registration | null, runnable: 
     wakes.registryChanged()
   }
 }
+
+/** The modules whose registration says `keep` and that answered the last sweep. */
+async function keptAndRunning(): Promise<string[]> {
+  const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
+  return presences.filter((presence) => presence.reached && registered.get(presence.id)?.keep === true).map((presence) => presence.id)
+}
+
+/*
+ * "Restart anyway": the one way a module that is kept is stopped, and only by
+ * a person pressing twice in the page. See `anyway.ts`.
+ */
+const anyway = anywayDesk({
+  pageOrigins: () => originEnv(process.env).KEHIKOT_ORIGINS.split(' '),
+  /* The disk at the press, as `/host/start` reads it. */
+  registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
+  startable,
+  busy: (id) => inHand.has(id) || working.has(id),
+  reached: async (registration) => (await look(registration)).reached,
+  world: anywayWorld,
+  arms: new Arms(),
+  /* As long as an update waits for the module it restarted. */
+  restart: (id, registration, runnable, armed) => restart(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS, { pid: armed }),
+  patient: (request) => server.timeout(request, 0),
+})
 
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
 type UpdateStep = 'updating' | 'applying' | 'installing' | 'restarting'
@@ -1528,7 +1589,7 @@ async function updateHost(place: Place, signal: AbortSignal, phase: Phase): Prom
  */
 type ModuleOutcome =
   | { ran: 'page' | 'restarted' | 'started' | 'idle' }
-  | { ran: 'stale'; why: string }
+  | { ran: 'stale'; why: string; kept?: boolean }
   | { ran: 'failed'; why: string; detail: string[] }
 
 /**
@@ -1579,7 +1640,7 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
         if (!halted.ok) {
           working.delete(id)
           wakes.registryChanged()
-          outcome = { ran: 'stale', why: halted.why }
+          outcome = { ran: 'stale', why: halted.why, ...(halted.kept ? { kept: true } : {}) }
           return
         }
         owed = true
@@ -2210,6 +2271,9 @@ const server = Bun.serve({
         /* Which modules have containers pinned to a version, so the panel can
            say so and the header does not count them as waiting. */
         pins: pinSummary(listCanvases(db)),
+        /* Which running modules are kept: the ones whose row offers "Restart
+           anyway" where an ordinary restart would only be refused. */
+        kept: await keptAndRunning(),
       })
     }
 
@@ -2354,7 +2418,7 @@ const server = Bun.serve({
        * and this one inherited. The proof and its limits are in `takeover.ts`.
        */
       const done = await restart(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
-      if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [] }, 409)
+      if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [], ...(done.kept ? { kept: true } : {}) }, 409)
       return json({
         ok: true,
         command: can.run.command,
@@ -2364,6 +2428,10 @@ const server = Bun.serve({
         presence: done.presence,
       })
     }
+
+    /* Restarting a module that is kept, on a person's two presses. `anyway.ts`. */
+    const anywayAnswer = await anyway.route(request, url)
+    if (anywayAnswer) return anywayAnswer
 
     /*
      * What one module's door offers, and what the agent has been told about it.

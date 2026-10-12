@@ -6,6 +6,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   ago,
   applyUpdate,
+  armRestartAnyway,
+  confirmRestartAnyway,
   fetchUpdates,
   isCheckout,
   LeftRunning,
@@ -14,8 +16,10 @@ import {
   restartModule,
   triage,
   waiting,
+  type Armed,
   type Check,
   type Checkout,
+  type NotRestarted,
   type Outcome,
   type Phase as UpdatePhase,
   type Preview,
@@ -29,6 +33,8 @@ import {
   moduleRow,
   previewAll,
   previewText,
+  RESTART_ANYWAY,
+  RESTART_ANYWAY_ARMED,
   RESTART_THE_HOST,
   RESTART_TO_UPDATE,
   staleNote,
@@ -71,6 +77,17 @@ import { KehikkoMark } from './Mark.tsx'
  * module the host could not restart both come back from the server with every
  * check (`Check.progress`, `Check.stale`), so a reload mid-update shows the
  * same row.
+ *
+ * ## A module that is kept
+ *
+ * A module whose registration says `keep` is never stopped by the host on its
+ * own, so its restart is refused and its row says so. That row has a second
+ * button, "Restart anyway", and it takes two presses (the arm `Clearing.tsx`
+ * argues for, and for its reasons: no modal, no browser dialog). The first
+ * asks the server what it would stop; the row then says that, and what ends
+ * with it, in the server's words. The second, on the same button, does it.
+ * An arm left alone comes down by itself after `DISARM_ANYWAY_AFTER_MS`, and
+ * when the panel closes. `server/anyway.ts` has the rest.
  *
  * ## Whether what this app runs is behind GitHub, and catching it up
  *
@@ -136,11 +153,22 @@ type Phase =
   /* `reached` is how far the server says the one at `at` has got. */
   | { kind: 'updating'; ids: string[]; at: number; reached: UpdatePhase }
 
+/**
+ * How long an armed "Restart anyway" stays armed in the page. Longer than the
+ * four seconds a clear gets (`Clearing.tsx`): that one arms a label, and this
+ * one a sentence somebody has to read first. The server holds its side for
+ * longer still (`ARMED_FOR_MS`), so a press inside this is never late there.
+ */
+export const DISARM_ANYWAY_AFTER_MS = 10_000
+
 /** How often a page that finds an update already running asks whether it has finished. */
 const PROGRESS_EVERY_MS = 2_000
 
-/** `markMs` is how long a result waits for the mark; tests pass 0. */
-export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
+/** `markMs` is how long a result waits for the mark; tests pass 0. `disarmMs` is how long an arm stands. */
+export function Updates({
+  markMs = MARK_DRAWN_MS,
+  disarmMs = DISARM_ANYWAY_AFTER_MS,
+}: { markMs?: number; disarmMs?: number } = {}) {
   const [check, setCheck] = useState<Check | null>(null)
   const [failed, setFailed] = useState<{ at: Date; why: string } | null>(null)
   const [open, setOpen] = useState(false)
@@ -153,6 +181,10 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   const [restarting, setRestarting] = useState(false)
   /** Modules being started again from a failed row, so a second press does not start a second copy. */
   const [retryingIds, setRetryingIds] = useState<readonly string[]>([])
+  /** The one "Restart anyway" that has had its first press, and what the server said it would stop. */
+  const [armed, setArmed] = useState<(Armed & { id: string }) | null>(null)
+  /** A first press the server has not answered yet, so a second one does not ask twice. */
+  const [armingId, setArmingId] = useState<string | null>(null)
   /** The level checkouts are listed, not just counted. */
   const [showLevel, setShowLevel] = useState(false)
   const [now, setNow] = useState(() => new Date())
@@ -244,6 +276,13 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
 
   const cancel = () => controller.current?.abort()
 
+  /* An arm nobody followed comes down by itself. */
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(null), Math.min(armed.forMs, disarmMs))
+    return () => clearTimeout(timer)
+  }, [armed, disarmMs])
+
   /** "Check now": the app's updater and every module, at once. */
   const checkAll = () => {
     const link = engine.current
@@ -279,6 +318,7 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
       /* Closing while something runs cancels it — a panel that closes on a
          job that carries on unseen is a job nobody can see finish. */
       cancel()
+      setArmed(null)
       setOpen(false)
     }
   }
@@ -342,18 +382,51 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
     return () => clearInterval(again)
   }, [elsewhere, reread])
 
-  /** Start a module again after an update it did not come back from. */
-  const retry = async (id: string) => {
-    setRetryingIds((was) => (was.includes(id) ? was : [...was, id]))
-    const failed = await restartModule(id)
+  /** What a restart from a row came to, as that row's outcome. */
+  const restartedTo = (id: string, failed: NotRestarted | null) => {
     setRetryingIds((was) => was.filter((one) => one !== id))
     setOutcomes((was) => ({
       ...was,
       [id]: failed
-        ? { kind: 'failed', why: failed.why, detail: failed.detail, retry: true }
+        ? { kind: 'failed', why: failed.why, detail: failed.detail, retry: true, ...(failed.kept ? { kept: true } : {}) }
         : { kind: 'updated', note: moduleNote({ ran: 'restarted' }), restart: null, installFailed: null },
     }))
     void reread()
+  }
+
+  const unreached = (error: unknown): NotRestarted => ({ why: (error as Error).message, detail: [] })
+
+  /** Start a module again after an update it did not come back from. */
+  const retry = async (id: string) => {
+    setArmed(null)
+    setRetryingIds((was) => (was.includes(id) ? was : [...was, id]))
+    restartedTo(id, await restartModule(id).catch(unreached))
+  }
+
+  /**
+   * "Restart anyway" on a module that is kept. The first press arms: the
+   * server says what it would stop and the row shows that. The second, while
+   * that still stands, is the one that restarts.
+   */
+  const restartAnyway = async (id: string) => {
+    if (armed?.id === id) {
+      const token = armed.token
+      setArmed(null)
+      setRetryingIds((was) => (was.includes(id) ? was : [...was, id]))
+      restartedTo(id, await confirmRestartAnyway(id, token).catch(unreached))
+      return
+    }
+    if (armingId !== null) return
+    setArmingId(id)
+    const said = await armRestartAnyway(id).catch(unreached)
+    setArmingId(null)
+    if ('armed' in said) {
+      setArmed({ id, ...said.armed })
+      return
+    }
+    /* Refused before anything was stopped: the server's sentence, in the row. */
+    setArmed(null)
+    setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why: said.why, retry: true, ...(said.kept ? { kept: true } : {}) } }))
   }
 
   const restartApp = async () => {
@@ -394,6 +467,8 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
   for (const [id, reached] of Object.entries(check?.progress ?? {})) if (id !== current) told[id] = { phase: reached }
   for (const [id, why] of Object.entries(check?.stale ?? {})) told[id] = { ...told[id], stale: why }
   for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
+  /* Only on a module something is already said about: being kept is not news. */
+  for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
   const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
@@ -515,6 +590,8 @@ export function Updates({ markMs = MARK_DRAWN_MS }: { markMs?: number } = {}) {
                        has moved: from then on nothing is cancelled. */
                     onCancel={updating && current === one.id && updating.reached === 'updating' ? cancel : null}
                     onRetry={() => void retry(one.id)}
+                    armed={armed?.id === one.id ? armed.sentence : null}
+                    onAnyway={() => void restartAnyway(one.id)}
                     onRestartApp={
                       offersAppRestart(outcome, check?.restartable ?? false) ? () => void restartApp() : null
                     }
@@ -644,6 +721,8 @@ function Row({
   onUpdate,
   onCancel,
   onRetry,
+  armed,
+  onAnyway,
   onRestartApp,
 }: {
   /** The same state the app row and the header indicator read. */
@@ -660,6 +739,10 @@ function Row({
   /** Null once the update cannot be cancelled, or is not this page's to cancel. */
   onCancel: (() => void) | null
   onRetry(): void
+  /** "Restart anyway" has had its first press: what the server says the second will stop and end. Null when it is not armed. */
+  armed: string | null
+  /** A press on "Restart anyway": the first arms, the second restarts. Drawn only when `row.anyway`. */
+  onAnyway(): void
   /** Null unless the host's server changed and the app can restart it — then the note says to do it by hand. */
   onRestartApp: (() => void) | null
 }) {
@@ -726,7 +809,11 @@ function Row({
         </div>
       ) : row.state === 'failed' && (outcome?.kind === 'failed' || row.retry) ? (
         <div className="pt-1.5" data-testid="updates-failed">
-          <p className="text-destructive">{outcome?.kind === 'failed' ? outcome.why : row.reason}</p>
+          {/* Armed, the row says what the second press stops and ends, in
+              place of why the first restart was refused. */}
+          <p className="text-destructive" data-testid={armed !== null && row.anyway ? 'updates-armed' : undefined}>
+            {armed !== null && row.anyway ? armed : outcome?.kind === 'failed' ? outcome.why : row.reason}
+          </p>
           {outcome?.kind === 'failed' && outcome.detail?.length ? (
             <pre className="bg-muted text-muted-foreground mt-1 max-h-28 overflow-auto rounded px-2 py-1 font-mono text-[10px] leading-snug whitespace-pre-wrap">
               {outcome.detail.join('\n')}
@@ -735,6 +822,19 @@ function Row({
           {row.retry ? (
             <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRetry}>
               {row.retryWord ?? 'Try again'}
+            </Button>
+          ) : null}
+          {row.retry && row.anyway ? (
+            /* One button for both presses, as `ClearButton` is: the words and
+               `aria-pressed` say which of the two this press is. */
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={armed !== null}
+              className={`mt-1.5 ml-1.5 h-6 px-2 text-xs ${armed !== null ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : ''}`}
+              onClick={onAnyway}
+            >
+              {armed !== null ? RESTART_ANYWAY_ARMED : RESTART_ANYWAY}
             </Button>
           ) : null}
         </div>
@@ -782,7 +882,9 @@ function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): O
   if (done.module.ran === 'failed') {
     return { kind: 'failed', why: `Updated, but it did not start on the new code. ${done.module.why}`, detail: done.module.detail, retry: true }
   }
-  if (done.module.ran === 'stale') return { kind: 'failed', why: staleNote(done.module.why), retry: true }
+  if (done.module.ran === 'stale') {
+    return { kind: 'failed', why: staleNote(done.module.why), retry: true, ...(done.module.kept ? { kept: true } : {}) }
+  }
   /* Commits that cancel out: the checkout moved and no file is different. */
   if (done.module.ran === 'page' && done.changed.length === 0) {
     return { kind: 'updated', note: 'Updated. No file it runs is different, so nothing was restarted.', restart: null, installFailed: done.installFailed }

@@ -53,6 +53,8 @@ export interface Check {
   older: Record<string, string>
   /** What each waiting update would do to its running module — `previewUpdate` in `server/restart.ts`. */
   previews: Record<string, Preview>
+  /** Running modules whose registration says to keep them: an ordinary restart of one is refused. Empty from an older host. */
+  kept: string[]
 }
 
 export type Preview = 'page' | 'restart' | 'self' | 'kept'
@@ -80,6 +82,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
       stale: z.record(z.string(), z.string()).default({}),
       older: z.record(z.string(), z.string()).default({}),
       previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
+      kept: z.array(z.string()).default([]),
     })
     .parse(await response.json())
   return {
@@ -91,13 +94,14 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
     stale: body.stale,
     older: body.older,
     previews: body.previews,
+    kept: body.kept,
   }
 }
 
 /** What the update came to for the module itself — `ModuleOutcome` in `server/server.ts`. */
 const moduleOutcomeSchema = z.union([
   z.object({ ran: z.enum(['page', 'restarted', 'started', 'idle']) }),
-  z.object({ ran: z.literal('stale'), why: z.string() }),
+  z.object({ ran: z.literal('stale'), why: z.string(), kept: z.boolean().optional() }),
   z.object({ ran: z.literal('failed'), why: z.string(), detail: z.array(z.string()).default([]) }),
 ])
 
@@ -176,27 +180,84 @@ export async function applyUpdate(id: string, signal?: AbortSignal, onPhase?: (p
   return ended
 }
 
-/**
- * Start a module again after an update that could not — the retry on its row.
- * The same Start the canvas offers. Null when it answers; otherwise why not,
- * with the last it printed when the host has that.
- */
-export async function restartModule(id: string): Promise<{ why: string; detail: string[] } | null> {
-  const response = await fetch('/host/start', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ module: id }),
-  })
+/** Why a restart did not leave the module answering. `kept`: its registration says to keep it, and "Restart anyway" is the way on. */
+export interface NotRestarted {
+  why: string
+  detail: string[]
+  kept?: boolean
+}
+
+/** What `/host/start` and `/host/restart-anyway` answer a restart with: null when the module answers. */
+async function restarted(response: Response): Promise<NotRestarted | null> {
   const body = (await response.json().catch(() => null)) as {
     ok?: boolean
     why?: string
     detail?: string[]
+    kept?: boolean
     presence?: { condition?: string } | null
   } | null
   if (body?.ok && body.presence?.condition === 'ready') return null
   const detail = Array.isArray(body?.detail) ? body.detail : []
   if (body?.ok) return { why: 'It was started and has not answered yet.', detail }
-  return { why: body?.why ?? 'it could not be restarted, and the host did not say why', detail }
+  return {
+    why: body?.why ?? 'it could not be restarted, and the host did not say why',
+    detail,
+    ...(body?.kept === true ? { kept: true } : {}),
+  }
+}
+
+/**
+ * Start a module again after an update that could not — the retry on its row.
+ * The same Start the canvas offers. Null when it answers; otherwise why not,
+ * with the last it printed when the host has that.
+ */
+export async function restartModule(id: string): Promise<NotRestarted | null> {
+  const response = await fetch('/host/start', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ module: id }),
+  })
+  return restarted(response)
+}
+
+/** A first press the server is holding: what it says will be stopped and lost, and for how long it stands. */
+export interface Armed {
+  token: string
+  sentence: string
+  forMs: number
+}
+
+/**
+ * The first press of "Restart anyway", on a module whose registration says to
+ * keep it: the server names the process it would stop and stops nothing — see
+ * `server/anyway.ts`. A refusal is its sentence.
+ */
+export async function armRestartAnyway(id: string): Promise<{ armed: Armed } | NotRestarted> {
+  const response = await fetch('/host/restart-anyway', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ module: id, press: 'arm' }),
+  })
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; why?: string; kept?: boolean; armed?: Partial<Armed> } | null
+  const armed = body?.armed
+  if (body?.ok && armed && typeof armed.token === 'string' && typeof armed.sentence === 'string' && typeof armed.forMs === 'number') {
+    return { armed: { token: armed.token, sentence: armed.sentence, forMs: armed.forMs } }
+  }
+  return {
+    why: body?.why ?? 'the host did not say whether it could be restarted',
+    detail: [],
+    ...(body?.kept === true ? { kept: true } : {}),
+  }
+}
+
+/** The second press: stop the process the first one named and start the module again. Null when it answers. */
+export async function confirmRestartAnyway(id: string, token: string): Promise<NotRestarted | null> {
+  const response = await fetch('/host/restart-anyway', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ module: id, press: 'confirm', token }),
+  })
+  return restarted(response)
 }
 
 /** Ask the desktop app to restart, so an updated host server runs. Null when it was asked. */
@@ -238,7 +299,7 @@ async function reason(response: Response): Promise<string> {
  */
 export type Outcome =
   | { kind: 'updated'; note: string; restart: 'host' | null; installFailed: string | null }
-  | { kind: 'failed'; why: string; detail?: string[]; retry?: boolean }
+  | { kind: 'failed'; why: string; detail?: string[]; retry?: boolean; /** Refused because it is kept: "Restart anyway" is offered. */ kept?: boolean }
 
 /**
  * Whether a checkout gets a row of its own in the panel: it is behind, it
