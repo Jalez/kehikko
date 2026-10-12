@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createCanvas, editCanvas, listCanvases, open as openDb, type Placement } from '../server/canvases.ts'
+import { createCanvas, deleteCanvas, editCanvas, listCanvases, open as openDb, type Placement } from '../server/canvases.ts'
 import { dataVersionsFile, readDataVersions, recordDataVersion, recordedFor, refusal } from '../server/dataVersions.ts'
 import type { Presence } from '../server/discover.ts'
 import { keep, kehikotFile, syncProject } from '../server/kehikot.ts'
@@ -323,6 +323,18 @@ describe('version processes', () => {
     expect(other.port).toBe(7926)
   })
 
+  test('two versions wanted at the same moment do not end up on one port', async () => {
+    const { runs, spawned } = fakeRuns()
+    /* One sweep of a kehikko with two containers on different tags: both are
+       being brought up before either has been given a port. */
+    const one = runs.ensure('kehikot.notes', 'v1.2.0')
+    const other = runs.ensure('kehikot.notes', 'v1.1.0')
+    await settle()
+    expect(spawned).toEqual(['kehikot.notes@v1.2.0', 'kehikot.notes@v1.1.0'])
+    expect(one).toMatchObject({ state: 'running', port: 7925 })
+    expect(other).toMatchObject({ state: 'running', port: 7926, origin: 'http://127.0.0.1:7926' })
+  })
+
   test('kept while any container pins it, stopped when none does', async () => {
     const { runs, stopped } = fakeRuns()
     const key = versionKey('kehikot.notes', 'v1.2.0')
@@ -464,7 +476,13 @@ describe('a version from source', () => {
  * ------------------------------------------------------------------ */
 
 describe('pinning a container', () => {
-  function world(tags: string[], facts: Record<string, { dataVersion: number; compatible: boolean; why: string | null }> = {}) {
+  function world(
+    tags: string[],
+    facts: Record<string, { dataVersion: number; compatible: boolean; why: string | null }> = {},
+    /* For a test that wants something to land while a pin is waiting on the module's tags, the last
+       thing it waits for: told when the read is asked for, and the read held open until `waiting` is done. */
+    tagsRead: { asked: () => void; waiting: Promise<void> } = { asked: () => {}, waiting: Promise.resolve() },
+  ) {
     const db: Database = openDb(':memory:')
     const dir = scratch('pinproject')
     const added = addProject(db, dir, undefined, false)
@@ -491,7 +509,11 @@ describe('pinning a container', () => {
     const woken: number[] = []
     const runner: Runner = async (argv) =>
       argv.includes('get-url') ? { ok: true, out: '/r/notes.git' } : argv.includes('rev-parse') ? { ok: true, out: 'abc1234' } : { ok: false, why: 'no' }
-    const lister = new TagLister(async () => ({ ok: true, out: tags.map((t) => `x\trefs/tags/${t}`).join('\n') }))
+    const lister = new TagLister(async () => {
+      tagsRead.asked()
+      await tagsRead.waiting
+      return { ok: true, out: tags.map((t) => `x\trefs/tags/${t}`).join('\n') }
+    })
     const latest: Presence = {
       id: 'kehikot.notes',
       at: 'http://127.0.0.1:7920',
@@ -571,6 +593,125 @@ describe('pinning a container', () => {
     if ('why' in listed) throw new Error(listed.why)
     expect(listed.versions).toEqual([])
     expect(listed.hint).toContain('git tag v1.0.0')
+  })
+
+  /*
+   * A pin waits — on the registration, on git, on the tags — between being
+   * asked and writing. The arrangement it writes has to be the one that is
+   * there when it writes, not the one that was there when it was asked.
+   */
+  describe('what the person does while the versions are being read', () => {
+    /** The tags read, held open: `asked` is done when a pin has got as far as it, and `release` lets it answer. */
+    function held(): { tagsRead: { asked: () => void; waiting: Promise<void> }; asked: Promise<void>; release: () => void } {
+      let release!: () => void
+      let reached!: () => void
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const asked = new Promise<void>((resolve) => {
+        reached = resolve
+      })
+      return { tagsRead: { asked: reached, waiting }, asked, release }
+    }
+    const placementsNow = (db: Database, id: number) => listCanvases(db).find((c) => c.id === id)?.placements
+
+    test('a drag, a container taken off and one put on are not overwritten by the pin', async () => {
+      const { tagsRead, asked, release } = held()
+      const { db, dir, canvas, pins, woken } = world(['v1.0.0', 'v1.1.0'], {}, tagsRead)
+      editCanvas(db, canvas.id, {
+        placements: [
+          { i: 'kehikot.notes', x: 0, y: 0, w: 4, h: 10 },
+          { i: 'kehikot.paper', x: 4, y: 0, w: 4, h: 10 },
+        ] as Placement[],
+      })
+
+      const pinning = pins.pin(canvas.id, 'kehikot.notes', 'v1.1.0')
+      await asked
+      /* The person, while the pin is out: the pinned container dragged and
+         resized, its neighbour taken off, another put on. */
+      editCanvas(db, canvas.id, {
+        placements: [
+          ...placementsNow(db, canvas.id)!
+            .filter((p) => p.i !== 'kehikot.paper')
+            .map((p) => (p.i === 'kehikot.notes' ? { ...p, x: 6, y: 2, w: 6, h: 14, wish: 14 } : p)),
+          { i: 'kehikot.slides', x: 0, y: 0, w: 6, h: 8 } as Placement,
+        ],
+      })
+      const theirs = placementsNow(db, canvas.id)!
+      release()
+      const pinned = await pinning
+
+      expect(pinned).toMatchObject({ ok: true })
+      expect(placementsNow(db, canvas.id)).toEqual(
+        theirs.map((p) => (p.i === 'kehikot.notes' ? { ...p, version: 'v1.1.0' } : p)),
+      )
+      expect(placementsNow(db, canvas.id)!.some((p) => p.i === 'kehikot.paper')).toBe(false)
+      if (pinned.ok) expect(pinned.canvas.placements).toEqual(placementsNow(db, canvas.id)!)
+      expect(readFileSync(kehikotFile(dir)!, 'utf8')).toContain('kehikot.slides')
+      expect(woken).toEqual([canvas.id])
+    })
+
+    test('a container taken off meanwhile is not put back by the pin', async () => {
+      const { tagsRead, asked, release } = held()
+      const { db, canvas, pins, ensured, woken } = world(['v1.0.0'], {}, tagsRead)
+
+      const pinning = pins.pin(canvas.id, 'kehikot.notes', 'v1.0.0')
+      await asked
+      editCanvas(db, canvas.id, { placements: [] })
+      release()
+
+      expect(await pinning).toMatchObject({ ok: false, status: 409, why: expect.stringContaining('place it first') })
+      expect(placementsNow(db, canvas.id)).toEqual([])
+      expect(ensured).toEqual([])
+      expect(woken).toEqual([])
+    })
+
+    test('a kehikko deleted meanwhile is said to be gone, and nothing is started', async () => {
+      const { tagsRead, asked, release } = held()
+      const { db, canvas, pins, ensured, woken } = world(['v1.0.0'], {}, tagsRead)
+      createCanvas(db, 'two', canvas.project)
+
+      const pinning = pins.pin(canvas.id, 'kehikot.notes', 'v1.0.0')
+      await asked
+      expect(deleteCanvas(db, canvas.id)).toBe('deleted')
+      release()
+
+      expect(await pinning).toMatchObject({ ok: false, status: 409, why: expect.stringContaining('was there a moment ago') })
+      expect(placementsNow(db, canvas.id)).toBeUndefined()
+      expect(ensured).toEqual([])
+      expect(woken).toEqual([])
+    })
+
+    test('the same version pinned meanwhile is left as it is, and said to be', async () => {
+      const { tagsRead, asked, release } = held()
+      const { db, canvas, pins, woken } = world(['v1.0.0'], {}, tagsRead)
+
+      const pinning = pins.pin(canvas.id, 'kehikot.notes', 'v1.0.0')
+      await asked
+      editCanvas(db, canvas.id, {
+        placements: placementsNow(db, canvas.id)!.map((p) => ({ ...p, version: 'v1.0.0', x: 3 })),
+      })
+      const theirs = placementsNow(db, canvas.id)!
+      release()
+
+      expect(await pinning).toMatchObject({ ok: true, text: expect.stringContaining('already pinned to v1.0.0') })
+      expect(placementsNow(db, canvas.id)).toEqual(theirs)
+      expect(woken).toEqual([])
+    })
+
+    test('data written in a newer format meanwhile blocks the pin', async () => {
+      const { tagsRead, asked, release } = held()
+      const { db, dir, canvas, pins, ensured } = world(['v1.0.0'], { 'v1.0.0': { dataVersion: 1, compatible: true, why: null } }, tagsRead)
+
+      const pinning = pins.pin(canvas.id, 'kehikot.notes', 'v1.0.0')
+      await asked
+      recordDataVersion(dir, 'kehikot.notes', 2)
+      release()
+
+      expect(await pinning).toMatchObject({ ok: false, status: 409, why: expect.stringContaining('format 2') })
+      expect(placementsNow(db, canvas.id)![0]!.version).toBeNull()
+      expect(ensured).toEqual([])
+    })
   })
 })
 
