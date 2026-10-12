@@ -65,6 +65,17 @@ export interface Presence {
    */
   reached: boolean
   /**
+   * Set on a `silent` presence when a document came back from the address and
+   * the sentence is about THAT — not JSON, not a manifest, a manifest this
+   * host refuses, another id, a page on another origin. Absent when nothing
+   * was read (nothing listening, no answer in time, a 404).
+   *
+   * For `server.ts`, which replaces the sentence of a module it started that
+   * "has not answered": it must not when one did, and what it served is the
+   * whole fault. See `silentSaid` in `lifecycle.ts`.
+   */
+  served?: true
+  /**
    * What this host has lately DONE to the program — started it, or stopped it.
    *
    * Never set in this file, and that is the point of it being separate from
@@ -317,6 +328,7 @@ export async function look(
       at,
       condition: 'silent',
       reached: true,
+      served: true,
       line: `Something is answering at ${at}, but what it served at ${WELL_KNOWN} is not JSON. No module here answers as ${id}.`,
     }
   }
@@ -336,6 +348,7 @@ export async function look(
         at,
         condition: 'silent',
         reached: true,
+        served: true,
         refused: true,
         line: `${id} is running at ${at}, but this host cannot use its manifest: ${where} — ${why}.`,
       }
@@ -345,6 +358,7 @@ export async function look(
       at,
       condition: 'silent',
       reached: true,
+      served: true,
       line: `Something is answering at ${at}, but its manifest is not one this host can read: ${where} — ${first?.message ?? 'malformed'}. No module here answers as ${id}.`,
     }
   }
@@ -397,6 +411,7 @@ export async function look(
       at,
       condition: 'silent',
       reached: true,
+      served: true,
       line: `The program at ${at} calls itself ${manifest.id}, and the registration here is for ${id}. Nothing answers as ${id}.`,
     }
   }
@@ -408,6 +423,7 @@ export async function look(
       at,
       condition: 'silent',
       reached: true,
+      served: true,
       line: `${manifest.name} points its page at ${manifest.entry}, which is not on ${at}. A module may describe itself and not somebody else, so there is nothing here to frame.`,
     }
   }
