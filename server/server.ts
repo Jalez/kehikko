@@ -57,7 +57,19 @@ import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
 import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
-import { addArgs, connect, disconnect, doorFor, hostDoor, repoint, SCOPE, type Door } from './register.ts'
+import {
+  addArgs,
+  awarenessAt,
+  connect,
+  disconnect,
+  doorFor,
+  heldName,
+  hostDoor,
+  nameRefusal,
+  repoint,
+  SCOPE,
+  type Door,
+} from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
@@ -459,6 +471,17 @@ async function survey(): Promise<{
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
 
+  /* What every door is called, so a module that ASKS for a name (`mcp.as`) can
+     be told when it is another door's. See `nameRefusal` in `register.ts`. */
+  const held = new Map<string, string | null>()
+  for (const presence of presences) held.set(presence.id, heldName(presence, presence.id))
+  const awareness = (presence: Presence): AgentAwareness => {
+    const mcp = presence.module?.mcp ?? null
+    const refusal = mcp ? nameRefusal(presence.id, mcp.as, held) : null
+    if (refusal) return { kind: 'refused', why: refusal }
+    return awarenessOf(mcp?.url ?? null, presence.id, knows, mcp?.as)
+  }
+
   return {
     /*
      * Each module's kept state travels with its presence, because the page is
@@ -475,7 +498,7 @@ async function survey(): Promise<{
     presences: presences.map((presence) => ({
       ...presence,
       state: readState(db, presence.id),
-      agent: awarenessOf(presence.module?.mcp?.url ?? null, presence.id, knows),
+      agent: awareness(presence),
       /* Where the registration says the program lives, for the details under a
          row in the module list. Absent for a module somebody starts themselves. */
       dir: registered.get(presence.id)?.dir,
@@ -489,7 +512,7 @@ async function survey(): Promise<{
       id: own.module,
       as: own.as,
       url: own.url,
-      agent: awarenessOf(own.url, own.module, knows),
+      agent: awarenessAt(own, knows),
     },
     sweep: found,
     protocol: PROTOCOL,
@@ -520,7 +543,7 @@ const own: Door = hostDoor(PORT)
  */
 async function doorOf(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
   if (id === HOST_ID) return { ok: true, door: own }
-  return doorFor(id)
+  return doorFor(id, lastPresences)
 }
 
 /**
@@ -2539,11 +2562,12 @@ const server = Bun.serve({
       if (!found.ok) return json({ ok: false, why: found.why }, found.status)
       const door = found.door
 
-      const agent = awarenessOf(door.url, id, agentKnows())
+      const agent = awarenessAt(door, agentKnows())
       /* Which scope the EXISTING entry is in, when there is one. The name to ask
          about is the one that was found, not the one this host would write —
          a server pointing here may be called anything at all. */
-      const existing = agent.kind === 'told' || agent.kind === 'elsewhere' ? agent.as : null
+      const existing =
+        agent.kind === 'told' || agent.kind === 'elsewhere' || agent.kind === 'renamed' ? agent.as : null
 
       return json({
         ok: true,
@@ -2599,7 +2623,7 @@ const server = Bun.serve({
          while, and `claude mcp add` in another terminal is exactly the sort of
          thing that happens in between. The NAME being removed comes from this
          read — never from the request. */
-      const before = awarenessOf(door.url, id, agentKnows())
+      const before = awarenessAt(door, agentKnows())
 
       let ran
       if (press === 'connect') {
@@ -2615,7 +2639,13 @@ const server = Bun.serve({
             409,
           )
         }
-        ran = await connect(door)
+        /* Connected under the name this host used to derive, and the module
+           now declares another: the old name is removed and the new one
+           written, in that order and only if the remove worked — `repoint`'s
+           two steps. `renamed` is only ever said of an entry whose url IS this
+           door, read a moment ago, so the name removed cannot be a server that
+           points anywhere else. */
+        ran = before.kind === 'renamed' ? await repoint(before.as, door) : await connect(door)
       } else if (press === 'repoint') {
         if (before.kind !== 'elsewhere') {
           return json(
@@ -2625,7 +2655,7 @@ const server = Bun.serve({
         }
         ran = await repoint(before.as, door)
       } else {
-        if (before.kind !== 'told' && before.kind !== 'elsewhere') {
+        if (before.kind !== 'told' && before.kind !== 'elsewhere' && before.kind !== 'renamed') {
           return json({ ok: false, why: 'The agent has not been told about this door, so there is nothing to remove.' }, 409)
         }
         ran = await disconnect(before.as)
@@ -2634,7 +2664,7 @@ const server = Bun.serve({
       /* Read back rather than assume. The CLI is the thing that decides whether
          it worked, and reporting the awareness this host can now READ is the
          only claim it is in a position to make. */
-      return json({ ...ran, agent: awarenessOf(door.url, id, agentKnows()) })
+      return json({ ...ran, agent: awarenessAt(door, agentKnows()) })
     }
 
     /*

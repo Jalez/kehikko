@@ -935,6 +935,16 @@ export function toolsSaying(
       hint: `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at this module. An agent will reach that address and get nothing. Open the frame menu to repoint it.`,
     }
   }
+  if (agent.kind === 'renamed') {
+    return {
+      state: 'connected under an old name',
+      loud: true,
+      hint: `${name}'s tools are connected as "${agent.as}", and the module now asks to be connected as "${agent.to}". Open the frame menu to reconnect it under that name.`,
+    }
+  }
+  if (agent.kind === 'refused') {
+    return { state: 'name refused', loud: true, hint: agent.why }
+  }
   return {
     state: 'connected',
     loud: false,
