@@ -64,8 +64,8 @@ starts agent sessions. Or [write your own](https://github.com/Jalez/kehikko-prot
 3. **Add a project.** Click the button at the end of the project list and pick
    a folder you work in.
 4. **Add tools.** Open **Kehikko modules** in the top bar, press **Install** on
-   a tool you want, then add it to your canvas. The plug icon in its header
-   connects your agent.
+   a tool you want, then add it to your canvas. **Tools…** in its header's
+   Frame menu connects your agent.
 
 ## About this repository
 
