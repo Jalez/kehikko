@@ -11,7 +11,7 @@
   fallback, never written).
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/` and `installed/` — `~/.claude*`, `~/Library/LaunchAgents|Logs`, the old service
+  `frame.sqlite`, `versions/`, `installed/` and `official-modules.json` — `~/.claude*`, `~/Library/LaunchAgents|Logs`, the old service
   marker, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
@@ -22,7 +22,7 @@
   standing between an install that has not migrated and an empty app: keep
   them, and their tests in `test/machineDirs.test.ts`.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
-  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. The HOST still reads the old `ROADMAP_FRAME_DB`,
   `ROADMAP_MODULES_DIR`, `ROADMAP_ORIGIN` and `KEHIKKO_ROADMAP_DIR` as
@@ -61,9 +61,22 @@
 
 ## The official module list
 
-- `modules.json` is the list of modules this host vouches for, versioned with
-  it (`server/official.ts`). Adding a module to the app's list is adding an
-  entry there: id, name, `owner/repo`, first port, summary, tags.
+- `modules.json` is the list of modules this host vouches for
+  (`server/official.ts`). Adding a module to the app's list is adding an
+  entry there: id, name, `owner/repo`, first port, summary, tags, and
+  optionally `protocol` — the oldest protocol package (`major.minor.patch`)
+  that can run it.
+- The list is NOT fixed at build time. A host has the copy it was built with
+  and, over it, `modules.json` as published on this repository's `main`
+  (`server/officialSource.ts`): fetched entries win, built-in-only entries
+  stay, a bad or unreachable list is ignored whole, the last good one is
+  cached in the machine directory. So merging an entry to `main` PUBLISHES the
+  module to every installed app, with no release — whoever can push to `main`
+  decides what Install clones. Give an entry a `protocol` when the module
+  needs a newer protocol package than released apps have; they then show it as
+  needing a newer app instead of installing it.
+- `KEHIKOT_OFFICIAL_LIST` is a URL to read the list from instead, or `off`
+  for the built-in list only (the test suite sets `off`).
 - Installing one (`server/installs.ts`) clones it under the machine
   directory's `installed/<id>/`, runs `bun install --frozen-lockfile` and writes
   its registration. The repository and paths come from the list, never from a

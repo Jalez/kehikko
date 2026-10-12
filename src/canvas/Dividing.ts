@@ -119,7 +119,7 @@ export function useDividing({
     () =>
       fetchOfficial().then(
         (got) => {
-          setOfficial(got)
+          setOfficial(got.modules)
           setUnread(null)
         },
         (error: Error) => setUnread(error.message),

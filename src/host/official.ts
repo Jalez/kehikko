@@ -20,15 +20,35 @@ const moduleSchema = z.object({
   tags: z.array(z.string()),
   installed: z.boolean(),
   install: installingSchema.optional(),
+  /* The entry asks for a newer protocol package than this host has. */
+  newer: z.object({ protocol: z.string(), has: z.string() }).optional(),
+  /* Installed from another repository than the list now names: that repository. */
+  from: z.string().optional(),
 })
+
+/* How current the list is: when it was last read from where it is published
+   (null when only the one the app came with is in use), and whether the last
+   ask failed. Absent from a host that only has the list it was built with. */
+const standingSchema = z.object({ fetched: z.string().nullable(), stale: z.boolean() })
+export type ListStanding = z.infer<typeof standingSchema>
 
 export type Installing = z.infer<typeof installingSchema>
 export type OfficialModule = z.infer<typeof moduleSchema>
 
-export async function fetchOfficial(signal?: AbortSignal): Promise<OfficialModule[]> {
+export async function fetchOfficial(signal?: AbortSignal): Promise<{ modules: OfficialModule[]; standing: ListStanding | null }> {
   const response = await fetch('/host/official', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(await reason(response))
-  return z.object({ modules: z.array(moduleSchema) }).parse(await response.json()).modules
+  const read = z.object({ modules: z.array(moduleSchema), list: standingSchema.optional() }).parse(await response.json())
+  return { modules: read.modules, standing: read.list ?? null }
+}
+
+/** The one quiet line under the module list when the official list could not be refreshed; null when there is nothing to say. */
+export function staleLine(standing: ListStanding | null): string | null {
+  if (!standing?.stale) return null
+  if (!standing.fetched) return 'The official module list could not be refreshed. Showing the one this app came with.'
+  const when = new Date(standing.fetched)
+  const day = Number.isNaN(when.getTime()) ? null : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  return `The official module list could not be refreshed. Showing the one read${day ? ` on ${day}` : ' earlier'}.`
 }
 
 /** Start installing one official module. It returns at once; the list says how it is going. */

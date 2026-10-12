@@ -67,6 +67,12 @@ export interface Registered extends Line {
    * a host older than the list — and then nothing is offered either way.
    */
   official: boolean | null
+  /**
+   * Set when this checkout is of another repository than the official list
+   * names for its id: both names. Nothing is done about it — the module stays
+   * where it was installed from — it is only said.
+   */
+  elsewhere?: { listed: string; from: string }
 }
 
 /** An official module that is not on this machine yet. */
@@ -107,6 +113,7 @@ export function rowsOf(
       placed: placed.has(presence.id),
       presence,
       official: official ? entry !== undefined : null,
+      ...(entry?.from ? { elsewhere: { listed: entry.repo, from: entry.from } } : {}),
     }
   })
   const available: Row[] = (official ?? [])

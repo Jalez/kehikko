@@ -6,11 +6,12 @@ import { dirname, join } from 'node:path'
 /**
  * Where this machine's own Kehikot state lives — spelled once, here.
  *
- * Four things are machine-level rather than project-level: the canvases cache
+ * Five things are machine-level rather than project-level: the canvases cache
  * (`frame.sqlite`), the module registry (`modules/<id>.json`), the module
- * versions a container can be pinned to (`versions/`) and the official modules
- * installed from the app (`installed/`). Everything else belongs under
- * `<project>/.kehikot/`.
+ * versions a container can be pinned to (`versions/`), the official modules
+ * installed from the app (`installed/`) and the last official module list read
+ * from where it is published (`official-modules.json`). Everything else
+ * belongs under `<project>/.kehikot/`.
  *
  * They used to live in `~/.roadmap/`, named after the retired prototype. They
  * now live in `~/Library/Application Support/Kehikot/` on macOS (the place the
@@ -93,6 +94,17 @@ export function logsDir(env: Env = process.env, platform: string = process.platf
  */
 export function installsDir(env: Env = process.env): string {
   return env.KEHIKOT_INSTALLS_DIR || join(machineDir(env), 'installed')
+}
+
+/**
+ * The last official module list this host read from where it is published —
+ * see `server/officialSource.ts`. One small file beside the rest: it is what
+ * the app knows about which modules exist, not anything of a project's, and a
+ * host started offline reads it to still offer what it saw before.
+ * `KEHIKOT_OFFICIAL_CACHE` overrides it (tests, scratch hosts).
+ */
+export function officialListFile(env: Env = process.env): string {
+  return env.KEHIKOT_OFFICIAL_CACHE || join(machineDir(env), 'official-modules.json')
 }
 
 /**

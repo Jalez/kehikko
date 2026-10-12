@@ -92,6 +92,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions and the official modules installed from the app (host server/machineDirs.ts)',
   },
   {
+    id: 'official-list-cache',
+    match: /official-modules\.json/,
+    reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
+  },
+  {
     id: 'module-registry',
     match: /\.roadmap['"`]?\s*,\s*['"`]modules|\.roadmap\/modules/,
     reason: '~/.roadmap/modules is the RETIRED module registry (named after the app before it was Kehikot): modules built against kehikot-module-protocol < 0.25 registered there, and the host reads it as a fallback and copies it over once (the protocol itself stopped reading it in 1.0.0)',
