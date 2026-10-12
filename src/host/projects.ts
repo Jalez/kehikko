@@ -1,13 +1,15 @@
 import {
   LIMITS,
   dispositionSchema,
+  partsSetResult,
   trackerRefreshResult,
   trackerSourceSchema,
   type Disposition,
+  type PartsSetResult,
   type TrackerRefreshResult,
   type TrackerSource,
 } from 'kehikot-module-protocol'
-import { partSchema } from './parts.ts'
+import { partSchema, type PartsEdit } from './parts.ts'
 import { z } from 'zod'
 
 /**
@@ -214,6 +216,26 @@ export async function refreshTracker(project: number): Promise<TrackerRefreshRes
   })
   if (!response.ok) throw new Error(await reason(response))
   return trackerRefreshResult.parse(await response.json())
+}
+
+/**
+ * Make one edit of an epic's list of parts: add, rename, move or remove.
+ *
+ * The body is the protocol's own `parts.set`, so the picker asks for exactly
+ * what a module may ask for and is answered by the same writer (`editParts`
+ * in `server/holdings.ts`). The answer is the protocol's result — `changed`,
+ * `unchanged`, `declined` with a sentence, `no-such-part` — and the epic's
+ * row as the server now reads it, which the caller puts in place of the one
+ * it has rather than patching in what it sent, for `retitleEpic`'s reason.
+ */
+export async function editParts(project: number, epic: string, edit: PartsEdit): Promise<{ result: PartsSetResult; epic: Epic | null }> {
+  const response = await fetch('/host/parts', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, epic, ...edit }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ result: partsSetResult, epic: epicSchema.nullable() }).parse(await response.json())
 }
 
 /**

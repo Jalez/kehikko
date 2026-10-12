@@ -168,7 +168,7 @@ export const WENT_TIMEOUT_MS = 1200
  *
  * A constant because one caller has to recognise it: a walk sent to a module
  * that was put on the canvas a moment ago is not a walk that found nothing,
- * it is a walk to try again when the page has loaded. See `host/dividing.ts`.
+ * it is a walk to try again when the page has loaded.
  */
 export const NOT_GREETED = 'the module has not been greeted'
 

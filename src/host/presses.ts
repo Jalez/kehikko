@@ -61,11 +61,12 @@ export interface Pressable {
    *
    * Here for the reason `clear` is: a walk is a press. It happens at a moment
    * and has no value that could be re-sent on a reload — a canvas that
-   * scrolled a module to its parts box again every time the page was opened
+   * scrolled a module to the same place again every time the page was opened
    * would be a canvas with a mind of its own. It is the first press with an
    * ANSWER, which the protocol gives a walk and gives nothing else: found, or
-   * not and why. The one caller is the parts control in the bar, sending a
-   * person to where an epic is divided into parts; see `host/dividing.ts`.
+   * not and why. Nothing in this host calls it at present: its one caller
+   * walked a person to a module to make an epic's parts, and parts are made
+   * in the bar now (`canvas/Parts.tsx`).
    */
   walk(target: WalkTarget): Promise<Walked>
   /**

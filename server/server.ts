@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -24,7 +25,7 @@ import {
 import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
-import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
+import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
@@ -262,6 +263,21 @@ setInterval(() => watchOpenProjects(), 60_000).unref?.()
 function epicWritten(root: string, slug: string): void {
   contentWatch.noted(root, join(epicsDir(root), `${slug}.json`))
   contents.announce(root, CONTENT_HOST, slug)
+}
+
+/**
+ * One edit of an epic's parts, made and told.
+ *
+ * The picker, a module's `parts.set` and the door's `set_parts` all come
+ * through here, so there is one place that says a list changed: every
+ * container showing the epic is told (`context.content`, the host's entry),
+ * which is also what has every page in the project read its epics — and so
+ * its parts — again.
+ */
+function partsEdited(root: string, slug: string, edit: PartsEdit): PartsEdited {
+  const done = editParts(root, slug, edit)
+  if (done.written) epicWritten(root, slug)
+  return done
 }
 
 /** The open project's folder, when the call named a project this host has. */
@@ -1899,6 +1915,12 @@ const server = Bun.serve({
             contentWatch.reported(root, module)
             contents.announce(root, module, epic)
           },
+          /* An edit of an epic's parts, for a module whose manifest asked for
+             it. Read off the last sweep's manifest, which no module can write. */
+          {
+            may: (module, capability) => lastPresences.get(module)?.module?.declares.uses.includes(capability as never) === true,
+            edit: (root, epic, edit) => partsEdited(root, epic, edit).result,
+          },
         ),
       )
     }
@@ -2197,6 +2219,33 @@ const server = Bun.serve({
       wakes.epicsChanged(project.id)
       epicWritten(project.path, made.epic.slug)
       return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
+    }
+
+    /*
+     * One edit of an epic's list of parts, from the picker in the bar.
+     *
+     * The body is the protocol's own `parts.set` — `{ epic, add | rename |
+     * move | remove }` — and is parsed by the protocol's schema, so the page
+     * and a module are refused for the same things. `editParts` decides and
+     * writes; the answer is the protocol's result and the epic's row as it
+     * now reads, so the page that pressed replaces its row rather than
+     * waiting to be told what it just did.
+     */
+    if (url.pathname === '/host/parts' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as ({ project?: unknown } & Record<string, unknown>) | null
+      if (!body || typeof body.project !== 'number') {
+        return json({ error: 'An edit of an epic’s parts names one project, one epic and one change.' }, 400)
+      }
+      const project = projectById(db, body.project)
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      const { project: _project, ...asked } = body
+      const parsed = methodParams['parts.set'].safeParse(asked)
+      const edit = parsed.success ? editIn(parsed.data) : null
+      if (!parsed.success || !edit) {
+        return json({ error: parsed.success ? 'One change at a time.' : (parsed.error.issues[0]?.message ?? 'That is not an edit of an epic’s parts.') }, 400)
+      }
+      const done = partsEdited(project.path, parsed.data.epic, edit)
+      return json({ result: done.result, epic: done.epic })
     }
 
     /*

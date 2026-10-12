@@ -47,6 +47,12 @@ export const ANSWERED_BY_THE_SERVER = [
      included, which hears it the way it hears an agent's write. See
      `server/content.ts`. */
   'content.changed',
+  /* One edit of an epic's list of parts: a write into the epic's own file in
+     the project's folder, which only the server can name — the same reason
+     `disposition.set` is here. The page hears of it as it hears of any write
+     to an epic: `context.content` moves and the epics are read again. See
+     `editParts` in `server/holdings.ts`. */
+  'parts.set',
 ] as const
 
 /**

@@ -281,9 +281,8 @@ export function Container({
           ? 'border-primary ring-primary/60 pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
           : 'pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border'
       }
-      /* Which module this container is showing, so the one press that sends a
-         person to a module — the bar's "divide this epic into parts" — can
-         scroll to it and mark it. See `land` in `Dividing.ts`. */
+      /* Which module this container is showing, for anything that has to find
+         one container on the canvas by what is in it. */
       data-module={presence.id}
     >
       {/*

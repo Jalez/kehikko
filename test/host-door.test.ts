@@ -315,6 +315,7 @@ describe('the host’s server, running', () => {
         'read_canvas',
         'read_tracker',
         'select_modules',
+        'set_parts',
       ])
 
       /* The POST route reaches the host's door too — refused here, before

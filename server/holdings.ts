@@ -1,12 +1,21 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { EPIC_SLUG, journeyIn, stepsFromSchema, type StepsFrom } from 'kehikot-module-protocol'
-import { readJourneys } from 'kehikot-module-protocol/serve'
+import {
+  EPIC_SLUG,
+  journeyIn,
+  own as ownKey,
+  stepsFromSchema,
+  type ListedPart,
+  type PartsSetResult,
+  type ProjectHoldings,
+  type StepsFrom,
+} from 'kehikot-module-protocol'
+import { readHoldings, readJourneys } from 'kehikot-module-protocol/serve'
 
 import { slugFrom } from '../src/host/epics.ts'
 
-import { partsOf, type Part } from '../src/host/parts.ts'
+import { edited, listedIn, partsHeld, type Part, type PartsEdit } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
 
 /**
@@ -112,9 +121,10 @@ export interface EpicSummary {
    */
   stepsFrom?: StepsFrom
   /**
-   * The parts this epic is divided into — its `groups`, with an id each and
-   * the refs of the steps assigned to them folded in. Present only when the
-   * file has some. See `src/host/parts.ts`.
+   * The parts of this epic: the list its own file keeps — or, for an epic
+   * whose file keeps none yet, the one read off its record as before — each
+   * with what the modules hold for it. Present only when there are some. See
+   * `partsHeld` in `src/host/parts.ts`.
    */
   parts?: Part[]
 }
@@ -142,6 +152,8 @@ export function listEpics(dir: string): EpicSummary[] {
      rows would otherwise put an epic list on screen that was never true at
      any single moment. */
   const journeys = readJourneys(dir)
+  /* And once for what the modules hold for the parts, for the same reason. */
+  const holdings = readHoldings(dir)
 
   for (const file of files) {
     if (!file.endsWith('.json')) continue
@@ -149,7 +161,7 @@ export function listEpics(dir: string): EpicSummary[] {
     if (!SLUG.test(slug)) continue
     const own = read(join(epicsDir(dir), file))
     if (!own) continue
-    epics.push(summarise(slug, epicOf(dir, slug, own, journeys)))
+    epics.push(summarise(slug, epicOf(dir, slug, own, journeys), own, holdings))
   }
 
   return epics.sort((a, b) => (a.title ?? a.slug).localeCompare(b.title ?? b.slug))
@@ -170,7 +182,14 @@ export function listEpics(dir: string): EpicSummary[] {
  * sending `String(title)` would put somebody's object id on screen as the name
  * of an epic.
  */
-function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
+function summarise(
+  slug: string,
+  epic: Record<string, unknown>,
+  /** The host's own file for the epic: where its list of parts is, when it keeps one. */
+  own: Record<string, unknown>,
+  /** What the modules of the project hold for parts, read once by the caller. */
+  holdings: ProjectHoldings,
+): EpicSummary {
   const summary: EpicSummary = { slug: str(epic.slug) ?? slug }
   const title = str(epic.title)
   if (title) summary.title = title
@@ -185,7 +204,7 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
   /* Absent rather than `[]` for an epic with none, for the reason `size` is
      absent rather than zero: the list is then exactly what it was before
      parts were read at all. */
-  const parts = partsOf(epic)
+  const parts = partsHeld(listedIn(own), epic, ownKey(holdings, slug), slug)
   if (parts.length) summary.parts = parts
   return summary
 }
@@ -203,7 +222,7 @@ function summarise(slug: string, epic: Record<string, unknown>): EpicSummary {
  * - `epic.get` — the object itself (`answers.ts`);
  * - `steps.list` — `readStepsSaid`, below;
  * - `epics.list`, and the summary a retitle or a create answers with —
- *   `summarise`, which is where `partsOf` gets its groups and steps and where
+ *   `summarise`, which is where the parts are read (`partsHeld`) and where
  *   the size is counted;
  * - the parts in `context.parts` — the page composes them from that list;
  * - the tracker's scope for an epic and for a project — `epicRefs` and
@@ -241,8 +260,11 @@ export function readEpic(dir: string, slug: string): Record<string, unknown> | n
  *
  * The owner decided, and this function is where the decision is carried out:
  *
- * - **Journeys owns the steps, the groups (an epic's parts) and the prose.**
- * - **This host owns the slug, the title, and whether the epic exists.**
+ * - **Journeys owns the steps and the prose.**
+ * - **This host owns the slug, the title, whether the epic exists — and the
+ *   list of its parts**, when its file keeps one (`listedIn`); see
+ *   `editParts`. An epic whose file keeps none is read as it was: the
+ *   record's `groups`.
  *
  * So: when the project keeps a record for `slug`, the answer is that record,
  * under this host's own slug and title. When it keeps none, the answer is
@@ -298,7 +320,10 @@ function epicOf(
   const record = journeyIn(journeys, slug)
   if (!record) return own
   const title = str(own.title)
-  return { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}) }
+  /* The list of parts is this host's, like the slug and the title: when its
+     file keeps one, that is the epic's list, whatever the record says. */
+  const listed = listedIn(own)
+  return { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}), ...(listed ? { parts: listed } : {}) }
 }
 
 /**
@@ -443,7 +468,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
      `shareKehikot` gives about the `.gitignore`: pressing a control that is
      already where you pressed it must not put a modified file in somebody's
      `git status`. */
-  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)) }
+  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root)) }
 
   const next = withTitle(raw, wanted)
   if (next === null) {
@@ -460,7 +485,8 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, epicOf(root, slug, { ...epic, title: wanted })) }
+  const now = { ...epic, title: wanted }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, now), now, readHoldings(root)) }
 }
 
 /**
@@ -605,7 +631,7 @@ export function createEpic(
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic)), file: path, madeDirectory }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root)), file: path, madeDirectory }
 }
 
 export type Deleted = { ok: true } | { ok: false; why: string; status: number }
@@ -648,6 +674,157 @@ export function deleteEpic(root: string, slug: string): Deleted {
     return { ok: false, why: `${slug}.json could not be deleted: ${(error as Error).message}`, status: 500 }
   }
   return { ok: true }
+}
+
+/**
+ * The parts of one epic, as `epics.list` lists them on its row: `null` when
+ * the project has no such epic, `[]` for one with no parts. For a caller that
+ * wants one epic's parts and not the listing — the host's door.
+ */
+export function readParts(root: string, slug: string): Part[] | null {
+  if (!SLUG.test(slug)) return null
+  const own = read(join(epicsDir(root), `${slug}.json`))
+  return own ? (summarise(slug, epicOf(root, slug, own), own, readHoldings(root)).parts ?? []) : null
+}
+
+/** What came of one edit of an epic's parts: the protocol's answer, the epic as it now reads, and whether a file was written. */
+export interface PartsEdited {
+  result: PartsSetResult
+  /** The epic's row as it reads after the call; null when this project has no such epic. */
+  epic: EpicSummary | null
+  /** Whether the epic's file was written. False for everything but `changed`. */
+  written: boolean
+}
+
+/**
+ * One edit of an epic's list of parts, written into the epic's own file.
+ *
+ * ## The one writer
+ *
+ * The list is `parts: [{ id, name }]` in `.kehikot/kehikko/epics/<slug>.json`
+ * and this is the only function that writes it. The picker in the bar
+ * (`POST /host/parts`), a module's `parts.set` (`answers.ts`) and `set_parts`
+ * at the host's door (`mcp.ts`) all come here, and what an edit DOES is
+ * decided in one pure function they therefore share: `edited` in
+ * `src/host/parts.ts`. Three ways to add a part that could give it three ids
+ * is the disagreement that file describes having deleted once already.
+ *
+ * ## Adopted once
+ *
+ * An epic whose file has no `parts` key has the list it always had: the one
+ * read off its record (`partsHeld` with no list). The first edit that changes
+ * anything is applied to THAT list and the whole result is written — every
+ * id and name exactly as it was read, plus the one change — and from then on
+ * the file's key is the list and the record is not consulted for it. Ids
+ * survive by construction: nothing is derived again, and the project's
+ * stored picks and whatever a module filed under an id go on naming a part.
+ *
+ * An edit that changes nothing writes nothing, adoption included: asking for
+ * a name a part already has must not put a modified file in somebody's
+ * `git status`.
+ *
+ * ## One field, and every other byte where it was
+ *
+ * `withMember`, as a retitle does it and for its reason: this is a document
+ * somebody wrote. A file that cannot be read as JSON, or is not one object,
+ * is declined and left alone.
+ *
+ * ## Nothing between the read and the write
+ *
+ * Synchronous from `readFileSync` to the rename, so no other call in this
+ * process — a second edit, a retitle — can read the file in between and write
+ * the first one away. Written to a temporary file beside it and renamed, so
+ * a reader never finds half a document. (Another PROGRAM writing the same
+ * file in that instant is not guarded against, here or in `retitleEpic`.)
+ *
+ * Never throws. Every refusal is one of the protocol's outcomes with a
+ * sentence in `why`.
+ */
+export function editParts(root: string | null | undefined, slug: unknown, edit: PartsEdit): PartsEdited {
+  const declined = (why: string, parts: ListedPart[] = []): PartsEdited => ({
+    result: { outcome: 'declined', parts, id: null, why },
+    epic: null,
+    written: false,
+  })
+  if (typeof slug !== 'string' || !SLUG.test(slug) || !root || !epicsIn(root)) {
+    return declined('There is no such epic in the open project.')
+  }
+  const path = join(epicsDir(root), `${slug}.json`)
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch {
+    return declined('There is no such epic in the open project.')
+  }
+  const own = parse(raw)
+  if (!own) return declined(`${slug}.json could not be read as JSON, and this host will not overwrite a file it cannot read.`)
+
+  const holdings = readHoldings(root)
+  const epic = epicOf(root, slug, own)
+  const list: ListedPart[] =
+    listedIn(own) ?? partsHeld(null, epic, undefined, slug).map((part) => ({ id: part.id, name: part.heading }))
+  const result = edited(list, edit)
+  if (result.outcome !== 'changed') return { result, epic: summarise(slug, epic, own, holdings), written: false }
+
+  const next = withMember(raw, 'parts', (indent) => listText(result.parts, indent))
+  if (next === null) {
+    return declined(`${slug}.json is not laid out in a way this host can change one field of without rewriting the rest of it.`, list)
+  }
+  const beside = `${path}.tmp-${process.pid}`
+  try {
+    writeFileSync(beside, next, 'utf8')
+    renameSync(beside, path)
+  } catch (error) {
+    try {
+      unlinkSync(beside)
+    } catch {
+      /* It was never made. */
+    }
+    return declined(`${slug}.json could not be written: ${(error as Error).message}`, list)
+  }
+  const now = { ...own, parts: result.parts }
+  return { result, epic: summarise(slug, epicOf(root, slug, now), now, holdings), written: true }
+}
+
+/**
+ * The list as it is written: one part to a line, so adding one is a one-line
+ * diff in a repository. `indent` is the indentation of the file's own
+ * members; with none to go by it is one line.
+ */
+function listText(parts: readonly ListedPart[], indent: string | null): string {
+  const one = (part: ListedPart) => `{ "id": ${JSON.stringify(part.id)}, "name": ${JSON.stringify(part.name)} }`
+  if (parts.length === 0) return '[]'
+  if (indent === null) return `[${parts.map(one).join(', ')}]`
+  return `[\n${parts.map((part) => `${indent}${indent}${one(part)}`).join(',\n')}\n${indent}]`
+}
+
+/**
+ * The same file with one top-level member set, and every other byte where it
+ * was: `withTitle`'s walk, for a member whose value is built knowing the
+ * file's indentation. A member that is there has its value's span replaced;
+ * one that is not is added after the last. `null` when the text is not one
+ * object.
+ */
+export function withMember(raw: string, name: string, value: (indent: string | null) => string): string | null {
+  const list = members(raw)
+  if (!list) return null
+  const first = list[0]
+  const lead = first ? raw.slice(raw.lastIndexOf('\n', first.start) + 1, first.start) : null
+  /* The file's own indentation, when its first member starts a line of its
+     own; two spaces for an object with nothing in it; otherwise unknown. */
+  const indent = lead !== null && /^[ \t]+$/.test(lead) ? lead : first ? null : '  '
+
+  const found = list.find((member) => member.name === name)
+  if (found) return raw.slice(0, found.valueStart) + value(indent) + raw.slice(found.valueEnd)
+
+  const last = list[list.length - 1]
+  if (!last) {
+    const open = raw.indexOf('{')
+    const close = raw.lastIndexOf('}')
+    return `${raw.slice(0, open + 1)}\n${indent}${JSON.stringify(name)}: ${value(indent)}\n${raw.slice(close)}`
+  }
+  const between = indent === null ? ' ' : `\n${indent}`
+  return `${raw.slice(0, last.valueEnd)},${between}${JSON.stringify(name)}: ${value(indent)}${raw.slice(last.valueEnd)}`
 }
 
 /** Text as it is quoted back in a refusal: whole when short, cut when it is a paragraph. */

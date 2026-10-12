@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { Parts, countOf, type Undividing } from '../src/canvas/Parts.tsx'
+import { Parts, countOf } from '../src/canvas/Parts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import type { Part } from '../src/host/parts.ts'
 
@@ -27,17 +27,11 @@ function draw(list: readonly Part[], picked: readonly string[]): string {
   )
 }
 
-/** The control as an epic with no parts draws it, with Journeys wherever a case puts it. */
-function undivided(maker: Undividing['maker'], more: Partial<Undividing> = {}, picked: readonly string[] = []): string {
+/** The control as an epic with no parts draws it, once its list can be edited. */
+function undivided(picked: readonly string[] = []): string {
   return renderToStaticMarkup(
     <TooltipProvider>
-      <Parts
-        parts={[]}
-        picked={picked}
-        onPick={() => {}}
-        epic="thesis"
-        undivided={{ maker, going: null, trouble: null, ask: () => {}, press: () => {}, ...more }}
-      />
+      <Parts parts={[]} picked={picked} onPick={() => {}} epic="thesis" onEdit={async () => true} />
     </TooltipProvider>,
   )
 }
@@ -48,20 +42,38 @@ describe('the parts control', () => {
     expect(draw([], ['the-posting-seam'])).toBe('')
   })
 
-  test('an epic with no parts is NOT nothing: the entry is there, quiet, and says so', () => {
-    const html = undivided({ at: 'elsewhere', name: 'Journeys' })
+  test('an epic with no parts is NOT nothing: the entry is there, quiet, the size of the picker, and says so', () => {
+    const html = undivided()
     expect(html).toContain('no parts')
-    expect(html).toContain('it is not divided into parts yet')
-    expect(html).toContain('data-undivided="elsewhere"')
+    expect(html).toContain('it has none yet')
+    expect(html).toContain('data-parts="0"')
+    /* The same control the picker is, not a second one: a menu. */
+    expect(html).toContain('aria-haspopup="menu"')
+    expect(html).toContain('h-6 max-w-56 gap-1 px-1.5 text-xs')
     /* Quiet: it is not a focus, and must not look like one. */
     expect(html).not.toContain('data-narrowed')
     expect(html).not.toContain('clear the focus')
   })
 
+  test('but not while the epics are still being read: "no parts" would be said about every epic', () => {
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <Parts parts={[]} picked={[]} onPick={() => {}} epic="thesis" />
+      </TooltipProvider>,
+    )
+    expect(html).toBe('')
+  })
+
   test('and still says a picked part is gone, when the last part was removed while picked', () => {
-    const html = undivided({ at: 'here', name: 'Journeys', collapsed: false }, {}, ['a-part-that-was-removed'])
+    const html = undivided(['a-part-that-was-removed'])
     expect(html).toContain('data-gone="1"')
     expect(html).toContain('a picked part is gone')
+  })
+
+  test('nowhere does it name a module', () => {
+    for (const html of [undivided(), draw(parts, []), draw(parts, ['the-agent-seam'])]) {
+      expect(html).not.toMatch(/journeys|paper/i)
+    }
   })
 
   test('nothing picked says all parts, quietly, and offers no clear button', () => {
@@ -119,5 +131,7 @@ describe('the parts control', () => {
       countOf({ id: 'design', heading: 'Design', refs: ['gh#1'], steps: 3, files: ['chapters/a.tex', 'chapters/b.tex'] }),
     ).toBe('3 steps · 1 ref · 2 files')
     expect(countOf({ id: 'design', heading: 'Design', refs: [], steps: 0, files: [] })).toBe('')
+    /* A document any module holds for the part is a file of it, wherever it is kept. */
+    expect(countOf({ id: 'design', heading: 'Design', refs: [], steps: 0, documents: ['docs/design.md', 'src/a.ts'] })).toBe('2 files')
   })
 })

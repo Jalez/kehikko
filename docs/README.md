@@ -173,8 +173,8 @@ The owner decided who owns what:
 
 | | |
 |---|---|
-| **Journeys** | the steps, the groups (which the host reads as the epic's **parts**), and the prose around them |
-| **The host** | the epic's slug, its title, and whether it exists |
+| **Journeys** | the steps and the prose around them |
+| **The host** | the epic's slug, its title, whether it exists, and its list of **parts** |
 
 So `epicOf` in `server/holdings.ts` — the one reader, which
 `test/one-reader.test.ts` holds to being one — prefers the project's journey
@@ -228,69 +228,64 @@ read the trackers for those as well has not been decided, so it does not.
 
 ## An epic has parts, and the project can be pointed at some of them
 
-A large epic is divided into **parts**: one level deep, a heading and what is
-under it. A part is one of the `groups` an epic file has always had —
+A large epic is divided into **parts**: one level deep, an id, a name and a
+place in an order. **A part belongs to the epic and to no module**, and nothing
+in this host names a module for the purpose of parts.
+
+**The list is in the epic's own file**, and the host is its only writer:
 
 ```json
-"groups": [
-  { "heading": "The posting seam", "refs": ["gh#1", "gh#3", "gh#2"] },
-  { "id": "agents", "heading": "The agent seam", "refs": ["gh#4"] }
+"parts": [
+  { "id": "the-posting-seam", "name": "The posting seam" },
+  { "id": "agents", "name": "The agent seam" }
 ]
 ```
 
-— and every epic already on disk that has groups has parts, with nothing
-migrated. A part's id is the `id` written beside its heading when there is one,
-and otherwise the heading as a slug (`the-posting-seam`); write the id down
-before rewording a heading, because the id is what a step and a stored focus
-hold on to.
+A part's id is made once, when it is added, from the name it had then
+(`partIdFor`, the protocol's), and no edit changes it: a rename changes the
+name, a move the order. The id is what a step's `part`, the project's stored
+focus and a module's own data hold on to.
 
-A **step says which part it is in**: `"part": "the-posting-seam"` on the step.
-It is not worked out from the refs the step names, and a step with no `part`
-belongs to the epic as a whole. The host folds an assigned step's refs into its
-part, so a module that only knows references narrows correctly.
+**An epic whose file has no `parts` key yet is read as before** — its record's
+`groups`, one part each, with the id written on the group or its heading as a
+slug — so a project nobody has edited the parts of behaves exactly as it did.
+The first edit **adopts** that list: it is written into the epic's file with
+every id and name as it was read, plus the one change, and from then on only
+the file is read for the list (`listedIn`, `partsHeld`, `editParts`).
 
-A control for the parts stands in the bar directly after the epic, for every
-open epic. When the epic has parts it is a list of checkboxes, where nothing
-ticked means the whole epic. Ticking some points every module at those parts.
-The control is filled and names what it is narrowed to for as long as it is,
-with a clear button beside it — a focus that hid things without saying so is
-the failure it is built against.
+**What a part holds is the modules'.** Each module keeps what it has for a part
+in its own data and publishes it as `.kehikot/<module>/parts.json`; the host
+reads that file from every folder under `.kehikot/` (`readHoldings`, which names
+no module) and unions them: `refs`, and `documents` — project-relative paths,
+whichever module keeps them. `files` is still filled for a module built before
+`documents`: the documents that have a paper-relative name. Until a module
+publishes, what the record says for the part is folded in as it always was — a
+group's `files`, and the refs of the steps filed under the part's id. The epics
+are read again on any change to the project's material, so a module publishing
+a chapter for a part is seen at once.
 
-**When the epic has no parts the control is still there**, quiet, saying "no
-parts". It used to be drawn only for an epic that already had some, so nothing
-on screen said an epic could be divided or where — the feature's one door was
-drawn after somebody had been through it. Opened, it says the epic is not
-divided yet, what a part is for, and where parts are made — in Journeys — with
-**one press** that goes there:
+**The control in the bar is where parts are picked and where they are made.**
+It stands directly after the epic, for every open epic. It is a list of
+checkboxes, where nothing ticked means the whole epic; ticking some points
+every module at those parts, and the control is filled and names what it is
+narrowed to for as long as it is, with a clear button beside it. The list ends
+in **+ part**, which turns into a name box; a row under the pointer or the
+keyboard's focus shows, in the room its count otherwise takes, rename, move up,
+move down and remove (which asks once). F2 renames, Alt+↑/↓ move, Delete
+removes. An epic with no parts draws the same control, saying "no parts", and
+opens straight onto the name box.
 
-| Journeys is… | the control says | the press |
-|---|---|---|
-| on this kehikko | "…which is on this kehikko." | *divide this epic into parts in Journeys* |
-| registered, not on this kehikko | "…which is not on this kehikko." | *put Journeys here and divide this epic into parts* |
-| not installed | "…which is not installed on this computer." | *install Journeys and divide this epic into parts* |
+Every edit — the picker's (`POST /host/parts`), a module's **`parts.set`**
+(answered by the server; declined for a module whose manifest does not ask for
+`parts:set`, and for an epic that is not one of the open project's) and an
+agent's **`set_parts`** at the host's door — goes through one writer,
+`editParts` in `server/holdings.ts`, which changes that one field of the file
+and leaves every other byte where it was.
 
-One press in every case; what differs is how much the host does first —
-install the module from the official list, put its container on the open
-kehikko, unfold it — before it scrolls to it, marks it, and walks it to the
-place. The walk is `kehikot.goto` naming the reference `journeys:parts`, which
-Journeys reads as "where this epic is divided": its parts box, or — for an epic
-the project keeps no journey for — the offer to begin one and divide it. A walk
-was chosen because it is the one way a host points at a module that is
-ANSWERED (`kehikot.went`): an older Journeys that does not know the reference
-says it found nothing, and the control puts that sentence in front of the
-person instead of a press that did nothing. The press is for an epic and a
-kehikko and is dropped if either changes while a module installs.
-
-A column is a fixed budget of rows handed out from the top, so Journeys under a
-container that fills the screen is drawn at three rows, and the press lands
-there. The control then stays open and says so, with how to give it height; the
-host does not take rows from the container above on its own.
-
-**The host still writes no part.** Parts are Journeys' material and it is the
-only writer; this is a way there. See `src/host/dividing.ts` (the decisions,
-pure) and `src/canvas/Dividing.ts` (the effect). `journeys:parts` is spelled in
-this host and in Journeys, and belongs in the protocol beside
-`JOURNEYS_MODULE`.
+A module built with a protocol before 1.2.0 cannot read more than 32 parts and
+would drop the whole context for a longer epic, so each module is sent
+`partsFor(parts, manifest.build.protocol)`: every picked part, and the rest in
+order, up to what it can take (`readableBy` in `src/host/context.ts`).
 
 The focus is the **project's**, held beside its epic and its selection
 (`projects.parts`, and a top-level `"parts"` in `kehikot.json`, written only
@@ -298,18 +293,9 @@ when some are picked). It is never a kehikko's: switching layout changes
 neither the epic nor what is picked out of it. Switching epic clears it.
 
 Modules are told through `context.parts` — every part of the open epic, with
-its refs and whether it is picked — so that one which narrows can say how much
-it left out. See `src/host/parts.ts`, and `parts.ts` in the protocol.
-
-A part may also name the **files of the epic's paper** it owns (protocol
-0.32.0): `"files": ["chapters/design.tex"]` on the group, each relative to
-`<project>/.kehikot/paper/<epic>/`. The host does not open them and does not
-check they exist — the paper is the Paper module's. It reads them with the
-protocol's `partsOf`, shows how many a part has in the picker beside its steps
-and refs, and sends them on in `context.parts[].files`, so a module that shows
-the paper can narrow to a part's own files. The key is absent on a part that
-names none, at every step, so a part with no files is the same four fields it
-always was.
+its refs, its documents and whether it is picked. Keys are absent when empty,
+so a part nobody holds anything for is the same four fields it always was. See
+`src/host/parts.ts`, and `docs/parts.md` in the protocol.
 
 ## An epic can be retitled here, and cannot be re-slugged
 

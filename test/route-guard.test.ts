@@ -187,6 +187,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/epics', body: { project, slug: 'two', title: 'Two' } },
       { method: 'PATCH', path: '/host/epics', body: { project, slug: 'one', title: 'Renamed' } },
       { method: 'DELETE', path: '/host/epics', body: { project, slug: 'one' } },
+      { method: 'POST', path: '/host/parts', body: { project, epic: 'one', add: { name: 'Unwanted' } } },
       { method: 'POST', path: '/host/tracker/refresh', body: { project: 999999 } },
       { method: 'POST', path: '/host/versions', body: { module: 'kehikot.nothing', kehikko, version: null } },
       { method: 'POST', path: '/host/call', body: { module: 'kehikot.nothing', method: 'state.set', params: {} } },
@@ -250,6 +251,14 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/epics', { project, slug: 'two', title: 'Two' })).status).toBe(201)
     expect((await pressed('PATCH', '/host/epics', { project, slug: 'two', title: 'Second' })).body.epic.title).toBe('Second')
     expect((await pressed('PATCH', '/host/subject', { project, epic: 'two' })).body.subject.epic).toBe('two')
+    /* The picker's edit of an epic's parts: the protocol's result, and the row as it now reads. */
+    const part = await pressed('POST', '/host/parts', { project, epic: 'two', add: { name: 'A first part' } })
+    expect(part.body.result).toMatchObject({ outcome: 'changed', id: 'a-first-part', parts: [{ id: 'a-first-part', name: 'A first part' }] })
+    expect(part.body.epic.parts).toEqual([{ id: 'a-first-part', heading: 'A first part', refs: [], steps: 0 }])
+    expect((await pressed('POST', '/host/parts', { project, epic: 'two', remove: { id: 'nope' } })).body.result.outcome).toBe('no-such-part')
+    expect((await pressed('POST', '/host/parts', { project, epic: 'no-such-epic', add: { name: 'A' } })).body.result.outcome).toBe('declined')
+    expect((await pressed('POST', '/host/parts', { project, epic: 'two' })).status).toBe(400)
+    expect((await send('GET', `/host/epics?project=${project}`, undefined, {})).body.epics.find((e: { slug: string }) => e.slug === 'two').parts).toHaveLength(1)
     expect((await pressed('DELETE', '/host/epics', { project, slug: 'two' })).body.deleted).toBe('two')
 
     expect((await pressed('POST', '/host/tracker/refresh', { project: 999999 })).status).toBe(404)

@@ -1,6 +1,7 @@
 import {
   contextSchema,
   KEHIKKO_KEY,
+  partsFor,
   partsSchema,
   passageSchema,
   type CanvasContainer,
@@ -484,4 +485,25 @@ export function whileFrozen(
     filters: told.filters,
     ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker, content: told.content } : {}),
   }
+}
+
+/**
+ * One context, as ONE module can read it.
+ *
+ * The context is composed once for the canvas, and since protocol 1.2.0 it
+ * may list up to `LIMITS.PARTS` (128) parts. A module built with a package
+ * from before that parses it with a schema that stops at 32, and a context
+ * that fails to parse is not a context with fewer parts: it is no context at
+ * all — the module is never told the epic, the project or the theme. So what
+ * is sent is cut per module by the package version in its own manifest
+ * (`build.protocol`), with the protocol's `partsFor`: every picked part kept,
+ * the rest in the epic's order, up to what that build takes. A module with no
+ * build stamp is treated as an old one.
+ *
+ * The same object back when nothing is cut, so a frame's memo does not see a
+ * new context where there is none.
+ */
+export function readableBy(context: ModuleContext, builtWith: string | null | undefined): ModuleContext {
+  const parts = partsFor(context.parts, builtWith)
+  return parts.length === context.parts.length ? context : { ...context, parts }
 }

@@ -30,7 +30,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b9 pass/)
+    expect(out).toMatch(/\b19 pass/)
   }, 60_000)
 }
 
@@ -42,6 +42,7 @@ let createRoot: typeof import('react-dom/client').createRoot
 let Parts: typeof import('../src/canvas/Parts.tsx').Parts
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let partsOnWire: typeof import('../src/host/parts.ts').partsOnWire
+let edited: typeof import('../src/host/parts.ts').edited
 let subject: typeof import('../src/host/subject.ts')
 
 /** Every write to the server: the body of each `PATCH /host/subject`. */
@@ -64,7 +65,7 @@ beforeAll(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   ;({ Parts } = await import('../src/canvas/Parts.tsx'))
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
-  ;({ partsOnWire } = await import('../src/host/parts.ts'))
+  ;({ partsOnWire, edited } = await import('../src/host/parts.ts'))
   subject = await import('../src/host/subject.ts')
 })
 
@@ -95,22 +96,26 @@ const [A, B, C] = parts.map((part) => part.id) as [string, string, string]
  * `context.parts` a module would have been sent, the first being the one it
  * already had.
  */
-async function open(stored: string[]) {
+async function open(stored: string[], from: readonly Part[] = parts, editable = true) {
   const picks: string[][] = []
   const contexts: string[][] = []
+  /** Every edit the picker asked for, as `parts.set` would carry it. */
+  const edits: unknown[] = []
   const PROJECT = 1
   function Wired() {
     const [subjects, setSubjects] = React.useState(() => subject.withEdit({}, PROJECT, { epic: 'thesis', parts: stored }))
+    /* The epic's list, held where `App.tsx` holds the project's epics: an edit is answered with the row as it now reads. */
+    const [list, setList] = React.useState<readonly Part[]>(from)
     const about = subject.subjectOf(subjects, PROJECT)
     /* `narrowedTo` in `App.tsx`: the context is rebuilt when this string moves. */
-    const narrowedTo = JSON.stringify(partsOnWire(parts, about.parts))
+    const narrowedTo = JSON.stringify(partsOnWire(list, about.parts))
     React.useEffect(() => {
       contexts.push((JSON.parse(narrowedTo) as { id: string; picked: boolean }[]).filter((p) => p.picked).map((p) => p.id))
     }, [narrowedTo])
     return (
       <TooltipProvider>
         <Parts
-          parts={parts}
+          parts={list}
           picked={about.parts}
           epic="thesis"
           onPick={(ids) => {
@@ -118,6 +123,18 @@ async function open(stored: string[]) {
             setSubjects((was) => subject.withEdit(was, PROJECT, { parts: ids }))
             void subject.editSubject(PROJECT, { parts: ids })
           }}
+          onEdit={
+            editable
+              ? async (edit) => {
+                  edits.push(edit)
+                  /* The server's one writer decides with this same function. */
+                  const said = edited(list.map((part) => ({ id: part.id, name: part.heading })), edit)
+                  if (said.outcome !== 'changed' && said.outcome !== 'unchanged') return false
+                  setList(said.parts.map((one) => list.find((part) => part.id === one.id && part.heading === one.name) ?? { ...(list.find((part) => part.id === one.id) ?? { refs: [], steps: 0 }), id: one.id, heading: one.name }))
+                  return true
+                }
+              : null
+          }
         />
       </TooltipProvider>
     )
@@ -132,7 +149,7 @@ async function open(stored: string[]) {
     trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
     trigger.click()
   })
-  return { picks, contexts }
+  return { picks, contexts, edits, trigger, host }
 }
 
 const row = (id: string) => document.querySelector(`[data-part="${id}"]`) as HTMLElement
@@ -246,3 +263,147 @@ describe.if(inChild)('one press is one write and one context', () => {
     expect(contexts).toHaveLength(3)
   })
 })
+
+/** Every part in the menu, top to bottom, as its id. */
+const order = () => [...document.querySelectorAll('[data-part]')].map((el) => el.getAttribute('data-part'))
+const tool = (id: string, label: string) => row(id).querySelector(`[aria-label^="${label}"]`) as HTMLElement
+const box_ = (label: string) => document.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement | null
+/** Type a name into a box the way a person does, and press a key in it. */
+async function type(input: HTMLInputElement, text: string, then: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => void input.dispatchEvent(new KeyboardEvent('keydown', { key: then, bubbles: true, cancelable: true })))
+}
+const addRow = () => [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent === 'part') as HTMLElement
+
+describe.if(inChild)('the picker is where the parts are made', () => {
+  test('the list ends in "+ part", and pressing it puts a name box there', async () => {
+    const { edits } = await open([])
+    const items = [...document.querySelectorAll('[role="menuitem"]')]
+    expect(items.at(-1)).toBe(addRow())
+    expect(box_('the name of a new part')).toBeNull()
+    await press(addRow())
+    const input = box_('the name of a new part')!
+    expect(input.getAttribute('placeholder')).toBe('name of the part')
+    expect(document.activeElement).toBe(input)
+    await type(input, '  Limitations  ', 'Enter')
+    expect(edits).toEqual([{ add: { name: 'Limitations' } }])
+    expect(order()).toEqual([A, B, C, 'limitations'])
+    /* Emptied and still there, with the caret in it: the next one is usually next. */
+    expect(box_('the name of a new part')!.value).toBe('')
+    expect(document.activeElement).toBe(box_('the name of a new part'))
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  })
+
+  test('nothing typed is not a part; Escape leaves the list as it was', async () => {
+    const { edits } = await open([])
+    await press(addRow())
+    await type(box_('the name of a new part')!, '   ', 'Enter')
+    expect(edits).toEqual([])
+    expect(box_('the name of a new part')).toBeNull()
+    await press(addRow())
+    await type(box_('the name of a new part')!, 'Half a na', 'Escape')
+    expect(edits).toEqual([])
+    /* The box is gone and the menu is not: Escape undid the name, not the opening. */
+    expect(box_('the name of a new part')).toBeNull()
+    expect(order()).toEqual([A, B, C])
+    expect(addRow()).toBeDefined()
+  })
+
+  test('an epic with no parts opens straight onto the name box, and one name is one part', async () => {
+    const { edits, trigger } = await open([], [])
+    expect(trigger.textContent).toBe('no parts')
+    expect(document.querySelectorAll('[data-part]')).toHaveLength(0)
+    const input = box_('the name of a new part')!
+    expect(input).not.toBeNull()
+    await type(input, 'Introduction', 'Enter')
+    expect(edits).toEqual([{ add: { name: 'Introduction' } }])
+    expect(order()).toEqual(['introduction'])
+    expect(trigger.textContent).toBe('all parts')
+    /* The same menu, still open, now with a list in it. */
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  })
+
+  test('rename is typed in the row; the id does not change and what was picked stays picked', async () => {
+    const { edits, picks, contexts } = await open([B])
+    await press(tool(B, 'rename'))
+    const input = box_('what the part The agent seam is called')!
+    expect(input.value).toBe('The agent seam')
+    /* The other rows are still there: a part is named by looking at the others. */
+    expect(order()).toEqual([A, B, C])
+    await type(input, 'One function posts', 'Enter')
+    expect(edits).toEqual([{ rename: { id: B, name: 'One function posts' } }])
+    expect(order()).toEqual([A, B, C])
+    expect(name(B).textContent).toStartWith('only One function posts')
+    expect(ticked()).toEqual([B])
+    expect(picks).toEqual([])
+    /* One context for the new name; the pick in it is the same pick. */
+    expect(contexts).toEqual([[B], [B]])
+  })
+
+  test('the same name again writes nothing; F2 on a row is the pencil', async () => {
+    const { edits } = await open([])
+    await key(name(C), 'F2')
+    const input = box_('what the part What the page shows is called')!
+    await type(input, 'What the page shows', 'Enter')
+    expect(edits).toEqual([])
+    expect(box_('what the part What the page shows is called')).toBeNull()
+  })
+
+  test('up and down move a part one place, and the ends have nowhere to go', async () => {
+    const { edits } = await open([])
+    await press(tool(C, 'move What the page shows up'))
+    expect(order()).toEqual([A, C, B])
+    await press(tool(C, 'move What the page shows up'))
+    expect(order()).toEqual([C, A, B])
+    await press(tool(C, 'move What the page shows up'))
+    await press(tool(C, 'move What the page shows down'))
+    expect(order()).toEqual([A, C, B])
+    expect(edits).toEqual([{ move: { id: C, after: A } }, { move: { id: C, after: null } }, { move: { id: C, after: A } }])
+    expect(tool(A, 'move The posting seam up').getAttribute('aria-disabled')).toBe('true')
+    expect(tool(B, 'move The agent seam down').getAttribute('aria-disabled')).toBe('true')
+    /* On the keyboard: Alt and an arrow. */
+    await key2(name(B), 'ArrowUp')
+    expect(order()).toEqual([A, B, C])
+  })
+
+  test('remove asks once: the first press arms, the second removes, and a press on the name while armed picks nothing', async () => {
+    const { edits, picks } = await open([])
+    await press(tool(B, 'remove'))
+    expect(edits).toEqual([])
+    expect(row(B).textContent).toContain('remove?')
+    await press(name(B))
+    expect(picks).toEqual([])
+    await press([...row(B).querySelectorAll('button')].find((el) => el.textContent === 'remove?') as HTMLElement)
+    expect(edits).toEqual([{ remove: { id: B } }])
+    expect(order()).toEqual([A, C])
+  })
+
+  test('a picked part that is removed is said in the bar, with one press to forget it', async () => {
+    const { host, picks } = await open([B])
+    await press(tool(B, 'remove'))
+    await press([...row(B).querySelectorAll('button')].find((el) => el.textContent === 'remove?') as HTMLElement)
+    const gone = host.querySelector('[data-gone]') as HTMLElement
+    expect(gone.textContent).toBe('a picked part is gone')
+    await press(gone)
+    expect(picks).toEqual([[]])
+    expect(host.querySelector('[data-gone]')).toBeNull()
+  })
+
+  test('a row says its whole name where a narrow one cannot', async () => {
+    await open([])
+    expect(name(B).querySelector('[title]')!.getAttribute('title')).toBe('The agent seam')
+  })
+
+  test('a list that cannot be edited from here is the picker it always was: no tools, no last row', async () => {
+    await open([], parts, false)
+    expect(document.querySelector('[data-tools]')).toBeNull()
+    expect(addRow()).toBeUndefined()
+    expect(name(B).textContent).toBe('only The agent seam2 steps · 1 ref')
+  })
+})
+
+const key2 = (el: HTMLElement, k: string) =>
+  act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, altKey: true, bubbles: true, cancelable: true })))

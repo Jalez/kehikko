@@ -45,12 +45,17 @@ const LEGACY_FOLDER = basename(LEGACY_DATA_DIR)
  *
  * ## A change to the journeys is a change to what this host answers
  *
- * This host reads an epic's steps and groups out of the Journeys module's
+ * This host reads an epic's steps out of the Journeys module's
  * file — `epicOf` in `holdings.ts` — so the day a step is saved there,
- * `steps.list`, `epic.get`, the row in `epics.list` and `context.parts` all
+ * `steps.list`, `epic.get` and the row in `epics.list` all
  * answer differently, and nothing of this host's own was written. A module
  * listening for `CONTENT_HOST` — "the epics the host keeps changed" — would
  * hear nothing and go on showing the steps from before.
+ *
+ * (The parts are a different matter and need nothing here: what a part
+ * holds may change with ANY module's write — each publishes its own
+ * `parts.json` — so the page reads the project's epics again on every change
+ * it is told of, whoever made it, and composes `context.parts` from that.)
  *
  * So a change by `JOURNEYS_MODULE` is announced twice in one telling: as that
  * module's, which is what it is, and as the host's for the same epic, which
