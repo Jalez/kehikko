@@ -36,6 +36,8 @@
  * two effects.
  */
 
+import type { Pressed, Pressing } from './header.ts'
+
 /** What one framed module offers the host to press. */
 export interface Pressable {
   /** Tell this module to clear what it is showing. See `Conversation.sendClear`. */
@@ -66,7 +68,20 @@ export interface Pressable {
    * person to where an epic is divided into parts; see `host/dividing.ts`.
    */
   walk(target: WalkTarget): Promise<Walked>
+  /**
+   * Tell this module one item of its header was pressed, and hear whether it
+   * took it. See `Conversation.press`.
+   *
+   * A press like the others — made at a moment, on the frame standing then,
+   * never stored and never replayed — and the second one with an answer.
+   * Two callers: a person choosing a row in the container's menus, and an
+   * agent's `press_item`, which the host's server hands to this page.
+   */
+  item(press: Pressing): Promise<Pressed>
 }
+
+/* The shapes of a header press are `header.ts`'s; they are named here for the frame that carries one. */
+export type { Pressed, Pressing }
 
 /** What a walk names: the triple `kehikot.goto` carries. */
 export interface WalkTarget {
@@ -149,5 +164,15 @@ export class Presses {
   walk(id: string, target: WalkTarget): Promise<Walked> | null {
     const frame = this.frames.get(id)
     return frame ? frame.walk(target) : null
+  }
+
+  /**
+   * Press one item of one module's header, if its frame is there — or `null`
+   * when it is not, for `walk`'s reason: "nobody is standing there" and "it
+   * was asked and refused" are different sentences to the person who pressed.
+   */
+  item(id: string, press: Pressing): Promise<Pressed> | null {
+    const frame = this.frames.get(id)
+    return frame ? frame.item(press) : null
   }
 }

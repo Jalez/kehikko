@@ -270,6 +270,8 @@ export function ModuleFrame({
       refresh: () => conversation.sendRefresh(),
       /* And a walk, which is a press with an answer. See `Pressable.walk`. */
       walk: (target) => conversation.goto(target),
+      /* And one item of the module's own header. See `Pressable.item`. */
+      item: (press) => conversation.press(press.item, press.value),
     })
 
     return () => {

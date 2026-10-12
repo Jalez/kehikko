@@ -11,6 +11,7 @@ import {
   type FilterGroup,
   type HeaderItem,
   type ModuleContext,
+  type PressValue,
 } from 'kehikot-module-protocol'
 
 /**
@@ -171,13 +172,34 @@ export const WENT_TIMEOUT_MS = 1200
  */
 export const NOT_GREETED = 'the module has not been greeted'
 
+/**
+ * How long the host waits for `kehikot.pressed`.
+ *
+ * Longer than the client's own backstop, and that order is the point. The
+ * protocol's client answers every press itself — `ok: false` after
+ * `PRESS_BACKSTOP_MS`, two seconds, when the module's listener has not said —
+ * so a module built on it always answers inside two seconds. A host that gave
+ * up at the same moment would race that answer and sometimes report "did not
+ * answer" for a press the module was just then refusing with a reason. What
+ * is left for this deadline is a page that is not listening at all: built
+ * before 1.1.0, or hung.
+ */
+export const PRESSED_TIMEOUT_MS = 3000
+
 interface Pending {
   resolve(answer: { found: boolean; why: string }): void
   timer: ReturnType<typeof setTimeout>
 }
 
+interface PendingPress {
+  resolve(answer: { ok: boolean; why: string }): void
+  timer: ReturnType<typeof setTimeout>
+}
+
 export class Conversation {
   private readonly pending = new Map<string, Pending>()
+  private readonly presses = new Map<string, PendingPress>()
+  private nextPress = 1
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   private greeted = false
   private answered = false
@@ -204,6 +226,7 @@ export class Conversation {
   private readonly name: string
   private readonly readyTimeoutMs: number
   private readonly wentTimeoutMs: number
+  private readonly pressedTimeoutMs: number
 
   constructor(
     private readonly frame: Pick<HTMLIFrameElement, 'contentWindow'>,
@@ -223,12 +246,14 @@ export class Conversation {
       session?: string
       readyTimeoutMs?: number
       wentTimeoutMs?: number
+      pressedTimeoutMs?: number
     } = {},
   ) {
     this.name = options.name ?? moduleId
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
+    this.pressedTimeoutMs = options.pressedTimeoutMs ?? PRESSED_TIMEOUT_MS
   }
 
   /**
@@ -454,6 +479,44 @@ export class Conversation {
   }
 
   /**
+   * Tell this module that one item of its header was pressed, and wait —
+   * briefly — to hear whether it took it.
+   *
+   * `clear` and `refresh` carry nothing and are answered by nothing; this is
+   * the press with a name and an answer. `value` is the option chosen for a
+   * switch or a go item, the state WANTED for a toggle — so a press delivered
+   * twice does not flip twice — and absent for a run.
+   *
+   * The caller has already asked `pressRefusal` of the header as it stands
+   * (`pressing` in `host/header.ts`); the module's client asks it again on
+   * arrival, because the header may have been declared anew in between.
+   *
+   * No answer is "not taken", as the protocol says a host must read it, and
+   * the sentence says which of the two silences it was: a page that has not
+   * been greeted is a press to make again in a moment, a page that was and
+   * said nothing is one that does not hear presses.
+   *
+   * "Taken" is not "finished". A compile that takes a minute answers at once
+   * and says how it is going by declaring its header again; nothing here
+   * waits for that.
+   */
+  press(item: string, value?: PressValue): Promise<{ ok: boolean; why: string }> {
+    if (this.closed) return Promise.resolve({ ok: false, why: `${this.name} was taken off the canvas, so nothing was pressed.` })
+    if (!this.greeted || !this.answered) {
+      return Promise.resolve({ ok: false, why: `${this.name} has not answered the host yet, so nothing was pressed.` })
+    }
+    const id = `p${this.nextPress++}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.presses.delete(id)
+        resolve({ ok: false, why: `${this.name} did not answer the press, so it was not taken.` })
+      }, this.pressedTimeoutMs)
+      this.presses.set(id, { resolve, timer })
+      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }) })
+    })
+  }
+
+  /**
    * One message off the window. The canvas subscribes once and routes by frame.
    *
    * Returns whether this conversation took the message, so a caller holding
@@ -590,8 +653,15 @@ export class Conversation {
     }
 
     case MESSAGE.PRESSED: {
-      /* The answer to a `kehikot.press`, and this host sends none yet, so
-         there is nothing for one to settle. Read, and let go. */
+      /* The answer to a `kehikot.press`, paired by the id the press carried.
+         One that pairs with nothing — a second answer, an answer after the
+         deadline, an id this conversation never issued — is read and let go:
+         a module cannot settle a press that was not made. */
+      const waiting = this.presses.get(message.id)
+      if (!waiting) return true
+      clearTimeout(waiting.timer)
+      this.presses.delete(message.id)
+      waiting.resolve({ ok: message.ok, why: message.why })
       return true
     }
 
@@ -618,6 +688,11 @@ export class Conversation {
       waiting.resolve({ found: false, why: 'the frame was taken off the canvas' })
     }
     this.pending.clear()
+    for (const [, waiting] of this.presses) {
+      clearTimeout(waiting.timer)
+      waiting.resolve({ ok: false, why: `${this.name} was taken off the canvas before it answered.` })
+    }
+    this.presses.clear()
   }
 
   private post(message: unknown): void {
