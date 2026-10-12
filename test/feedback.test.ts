@@ -201,6 +201,45 @@ describe('create', () => {
     expect(calls.filter((call) => call.argv[2] === 'list')).toHaveLength(2)
   })
 
+  test('a list that was being read while an issue was filed is not kept as the list after it', async () => {
+    /* The list `gh` answers with is the one it had when it was asked. Held
+       open across a create, it comes back without the new issue — and kept for
+       a minute it would be what the person is shown about what they just sent. */
+    let listed!: (ran: Ran) => void
+    const listing = new Promise<Ran>((resolve) => {
+      listed = resolve
+    })
+    let lists = 0
+    let reached!: () => void
+    const asked = new Promise<void>((resolve) => {
+      reached = resolve
+    })
+    const nine = { number: 9, title: 't', state: 'OPEN', stateReason: '', url: 'https://github.com/o/r/issues/9', createdAt: 'a', updatedAt: 'b' }
+    const run: Runner = async (argv) => {
+      if (argv[0] === 'git' && argv.includes('remote')) return ok('git@github.com:o/r.git')
+      if (argv[0] === 'git') return ok('abc1234')
+      if (argv[2] === 'create') return ok('https://github.com/o/r/issues/9')
+      lists += 1
+      if (lists > 1) return ok(JSON.stringify([nine, ...rows]))
+      reached()
+      return listing
+    }
+    const desk = feedbackDesk({ run, registration: (id) => ({ id, dir: '/m/notes' }), version: async () => '1.2.0', now: () => 1_000_000 })
+
+    const before = desk.list('notes')
+    await asked
+    const made = await desk.create({ module: 'notes', title: 't', body: '', kehikko: null, epic: null })
+    expect(made.ok).toBe(true)
+    listed(ok(JSON.stringify(rows)))
+    /* The one who asked before gets what was read for them… */
+    const stale = await before
+    expect(stale.ok && stale.value.items.map((item) => item.number)).toEqual([3, 2, 1])
+    /* …and the next one asks again, and has the issue in it. */
+    const after = await desk.list('notes')
+    expect(lists).toBe(2)
+    expect(after.ok && after.value.items.map((item) => item.number)).toEqual([9, 3, 2, 1])
+  })
+
   test('a gh failure is the sentence and nothing is cached away', async () => {
     const { desk } = world({ gh: () => ({ code: 1, out: '', err: 'HTTP 410: Issues are disabled' }) })
     const made = await desk.create({ module: 'notes', title: 't', body: 'b', kehikko: null, epic: null })

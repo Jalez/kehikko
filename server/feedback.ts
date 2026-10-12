@@ -177,6 +177,11 @@ export type Outcome<T> = { ok: true; value: T } | { ok: false; why: string; stat
 export function feedbackDesk(deps: Deps) {
   const now = deps.now ?? Date.now
   const cache = new Map<string, { at: number; items: Item[] }>()
+  /* How many issues this desk has filed per repo. A list is read from GitHub
+     over a wait, and one read before an issue was filed does not have it: kept
+     after the create threw the cache away, it would be the stale list put back
+     for a minute. So a list is kept only if nothing was filed while it was out. */
+  const filed = new Map<string, number>()
 
   async function repoOf(id: string): Promise<Found> {
     const registration = await deps.registration(id)
@@ -206,6 +211,7 @@ export function feedbackDesk(deps: Deps) {
     const kept = cache.get(found.repo)
     if (kept && now() - kept.at < CACHE_MS) return { ok: true, value: { repo: found.repo, items: kept.items } }
 
+    const filedBefore = filed.get(found.repo) ?? 0
     const ran = await deps.run([
       'gh', 'issue', 'list',
       '--repo', found.repo,
@@ -229,7 +235,7 @@ export function feedbackDesk(deps: Deps) {
       url: String(row.url ?? ''),
       updatedAt: String(row.updatedAt ?? row.createdAt ?? ''),
     }))
-    cache.set(found.repo, { at: now(), items })
+    if ((filed.get(found.repo) ?? 0) === filedBefore) cache.set(found.repo, { at: now(), items })
     return { ok: true, value: { repo: found.repo, items } }
   }
 
@@ -262,6 +268,7 @@ export function feedbackDesk(deps: Deps) {
     const url = /https:\/\/github\.com\/\S+\/issues\/(\d+)/.exec(ran.out)
     if (!url) return { ok: false, why: `gh did not say where the issue went: ${ran.out || ran.err}`, status: 502 }
     cache.delete(found.repo)
+    filed.set(found.repo, (filed.get(found.repo) ?? 0) + 1)
     return {
       ok: true,
       value: {
