@@ -323,6 +323,18 @@ describe('version processes', () => {
     expect(other.port).toBe(7926)
   })
 
+  test('two versions wanted at the same moment do not end up on one port', async () => {
+    const { runs, spawned } = fakeRuns()
+    /* One sweep of a kehikko with two containers on different tags: both are
+       being brought up before either has been given a port. */
+    const one = runs.ensure('kehikot.notes', 'v1.2.0')
+    const other = runs.ensure('kehikot.notes', 'v1.1.0')
+    await settle()
+    expect(spawned).toEqual(['kehikot.notes@v1.2.0', 'kehikot.notes@v1.1.0'])
+    expect(one).toMatchObject({ state: 'running', port: 7925 })
+    expect(other).toMatchObject({ state: 'running', port: 7926, origin: 'http://127.0.0.1:7926' })
+  })
+
   test('kept while any container pins it, stopped when none does', async () => {
     const { runs, stopped } = fakeRuns()
     const key = versionKey('kehikot.notes', 'v1.2.0')

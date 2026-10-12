@@ -280,6 +280,9 @@ export interface RunDeps {
 
 export const versionKey = (id: string, tag: string): string => `${id}@${tag}`
 
+/** How many times a version asks for a port before saying there is none: each ask after the first is one lost to another version. */
+const PORT_ASKS = 8
+
 /**
  * Every version this host is running or preparing.
  *
@@ -425,9 +428,19 @@ export class VersionRuns {
       const adopted = await deps.adoptable(instance.id, instance.tag, prepared.tree)
       let port = adopted
       if (port === null) {
-        const taken = new Set(this.all().flatMap((one) => (one.port === null ? [] : [one.port])))
-        port = await deps.port(instance.id, taken)
-        if (port === null) return fail('there is no free port to run it on')
+        /* Finding a port is waited for, and another version being brought up
+           in the same moment is waiting for one too — asked while neither held
+           anything, both are told the same number. So what the others hold is
+           read AGAIN once the answer is in, and the port is taken with nothing
+           awaited between that read and the taking; one that went meanwhile is
+           asked for again. */
+        const held = () => new Set(this.all().flatMap((one) => (one === instance || one.port === null ? [] : [one.port])))
+        for (let asks = 0, taken = held(); ; asks += 1) {
+          port = asks < PORT_ASKS ? await deps.port(instance.id, taken) : null
+          if (port === null) return fail('there is no free port to run it on')
+          taken = held()
+          if (!taken.has(port)) break
+        }
         instance.port = port
         const spawned = deps.spawn(instance.key, prepared.tree, port, deps.materialiser.log(instance.id, instance.tag))
         if (!spawned.ok) return fail(spawned.why)
