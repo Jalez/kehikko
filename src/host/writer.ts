@@ -29,6 +29,10 @@ import type { CanvasEdit } from './canvases.ts'
 export class Writer {
   #pending = new Map<number, CanvasEdit>()
   #timers = new Map<number, ReturnType<typeof setTimeout>>()
+  /** Writes that have been sent and not yet answered. */
+  #sending = new Set<Promise<void>>()
+  /** How many edits each canvas has been given, ever. See `edits`. */
+  #edits = new Map<number, number>()
   #send: (id: number, edit: CanvasEdit) => Promise<unknown>
   #onTrouble: (message: string) => void
   #delay: number
@@ -46,21 +50,50 @@ export class Writer {
   }
 
   write(id: number, edit: CanvasEdit): void {
+    this.#edits.set(id, this.edits(id) + 1)
     this.#pending.set(id, { ...this.#pending.get(id), ...edit })
     const existing = this.#timers.get(id)
     if (existing) clearTimeout(existing)
     this.#timers.set(
       id,
-      setTimeout(() => void this.#flush(id), this.#delay),
+      setTimeout(() => this.#flush(id), this.#delay),
     )
   }
 
-  /** Send everything now, without waiting. For a page that is going away. */
-  flushAll(): void {
-    for (const id of [...this.#pending.keys()]) void this.#flush(id)
+  /**
+   * Send everything now, without waiting for the hand to stop.
+   *
+   * For a page that is going away, which cannot wait for the answer, and for a
+   * page about to re-read, which must: the promise is settled when every write
+   * that was pending has been answered, so a read made after it is a read of
+   * what those writes left.
+   */
+  flushAll(): Promise<void> {
+    for (const id of [...this.#pending.keys()]) this.#flush(id)
+    return Promise.all([...this.#sending]).then(() => {})
   }
 
-  async #flush(id: number): Promise<void> {
+  /**
+   * How many edits this canvas has been given. Not a count anybody shows: two
+   * readings that differ mean the person changed the canvas in between, whether
+   * or not that change has been sent yet — which is what a page that was
+   * reading the server meanwhile needs to know before it believes the answer.
+   */
+  edits(id: number): number {
+    return this.#edits.get(id) ?? 0
+  }
+
+  /** Every canvas's `edits` as of now, to compare a later reading against. */
+  stamp(): ReadonlyMap<number, number> {
+    return new Map(this.#edits)
+  }
+
+  /** Whether an edit to this canvas is still waiting to be sent. */
+  pending(id: number): boolean {
+    return this.#pending.has(id)
+  }
+
+  #flush(id: number): void {
     const timer = this.#timers.get(id)
     if (timer) clearTimeout(timer)
     this.#timers.delete(id)
@@ -69,12 +102,15 @@ export class Writer {
     this.#pending.delete(id)
     if (!edit) return
 
-    try {
-      await this.#send(id, edit)
-    } catch (error) {
-      this.#onTrouble(
-        `This canvas could not be saved: ${(error as Error).message}. What is on screen is unchanged; it is what is stored that is behind.`,
-      )
-    }
+    const sent: Promise<void> = (async () => {
+      try {
+        await this.#send(id, edit)
+      } catch (error) {
+        this.#onTrouble(
+          `This canvas could not be saved: ${(error as Error).message}. What is on screen is unchanged; it is what is stored that is behind.`,
+        )
+      }
+    })().finally(() => this.#sending.delete(sent))
+    this.#sending.add(sent)
   }
 }

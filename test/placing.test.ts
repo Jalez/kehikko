@@ -107,6 +107,35 @@ function recordAgrees() {
   return read.kehikot
 }
 
+describe('what the person does meanwhile', () => {
+  test('a change landed while the modules are being looked at is not overwritten', async () => {
+    const id = aCanvas([box('a.one', 0, 0, 6, 10), box('a.two', 6, 0, 6, 10), box('a.three', 0, 10, 6, 8)])
+    let looked!: (sightings: Sighting[]) => void
+    const looking = new Promise<Sighting[]>((resolve) => {
+      looked = resolve
+    })
+    const slow: Door = { ...door(), seen: () => looking }
+
+    const answering = call('place_modules', { kehikko: id, modules: ['a.four'] }, slow)
+    /* The person, while the sweep is out: one container dragged and resized,
+       another taken off. */
+    editCanvas(db, id, {
+      placements: canvasNow(id)
+        .placements.filter((p) => p.i !== 'a.three')
+        .map((p) => (p.i === 'a.two' ? { ...p, x: 8, w: 4, h: 14, wish: 14 } : p)),
+    })
+    const theirs = canvasNow(id).placements
+    looked(seen)
+    const done = await answering
+
+    expect(done.failed).toBe(false)
+    const now = canvasNow(id).placements
+    expect(now.filter((p) => p.i !== 'a.four')).toEqual(theirs)
+    expect(now.some((p) => p.i === 'a.four')).toBe(true)
+    legal(now)
+  })
+})
+
 describe('where a placed container lands', () => {
   test('beside the last one when the bottom row has room, exactly where the page’s + would put it', async () => {
     const id = aCanvas([box('a.one', 0, 0, 6, 10)])

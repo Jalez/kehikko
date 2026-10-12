@@ -16,6 +16,7 @@ import { FilterButton } from './Filters.tsx'
 import { RefreshButton } from './Refreshing.tsx'
 import type { Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
+import { foldHint } from '../host/folds.ts'
 import { PromptButton } from './Prompts.tsx'
 import { Start } from './Start.tsx'
 import { ToolsMark } from './Tools.tsx'
@@ -63,6 +64,7 @@ export function Container({
   onPin,
   collapsed,
   onCollapse,
+  foldedBy = null,
   filters,
   chosen,
   onChoose,
@@ -112,6 +114,12 @@ export function Container({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
+  /**
+   * Who left this container folded or unfolded as it is, when it was not the
+   * person — "an agent". The fold control is drawn filled and says so, and a
+   * press on it puts the container back. See `host/folds.ts`.
+   */
+  foldedBy?: string | null
   /**
    * What this module says it can be narrowed by, right now.
    *
@@ -581,23 +589,25 @@ export function Container({
          * button has to say, before it is pressed, that nothing is being
          * stopped.
          */}
-        <Hint
-          label={
-            collapsed
-              ? 'folded — the module is still running. Press to put it back at the height it had'
-              : 'fold it down to this header. The module keeps running and keeps what is in it'
-          }
-          side="left"
-        >
+        <Hint label={foldHint(collapsed, foldedBy)} side="left">
           <Button
             variant="ghost"
             size="icon"
-            aria-label={collapsed ? 'unfold this container' : 'fold this container down to its header'}
+            aria-label={
+              (collapsed ? 'unfold this container' : 'fold this container down to its header')
+              + (foldedBy ? ` — ${collapsed ? 'folded' : 'unfolded'} by ${foldedBy}` : '')
+            }
             aria-expanded={!collapsed}
+            data-folded-by={foldedBy ?? undefined}
             className={
-              collapsed
-                ? 'text-foreground size-6 cursor-default'
-                : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
+              /* Filled when somebody other than the person left it this way:
+                 the one control that puts it back is the one that stands out,
+                 and it takes no room of its own. */
+              foldedBy
+                ? 'bg-primary text-primary-foreground hover:bg-primary/85 hover:text-primary-foreground size-6 cursor-default'
+                : collapsed
+                  ? 'text-foreground size-6 cursor-default'
+                  : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
             }
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => onCollapse(!collapsed)}

@@ -317,6 +317,28 @@ export function tops(
   return placed
 }
 
+/**
+ * Every placement at the top edge the grid will give it.
+ *
+ * For a writer that is NOT the page. The page never needs this: the grid
+ * compacts what it is handed and the page stores what the grid says. But an
+ * arrangement written somewhere else — a fold at the host's door — and stored
+ * with the old top edges is one the page re-reads, compacts, finds different
+ * from what is stored, and saves again a moment later, as a whole arrangement.
+ * That second save is the page's own and is made from what it read, so
+ * anything written in between — the agent's next call — is overwritten by it.
+ * Stored the way the grid will draw it, there is nothing for the page to save.
+ *
+ * A placement already where it will be drawn is returned as the same object.
+ */
+export function laid<T extends Wished>(placements: readonly T[]): T[] {
+  const above = tops(placements)
+  return placements.map((p) => {
+    const y = above.get(p.i)
+    return y === undefined || y === p.y ? p : { ...p, y }
+  })
+}
+
 /** The order the grid compacts in: by row, then by column. */
 function inGridOrder<T extends Box>(boxes: readonly T[]): T[] {
   return [...boxes].sort((one, two) => one.y - two.y || one.x - two.x)
@@ -361,6 +383,57 @@ export function wishing(
     rows,
     floor,
   )
+}
+
+/**
+ * Every placement drawn at what its wish is granted.
+ *
+ * This is the ONE place a height is written from a rule, and everything that
+ * changes a wish or a fold goes through it: a drag's release, a press on the
+ * fold control, a module asking for room, and an agent folding or unfolding
+ * at the host's door — `fold_modules` in `server/mcp.ts`. The rule is
+ * `granted`, and the essay there is why the wish and the height are two
+ * numbers. A placement whose height does not change is returned as the same
+ * object, so an arrangement that was already drawn right is the same as
+ * before and nothing is written.
+ */
+export function redrawn<T extends Wished>(placements: readonly T[]): T[] {
+  const heights = granted(placements)
+  return placements.map((p) => {
+    const h = heights.get(p.i)
+    return h === undefined || h === p.h ? p : { ...p, h }
+  })
+}
+
+/**
+ * Containers folded to their headers and unfolded: the states set, and every
+ * height redrawn.
+ *
+ * The ONE write a fold is, whoever asks for it — a person's press on the
+ * control (`pressed`, below), an agent at the host's door (`fold_modules` in
+ * `server/mcp.ts`), and a module asking the host to bring itself or a
+ * neighbour into view when the protocol has a message for that. Nothing but
+ * `collapsed` and the drawn heights changes: no wish, position or width. An id
+ * that is not here is ignored, and a container already as asked stays the same
+ * object.
+ */
+export function folded<T extends Wished>(
+  placements: readonly T[],
+  change: { fold?: readonly string[]; unfold?: readonly string[] },
+): T[] {
+  const fold = new Set(change.fold ?? [])
+  const unfold = new Set(change.unfold ?? [])
+  return redrawn(
+    placements.map((p) => {
+      const collapsed = fold.has(p.i) ? true : unfold.has(p.i) ? false : p.collapsed
+      return collapsed === p.collapsed ? p : { ...p, collapsed }
+    }),
+  )
+}
+
+/** A press on one container's fold control: `folded`, for that one container. */
+export function pressed<T extends Wished>(placements: readonly T[], id: string, collapsed: boolean): T[] {
+  return folded(placements, collapsed ? { fold: [id] } : { unfold: [id] })
 }
 
 /**
