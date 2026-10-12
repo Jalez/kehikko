@@ -2688,7 +2688,8 @@ const server = Bun.serve({
         {
           db,
           which: () => openness.open(),
-          wake: (kehikko) => wakes.woke(kehikko),
+          watched: () => openness.every(),
+          wake: (kehikko, folded) => (folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko)),
           epicsChanged: (project) => wakes.epicsChanged(project),
           epicWritten: (project, slug) => {
             const root = projectById(db, project)?.path

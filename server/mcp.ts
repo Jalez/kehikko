@@ -9,8 +9,9 @@ import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
 import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
+import type { FoldNote } from './wake.ts'
 import { place } from '../src/host/canvases.ts'
-import { granted, redrawn, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
+import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
 /**
@@ -91,19 +92,24 @@ import { CANVAS_ROWS } from '../src/host/fit.ts'
  *
  *   - It **takes nothing away**. Folding is a state and not a height (see
  *     `granted` in `columns.ts`): the wish a person dragged a container to is
- *     left exactly as it was, and so is every neighbour's. What changes is
- *     what is DRAWN, by the one rule the page's own fold control is drawn by
- *     — `redrawn` — so an unfolded container takes rows from its column-mates
- *     exactly as it would under a person's press, and gives them back when it
- *     is folded again.
- *   - It is **undone with one press**, on the control a person would have
- *     used, and the answer says which call puts back what it changed.
- *   - It is **one write**. Nothing here remembers that a container was folded
- *     by an agent, so a person who unfolds it is not fought: there is nothing
- *     left to fold it again.
- *
- * What it does not do is say on the canvas WHO folded. The page is woken and
- * shows the container fold; the answer tells the agent to say that it did.
+ *     left exactly as it was, and so is every neighbour's, and so is which
+ *     column and which order everything is in. What changes is
+ *     what is DRAWN, by the one function the page's own fold control is drawn
+ *     by — `folded` in `columns.ts` — so an unfolded container takes rows from
+ *     its column-mates exactly as it would under a person's press, and gives
+ *     them back when it is folded again.
+ *   - It is **seen, and signed**. It is refused on a kehikko no page has
+ *     open, because a fold nobody watched is the arrangement changed behind
+ *     somebody's back. Where it is allowed the page is woken with a note of
+ *     which containers and by whom (`folded` in `wake.ts`), and the fold
+ *     control of each is marked and says "folded by an agent" until the person
+ *     presses it — see `src/host/folds.ts`.
+ *   - It is **undone with one press**, on that same control, and the answer
+ *     says which call puts back what it changed.
+ *   - It is **one write**. Nothing on the server remembers that a container
+ *     was folded by an agent, so a person who unfolds it is not fought: there
+ *     is nothing left to fold it again. The mark is the page's and is gone
+ *     with the press or a reload; the arrangement's file never says who.
  *
  * ## Where a placed container goes, and when it does not go at all
  *
@@ -166,8 +172,17 @@ export interface Door {
   db: Database
   /** Which kehikko a call that named none means. See `open.ts`. */
   which(): WhichKehikko
-  /** Say that a kehikko has changed under the page. See `wake.ts`. */
-  wake(kehikko: number): void
+  /**
+   * Say that a kehikko has changed under the page. See `wake.ts`. With a
+   * note when what changed is a fold, so the page can say who made it.
+   */
+  wake(kehikko: number, folded?: FoldNote): void
+  /**
+   * Every kehikko some page of this host has open — `every` in `open.ts`.
+   * `fold_modules` acts only on one of these. Absent, the one `which` names
+   * is the only kehikko known to be open.
+   */
+  watched?(): number[]
   /** Say that a project's epics are not what the page last read. See `wake.ts`. */
   epicsChanged(project: number): void
   /** The door wrote this epic: every container showing it reads it again. See `server/content.ts`. */
@@ -602,12 +617,16 @@ function tools() {
       description:
         'Fold containers on a kehikko down to their headers, unfold them, or both in one call — the same control '
         + 'a person presses in a container’s header, and they see it happen. Use it to make room for what is '
-        + 'being worked on and to bring a folded module into view. Folding only: nothing is moved, resized, '
-        + 'removed or reordered, the module keeps running and keeps what is in it, and no program is told. A folded '
+        + 'being worked on and to bring a folded module into view. Only on a kehikko that is open on a page of '
+        + 'this host right now: one nobody is looking at is refused, because nobody would see it. Folding only: '
+        + 'nothing is moved to another place, resized, removed or reordered — what is under a folded container is '
+        + 'drawn up against it, as under a person’s press — the module keeps running, keeps what is in it and '
+        + 'goes on being told what the kehikko is about, and no program is told it was folded. A folded '
         + 'container keeps the height its owner chose and is unfolded back towards it; in a full column it comes '
         + 'back shorter, and its column-mates are drawn shorter while it is open, as they would be under a '
-        + 'person’s press. A container already as asked is left alone and named. The page does not say who '
-        + 'folded, so tell the person that you did; they can undo it with one press, and the answer says which '
+        + 'person’s press. A container already as asked is left alone and named. The page marks the fold control '
+        + 'of each container you changed and says there that an agent did it, and the person undoes it with one '
+        + 'press on that control; say what you did anyway. The answer says which '
         + 'call puts back what you changed — make it when you are done with the room you made, and only for '
         + 'containers the person has not touched since. If the person folds or unfolds something themselves '
         + 'meanwhile, that is their arrangement: read_canvas again, leave it, and leave it out of the call that '
@@ -920,10 +939,15 @@ async function placeOn(
  * `fold_modules`: containers folded to their headers or unfolded, and nothing
  * else about the arrangement touched.
  *
- * The write is the one the page's fold control makes — `collapsed` set, and
- * every height redrawn from the wishes by `redrawn` — so an agent's fold is
- * undone by the same press that undoes a person's, and what a container is
- * unfolded towards is the wish its owner left.
+ * The write is the one the page's fold control makes — `folded` in
+ * `columns.ts`: `collapsed` set, and every height redrawn from the wishes —
+ * so an agent's fold is undone by the same press that undoes a person's, and
+ * what a container is unfolded towards is the wish its owner left.
+ *
+ * Refused on a kehikko no page has open. Naming one is how an agent says
+ * which of two screens it means, not a way to rearrange a canvas nobody is
+ * looking at: the person would find it changed later, with nothing to say an
+ * agent had been there.
  *
  * Refused whole for a stranger, for the reason `select_modules` is. A
  * container already as asked is not a refusal: it is named, and it is left
@@ -960,6 +984,23 @@ async function foldOn(
     }
   }
 
+  const which = door.which()
+  const watched = door.watched ? door.watched() : which.ok ? [which.id] : []
+  if (!watched.includes(canvas.id)) {
+    const names = new Map(listCanvases(door.db).map((c) => [c.id, c.name]))
+    return {
+      text:
+        `kehikko ${canvas.id} (${canvas.name}) is not open on any page of this host, so nobody would see a container `
+        + 'fold or unfold there, and this tool only changes what the person can watch change and put back with one '
+        + `press. Nothing was folded or unfolded. ${
+          watched.length
+            ? `Open on a page right now: ${watched.map((id) => `${id} (${names.get(id) ?? 'deleted'})`).join(', ')}.`
+            : 'No page of this host has any kehikko open right now.'
+        } read_canvas still reads kehikko ${canvas.id}, and place_modules still adds to it.`,
+      failed: true,
+    }
+  }
+
   const on = new Map(canvas.placements.map((p) => [p.i, p]))
   const strangers = named.filter((id) => !on.has(id))
   if (strangers.length) {
@@ -992,18 +1033,18 @@ async function foldOn(
      write, so the list written is the one that was read: a drag, an add or a
      removal the person lands cannot fall in between and be overwritten. The
      sweep `seen` makes is awaited after, as it is in `select_modules`. */
-  const placements = redrawn(
-    canvas.placements.map((p) =>
-      folding.includes(p.i) ? { ...p, collapsed: true } : unfolding.includes(p.i) ? { ...p, collapsed: false } : p,
-    ),
-  )
+  /* `laid`: stored where the grid will draw it, so the page that re-reads this
+     has nothing of its own to save — a save that would be a whole arrangement
+     and would overwrite this door's next call. See `laid` in `columns.ts`. */
+  const placements = laid(folded(canvas.placements, { fold: folding, unfold: unfolding }))
   const written = editCanvas(door.db, canvas.id, { placements })
   if (written) keep(door.db, written.project)
   if (!written) {
     return { text: `kehikko ${canvas.id} was there a moment ago and is not now; nothing was folded.`, failed: true }
   }
-  /* Written first, woken after — see `select_modules`. */
-  door.wake(canvas.id)
+  /* Written first, woken after — see `select_modules`. The note is what the
+     page signs each fold control with; see `folded` in `wake.ts`. */
+  door.wake(canvas.id, { by: SIGNED, fold: folding, unfold: unfolding })
 
   /* A column that is full gives an unfolded container less than it asks for.
      Said, because "unfolded" would otherwise read as "in view at its height". */
@@ -1019,8 +1060,10 @@ async function foldOn(
       + (unfolding.length ? ` unfolded ${unfolding.join(', ')}.` : '')
       + short.map((p) => ` ${p.i} is drawn at ${p.h} of the ${p.wish} rows it asks for, because its column is full.`).join('')
       + (leftAlone ? ` ${leftAlone}` : '')
-      + ' Nothing was moved, resized or removed, and no module was told.'
-      + ` The person saw it happen and was not told who did it (${AGENT}), so say that you did.`
+      + ' Nothing was moved to another place, resized or removed — what is under a folded container is drawn up against it and comes back down when it is unfolded, as under a person’s press — and no module was told.'
+      + ` On the page, the fold control of each is marked and says "${
+        folding.length ? `folded by ${SIGNED}` : `unfolded by ${SIGNED}`
+      }" until the person presses it, which puts it back; say what you did anyway (${AGENT}).`
       + ` To put back what this call changed: fold_modules with ${back.join(', ')}.`
       + ' Make that call only if the person has not folded or unfolded those containers themselves since:'
       + ' read_canvas says how each is now, and one they changed is theirs, so leave it out. A container already'
@@ -1199,6 +1242,12 @@ async function readTrackerAt(
 
 /** Who a mark through this door is signed as. */
 const AGENT = 'agent (MCP)'
+/**
+ * Who a fold through this door is signed as ON THE PAGE, where it is read in
+ * a sentence — "folded by an agent". The door has no session, so it does not
+ * know which agent; a module asking for a fold would be signed with its name.
+ */
+const SIGNED = 'an agent'
 
 function createEpicAt(
   canvas: Canvas,
@@ -1269,9 +1318,10 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'around one project and one epic. This door reads what is arranged on one, sets which of those '
         + 'containers are picked out as targets, puts modules on a kehikko as new containers, creates epics in '
         + 'the project a kehikko stands in, marks why a closed ref closed, and folds a container to its header or '
-        + 'unfolds it. It can ADD, and fold; it cannot remove, move or resize a container, switch the '
-        + 'kehikko, or change which epic is open — the arrangement belongs to the person looking at it, and what '
-        + 'this door adds is what they can see arrive and take off with one press.',
+        + 'unfolds it on a kehikko a page has open. It can ADD, and FOLD; it cannot remove, move, resize or reorder '
+        + 'a container, switch the kehikko, or change which epic is open — the arrangement belongs to the person '
+        + 'looking at it. What this door adds is what they can see arrive and take off with one press, and what it '
+        + 'folds or unfolds is marked on the container as an agent’s doing and put back with one press.',
     })
   }
   /* A notification carries no id and is answered with nothing. */

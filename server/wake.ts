@@ -91,7 +91,10 @@ import type { ContentChange } from 'kehikot-module-protocol'
  * above.
  */
 export type News =
-  | { kehikko: number }
+  /* `folded` rides on the first kind and is the one thing here that says WHO:
+     see `FoldNote`. A page that does not know the field re-reads the kehikko,
+     which is all the first kind ever asked of it. */
+  | { kehikko: number; folded?: FoldNote }
   | { registry: true }
   | { epics: number }
   | { dispositions: number }
@@ -103,6 +106,25 @@ export type News =
      signal for `tracker`'s reason — `context.content` is a short list of who
      and when, and it is all a page would fetch. Never the material. */
   | { content: number; changes: ContentChange[] }
+
+/**
+ * Who folded or unfolded which containers, when it was not the person.
+ *
+ * The arrangement says THAT a container is folded and the page reads that
+ * where it reads everything else. What it cannot read anywhere is who did it,
+ * because nothing stores that — on purpose: `kehikot.json` travels with the
+ * project, and "an agent folded this" is a fact about one moment on one
+ * screen, not about the arrangement. So it is said once, here, to the pages
+ * that are open, and each marks the fold control with it until the person
+ * presses it. See `src/host/folds.ts`.
+ *
+ * `by` is read in a sentence — "folded by an agent", "unfolded by Screenplay".
+ */
+export interface FoldNote {
+  by: string
+  fold: string[]
+  unfold: string[]
+}
 
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
@@ -133,6 +155,15 @@ export class Wakes {
    */
   woke(kehikko: number): void {
     this.#tell({ kehikko })
+  }
+
+  /**
+   * Say that a kehikko changed because something other than the person folded
+   * or unfolded containers on it, and who. One message, so the page re-reads
+   * and signs the fold in the same breath.
+   */
+  folded(kehikko: number, note: FoldNote): void {
+    this.#tell({ kehikko, folded: note })
   }
 
   /**

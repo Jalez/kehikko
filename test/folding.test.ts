@@ -9,8 +9,8 @@ import { kehikotFile, serialize } from '../server/kehikot.ts'
 import { call, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
 import { addProject } from '../server/projects.ts'
-import { Wakes } from '../server/wake.ts'
-import { FOLDED_ROWS, SQUEEZED_ROWS, granted, pressed, redrawn, tops } from '../src/host/columns.ts'
+import { Wakes, type FoldNote } from '../server/wake.ts'
+import { FOLDED_ROWS, SQUEEZED_ROWS, folded, granted, laid, pressed, redrawn, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
 /*
@@ -29,15 +29,19 @@ let db: Database
 let openness: Openness
 let wakes: Wakes
 let woken: number[]
+let notes: (FoldNote | undefined)[]
 let seen: Sighting[]
 let folder: string
 
 const door = (): Door => ({
   db,
   which: () => openness.open(),
-  wake: (kehikko) => {
+  watched: () => openness.every(),
+  wake: (kehikko, note) => {
     woken.push(kehikko)
-    wakes.woke(kehikko)
+    notes.push(note)
+    if (note) wakes.folded(kehikko, note)
+    else wakes.woke(kehikko)
   },
   epicsChanged: () => {},
   dispositionsChanged: () => {},
@@ -49,6 +53,7 @@ beforeEach(() => {
   openness = new Openness()
   wakes = new Wakes()
   woken = []
+  notes = []
   seen = [
     { id: 'a.one', name: 'One', condition: 'ready' },
     { id: 'a.two', name: 'Two', condition: 'ready' },
@@ -63,12 +68,13 @@ afterEach(() => {
 
 type Given = Partial<Placement> & { i: string }
 
-/** A kehikko in a project folder, with the given containers on it. */
-function aCanvas(placements: Given[]): number {
+/** A kehikko in a project folder, with the given containers on it, open on a page — or not. */
+function aCanvas(placements: Given[], watched = true): number {
   const added = addProject(db, folder, 'a project')
   if (!added.ok) throw new Error(added.why)
   const made = createCanvas(db, 'the wire', added.project.id)
   editCanvas(db, made.id, { placements: placements as Placement[] })
+  if (watched) openness.reported(`page-${made.id}`, made.id)
   return made.id
 }
 
@@ -89,22 +95,27 @@ describe('folding a container', () => {
     expect(done.failed).toBe(false)
 
     expect(one(id, 'a.one')).toEqual({ ...before[0]!, collapsed: true, h: FOLDED_ROWS })
-    expect(one(id, 'a.two')).toEqual({ ...before[1]!, h: 20 })
+    /* Drawn up against the header above it, which is where the grid puts it. */
+    expect(one(id, 'a.two')).toEqual({ ...before[1]!, h: 20, y: FOLDED_ROWS })
     expect(done.text).toContain('folded a.one.')
     expect(done.text).toContain('a.one (One) — folded to its header')
   })
 
-  test('it is the write the page’s own fold control makes', async () => {
+  test('it is the write the page’s own fold control makes, stored where the grid then draws it', async () => {
     const byThePage = aCanvas(squeezed())
     const byTheDoor = createCanvas(db, 'the other wire', listCanvases(db)[0]!.project).id
     editCanvas(db, byTheDoor, { placements: placementsNow(byThePage) })
+    openness.reported('another-page', byTheDoor)
     const before = placementsNow(byThePage)
     const expected = [
       { ...before[0]!, collapsed: true, h: FOLDED_ROWS },
-      { ...before[1]!, h: 20 },
+      { ...before[1]!, h: 20, y: FOLDED_ROWS },
     ]
 
-    editCanvas(db, byThePage, { placements: pressed(before, 'a.one', true) })
+    /* The page stores its press and then what the grid made of it; the door
+       has no grid, and stores both at once. */
+    expect(pressed(before, 'a.one', true)).toEqual([expected[0]!, { ...expected[1]!, y: 18 }])
+    editCanvas(db, byThePage, { placements: laid(pressed(before, 'a.one', true)) })
     await call('fold_modules', { kehikko: byTheDoor, fold: ['a.one'] }, door())
 
     expect(placementsNow(byThePage)).toEqual(expected)
@@ -172,7 +183,6 @@ describe('folding a container', () => {
 
   test('the kehikko a page has open is the one folded on when none is named', async () => {
     const id = aCanvas(squeezed())
-    openness.reported('page-a', id)
     const done = await call('fold_modules', { fold: ['a.two'] }, door())
     expect(done.text).toContain('a page of this host has open')
     expect(one(id, 'a.two').collapsed).toBe(true)
@@ -248,6 +258,127 @@ describe('folding and unfolding in one call', () => {
     expect(done.text).toContain('Nothing was changed')
     expect(placementsNow(id)).toEqual(before)
     expect(woken).toEqual([])
+  })
+})
+
+describe('a fold is seen and signed', () => {
+  test('a kehikko no page has open is refused, naming the ones that are', async () => {
+    const watched = aCanvas(squeezed())
+    const unwatched = createCanvas(db, 'the back room', listCanvases(db)[0]!.project).id
+    editCanvas(db, unwatched, { placements: placementsNow(watched) })
+
+    const done = await call('fold_modules', { kehikko: unwatched, fold: ['a.one'] }, door())
+    expect(done.failed).toBe(true)
+    expect(done.text).toContain(`kehikko ${unwatched} (the back room) is not open on any page of this host`)
+    expect(done.text).toContain(`Open on a page right now: ${watched} (the wire).`)
+    expect(placementsNow(unwatched).some((p) => p.collapsed)).toBe(false)
+    expect(woken).toEqual([])
+  })
+
+  test('with no page open at all it says so, and nothing is written', async () => {
+    const id = aCanvas(squeezed(), false)
+    const done = await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
+    expect(done.failed).toBe(true)
+    expect(done.text).toContain('No page of this host has any kehikko open right now.')
+    expect(one(id, 'a.one').collapsed).toBe(false)
+  })
+
+  test('a door that cannot list the open kehikot folds only on the one `which` names', async () => {
+    const id = aCanvas(squeezed())
+    const other = createCanvas(db, 'the back room', listCanvases(db)[0]!.project).id
+    editCanvas(db, other, { placements: placementsNow(id) })
+    const { watched: _, ...narrow } = door()
+    expect((await call('fold_modules', { kehikko: other, fold: ['a.one'] }, narrow)).failed).toBe(true)
+    expect((await call('fold_modules', { kehikko: id, fold: ['a.one'] }, narrow)).failed).toBe(false)
+  })
+
+  test('of two kehikot open on two pages, the one named is folded on', async () => {
+    const first = aCanvas(squeezed())
+    const second = createCanvas(db, 'the other wire', listCanvases(db)[0]!.project).id
+    editCanvas(db, second, { placements: placementsNow(first) })
+    openness.reported('another-page', second)
+
+    expect((await call('fold_modules', { fold: ['a.one'] }, door())).failed).toBe(true)
+    const done = await call('fold_modules', { kehikko: second, fold: ['a.one'] }, door())
+    expect(done.failed).toBe(false)
+    expect(one(second, 'a.one').collapsed).toBe(true)
+    expect(one(first, 'a.one').collapsed).toBe(false)
+  })
+
+  test('the page is told who, and only about the containers the call changed', async () => {
+    const id = aCanvas([
+      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 12, collapsed: true },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.three', x: 0, y: 12, w: 6, h: FOLDED_ROWS, wish: 8, collapsed: true },
+    ])
+    const heard: unknown[] = []
+    wakes.listen((news) => heard.push(news))
+    const done = await call('fold_modules', { kehikko: id, fold: ['a.one', 'a.two'], unfold: ['a.three'] }, door())
+
+    const note = { by: 'an agent', fold: ['a.two'], unfold: ['a.three'] }
+    expect(notes).toEqual([note])
+    expect(heard).toEqual([{ kehikko: id, folded: note }])
+    expect(done.text).toContain('says "folded by an agent" until the person presses it')
+  })
+
+  test('the door’s write is `folded`, the one function a press and a module’s request go through', async () => {
+    const id = aCanvas([
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 27, wish: 27 },
+      { i: 'a.two', x: 0, y: 27, w: 6, h: FOLDED_ROWS, wish: 20, collapsed: true },
+    ])
+    const expected = laid(folded(placementsNow(id), { fold: ['a.one'], unfold: ['a.two'] }))
+    await call('fold_modules', { kehikko: id, fold: ['a.one'], unfold: ['a.two'] }, door())
+    expect(placementsNow(id)).toEqual(expected)
+    expect(one(id, 'a.two')).toMatchObject({ y: FOLDED_ROWS, x: 0, w: 6 })
+    expect(pressed(placementsNow(id), 'a.one', false)).toEqual(folded(placementsNow(id), { unfold: ['a.one'] }))
+  })
+})
+
+describe('a fold leaves the page nothing of its own to save', () => {
+  /* The page stores what the grid makes of an arrangement it re-reads. If
+     that differs from what the door stored, the page saves a whole arrangement
+     a moment later, and the agent's NEXT call — made in that moment — is
+     overwritten by it. So what the door stores is already where the grid puts
+     it: every top edge is `tops`. */
+  const settled = (id: number) => {
+    const now = placementsNow(id)
+    const above = tops(now)
+    const heights = granted(now)
+    for (const p of now) {
+      expect(p.y).toBe(above.get(p.i)!)
+      expect(p.h).toBe(heights.get(p.i)!)
+    }
+  }
+
+  test('what is under a folded container is stored drawn up against it, and back down on unfold', async () => {
+    const id = aCanvas([
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.three', x: 0, y: 10, w: 6, h: 10, wish: 10 },
+    ])
+    const before = placementsNow(id)
+    await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
+    settled(id)
+    expect(one(id, 'a.three')).toMatchObject({ x: 0, y: FOLDED_ROWS, w: 6, h: 10, wish: 10 })
+    expect(one(id, 'a.two')).toEqual(before.find((p) => p.i === 'a.two')!)
+
+    await call('fold_modules', { kehikko: id, unfold: ['a.one'] }, door())
+    settled(id)
+    expect(placementsNow(id)).toEqual(before)
+  })
+
+  test('a selection made straight after a fold is still there once the page has caught up', async () => {
+    const id = aCanvas([
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.three', x: 0, y: 10, w: 6, h: 10, wish: 10 },
+    ])
+    await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
+    const read = placementsNow(id)
+    await call('select_modules', { kehikko: id, modules: ['a.three'] }, door())
+    /* The page, having re-read the fold: it saves only if the grid disagrees
+       with what it read, and the grid's answer is `laid`. */
+    if (JSON.stringify(laid(read)) !== JSON.stringify(read)) editCanvas(db, id, { placements: laid(read) })
+    expect(one(id, 'a.three').selected).toBe(true)
   })
 })
 
