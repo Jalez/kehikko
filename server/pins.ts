@@ -232,22 +232,28 @@ export class Pins {
    * speak this host's protocol, or the data guard says no. A version whose
    * manifest has never been read is allowed: it is prepared, read, and then
    * framed only if it passes — see `views`.
+   *
+   * ## The arrangement written is the one read in the same breath
+   *
+   * A pin writes the kehikko's whole list of containers, and a pin to a tag
+   * waits first — on the registration, on git, on the module's tags, which is
+   * the network. A list read before that wait and written after it would put
+   * back whatever the person changed meanwhile: a container they dragged,
+   * one they took off, one they added. So everything that is waited for is
+   * waited for FIRST, and then the kehikko is read again and written with
+   * nothing awaited in between. There is one database handle and the page's
+   * own writes run synchronously in this process, so nothing can land between
+   * that read and that write. Back to latest waits for nothing, and reads and
+   * writes in one stretch already.
    */
   async pin(canvasId: number, module: string, version: string | null): Promise<Pinned> {
     const deps = this.#deps
-    const canvas = listCanvases(deps.db).find((c) => c.id === canvasId)
-    if (!canvas) return { ok: false, why: `there is no kehikko with id ${canvasId}.`, status: 404 }
-    const placement = canvas.placements.find((p) => p.i === module)
-    if (!placement) {
-      return {
-        ok: false,
-        why: `${module} is not a container on kehikko ${canvas.id} (${canvas.name}); place it first.`,
-        status: 409,
-      }
-    }
+    const asked = this.#container(canvasId, module)
+    if (!asked.ok) return asked
     const name = this.#name(module)
 
     if (version === null) {
+      const { canvas, placement } = asked
       if (placement.version === null) {
         return { ok: true, text: `${name} on kehikko ${canvas.id} (${canvas.name}) already runs latest. Nothing changed.`, canvas }
       }
@@ -283,7 +289,26 @@ export class Pins {
         }
       }
     }
-    if (entry?.blocked) return { ok: false, why: entry.blocked, status: 409 }
+
+    /* Read again, after the last wait: what the person did while the versions
+       were being read is in this arrangement, and nothing is awaited between
+       here and the write. A kehikko or a container that went meanwhile is
+       said to have gone, not put back. */
+    const now = this.#container(canvasId, module)
+    if (!now.ok) {
+      return listCanvases(deps.db).some((c) => c.id === canvasId)
+        ? now
+        : { ok: false, why: `kehikko ${canvasId} was there a moment ago and is not now.`, status: 409 }
+    }
+    const { canvas, placement } = now
+    /* The data guard, asked of the project as it is now and not as the listing
+       found it: the same wait is long enough for a newer version to have
+       written this project's data. */
+    const path = this.#projectPath(canvas)
+    const blocked = entry
+      ? refusal(name, version, entry.dataVersion, path ? recordedFor(readDataVersions(path), module) : null)
+      : null
+    if (blocked) return { ok: false, why: blocked, status: 409 }
     if (entry?.compatible === false) {
       return { ok: false, why: `${name} ${version} cannot be run by this host: ${entry.incompatible ?? 'it speaks another protocol'}`, status: 409 }
     }
@@ -309,6 +334,25 @@ export class Pins {
     }
   }
 
+  /** The kehikko and the container on it a pin is about, as they are at this moment — or the refusal. */
+  #container(
+    canvasId: number,
+    module: string,
+  ): { ok: true; canvas: Canvas; placement: Canvas['placements'][number] } | { ok: false; why: string; status: number } {
+    const canvas = listCanvases(this.#deps.db).find((c) => c.id === canvasId)
+    if (!canvas) return { ok: false, why: `there is no kehikko with id ${canvasId}.`, status: 404 }
+    const placement = canvas.placements.find((p) => p.i === module)
+    if (!placement) {
+      return {
+        ok: false,
+        why: `${module} is not a container on kehikko ${canvas.id} (${canvas.name}); place it first.`,
+        status: 409,
+      }
+    }
+    return { ok: true, canvas, placement }
+  }
+
+  /** Written from `canvas`, so `canvas` has to have been read with nothing awaited since — see `pin`. */
   #write(canvas: Canvas, module: string, version: string | null): Canvas | null {
     const placements = canvas.placements.map((p) => (p.i === module ? { ...p, version } : p))
     const written = editCanvas(this.#deps.db, canvas.id, { placements })
