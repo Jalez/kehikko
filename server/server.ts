@@ -27,7 +27,8 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, epicsIn, listEpics, retitleEpic } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
-import { answered, gone, leaving, Nursery, originEnv, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
+import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
+import { own as ownAddress, refusal } from './guard.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
@@ -108,7 +109,11 @@ const BUNDLED = PAGE !== null
 const PORT = Number(process.env.PORT ?? (BUNDLED ? 4170 : 4180))
 /* Where this host's own page is, so a module it starts allows exactly that
    page in its `frame-ancestors` as well as the defaults — see `originEnv`. */
-setPageOrigins([`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localhost:${BUNDLED ? PORT : PORT + 1}`])
+const PAGE_ORIGINS = [`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localhost:${BUNDLED ? PORT : PORT + 1}`]
+setPageOrigins(PAGE_ORIGINS)
+/* What a request must say about where it came from before any route below is
+   chosen: the page's own origins and this host's own addresses. See `guard.ts`. */
+const OWN = ownAddress(process.env, PORT, PAGE_ORIGINS)
 
 /* `HOST_ID` — what this host calls itself at its own MCP door, and what its
    folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
@@ -1552,7 +1557,7 @@ async function keptAndRunning(): Promise<string[]> {
  * a person pressing twice in the page. See `anyway.ts`.
  */
 const anyway = anywayDesk({
-  pageOrigins: () => originEnv(process.env).KEHIKOT_ORIGINS.split(' '),
+  pageOrigins: () => OWN.origins,
   /* The disk at the press, as `/host/start` reads it. */
   registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
   startable,
@@ -1758,6 +1763,11 @@ const server = Bun.serve({
 
   async fetch(request) {
     const url = new URL(request.url)
+
+    /* Before anything is routed: where this request came from. One check for
+       every route, so none can be added without it. See `guard.ts`. */
+    const refused = refusal({ method: request.method, pathname: url.pathname, headers: request.headers }, OWN)
+    if (refused) return json({ ok: false, error: refused.why, why: refused.why }, refused.status)
 
     /* What is registered, and what the host made of each of them. The page asks
        for this on load and whenever the person asks it to look again; there is

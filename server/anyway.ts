@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { canonicalModuleId, WELL_KNOWN } from 'kehikot-module-protocol'
 
+import { pressedInThePage } from './guard.ts'
 import type { Runnable, Startable, Stopped } from './launch.ts'
 import type { Registration } from './registrations.ts'
 import { proveListener, stopProven, type Processes } from './takeover.ts'
@@ -223,11 +224,13 @@ export class Arms {
  * A browser states where a POST came from, and cannot be made to lie about it
  * by the page it is showing. JSON is asked for as well: another origin cannot
  * send it without asking first, and this host never says yes.
+ *
+ * Every request to this host passes `refusal` in `guard.ts` first, which lets
+ * a program with no browser in it through. This is the stricter reading, kept
+ * for this one route: a program is not a press.
  */
 export function notFromThePage(headers: Headers, pageOrigins: readonly string[]): string | null {
-  const origin = headers.get('origin')
-  const json = (headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')
-  if (origin !== null && json && pageOrigins.includes(origin)) return null
+  if (pressedInThePage(headers, pageOrigins)) return null
   return 'Restarting a module that is kept is a press in this host’s own page, and this request did not come from there. Nothing was stopped.'
 }
 

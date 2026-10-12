@@ -39,6 +39,11 @@ export default defineConfig({
     },
   },
   server: {
+    /* The page is fetched by itself and by nothing else, so this server says
+       nothing about who else may read it. Vite's default would add
+       `Access-Control-Allow-Origin` for any loopback origin — to the page and
+       to every `/host/*` answer it proxies. The compiled host never sends one. */
+    cors: false,
     proxy: {
       '/host': {
         target: `http://127.0.0.1:${process.env.HOST_PORT ?? 4180}`,
