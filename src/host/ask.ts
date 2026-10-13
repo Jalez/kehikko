@@ -42,6 +42,7 @@ import { shaped } from './shape.ts'
 import { ANSWERED_BY_THE_VIEW, assertEveryMethodIsAnswered } from './division.ts'
 import type { Answer, Ask } from './conversation.ts'
 import { CALL_NOT_MADE } from './reachable.ts'
+import { hold, undeclaredLine } from './grants.ts'
 
 /* The same check the server runs, run here too, because a method that neither
    half answers is a bug that has to be loud on whichever side notices first. */
@@ -226,9 +227,26 @@ export interface CanvasControls {
  * server decides `unknown-module` from it. The id comes from the registration
  * — the host's own material — and never from anything the frame said.
  */
-export function makeAsk(moduleId: string, canvas: CanvasControls): Ask {
+export function makeAsk(
+  moduleId: string,
+  canvas: CanvasControls,
+  /**
+   * Whether this module's manifest asks for a capability (`declares.uses`).
+   * Every method the canvas answers is held to it — the server holds the ones
+   * it answers; see `host/grants.ts`. Absent, nothing is held: a test of what
+   * the canvas does with a call, not a framed module.
+   */
+  may: ((capability: string) => boolean) | null = null,
+): Ask {
   return async (method, rawParams) => {
-    if (viewMethods.has(method)) return answerInTheView(moduleId, method, rawParams, canvas)
+    if (viewMethods.has(method)) {
+      if (may) {
+        const held = hold(method, may)
+        if (held.held) return notAskedFor(method, held.why)
+        if ('undeclared' in held) console.warn(`[host] ${undeclaredLine(moduleId, method, held.undeclared)}`)
+      }
+      return answerInTheView(moduleId, method, rawParams, canvas)
+    }
 
     try {
       const response = await fetch('/host/call', {
@@ -465,6 +483,19 @@ function answerInTheView(
     epic: null,
     why: 'This host is a canvas, not a document: nothing is open in it, so a step or a reference has nowhere to land. Name an epic and the canvas will make it its subject.',
   })
+}
+
+/**
+ * The answer to a call the module's manifest did not ask for. Where the
+ * protocol gives a method an outcome for "the host will not", that is the
+ * answer — as `parts.set` is declined by the server; the rest fail with the
+ * sentence.
+ */
+function notAskedFor(method: string, why: string): Answer {
+  if (method === 'view.goto') return succeeded(method, { outcome: 'declined', epic: null, why })
+  if (method === 'view.fold') return succeeded(method, { outcome: 'declined', folded: [], unfolded: [], why })
+  if (method === 'projects.pick') return succeeded(method, { outcome: 'declined', project: null, why })
+  return failed(why)
 }
 
 /** A successful answer, held to the shape the protocol names for that method. */

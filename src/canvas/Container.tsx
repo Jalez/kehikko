@@ -683,7 +683,14 @@ export function Container({
             variant="ghost"
             size="icon"
             aria-label={`take ${name} off the canvas`}
-            className="text-muted-foreground hover:text-foreground -mr-1 size-6 cursor-default"
+            /* Folded, the container is one header tall, and the grid's resize
+               handle — twenty pixels square in the bottom right corner, drawn
+               after the container — lay over the lower half of this button:
+               a press there began a resize and removed nothing. So folded it
+               is lifted above the handle, which keeps the strip below and
+               beside it. `data-over-handle` is what the stylesheet reads. */
+            data-over-handle={collapsed ? '' : undefined}
+            className="text-muted-foreground hover:text-foreground -mr-1 size-6 cursor-default data-[over-handle]:relative data-[over-handle]:z-10"
             /* Stops the grid reading the press as the start of a drag, which would
                make this button unpressable. */
             onMouseDown={(event) => event.stopPropagation()}

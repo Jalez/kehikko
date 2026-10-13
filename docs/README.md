@@ -479,6 +479,26 @@ is gone. It is answered by the canvas rather than the server, for the reason
 `events.emit` is: answering it requires something only this half has, and here
 that thing is a person.
 
+### A module's server can ask whether a folder is a project — one folder, yes or no
+
+A module's server is not on the canvas. It is told a path by its own page, which
+read `projectPath` off the context, and by agents; from where it stands both are
+strings in a request, and a page holding its ticket could name any folder on the
+disk. So it may ask this host:
+
+```
+GET <host>/host/is-project?path=<absolute folder>   →   { "ok": true, "project": true | false }
+```
+
+`<host>` is the first origin in `KEHIKOT_ORIGINS`, which this host passes to
+every module it starts. Yes means the folder is one a person added here, by any
+spelling of it (links and `..` are resolved). No is one word for everything
+else — not a project, inside one, not there, not absolute — so the answer says
+nothing about the disk. It is not the list, for the reason above. It is
+answered to programs on this machine and to this host's page; a module's page
+cannot ask it, and has no need to. A module started by hand has no host to ask
+and keeps whatever rule it had.
+
 ## Picking a module out, and the host's own door for an agent
 
 Every container header has a checkbox. Ticking it picks that container out as a

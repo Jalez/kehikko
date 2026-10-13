@@ -215,6 +215,9 @@ export function ToolsDialog({
   const [door, setDoor] = useState<AtTheDoor | null>(null)
   const [asking, setAsking] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
+  /* An entry that still points at a door this host will not connect under
+     the name it asks for. The one thing such a door has to press. */
+  const [stale, setStale] = useState<Stale | null>(null)
   const [pressing, setPressing] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
 
@@ -233,7 +236,8 @@ export function ToolsDialog({
       const response = await fetch(`/host/tools?module=${encodeURIComponent(module)}`, {
         cache: 'no-store',
       })
-      const body = (await response.json()) as AtTheDoor | { ok: false; why?: string }
+      const body = (await response.json()) as AtTheDoor | { ok: false; why?: string; stale?: Stale }
+      setStale(!body.ok && body.stale ? body.stale : null)
       if (!response.ok || !body.ok) {
         setDoor(null)
         setRefused(
@@ -244,6 +248,7 @@ export function ToolsDialog({
       setDoor(body)
     } catch (error) {
       setDoor(null)
+      setStale(null)
       /* One sentence, one place. See `host/reachable.ts`: this was one of four
          hand-written wordings of the same fault, none of which said what a
          person could do about it. */
@@ -281,11 +286,11 @@ export function ToolsDialog({
       if (!body.ok) {
         setSaid(body.why ?? body.said ?? 'It did not work, and the host did not say why.')
       } else {
-        setSaid(
-          what === 'disconnect'
-            ? `Removed. ${NEXT_SESSION}`
-            : `Written to ${door?.writesTo ?? 'user'} scope. ${NEXT_SESSION}`,
-        )
+        /* With a door on screen the sentence about the next session is
+           already standing above this, and saying it twice read as two
+           different warnings. With none — a refused name — it is said here. */
+        const next = door ? '' : ` ${NEXT_SESSION}`
+        setSaid(what === 'disconnect' ? `Removed.${next}` : `Written to ${door?.writesTo ?? 'user'} scope.${next}`)
       }
       /* Read back either way. A failed press may still have changed something —
          a repoint removes before it adds — and the window has to show what is
@@ -316,6 +321,35 @@ export function ToolsDialog({
         </DialogHeader>
 
         {refused ? <p className="text-sm leading-relaxed break-words">{refused}</p> : null}
+
+        {/* A door with a refused name is not connected and cannot be — but an
+            entry written before the refusal may still point at it, and that
+            one can be removed here. Nothing else about such a door is pressed. */}
+        {!door && stale ? (
+          <div className="min-w-0 space-y-2 rounded-md border p-3">
+            <p className="min-w-0 text-sm leading-relaxed break-words">
+              A server called <span className="font-mono text-xs">{stale.as}</span> still points at
+              this door{whereSaid(stale.configuredIn, ', ')}. An agent reaches the module’s tools
+              under that name until it is removed.
+            </p>
+            <Hint label={`removes it wherever it is configured, by running: claude mcp remove ${stale.as}`} side="top">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 px-3 text-xs"
+                disabled={pressing}
+                onClick={() => void press('disconnect')}
+              >
+                <Unplug className="size-3" />
+                {pressing ? 'removing…' : `disconnect “${stale.as}”`}
+              </Button>
+            </Hint>
+          </div>
+        ) : null}
+
+        {!door && said ? (
+          <p className="bg-muted min-w-0 rounded-md p-3 text-xs leading-relaxed break-words">{said}</p>
+        ) : null}
 
         {door ? (
           <div className="min-w-0 space-y-3">
@@ -361,6 +395,23 @@ export function ToolsDialog({
   )
 }
 
+/** An entry that points at a door, and where it is configured. */
+type Stale = { as: string; configuredIn: AtTheDoor['configuredIn'] }
+
+/** Where an entry is configured, as the rest of a sentence; '' (or null with no lead) when not known. */
+function whereSaid(configuredIn: AtTheDoor['configuredIn']): string | null
+function whereSaid(configuredIn: AtTheDoor['configuredIn'], lead: string): string
+function whereSaid(configuredIn: AtTheDoor['configuredIn'], lead?: string): string | null {
+  const where =
+    configuredIn === null
+      ? null
+      : configuredIn.scope === 'user'
+        ? 'in user scope, which is global to this machine'
+        : `in local scope, under ${configuredIn.project}`
+  if (lead === undefined) return where
+  return where ? `${lead}${where}` : ''
+}
+
 /**
  * What the agent has been told, and the one press that changes it.
  *
@@ -379,12 +430,7 @@ function Connection({
   pressing: boolean
   onPress(what: 'connect' | 'disconnect' | 'repoint'): void
 }) {
-  const where =
-    door.configuredIn === null
-      ? null
-      : door.configuredIn.scope === 'user'
-        ? 'in user scope, which is global to this machine'
-        : `in local scope, under ${door.configuredIn.project}`
+  const where = whereSaid(door.configuredIn)
   /* "this module" is false of the host, and the host's is the one door whose
      stale address is the host's OWN port having moved — see `hostDoor`. */
   const thing = door.about === 'host' ? 'this host' : 'this module'
@@ -399,10 +445,13 @@ function Connection({
           </>
         ) : door.agent.kind === 'renamed' ? (
           <>
+            {/* Two sentences. As one, "…global to this machine, which is not
+                what this module is called any more" read as being about the
+                machine. */}
             Connected as <span className="font-mono text-xs">{door.agent.as}</span>
-            {where ? `, ${where}` : null}, which is not what this module is called any more: it now
-            asks to be connected as <span className="font-mono text-xs">{door.agent.to}</span>. An
-            agent reaches its tools under the old name until it is reconnected.
+            {where ? `, ${where}` : null}. That is the module’s old name: it now asks to be
+            connected as <span className="font-mono text-xs">{door.agent.to}</span>, and an agent
+            reaches its tools under the old one until it is reconnected.
           </>
         ) : door.agent.kind === 'elsewhere' ? (
           <>

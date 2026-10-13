@@ -164,12 +164,7 @@ export function awarenessOf(
   if (!mcpUrl) return { kind: 'none' }
 
   const tail = tailOf(id)
-  const wanted = normalise(mcpUrl)
-  const here: string[] = []
-  for (const [name, value] of known) {
-    const url = urlOf(value)
-    if (url && normalise(url) === wanted) here.push(name)
-  }
+  const here = pointingAt(mcpUrl, known)
   if (here.length > 0) {
     if (!declared) return { kind: 'told', as: here[0]! }
     if (here.includes(declared)) return { kind: 'told', as: declared }
@@ -190,6 +185,25 @@ export function awarenessOf(
   }
 
   return { kind: 'untold' }
+}
+
+/**
+ * The configured servers that point AT this address, whatever each is called,
+ * in the order the configuration lists them.
+ *
+ * The url, not the name, for `awarenessOf`'s reason. It is also what is left
+ * to go on when a door has no name this host will use (`nameRefusal`): an
+ * entry written while the module was called something else still points at
+ * the door, and is still this module's to remove.
+ */
+export function pointingAt(mcpUrl: string, known: Map<string, unknown>): string[] {
+  const wanted = normalise(mcpUrl)
+  const here: string[] = []
+  for (const [name, value] of known) {
+    const url = urlOf(value)
+    if (url && normalise(url) === wanted) here.push(name)
+  }
+  return here
 }
 
 /** The url out of whatever shape a configured server happens to have. */

@@ -70,8 +70,9 @@ import { AddItem, Remove } from './Menu.tsx'
  *
  * The X arms, and says "remove?" where it was; a second press does it. The
  * pattern every header menu uses (`Remove` in `Menu.tsx`), for its reason. A
- * part that was picked when it was removed is then said in the bar, as any
- * picked part that goes is — see below.
+ * part that was picked when it was removed here is simply no longer picked
+ * (`unpicked` in `host/parts.ts`); the bar says a picked part is gone only
+ * when it went by somebody else's doing — see below.
  *
  * On the keyboard, on a row: F2 renames, Alt+↑ and Alt+↓ move, and Delete
  * arms the remove and then confirms it.

@@ -107,3 +107,15 @@
 - An order to a page (`Wakes.press`) goes to that page's streams only. Every
   other kind of news on `/host/watch` goes to everyone and says only that there
   is something to re-read.
+
+## What a module may ask
+
+- Every method is held to the capability the protocol files it under
+  (`METHODS`): a module whose manifest does not list it in `declares.uses` is
+  not answered. The rule is `hold` in `src/host/grants.ts`, used by the server
+  for what it answers (`Grants` in `server/answers.ts`) and by the canvas for
+  what it answers (`makeAsk` in `src/host/ask.ts`). A new method needs nothing
+  here; a refusal is the method's `declined` outcome where it has one.
+- A module that is live and calls a method it did not declare goes in
+  `ANSWERED_UNDECLARED` (answered, one log line per call) until its manifest is
+  fixed. Never widen the rule instead.

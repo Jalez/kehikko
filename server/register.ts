@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 
-import { awarenessOf, tailOf, type AgentAwareness } from './agents.ts'
+import { awarenessOf, pointingAt, tailOf, type AgentAwareness } from './agents.ts'
 import { look, type Presence } from './discover.ts'
 import { HOST_ID } from './kehikot.ts'
 import { readRegistrations, registryDir } from './registrations.ts'
@@ -335,7 +335,7 @@ export async function repoint(existing: string, door: Door, run: Runner = runCla
 export async function doorFor(
   id: string,
   seen: ReadonlyMap<string, Pick<Presence, 'id' | 'module'>> = new Map(),
-): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
+): Promise<{ ok: true; door: Door } | NoDoor> {
   const now = await readRegistrations()
   const registration = now.registrations.find((r) => r.id === id)
   if (!registration) {
@@ -372,12 +372,33 @@ export async function doorFor(
     if (other.id !== id) others.set(other.id, heldName(seen.get(other.id), other.id))
   }
   const refusal = nameRefusal(id, mcp.as, others)
-  if (refusal) return { ok: false, status: 409, why: refusal }
+  if (refusal) return { ok: false, status: 409, why: refusal, at: mcp.url }
 
   return {
     ok: true,
     door: { module: id, as: doorName(id, mcp.as), url: mcp.url, transport: mcp.transport },
   }
+}
+
+/**
+ * Why there is no door to act on.
+ *
+ * `at` is set for one reason only: the module is answering and has a door,
+ * and the NAME it asks for is refused (`nameRefusal`). Nothing is written for
+ * such a door — but an entry made before the refusal may still point at it,
+ * and that one is the module's to remove: see `staleAt`.
+ */
+export type NoDoor = { ok: false; why: string; status: number; at?: string }
+
+/**
+ * The entry that still points at a door whose name is refused, or null.
+ *
+ * Found by the address and never by a name: the name the module asks for is
+ * another door's, and removing THAT would disconnect the wrong module. An
+ * entry whose url is this door can only be this module's.
+ */
+export function staleAt(found: NoDoor, known: Map<string, unknown>): string | null {
+  return found.at ? (pointingAt(found.at, known)[0] ?? null) : null
 }
 
 /**

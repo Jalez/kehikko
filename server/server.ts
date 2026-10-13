@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
+import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -22,7 +23,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, forgetProject, isProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -68,7 +69,9 @@ import {
   nameRefusal,
   repoint,
   SCOPE,
+  staleAt,
   type Door,
+  type NoDoor,
 } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
@@ -470,6 +473,16 @@ async function survey(): Promise<{
   forgetUnregistered(db, found.registrations.map((r) => r.id))
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
+  /* What each module's manifest asks for, kept from the last sweep that READ
+     one: a module that was slow to answer one sweep has not stopped having
+     asked. Gone with the registration, or with a manifest this host refuses. */
+  for (const id of [...lastDeclared.keys()]) {
+    const now = lastPresences.get(id)
+    if (!now || now.refused) lastDeclared.delete(id)
+  }
+  for (const presence of presences) {
+    if (presence.module) lastDeclared.set(presence.id, presence.module.declares.uses)
+  }
 
   /* What every door is called, so a module that ASKS for a name (`mcp.as`) can
      be told when it is another door's. See `nameRefusal` in `register.ts`. */
@@ -541,7 +554,7 @@ const own: Door = hostDoor(PORT)
  * the person wrote. A module registered under the host's own id would be
  * shadowed at these two endpoints, which `hostDoor` says out loud.
  */
-async function doorOf(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
+async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
   if (id === HOST_ID) return { ok: true, door: own }
   return doorFor(id, lastPresences)
 }
@@ -759,6 +772,12 @@ const pins = new Pins({
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
 const lastPresences = new Map<string, Presence>()
+
+/** What each module's manifest asks for (`declares.uses`), as a sweep last read it. No call can write it. */
+const lastDeclared = new Map<string, readonly string[]>()
+/** Whether this module's manifest asks for the capability: what every method is held to. See `Grants`. */
+const declared = (module: string, capability: string): boolean =>
+  lastDeclared.get(module)?.includes(capability) === true
 
 /** When the host last ran a module's script, for as long as that is news. */
 const starting = new Map<string, number>()
@@ -1941,8 +1960,13 @@ const server = Bun.serve({
           /* An edit of an epic's parts, for a module whose manifest asked for
              it. Read off the last sweep's manifest, which no module can write. */
           {
-            may: (module, capability) => lastPresences.get(module)?.module?.declares.uses.includes(capability as never) === true,
+            may: declared,
             edit: (root, epic, edit) => partsEdited(root, epic, edit).result,
+          },
+          /* Every other method, held to the same list the same way. */
+          {
+            may: declared,
+            undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
           },
         ),
       )
@@ -2010,6 +2034,18 @@ const server = Bun.serve({
      * here — one place, so a second endpoint cannot grow a weaker copy. */
     if (url.pathname === '/host/projects' && request.method === 'GET') {
       return json({ projects: listProjects(db) })
+    }
+
+    /*
+     * Whether one folder is a project a person added here. For a module's
+     * server, which is told a path by its page and has no other way to know
+     * the path is one this host handed out. One path in, one word out; the
+     * list is not what a module is given — see `isProject`. Answered to this
+     * host's page and to programs on this machine, like every read here, and
+     * to no other page (`guard.ts`): a module's PAGE cannot ask.
+     */
+    if (url.pathname === '/host/is-project' && request.method === 'GET') {
+      return json({ ok: true, project: isProject(db, url.searchParams.get('path')) })
     }
 
     /*
@@ -2559,7 +2595,16 @@ const server = Bun.serve({
       if (!id) return json({ ok: false, why: 'A request for tools names one module.' }, 400)
 
       const found = await doorOf(id)
-      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      if (!found.ok) {
+        /* A door whose name is refused is not connected, and an entry made
+           before the refusal may still point at it. Said, with where it is,
+           so the window can offer to remove it. See `staleAt`. */
+        const stale = staleAt(found, agentKnows())
+        return json(
+          { ok: false, why: found.why, ...(stale ? { stale: { as: stale, configuredIn: scopeOf(stale) } } : {}) },
+          found.status,
+        )
+      }
       const door = found.door
 
       const agent = awarenessAt(door, agentKnows())
@@ -2615,7 +2660,15 @@ const server = Bun.serve({
       }
 
       const found = await doorOf(id)
-      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      if (!found.ok) {
+        /* The one press a door with a refused name still takes: removing the
+           entry that points at it. The name comes from the configuration as
+           read now, by the door's address — never from the request, and never
+           the name the module asks for, which is another door's. */
+        const stale = press === 'disconnect' ? staleAt(found, agentKnows()) : null
+        if (stale === null) return json({ ok: false, why: found.why }, found.status)
+        return json({ ...(await disconnect(stale)), stale: staleAt(found, agentKnows()) })
+      }
       const door = found.door
 
       /* Read the configuration again at the moment of the press rather than

@@ -362,3 +362,30 @@ describe('the running server and where a request came from', () => {
     expect(await withHost(`127.0.0.1:${port + 1}`, '/host/health')).toBe(200)
   })
 })
+
+describe('whether a folder is a project the person added', () => {
+  const ask = (path: string | null, headers: Shape = {}) =>
+    send('GET', `/host/is-project${path === null ? '' : `?path=${encodeURIComponent(path)}`}`, undefined, headers)
+
+  test('a program is told yes for a project, by any spelling of its folder, and no for anything else in one word', async () => {
+    expect((await ask(at('project'))).body).toEqual({ ok: true, project: true })
+    expect((await ask(`${at('project')}/`)).body).toEqual({ ok: true, project: true })
+    expect((await ask(join(at('other'), '..', 'project'))).body).toEqual({ ok: true, project: true })
+    /* A folder that is there and is not a project, one inside a project, one that is not there, and no path at all. */
+    for (const not of [at('other'), join(at('project'), '.kehikot'), at('nothing-here'), 'project', '', null]) {
+      expect((await ask(not)).body, String(not)).toEqual({ ok: true, project: false })
+    }
+  })
+
+  test('and never the list: the answer is that one word', async () => {
+    expect(Object.keys((await ask(at('project'))).body).sort()).toEqual(['ok', 'project'])
+  })
+
+  test('the host’s own page may ask; another page — a module’s — may not', async () => {
+    expect((await ask(at('project'), { origin: page })).body.project).toBe(true)
+    for (const [name, shape] of Object.entries(others())) {
+      expect((await ask(at('project'), shape)).status, name).toBe(403)
+    }
+  })
+})
+
