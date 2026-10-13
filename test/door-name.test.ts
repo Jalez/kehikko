@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { WELL_KNOWN } from 'kehikot-module-protocol'
 
-import { awarenessOf } from '../server/agents.ts'
+import { awarenessOf, pointingAt } from '../server/agents.ts'
 import { look } from '../server/discover.ts'
 import { HOST_ID } from '../server/kehikot.ts'
 import {
@@ -18,6 +18,7 @@ import {
   nameRefusal,
   repoint,
   serverName,
+  staleAt,
   type Door,
   type Runner,
 } from '../server/register.ts'
@@ -160,6 +161,20 @@ describe('a declared name that is another door’s', () => {
     const why = nameRefusal('kehikot.claude', 'checklist', others)
     expect(why).toContain('"checklist"')
     expect(why).toContain("kehikot.checklist's door")
+  })
+
+  test('an entry that still points at the refused door is found by its address, and is the one to remove', () => {
+    const refused = { ok: false as const, status: 409, why: 'refused', at: url }
+    const configured = known({ checklist: 'http://127.0.0.1:7860/mcp', claude: `${url}/` })
+    /* Never the name the module asks for: that one is the other module's door. */
+    expect(staleAt(refused, configured)).toBe('claude')
+    expect(pointingAt(url, configured)).toEqual(['claude'])
+    expect(staleAt(refused, known({ checklist: 'http://127.0.0.1:7860/mcp' }))).toBeNull()
+  })
+
+  test('a door that is missing for any other reason has no entry to offer', () => {
+    /* Not registered, not answering, no MCP door: there is no address to match, so nothing is removed. */
+    expect(staleAt({ ok: false, status: 404, why: 'not registered' }, known({ claude: url }))).toBeNull()
   })
 
   test('two modules declaring one name are both refused', () => {

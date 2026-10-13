@@ -69,7 +69,9 @@ import {
   nameRefusal,
   repoint,
   SCOPE,
+  staleAt,
   type Door,
+  type NoDoor,
 } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
@@ -552,7 +554,7 @@ const own: Door = hostDoor(PORT)
  * the person wrote. A module registered under the host's own id would be
  * shadowed at these two endpoints, which `hostDoor` says out loud.
  */
-async function doorOf(id: string): Promise<{ ok: true; door: Door } | { ok: false; why: string; status: number }> {
+async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
   if (id === HOST_ID) return { ok: true, door: own }
   return doorFor(id, lastPresences)
 }
@@ -2581,7 +2583,16 @@ const server = Bun.serve({
       if (!id) return json({ ok: false, why: 'A request for tools names one module.' }, 400)
 
       const found = await doorOf(id)
-      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      if (!found.ok) {
+        /* A door whose name is refused is not connected, and an entry made
+           before the refusal may still point at it. Said, with where it is,
+           so the window can offer to remove it. See `staleAt`. */
+        const stale = staleAt(found, agentKnows())
+        return json(
+          { ok: false, why: found.why, ...(stale ? { stale: { as: stale, configuredIn: scopeOf(stale) } } : {}) },
+          found.status,
+        )
+      }
       const door = found.door
 
       const agent = awarenessAt(door, agentKnows())
@@ -2637,7 +2648,15 @@ const server = Bun.serve({
       }
 
       const found = await doorOf(id)
-      if (!found.ok) return json({ ok: false, why: found.why }, found.status)
+      if (!found.ok) {
+        /* The one press a door with a refused name still takes: removing the
+           entry that points at it. The name comes from the configuration as
+           read now, by the door's address — never from the request, and never
+           the name the module asks for, which is another door's. */
+        const stale = press === 'disconnect' ? staleAt(found, agentKnows()) : null
+        if (stale === null) return json({ ok: false, why: found.why }, found.status)
+        return json({ ...(await disconnect(stale)), stale: staleAt(found, agentKnows()) })
+      }
       const door = found.door
 
       /* Read the configuration again at the moment of the press rather than
