@@ -220,7 +220,12 @@ describe('the picker’s arithmetic', () => {
     const two = focusSaid(parts, ['the-agent-seam', 'the-posting-seam'])
     expect(two.label).toBe('2 of 3 parts')
     expect(two.hint).toContain('The posting seam, The agent seam')
-    expect(two.hint).toContain('The other 1')
+    expect(two.hint).toContain('The other one is still there')
+    /* One, several and none are three sentences: "the other 1 are" was said of a two-part epic. */
+    expect(focusSaid(parts.slice(0, 2), [parts[0]!.id]).hint).toContain('The other one is still there —')
+    expect(focusSaid(parts, ['the-agent-seam']).hint).toContain('The other 2 are still there')
+    expect(focusSaid(parts, parts.map((part) => part.id)).hint).toContain('Those are all of its parts')
+    expect(focusSaid(parts, parts.map((part) => part.id)).hint).not.toContain('other 0')
   })
 
   test('ids are bounded before they are stored', () => {

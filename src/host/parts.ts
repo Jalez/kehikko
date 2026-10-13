@@ -541,6 +541,12 @@ export function focusSaid(
     label: picked.length === 1 ? picked[0]!.heading : `${picked.length} of ${parts.length} parts`,
     hint:
       `every module is pointed at ${picked.length === 1 ? 'one part' : `${picked.length} parts`} of this epic: ${names}. ` +
-      `The other ${parts.length - picked.length} are still there — clear this to see the whole epic`,
+      `${othersSaid(parts.length - picked.length)} — clear this to see the whole epic`,
   }
+}
+
+/** The parts not picked, counted in a sentence: none, one, or a number of them. */
+function othersSaid(others: number): string {
+  if (others <= 0) return 'Those are all of its parts'
+  return others === 1 ? 'The other one is still there' : `The other ${others} are still there`
 }
