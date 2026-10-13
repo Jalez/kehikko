@@ -104,6 +104,36 @@ export function listProjects(db: Database): Project[] {
     .map((row) => ({ ...row, name: named(row.path), epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }))
 }
 
+/**
+ * Whether a folder is one of the projects a person added here: yes or no.
+ *
+ * For a module's SERVER, which is handed a path by its own page and by agents
+ * and cannot otherwise tell a project the person added from any folder on the
+ * disk. It is asked one path and told one word — never the list, for the
+ * reason `projects.pick` has no `projects.list` beside it: a module holding
+ * the list has been handed a listing of the disk.
+ *
+ * The folder itself, not something inside it, and compared resolved: a link
+ * to a project is that project, and `/a/project/../project` is too. A path
+ * that is relative, too long, or names nothing answers no, in the same word
+ * as a real folder that is not a project — so the answer says nothing about
+ * what else is on the disk.
+ */
+export function isProject(db: Database, asked: unknown): boolean {
+  if (typeof asked !== 'string' || asked.length === 0 || asked.length > LIMITS.PATH || !isAbsolute(asked)) return false
+  const resolved = (path: string): string | null => {
+    try {
+      return realpathSync(resolve(path))
+    } catch {
+      return null
+    }
+  }
+  const real = resolved(asked)
+  if (real === null) return false
+  const rows = db.query<{ path: string }, []>('select path from projects').all()
+  return rows.some((row) => resolved(row.path) === real)
+}
+
 /** One project by id, or null. */
 export function projectById(db: Database, id: number): Project | null {
   const row = db

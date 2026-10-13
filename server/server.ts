@@ -23,7 +23,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, forgetProject, listProjects, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, forgetProject, isProject, listProjects, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -2034,6 +2034,18 @@ const server = Bun.serve({
      * here — one place, so a second endpoint cannot grow a weaker copy. */
     if (url.pathname === '/host/projects' && request.method === 'GET') {
       return json({ projects: listProjects(db) })
+    }
+
+    /*
+     * Whether one folder is a project a person added here. For a module's
+     * server, which is told a path by its page and has no other way to know
+     * the path is one this host handed out. One path in, one word out; the
+     * list is not what a module is given — see `isProject`. Answered to this
+     * host's page and to programs on this machine, like every read here, and
+     * to no other page (`guard.ts`): a module's PAGE cannot ask.
+     */
+    if (url.pathname === '/host/is-project' && request.method === 'GET') {
+      return json({ ok: true, project: isProject(db, url.searchParams.get('path')) })
     }
 
     /*
