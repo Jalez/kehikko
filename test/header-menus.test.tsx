@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 19
+const TESTS = 20
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -413,5 +413,14 @@ describe('in the container', () => {
     expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'feedback', 'prompts'])
     expect(Menus.toolsSaying({ kind: 'told', as: 'paper' }, 'Paper')).toMatchObject({ state: 'connected', loud: false })
     expect(Menus.toolsSaying({ kind: 'none' }, 'Paper')).toBeNull()
+  })
+  test('folded, the remove button is lifted over the grid’s resize handle, which otherwise lies on its lower half', async () => {
+    const remove = () => document.querySelector('button[aria-label="take Paper off the canvas"]')!
+    await container(true, [])
+    expect(remove().hasAttribute('data-over-handle')).toBe(true)
+    expect(remove().className).toContain('data-[over-handle]:z-10')
+    act(() => unmount?.())
+    await container(false, [])
+    expect(remove().hasAttribute('data-over-handle')).toBe(false)
   })
 })
