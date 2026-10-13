@@ -179,6 +179,10 @@ export function ModuleFrame({
    * localStorage is empty for a reason it can never discover.
    */
   const wantsOrigin = framed.declares.storage
+  /* Read through a ref, like the canvas: a manifest re-read with another list
+     must not tear the conversation down. */
+  const usesRef = useRef(framed.declares.uses)
+  usesRef.current = framed.declares.uses
   const origin = wantsOrigin ? new URL(framed.entry).origin : null
 
   useEffect(() => {
@@ -199,7 +203,9 @@ export function ModuleFrame({
         filter: (from, choice) => canvasRef.current.filter(from, choice),
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
-      }),
+      },
+      /* Held to what the manifest asks for, as the registry last read it. */
+      (capability) => usesRef.current.includes(capability)),
       {
         ready: (p, build) => watcherRef.current.ready(p, build),
         silent: (line) => watcherRef.current.silent(line),

@@ -15,6 +15,7 @@ import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
 import { epicsIn, listEpics, readEpic, readLive, readStepsSaid } from './holdings.ts'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
+import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
@@ -126,24 +127,48 @@ const answeredByTheView = new Set<string>(ANSWERED_BY_THE_VIEW)
  * `holdings.ts` writes, and the server tells every page — and with one more
  * question, which is new in this file: `may`.
  *
- * ## The one method this host holds to its grant
+ * ## The first method this host held to its grant
  *
  * A manifest's `declares.uses` lists the capabilities a module asks for, and
  * until this method nothing here read it: every registered module was
  * answered every method, and the list was what the page SHOWED a person
- * about a module. That was tolerable while a call could at most write the
- * caller's own state, a mark on a ref, or nothing. This one rewrites a file a
- * person wrote, on behalf of every module on the canvas, so it is answered
- * only for a module whose manifest asked — `METHODS['parts.set']`, the
- * protocol's own word for the capability. One that did not is declined with a
- * sentence its author can act on. The other methods are as they were; holding
- * them to their grants is a change of its own.
+ * about a module. This one rewrites a file a person wrote, on behalf of every
+ * module on the canvas, so it is answered only for a module whose manifest
+ * asked — `METHODS['parts.set']`, the protocol's own word for the capability.
+ * One that did not is declined with a sentence its author can act on. Every
+ * other method is held the same way now: see `Grants` below.
  */
 export interface PartsDoor {
   /** Whether this module's manifest, as the registry last read it, asks for the capability. */
   may(module: string, capability: string): boolean
   /** Make the edit in this project, and say what came of it. Told to every page by the server. */
   edit(root: string, epic: string, edit: PartsEdit, module: string): PartsSetResult
+}
+
+/**
+ * Who may ask what: every method held to the capability the protocol files it
+ * under (`METHODS`), for a module whose manifest asked for it in
+ * `declares.uses`. The rule and its sentence are `hold` in
+ * `src/host/grants.ts`, shared with the canvas, which holds the methods it
+ * answers the same way.
+ *
+ * Absent, nothing is held: a caller that gave no way to read a manifest is a
+ * test of the decision table, not a host with modules.
+ */
+export interface Grants {
+  /** Whether this module's manifest, as the registry last read it, asks for the capability. */
+  may(module: string, capability: string): boolean
+  /** A call answered though undeclared (`ANSWERED_UNDECLARED`), for one line in the log. */
+  undeclared?(module: string, method: string, capability: string): void
+}
+
+/** The refusal for a call this module's manifest did not ask for, or null when it is to be answered. */
+function kept(moduleId: string, method: string, grants: Grants | null): string | null {
+  if (!grants) return null
+  const held = hold(method, (capability) => grants.may(moduleId, capability))
+  if (held.held) return held.why
+  if ('undeclared' in held) grants.undeclared?.(moduleId, method, held.undeclared)
+  return null
 }
 
 /**
@@ -213,6 +238,8 @@ export function answer(
   report: ((module: string, root: string, epic: string | null) => void) | null = null,
   /** Where `parts.set` goes, and who may ask. Absent, it is declined with a sentence saying so. */
   divide: PartsDoor | null = null,
+  /** Who may ask what. Absent, nothing is held to a manifest. */
+  grants: Grants | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -252,6 +279,14 @@ export function answer(
   const schema = params.get(method)
   if (!schema) {
     return notMineToSay('This host has no parameter schema for a method it claims to answer.')
+  }
+
+  /* Before the params are read: what a module did not ask for is not looked
+     at. `parts.set` answers for itself below, because the protocol gives its
+     refusal an outcome (`declined`) rather than a failure. */
+  if (method !== 'parts.set') {
+    const why = kept(moduleId, method, grants)
+    if (why) return notMineToSay(why)
   }
 
   const parsed = schema.safeParse(rawParams ?? {})
@@ -612,12 +647,17 @@ export async function answerCall(
   trackers: TrackerDoor | null,
   report: ((module: string, root: string, epic: string | null) => void) | null = null,
   divide: PartsDoor | null = null,
+  grants: Grants | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
   }
+  /* A refresh spends the person's rate limit for everybody: declined, in the
+     outcome the protocol gives it, for a module that did not ask. */
+  const why = kept(moduleId, method, grants)
+  if (why) return nothingToShow('tracker.refresh', { outcome: 'declined', at: null, why })
   const parsed = params.get(method)!.safeParse(rawParams ?? {})
-  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide)
+  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
   if (!trackers) return notMineToSay('This host was not given a tracker reading to refresh.')
   if (!root) {
     return nothingToShow('tracker.refresh', {

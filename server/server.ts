@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
+import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
@@ -470,6 +471,16 @@ async function survey(): Promise<{
   forgetUnregistered(db, found.registrations.map((r) => r.id))
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
+  /* What each module's manifest asks for, kept from the last sweep that READ
+     one: a module that was slow to answer one sweep has not stopped having
+     asked. Gone with the registration, or with a manifest this host refuses. */
+  for (const id of [...lastDeclared.keys()]) {
+    const now = lastPresences.get(id)
+    if (!now || now.refused) lastDeclared.delete(id)
+  }
+  for (const presence of presences) {
+    if (presence.module) lastDeclared.set(presence.id, presence.module.declares.uses)
+  }
 
   /* What every door is called, so a module that ASKS for a name (`mcp.as`) can
      be told when it is another door's. See `nameRefusal` in `register.ts`. */
@@ -759,6 +770,12 @@ const pins = new Pins({
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
 const lastPresences = new Map<string, Presence>()
+
+/** What each module's manifest asks for (`declares.uses`), as a sweep last read it. No call can write it. */
+const lastDeclared = new Map<string, readonly string[]>()
+/** Whether this module's manifest asks for the capability: what every method is held to. See `Grants`. */
+const declared = (module: string, capability: string): boolean =>
+  lastDeclared.get(module)?.includes(capability) === true
 
 /** When the host last ran a module's script, for as long as that is news. */
 const starting = new Map<string, number>()
@@ -1941,8 +1958,13 @@ const server = Bun.serve({
           /* An edit of an epic's parts, for a module whose manifest asked for
              it. Read off the last sweep's manifest, which no module can write. */
           {
-            may: (module, capability) => lastPresences.get(module)?.module?.declares.uses.includes(capability as never) === true,
+            may: declared,
             edit: (root, epic, edit) => partsEdited(root, epic, edit).result,
+          },
+          /* Every other method, held to the same list the same way. */
+          {
+            may: declared,
+            undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
           },
         ),
       )
