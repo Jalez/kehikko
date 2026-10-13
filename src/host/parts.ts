@@ -420,8 +420,8 @@ export function pickedIn(parts: readonly Part[], stored: readonly string[]): str
  * `pickedIn` already stops such a pick applying, and that half was always
  * right: a focus on a part that is gone must not hide everything. What it
  * left was the other half of the same event. Somebody focuses on a part; the
- * part is removed — in the picker, by a module's `parts.set`, by an agent —
- * and the bar goes from a filled, named control back to a quiet "all
+ * part is removed — by a module's `parts.set`, by an agent, in another
+ * window — and the bar goes from a filled, named control back to a quiet "all
  * parts" with nothing to say that anything happened. Every module on the
  * canvas widened, correctly, and the person was not told why.
  *
@@ -457,6 +457,23 @@ export function goneSaid(
         : `the focus is the ${kept.length === 1 ? 'one part' : `${kept.length} parts`} still here. `) +
       'Press to forget it',
   }
+}
+
+/**
+ * The picks to store once the person has removed a part in the picker
+ * themselves; `null` when the edit was not a remove, or the part was not
+ * picked, and there is nothing to write.
+ *
+ * `goneSaid` is for a part that went by somebody else's doing — a module, an
+ * agent, a hand in the file — where the person has to be told why every
+ * module widened. Whoever pressed remove already knows, and a notice to
+ * dismiss afterwards would be housekeeping for their own press. Only that
+ * part's id is dropped: another stored pick that names nothing is still said.
+ */
+export function unpicked(stored: readonly string[], edit: PartsEdit): string[] | null {
+  if (!('remove' in edit)) return null
+  const id = edit.remove.id
+  return stored.includes(id) ? stored.filter((one) => one !== id) : null
 }
 
 /**

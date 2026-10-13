@@ -9,7 +9,7 @@ import { Contents } from '../server/content.ts'
 import { listEpics } from '../server/holdings.ts'
 import { epicsDir } from '../server/hostData.ts'
 import { slugFrom as epicSlugFrom } from '../src/host/epics.ts'
-import { focusSaid, goneSaid, partsOf, partsOnWire, pickedIn, slugFrom } from '../src/host/parts.ts'
+import { focusSaid, goneSaid, partsOf, partsOnWire, pickedIn, slugFrom, unpicked } from '../src/host/parts.ts'
 
 /**
  * A part made, reworded or removed in the Journeys module, as this host
@@ -120,5 +120,27 @@ describe('a focus on a part that has been removed', () => {
   test('nothing is said when every stored pick is a part, or none is stored', () => {
     expect(goneSaid(parts, [])).toBeNull()
     expect(goneSaid(parts, ['the-posting-seam', 'what-the-page-shows'])).toBeNull()
+  })
+})
+
+describe('a picked part the person removed themselves', () => {
+  test('is no longer picked, so nothing is left to say it is gone', () => {
+    const stored = ['what-the-page-shows', 'the-agent-seam']
+    const left = unpicked(stored, { remove: { id: 'the-agent-seam' } })
+    expect(left).toEqual(['what-the-page-shows'])
+    expect(goneSaid([{ id: 'what-the-page-shows', heading: 'What the page shows', refs: [], steps: 0 }], left!)).toBeNull()
+  })
+
+  test('another pick that names nothing is kept, and still said', () => {
+    const left = unpicked(['gone-by-an-agent', 'the-agent-seam'], { remove: { id: 'the-agent-seam' } })
+    expect(left).toEqual(['gone-by-an-agent'])
+    expect(goneSaid([], left!)?.label).toBe('a picked part is gone')
+  })
+
+  test('nothing is written for a part that was not picked, or for another edit', () => {
+    expect(unpicked(['a'], { remove: { id: 'b' } })).toBeNull()
+    expect(unpicked(['a'], { rename: { id: 'a', name: 'A' } })).toBeNull()
+    expect(unpicked(['a'], { move: { id: 'a', after: null } })).toBeNull()
+    expect(unpicked([], { add: { name: 'A' } })).toBeNull()
   })
 })

@@ -62,7 +62,7 @@ import {
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
-import { partsOnWire, type Part, type PartsEdit } from './host/parts.ts'
+import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -1180,6 +1180,9 @@ export function App() {
   /* For `controls`, which is built once — see `kehikkoRef`. */
   const changeSubjectRef = useRef(changeSubject)
   changeSubjectRef.current = changeSubject
+  /* The stored picks as they are NOW, for an edit that answers later. */
+  const storedPartsRef = useRef(about.parts)
+  storedPartsRef.current = about.parts
 
   /* The epic only. The project is not a property of the subject a person edits
      here — it is changed by opening a project, and changing it from this
@@ -2526,6 +2529,11 @@ export function App() {
           )
           return false
         }
+        /* A part the person removed here while it was picked: the pick goes
+           with it, in the same render as the list, so the bar never says "a
+           picked part is gone" about their own press. See `unpicked`. */
+        const left = unpicked(storedPartsRef.current, edit)
+        if (left) changeSubjectRef.current({ parts: left })
         setTrouble(null)
         return true
       } catch (error) {
