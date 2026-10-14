@@ -412,7 +412,17 @@ describe('what a changed list does to this machine', () => {
 
     expect(staleLine(null)).toBeNull()
     expect(staleLine({ fetched: '2026-10-01T00:00:00.000Z', stale: false })).toBeNull()
-    expect(staleLine({ fetched: null, stale: true })).toBe('The official module list could not be refreshed. Showing the one this app came with.')
-    expect(staleLine({ fetched: '2026-10-01T12:00:00.000Z', stale: true })).toMatch(/^The official module list could not be refreshed\. Showing the one read on .*2026\.$/)
+    const repo = 'https://github.com/Jalez/kehikko'
+    expect(staleLine({ fetched: null, stale: false, off: true, repo })).toBe(
+      'The official module list is switched off on this machine, so only the modules this app came with are shown. Nothing to do. It comes from github.com/Jalez/kehikko.',
+    )
+    expect(staleLine({ fetched: null, stale: true, repo })).toBe(
+      'The official module list could not be reached, so only the modules this app came with are shown. Check the connection; it is asked again when this opens. It comes from github.com/Jalez/kehikko.',
+    )
+    const read = Date.parse('2026-10-01T12:00:00.000Z')
+    expect(staleLine({ fetched: '2026-10-01T12:00:00.000Z', stale: true, repo }, read + 3 * 3_600_000)).toBe(
+      'The official module list could not be refreshed, so the one read 3 hours ago is shown. Check the connection; it is asked again when this opens. It comes from github.com/Jalez/kehikko.',
+    )
+    expect(world(serving([]), { url: null }).source.standing().off).toBe(true)
   })
 })

@@ -29,7 +29,7 @@ const moduleSchema = z.object({
 /* How current the list is: when it was last read from where it is published
    (null when only the one the app came with is in use), and whether the last
    ask failed. Absent from a host that only has the list it was built with. */
-const standingSchema = z.object({ fetched: z.string().nullable(), stale: z.boolean() })
+const standingSchema = z.object({ fetched: z.string().nullable(), stale: z.boolean(), off: z.boolean().optional(), repo: z.string().optional() })
 export type ListStanding = z.infer<typeof standingSchema>
 
 export type Installing = z.infer<typeof installingSchema>
@@ -42,13 +42,34 @@ export async function fetchOfficial(signal?: AbortSignal): Promise<{ modules: Of
   return { modules: read.modules, standing: read.list ?? null }
 }
 
-/** The one quiet line under the module list when the official list could not be refreshed; null when there is nothing to say. */
-export function staleLine(standing: ListStanding | null): string | null {
-  if (!standing?.stale) return null
-  if (!standing.fetched) return 'The official module list could not be refreshed. Showing the one this app came with.'
-  const when = new Date(standing.fetched)
-  const day = Number.isNaN(when.getTime()) ? null : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-  return `The official module list could not be refreshed. Showing the one read${day ? ` on ${day}` : ' earlier'}.`
+/**
+ * The one sentence under the module list when the official list is not the
+ * current one; null when there is nothing to say. Three cases: the machine
+ * switched asking off; asking failed with an earlier answer kept (say how
+ * old); asking failed and there is none.
+ */
+export function staleLine(standing: ListStanding | null, now: number = Date.now()): string | null {
+  if (!standing) return null
+  const from = standing.repo ? ` It comes from ${standing.repo.replace(/^https?:\/\//, '')}.` : ''
+  if (standing.off) {
+    return `The official module list is switched off on this machine, so only the modules this app came with are shown. Nothing to do.${from}`
+  }
+  if (!standing.stale) return null
+  if (!standing.fetched) {
+    return `The official module list could not be reached, so only the modules this app came with are shown. Check the connection; it is asked again when this opens.${from}`
+  }
+  const read = new Date(standing.fetched).getTime()
+  const age = Number.isNaN(read) ? 'earlier' : ageOf(now - read)
+  return `The official module list could not be refreshed, so the one read ${age} is shown. Check the connection; it is asked again when this opens.${from}`
+}
+
+function ageOf(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  return `${Math.round(hours / 24)} days ago`
 }
 
 /** Start installing one official module. It returns at once; the list says how it is going. */

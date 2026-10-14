@@ -136,6 +136,8 @@ export function ModuleList({
         />
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
+        {/* Where the official list would begin: said once, in a sentence, so a short list is not a mystery. */}
+        {stale ? <p className="text-muted-foreground border-b px-3 py-2 text-[11px] leading-relaxed">{stale}</p> : null}
         {sections.length ? (
           sections.map((section) => (
             <section key={section.heading} aria-label={section.heading}>
@@ -165,7 +167,6 @@ export function ModuleList({
         <div className="space-y-2 border-t p-3">
           <p className="text-muted-foreground font-mono text-[11px] break-all">{sweep.dir}</p>
           <Rejected rejected={sweep.rejected} />
-          {stale ? <p className="text-muted-foreground text-[11px] leading-relaxed">{stale}</p> : null}
         </div>
       </div>
     </div>

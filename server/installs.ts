@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 
 import { githubRepo } from './feedback.ts'
-import { meetsProtocol, officialOf, type Official } from './official.ts'
+import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
 import type { Runner } from './versions.ts'
 
@@ -225,7 +225,7 @@ export function installDesk(deps: Deps) {
          done a moment ago, and wait only briefly — a slow network delays
          nothing but the newest entries, which the next opening has. */
       if (deps.source) await Promise.race([deps.source.refresh(), new Promise((done) => setTimeout(done, REFRESH_WAIT_MS))])
-      return reply({ modules: await list(), ...(deps.source ? { list: deps.source.standing() } : {}) })
+      return reply({ modules: await list(), ...(deps.source ? { list: { ...deps.source.standing(), repo: `https://github.com/${HOST_REPO}` } } : {}) })
     }
     if (url.pathname === '/host/official/install' && request.method === 'POST') {
       const body = (await request.json().catch(() => null)) as { module?: unknown } | null

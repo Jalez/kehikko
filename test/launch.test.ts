@@ -179,13 +179,14 @@ describe('what a module the host started is given', () => {
     const wrote = join(root, 'env.txt')
     writeFileSync(
       join(root, RUN_SCRIPT),
-      `#!/bin/sh\nprintf '%s\\n%s\\n%s\\n%s' "\${KEHIKOT_ORIGIN:-none}" "\${ROADMAP_ORIGIN:-none}" "\${KEHIKOT_ORIGINS:-none}" "\${PORT:-none}" > ${wrote}\n`,
+      `#!/bin/sh\nprintf '%s\\n%s\\n%s\\n%s' "\${KEHIKOT_ORIGIN:-none}" "\${ROADMAP_ORIGIN:-none}" "\${KEHIKOT_ORIGINS:-none}" "\${PORT:-none}" > "${wrote}"\n`,
     )
     chmodSync(join(root, RUN_SCRIPT), 0o755)
 
     /* The old name is not passed on: the only modules that read it alone
        speak a dialect this host no longer greets (`originEnv`). */
-    const before = { kehikot: process.env.KEHIKOT_ORIGIN, roadmap: process.env.ROADMAP_ORIGIN }
+    const before = { kehikot: process.env.KEHIKOT_ORIGIN, roadmap: process.env.ROADMAP_ORIGIN, origins: process.env.KEHIKOT_ORIGINS }
+    delete process.env.KEHIKOT_ORIGINS
     process.env.KEHIKOT_ORIGIN = 'tauri://localhost'
     delete process.env.ROADMAP_ORIGIN
     try {
@@ -211,6 +212,8 @@ describe('what a module the host started is given', () => {
       else process.env.KEHIKOT_ORIGIN = before.kehikot
       if (before.roadmap === undefined) delete process.env.ROADMAP_ORIGIN
       else process.env.ROADMAP_ORIGIN = before.roadmap
+      if (before.origins === undefined) delete process.env.KEHIKOT_ORIGINS
+      else process.env.KEHIKOT_ORIGINS = before.origins
     }
   })
 })
