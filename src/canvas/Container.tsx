@@ -66,6 +66,7 @@ export function Container({
   foldedBy = null,
   header = NO_HEADER,
   onPress = unpressable,
+  onKeyboard,
   pressNote = null,
   filters,
   chosen,
@@ -135,6 +136,12 @@ export function Container({
    * frame is standing, like `onClear`.
    */
   onPress?(press: Pressing): Promise<Pressed>
+  /**
+   * Hand the keyboard to the module's page: called after a press that closed
+   * the menu it was made in, instead of focus going back to the menu's
+   * trigger. See `focusAfter` in `host/header.ts`.
+   */
+  onKeyboard?(): void
   /** An agent pressed an item here through the host's door: said on the menu's trigger for a moment. */
   pressNote?: PressNote | null
   /**
@@ -488,7 +495,7 @@ export function Container({
          * one on the canvas. See `HeaderMenus.tsx`.
          */}
         {showing.kind === 'page' && !collapsed ? (
-          <HeaderMenus items={header} name={name} onPress={onPress} note={pressNote} />
+          <HeaderMenus items={header} name={name} onPress={onPress} onKeyboard={onKeyboard} note={pressNote} />
         ) : null}
 
         {/*

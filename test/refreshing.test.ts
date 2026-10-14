@@ -27,7 +27,7 @@ describe('a press, and the frame that is standing when it happens', () => {
   test('a refresh reaches the frame that joined', () => {
     const presses = new Presses()
     let asked = 0
-    presses.join('a.one', { clear: () => {}, refresh: () => (asked += 1), walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => {}, refresh: () => (asked += 1), walk: unwalked, item: unpressed, focus: () => {} })
     expect(presses.refresh('a.one')).toBe(true)
     expect(asked).toBe(1)
   })
@@ -40,7 +40,7 @@ describe('a press, and the frame that is standing when it happens', () => {
    */
   test('and a refresh at a frame that has left reaches nothing at all', () => {
     const presses = new Presses()
-    presses.join('a.one', { clear: () => {}, refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => {}, refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
     presses.leave('a.one')
     expect(presses.refresh('a.one')).toBe(false)
   })
@@ -54,7 +54,7 @@ describe('a press, and the frame that is standing when it happens', () => {
   test('refreshing is not clearing', () => {
     const presses = new Presses()
     const done: string[] = []
-    presses.join('a.one', { clear: () => done.push('clear'), refresh: () => done.push('refresh'), walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => done.push('clear'), refresh: () => done.push('refresh'), walk: unwalked, item: unpressed, focus: () => {} })
     presses.refresh('a.one')
     presses.press('a.one')
     expect(done).toEqual(['refresh', 'clear'])

@@ -51,7 +51,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -77,7 +77,7 @@ import {
   type HeaderMenu,
   type PressValue,
 } from 'kehikot-module-protocol'
-import { menusOf, nested, staysOpen, type ModuleMenu, type Pressed, type Pressing } from '@/host/header.ts'
+import { focusAfter, menusOf, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
@@ -116,6 +116,15 @@ import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
  * set two, and the tick moves in front of them. A jump and a run close it, as
  * an ordinary shadcn item does — they act on the page the menu is standing
  * over. A run that needs confirming stays open for its second press.
+ *
+ * ## The keyboard, after a menu closes
+ *
+ * A press that was sent hands the keyboard to the module's page
+ * (`onKeyboard`); Escape, and a press that was not taken, leave focus on the
+ * trigger. `focusAfter` in `host/header.ts` is the rule and has the argument.
+ * Focus that comes back to a trigger this way does not raise its tooltip —
+ * the label would stand over the top of the module's page, which is what the
+ * person closed the menu to look at. Tabbing to a trigger still does.
  *
  * ## Space
  *
@@ -282,12 +291,17 @@ interface Pressable {
   said: Said | null
   arm(item: HeaderItem): void
   press(item: HeaderItem, value?: PressValue): void
+  /** How the menu that is open came to close, for `focusAfter`. Written by a press and by `useOpen`. */
+  closing: MutableRefObject<Closing>
+  /** Hand the keyboard to the module's page. */
+  keyboard(): void
 }
 
 export function HeaderMenus({
   items,
   name,
   onPress,
+  onKeyboard,
   note = null,
   mode: asked,
 }: {
@@ -301,6 +315,8 @@ export function HeaderMenus({
    * `pressing` in `host/header.ts`.
    */
   onPress(press: Pressing): Promise<Pressed>
+  /** Hand the keyboard to the module's page, after a press that closed its menu. Left out, focus stays put. */
+  onKeyboard?(): void
   /** An agent pressed something here: said on the trigger for a moment. */
   note?: PressNote | null
   /** The mode, when the caller knows it. Left out, the header is measured. */
@@ -361,9 +377,15 @@ export function HeaderMenus({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noted])
 
+  /* How the open menu closes, and which press said so: an answer to an older press must not speak for a newer one. */
+  const closing = useRef<Closing>('dismissed')
+  const sent = useRef(0)
+
   if (!menus.length) return null
 
   const rows: Pressable = {
+    closing,
+    keyboard: () => onKeyboard?.(),
     armed: armedStill ? armed.id : null,
     pending,
     said,
@@ -373,9 +395,14 @@ export function HeaderMenus({
       if (pending.includes(item.id)) return
       setPending((was) => [...was, item.id])
       setSaid((was) => (was?.item === item.id ? null : was))
+      /* A jump and a run close the menu, and where focus goes then depends on
+         what becomes of this press — see `focusAfter`. */
+      const nth = ++sent.current
+      if (!staysOpen(item.kind)) closing.current = 'pressed'
       void onPress({ item: item.id, ...(value === undefined ? {} : { value }) })
         .catch((): Pressed => ({ ok: false, why: `${name} could not be pressed.` }))
         .then((came) => {
+          if (!came.ok && sent.current === nth && closing.current === 'pressed') closing.current = 'refused'
           if (!mounted.current) return
           setPending((was) => was.filter((id) => id !== item.id))
           if (!came.ok) setSaid({ item: item.id, menu: HEADER_MENUS[item.kind], text: came.why, tone: 'refused' })
@@ -431,7 +458,8 @@ function Menu({
   onClosed(): void
   word: Said | null
 }) {
-  const [open, setOpen] = useOpen(onClosed)
+  const [open, setOpen] = useOpen(onClosed, rows.closing)
+  const quiet = useRef(false)
   const busy = menus.some((menu) => menu.busy)
   const failed = !busy && menus.some((menu) => menu.failed)
   const title = which === 'more' ? 'Menus' : menus[0]!.title
@@ -448,7 +476,7 @@ function Menu({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Word hint={hint} word={open ? null : word}>
+      <Word hint={hint} word={open ? null : word} quiet={quiet}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -489,7 +517,19 @@ function Menu({
         </DropdownMenuTrigger>
       </Word>
 
-      <DropdownMenuContent align="end" className="max-w-64 min-w-44" data-menu-content={which}>
+      <DropdownMenuContent
+        align="end"
+        className="max-w-64 min-w-44"
+        data-menu-content={which}
+        onCloseAutoFocus={(event) => {
+          const to = focusAfter(rows.closing.current)
+          rows.closing.current = 'dismissed'
+          if (to === 'trigger') return returning(quiet)
+          /* Not Radix's return to the trigger: the module has the keyboard, or is given it. */
+          event.preventDefault()
+          if (to === 'module') rows.keyboard()
+        }}
+      >
         {menus.map((menu, index) => (
           <DropdownMenuGroup key={menu.menu} data-section={menu.menu}>
             {which === 'more' ? (
@@ -561,17 +601,21 @@ function listed(item: HeaderItem, alone: boolean): boolean {
  * A drag needs nothing here. It starts with a press on the header, which is
  * outside the menu, and Radix has closed it before the grid moves anything.
  */
-function useOpen(onClosed: () => void): [boolean, (open: boolean) => void] {
+function useOpen(onClosed: () => void, closing: MutableRefObject<Closing>): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(false)
   const closed = useRef(onClosed)
   closed.current = onClosed
   const set = (next: boolean) => {
+    /* A menu that opens has not been closed by anything yet. */
+    if (next) closing.current = 'dismissed'
     setOpen(next)
     if (!next) closed.current()
   }
   useEffect(() => {
     if (!open) return
     const away = () => {
+      /* Focus is in a module's page now, and is not pulled back out of it. */
+      closing.current = 'away'
       setOpen(false)
       closed.current()
     }
@@ -589,17 +633,53 @@ function useOpen(onClosed: () => void): [boolean, (open: boolean) => void] {
  * floating label every control here already has — rather than a row under
  * the header or a toast over the canvas. `disableHoverableContent` for the
  * reason `Hint.tsx` gives.
+ *
+ * `quiet` is the one focus it does not open for: the menu handing focus back
+ * to its trigger as it closes. Radix's tooltip opens on focus, which is right
+ * for somebody tabbing along the header and wrong here — nobody asked what
+ * the trigger is, they have just used it, and the label stands over the top
+ * of the module's page until something else takes focus. Marking the focus
+ * event as handled is how a Radix handler is told to stand down.
  */
-function Word({ hint, word, children }: { hint: string; word: Said | null; children: ReactNode }) {
+function Word({
+  hint,
+  word,
+  quiet,
+  children,
+}: {
+  hint: string
+  word: Said | null
+  quiet: MutableRefObject<boolean>
+  children: ReactNode
+}) {
   const [hovered, setHovered] = useState(false)
   return (
     <Tooltip disableHoverableContent open={word !== null || hovered} onOpenChange={setHovered}>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipTrigger
+        asChild
+        onFocus={(event) => {
+          if (quiet.current) event.preventDefault()
+        }}
+      >
+        {children}
+      </TooltipTrigger>
       <TooltipContent side="bottom" align="end" className="max-w-64" data-word={word?.tone}>
         {word ? word.text : hint}
       </TooltipContent>
     </Tooltip>
   )
+}
+
+/**
+ * Mark the focus a closing menu is about to return to its trigger, so `Word`
+ * does not open for it. The return is made in the same task, right after the
+ * handler this is called from, so the mark is taken down in the next one.
+ */
+function returning(quiet: MutableRefObject<boolean>): void {
+  quiet.current = true
+  window.setTimeout(() => {
+    quiet.current = false
+  }, 0)
 }
 
 /** The sentence a refused press came back with, under the row it was about. */
@@ -716,7 +796,11 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
      label; a switch has one of them on, and a go item holds nothing. */
   const options =
     item.kind === 'switch' ? (
-      <DropdownMenuRadioGroup value={item.value} onValueChange={(value) => rows.press(item, value)}>
+      /* The press is each row's own, not the group's "value changed": the
+         option a switch is ALREADY on is pressed like any other — "show the
+         PDF" again is how somebody asks to be taken back to it — and whether
+         that changes anything is the module's to say. */
+      <DropdownMenuRadioGroup value={item.value}>
         {item.options.map((option) => (
           <DropdownMenuRadioItem
             key={option.id}
@@ -727,6 +811,7 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
             data-option={option.id}
             onSelect={(event) => {
               if (staysOpen(item.kind)) event.preventDefault()
+              rows.press(item, option.id)
             }}
           >
             <Cut className="flex-1">{option.label}</Cut>
@@ -835,7 +920,9 @@ export function FrameMenu({
   epic: string | null
 }) {
   const feedback = useFeedback(module)
-  const [open, setOpen] = useOpen(() => {})
+  const closing = useRef<Closing>('dismissed')
+  const quiet = useRef(false)
+  const [open, setOpen] = useOpen(() => {}, closing)
   const tools = toolsSaying(agent, name)
 
   return (
@@ -844,6 +931,7 @@ export function FrameMenu({
         <Word
           hint={tools?.loud ? tools.hint : `frame: ${name}'s tools, feedback and prompts`}
           word={null}
+          quiet={quiet}
         >
           <DropdownMenuTrigger asChild>
             <Button
@@ -867,7 +955,19 @@ export function FrameMenu({
           </DropdownMenuTrigger>
         </Word>
 
-        <DropdownMenuContent align="end" className="max-w-64 min-w-48" data-menu-content="frame">
+        <DropdownMenuContent
+          align="end"
+          className="max-w-64 min-w-48"
+          data-menu-content="frame"
+          onCloseAutoFocus={(event) => {
+            /* The host's own rows open a dialog or act in this document: focus
+               returns to the trigger, quietly — unless it has gone to a module. */
+            const to = focusAfter(closing.current)
+            closing.current = 'dismissed'
+            if (to === 'trigger') returning(quiet)
+            else event.preventDefault()
+          }}
+        >
           <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
             {name}
           </DropdownMenuLabel>
