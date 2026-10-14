@@ -2954,6 +2954,8 @@ const server = Bun.serve({
               id: presence.id,
               name: presence.name ?? null,
               condition: presence.condition,
+              summary: presence.module?.summary || undefined,
+              guidance: presence.module?.guidance || undefined,
             })),
         },
         { name: HOST_ID, version: HOST_VERSION },

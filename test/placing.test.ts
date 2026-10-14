@@ -318,3 +318,23 @@ describe('what is refused, and what is merely declined', () => {
     expect(read.text).toContain('registered on this computer and not on this kehikko (what place_modules can add): a.two (Two), a.three (Three), a.four (Four)')
   })
 })
+
+describe('what a placed module is for', () => {
+  test('a placed module is described by its summary and bounded guidance; one with neither is not', async () => {
+    seen = [
+      { id: 'a.one', name: 'One', condition: 'ready', summary: 'Runs sessions.', guidance: 'g'.repeat(900) },
+      { id: 'a.two', name: 'Two', condition: 'ready' },
+      { id: 'a.four', name: 'Four', condition: 'ready', summary: 'Other.' },
+    ]
+    const id = aCanvas([box('a.four', 0, 0, 6, 10)])
+    const done = await call('place_modules', { kehikko: id, modules: ['a.one', 'a.two'] }, door())
+    expect(done.failed).toBe(false)
+    expect(done.text).toContain('for: "Runs sessions."')
+    expect(done.text).toContain(`guidance: "${'g'.repeat(399)}…"`)
+    expect(done.text).not.toContain('g'.repeat(400))
+    /* Not asked for, so not said: a.four was already there. */
+    expect(done.text).not.toContain('"Other."')
+    const read = await call('read_canvas', { kehikko: id }, door())
+    expect(read.text).toContain('"Other."')
+  })
+})

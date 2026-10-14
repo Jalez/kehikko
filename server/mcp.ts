@@ -182,6 +182,10 @@ export interface Sighting {
   id: string
   name: string | null
   condition: string
+  /** The module's own one line of what it is, when its manifest has one. */
+  summary?: string
+  /** What the module says its presence obliges an agent to do, when it says. */
+  guidance?: string
 }
 
 /**
@@ -363,6 +367,11 @@ function canvasText(
    * the header out of this reading altogether.
    */
   declared?: ReadonlyMap<string, readonly HeaderItem[]> | null,
+  /**
+   * Which containers to say what they are for — a module's own one line and
+   * its guidance — `'all'` for every one. Left out, nothing is said.
+   */
+  describing?: ReadonlySet<string> | 'all',
 ): string {
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const known = new Map(seen.map((sighting) => [sighting.id, sighting]))
@@ -446,6 +455,10 @@ function canvasText(
       ].filter((mark): mark is string => mark !== null)
       const name = sighting?.name && sighting.name !== p.i ? ` (${sighting.name})` : ''
       lines.push(`  ${p.i}${name}${marks.length ? ` — ${marks.join(', ')}` : ''}`)
+      if (describing === 'all' || describing?.has(p.i)) {
+        const said = forText(sighting)
+        if (said) lines.push(`      ${said}`)
+      }
       for (const item of declared?.get(p.i) ?? []) lines.push(`      ${itemText(item)}`)
     }
     if (declared === null) {
@@ -478,6 +491,25 @@ function canvasText(
       : 'every module registered on this computer is already on this kehikko.',
   )
   return lines.join('\n')
+}
+
+/** The most of a module's guidance an answer carries; the rest is the module's own door's to say. */
+const GUIDANCE_CHARS = 400
+
+/**
+ * What a module is for, in its own words, as one line: its summary and its
+ * guidance cut to a bound. Nothing for a module that has neither.
+ */
+function forText(sighting: Sighting | undefined): string | null {
+  const summary = sighting?.summary?.trim()
+  const guidance = sighting?.guidance?.replace(/\s+/g, ' ').trim()
+  const parts: string[] = []
+  if (summary) parts.push(`for: ${quoted(summary)}`)
+  if (guidance) {
+    const cut = guidance.length > GUIDANCE_CHARS ? `${guidance.slice(0, GUIDANCE_CHARS - 1)}…` : guidance
+    parts.push(`guidance: ${quoted(cut)}`)
+  }
+  return parts.length ? parts.join('; ') : null
 }
 
 /** A module's own words, for one line of an answer: no line breaks to forge a line with, and in quotes. */
@@ -982,7 +1014,7 @@ export async function call(
 
   if (name === 'read_canvas') {
     return {
-      text: canvasText(door.db, canvas, where.how, await door.seen(), door.headers ? door.headers.on(canvas.id) : undefined),
+      text: canvasText(door.db, canvas, where.how, await door.seen(), door.headers ? door.headers.on(canvas.id) : undefined, 'all'),
       failed: false,
     }
   }
@@ -1170,7 +1202,7 @@ async function placeOn(
         : '')
       + ' Nothing else was moved.'
       + '\n\n'
-      + canvasText(door.db, written, how, seen),
+      + canvasText(door.db, written, how, seen, undefined, new Set(adding)),
     failed: false,
   }
 }
