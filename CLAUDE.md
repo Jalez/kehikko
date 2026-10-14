@@ -94,6 +94,10 @@
 - A module's strings are text. Never render a label, group, result or reason as
   markup or a link, and never open a URL from one. `icon` is a key in
   `HEADER_ICONS`; add a name there (and to `docs/README.md`), never a path.
+- Where focus goes when a menu closes is `focusAfter` in `src/host/header.ts`:
+  the module's page after a press that was sent, the trigger after Escape or a
+  press that was not taken, and nowhere when focus already left for a module.
+  Focus returned to a trigger never raises its tooltip.
 - The header is one row. Anything added to it has to fit at 380, 280 and 200
   pixels and folded; a module's menus are words, then icons under 300, then one
   "⋯" under 220 (`modeFor`).

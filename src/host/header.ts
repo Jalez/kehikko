@@ -186,8 +186,9 @@ export type FocusAfter = 'trigger' | 'module' | 'nowhere'
  *
  * - Escape (or the trigger again) leaves focus on the trigger, as any menu
  *   does. Nothing happened in the module; they are still in the header.
- * - A press that was sent puts focus in the module's page. Tab from there
- *   walks the module, and Shift+Tab comes back out to the header.
+ * - A press that was sent puts focus in the module's page: its window, with
+ *   whichever element the module has or takes focus on. The keys are the
+ *   module's from then on, as if the person had clicked into it.
  * - A press that was NOT taken leaves focus on the trigger, which is where
  *   the reason is said. Nothing happened in the module to go and look at.
  * - A menu closed because focus already went to a module is not answered by
