@@ -502,14 +502,16 @@ function Menu({
   const failed = !busy && menus.some((menu) => menu.failed)
   const title = which === 'more' ? 'Menus' : menus[0]!.title
   const Glyph = which === 'more' ? Ellipsis : TRIGGER_ICONS[which]
-  const state = busy ? ' — running' : failed ? ' — the last run failed' : ''
+  const why = failed ? failedWhy(menus) : ''
+  const state = busy ? ' — running' : failed ? ` — the last run failed${why ? `: ${why}` : ''}` : ''
+  const at = where(menus)
   const hint =
     which === 'more'
-      ? `${name}'s menus: ${menus.map((menu) => menu.title.toLowerCase()).join(', ')}${state}`
+      ? `${name}'s menus: ${menus.map((menu) => menu.title.toLowerCase()).join(', ')}${at ? ` — ${at}` : ''}${state}`
       : which === 'view'
         ? `view: what ${name} shows`
         : which === 'go'
-          ? `go: jump to a place in ${name}`
+          ? `go: jump to a place in ${name}${at ? ` — ${at}` : ''}`
           : `run: what ${name} can do${state}`
 
   return (
@@ -521,13 +523,14 @@ function Menu({
             aria-label={`${which === 'more' ? 'menus' : title.toLowerCase()} of ${name}${state}`}
             data-menu={which}
             data-run={busy ? 'busy' : failed ? 'failed' : undefined}
+            {...modal}
             /* `pointer-events-auto` because the container is not, and the press
                is stopped before the grid reads it as the start of a drag — both
                as every control in this header does; see `Container.tsx`. */
             className={
               mode === 'words'
-                ? `${failed ? 'text-destructive hover:text-destructive' : busy ? 'text-foreground' : 'text-muted-foreground hover:text-foreground data-[state=open]:text-foreground'} data-[state=open]:bg-accent pointer-events-auto relative h-6 shrink-0 cursor-default px-1.5 text-xs font-normal`
-                : 'text-foreground data-[state=open]:bg-accent pointer-events-auto size-6 shrink-0 cursor-default p-0'
+                ? `${failed ? 'text-destructive hover:text-destructive' : busy ? 'text-foreground' : 'text-muted-foreground hover:text-foreground data-[state=open]:text-foreground'} data-[state=open]:bg-accent pointer-events-auto relative h-6 shrink-0 cursor-default px-1.5 text-xs font-normal ${KEYBOARD_RING}`
+                : `text-foreground data-[state=open]:bg-accent pointer-events-auto size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING}`
             }
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -539,7 +542,7 @@ function Menu({
                     the module's name for as long as a compile takes. */}
                 {busy || failed ? (
                   <span
-                    className={`ring-card absolute top-0.5 right-0 size-1.5 rounded-full ring-1 ${failed ? 'bg-destructive' : 'bg-foreground animate-pulse'}`}
+                    className={`ring-card absolute top-0.5 right-0 rounded-full ${failed ? 'size-2 ring-2' : 'size-1.5 ring-1'} ${failed ? 'bg-destructive' : 'bg-foreground animate-pulse'}`}
                     aria-hidden
                   />
                 ) : null}
@@ -580,7 +583,7 @@ function Menu({
               <DropdownMenuGroup key={group.name ?? ''} data-group={group.name ?? undefined}>
                 {at > 0 ? <DropdownMenuSeparator /> : null}
                 {group.name ? (
-                  <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={group.name}>
+                  <DropdownMenuLabel className="text-muted-foreground truncate py-1 text-[11px] font-normal" title={group.name} data-group-label>
                     {group.name}
                   </DropdownMenuLabel>
                 ) : null}
@@ -605,6 +608,61 @@ function Menu({
     </DropdownMenu>
   )
 }
+
+/**
+ * The current-state part of each Go item's label — the words after the first
+ * " · ", where a module folds in where it is now ("Sessions · ◆ name ·
+ * background") — for the trigger's tooltip. Empty when no label has one.
+ */
+export function where(menus: readonly ModuleMenu[]): string {
+  const said: string[] = []
+  for (const menu of menus) {
+    if (menu.menu !== 'go') continue
+    for (const group of menu.groups) {
+      for (const item of group.items) {
+        const at = item.label.indexOf(' · ')
+        const rest = at < 0 ? '' : item.label.slice(at + 3).trim()
+        if (rest) said.push(rest)
+      }
+    }
+  }
+  return said.join('; ')
+}
+
+/** The short reason a failed run gave, for the trigger's tooltip: its label and its result. */
+export function failedWhy(menus: readonly ModuleMenu[]): string {
+  const said: string[] = []
+  for (const menu of menus) {
+    for (const group of menu.groups) {
+      for (const item of group.items) {
+        if (item.kind === 'run' && item.state === 'failed') said.push(item.result ? `${item.label} — ${item.result}` : item.label)
+      }
+    }
+  }
+  return said.join('; ')
+}
+
+/**
+ * Whether the focus ring shows is keyboard only. A menu hands focus back to
+ * its trigger when it closes, and a browser may count that return as
+ * "focus-visible" even though a pointer opened the menu; the ring stood on the
+ * trigger after every click. The last input is noted once for the document,
+ * and a trigger takes it when it is focused.
+ */
+let lastInput: 'key' | 'pointer' = 'pointer'
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', () => { lastInput = 'key' }, true)
+  window.addEventListener('pointerdown', () => { lastInput = 'pointer' }, true)
+}
+const modal = {
+  'data-input': 'pointer',
+  onFocus: (event: { currentTarget: HTMLElement }) => {
+    event.currentTarget.dataset.input = lastInput
+  },
+}
+/** Classes that pair with `modal`: no ring unless the last input was the keyboard. */
+const KEYBOARD_RING =
+  'focus-visible:ring-0 focus-visible:border-transparent data-[input=key]:focus-visible:border-ring data-[input=key]:focus-visible:ring-[3px]'
 
 /**
  * Whether the runs of a menu keep a column for an icon: when any of them has
@@ -780,7 +838,7 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
         className={`${ROW} data-[disabled]:pointer-events-auto`}
         variant={armed ? 'destructive' : 'default'}
         disabled={item.disabled !== null || busy || waiting}
-        title={item.disabled ?? undefined}
+        title={item.disabled ?? (item.state === 'failed' ? item.result : undefined) ?? undefined}
         data-item={item.id}
         data-armed={armed ? 'true' : undefined}
         data-state-run={item.state}
@@ -807,13 +865,18 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
             ) : null}
             <Cut className="flex-1">{item.label}</Cut>
             {item.result ? (
-              <span
-                className={`max-w-28 shrink-0 truncate text-[10px] ${item.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
-                title={item.result}
-                data-result
-              >
-                {item.result}
-              </span>
+              <>
+                {/* A separator for whoever reads the text rather than looks:
+                    "Run unit — passed", not "Run unitpassed". */}
+                <span className="sr-only"> — </span>
+                <span
+                  className={`max-w-28 shrink-0 truncate text-[10px] ${item.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
+                  title={item.result}
+                  data-result
+                >
+                  {item.result}
+                </span>
+              </>
             ) : null}
             {item.shortcut ? <DropdownMenuShortcut className="text-[10px]">{item.shortcut}</DropdownMenuShortcut> : null}
           </span>
@@ -978,10 +1041,11 @@ export function FrameMenu({
               aria-label={tools?.loud ? `frame menu of ${name} — ${tools.state}` : `frame menu of ${name}`}
               data-menu="frame"
               data-tools={tools?.loud ? 'loud' : undefined}
+              {...modal}
               className={
                 tools?.loud
-                  ? 'text-foreground data-[state=open]:bg-accent pointer-events-auto relative size-6 shrink-0 cursor-default'
-                  : 'text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground pointer-events-auto relative size-6 shrink-0 cursor-default'
+                  ? `text-foreground data-[state=open]:bg-accent pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
+                  : `text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
               }
               onMouseDown={(event) => event.stopPropagation()}
             >

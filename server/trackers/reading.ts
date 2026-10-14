@@ -381,7 +381,8 @@ export class Trackers {
    * `live.get`'s four bags for one epic, built from the reading: GitHub's keyed
    * by the ref as the epic spells it, GitLab's by number, with the state words
    * the old refresher wrote (`opened`, `closed`, `merged`). Null when the
-   * reading holds none of the epic's refs. Starts a read for the rest, as `get`
+   * reading holds none of the epic's refs and has not been read, or the
+   * epic's refs are still being asked for. Starts a read for the rest, as `get`
    * does.
    *
    * With them, which change delivers which issue, in the refresher's two maps:
@@ -396,7 +397,12 @@ export class Trackers {
    */
   live(root: string, epic: string): Record<string, unknown> | null {
     const got = this.get(root, { epic })
-    if ('refused' in got || !got.rows.length) return null
+    if ('refused' in got) return null
+    /* A reading that has landed and has nothing of this epic's in it, with
+       nothing of the epic's still being asked for, is an honest empty
+       reading — "the trackers were read and hold nothing live for it" — and
+       not the refusal that means nobody has read them. */
+    if (!got.rows.length && !(got.at && !got.missing.length)) return null
     const bags: Record<'issues' | 'mrs' | 'ghIssues' | 'ghPrs', Record<string, unknown>> = { issues: {}, mrs: {}, ghIssues: {}, ghPrs: {} }
     const links: Record<string, number[]> = {}
     const ghLinks: Record<string, number[]> = {}

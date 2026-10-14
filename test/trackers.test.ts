@@ -666,3 +666,40 @@ describe('the methods, answered', () => {
     expect(told.tracker).toEqual({ at: NOW.toISOString(), refreshing: true })
   })
 })
+
+describe('live.get from the shared reading alone', () => {
+  const EPIC = { slug: 'one', title: 'One', umbrella: 'gh#9', steps: [{ title: 's', refs: ['gh#1'] }] }
+  const put = (folder: string, epic: object) => {
+    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify(epic))
+  }
+
+  test('a landed read with nothing live for the epic is an empty reading, not a refusal; unread is null', async () => {
+    put(folder, { slug: 'one', title: 'One', steps: [] })
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
+    expect(trackers.live(folder, 'one')).toBeNull()
+    await trackers.refresh(folder, { project: true })
+    const live = trackers.live(folder, 'one')!
+    expect(live.generated).toBe(NOW.toISOString())
+    expect(live.ghIssues).toEqual({})
+    expect(live.issues).toEqual({})
+  })
+
+  test('answered through live.get: no state file and a landed read is an empty reading; no read is the refusal', async () => {
+    put(folder, { slug: 'one', title: 'One', steps: [] })
+    const known = () => true
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
+    const before = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    expect(before.ok).toBe(false)
+    await trackers.refresh(folder, { project: true })
+    const after = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    if (!after.ok) throw new Error(after.error)
+    expect((after.data as Record<string, unknown>).generated).toBe(NOW.toISOString())
+  })
+
+  test('an epic whose refs were never read stays a refusal', async () => {
+    put(folder, EPIC)
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
+    expect(trackers.live(folder, 'one')).toBeNull()
+  })
+})

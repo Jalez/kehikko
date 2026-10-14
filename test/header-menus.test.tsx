@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 32
+const TESTS = 33
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -151,6 +151,21 @@ describe('the kind decides the menu, and nothing is drawn for nothing', () => {
 
 describe('each kind is drawn as its part', () => {
   if (!inChild) return
+
+  test('a result is separated from its label in the text, a failed run says its reason in its title, and a go label gives its state to the trigger', async () => {
+    const { menusOf } = await import('../src/host/header.ts')
+    await mount(paper({ compile: { state: 'failed', result: '2 errors' } }))
+    await open('run')
+    expect(row('compile')!.textContent).toContain('Compile — 2 errors')
+    expect(row('compile')!.getAttribute('title')).toBe('2 errors')
+    const items = headerItemsSchema.parse([
+      { kind: 'go', id: 'sessions', label: 'Sessions · ◆ main · background', options: [{ id: 'a', label: 'A' }] },
+      { kind: 'run', id: 'unit', label: 'Run unit', state: 'failed', result: '3 failed' },
+    ])
+    expect(Menus.where(menusOf(items))).toBe('◆ main · background')
+    expect(Menus.failedWhy(menusOf(items))).toBe('Run unit — 3 failed')
+    expect(Menus.where(menusOf(paper()))).toBe('')
+  })
 
   test('a switch is a radio group with the option it is on, and a toggle is a checkbox item', async () => {
     await mount(paper())
