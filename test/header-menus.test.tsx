@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 28
+const TESTS = 32
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -78,7 +78,15 @@ const paper = (over: { pane?: string; wrap?: boolean; compile?: Record<string, u
 type Mode = import('../src/canvas/HeaderMenus.tsx').MenuMode
 
 /** The menus on a page, with a module behind them that answers as told and can declare again. */
-async function mount(first: HeaderItem[], more: { mode?: Mode; answer?: (press: Pressing) => Pressed | Promise<Pressed> } = {}) {
+async function mount(
+  first: HeaderItem[],
+  more: {
+    mode?: Mode
+    answer?: (press: Pressing) => Pressed | Promise<Pressed>
+    surface?: import('../src/canvas/HeaderMenus.tsx').Surface
+    order?: string[]
+  } = {},
+) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
@@ -86,13 +94,14 @@ async function mount(first: HeaderItem[], more: { mode?: Mode; answer?: (press: 
   const handed = { n: 0 }
   const onPress = async (press: Pressing): Promise<Pressed> => {
     presses.push(press)
+    more.order?.push('press')
     return more.answer ? more.answer(press) : { ok: true, why: '' }
   }
   const draw = (items: HeaderItem[], note: import('../src/canvas/HeaderMenus.tsx').PressNote | null = null) =>
     act(async () => {
       root.render(
         <TooltipProvider>
-          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} onKeyboard={() => { handed.n += 1 }} mode={more.mode ?? 'words'} note={note} />
+          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} onKeyboard={() => { handed.n += 1 }} surface={more.surface} mode={more.mode ?? 'words'} note={note} />
         </TooltipProvider>,
       )
     })
@@ -549,5 +558,49 @@ describe('in the container', () => {
     act(() => unmount?.())
     await container(false, [])
     expect(remove().hasAttribute('data-over-handle')).toBe(false)
+  })
+})
+
+describe('a run that asks for full screen (protocol 1.4.0)', () => {
+  if (!inChild) return
+
+  const present = () =>
+    headerItemsSchema.parse([{ kind: 'run', id: 'present', label: 'Present', surface: 'fullscreen' }, { kind: 'run', id: 'plain', label: 'Plain' }])
+
+  test('the host asks for full screen in the click, before the press is sent', async () => {
+    const order: string[] = []
+    const surface = { enter: () => (order.push('enter'), Promise.resolve(true)), leave: () => void order.push('leave') }
+    const { presses } = await mount(present(), { surface, order })
+    await open('run')
+    await choose(row('present'))
+    expect(order).toEqual(['enter', 'press'])
+    expect(presses).toEqual([{ item: 'present' }])
+  })
+
+  test('a run without a surface does not ask for it', async () => {
+    const order: string[] = []
+    const surface = { enter: () => (order.push('enter'), Promise.resolve(true)), leave: () => void order.push('leave') }
+    await mount(present(), { surface, order })
+    await open('run')
+    await choose(row('plain'))
+    expect(order).toEqual(['press'])
+  })
+
+  test('a refused press gives the screen back, and says why', async () => {
+    const order: string[] = []
+    const surface = { enter: () => (order.push('enter'), Promise.resolve(true)), leave: () => void order.push('leave') }
+    await mount(present(), { surface, order, answer: () => ({ ok: false, why: 'Nothing to present.' }) })
+    await open('run')
+    await choose(row('present'))
+    expect(order).toEqual(['enter', 'press', 'leave'])
+    expect(said()).toBe('Nothing to present.')
+  })
+
+  test('a webview that refuses full screen costs only the full screen: the press is delivered', async () => {
+    const surface = { enter: () => Promise.resolve(false), leave: () => {} }
+    const { presses } = await mount(present(), { surface })
+    await open('run')
+    await choose(row('present'))
+    expect(presses).toEqual([{ item: 'present' }])
   })
 })

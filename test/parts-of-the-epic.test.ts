@@ -17,7 +17,7 @@ import {
   type EpicPart,
   type PartsSetResult,
 } from 'kehikot-module-protocol'
-import { writeHoldings } from 'kehikot-module-protocol/serve'
+import { holdingsSpoken, readHoldings, writeHoldings } from 'kehikot-module-protocol/serve'
 import { z } from 'zod'
 
 import { answer, type PartsDoor } from '../server/answers.ts'
@@ -459,7 +459,7 @@ describe('the record’s share is a fallback, per kind and per epic', () => {
     /* The Methods chapter, moved to Results by whoever keeps it; five parts are not mentioned. */
     writeHoldings(dir, 'somebody.elses', 'thesis', {
       results: { documents: [paperOf('chapters/4_results.tex'), paperOf('chapters/3_methods.tex')], refs: [] },
-    })
+    }, { published: ['documents'] })
     const now = holds(dir)
     expect(now.results).toEqual({ refs: [], files: ['chapters/4_results.tex', 'chapters/3_methods.tex'], documents: [paperOf('chapters/4_results.tex'), paperOf('chapters/3_methods.tex')] })
     /* The part the chapter left has no document — and still its refs, a kind nobody published. */
@@ -482,7 +482,7 @@ describe('the record’s share is a fallback, per kind and per epic', () => {
 
   test('refs published for the epic: the record’s refs are not read, and its documents still are', () => {
     const dir = thesis()
-    writeHoldings(dir, 'somebody.elses', 'thesis', { results: { documents: [], refs: ['gh#77'] } })
+    writeHoldings(dir, 'somebody.elses', 'thesis', { results: { documents: [], refs: ['gh#77'] } }, { published: ['refs'] })
     const now = holds(dir)
     expect(now.results!.refs).toEqual(['gh#77'])
     expect(now.methods!.refs).toEqual([])
@@ -518,10 +518,10 @@ describe('the record’s share is a fallback, per kind and per epic', () => {
     const dir = thesis()
     const was = partsIn(dir)
     /* No file at all is `was`. An empty one: */
-    writeHoldings(dir, 'kehikot.sketches', 'thesis', {})
+    writeHoldings(dir, 'kehikot.sketches', 'thesis', {}, { published: [] })
     expect(partsIn(dir)).toEqual(was)
-    /* Parts listed with nothing in them: */
-    writeHoldings(dir, 'somebody.elses', 'thesis', { methods: { documents: [], refs: [] }, results: { documents: [], refs: [] } })
+    /* Parts listed with nothing in them, said to speak for no kind: */
+    writeHoldings(dir, 'somebody.elses', 'thesis', { methods: { documents: [], refs: [] }, results: { documents: [], refs: [] } }, { published: [] })
     expect(partsIn(dir)).toEqual(was)
     /* Something that is not a holdings file: */
     const folder = join(dir, '.kehikot', 'junk')
@@ -535,11 +535,41 @@ describe('the record’s share is a fallback, per kind and per epic', () => {
     expect(partsHeld(null, record, {}, 'thesis')).toEqual(partsHeld(null, record, undefined, 'thesis'))
   })
 
+  test('spoken is not held: a module that published a kind and then emptied it has still spoken (1.4.0)', () => {
+    const dir = thesis()
+    const was = partsIn(dir)
+    /* Paper publishes every chapter under a part. */
+    writeHoldings(dir, 'kehikot.paper', 'thesis', {
+      methods: { documents: [paperOf('chapters/3_methods.tex')] },
+      results: { documents: [paperOf('chapters/4_results.tex')] },
+    }, { published: ['documents'] })
+    expect(holds(dir).methods!.documents).toEqual([paperOf('chapters/3_methods.tex')])
+    /* The last chapter set to "no part": nothing held, as it is written. */
+    writeHoldings(dir, 'kehikot.paper', 'thesis', {}, { published: ['documents'] })
+    expect(readHoldings(dir)).toEqual({})
+    const now = holds(dir)
+    for (const id of IDS) {
+      expect(now[id]!.documents).toBeUndefined()
+      expect(now[id]!.files).toBeUndefined()
+    }
+    /* Its refs were never spoken for: the record's still read. */
+    expect(now.methods!.refs).toEqual(['gh#12'])
+    expect(holdingsSpoken(dir, 'thesis')).toEqual({ documents: true, refs: false })
+    /* With nothing spoken at all, as it was: byte for byte. */
+    const fresh = thesis()
+    expect(partsIn(fresh)).toEqual(was)
+    /* The same call without the option speaks for both kinds. */
+    writeHoldings(dir, 'kehikot.paper', 'thesis', {})
+    expect(holds(dir).methods!.refs).toEqual([])
+    /* And an older reading that is handed what is held, and not what was spoken, is what it was. */
+    expect(partsHeld(null, record, undefined, 'thesis')).toEqual(partsHeld(null, record, undefined, 'thesis', { documents: false, refs: false }))
+  })
+
   test('the same after the list is adopted', () => {
     const dir = thesis()
     editParts(dir, 'thesis', { add: { name: 'Sketches' } })
     expect(holds(dir).methods).toEqual({ refs: ['gh#12'], files: ['chapters/3_methods.tex'], documents: [paperOf('chapters/3_methods.tex')] })
-    writeHoldings(dir, 'somebody.elses', 'thesis', { sketches: { documents: [paperOf('chapters/3_methods.tex')], refs: [] } })
+    writeHoldings(dir, 'somebody.elses', 'thesis', { sketches: { documents: [paperOf('chapters/3_methods.tex')], refs: [] } }, { published: ['documents'] })
     expect(holds(dir).methods).toEqual({ refs: ['gh#12'], files: undefined, documents: undefined })
     expect(holds(dir).sketches).toEqual({ refs: [], files: ['chapters/3_methods.tex'], documents: [paperOf('chapters/3_methods.tex')] })
   })

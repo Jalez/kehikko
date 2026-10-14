@@ -13,7 +13,7 @@ import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { FilterButton } from './Filters.tsx'
-import { FrameMenu, HeaderMenus, type PressNote } from './HeaderMenus.tsx'
+import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
 import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
@@ -67,6 +67,7 @@ export function Container({
   header = NO_HEADER,
   onPress = unpressable,
   onKeyboard,
+  surface,
   pressNote = null,
   filters,
   chosen,
@@ -142,6 +143,8 @@ export function Container({
    * trigger. See `focusAfter` in `host/header.ts`.
    */
   onKeyboard?(): void
+  /** Full screen for a run that asks for it. See `HeaderMenus` and `host/surface.ts`. */
+  surface?: Surface
   /** An agent pressed an item here through the host's door: said on the menu's trigger for a moment. */
   pressNote?: PressNote | null
   /**
@@ -495,7 +498,7 @@ export function Container({
          * one on the canvas. See `HeaderMenus.tsx`.
          */}
         {showing.kind === 'page' && !collapsed ? (
-          <HeaderMenus items={header} name={name} onPress={onPress} onKeyboard={onKeyboard} note={pressNote} />
+          <HeaderMenus items={header} name={name} onPress={onPress} onKeyboard={onKeyboard} surface={surface} note={pressNote} />
         ) : null}
 
         {/*

@@ -28,6 +28,7 @@ function canvasThat(reply: (from: string, choice: Record<string, string>) => Ret
   const asked: { from: string; choice: Record<string, string> }[] = []
   const controls = {
     showEpic: () => {},
+    goto: () => ({ outcome: 'declined', epic: null, why: '' }),
     select: () => {},
     point: () => {},
     emit: () => ({ ok: true as const, delivered: 0 }),

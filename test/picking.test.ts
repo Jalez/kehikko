@@ -19,6 +19,7 @@ import { makeAsk, type CanvasControls, type Picked } from '../src/host/ask.ts'
 function canvasThatIsAsked(answer: Picked, seen: string[] = []): CanvasControls {
   return {
     showEpic: () => {},
+    goto: () => ({ outcome: 'declined', epic: null, why: '' }),
     select: () => {},
     point: () => {},
     show: () => {},

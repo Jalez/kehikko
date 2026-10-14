@@ -1,4 +1,6 @@
-import { METHOD_NAMES } from 'kehikot-module-protocol'
+import { LIMITS, METHOD_NAMES } from 'kehikot-module-protocol'
+
+import { hold } from './grants.ts'
 
 /**
  * Which half of the host answers which method — and the check that nothing
@@ -157,4 +159,27 @@ export function assertEveryMethodIsAnswered(): void {
         'and give it a case in server/answers.ts or src/host/ask.ts.',
     )
   }
+}
+
+/**
+ * Methods the host speaks and always refuses, so they are not in the greeting's
+ * `answers`: a module reading the list must not be told it can call a method
+ * whose answer is a sentence saying nothing was done (`stage.report`: this host
+ * has no store to file a stage report in).
+ */
+export const ALWAYS_REFUSED: ReadonlySet<string> = new Set<string>(['stage.report'])
+
+/**
+ * The methods this host will answer for a module that declared `uses` — the
+ * greeting's `answers` (protocol 1.4.0): what the protocol speaks and this host
+ * keeps (`ANSWERED_BY_THE_SERVER`, `ANSWERED_BY_THE_VIEW`), less what it always
+ * refuses, held to the module's own `declares.uses` exactly as a call is
+ * (`hold` in `grants.ts`). Names no module. At most `LIMITS.ANSWERS`.
+ */
+export function answeredFor(uses: readonly string[]): string[] {
+  const kept = new Set<string>([...ANSWERED_BY_THE_SERVER, ...ANSWERED_BY_THE_VIEW])
+  return METHOD_NAMES.filter((method) => {
+    if (!kept.has(method) || ALWAYS_REFUSED.has(method)) return false
+    return !hold(method, (capability) => uses.includes(capability)).held
+  }).slice(0, LIMITS.ANSWERS)
 }

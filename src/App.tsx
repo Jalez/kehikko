@@ -1680,6 +1680,23 @@ export function App() {
     return said
   }
 
+  /**
+   * `view.goto` with `parts` and/or `kehikko` (protocol 1.4.0), assigned where
+   * the project's kehikot (`here`) and epics (`held`) are in hand, below.
+   *
+   * Everything is checked BEFORE anything is changed, so a refusal leaves the
+   * screen exactly as it was. What it then does is what a person would do with
+   * the epic picker, the part picks and the kehikko tabs, and no more: switch
+   * to that kehikko (never create, rename, move or remove one), make the epic
+   * the subject, and pick exactly those parts. The person's arrangement of
+   * containers — placements, sizes, folds, filters, pins — is not touched.
+   */
+  const gotoRef = useRef<CanvasControls['goto']>(() => ({
+    outcome: 'declined',
+    epic: null,
+    why: 'This host is not ready to move yet.',
+  }))
+
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
     () => ({
@@ -1746,6 +1763,7 @@ export function App() {
          fold anything there, and its name is what the control then says.
          Through a ref — see `foldRef`. */
       fold: (from, call) => foldRef.current(from, call),
+      goto: (call) => gotoRef.current(call),
     }),
     [change, bus],
   )
@@ -2805,6 +2823,28 @@ export function App() {
 
   /** The kehikot of the open project, which is what the header lists. */
   const here = useMemo(() => inProject(canvases, projectId), [canvases, projectId])
+  gotoRef.current = ({ epic, parts, kehikko: key }) => {
+    const now = about.epic
+    const row = held?.epics.find((one) => one.slug === epic)
+    if (held === null) {
+      return { outcome: 'declined', epic: now, why: "This project's epics are still being read. Ask again in a moment." }
+    }
+    if (!row) return { outcome: 'no-such-target', epic: now, why: `This project has no epic ${epic}.` }
+    const known = new Set((row.parts ?? []).map((part) => part.id))
+    const missing = (parts ?? []).filter((id) => !known.has(id))
+    if (missing.length) {
+      return { outcome: 'no-such-target', epic: now, why: `${epic} has no part ${missing.join(', ')}.` }
+    }
+    const canvas = key === undefined ? null : (here.find((one) => one.key === key) ?? null)
+    if (key !== undefined && canvas === null) {
+      return { outcome: 'no-such-target', epic: now, why: `This project has no kehikko ${key}.` }
+    }
+    if (canvas !== null) setOpenId(canvas.id)
+    changeSubjectRef.current({ epic, selection: [], ...(parts ? { parts: [...new Set(parts)] } : {}) })
+    const id = projectRef.current
+    if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
+    return { outcome: 'moved', epic, why: '' }
+  }
 
   const placements = useMemo(() => open?.placements ?? [], [open?.placements])
   const prompted = placements.find((p) => p.i === prompting) ?? null
@@ -3411,6 +3451,12 @@ export function App() {
                   /* And the keyboard to that frame after a press that closed
                      its menu — see `focusAfter` in `host/header.ts`. */
                   onKeyboard={() => presses.focus(presence.id)}
+                  /* Full screen for a run that asks for it, on THIS frame; an
+                     agent's `press_item` never comes this way. */
+                  surface={{
+                    enter: () => presses.fullscreen(presence.id),
+                    leave: () => presses.leaveFullscreen(presence.id),
+                  }}
                   pressNote={pressNotes[presence.id] ?? null}
                   /* The offer is the conversation's — it dies with the program —
                      and the choice is the arrangement's. See `Live` above. */

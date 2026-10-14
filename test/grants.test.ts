@@ -123,6 +123,7 @@ describe('the canvas holds every method it answers', () => {
   const calls: string[] = []
   const canvas: CanvasControls = {
     showEpic: () => void calls.push('showEpic'),
+    goto: () => ({ outcome: 'declined', epic: null, why: '' }),
     select: () => void calls.push('select'),
     point: () => void calls.push('point'),
     show: () => void calls.push('show'),

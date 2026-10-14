@@ -263,7 +263,7 @@ export class Conversation {
    * has forgotten the conversation, and greeting it again is cheaper than
    * either side wondering which of them is confused.
    */
-  greet(context: ModuleContext, state: string | null = null): void {
+  greet(context: ModuleContext, state: string | null = null, answers: readonly string[] | null = null): void {
     if (this.closed) return
     this.greeted = true
     this.answered = false
@@ -283,6 +283,15 @@ export class Conversation {
        * the same visible-flicker failure as a theme applied after first paint.
        */
       state,
+      /* Protocol 1.4.0. The methods this host will answer for THIS module,
+         or nothing at all when it has not read the module's manifest: absent
+         means "unknown" to the module, and a wrong list would be a claim. A
+         module built on 1.3.0 or earlier has these two keys stripped by its
+         own schema, so they are safe to send to every module. */
+      ...(answers ? { answers: [...answers] } : {}),
+      /* Every container this host frames has its header drawn by it
+         (`HeaderMenus`), so the module need not draw a "⋯" of its own. */
+      header: true,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)

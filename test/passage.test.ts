@@ -19,6 +19,7 @@ function canvasThatRemembers() {
   const pointed: (Passage | null)[] = []
   const controls: CanvasControls = {
     showEpic: () => {},
+    goto: () => ({ outcome: 'declined', epic: null, why: '' }),
     select: () => {},
     point: (_from, passage) => pointed.push(passage),
     show: () => {},

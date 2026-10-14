@@ -5,10 +5,12 @@ import { readableBy } from '@/host/context.ts'
 
 import { whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
+import { answeredFor } from '@/host/division.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
+import { enterFullscreen, leaveFullscreen } from '@/host/surface.ts'
 import { framedAddress } from '@/host/theme.ts'
 
 /**
@@ -203,6 +205,7 @@ export function ModuleFrame({
         filter: (from, choice) => canvasRef.current.filter(from, choice),
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
+        goto: (call) => canvasRef.current.goto(call),
       },
       /* Held to what the manifest asks for, as the registry last read it. */
       (capability) => usesRef.current.includes(capability)),
@@ -249,7 +252,10 @@ export function ModuleFrame({
     let loads = 0
     const onLoad = () => {
       if (loads++ > 0) onDocumentRef.current?.(framed.id, 'replaced')
-      conversation.greet(contextRef.current, stateRef.current)
+      /* What this host will answer for THIS module, from the manifest it last
+         read. A manifest not read gives `null`: unknown, never a wrong list. */
+      const uses = usesRef.current
+      conversation.greet(contextRef.current, stateRef.current, Array.isArray(uses) ? answeredFor(uses) : null)
       onDocumentRef.current?.(framed.id, 'loaded')
     }
     frame.addEventListener('load', onLoad)
@@ -297,6 +303,10 @@ export function ModuleFrame({
       /* And the keyboard, after a press that closed its menu. The frame's
          window, which a parent may focus whatever origin is in it; the
          element is the fallback for a frame whose window is not there yet. */
+      /* Full screen is the FRAME element's, requested from the click handler of
+         a run that says `surface: 'fullscreen'` — see `host/surface.ts`. */
+      fullscreen: () => enterFullscreen(frame),
+      leaveFullscreen: () => leaveFullscreen(frame),
       focus: () => {
         const window = frame.contentWindow
         if (window) window.focus()

@@ -90,6 +90,19 @@ export interface CanvasControls {
   /** Make this the canvas's subject, and tell every module. */
   showEpic(epic: string): void
   /**
+   * `view.goto` carrying `parts` and/or `kehikko` (protocol 1.4.0): switch to
+   * that kehikko, make the epic the subject and pick exactly those parts. The
+   * canvas answers the outcome, for it is the half that knows the epics, the
+   * parts and the kehikot; an epic, a part or a kehikko it does not have is
+   * `no-such-target` and nothing is changed. The person's arrangement is never
+   * changed beyond switching to a kehikko and picking parts.
+   */
+  goto(call: { epic: string; parts?: string[]; kehikko?: string }): {
+    outcome: 'moved' | 'declined' | 'no-such-target'
+    epic: string | null
+    why: string
+  }
+  /**
    * Make this the canvas's selection, and tell every module.
    *
    * The canvas does not check these refs against anything, and could not: it
@@ -455,7 +468,14 @@ function answerInTheView(
     return out.ok ? succeeded(method, { delivered: out.delivered }) : failed(out.error)
   }
 
-  const target = parsed.data as { epic?: string; step?: number; ref?: string }
+  const target = parsed.data as { epic?: string; step?: number; ref?: string; parts?: string[]; kehikko?: string }
+
+  /* With `parts` or `kehikko` (always with an epic: the protocol's schema
+     refuses them alone) the canvas has more to check than an epic, and says
+     what came of it. A host before 1.4.0 strips both and takes the epic only. */
+  if (target.epic && (target.parts !== undefined || target.kehikko !== undefined)) {
+    return succeeded(method, canvas.goto({ epic: target.epic, parts: target.parts, kehikko: target.kehikko }))
+  }
 
   /*
    * `view.goto` reports an OUTCOME, and the protocol gives the outcome a shape

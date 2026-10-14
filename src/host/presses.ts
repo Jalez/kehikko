@@ -90,6 +90,15 @@ export interface Pressable {
    * the keyboard inside the page is the module's to say.
    */
   focus(): void
+  /**
+   * Make this module's frame fill the screen, for a header `run` that says
+   * `surface: 'fullscreen'`. Called from the click handler of that item and
+   * nowhere else, so the browser's activation is the person's. Resolves
+   * whether it was granted; a refusal is not a failure of the press.
+   */
+  fullscreen?(): Promise<boolean>
+  /** Leave full screen if this frame has it. See `surface.ts`. */
+  leaveFullscreen?(): void
 }
 
 /* The shapes of a header press are `header.ts`'s; they are named here for the frame that carries one. */
@@ -194,5 +203,16 @@ export class Presses {
     if (!frame) return false
     frame.focus()
     return true
+  }
+
+  /** Full screen on one module's frame, from a click. `false` when it is not there or was not granted. */
+  fullscreen(id: string): Promise<boolean> {
+    const frame = this.frames.get(id)
+    return frame?.fullscreen ? frame.fullscreen() : Promise.resolve(false)
+  }
+
+  /** Give the screen back, when that frame has it. */
+  leaveFullscreen(id: string): void {
+    this.frames.get(id)?.leaveFullscreen?.()
   }
 }
