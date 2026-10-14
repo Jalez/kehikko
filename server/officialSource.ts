@@ -118,6 +118,8 @@ export interface Standing {
   fetched: string | null
   /** True when the last ask failed, so what is offered may be behind. */
   stale: boolean
+  /** Present (true) when this machine switched asking off: only the built-in list is in use. */
+  off?: true
 }
 
 export interface SourceDeps {
@@ -245,7 +247,7 @@ export function officialSource(deps: SourceDeps) {
     current: (): readonly Official[] => merged,
     /** Only what was fetched (or read from the cache); null when there is none. */
     fetched: (): readonly Official[] | null => fetched,
-    standing: (): Standing => ({ fetched: fetchedAt, stale }),
+    standing: (): Standing => ({ fetched: fetchedAt, stale, ...(deps.url ? {} : { off: true as const }) }),
     refresh,
   }
 }
