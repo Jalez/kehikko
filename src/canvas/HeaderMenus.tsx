@@ -77,6 +77,7 @@ import {
   type HeaderMenu,
   type PressValue,
 } from 'kehikot-module-protocol'
+import { whenLeft } from '@/host/surface.ts'
 import { focusAfter, menusOf, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
@@ -297,11 +298,18 @@ interface Pressable {
   keyboard(): void
 }
 
+/** Full screen on the module's frame: asked from the click, given back on a refused press. */
+export interface Surface {
+  enter(): Promise<boolean>
+  leave(): void
+}
+
 export function HeaderMenus({
   items,
   name,
   onPress,
   onKeyboard,
+  surface,
   note = null,
   mode: asked,
 }: {
@@ -317,6 +325,13 @@ export function HeaderMenus({
   onPress(press: Pressing): Promise<Pressed>
   /** Hand the keyboard to the module's page, after a press that closed its menu. Left out, focus stays put. */
   onKeyboard?(): void
+  /**
+   * Make the module's frame fill the screen (protocol 1.4.0). Used for a `run`
+   * item that says `surface: 'fullscreen'`, from this component's own click
+   * handler and only for a person's press: an agent's `press_item` is sent by
+   * the page without coming through here, so it is an ordinary run.
+   */
+  surface?: Surface
   /** An agent pressed something here: said on the trigger for a moment. */
   note?: PressNote | null
   /** The mode, when the caller knows it. Left out, the header is measured. */
@@ -399,9 +414,32 @@ export function HeaderMenus({
          what becomes of this press — see `focusAfter`. */
       const nth = ++sent.current
       if (!staysOpen(item.kind)) closing.current = 'pressed'
+      /* Full screen FIRST and synchronously, in this click handler: nothing is
+         awaited before the request, so the browser still has the person's
+         activation, and the press does not wait for it. The press goes either
+         way — a webview that refuses element full screen costs the module its
+         full screen and nothing else. */
+      const full = item.kind === 'run' && item.surface === 'fullscreen' && surface !== undefined
+      if (full) {
+        const trigger = HEADER_MENUS[item.kind]
+        void surface.enter().then((granted) => {
+          if (!granted || !mounted.current) return
+          /* The person's way out is the browser's (Escape); on it, focus goes
+             back to the control that was pressed — this menu's trigger — and
+             nothing is sent: the module learns from the size change. */
+          whenLeft(() => {
+            const box = anchor.current
+            const back =
+              box?.querySelector<HTMLElement>(`[data-menu="${trigger}"]`) ?? box?.querySelector<HTMLElement>('[data-menu]')
+            back?.focus()
+          })
+        })
+      }
       void onPress({ item: item.id, ...(value === undefined ? {} : { value }) })
         .catch((): Pressed => ({ ok: false, why: `${name} could not be pressed.` }))
         .then((came) => {
+          /* Refused: back to the page at once, with the reason on the trigger. */
+          if (!came.ok && full) surface.leave()
           if (!came.ok && sent.current === nth && closing.current === 'pressed') closing.current = 'refused'
           if (!mounted.current) return
           setPending((was) => was.filter((id) => id !== item.id))

@@ -39,6 +39,7 @@ describe('what the canvas does when a container says what it shows', () => {
     const shown: { from: string; showing: Showing }[] = []
     const controls: CanvasControls = {
       showEpic: () => {},
+      goto: () => ({ outcome: 'declined', epic: null, why: '' }),
       select: () => {},
       point: () => {},
       show: (from, showing) => shown.push({ from, showing }),

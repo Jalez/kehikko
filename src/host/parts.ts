@@ -202,8 +202,13 @@ function refsIn(raw: unknown): string[] {
  * replaces: a chapter moved to another part stayed in the old one for good,
  * because the record still listed it and nothing edits the record any more.
  *
+ * "Published" means SPOKEN, not "holds something now" (protocol 1.4.0,
+ * `holdingsSpoken`): a module that published a kind and then emptied it — the
+ * last chapter set to "no part" — has still said where that kind is, which is
+ * nowhere, and the record's share must not come back. `spoken` carries that.
+ *
  * So nothing moves for a project whose modules have published nothing — no
- * file, an empty one, or one with nothing for this epic are all "nobody has".
+ * file, or one with nothing spoken for this epic, are "nobody has".
  *
  * A group's `files` were written relative to the one folder papers were kept
  * in, and that folder is spelled by the protocol (`PAPER_MODULE`, deprecated
@@ -214,7 +219,14 @@ function refsIn(raw: unknown): string[] {
  *
  * Bounded as the wire is. `files` and `documents` are absent when empty.
  */
-export function partsHeld(listed: readonly ListedPart[] | null, epic: unknown, held: EpicHoldings | undefined, slug: string): Part[] {
+export function partsHeld(
+  listed: readonly ListedPart[] | null,
+  epic: unknown,
+  held: EpicHoldings | undefined,
+  slug: string,
+  /** `holdingsSpoken(project, epic)`: the kinds some module has published for this epic, empty ones too (protocol 1.4.0). Absent: read from what is held alone, as before 1.4.0. */
+  spoken?: { documents: boolean; refs: boolean },
+): Part[] {
   const read = partsOf(epic)
   const byId = new Map(read.map((part) => [part.id, part]))
   const base: Part[] =
@@ -244,8 +256,8 @@ export function partsHeld(listed: readonly ListedPart[] | null, epic: unknown, h
      one the list no longer has included: whoever wrote it publishes that
      kind. For those the record's share is not read. */
   const published = Object.values(held ?? {})
-  const documentsPublished = published.some((one) => one.documents.length > 0)
-  const refsPublished = published.some((one) => one.refs.length > 0)
+  const documentsPublished = spoken?.documents === true || published.some((one) => one.documents.length > 0)
+  const refsPublished = spoken?.refs === true || published.some((one) => one.refs.length > 0)
 
   const under = `${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${slug}`
   return base.map((part) => {

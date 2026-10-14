@@ -136,6 +136,7 @@ describe('switching between two kehikot in one project', () => {
     let said: Said = NOTHING_SAID
     const controls: CanvasControls = {
       showEpic: () => {},
+      goto: () => ({ outcome: 'declined', epic: null, why: '' }),
       select: () => {},
       point: (from, passage) => { said = pointed(said, from, passage) },
       show: (from, showing) => { said = shown(said, from, showing) },

@@ -308,6 +308,7 @@ describe('view.fold on the wire', () => {
     const calls: { from: string; call: { fold: string[]; unfold: string[] } }[] = []
     const controls: CanvasControls = {
       showEpic: () => {},
+      goto: () => ({ outcome: 'declined', epic: null, why: '' }),
       select: () => {},
       point: () => {},
       show: () => {},

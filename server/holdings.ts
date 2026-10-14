@@ -11,7 +11,7 @@ import {
   type ProjectHoldings,
   type StepsFrom,
 } from 'kehikot-module-protocol'
-import { readHoldings, readJourneys } from 'kehikot-module-protocol/serve'
+import { holdingsSpoken, readHoldings, readJourneys } from 'kehikot-module-protocol/serve'
 
 import { slugFrom } from '../src/host/epics.ts'
 
@@ -161,7 +161,7 @@ export function listEpics(dir: string): EpicSummary[] {
     if (!SLUG.test(slug)) continue
     const own = read(join(epicsDir(dir), file))
     if (!own) continue
-    epics.push(summarise(slug, epicOf(dir, slug, own, journeys), own, holdings))
+    epics.push(summarise(slug, epicOf(dir, slug, own, journeys), own, holdings, dir))
   }
 
   return epics.sort((a, b) => (a.title ?? a.slug).localeCompare(b.title ?? b.slug))
@@ -189,6 +189,8 @@ function summarise(
   own: Record<string, unknown>,
   /** What the modules of the project hold for parts, read once by the caller. */
   holdings: ProjectHoldings,
+  /** The project, to ask which kinds somebody has spoken for in this epic. */
+  dir: string,
 ): EpicSummary {
   const summary: EpicSummary = { slug: str(epic.slug) ?? slug }
   const title = str(epic.title)
@@ -204,7 +206,7 @@ function summarise(
   /* Absent rather than `[]` for an epic with none, for the reason `size` is
      absent rather than zero: the list is then exactly what it was before
      parts were read at all. */
-  const parts = partsHeld(listedIn(own), epic, ownKey(holdings, slug), slug)
+  const parts = partsHeld(listedIn(own), epic, ownKey(holdings, slug), slug, holdingsSpoken(dir, slug))
   if (parts.length) summary.parts = parts
   return summary
 }
@@ -468,7 +470,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
      `shareKehikot` gives about the `.gitignore`: pressing a control that is
      already where you pressed it must not put a modified file in somebody's
      `git status`. */
-  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root)) }
+  if (str(epic.title) === wanted) return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root), root) }
 
   const next = withTitle(raw, wanted)
   if (next === null) {
@@ -486,7 +488,7 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
   }
 
   const now = { ...epic, title: wanted }
-  return { ok: true, epic: summarise(slug, epicOf(root, slug, now), now, readHoldings(root)) }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, now), now, readHoldings(root), root) }
 }
 
 /**
@@ -631,7 +633,7 @@ export function createEpic(
     return { ok: false, why: `${slug}.json could not be written: ${(error as Error).message}`, status: 500 }
   }
 
-  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root)), file: path, madeDirectory }
+  return { ok: true, epic: summarise(slug, epicOf(root, slug, epic), epic, readHoldings(root), root), file: path, madeDirectory }
 }
 
 export type Deleted = { ok: true } | { ok: false; why: string; status: number }
@@ -684,7 +686,7 @@ export function deleteEpic(root: string, slug: string): Deleted {
 export function readParts(root: string, slug: string): Part[] | null {
   if (!SLUG.test(slug)) return null
   const own = read(join(epicsDir(root), `${slug}.json`))
-  return own ? (summarise(slug, epicOf(root, slug, own), own, readHoldings(root)).parts ?? []) : null
+  return own ? (summarise(slug, epicOf(root, slug, own), own, readHoldings(root), root).parts ?? []) : null
 }
 
 /** What came of one edit of an epic's parts: the protocol's answer, the epic as it now reads, and whether a file was written. */
@@ -764,7 +766,7 @@ export function editParts(root: string | null | undefined, slug: unknown, edit: 
   const list: ListedPart[] =
     listedIn(own) ?? partsHeld(null, epic, undefined, slug).map((part) => ({ id: part.id, name: part.heading }))
   const result = edited(list, edit)
-  if (result.outcome !== 'changed') return { result, epic: summarise(slug, epic, own, holdings), written: false }
+  if (result.outcome !== 'changed') return { result, epic: summarise(slug, epic, own, holdings, root), written: false }
 
   const next = withMember(raw, 'parts', (indent) => listText(result.parts, indent))
   if (next === null) {
@@ -783,7 +785,7 @@ export function editParts(root: string | null | undefined, slug: unknown, edit: 
     return declined(`${slug}.json could not be written: ${(error as Error).message}`, list)
   }
   const now = { ...own, parts: result.parts }
-  return { result, epic: summarise(slug, epicOf(root, slug, now), now, holdings), written: true }
+  return { result, epic: summarise(slug, epicOf(root, slug, now), now, holdings, root), written: true }
 }
 
 /**
