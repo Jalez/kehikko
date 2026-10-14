@@ -7,6 +7,7 @@ import {
   agentRefusal,
   agentStanding,
   declared,
+  focusAfter,
   INLINE_OPTIONS,
   menusOf,
   nested,
@@ -151,6 +152,13 @@ describe('the kind of an item decides its menu', () => {
 
   test('a toggle and a switch leave the menu open; a jump and a run close it', () => {
     expect((['toggle', 'switch', 'go', 'run'] as const).map(staysOpen)).toEqual([true, true, false, false])
+  })
+
+  test('after a menu closes: the module has the keyboard after a press that was sent, the trigger otherwise', () => {
+    /* Escape; a press sent; a press not taken; focus already gone to a module's page. */
+    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map(focusAfter)).toEqual([
+      'trigger', 'module', 'trigger', 'nowhere',
+    ])
   })
 })
 

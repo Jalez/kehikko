@@ -152,6 +152,57 @@ export function staysOpen(kind: HeaderItem['kind']): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * Where the keyboard is after a menu closes
+ * ------------------------------------------------------------------ */
+
+/**
+ * How a menu came to close.
+ *
+ * `dismissed`: Escape, or its trigger pressed again — nothing was chosen.
+ * `pressed`: a jump or a run was chosen, the press was sent, and nothing has
+ * refused it by the time the menu is gone. `refused`: one was chosen and the
+ * press was not taken — the header as it stands could not take it, the
+ * module's page is not on this screen, or the module said no before the menu
+ * had finished closing. `away`: focus left this document for a module's page
+ * while the menu was open (somebody clicked into the module).
+ */
+export type Closing = 'dismissed' | 'pressed' | 'refused' | 'away'
+
+/** Where focus is put when a menu has closed. `nowhere` is "left where it is". */
+export type FocusAfter = 'trigger' | 'module' | 'nowhere'
+
+/**
+ * Where the keyboard goes when a container's menu closes.
+ *
+ * A menu puts focus back on its trigger when it closes, which is right for a
+ * menu somebody backed out of and wrong for one they acted through: a jump
+ * and a run act on the module's page, and what a person does next — type at
+ * the section they jumped to, press the arrow keys in the deck they told to
+ * present — is done there. With focus on the trigger those keys went to the
+ * host, and a module that needed them had to take focus back on a timer,
+ * after the menu had returned it.
+ *
+ * So, for somebody using only the keyboard:
+ *
+ * - Escape (or the trigger again) leaves focus on the trigger, as any menu
+ *   does. Nothing happened in the module; they are still in the header.
+ * - A press that was sent puts focus in the module's page. Tab from there
+ *   walks the module, and Shift+Tab comes back out to the header.
+ * - A press that was NOT taken leaves focus on the trigger, which is where
+ *   the reason is said. Nothing happened in the module to go and look at.
+ * - A menu closed because focus already went to a module is not answered by
+ *   pulling focus back out of it.
+ *
+ * A toggle and a switch do not close the menu (`staysOpen`), so they are
+ * never the reason one closed: after setting two of them, Escape is the
+ * first case.
+ */
+export function focusAfter(closing: Closing): FocusAfter {
+  if (closing === 'pressed') return 'module'
+  return closing === 'away' ? 'nowhere' : 'trigger'
+}
+
+/* ------------------------------------------------------------------ *
  * A press
  * ------------------------------------------------------------------ */
 

@@ -92,11 +92,22 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press reaches the module it names and no other', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {}, walk: unwalked, item: unpressed })
-    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => said.push('a'), refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
+    presses.join('b.two', { clear: () => said.push('b'), refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
 
     expect(presses.press('a.one')).toBe(true)
     expect(said).toEqual(['a'])
+  })
+
+  test('the keyboard is handed to the frame that is named, and to nothing when it has gone', () => {
+    const presses = new Presses()
+    const given: string[] = []
+    presses.join('a.one', { clear: () => {}, refresh: () => {}, walk: unwalked, item: unpressed, focus: () => given.push('a') })
+    presses.join('b.two', { clear: () => {}, refresh: () => {}, walk: unwalked, item: unpressed, focus: () => given.push('b') })
+    expect(presses.focus('b.two')).toBe(true)
+    presses.leave('a.one')
+    expect(presses.focus('a.one')).toBe(false)
+    expect(given).toEqual(['b'])
   })
 
   /* A container removed between somebody's first press and their second is a
@@ -105,7 +116,7 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a press at a module that has gone does nothing', () => {
     const presses = new Presses()
     let pressed = 0
-    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => (pressed += 1), refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
     presses.leave('a.one')
 
     expect(presses.press('a.one')).toBe(false)
@@ -134,8 +145,8 @@ describe('reaching the frame that has to do the deleting', () => {
   test('a frame that came back replaces the one that went', () => {
     const presses = new Presses()
     const said: string[] = []
-    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {}, walk: unwalked, item: unpressed })
-    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {}, walk: unwalked, item: unpressed })
+    presses.join('a.one', { clear: () => said.push('old'), refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
+    presses.join('a.one', { clear: () => said.push('new'), refresh: () => {}, walk: unwalked, item: unpressed, focus: () => {} })
 
     presses.press('a.one')
     expect(said).toEqual(['new'])

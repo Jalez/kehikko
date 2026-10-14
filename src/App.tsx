@@ -3408,6 +3408,9 @@ export function App() {
                   /* A press on whichever frame is standing, judged against
                      what is declared now — see `onPressItem`. */
                   onPress={(press) => onPressItem(presence.id, press)}
+                  /* And the keyboard to that frame after a press that closed
+                     its menu — see `focusAfter` in `host/header.ts`. */
+                  onKeyboard={() => presses.focus(presence.id)}
                   pressNote={pressNotes[presence.id] ?? null}
                   /* The offer is the conversation's — it dies with the program —
                      and the choice is the arrangement's. See `Live` above. */

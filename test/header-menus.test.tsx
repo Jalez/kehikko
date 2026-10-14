@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 20
+const TESTS = 28
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -83,6 +83,7 @@ async function mount(first: HeaderItem[], more: { mode?: Mode; answer?: (press: 
   document.body.appendChild(host)
   const root = createRoot(host)
   const presses: Pressing[] = []
+  const handed = { n: 0 }
   const onPress = async (press: Pressing): Promise<Pressed> => {
     presses.push(press)
     return more.answer ? more.answer(press) : { ok: true, why: '' }
@@ -91,13 +92,13 @@ async function mount(first: HeaderItem[], more: { mode?: Mode; answer?: (press: 
     act(async () => {
       root.render(
         <TooltipProvider>
-          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} mode={more.mode ?? 'words'} note={note} />
+          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} onKeyboard={() => { handed.n += 1 }} mode={more.mode ?? 'words'} note={note} />
         </TooltipProvider>,
       )
     })
   await draw(first)
   unmount = () => root.unmount()
-  return { host, presses, declare: draw }
+  return { host, presses, handed, declare: draw }
 }
 
 const trigger = (menu: string) => document.querySelector<HTMLElement>(`[data-menu="${menu}"]`)
@@ -109,6 +110,8 @@ const said = () => document.querySelector('[data-testid="header-said"]')?.textCo
 async function open(menu: string) {
   await act(async () => {
     trigger(menu)!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+    /* And let go: the tooltip holds off for as long as it believes the pointer is down. */
+    document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
   })
   expect(content(menu), `the ${menu} menu did not open`).not.toBeNull()
 }
@@ -269,6 +272,130 @@ describe('a press, the module’s answer, and its header declared again', () => 
     expect(said()).toBe('')
     await page.declare(paper(), { n: 1, item: 'compile', text: 'an agent pressed Compile' })
     expect(said()).toBe('an agent pressed Compile')
+  })
+})
+
+describe('a toggle shows its box, and a switch takes a press on the option it is on', () => {
+  if (!inChild) return
+
+  const box = (item: string) => row(item)!.querySelector('[data-slot="dropdown-menu-checkbox-box"]')
+
+  test('an unchecked toggle draws an empty box, and the tick goes in it when the module declares it on', async () => {
+    const page = await mount(paper())
+    await open('view')
+    expect(box('wrap')).not.toBeNull()
+    expect(box('wrap')!.className).toContain('border')
+    expect(box('wrap')!.querySelector('svg')).toBeNull()
+    await page.declare(paper({ wrap: true }))
+    expect(box('wrap')!.querySelector('svg')).not.toBeNull()
+    /* A radio row has no box: its dot is what says which one is on. */
+    expect(row('pane', 'pdf')!.querySelector('[data-slot="dropdown-menu-checkbox-box"]')).toBeNull()
+  })
+
+  test('a press on the option a switch is already on is sent like any other', async () => {
+    const page = await mount(paper())
+    await open('view')
+    expect(row('pane', 'source')!.getAttribute('aria-checked')).toBe('true')
+    await choose(row('pane', 'source'))
+    expect(page.presses).toEqual([{ item: 'pane', value: 'source' }])
+    expect(content('view')).not.toBeNull()
+    /* And again, once the first has been answered: it is a press, not a change. */
+    await choose(row('pane', 'source'))
+    expect(page.presses).toHaveLength(2)
+  })
+
+  test('…and in a sub-menu, where a long switch is drawn', async () => {
+    const long = headerItemsSchema.parse([
+      { kind: 'switch', id: 'file', label: 'File', value: 's2', options: sections },
+      { kind: 'toggle', id: 'wrap', label: 'Wrap', checked: false },
+    ])
+    const page = await mount(long)
+    await open('view')
+    expect(row('file')!.getAttribute('data-nested')).toBe('true')
+    await act(async () => {
+      row('file')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await choose(row('file', 's2'))
+    expect(page.presses).toEqual([{ item: 'file', value: 's2' }])
+  })
+})
+
+describe('where the keyboard is after a menu closes, and the tooltip that does not come with it', () => {
+  if (!inChild) return
+
+  const escape = () =>
+    act(async () => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+  /* Radix returns focus a task after the menu is gone. */
+  const settled = () => act(async () => { await new Promise((done) => setTimeout(done, 20)) })
+  const tip = () => document.querySelector('[role="tooltip"]')
+
+  test('tabbing to a trigger says what it is', async () => {
+    await mount(paper())
+    await act(async () => trigger('view')!.focus())
+    expect(tip()!.textContent).toBe('view: what Paper shows')
+  })
+
+  test('Escape leaves focus on the trigger, and no tooltip comes up over the module', async () => {
+    const page = await mount(paper())
+    await open('view')
+    await escape()
+    await settled()
+    expect(content('view')).toBeNull()
+    expect(document.activeElement).toBe(trigger('view'))
+    expect(tip()).toBeNull()
+    expect(page.handed.n).toBe(0)
+    /* It was that one return, not the trigger: leaving and tabbing back says the label again. */
+    await act(async () => trigger('view')!.blur())
+    await act(async () => trigger('view')!.focus())
+    expect(tip()).not.toBeNull()
+  })
+
+  test('a setting pressed and then Escape is still Escape: the trigger, quietly', async () => {
+    const page = await mount(paper())
+    await open('view')
+    await choose(row('wrap'))
+    await choose(row('pane', 'pdf'))
+    await escape()
+    await settled()
+    expect(document.activeElement).toBe(trigger('view'))
+    expect(tip()).toBeNull()
+    expect(page.handed.n).toBe(0)
+  })
+
+  test('a run and a jump that were sent hand the keyboard to the module, and focus is not put on the trigger', async () => {
+    const page = await mount(paper())
+    await open('run')
+    await choose(row('compile'))
+    await settled()
+    expect(content('run')).toBeNull()
+    expect(page.handed.n).toBe(1)
+    expect(document.activeElement).not.toBe(trigger('run'))
+    expect(tip()).toBeNull()
+    await open('go')
+    await choose(row('section', 's4'))
+    await settled()
+    expect(page.handed.n).toBe(2)
+    expect(document.activeElement).not.toBe(trigger('go'))
+    /* A confirmed run: the arming press hands nothing over, the press that sends does. */
+    await open('run')
+    await choose(row('commit'))
+    await settled()
+    expect(page.handed.n).toBe(2)
+    await choose(row('commit'))
+    await settled()
+    expect(page.handed.n).toBe(3)
+  })
+
+  test('a press that was not taken leaves focus on the trigger, where the reason is said', async () => {
+    const page = await mount(paper(), { answer: () => ({ ok: false, why: 'Nothing to compile.' }) })
+    await open('run')
+    await choose(row('compile'))
+    await settled()
+    expect(page.handed.n).toBe(0)
+    expect(document.activeElement).toBe(trigger('run'))
+    expect(tip()!.textContent).toBe('Nothing to compile.')
   })
 })
 

@@ -79,6 +79,17 @@ export interface Pressable {
    * agent's `press_item`, which the host's server hands to this page.
    */
   item(press: Pressing): Promise<Pressed>
+  /**
+   * Hand the keyboard to this module's page.
+   *
+   * Called after a press that closed the menu it was made in (`focusAfter` in
+   * `header.ts`): the menu would otherwise put focus back on its trigger, in
+   * the host's document, and a module that needs the keys after the press — a
+   * deck that was just told to present — would have to take focus back from
+   * it. The frame's WINDOW is focused and nothing in it: which element has
+   * the keyboard inside the page is the module's to say.
+   */
+  focus(): void
 }
 
 /* The shapes of a header press are `header.ts`'s; they are named here for the frame that carries one. */
@@ -175,5 +186,13 @@ export class Presses {
   item(id: string, press: Pressing): Promise<Pressed> | null {
     const frame = this.frames.get(id)
     return frame ? frame.item(press) : null
+  }
+
+  /** Hand the keyboard to one module's page, if its frame is there. Answers whether it was. */
+  focus(id: string): boolean {
+    const frame = this.frames.get(id)
+    if (!frame) return false
+    frame.focus()
+    return true
   }
 }

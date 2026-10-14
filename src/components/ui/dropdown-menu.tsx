@@ -14,7 +14,17 @@ import { cn } from '@/lib/utils'
  * checkbox item, and a list of forty sections is a sub-menu. `DropdownMenuCheck`
  * is the one part that is this host's and not shadcn's — the tick the older
  * menus draw by hand on a plain item — and it stays for them.
+ *
+ * Two more things are this host's. A checkbox item draws its BOX whether or
+ * not it is ticked: without one, an unticked toggle is a plain row, and beside
+ * radio rows that show a dot it reads as an action. And a menu keeps
+ * `EDGE_GAP` pixels from the window's edge: a container at the left of the
+ * window is narrower than its menus, and a menu pushed back into view by
+ * Radix's collision handling otherwise lands flush against the edge.
  */
+
+/** How far a menu stays from the edge of the window when it has to be moved to fit. */
+export const EDGE_GAP = 8
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -31,6 +41,7 @@ function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownM
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  collisionPadding = EDGE_GAP,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -38,6 +49,7 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md',
           className,
@@ -91,9 +103,13 @@ function DropdownMenuCheckboxItem({
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+      {/* The box is always drawn and the tick only when checked: see the note at the top. */}
+      <span
+        data-slot="dropdown-menu-checkbox-box"
+        className="border-muted-foreground/60 pointer-events-none absolute left-2 flex size-3.5 items-center justify-center rounded-[3px] border"
+      >
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CheckIcon className="size-3" strokeWidth={3} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -204,6 +220,7 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  collisionPadding = EDGE_GAP,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
@@ -213,6 +230,7 @@ function DropdownMenuSubContent({
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.SubContent
         data-slot="dropdown-menu-sub-content"
+        collisionPadding={collisionPadding}
         className={cn(
           'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg',
           className,

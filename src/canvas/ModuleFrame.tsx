@@ -294,6 +294,14 @@ export function ModuleFrame({
       walk: (target) => conversation.goto(target),
       /* And one item of the module's own header. See `Pressable.item`. */
       item: (press) => conversation.press(press.item, press.value),
+      /* And the keyboard, after a press that closed its menu. The frame's
+         window, which a parent may focus whatever origin is in it; the
+         element is the fallback for a frame whose window is not there yet. */
+      focus: () => {
+        const window = frame.contentWindow
+        if (window) window.focus()
+        else frame.focus()
+      },
     })
 
     return () => {
