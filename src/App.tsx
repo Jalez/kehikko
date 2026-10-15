@@ -360,7 +360,7 @@ export function App() {
   const repostRef = useRef<(() => void) | null>(null)
   /* The Inbox's page-side hook is called far below this; the stream and the
      emit above reach it through refs, for `orderedRef`'s reason. */
-  const inboxWokeRef = useRef<((project: number) => void) | null>(null)
+  const inboxWokeRef = useRef<((project: number, rev: number | null) => void) | null>(null)
   const legacyNoticeRef = useRef<(from: string, payload: unknown) => void>(() => undefined)
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
@@ -736,9 +736,9 @@ export function App() {
          what the modules here have declared. */
       () => {
         repostRef.current?.()
-        inboxWokeRef.current?.(-1)
+        inboxWokeRef.current?.(-1, null)
       },
-      (project) => inboxWokeRef.current?.(project),
+      (project, rev) => inboxWokeRef.current?.(project, rev),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -2935,7 +2935,7 @@ export function App() {
     notify: (entry) => noticeRef.current(entry),
   })
   activityRef.current = inbox.receive
-  inboxWokeRef.current = (id) => inbox.refresh(id < 0 ? undefined : id)
+  inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
   legacyNoticeRef.current = (from, payload) => {
     const parsed = schemaFor('kehikot.notifications@1')?.safeParse(payload)
     if (!parsed?.success) return
@@ -3009,7 +3009,9 @@ export function App() {
       setInboxOpen(false)
       const place = entry.place
       if (place?.epic !== undefined) {
-        gotoRef.current({ epic: place.epic, parts: place.parts, kehikko: place.kehikko })
+        /* An item that names an epic and no parts is about the whole epic, so
+           the picked parts are cleared rather than left narrowing it. */
+        gotoRef.current({ epic: place.epic, parts: place.parts ?? [], kehikko: place.kehikko })
         return
       }
       if (place?.kehikko !== undefined) {

@@ -175,6 +175,23 @@ export class Inbox {
     return next
   }
 
+  /** What the host knows modules as (`known.ts`), for entries that arrived without a name (imported ones). */
+  #names(): Map<string, string> {
+    try {
+      return new Map(
+        this.db.query<{ id: string; name: string }, []>('select id, name from known_modules').all().map((row) => [row.id, row.name]),
+      )
+    } catch {
+      return new Map()
+    }
+  }
+
+  #named(list: Entry[]): Entry[] {
+    if (!list.some((one) => !one.name)) return list
+    const names = this.#names()
+    return list.map((one) => (one.name ? one : { ...one, name: names.get(one.module) ?? '' }))
+  }
+
   #entries(project: number, module?: string): Entry[] {
     const rows = module === undefined
       ? this.db.query<ItemRow, [number]>('select * from inbox_items where project = ? order by module, id').all(project)
@@ -184,14 +201,16 @@ export class Inbox {
 
   /** Every entry of a project, open and closed. For the log and for tests. */
   all(project: number): Entry[] {
-    return this.#entries(project)
+    return this.#named(this.#entries(project))
   }
 
   open(project: number): Entry[] {
-    return this.db
-      .query<ItemRow, [number]>('select * from inbox_items where project = ? and closed is null')
-      .all(project)
-      .map(toEntry)
+    return this.#named(
+      this.db
+        .query<ItemRow, [number]>('select * from inbox_items where project = ? and closed is null')
+        .all(project)
+        .map(toEntry),
+    )
   }
 
   snapshot(project: number): Snapshot {
@@ -518,7 +537,12 @@ export class Inbox {
    * deleted and re-made, does not import twice; and each row's id is its own
    * `seq`, so even a repeated import cannot duplicate one.
    */
-  importNotifications(project: number, projectPath: string | null): Imported {
+  importNotifications(
+    project: number,
+    projectPath: string | null,
+    /** The project's kehikot, so a row that named its kehikko only by name is filed under the key. */
+    kehikot: readonly { key: string; name: string }[] = [],
+  ): Imported {
     const done = this.db
       .query<{ value: string }, [number]>("select value from inbox_meta where project = ? and key = 'imported-notifications'")
       .get(project)
@@ -546,7 +570,11 @@ export class Inbox {
             ? { place: row.payload.place as Place }
             : {}),
         }
-        const made = noticeEntry(module, '', line, id, when, row.kehikko?.key)
+        /* The key when the row had one; else the one kehikko of that name,
+           when exactly one has it. */
+        const named = row.kehikko?.name ? kehikot.filter((one) => one.name === row.kehikko?.name) : []
+        const key = row.kehikko?.key ?? (named.length === 1 ? named[0]!.key : undefined)
+        const made = noticeEntry(module, '', line, id, when, key)
         made.entry.origin = 'imported'
         made.entry.how = 'imported'
         this.#write(project, made.entry)

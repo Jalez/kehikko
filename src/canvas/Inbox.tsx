@@ -438,7 +438,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
               <span className="font-medium">Next:</span> {view.next.label}
               {nextWhere ? <span className="text-muted-foreground"> — {nextWhere}</span> : null}
             </span>
-            <kbd className="text-muted-foreground shrink-0 rounded border px-1 text-[10px]">{view.shortcut}</kbd>
+            <kbd className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] max-[400px]:hidden">{view.shortcut}</kbd>
           </button>
         ) : null}
 
@@ -461,6 +461,15 @@ export function InboxPanel({ view }: { view: InboxView }) {
               <p className="text-muted-foreground mt-0.5">{elsewhereWords(view.tally)}.</p>
             ) : null}
           </div>
+        ) : null}
+
+        {scope === 'here' && !nothing && elsewhere > 0 ? (
+          <p className="text-muted-foreground px-2 py-1 text-[11px]">
+            {sayNames(elsewhere, 'more needs', 'more need')} you in other kehikot.{' '}
+            <button type="button" className="text-foreground underline underline-offset-2" onClick={() => view.onScope('everywhere')}>
+              Show everywhere
+            </button>
+          </p>
         ) : null}
 
         {scope === 'here' && unknownKehikko ? (

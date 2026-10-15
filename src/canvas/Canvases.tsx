@@ -122,7 +122,7 @@ export function Canvases({
                     data-attention-count={counts.get(canvas.key)}
                     title={`${counts.get(canvas.key)} ${counts.get(canvas.key) === 1 ? 'needs' : 'need'} you`}
                   >
-                    <span className="sr-only">{counts.get(canvas.key)} need you on {canvas.name}</span>
+                    <span className="sr-only">, {counts.get(canvas.key) === 1 ? '1 needs' : `${counts.get(canvas.key)} need`} you</span>
                     <span aria-hidden>{counts.get(canvas.key)}</span>
                   </span>
                 ) : null}

@@ -445,9 +445,10 @@ export function watchCanvases(
   opened?: () => void,
   /**
    * A project's inbox changed — see `inboxChanged` in `server/wake.ts`.
-   * Given the project's id; the page re-reads `/host/inbox`.
+   * Given the project's id and the revision of the record the news is
+   * about; the page re-reads `/host/inbox` unless it already holds that.
    */
-  inboxed?: (project: number) => void,
+  inboxed?: (project: number, rev: number | null) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -496,7 +497,10 @@ export function watchCanvases(
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
       const inbox = (parsed as { inbox?: unknown })?.inbox
-      if (typeof inbox === 'number' && Number.isInteger(inbox)) inboxed?.(inbox)
+      if (typeof inbox === 'number' && Number.isInteger(inbox)) {
+        const rev = (parsed as { rev?: unknown }).rev
+        inboxed?.(inbox, typeof rev === 'number' && Number.isInteger(rev) ? rev : null)
+      }
       const disposed = (parsed as { dispositions?: unknown })?.dispositions
       if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
       const tracked = parsed as { tracker?: unknown; at?: unknown; refreshing?: unknown }

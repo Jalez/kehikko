@@ -330,19 +330,41 @@ who changed six characters. `retitleEpic` in `server/holdings.ts` has the
 argument, and `withTitle` beside it has the reason a regular expression will not
 do — `"title"` is also the key on every step in these files.
 
-## A state is reported once, and the notice is the host's
+## One inbox, and the Notifications module is a consumer of it
 
-A module says what it is doing with `activity.set` and nothing else. When an
-item **enters** `attention` or `done`, the host sends one
-`kehikot.notifications@1` line to whatever consumes it, as if that module had
-sent it ("Waiting for you: “…” — epic · parts · kehikko", level `attention` or
-`done`, filed under the item's `place`), so the dots and the notice log are one
-report and cannot disagree. No notice for `working`, none for an item whose
-place is open on screen, and each `(module, id, state, since)` once: the
-derived set is kept in the browser, per project (`kehikot.activity.derived.<project>`),
-and the first list a module sends after a page load is a baseline that tells
-only what is newer than what was last told. A line that is not a state
-("tracker read failed") is still `events.emit`. See `src/host/activity.ts`.
+A module says what it needs, is doing, or has finished with `activity.set`, and
+the host keeps ONE record of it: the Inbox (`src/host/inbox.ts`, kept by
+`server/inbox.ts` in the host's machine database, per project, not in the
+project). An item has a life: it opens when first reported, records each state
+it enters with the time, and closes when the module drops it or stops answering
+(a closed item stays in the log, "Earlier", bounded to 2000 entries). A legacy
+`kehikot.notifications@1` line from `events.emit` is kept as an item born closed,
+attributed to the sender. The Notifications module's own file in a project is
+imported once, never changed.
+
+What a person sees: one control in the bar (a dot and the count of what needs
+them) and a panel on demand — **Next**, **Needs you** (urgent first, then the
+longest waiting), **Working**, **Finished**, **Earlier** (collapsed, paged) —
+each row saying who said it before the claim, and where, in words. A scope
+(**This kehikko** / **Everywhere**) is remembered per project; where the host
+cannot tell the kehikko it says so and shows everything. Seen is for `done` only
+(arriving at its place, or pressing it); dismiss hides an open item until its
+state changes; forget removes a closed one from the log.
+
+**Next that needs me** is `Alt+Shift+N` (and the first row of the panel): it goes
+to the most pressing item and, pressed again, to the next, across kehikot,
+epics and parts, using the item's `place`. The shortcut is read by the host's
+own document; with focus inside a module's frame, use the bar control.
+
+The entry that enters `attention` or `done` is also delivered as one
+`kehikot.notifications@1` line to whatever consumes it (a Notifications module
+on a canvas), as if the module had sent it — no line for `working`, none for an
+item whose place is open on screen, and each `(module, id, state, since)` once:
+the record, not the browser, remembers what was told. The page's old storage
+(`kehikot.activity.seen.<project>`, `kehikot.activity.derived.<project>`) is
+handed to the server once and removed. For an agent, `read_canvas` lists the
+open items and a bounded Earlier, and `read_inbox` answers the same in words;
+no tool sees, dismisses or forgets — those are the person's.
 
 ## The filter a module offers and the host draws
 

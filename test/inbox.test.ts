@@ -422,6 +422,25 @@ describe('the store', () => {
       expect(inbox.importNotifications(project, folder).imported).toBe(0)
       expect(inbox.all(project)).toHaveLength(0)
     })
+    test('a row that named its kehikko only by name is filed under that kehikko’s key, when one has the name', () => {
+      writeFileSync(
+        file(),
+        JSON.stringify({
+          rows: [
+            { seq: 9, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 10, name: 'writing' }, payload: { epic: 'thesis', message: 'One', level: 'done' } },
+            { seq: 10, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 11, name: 'twin' }, payload: { epic: 'thesis', message: 'Two', level: 'done' } },
+          ],
+        }),
+      )
+      inbox.importNotifications(project, folder, [
+        { key: 'kw', name: 'writing' },
+        { key: 'a', name: 'twin' },
+        { key: 'b', name: 'twin' },
+      ])
+      const byId = Object.fromEntries(inbox.all(project).map((e) => [e.id, e.place]))
+      expect(byId['imported:9']).toEqual({ epic: 'thesis', kehikko: 'kw' })
+      expect(byId['imported:10']).toEqual({ epic: 'thesis' })
+    })
     test('no file is no import, and is asked again later', () => {
       rmSync(file())
       expect(inbox.importNotifications(project, folder)).toEqual({ imported: 0, already: false })

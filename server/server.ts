@@ -1628,7 +1628,8 @@ const headerDesk = headersDesk({
 const inboxRoutes = inboxDesk({
   inbox,
   pathOf: (project) => projectById(db, project)?.path,
-  changed: (project) => wakes.inboxChanged(project),
+  kehikotOf: (project) => listCanvases(db).filter((one) => one.project === project).map((one) => ({ key: one.key, name: one.name })),
+  changed: (project, rev) => wakes.inboxChanged(project, rev),
 })
 
 /*

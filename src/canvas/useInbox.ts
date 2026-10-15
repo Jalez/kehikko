@@ -132,9 +132,11 @@ export function useInbox(options: {
 
   /** Read again: the server said something changed, or the stream reopened. */
   const refresh = useCallback(
-    (id?: number) => {
+    (id?: number, rev?: number | null) => {
       const which = id ?? projectRef.current
       if (which === null || which !== projectRef.current) return
+      /* The news names the revision it is about; this page may hold it already. */
+      if (rev != null && rev <= (snapsRef.current[which]?.rev ?? -1)) return
       void fetchInbox(which).then((got) => {
         if (got && got.rev !== snapsRef.current[which]?.rev) adopt(which, got)
       })

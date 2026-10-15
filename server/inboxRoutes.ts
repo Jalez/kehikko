@@ -29,8 +29,10 @@ export interface InboxDeps {
   inbox: Inbox
   /** The folder of a project, or null when there is no such project. */
   pathOf(project: number): string | null | undefined
+  /** The project's kehikot by key and name, for filing imported lines. */
+  kehikotOf?(project: number): readonly { key: string; name: string }[]
   /** Say that a project's inbox is not what the pages last read. */
-  changed(project: number): void
+  changed(project: number, rev: number): void
 }
 
 const reply = (body: unknown, status = 200): Response =>
@@ -74,8 +76,8 @@ export function inboxDesk(deps: InboxDeps) {
   function opened(project: number): void {
     const path = deps.pathOf(project)
     if (path === undefined) return
-    const done = inbox.importNotifications(project, path ?? null)
-    if (done.imported) deps.changed(project)
+    const done = inbox.importNotifications(project, path ?? null, deps.kehikotOf?.(project) ?? [])
+    if (done.imported) deps.changed(project, inbox.rev(project))
   }
 
   async function route(request: Request, url: URL): Promise<Response | null> {
@@ -130,7 +132,7 @@ export function inboxDesk(deps: InboxDeps) {
       opened(project)
       const before = inbox.rev(project)
       const out = inbox.report(project, module, name, items, { silent, ...(loadedAt !== undefined ? { loadedAt } : {}) })
-      if (out.rev !== before) deps.changed(project)
+      if (out.rev !== before) deps.changed(project, out.rev)
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier, news: out.news })
     }
 
@@ -141,7 +143,7 @@ export function inboxDesk(deps: InboxDeps) {
       const kehikko = typeof body.kehikko === 'string' && body.kehikko.length <= 200 ? body.kehikko : undefined
       opened(project)
       const out = inbox.notice(project, module, name, line.data, kehikko)
-      deps.changed(project)
+      deps.changed(project, out.rev)
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier })
     }
 
@@ -164,13 +166,13 @@ export function inboxDesk(deps: InboxDeps) {
       } else {
         return reply({ ok: false, why: 'do is one of seen, dismiss, seen-all, forget.' }, 400)
       }
-      if (changed) deps.changed(project)
+      if (changed) deps.changed(project, inbox.rev(project))
       return reply({ ok: true, changed, ...inbox.snapshot(project) })
     }
 
     if (url.pathname === '/host/inbox/migrate') {
-      inbox.migrate(project, body.seen, body.told)
-      deps.changed(project)
+      const migrated = inbox.migrate(project, body.seen, body.told)
+      deps.changed(project, migrated.rev)
       return reply({ ok: true, ...inbox.snapshot(project) })
     }
     return null

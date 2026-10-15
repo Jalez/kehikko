@@ -112,8 +112,7 @@ function entryLine(entry: Entry, names: Namer, now: number, here: string | null)
   ].filter(Boolean)
   return (
     `${quoted(entry.name || entry.module)} says ${quoted(entry.label)} — ${STATE_WORDS[entry.state]}`
-    + `${entry.state === 'working' ? ' since' : entry.state === 'attention' ? ', waiting since' : ', since'} `
-    + `${ageWords(now, entry.entered).replace(' ago', '')} ago`
+    + `, since ${ageWords(now, entry.entered)}`
     + (where ? ` — at ${where}` : ' — the project, no place')
     + (entry.refs.length ? ` — refs ${entry.refs.join(', ')}` : '')
     + (flags.length ? ` — ${flags.join(', ')}` : '')
