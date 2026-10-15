@@ -142,6 +142,15 @@ import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
  * drawn at all — a switch for a page nobody can see is a press with no
  * visible effect. `modeFor` is the rule.
  *
+ * ## Pinned runs (protocol 1.6.0)
+ *
+ * A `run` with `pinned: true` is ALSO drawn as a 24 px icon button in this
+ * same row, left of the menus (`PinnedRun`; `pinnedOf` in `host/header.ts` is
+ * the rule: declaration order, at most four). It takes no height and no new
+ * row. Not drawn under `PINNED_BELOW` (360 px of measured container), nor in
+ * the icons/merged modes, nor folded (the menus are not drawn folded): the
+ * Run menu always holds every run, so nothing is lost.
+ *
  * Every label is one line, cut with an ellipsis and whole in its `title`.
  * The longest thing a module can say here is the reason a run is disabled,
  * which is a sentence: it is drawn under the row, small, and wraps inside the
@@ -580,17 +589,17 @@ function PinnedRun({ item, rows, word }: { item: RunItem; rows: Pressable; word:
         aria-label={item.label}
         aria-disabled={inert || undefined}
         aria-busy={busy || undefined}
-        data-pinned={item.id}
+        data-pinned-run={item.id}
         data-armed={armed ? 'true' : undefined}
         data-state-run={item.state}
         {...modal}
-        className={`pointer-events-auto size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING} ${
+        className={`pointer-events-auto aria-disabled:hover:bg-transparent size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING} ${
           armed
             ? 'bg-destructive/15 text-destructive ring-destructive ring-1'
             : failed
               ? 'text-destructive hover:text-destructive'
               : 'text-muted-foreground hover:text-foreground'
-        } ${inert ? 'opacity-50' : ''}`}
+        } ${item.disabled !== null ? 'opacity-50' : ''}`}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={() => {
           if (inert) return

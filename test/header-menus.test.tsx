@@ -636,16 +636,16 @@ const review = (over: Record<string, Record<string, unknown>> = {}): HeaderItem[
     { kind: 'toggle', id: 'auto', label: 'Auto', checked: false, pinned: true },
   ])
 
-const pins = () => [...document.querySelectorAll<HTMLElement>('[data-pinned]')]
-const pin = (id: string) => document.querySelector<HTMLElement>(`[data-pinned="${id}"]`)!
+const pins = () => [...document.querySelectorAll<HTMLElement>('[data-pinned-run]')]
+const pin = (id: string) => document.querySelector<HTMLElement>(`[data-pinned-run="${id}"]`)!
 
 describe('pinned runs are icon buttons in the header row', () => {
   if (!inChild) return
 
   test('drawn left of the menus in declaration order, at most four, an item without pinned is menu-only', async () => {
     const { host } = await mount(review())
-    expect(pins().map((el) => el.getAttribute('data-pinned'))).toEqual(['back', 'accept', 'reject', 'next'])
-    const all = [...host.querySelectorAll('[data-pinned], [data-menu]')].map((el) => el.getAttribute('data-pinned') ?? el.getAttribute('data-menu'))
+    expect(pins().map((el) => el.getAttribute('data-pinned-run'))).toEqual(['back', 'accept', 'reject', 'next'])
+    const all = [...host.querySelectorAll('[data-pinned-run], [data-menu]')].map((el) => el.getAttribute('data-pinned-run') ?? el.getAttribute('data-menu'))
     expect(all).toEqual(['back', 'accept', 'reject', 'next', 'view', 'run'])
     /* Same size as every other control in the row. */
     expect(pin('accept').className).toContain('size-6')
@@ -687,7 +687,7 @@ describe('pinned runs are icon buttons in the header row', () => {
     const { presses } = await mount(review({ accept: { disabled: 'No edit is open' } }))
     expect(pin('accept')).not.toBeNull()
     expect(pin('accept').getAttribute('aria-disabled')).toBe('true')
-    expect(pin('accept').className).toContain('opacity-50')
+    expect(pin('accept').className.split(' ')).toContain('opacity-50')
     await choose(pin('accept'))
     expect(presses).toEqual([])
     const { TooltipProvider: _ } = { TooltipProvider }
@@ -702,6 +702,8 @@ describe('pinned runs are icon buttons in the header row', () => {
     const { presses } = await mount(review({ accept: { state: 'busy' }, next: { state: 'failed', result: '2 errors' } }))
     expect(pin('accept').querySelector('.animate-spin')).not.toBeNull()
     expect(pin('accept').getAttribute('aria-busy')).toBe('true')
+    /* Busy is a mark of its own, not the dimmed look of a disabled one. */
+    expect(pin('accept').className.split(' ')).not.toContain('opacity-50')
     await choose(pin('accept'))
     expect(presses).toEqual([])
     expect(pin('next').getAttribute('data-state-run')).toBe('failed')
