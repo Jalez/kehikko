@@ -67,15 +67,15 @@ export function Canvases({
             variant="ghost"
             size="sm"
             aria-label="switch kehikko"
-            className="text-foreground h-6 max-w-52 min-w-7 shrink gap-1 px-1.5 text-xs font-medium"
+            className="text-foreground h-6 max-w-52 min-w-6 shrink-[0.01] gap-1 max-[400px]:min-w-5 px-1.5 text-xs font-medium max-[640px]:has-[>svg]:px-1"
           >
-            <LayoutGrid className="text-muted-foreground size-3 shrink-0" />
+            <LayoutGrid className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
             <span className="min-w-0 truncate">{open?.name ?? 'no kehikko'}</span>
             {(() => {
               const other = worstOther(marks, open?.key ?? null)
               return other ? <ActivityDot state={other} what="another kehikko" /> : null
             })()}
-            <ChevronDown className="text-muted-foreground size-3 shrink-0" />
+            <ChevronDown className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
           </Button>
         </DropdownMenuTrigger>
       </Hint>
