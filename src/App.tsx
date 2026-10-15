@@ -71,7 +71,7 @@ import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useActivity } from './canvas/useActivity.ts'
-import { epicMarks, kehikkoMarks, moduleMark, partMarks, placeSplit, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
+import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, placeSplit, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import type { ActivityRow } from './host/activity.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
@@ -2901,7 +2901,11 @@ export function App() {
     () => ({ epic: about.epic, parts: about.parts, kehikko: open?.key ?? null }),
     [about.epic, about.parts, open?.key],
   )
-  const activity = useActivity(projectId, activityAlive, activityAt)
+  /* What a module reports is `activity.set` alone: the line for the notification
+     consumers is derived here, from an item entering attention or done, and
+     delivered as if the module had sent it (`deriveNotices` in `host/activity.ts`). */
+  const noticeRef = useRef<(item: HeldItem) => void>(() => undefined)
+  const activity = useActivity(projectId, activityAlive, activityAt, undefined, (item) => noticeRef.current(item))
   activityRef.current = activity.receive
   const activityNames = useMemo<Namer>(
     () => ({
@@ -2917,6 +2921,12 @@ export function App() {
     }),
     [held, here],
   )
+  noticeRef.current = (item) => {
+    const line = noticeFor(item, activityAt, activityNames)
+    if (!line) return
+    const out = bus.emit(item.module, 'kehikot.notifications@1', line, kehikkoRef.current)
+    if (!out.ok) console.info('The host did not carry a notice derived from activity.', out.error)
+  }
   const activityMarks = useMemo(() => {
     const live = activity.live
     const moduleOf = new Map<string, ActivityState>()
