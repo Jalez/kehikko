@@ -443,6 +443,12 @@ export function watchCanvases(
    * headers its modules declared — and this is when to say it again.
    */
   opened?: () => void,
+  /**
+   * A project's inbox changed — see `inboxChanged` in `server/wake.ts`.
+   * Given the project's id and the revision of the record the news is
+   * about; the page re-reads `/host/inbox` unless it already holds that.
+   */
+  inboxed?: (project: number, rev: number | null) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -490,6 +496,11 @@ export function watchCanvases(
       if ((parsed as { registry?: unknown })?.registry === true) looked?.()
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
+      const inbox = (parsed as { inbox?: unknown })?.inbox
+      if (typeof inbox === 'number' && Number.isInteger(inbox)) {
+        const rev = (parsed as { rev?: unknown }).rev
+        inboxed?.(inbox, typeof rev === 'number' && Number.isInteger(rev) ? rev : null)
+      }
       const disposed = (parsed as { dispositions?: unknown })?.dispositions
       if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
       const tracked = parsed as { tracker?: unknown; at?: unknown; refreshing?: unknown }
@@ -566,14 +577,12 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
 export function postHeaders(
   kehikko: number,
   headers: Readonly<Record<string, readonly HeaderItem[]>>,
-  /** What the modules say they are doing, for `read_canvas` (`host/activity.ts`). */
-  activity: readonly object[] = [],
 ): Promise<void> {
   return fetch('/host/headers', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     /* `at`, so a posting that arrives after a later one does not replace it. */
-    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, activity }),
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers }),
   })
     .then(() => undefined)
     .catch(() => {

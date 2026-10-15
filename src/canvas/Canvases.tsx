@@ -29,6 +29,7 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * than gone when this is the only kehikko, because the server refuses that.
  */
 const NO_MARKS: ReadonlyMap<string, ActivityState> = new Map()
+const NO_COUNTS: ReadonlyMap<string, number> = new Map()
 
 export function Canvases({
   canvases,
@@ -38,6 +39,7 @@ export function Canvases({
   onCreate,
   onDelete,
   marks = NO_MARKS,
+  counts = NO_COUNTS,
 }: {
   canvases: readonly Canvas[]
   open: Canvas | null
@@ -47,6 +49,8 @@ export function Canvases({
   onDelete(id: number): void
   /** What each kehikko (by its key) holds that a module said it is doing: a small dot on its row. */
   marks?: ReadonlyMap<string, ActivityState>
+  /** How many things need the person on each kehikko (by key): a number beside its dot, so "two need you there" is read at a glance. */
+  counts?: ReadonlyMap<string, number>
 }) {
   /** Which kehikko is being renamed, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<number | null>(null)
@@ -111,6 +115,16 @@ export function Canvases({
                 <span className="min-w-0 flex-1 truncate">{canvas.name}</span>
                 {canvas.key !== undefined && marks.get(canvas.key) ? (
                   <ActivityDot state={marks.get(canvas.key)!} what={canvas.name} />
+                ) : null}
+                {canvas.key !== undefined && (counts.get(canvas.key) ?? 0) > 0 ? (
+                  <span
+                    className="text-amber-600 dark:text-amber-400 shrink-0 text-[11px] tabular-nums"
+                    data-attention-count={counts.get(canvas.key)}
+                    title={`${counts.get(canvas.key)} ${counts.get(canvas.key) === 1 ? 'needs' : 'need'} you`}
+                  >
+                    <span className="sr-only">, {counts.get(canvas.key) === 1 ? '1 needs' : `${counts.get(canvas.key)} need`} you</span>
+                    <span aria-hidden>{counts.get(canvas.key)}</span>
+                  </span>
                 ) : null}
                 <RowPencil label={`rename ${canvas.name}`} title="rename (F2)" onStart={() => setEditing(canvas.id)} />
                 {/* How much is on it: how a person tells two kehikot apart

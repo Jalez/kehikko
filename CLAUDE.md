@@ -124,6 +124,25 @@
   `ANSWERED_UNDECLARED` (answered, one log line per call) until its manifest is
   fixed. Never widen the rule instead.
 
+## The Inbox
+
+- ONE record of what modules need, are doing and have said: `src/host/inbox.ts`
+  (pure, shared by the page and the server) and `server/inbox.ts` (the store, in
+  `frame.sqlite`, per project id; never in the project). The dots, the bar
+  control, the panel (`src/canvas/Inbox.tsx`), the log and `read_canvas` /
+  `read_inbox` all read it. Do not add a second set of items, a seen set in
+  browser storage, or a derived-notice set: a transition is a row in
+  `inbox_moves`, and what was told is what the record already holds.
+- The page posts a module's whole list (`/host/inbox/report`), a legacy notice
+  (`/host/inbox/notice`) and the person's acts (`/host/inbox/act`: seen,
+  dismiss, forget). All four POSTs are in `PAGE_ONLY` (`server/guard.ts`) — a
+  new write here gets the same. No MCP tool may see, dismiss or forget.
+- The host names no module and no vendor: the by-line is the module's registered
+  name, the label is its claim. Never colour alone; no standing rows.
+- Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
+- The Notifications module still receives the lines (`noticeFor`), and its own
+  `.kehikot/notifications/notifications.json` is imported once and never written.
+
 ## Tracker sources
 
 - A project's sources are its git remotes plus `<project>/.kehikot/kehikko/trackers.json`.

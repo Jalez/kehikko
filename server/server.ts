@@ -35,6 +35,8 @@ import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, typ
 import { own as ownAddress, refusal } from './guard.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import { headersDesk } from './headers.ts'
+import { Inbox } from './inbox.ts'
+import { inboxDesk } from './inboxRoutes.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -174,6 +176,8 @@ const settled = adopt(db)
    have one. See `epicFromKehikot`. */
 if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id)
 ensureKnown(db)
+/* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
+const inbox = new Inbox(db)
 
 /**
  * Every project's kehikot, read from the project's own file before anything is
@@ -1623,6 +1627,13 @@ const headerDesk = headersDesk({
   send: (order) => wakes.press(order),
 })
 
+const inboxRoutes = inboxDesk({
+  inbox,
+  pathOf: (project) => projectById(db, project)?.path,
+  kehikotOf: (project) => listCanvases(db).filter((one) => one.project === project).map((one) => ({ key: one.key, name: one.name })),
+  changed: (project, rev) => wakes.inboxChanged(project, rev),
+})
+
 /*
  * "Restart anyway": the one way a module that is kept is stopped, and only by
  * a person pressing twice in the page. See `anyway.ts`.
@@ -2607,6 +2618,10 @@ const server = Bun.serve({
     const anywayAnswer = await anyway.route(request, url)
     if (anywayAnswer) return anywayAnswer
 
+    /* The inbox: what the modules said they are doing, held per project. `inbox.ts`. */
+    const inboxAnswer = await inboxRoutes.route(request, url)
+    if (inboxAnswer) return inboxAnswer
+
     /* What the page says its modules declared, and what came of a press it was handed. `headers.ts`. */
     const headersAnswer = await headerDesk.route(request, url)
     if (headersAnswer) return headersAnswer
@@ -2969,6 +2984,7 @@ const server = Bun.serve({
           },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           headers: headerDesk.door,
+          inbox,
           trackers,
           versions: {
             list: (module, kehikko) => pins.list(module, kehikko, true),

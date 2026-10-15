@@ -70,11 +70,12 @@ import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } fro
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
-import { useActivity } from './canvas/useActivity.ts'
-import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, placeSplit, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
+import { useInbox } from './canvas/useInbox.ts'
+import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
+import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
+import { fetchLog } from './host/inboxClient.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
-import type { ActivityRow } from './host/activity.ts'
-import type { ActivityState } from 'kehikot-module-protocol'
+import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
@@ -357,6 +358,10 @@ export function App() {
      and the open kehikko are declared; `lookRef`'s arrangement, for its reason. */
   const orderedRef = useRef<((order: PressOrder) => void) | null>(null)
   const repostRef = useRef<(() => void) | null>(null)
+  /* The Inbox's page-side hook is called far below this; the stream and the
+     emit above reach it through refs, for `orderedRef`'s reason. */
+  const inboxWokeRef = useRef<((project: number, rev: number | null) => void) | null>(null)
+  const legacyNoticeRef = useRef<(from: string, payload: unknown) => void>(() => undefined)
   /* Which container is being dragged or resized, if any — see `Frames.tsx` for why
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
@@ -729,7 +734,11 @@ export function App() {
       (order) => orderedRef.current?.(order),
       /* The stream opened, or reopened after the server went away: say again
          what the modules here have declared. */
-      () => repostRef.current?.(),
+      () => {
+        repostRef.current?.()
+        inboxWokeRef.current?.(-1, null)
+      },
+      (project, rev) => inboxWokeRef.current?.(project, rev),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -1756,7 +1765,13 @@ export function App() {
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
-      emit: (from, extension, payload) => bus.emit(from, extension, payload, kehikkoRef.current),
+      emit: (from, extension, payload) => {
+        const out = bus.emit(from, extension, payload, kehikkoRef.current)
+        /* The legacy line is also kept: the Inbox holds it as an item born
+           closed, whoever is listening for it. */
+        if (out.ok && extension === 'kehikot.notifications@1') legacyNoticeRef.current(from, payload)
+        return out
+      },
       /* An id, read now. The server turns it into a folder out of its own
          table — see `project` on `CanvasControls` for why a path must not come
          from this side. */
@@ -2887,10 +2902,12 @@ export function App() {
   const placed = placements.map((p) => p.i)
 
   /*
-   * What the modules say they are doing (`activity.set`), held per project and
-   * drawn as small dots on what already exists, plus the one menu in the bar.
-   * See `host/activity.ts`. A module's list goes when its container is on no
-   * kehikko of the project or its server stops answering.
+   * What the modules say they are doing (`activity.set`) and the lines they
+   * emit (`kehikot.notifications@1`): ONE record, the Inbox, kept by the server
+   * per project (`server/inbox.ts`) and drawn as small dots on what already
+   * exists plus the one control in the bar. See `host/inbox.ts`. What a module
+   * had open is closed when its container is on no kehikko of the project or
+   * its server stops answering, and stays in the log.
    */
   const activityAlive = useMemo(() => {
     if (!registry) return null
@@ -2901,12 +2918,29 @@ export function App() {
     () => ({ epic: about.epic, parts: about.parts, kehikko: open?.key ?? null }),
     [about.epic, about.parts, open?.key],
   )
-  /* What a module reports is `activity.set` alone: the line for the notification
-     consumers is derived here, from an item entering attention or done, and
-     delivered as if the module had sent it (`deriveNotices` in `host/activity.ts`). */
-  const noticeRef = useRef<(item: HeldItem) => void>(() => undefined)
-  const activity = useActivity(projectId, activityAlive, activityAt, undefined, (item) => noticeRef.current(item))
-  activityRef.current = activity.receive
+  const moduleName = useCallback(
+    (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module,
+    [registry],
+  )
+  /* An entry that entered attention or done is delivered, as a line, to whoever
+     consumes `kehikot.notifications@1` — a Notifications module on a canvas —
+     as if the module had sent it. The record already holds it; this only
+     forwards. See `noticeFor`. */
+  const noticeRef = useRef<(entry: Entry) => void>(() => undefined)
+  const inbox = useInbox({
+    project: projectId,
+    alive: activityAlive,
+    at: activityAt,
+    nameOf: moduleName,
+    notify: (entry) => noticeRef.current(entry),
+  })
+  activityRef.current = inbox.receive
+  inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
+  legacyNoticeRef.current = (from, payload) => {
+    const parsed = schemaFor('kehikot.notifications@1')?.safeParse(payload)
+    if (!parsed?.success) return
+    inbox.notice(from, parsed.data as NoticeLine, kehikkoRef.current?.key)
+  }
   const activityNames = useMemo<Namer>(
     () => ({
       epic: (slug) => {
@@ -2921,26 +2955,33 @@ export function App() {
     }),
     [held, here],
   )
-  noticeRef.current = (item) => {
-    const line = noticeFor(item, activityAt, activityNames)
+  noticeRef.current = (entry) => {
+    const line = noticeFor(entry, activityAt, activityNames)
     if (!line) return
-    const out = bus.emit(item.module, 'kehikot.notifications@1', line, kehikkoRef.current)
+    const out = bus.emit(entry.module, 'kehikot.notifications@1', line, kehikkoRef.current)
     if (!out.ok) console.info('The host did not carry a notice derived from activity.', out.error)
   }
   const activityMarks = useMemo(() => {
-    const live = activity.live
+    const live = inbox.live
     const moduleOf = new Map<string, ActivityState>()
     for (const module of new Set(live.map((one) => one.module))) {
       const mark = moduleMark(live, module)
       if (mark) moduleOf.set(module, mark)
+    }
+    const counts = new Map<string, number>()
+    for (const one of live) {
+      const key = one.place?.kehikko
+      if (one.state === 'attention' && key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     return {
       modules: moduleOf,
       epics: epicMarks(live, about.epic, (slug) => (held?.epics.find((one) => one.slug === slug)?.parts ?? []).map((p) => p.id)),
       parts: partMarks(live, about.epic),
       kehikot: kehikkoMarks(live),
+      counts,
+      worst: worstActivity(live.map((one) => one.state)),
     }
-  }, [activity.live, about.epic, held])
+  }, [inbox.live, about.epic, held])
   const revealContainer = useCallback(
     (module: string) => {
       const flash = () => {
@@ -2960,12 +3001,17 @@ export function App() {
     },
     [open, here],
   )
-  const goToActivity = useCallback(
-    (item: HeldItem) => {
-      if (item.state === 'done') activity.markSeen([item])
-      const place = item.place
+  /* Whether the Inbox's panel is open, held here so that the keyboard can open it. */
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const goToEntry = useCallback(
+    (entry: Entry) => {
+      if (entry.state === 'done') inbox.see([entry])
+      setInboxOpen(false)
+      const place = entry.place
       if (place?.epic !== undefined) {
-        gotoRef.current({ epic: place.epic, parts: place.parts, kehikko: place.kehikko })
+        /* An item that names an epic and no parts is about the whole epic, so
+           the picked parts are cleared rather than left narrowing it. */
+        gotoRef.current({ epic: place.epic, parts: place.parts ?? [], kehikko: place.kehikko })
         return
       }
       if (place?.kehikko !== undefined) {
@@ -2975,33 +3021,109 @@ export function App() {
           return
         }
       }
-      revealContainer(item.module)
+      revealContainer(entry.module)
     },
-    [activity, here, revealContainer],
+    [inbox, here, revealContainer],
   )
+  /* Which scope the Inbox shows. The default is everywhere: what is going on in
+     other kehikot, parts and epics is the point, one press from "This kehikko".
+     Only a person who narrowed it is remembered, per project, in this browser. */
+  const [inboxScopes, setInboxScopes] = useState<Record<number, Scope>>({})
+  const inboxScope: Scope = useMemo(() => {
+    if (projectId === null) return 'everywhere'
+    const chosen = inboxScopes[projectId]
+    if (chosen) return chosen
+    try {
+      return scopeFrom(window.localStorage.getItem(`kehikot.inbox.scope.${projectId}`))
+    } catch {
+      return 'everywhere'
+    }
+  }, [inboxScopes, projectId])
+  const setInboxScope = useCallback(
+    (scope: Scope) => {
+      if (projectId === null) return
+      setInboxScopes((was) => ({ ...was, [projectId]: scope }))
+      try {
+        window.localStorage.setItem(`kehikot.inbox.scope.${projectId}`, scope)
+      } catch {
+        /* Back to everywhere on the next load; nothing else is lost. */
+      }
+    },
+    [projectId],
+  )
+  /* "Next that needs me": the most pressing open item and, pressed again, the
+     next, across kehikot, epics and parts. See `nextOf`. */
+  const [lastNext, setLastNext] = useState<string | null>(null)
+  const nextEntry = useMemo(() => nextOf(inbox.open, lastNext), [inbox.open, lastNext])
+  const goNextRef = useRef<() => void>(() => undefined)
+  goNextRef.current = () => {
+    if (!nextEntry) {
+      /* Nothing asks for the person: say what is going on instead. */
+      setInboxOpen(true)
+      return
+    }
+    setLastNext(rowKey(nextEntry))
+    goToEntry(nextEntry)
+  }
+  /* Alt+Shift+N. By `code`, so the Option key's dead keys on a Mac do not
+     matter; not in a text field. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey || event.code !== 'KeyN') return
+      const target = event.target
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      event.preventDefault()
+      goNextRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const barActivity = useMemo<BarActivity | null>(() => {
-    if (!activity.items.length) return null
-    const nameOf = (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module
+    if (inbox.open.length === 0 && inbox.earlier === 0 && !inboxOpen) return null
+    const narrowing = { scope: inboxScope, epic: about.epic, kehikko: open?.key ?? null }
     return {
       epics: activityMarks.epics,
       parts: activityMarks.parts,
       kehikot: activityMarks.kehikot,
-      rows: activity.items.map((item) => ({
-        item,
-        seen: !activity.live.includes(item),
-        module: nameOf(item.module),
-        ...placeSplit(item.place, activityNames),
-      })),
-      onPress: goToActivity,
+      kehikotCounts: activityMarks.counts,
+      worst: activityMarks.worst,
+      inbox: {
+        entries: inbox.open,
+        earlierCount: inbox.earlier,
+        at: { epic: about.epic, kehikko: open?.key ?? null },
+        scope: inboxScope,
+        onScope: setInboxScope,
+        names: activityNames,
+        tally: tally(inbox.open, { epic: about.epic, kehikko: open?.key ?? null }),
+        next: nextEntry,
+        open: inboxOpen,
+        onOpenChange: setInboxOpen,
+        onGo: goToEntry,
+        onNext: () => goNextRef.current(),
+        onSee: inbox.see,
+        onDismiss: inbox.dismiss,
+        onForget: (keys) => inbox.act('forget', keys ?? undefined, narrowing),
+        onSeeAll: () => inbox.act('seen-all', undefined, narrowing),
+        loadLog: (offset, limit) =>
+          projectId === null ? Promise.resolve(null) : fetchLog(projectId, narrowing, offset, limit),
+        rev: inbox.rev,
+        shortcut: 'Alt+Shift+N',
+        now: () => Date.now(),
+      },
     }
-  }, [activity.items, activity.live, activityMarks, activityNames, registry, goToActivity])
-  /* What `read_canvas` lists, posted with the headers. */
-  const activityRows = useMemo(() => {
-    const nameOf = (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module
-    return JSON.stringify(
-      rowsFor(activity.items, activity.seen, activityNames).map((row) => ({ ...row, name: nameOf(row.module) })),
-    )
-  }, [activity.items, activity.seen, activityNames, registry])
+  }, [
+    inbox,
+    inboxOpen,
+    inboxScope,
+    setInboxScope,
+    activityMarks,
+    activityNames,
+    nextEntry,
+    goToEntry,
+    about.epic,
+    open?.key,
+    projectId,
+  ])
 
   /**
    * What the modules on the open kehikko have declared, said to the server.
@@ -3024,12 +3146,8 @@ export function App() {
   }, [open, headers])
   const postDeclared = useCallback(() => {
     if (openId === null || declaredHere === null) return
-    void postHeaders(
-      openId,
-      Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
-      JSON.parse(activityRows) as ActivityRow[],
-    )
-  }, [openId, declaredHere, activityRows])
+    void postHeaders(openId, Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]))
+  }, [openId, declaredHere])
   useEffect(() => postDeclared(), [postDeclared])
   repostRef.current = postDeclared
 
@@ -3639,7 +3757,7 @@ export function App() {
                   onVersion={() => void look()}
                   activity={activityMarks.modules.get(presence.id) ?? null}
                   onActivitySeen={() =>
-                    activity.markSeen(activity.items.filter((one) => one.module === presence.id && one.state === 'done'))
+                    inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
                   }
                 />
               </div>
