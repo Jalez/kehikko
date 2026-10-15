@@ -219,8 +219,19 @@ export function noticeEntry(
   kehikko?: string,
 ): { entry: Entry; move: Move } {
   const clean = line.message.replace(/\s+/g, ' ').trim()
-  const state: ActivityState = line.level === 'attention' ? 'attention' : 'done'
-  const label = clean.length > LABEL_MAX ? `${clean.slice(0, LABEL_MAX - 1)}…` : clean
+  /* The host's own line for an item (`noticeFor` in `activity.ts`), and the
+     Claude module's before it: 'Finished: \u201clabel\u201d \u2014 place'. The label is
+     what the line is about; the rest is the place, which the entry carries. */
+  const told = /^(Finished|Waiting for you): \u201c(.+?)\u201d(?: \u2014 .*)?$/.exec(clean)
+  const state: ActivityState = told
+    ? told[1] === 'Finished'
+      ? 'done'
+      : 'attention'
+    : line.level === 'attention'
+      ? 'attention'
+      : 'done'
+  const said = told ? told[2]! : clean
+  const label = said.length > LABEL_MAX ? `${said.slice(0, LABEL_MAX - 1)}\u2026` : said
   const place: Place = {
     epic: line.place?.epic ?? line.epic,
     ...(line.place?.parts?.length ? { parts: [...line.place.parts] } : {}),
@@ -234,7 +245,7 @@ export function noticeEntry(
     id,
     state,
     label,
-    ...(clean.length > LABEL_MAX ? { detail: clean.slice(0, DETAIL_MAX) } : {}),
+    ...(said.length > LABEL_MAX ? { detail: said.slice(0, DETAIL_MAX) } : {}),
     place,
     priority: 'normal',
     refs: [...(line.refs ?? [])].slice(0, 16),

@@ -92,7 +92,8 @@ function logLine(row: LogRow, names: Namer, now: number, here?: (place: LogRow['
 
 /** A bounded summary of what is Earlier, for `read_canvas`: counts and the newest few lines. */
 export function earlierLines(inbox: Inbox, db: Database, project: number, take: number, now: number): string[] {
-  const rows = logRows(inbox.all(project), inbox.moves(project))
+  /* A `done` the person has seen is still listed among the activity lines, marked seen. */
+  const rows = logRows(inbox.all(project), inbox.moves(project)).filter((row) => row.kind !== 'seen')
   if (!rows.length) return []
   const names = namerFor(db, project)
   const lines = [

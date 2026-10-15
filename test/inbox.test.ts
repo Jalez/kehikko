@@ -120,6 +120,10 @@ describe('the life of an entry', () => {
     expect(move.state).toBe('attention')
     expect(noticeEntry('m', 'M', { epic: 'e', message: 'x', level: 'info' }, 'n', T0).entry.state).toBe('done')
     expect(noticeEntry('m', 'M', { epic: 'e', message: 'x', level: 'blocked' }, 'n', T0).entry.priority).toBe('normal')
+    /* The host's own derived line, and the Claude module's: the label is what it is about. */
+    const derived = noticeEntry('m', 'M', { epic: 'e', message: 'Finished: \u201cExport finished\u201d \u2014 Discussion \u00b7 writing', level: 'attention' }, 'n', T0).entry
+    expect(derived).toMatchObject({ label: 'Export finished', state: 'done' })
+    expect(noticeEntry('m', 'M', { epic: 'e', message: 'Waiting for you: \u201cPick one\u201d', level: 'done' }, 'n', T0).entry).toMatchObject({ label: 'Pick one', state: 'attention' })
     const long = noticeEntry('m', 'M', { epic: 'e', message: 'y'.repeat(300), level: 'done' }, 'n', T0).entry
     expect(long.label.length).toBe(120)
     expect(long.detail?.length).toBe(300)
