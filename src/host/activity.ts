@@ -27,6 +27,21 @@ import { worstActivity, type ActivityItem, type ActivityState } from 'kehikot-mo
  * Only `done` is ever cleared by being seen. A seen set is
  * `{ '<module>\u0000<id>': entered }`; an item is seen while its key holds
  * its current `entered`.
+ *
+ * ## Notices are derived, not reported
+ *
+ * A module says what it is doing with `activity.set` and nothing else: the
+ * host turns each ENTRY into `attention` or `done` into ONE
+ * `kehikot.notifications@1` line for whoever consumes it, as if the module had
+ * sent it (`deriveNotices`, `noticeFor`). So the dots and the notice log are
+ * two views of one report and cannot disagree. A module still uses
+ * `events.emit` for a line that is not a state ("tracker read failed").
+ *
+ * Rules: none for `working`; none when the item's place is open on screen;
+ * each `(module, id, state, entered)` at most once, remembered per project
+ * across a reload (`Derived`, capped); the first list a module sends after a
+ * page load is a baseline, where only an item whose own `since` is newer than
+ * what was last derived (or than the page load) is told.
  */
 
 export interface HeldItem extends ActivityItem {
@@ -316,4 +331,124 @@ export function rowsFor(items: readonly HeldItem[], seen: Seen, names: Namer): A
     ...(item.detail ? { detail: item.detail } : {}),
     seen: isSeen(seen, item),
   }))
+}
+
+/* ---- notices derived from entries ---- */
+
+/** `{ '<module>\u0000<id>\u0000<state>': entered }` of the last notice derived for it. */
+export type Derived = Readonly<Record<string, number>>
+
+export const derivedKey = (module: string, id: string, state: ActivityState): string =>
+  `${module}\u0000${id}\u0000${state}`
+
+/**
+ * Which items of a module's new list are to be told of, and the derived set
+ * with every entry looked at added.
+ *
+ * `baseline` is true for the first list the module sent since the page loaded;
+ * `loadedAt` is when that was. An item that is on screen is recorded as
+ * derived without being told: the person was looking.
+ */
+export function deriveNotices(
+  items: readonly HeldItem[],
+  derived: Derived,
+  at: Where,
+  baseline: boolean,
+  loadedAt: number,
+): { fire: HeldItem[]; derived: Derived } {
+  const fire: HeldItem[] = []
+  let out: Record<string, number> | null = null
+  for (const item of items) {
+    if (item.state === 'working') continue
+    const key = derivedKey(item.module, item.id, item.state)
+    const last = derived[key]
+    if (baseline) {
+      /* Told only what is newer than what was last told — or, with nothing
+         remembered, newer than this page. No `since`, no news: its `entered`
+         is only when this page first held it. */
+      if (item.since === undefined || item.entered <= (last ?? loadedAt)) continue
+    } else if (last !== undefined && item.entered <= last) continue
+    out ??= { ...derived }
+    out[key] = item.entered
+    if (!placeOpened(item.place, at)) fire.push(item)
+  }
+  return { fire, derived: out ?? derived }
+}
+
+export function boundDerived(derived: Derived): Derived {
+  const entries = Object.entries(derived)
+  if (entries.length <= SEEN_MAX) return derived
+  return Object.fromEntries(entries.sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX))
+}
+
+const DETAIL_MAX = 80
+const MESSAGE_MAX = 400
+
+/**
+ * The line for a derived notice, in the format the Claude module sent for the
+ * same two moments: the state in words, the label in quotes, the place in
+ * words. Null when it cannot be filed — the format files every line under an
+ * epic, and neither the item nor the open canvas names one.
+ */
+export function noticeFor(
+  item: HeldItem,
+  at: Where,
+  names: Namer,
+): {
+  epic: string
+  message: string
+  level: 'attention' | 'done'
+  refs: []
+  place?: { epic: string; parts?: string[]; kehikko?: string }
+} | null {
+  if (item.state === 'working') return null
+  const epic = item.place?.epic ?? at.epic
+  if (!epic) return null
+  const what = item.state === 'done' ? 'Finished' : 'Waiting for you'
+  const where = placeWords(item.place, names)
+  const detail = item.detail?.replace(/\s+/g, ' ').trim()
+  let message = `${what}: \u201c${item.label}\u201d${where ? ` \u2014 ${where}` : ''}`
+  if (detail && detail.length <= DETAIL_MAX) message += `. ${detail}`
+  if (message.length > MESSAGE_MAX) message = `${message.slice(0, MESSAGE_MAX - 1)}\u2026`
+  const place = item.place
+  const parts = place?.parts
+  return {
+    epic,
+    message,
+    level: item.state === 'done' ? 'done' : 'attention',
+    refs: [],
+    ...(place?.epic !== undefined
+      ? {
+          place: {
+            epic: place.epic,
+            ...(parts?.length && parts.length <= 16 ? { parts: [...parts] } : {}),
+            ...(place.kehikko !== undefined ? { kehikko: place.kehikko } : {}),
+          },
+        }
+      : {}),
+  }
+}
+
+const DERIVED_PREFIX = 'kehikot.activity.derived.'
+
+export function readDerived(storage: Pick<Storage, 'getItem'> | null, project: number): Derived {
+  try {
+    const text = storage?.getItem(`${DERIVED_PREFIX}${project}`)
+    if (!text) return {}
+    const value: unknown = JSON.parse(text)
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)),
+    ) as Derived
+  } catch {
+    return {}
+  }
+}
+
+export function writeDerived(storage: Pick<Storage, 'setItem'> | null, project: number, derived: Derived): void {
+  try {
+    storage?.setItem(`${DERIVED_PREFIX}${project}`, JSON.stringify(boundDerived(derived)))
+  } catch {
+    /* Without it a reload may tell a person again; nothing else is lost. */
+  }
 }

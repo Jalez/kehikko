@@ -330,6 +330,20 @@ who changed six characters. `retitleEpic` in `server/holdings.ts` has the
 argument, and `withTitle` beside it has the reason a regular expression will not
 do — `"title"` is also the key on every step in these files.
 
+## A state is reported once, and the notice is the host's
+
+A module says what it is doing with `activity.set` and nothing else. When an
+item **enters** `attention` or `done`, the host sends one
+`kehikot.notifications@1` line to whatever consumes it, as if that module had
+sent it ("Waiting for you: “…” — epic · parts · kehikko", level `attention` or
+`done`, filed under the item's `place`), so the dots and the notice log are one
+report and cannot disagree. No notice for `working`, none for an item whose
+place is open on screen, and each `(module, id, state, since)` once: the
+derived set is kept in the browser, per project (`kehikot.activity.derived.<project>`),
+and the first list a module sends after a page load is a baseline that tells
+only what is newer than what was last told. A line that is not a state
+("tracker read failed") is still `events.emit`. See `src/host/activity.ts`.
+
 ## The filter a module offers and the host draws
 
 Modules kept building the same control. Five of them had a toggle inside their
