@@ -54,6 +54,14 @@
 /** Half a day. See above for why it is this long rather than seconds. */
 export const STALE_MS = 12 * 60 * 60 * 1000
 
+/**
+ * How soon a page reconnects its `/host/watch` stream after it drops, sent to
+ * the browser as the stream's `retry`. A restarted host knows nothing a page
+ * has open until that page's stream comes back, so this is how long the MCP
+ * door can answer that nothing is open after a restart.
+ */
+export const WATCH_RETRY_MS = 1000
+
 /** As many tabs as anybody sanely has open, and a bound on a map keyed by a string from a request. */
 const PAGES_MAX = 32
 

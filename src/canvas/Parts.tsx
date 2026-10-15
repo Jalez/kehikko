@@ -171,7 +171,7 @@ export function Parts({
   const still = typing !== null || none ? STILL : undefined
 
   return (
-    <span className="inline-flex min-w-0 shrink items-center" data-narrowed={said.narrowed ? '' : undefined}>
+    <span className="inline-flex min-w-7 shrink-0 items-center max-[640px]:max-w-32 max-[480px]:max-w-20 max-[400px]:max-w-14" data-narrowed={said.narrowed ? '' : undefined}>
       <DropdownMenu>
         <Hint label={none ? 'this epic has no parts yet — press to add one' : said.hint} align="start">
           <DropdownMenuTrigger asChild>
@@ -188,8 +188,8 @@ export function Parts({
               }
               className={
                 said.narrowed
-                  ? 'h-6 max-w-56 min-w-7 shrink gap-1 rounded-r-none px-1.5 text-xs'
-                  : 'text-muted-foreground h-6 max-w-56 min-w-7 shrink gap-1 px-1.5 text-xs'
+                  ? 'h-6 max-w-56 min-w-7 shrink gap-1 rounded-r-none px-1.5 text-xs max-[480px]:rounded-r-md max-[640px]:has-[>svg]:px-1.5'
+                  : 'text-muted-foreground h-6 max-w-56 min-w-7 shrink gap-1 px-1.5 text-xs max-[640px]:has-[>svg]:px-1.5'
               }
             >
               <Focus className="size-3 shrink-0" />
@@ -201,7 +201,7 @@ export function Parts({
                 const out = worstActivity(parts.filter((p) => !on.includes(p.id)).flatMap((p) => marks.get(p.id) ?? []))
                 return out ? <ActivityDot state={out} what="a part that is not picked" /> : null
               })()}
-              <ChevronDown className="size-3 shrink-0 opacity-70" />
+              <ChevronDown className="size-3 shrink-0 opacity-70 max-[640px]:hidden" />
             </Button>
           </DropdownMenuTrigger>
         </Hint>
@@ -377,7 +377,7 @@ export function Parts({
             variant="default"
             size="sm"
             aria-label="clear the focus and show the whole epic"
-            className="h-6 rounded-l-none border-l border-l-white/25 px-1 text-xs"
+            className="h-6 rounded-l-none border-l border-l-white/25 px-1 text-xs max-[480px]:hidden"
             onClick={() => onPick([])}
           >
             <X className="size-3" />

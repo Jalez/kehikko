@@ -81,7 +81,7 @@ import { toolsAt } from './tools.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
-import { nextConnection, Openness } from './open.ts'
+import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
@@ -2919,7 +2919,11 @@ const server = Bun.serve({
       const connection = nextConnection()
       const stream = new ReadableStream({
         start(controller) {
-          controller.enqueue(encoder.encode(': listening\n\n'))
+          /* `retry` sets how soon the browser reconnects after this stream
+             drops — a restart of this server, above all. Its own default is
+             a few seconds, and a page that waits that long is a page the MCP
+             door says has nothing open for that long. */
+          controller.enqueue(encoder.encode(`: listening\nretry: ${WATCH_RETRY_MS}\n\n`))
           if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
           /* A screen is standing in a project: its `.kehikot/` is watched for
              as long as one is. See `ContentWatch`. */

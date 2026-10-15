@@ -184,14 +184,26 @@ export function Bar({
        of waiting out the delay again, which is what makes a row of icons
        readable in one pass rather than four. */
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
-      <header className="bg-background flex h-8 shrink-0 items-center gap-1 overflow-hidden px-2">
+      {/*
+       * In a narrow window the strip gives up decoration before names, and
+       * names before the picked part. At 640 px and under, the word "Kehikot",
+       * the chevrons and the icons inside the project, epic and kehikko
+       * controls go — each tooltip still says what its control is. At 480 and
+       * under, the mark, the dividers and the part's ✕ go too ("the whole
+       * epic" is the first row of its menu). Then the controls shrink: the
+       * epic's long title first, down to a floor; then the project's and the
+       * kehikko's names; the picked part only to the cap its own control sets.
+       * Each truncates with an ellipsis rather than squeezing to an icon, and
+       * the strip stays thirty-two pixels at every width.
+       */}
+      <header className="bg-background flex h-8 shrink-0 items-center gap-1 overflow-hidden px-2 max-[480px]:gap-0.5 max-[480px]:px-1">
         {/* Whose window this is, before anything it holds. The mark is the same
             one the update panel draws, still. */}
-        <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none">
+        <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none max-[480px]:hidden">
           <KehikkoMark working={false} className="size-4" />
-          <span className="max-[480px]:hidden">Kehikot</span>
+          <span className="max-[640px]:hidden">Kehikot</span>
         </span>
-        <span className="bg-border mx-1 h-4 w-px shrink-0" />
+        <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
 
         {/*
          * The project. Everything else on this strip is inside it, so it comes
@@ -251,7 +263,7 @@ export function Bar({
           marks={activity?.parts}
         />
 
-        <span className="bg-border mx-1 h-4 w-px shrink-0" />
+        <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
 
         <Canvases
           marks={activity?.kehikot}

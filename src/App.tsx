@@ -733,8 +733,12 @@ export function App() {
       /* An agent's `press_item`, handed to this page to make. */
       (order) => orderedRef.current?.(order),
       /* The stream opened, or reopened after the server went away: say again
-         what the modules here have declared. */
-      () => {
+         what the modules here have declared — and, on a reopening, which
+         kehikko this page has open. The stream's own url says it too, but a
+         server that restarted has also forgotten the page's word, and the
+         word is what outlives a stream that drops again. */
+      (again) => {
+        if (again) void reportOpen(openId)
         repostRef.current?.()
         inboxWokeRef.current?.(-1, null)
       },

@@ -213,19 +213,19 @@ export function Epics({
             so never opens its tooltip — which is precisely the moment the
             explanation is worth having. The same trick `Canvases.tsx` uses on
             the delete button, for the same reason. */}
-        <span className="inline-flex min-w-0 shrink">
+        <span className="inline-flex min-w-16 shrink-[20] max-[480px]:min-w-12 max-[400px]:min-w-5">
           <DropdownMenuTrigger asChild disabled={shut}>
             <Button
               variant="ghost"
               size="sm"
               aria-label="the epic this project is on"
               disabled={shut}
-              className="h-6 max-w-72 min-w-7 shrink gap-1 px-1.5 text-xs disabled:pointer-events-none"
+              className="h-6 max-w-72 min-w-6 shrink gap-1 max-[400px]:min-w-5 px-1.5 text-xs disabled:pointer-events-none max-[640px]:has-[>svg]:px-1"
             >
               {epic ? (
-                <Circle className="text-muted-foreground size-3 shrink-0" />
+                <Circle className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
               ) : (
-                <CircleSlash className="text-muted-foreground size-3 shrink-0" />
+                <CircleSlash className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
               )}
               <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
                 {picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
@@ -236,7 +236,7 @@ export function Epics({
                 const other = worstOther(marks, epic)
                 return other ? <ActivityDot state={other} what="another epic" /> : null
               })()}
-              {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
+              {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />}
             </Button>
           </DropdownMenuTrigger>
         </span>
