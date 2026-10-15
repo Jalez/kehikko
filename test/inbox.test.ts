@@ -17,6 +17,7 @@ import {
   fold,
   hereness,
   inScope,
+  scopeFrom,
   isDismissed,
   isLive,
   isSeen,
@@ -342,6 +343,14 @@ describe('the store', () => {
     expect(isDismissed(inbox.open(project).find((e) => e.id === 'a')!)).toBe(false)
     /* a working item is not dismissable */
     expect(inbox.dismiss(project, [{ module: 'm', id: 'nope' }]).changed).toBe(0)
+  })
+
+  test('the panel opens everywhere; only a narrowing to this kehikko is remembered', () => {
+    expect(scopeFrom(null)).toBe('everywhere')
+    expect(scopeFrom(undefined)).toBe('everywhere')
+    expect(scopeFrom('everywhere')).toBe('everywhere')
+    expect(scopeFrom('nonsense')).toBe('everywhere')
+    expect(scopeFrom('here')).toBe('here')
   })
 
   test('forget removes closed entries, composes with scope, and puts a seen done away', () => {

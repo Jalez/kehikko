@@ -287,6 +287,16 @@ export function hereness(place: Place | undefined, at: Pick<Where, 'epic' | 'keh
 
 export type Scope = 'here' | 'everywhere'
 
+/**
+ * The scope the panel opens in. The default is `everywhere`: what is going on in
+ * other kehikot, parts and epics is what the Inbox is for, and "This kehikko"
+ * is one press away. Only a person who narrowed it is remembered (`here`, per
+ * project, in their browser); anything else stored is read as the default.
+ */
+export function scopeFrom(stored: string | null | undefined): Scope {
+  return stored === 'here' ? 'here' : 'everywhere'
+}
+
 /** Whether a scope shows an entry. `here` shows what is here and what cannot be told apart. */
 export function inScope(place: Place | undefined, scope: Scope, at: Pick<Where, 'epic' | 'kehikko'>): boolean {
   return scope === 'everywhere' || hereness(place, at) !== 'elsewhere'

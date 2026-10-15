@@ -33,6 +33,10 @@ import { Hint } from './Hint.tsx'
  * The Inbox: ONE control in the bar and a panel opened on demand. No standing
  * row anywhere. See `host/inbox.ts` for the record and its rules.
  *
+ * The scope toggle opens on **Everywhere** (`scopeFrom`): what happens in other
+ * kehikot, parts and epics is the point. "This kehikko" is one press away and
+ * remembered per project once a person chooses it.
+ *
  * ## What the panel says, top to bottom
  *
  *  - Nothing asking for the person: a sentence ("Nothing needs you.") with

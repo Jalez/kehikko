@@ -72,7 +72,7 @@ import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
-import { nextOf, rowKey, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
+import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
 import { fetchLog } from './host/inboxClient.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
@@ -3025,16 +3025,18 @@ export function App() {
     },
     [inbox, here, revealContainer],
   )
-  /* Which scope the Inbox shows, remembered per project in this browser. */
+  /* Which scope the Inbox shows. The default is everywhere: what is going on in
+     other kehikot, parts and epics is the point, one press from "This kehikko".
+     Only a person who narrowed it is remembered, per project, in this browser. */
   const [inboxScopes, setInboxScopes] = useState<Record<number, Scope>>({})
   const inboxScope: Scope = useMemo(() => {
-    if (projectId === null) return 'here'
+    if (projectId === null) return 'everywhere'
     const chosen = inboxScopes[projectId]
     if (chosen) return chosen
     try {
-      return window.localStorage.getItem(`kehikot.inbox.scope.${projectId}`) === 'everywhere' ? 'everywhere' : 'here'
+      return scopeFrom(window.localStorage.getItem(`kehikot.inbox.scope.${projectId}`))
     } catch {
-      return 'here'
+      return 'everywhere'
     }
   }, [inboxScopes, projectId])
   const setInboxScope = useCallback(
@@ -3044,7 +3046,7 @@ export function App() {
       try {
         window.localStorage.setItem(`kehikot.inbox.scope.${projectId}`, scope)
       } catch {
-        /* Back to this kehikko on the next load; nothing else is lost. */
+        /* Back to everywhere on the next load; nothing else is lost. */
       }
     },
     [projectId],
