@@ -217,7 +217,7 @@ describe('the routes that are the page’s alone', () => {
   const body = { ...JSON_TYPE, 'content-length': '2' }
 
   test('are the restart of a kept module and the two header postings', () => {
-    expect([...PAGE_ONLY].sort()).toEqual(['/host/headers', '/host/pressed', '/host/restart-anyway'])
+    expect([...PAGE_ONLY].sort()).toEqual(['/host/headers', '/host/pressed', '/host/restart-anyway', '/host/trackers'])
   })
 
   test('answer the page: its Origin and JSON', () => {

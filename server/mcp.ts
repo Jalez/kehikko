@@ -8,6 +8,8 @@ import { setDisposition } from './dispositions.ts'
 import { createEpic, editParts, readParts } from './holdings.ts'
 import { keep } from './kehikot.ts'
 import { projectById } from './projects.ts'
+import { listingText, rolesOf, sourceName } from '../src/host/trackerSources.ts'
+import type { Edit } from './trackers/edit.ts'
 import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
 import type { FoldNote } from './wake.ts'
@@ -255,6 +257,7 @@ export const TOOL_NAMES = [
   'set_parts',
   'mark_disposition',
   'read_tracker',
+  'set_tracker_source',
   'module_versions',
   'pin_version',
   'fold_modules',
@@ -878,6 +881,45 @@ function tools() {
       },
     },
     {
+      name: 'set_tracker_source',
+      description:
+        'Change which repositories the project’s trackers read — one edit per call. The sources are where '
+        + 'references like gh#41 or !7 are looked up, and every module that shows issues or changes reads from '
+        + 'them (read_tracker lists them and what each is for). action "add" takes a repository link '
+        + '(https://github.com/owner/repo, git@host:group/proj.git) or owner/repo with tracker (and host for a '
+        + 'self-hosted GitLab); "default" makes a source the one short spellings mean for its tracker (value: '
+        + 'false does not leave a tracker without one); "list" sets whether its recent issues and changes are '
+        + 'listed; "off" stops reading a repository a git remote names (value: false turns it back on); "remove" '
+        + 'takes out a source somebody added. A source named by a git remote cannot be removed, only turned off. '
+        + 'This cannot log anybody in: if gh or glab is not logged in, the person must run its auth login in a '
+        + 'terminal once. Writes .kehikot/kehikko/trackers.json in the project; every container is told.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          action: { type: 'string', enum: ['add', 'remove', 'default', 'list', 'off'] },
+          source: {
+            type: 'string',
+            description: 'For add: a repository link or owner/repo. For the rest: a source as read_tracker names it (owner/repo or host/group/project).',
+          },
+          tracker: { type: 'string', enum: ['github', 'gitlab'], description: 'For add of owner/repo, or a link on a host that does not say.' },
+          host: { type: 'string', description: 'For add of owner/repo on a self-hosted GitLab.' },
+          value: { type: 'boolean', description: 'For default, list and off: on (default true) or off. For add: whether to make it the default.' },
+        },
+        required: ['action', 'source'],
+      },
+      annotations: {
+        title: 'Change the tracker sources',
+        /* It writes the project's trackers.json. */
+        readOnlyHint: false,
+        /* Only `remove` takes anything out, and a hint cannot vary by argument; it is the one that can lose a person's choice. */
+        destructiveHint: true,
+        /* Setting a flag twice is the same file; adding twice is one source. */
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    {
       name: 'module_versions',
       description:
         'The versions a module on a kehikko can run: "latest" — the module’s own checkout, which is what every '
@@ -1070,6 +1112,7 @@ export async function call(
   if (name === 'set_parts') return setPartsAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
+  if (name === 'set_tracker_source') return setTrackerSourceAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
   if (name === 'fold_modules') return foldOn(canvas, where.how, args, door)
   if (name === 'module_versions' || name === 'pin_version') {
@@ -1655,13 +1698,82 @@ async function readTrackerAt(
     .map((s) => `${s.tracker} ${s.host}/${s.repo}${s.default ? ' (default)' : ''}: ${s.error ? `FAILED — ${s.error}` : s.at ? `read ${s.at}` : 'never read'}`)
     .join('\n')
   const shown = reading.rows.slice(0, 300)
+  const listing = door.trackers.describe ? await door.trackers.describe(project.path) : null
   return {
     text:
-      `${refreshed}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
+      `${refreshed}${listing ? `${listingText(listing, Date.now())}\n\n` : ''}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
       + `${reading.refreshing ? ' (a read is running now)' : ''}.\n${sources || 'No sources.'}\n\n`
       + (shown.length ? shown.map(line).join('\n') : 'No rows.')
       + (reading.rows.length > shown.length ? `\n…and ${reading.rows.length - shown.length} more.` : '')
       + (reading.missing.length ? `\n\nNot in the reading: ${reading.missing.map((m) => `${m.ref} (${m.reason})`).join(', ')}.` : ''),
+    failed: false,
+  }
+}
+
+/**
+ * `set_tracker_source`: one edit of the project's tracker sources, through the
+ * same writer the page's panel uses, refused in the same sentences. It cannot
+ * log in to `gh` or `glab`, and says so where that is what is missing.
+ */
+async function setTrackerSourceAt(
+  canvas: Canvas,
+  args: Record<string, unknown>,
+  door: Door,
+): Promise<{ text: string; failed: boolean }> {
+  const trackers = door.trackers
+  if (!trackers?.edit || !trackers.describe) return { text: 'This host has no tracker sources to change.', failed: true }
+  const project = canvas.project === null ? null : projectById(door.db, canvas.project)
+  if (!project) return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so there are no tracker sources to change.`, failed: true }
+  const action = args.action
+  const source = typeof args.source === 'string' && args.source.length <= 600 ? args.source.trim() : ''
+  if (action !== 'add' && action !== 'remove' && action !== 'default' && action !== 'list' && action !== 'off') {
+    return { text: 'set_tracker_source needs action: add, remove, default, list or off.', failed: true }
+  }
+  if (!source) return { text: 'set_tracker_source needs source: a repository link or owner/repo.', failed: true }
+  const tracker = args.tracker === 'github' || args.tracker === 'gitlab' ? args.tracker : undefined
+  const host = typeof args.host === 'string' && args.host.length <= 253 ? args.host : undefined
+  const value = typeof args.value === 'boolean' ? args.value : undefined
+
+  let edit: Edit
+  if (action === 'add') {
+    edit = { kind: 'add', input: source, ...(tracker ? { tracker } : {}), ...(host ? { host } : {}), ...(value ? { default: true } : {}) }
+  } else {
+    const now = await trackers.describe(project.path)
+    if (now.broken) return { text: `${now.broken.file} will not read (${now.broken.why}); the person can start it fresh from the trackers panel. Nothing was changed.`, failed: true }
+    const wanted = source.toLowerCase()
+    const found = now.sources.filter((s) => {
+      const name = sourceName(s).toLowerCase()
+      return name === wanted || s.repo.toLowerCase() === wanted || `${s.host}/${s.repo}`.toLowerCase() === wanted
+    })
+    if (found.length !== 1) {
+      return {
+        text:
+          `${found.length ? 'More than one source answers to that' : `No source is called "${source}"`}. The sources are: `
+          + `${now.sources.map((s) => `${s.tracker} ${s.host}/${s.repo}`).join(', ') || 'none'}. Nothing was changed.`,
+        failed: true,
+      }
+    }
+    const one = found[0]!
+    const key = { tracker: one.tracker, host: one.host, repo: one.repo }
+    edit =
+      action === 'remove'
+        ? { kind: 'remove', ...key }
+        : action === 'default'
+          ? { kind: 'set', ...key, default: value ?? true }
+          : action === 'list'
+            ? { kind: 'set', ...key, list: value ?? true }
+            : { kind: 'set', ...key, off: value ?? true }
+  }
+  const done = await trackers.edit(project.path, edit)
+  if (done.outcome === 'declined') return { text: `${done.why} Nothing was changed.`, failed: true }
+  const roles = done.listing.sources
+    .map((s) => `- ${s.tracker} ${sourceName(s)}: ${rolesOf(s).join('; ')}.`)
+    .join('\n')
+  return {
+    text:
+      `${done.outcome === 'unchanged' ? done.said || done.why : done.said} The sources now:\n${roles || 'none'}\n`
+      + 'The host is reading them again; read_tracker has what came of it. This tool cannot log in to gh or glab: '
+      + 'if a source fails as not logged in, the person has to run its auth login in a terminal once.',
     failed: false,
   }
 }

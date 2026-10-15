@@ -10,6 +10,7 @@ import {
   type TrackerSource,
 } from 'kehikot-module-protocol'
 import { partSchema, type PartsEdit } from './parts.ts'
+import { trackerEditedSchema, trackerListingSchema, type TrackerEdit, type TrackerEdited, type TrackerListing } from './trackerSources.ts'
 import { z } from 'zod'
 
 /**
@@ -193,18 +194,38 @@ export interface TrackerState {
   at: string | null
   refreshing: boolean
   sources: TrackerSource[]
+  /** Which project this is, for the panel's edits. Absent until the first read of it. */
+  project?: number
+  /** The sources as a person is told them (`trackerSources.ts`). Absent from a host that does not say. */
+  listing?: TrackerListing
 }
 
 export async function fetchTracker(project: number, signal?: AbortSignal): Promise<TrackerState> {
   const response = await fetch(`/host/tracker?project=${project}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(await reason(response))
-  return z
+  const read = z
     .object({
       at: z.string().datetime({ offset: true }).nullable(),
       refreshing: z.boolean(),
       sources: z.array(trackerSourceSchema).max(LIMITS.TRACKER_SOURCES),
+      listing: trackerListingSchema.optional(),
     })
     .parse(await response.json())
+  return { ...read, project }
+}
+
+/**
+ * One edit of the project's tracker sources, or a "Check" of one before it is
+ * added. Answered with a sentence, and the sources as they now stand.
+ */
+export async function editTrackers(project: number, edit: TrackerEdit): Promise<TrackerEdited> {
+  const response = await fetch('/host/trackers', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, edit }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return trackerEditedSchema.parse(await response.json())
 }
 
 /** "Refresh all": read every source of the project again. Answers when the read lands. */
