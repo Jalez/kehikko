@@ -247,6 +247,22 @@ export function placeWords(place: Place | undefined, names: Namer): string {
   return out.join(' · ')
 }
 
+/**
+ * The place in two lines for the menu: `here` is the specific part (picked
+ * parts · kehikko), which tells two rows apart, and `epic` is the long title
+ * that may be cut. `placeWords` is these two joined, the other way round.
+ */
+export function placeSplit(place: Place | undefined, names: Namer): { epic: string; here: string } {
+  if (!place) return { epic: '', here: '' }
+  const here: string[] = []
+  if (place.parts?.length) here.push(place.parts.map((id) => names.part(place.epic ?? null, id) ?? id).join(', '))
+  if (place.kehikko !== undefined) here.push(names.kehikko(place.kehikko) ?? place.kehikko)
+  return {
+    epic: place.epic !== undefined ? (names.epic(place.epic) ?? place.epic) : '',
+    here: here.join(' · '),
+  }
+}
+
 /** A title for a mark: the state's words, and the label when there is one. */
 export const markWords = (state: ActivityState, what?: string): string =>
   what ? `${what} — ${ACTIVITY_WORDS[state]}` : ACTIVITY_WORDS[state]

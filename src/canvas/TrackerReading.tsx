@@ -51,7 +51,8 @@ export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; 
             className={`h-6 gap-1 px-1.5 text-[11px] font-normal ${failed.length ? 'text-destructive' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <RefreshCw className={`size-3 ${tracker.refreshing ? 'animate-spin' : ''}`} />
-            <span>{label}</span>
+            {/* Words go from sight, not from the control, under 640px: the bar must not outgrow the window. */}
+            <span className="max-[640px]:sr-only">{label}</span>
           </Button>
         </PopoverTrigger>
       </Hint>

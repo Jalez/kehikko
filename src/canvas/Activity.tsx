@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ActivityState } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -62,7 +63,10 @@ export interface MenuRow {
   item: HeldItem
   seen: boolean
   module: string
-  place: string
+  /** The long part of the place (the epic's title); the one that is cut when the row is narrow. */
+  epic: string
+  /** The specific part: picked parts · kehikko. Drawn first, so that two rows of one label differ. */
+  here: string
 }
 
 /**
@@ -76,6 +80,10 @@ export function ActivityMenu({
   rows: readonly MenuRow[]
   onPress(item: HeldItem): void
 }) {
+  /* Open is held here so that pressing the last unseen item — which sees it —
+     does not take the control (and the menu with it) away from under the
+     finger: it goes once the menu closes. */
+  const [open, setOpen] = useState(false)
   if (rows.length === 0) return null
   const live = rows.filter((row) => !row.seen).map((row) => row.item)
   const first = ordered(live)[0]
@@ -87,6 +95,8 @@ export function ActivityMenu({
     working ? `${working} ${ACTIVITY_WORDS.working}` : null,
     done ? `${done} ${ACTIVITY_WORDS.done}` : null,
   ].filter(Boolean)
+  /* Seen-only is no control at all: nothing is asking for the person. */
+  if (!open && live.length === 0) return null
   const label = said.length ? `activity — ${said.join(', ')}` : 'activity — nothing new'
   const byItem = new Map(rows.map((row) => [row.item, row]))
   const sorted = [...ordered(live), ...ordered(rows.filter((row) => row.seen).map((row) => row.item))].map(
@@ -94,7 +104,7 @@ export function ActivityMenu({
   )
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <Hint label={label} align="end">
         <DropdownMenuTrigger asChild>
           <Button
@@ -141,8 +151,11 @@ export function ActivityMenu({
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-xs">{row.item.label}</span>
-              <span className="text-muted-foreground truncate text-[11px]">
-                {[row.module, row.place].filter(Boolean).join(' · ')}
+              {/* The specific part first and whole; the long epic title, last, is
+                  what gives way. Two rows of one label differ on this line. */}
+              {row.here ? <span className="text-muted-foreground truncate text-[11px]">{row.here}</span> : null}
+              <span className="text-muted-foreground/80 truncate text-[11px]">
+                {[row.module, row.epic].filter(Boolean).join(' · ')}
               </span>
             </span>
           </DropdownMenuItem>

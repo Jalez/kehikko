@@ -63,7 +63,7 @@ export function Canvases({
             variant="ghost"
             size="sm"
             aria-label="switch kehikko"
-            className="text-foreground h-6 max-w-52 shrink-0 gap-1 px-1.5 text-xs font-medium"
+            className="text-foreground h-6 max-w-52 min-w-7 shrink gap-1 px-1.5 text-xs font-medium"
           >
             <LayoutGrid className="text-muted-foreground size-3 shrink-0" />
             <span className="min-w-0 truncate">{open?.name ?? 'no kehikko'}</span>
