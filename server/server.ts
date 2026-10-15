@@ -2228,7 +2228,7 @@ const server = Bun.serve({
         const found = await trackers.check({ tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
         return json(
           found.ok
-            ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issues, ${found.changes}${found.capped ? '+' : ''} changes found.`, issues: found.issues, changes: found.changes, source: spelled }
+            ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issue${found.issues === 1 && !found.capped ? '' : 's'}, ${found.changes}${found.capped ? '+' : ''} change${found.changes === 1 && !found.capped ? '' : 's'} found.`, issues: found.issues, changes: found.changes, source: spelled }
             : { outcome: 'failed', why: found.why, said: '', source: spelled },
         )
       }

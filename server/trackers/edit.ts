@@ -308,7 +308,7 @@ export function startFresh(root: string | null | undefined): Edited {
   } catch (error) {
     return { outcome: 'declined', why: `The file could not be set aside: ${(error as Error).message}`, said: '' }
   }
-  return { outcome: 'changed', why: '', said: `The old file is kept as ${aside}. This project reads its git remotes again.` }
+  return { outcome: 'changed', why: '', said: `The old file is kept beside it as ${aside.split('/').pop()}. This project starts fresh and reads its git remotes.` }
 }
 
 export { EVERY_DEFAULT, TRACKERS }
