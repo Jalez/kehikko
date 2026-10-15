@@ -77,7 +77,7 @@ describe('the door says what it is and what it offers', () => {
     expect(result.capabilities).toEqual({ tools: {} })
   })
 
-  test('eleven tools and no more', async () => {
+  test('twelve tools and no more', async () => {
     const reply = await mcp({ id: 2, method: 'tools/list' }, door(), { name: 'kehikko', version: '0.1.0' })
     const tools = (reply.body as { result: { tools: { name: string }[] } }).result.tools
     /* The surface is still narrow on purpose, and the line has moved once:
@@ -93,7 +93,9 @@ describe('the door says what it is and what it offers', () => {
        reaches into a module: pressing a header item the module itself marked
        for agents — see `test/press-item.test.ts`. And one edits the list of
        an epic's parts, through the writer the person's own picker uses —
-       see `test/parts-of-the-epic.test.ts`. */
+       see `test/parts-of-the-epic.test.ts`. And one reads the host's Inbox —
+       what needs the person, and what happened while they were away — and
+       marks nothing: seeing and dismissing are the person's. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
       'fold_modules',
@@ -103,6 +105,7 @@ describe('the door says what it is and what it offers', () => {
       'place_modules',
       'press_item',
       'read_canvas',
+      'read_inbox',
       'read_tracker',
       'select_modules',
       'set_parts',

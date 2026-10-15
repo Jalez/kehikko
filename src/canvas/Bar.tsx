@@ -12,8 +12,7 @@ import type { RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
-import type { HeldItem } from '@/host/activity.ts'
-import { ActivityMenu, type MenuRow } from './Activity.tsx'
+import { InboxControl, type InboxView } from './Inbox.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
@@ -66,8 +65,12 @@ export interface BarActivity {
   epics: ReadonlyMap<string, ActivityState>
   parts: ReadonlyMap<string, ActivityState>
   kehikot: ReadonlyMap<string, ActivityState>
-  rows: readonly MenuRow[]
-  onPress(item: HeldItem): void
+  /** How many things need the person on each kehikko (by key): a number beside its dot in the switcher. */
+  kehikotCounts: ReadonlyMap<string, number>
+  /** The Inbox control and its panel, or null while nothing is held and nothing is earlier. */
+  inbox: InboxView | null
+  /** The worst live state, for the control's dot. */
+  worst: ActivityState | null
 }
 
 export function Bar({
@@ -252,6 +255,7 @@ export function Bar({
 
         <Canvases
           marks={activity?.kehikot}
+          counts={activity?.kehikotCounts}
           canvases={canvases}
           open={open}
           onOpen={onOpen}
@@ -264,10 +268,10 @@ export function Bar({
 
         <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
 
-        {/* What the modules are doing: one small control with the worst dot
-            and how many need you, drawn only while something is held. The one
-            list lives in its menu. See `Activity.tsx`. */}
-        {activity ? <ActivityMenu rows={activity.rows} onPress={activity.onPress} /> : null}
+        {/* The Inbox: one small control with the worst dot and how many need
+            you, drawn only while something is held or earlier. The one list
+            lives in its panel. See `Inbox.tsx`. */}
+        {activity?.inbox ? <InboxControl view={activity.inbox} worst={activity.worst} /> : null}
 
         {/* The project's shared tracker reading: its age, and "Refresh all". */}
         {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} /> : null}

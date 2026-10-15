@@ -95,7 +95,9 @@ function files(dir: string): string[] {
 /** Everything a request here could have changed, read by a program. */
 async function state(): Promise<string> {
   const canvases = await send('GET', '/host/canvases', undefined, {})
+  const inbox = await send('GET', `/host/inbox?project=${canvases.body.projects[0].id}`, undefined, {})
   return JSON.stringify({
+    inbox: inbox.body,
     projects: canvases.body.projects,
     canvases: canvases.body.canvases,
     subjects: canvases.body.subjects,
@@ -199,6 +201,10 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/open', body: { page: 'somebody', kehikko } },
       { method: 'POST', path: '/host/headers', body: { page: 'somebody', kehikko, headers: {} } },
       { method: 'POST', path: '/host/pressed', body: { page: 'somebody', id: 'nothing', ok: true, why: '' } },
+      { method: 'POST', path: '/host/inbox/report', body: { project, module: 'kehikot.nothing', name: 'Nothing', items: [{ id: 'a', state: 'attention', label: 'Unwanted' }] } },
+      { method: 'POST', path: '/host/inbox/notice', body: { project, module: 'kehikot.nothing', name: 'Nothing', line: { epic: 'one', message: 'Unwanted', level: 'done' } } },
+      { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
+      { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },
@@ -272,6 +278,19 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/headers', { page: 'somebody', kehikko, headers: {} })).body.ok).toBe(true)
     /* No press is waiting on that id, which is the route's own answer. */
     await pressed('POST', '/host/pressed', { page: 'somebody', id: 'nothing', ok: true, why: '' })
+    /* The inbox: a list is kept, a line is kept, and a person's act is the page's alone. */
+    const reported = await pressed('POST', '/host/inbox/report', {
+      project,
+      module: 'kehikot.nothing',
+      name: 'Nothing',
+      items: [{ id: 'a', state: 'attention', label: 'Wants an answer', priority: 'urgent', group: 'g', refs: ['gh#1'] }],
+    })
+    expect(reported.body).toMatchObject({ ok: true, open: [{ id: 'a', priority: 'urgent', group: 'g', refs: ['gh#1'] }] })
+    expect((await pressed('POST', '/host/inbox/report', { project, module: 'kehikot.nothing', items: [{ id: 'a' }] })).status).toBe(400)
+    expect((await pressed('POST', '/host/inbox/notice', { project, module: 'kehikot.nothing', name: 'Nothing', line: { epic: 'one', message: 'Said once', level: 'done' } })).body.ok).toBe(true)
+    expect((await pressed('POST', '/host/inbox/act', { project, do: 'dismiss', keys: [{ module: 'kehikot.nothing', id: 'a' }] })).body.changed).toBe(1)
+    expect((await pressed('POST', '/host/inbox/migrate', { project, seen: {}, told: {} })).body.ok).toBe(true)
+    expect((await send('GET', `/host/inbox/log?project=${project}&scope=everywhere`, undefined, {})).body.rows).toHaveLength(1)
     expect((await pressed('POST', '/host/feedback', {})).status).toBe(400)
     expect((await pressed('POST', '/host/official/install', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)
     expect((await pressed('POST', '/host/official/propose', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)

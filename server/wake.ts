@@ -98,6 +98,10 @@ export type News =
   | { registry: true }
   | { epics: number }
   | { dispositions: number }
+  /* The inbox of a project: what its modules said they are doing, or what a
+     person did with it, is not what a page last read. Carries the project and
+     nothing else; the page re-reads `/host/inbox`. */
+  | { inbox: number }
   /* The fifth kind: a project's tracker reading started or landed. Carries
      the signal itself — `context.tracker` is two small facts, and making every
      page fetch them back would be a round trip per page per read. */
@@ -286,6 +290,14 @@ export class Wakes {
    */
   dispositionsChanged(project: number): void {
     this.#tell({ dispositions: project })
+  }
+
+  /**
+   * Say that a project's inbox changed: a module's list was taken, a line was
+   * kept, or a person saw, dismissed or forgot something. See `server/inbox.ts`.
+   */
+  inboxChanged(project: number): void {
+    this.#tell({ inbox: project })
   }
 
   /**

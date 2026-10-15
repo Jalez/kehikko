@@ -313,6 +313,7 @@ describe('the host’s server, running', () => {
         'place_modules',
         'press_item',
         'read_canvas',
+        'read_inbox',
         'read_tracker',
         'select_modules',
         'set_parts',

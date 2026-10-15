@@ -216,8 +216,16 @@ describe('the door at /mcp', () => {
 describe('the routes that are the page’s alone', () => {
   const body = { ...JSON_TYPE, 'content-length': '2' }
 
-  test('are the restart of a kept module and the two header postings', () => {
-    expect([...PAGE_ONLY].sort()).toEqual(['/host/headers', '/host/pressed', '/host/restart-anyway'])
+  test('are the restart of a kept module, the two header postings and the four inbox writes', () => {
+    expect([...PAGE_ONLY].sort()).toEqual([
+      '/host/headers',
+      '/host/inbox/act',
+      '/host/inbox/migrate',
+      '/host/inbox/notice',
+      '/host/inbox/report',
+      '/host/pressed',
+      '/host/restart-anyway',
+    ])
   })
 
   test('answer the page: its Origin and JSON', () => {

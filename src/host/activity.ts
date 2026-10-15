@@ -1,59 +1,32 @@
 import { worstActivity, type ActivityItem, type ActivityState } from 'kehikot-module-protocol'
 
 /**
- * What the modules say they are doing (protocol 1.5.0, `activity.set`), held
- * and marked.
+ * What the modules say they are doing (protocol 1.5.0, `activity.set`): the
+ * words, the marks and the places. The record itself — the lists, their life,
+ * seen and dismissed — is the Inbox (`host/inbox.ts`, kept by `server/inbox.ts`);
+ * what is here is what draws a mark from it.
  *
- * Pure, and importable from both halves like `parts.ts`: the page holds the
- * lists and draws; nothing here names a module.
+ * Pure, and importable from both halves like `parts.ts`; nothing here names a
+ * module.
  *
- * ## What is held
+ * ## Marks
  *
- * Each module's LAST list, whole, per project (`Held`). A new list replaces the
- * old one; `[]` removes the module. The list goes when the module stops
- * answering or its container is gone (`dropped`): items are never kept as
- * "done" on behalf of a module that cannot say any more, so a module whose
- * server died does not leave `working` marks standing for ever.
+ * A container's mark is the worst state among the module's LIVE items
+ * (`attention` over `working` over `done`; a `done` that was seen, and an item
+ * that was put away, are not live). An item's place marks the epic it names,
+ * the parts it names, and the kehikko it names.
  *
- * ## `entered`
+ * ## What came before the Inbox
  *
- * The moment an item entered its state: its own `since`, or — for a module
- * that sends none — the moment this host first held it in that state. It is
- * what "seen" is remembered against, so an item that comes back to `done`
- * later is unseen again.
- *
- * ## Seen
- *
- * Only `done` is ever cleared by being seen. A seen set is
- * `{ '<module>\u0000<id>': entered }`; an item is seen while its key holds
- * its current `entered`.
- *
- * ## Notices are derived, not reported
- *
- * A module says what it is doing with `activity.set` and nothing else: the
- * host turns each ENTRY into `attention` or `done` into ONE
- * `kehikot.notifications@1` line for whoever consumes it, as if the module had
- * sent it (`deriveNotices`, `noticeFor`). So the dots and the notice log are
- * two views of one report and cannot disagree. A module still uses
- * `events.emit` for a line that is not a state ("tracker read failed").
- *
- * Rules: none for `working`; none when the item's place is open on screen;
- * each `(module, id, state, entered)` at most once, remembered per project
- * across a reload (`Derived`, capped); the first list a module sends after a
- * page load is a baseline, where only an item whose own `since` is newer than
- * what was last derived (or than the page load) is told.
+ * The seen set and the set of notices already told were kept in this
+ * browser's storage. They are read once (`readSeen`, `readDerived`) and handed
+ * to the server, which holds them from then on; the keys are then removed.
  */
 
 export interface HeldItem extends ActivityItem {
   module: string
   entered: number
 }
-
-/** One project's lists, by module id. */
-export type Lists = Readonly<Record<string, readonly HeldItem[]>>
-/** Every project's, by project id. */
-export type Held = Readonly<Record<number, Lists>>
-export type Seen = Readonly<Record<string, number>>
 
 /** The words each state carries, for the tooltip and assistive technology. Never colour alone. */
 export const ACTIVITY_WORDS: Record<ActivityState, string> = {
@@ -63,84 +36,6 @@ export const ACTIVITY_WORDS: Record<ActivityState, string> = {
 }
 
 const RANK: Record<ActivityState, number> = { attention: 3, working: 2, done: 1 }
-
-export const NO_LISTS: Lists = Object.freeze({})
-
-const same = (a: readonly HeldItem[], b: readonly HeldItem[]): boolean =>
-  a.length === b.length &&
-  a.every((one, i) => {
-    const two = b[i]!
-    return (
-      one.id === two.id &&
-      one.state === two.state &&
-      one.label === two.label &&
-      one.detail === two.detail &&
-      one.entered === two.entered &&
-      JSON.stringify(one.place ?? null) === JSON.stringify(two.place ?? null)
-    )
-  })
-
-/** A module's whole list, replacing its last one in a project. The same object back when nothing changed. */
-export function replaced(
-  was: Held,
-  project: number,
-  module: string,
-  items: readonly ActivityItem[],
-  now: number,
-): Held {
-  const lists = was[project] ?? NO_LISTS
-  const before = lists[module] ?? []
-  const known = new Map(before.map((one) => [one.id, one]))
-  const next: HeldItem[] = items.map((item) => {
-    const kept = known.get(item.id)
-    const entered = item.since ?? (kept && kept.state === item.state ? kept.entered : now)
-    return { ...item, module, entered }
-  })
-  if (same(before, next)) return was
-  const { [module]: _gone, ...rest } = lists
-  const changed: Lists = next.length ? { ...rest, [module]: next } : rest
-  const { [project]: _p, ...others } = was
-  return Object.keys(changed).length ? { ...others, [project]: changed } : others
-}
-
-/** Every list of a module that is not alive any more, across projects. The same object when none was. */
-export function dropped(was: Held, alive: (module: string) => boolean): Held {
-  let out: Record<number, Lists> | null = null
-  for (const [project, lists] of Object.entries(was)) {
-    const kept = Object.fromEntries(Object.entries(lists).filter(([module]) => alive(module)))
-    if (Object.keys(kept).length === Object.keys(lists).length) continue
-    out ??= { ...was }
-    if (Object.keys(kept).length) out[Number(project)] = kept
-    else delete out[Number(project)]
-  }
-  return out ?? was
-}
-
-export const seenKey = (module: string, id: string): string => `${module}\u0000${id}`
-
-/** Whether the person has been told of this `done` item already. Only `done` is ever seen. */
-export const isSeen = (seen: Seen, item: HeldItem): boolean =>
-  item.state === 'done' && seen[seenKey(item.module, item.id)] === item.entered
-
-/** The seen set with these items added. The same object when none is new. */
-export function sawItems(seen: Seen, items: readonly HeldItem[]): Seen {
-  let out: Record<string, number> | null = null
-  for (const item of items) {
-    if (item.state !== 'done' || isSeen(seen, item)) continue
-    out ??= { ...seen }
-    out[seenKey(item.module, item.id)] = item.entered
-  }
-  return out ?? seen
-}
-
-/** How many remembered entries are kept; the oldest go first. */
-const SEEN_MAX = 400
-
-export function boundSeen(seen: Seen): Seen {
-  const entries = Object.entries(seen)
-  if (entries.length <= SEEN_MAX) return seen
-  return Object.fromEntries(entries.sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX))
-}
 
 /** Where the person is: the open epic, the picked parts (none is the whole epic) and the open kehikko's key. */
 export interface Where {
@@ -161,15 +56,6 @@ export function placeOpened(place: Place | undefined, at: Where): boolean {
   if (place.kehikko !== undefined && place.kehikko !== at.kehikko) return false
   return true
 }
-
-/** The `done` items whose place the person has just arrived at. */
-export function visited(items: readonly HeldItem[], seen: Seen, at: Where): HeldItem[] {
-  return items.filter((item) => item.state === 'done' && !isSeen(seen, item) && placeOpened(item.place, at))
-}
-
-/** What still counts: everything but a `done` that was seen. */
-export const counted = (items: readonly HeldItem[], seen: Seen): HeldItem[] =>
-  items.filter((item) => !isSeen(seen, item))
 
 const worst = (items: Iterable<HeldItem>): ActivityState | null => worstActivity([...items].map((one) => one.state))
 
@@ -282,29 +168,51 @@ export function placeSplit(place: Place | undefined, names: Namer): { epic: stri
 export const markWords = (state: ActivityState, what?: string): string =>
   what ? `${what} — ${ACTIVITY_WORDS[state]}` : ACTIVITY_WORDS[state]
 
-/* ---- remembered across a reload, per browser, per project ---- */
+/* ---- what this browser kept before the Inbox held it ---- */
+
+/** `{ '<module>\u0000<id>': entered }` of the `done` items a person was told of. */
+export type Seen = Readonly<Record<string, number>>
+/** `{ '<module>\u0000<id>\u0000<state>': entered }` of the last notice told for it. */
+export type Derived = Readonly<Record<string, number>>
 
 const SEEN_PREFIX = 'kehikot.activity.seen.'
+const DERIVED_PREFIX = 'kehikot.activity.derived.'
 
-export function readSeen(storage: Pick<Storage, 'getItem'> | null, project: number): Seen {
+function numbers(text: string | null | undefined): Record<string, number> {
   try {
-    const text = storage?.getItem(`${SEEN_PREFIX}${project}`)
     if (!text) return {}
     const value: unknown = JSON.parse(text)
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)),
-    ) as Seen
+    ) as Record<string, number>
   } catch {
     return {}
   }
 }
 
-export function writeSeen(storage: Pick<Storage, 'setItem'> | null, project: number, seen: Seen): void {
+/** The two sets this browser kept for a project, or null when it kept neither. */
+export function storedFor(
+  storage: Pick<Storage, 'getItem'> | null,
+  project: number,
+): { seen: Seen; told: Derived } | null {
   try {
-    storage?.setItem(`${SEEN_PREFIX}${project}`, JSON.stringify(boundSeen(seen)))
+    const seen = storage?.getItem(`${SEEN_PREFIX}${project}`)
+    const told = storage?.getItem(`${DERIVED_PREFIX}${project}`)
+    if (seen == null && told == null) return null
+    return { seen: numbers(seen), told: numbers(told) }
   } catch {
-    /* A browser that will not keep it shows a green dot again after a reload; nothing else is lost. */
+    return null
+  }
+}
+
+/** Take the keys away, once the server holds what they said. */
+export function clearStored(storage: Pick<Storage, 'removeItem'> | null, project: number): void {
+  try {
+    storage?.removeItem(`${SEEN_PREFIX}${project}`)
+    storage?.removeItem(`${DERIVED_PREFIX}${project}`)
+  } catch {
+    /* A browser that will not remove it asks the server again next load; the server takes it once. */
   }
 }
 
@@ -319,66 +227,10 @@ export interface ActivityRow {
   place: string
   detail?: string
   seen: boolean
-}
-
-export function rowsFor(items: readonly HeldItem[], seen: Seen, names: Namer): ActivityRow[] {
-  return ordered(items).map((item) => ({
-    module: item.module,
-    id: item.id,
-    state: item.state,
-    label: item.label,
-    place: placeWords(item.place, names),
-    ...(item.detail ? { detail: item.detail } : {}),
-    seen: isSeen(seen, item),
-  }))
-}
-
-/* ---- notices derived from entries ---- */
-
-/** `{ '<module>\u0000<id>\u0000<state>': entered }` of the last notice derived for it. */
-export type Derived = Readonly<Record<string, number>>
-
-export const derivedKey = (module: string, id: string, state: ActivityState): string =>
-  `${module}\u0000${id}\u0000${state}`
-
-/**
- * Which items of a module's new list are to be told of, and the derived set
- * with every entry looked at added.
- *
- * `baseline` is true for the first list the module sent since the page loaded;
- * `loadedAt` is when that was. An item that is on screen is recorded as
- * derived without being told: the person was looking.
- */
-export function deriveNotices(
-  items: readonly HeldItem[],
-  derived: Derived,
-  at: Where,
-  baseline: boolean,
-  loadedAt: number,
-): { fire: HeldItem[]; derived: Derived } {
-  const fire: HeldItem[] = []
-  let out: Record<string, number> | null = null
-  for (const item of items) {
-    if (item.state === 'working') continue
-    const key = derivedKey(item.module, item.id, item.state)
-    const last = derived[key]
-    if (baseline) {
-      /* Told only what is newer than what was last told — or, with nothing
-         remembered, newer than this page. No `since`, no news: its `entered`
-         is only when this page first held it. */
-      if (item.since === undefined || item.entered <= (last ?? loadedAt)) continue
-    } else if (last !== undefined && item.entered <= last) continue
-    out ??= { ...derived }
-    out[key] = item.entered
-    if (!placeOpened(item.place, at)) fire.push(item)
-  }
-  return { fire, derived: out ?? derived }
-}
-
-export function boundDerived(derived: Derived): Derived {
-  const entries = Object.entries(derived)
-  if (entries.length <= SEEN_MAX) return derived
-  return Object.fromEntries(entries.sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX))
+  /** The module's own sense of how pressing it is, when it said so. */
+  priority?: 'urgent' | 'normal' | 'low'
+  /** When it entered its state, in ms since the epoch. */
+  entered?: number
 }
 
 const DETAIL_MAX = 80
@@ -426,29 +278,5 @@ export function noticeFor(
           },
         }
       : {}),
-  }
-}
-
-const DERIVED_PREFIX = 'kehikot.activity.derived.'
-
-export function readDerived(storage: Pick<Storage, 'getItem'> | null, project: number): Derived {
-  try {
-    const text = storage?.getItem(`${DERIVED_PREFIX}${project}`)
-    if (!text) return {}
-    const value: unknown = JSON.parse(text)
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)),
-    ) as Derived
-  } catch {
-    return {}
-  }
-}
-
-export function writeDerived(storage: Pick<Storage, 'setItem'> | null, project: number, derived: Derived): void {
-  try {
-    storage?.setItem(`${DERIVED_PREFIX}${project}`, JSON.stringify(boundDerived(derived)))
-  } catch {
-    /* Without it a reload may tell a person again; nothing else is lost. */
   }
 }

@@ -1,22 +1,13 @@
-import { useState } from 'react'
 import type { ActivityState } from 'kehikot-module-protocol'
 
-import { Button } from '@/components/ui/button.tsx'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu.tsx'
 import { cn } from '@/lib/utils'
-import { ACTIVITY_WORDS, attentionCount, markWords, ordered, type HeldItem } from '@/host/activity.ts'
-import { Hint } from './Hint.tsx'
+import { markWords } from '@/host/activity.ts'
 
 /**
  * What the modules are doing, drawn as small dots on what already exists —
  * the container's header, an epic's row, a part's row, a kehikko's row — and
- * as ONE menu in the bar. No standing row anywhere; see `host/activity.ts`.
+ * as ONE control in the bar that opens the Inbox (`Inbox.tsx`). No standing
+ * row anywhere; see `host/activity.ts` and `host/inbox.ts`.
  *
  * Yellow is "needs you", green is "finished and not yet seen", grey is
  * "working". A working dot pulses only where the person has not asked for
@@ -55,112 +46,5 @@ export function ActivityDot({
       data-activity={state}
       className={cn('inline-block size-1.5 shrink-0 rounded-full', LOOK[state], className)}
     />
-  )
-}
-
-/** One item of the menu: the dot, its label, and who and where it is. */
-export interface MenuRow {
-  item: HeldItem
-  seen: boolean
-  module: string
-  /** The long part of the place (the epic's title); the one that is cut when the row is narrow. */
-  epic: string
-  /** The specific part: picked parts · kehikko. Drawn first, so that two rows of one label differ. */
-  here: string
-}
-
-/**
- * The one list. Drawn only when something is held; worst first, then newest.
- * The count is what needs the person, not what is done or working.
- */
-export function ActivityMenu({
-  rows,
-  onPress,
-}: {
-  rows: readonly MenuRow[]
-  onPress(item: HeldItem): void
-}) {
-  /* Open is held here so that pressing the last unseen item — which sees it —
-     does not take the control (and the menu with it) away from under the
-     finger: it goes once the menu closes. */
-  const [open, setOpen] = useState(false)
-  if (rows.length === 0) return null
-  const live = rows.filter((row) => !row.seen).map((row) => row.item)
-  const first = ordered(live)[0]
-  const needing = attentionCount(live)
-  const working = live.filter((one) => one.state === 'working').length
-  const done = live.filter((one) => one.state === 'done').length
-  const said = [
-    needing ? `${needing} ${ACTIVITY_WORDS.attention}` : null,
-    working ? `${working} ${ACTIVITY_WORDS.working}` : null,
-    done ? `${done} ${ACTIVITY_WORDS.done}` : null,
-  ].filter(Boolean)
-  /* Seen-only is no control at all: nothing is asking for the person. */
-  if (!open && live.length === 0) return null
-  const label = said.length ? `activity — ${said.join(', ')}` : 'activity — nothing new'
-  const byItem = new Map(rows.map((row) => [row.item, row]))
-  const sorted = [...ordered(live), ...ordered(rows.filter((row) => row.seen).map((row) => row.item))].map(
-    (item) => byItem.get(item)!,
-  )
-
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Hint label={label} align="end">
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={label}
-            data-activity-menu=""
-            className="text-muted-foreground hover:text-foreground h-6 shrink-0 gap-1 px-1.5 text-[11px]"
-          >
-            {first ? (
-              <ActivityDot state={first.state} />
-            ) : (
-              <span aria-hidden className="ring-muted-foreground/60 inline-block size-1.5 rounded-full ring-1 ring-inset" />
-            )}
-            {needing > 0 ? (
-              <span className="text-amber-600 tabular-nums dark:text-amber-400" data-activity-count="">
-                {needing}
-              </span>
-            ) : null}
-          </Button>
-        </DropdownMenuTrigger>
-      </Hint>
-      <DropdownMenuContent align="end" className="max-h-[60vh] w-96 overflow-auto">
-        <DropdownMenuLabel>activity</DropdownMenuLabel>
-        {sorted.map((row) => (
-          <DropdownMenuItem
-            key={`${row.item.module}\u0000${row.item.id}`}
-            data-activity-row={row.item.state}
-            title={row.item.detail ?? ACTIVITY_WORDS[row.item.state]}
-            onSelect={() => onPress(row.item)}
-            className="items-start gap-2"
-          >
-            <span className="mt-1.5 flex shrink-0">
-              {row.seen ? (
-                <span
-                  role="img"
-                  aria-label={`${ACTIVITY_WORDS.done}, seen`}
-                  title={`${ACTIVITY_WORDS.done}, seen`}
-                  className="ring-muted-foreground/60 inline-block size-1.5 rounded-full ring-1 ring-inset"
-                />
-              ) : (
-                <ActivityDot state={row.item.state} />
-              )}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-xs">{row.item.label}</span>
-              {/* The specific part first and whole; the long epic title, last, is
-                  what gives way. Two rows of one label differ on this line. */}
-              {row.here ? <span className="text-muted-foreground truncate text-[11px]">{row.here}</span> : null}
-              <span className="text-muted-foreground/80 truncate text-[11px]">
-                {[row.module, row.epic].filter(Boolean).join(' · ')}
-              </span>
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
