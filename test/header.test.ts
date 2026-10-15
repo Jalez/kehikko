@@ -251,3 +251,23 @@ describe('what an agent may press', () => {
     expect(agentRefusal(running, { item: 'compile' }, 'kehikot.paper')).toBe('"compile" is already running.')
   })
 })
+
+describe('pinned runs (protocol 1.6.0)', () => {
+  const items = headerItemsSchema.parse([
+    { kind: 'run', id: 'a', label: 'A', pinned: true },
+    { kind: 'run', id: 'b', label: 'B' },
+    { kind: 'toggle', id: 't', label: 'T', checked: false, pinned: true },
+    ...['c', 'd', 'e', 'f'].map((id) => ({ kind: 'run', id, label: id, pinned: true })),
+  ])
+
+  test('the first four pinned runs, in declaration order; a pin on another kind is nothing', async () => {
+    const { pinnedOf } = await import('../src/host/header.ts')
+    expect(pinnedOf(items).map((item) => item.id)).toEqual(['a', 'c', 'd', 'e'])
+  })
+
+  test('a pinned run is still in the Run menu', async () => {
+    const { menusOf } = await import('../src/host/header.ts')
+    const run = menusOf(items).find((menu) => menu.menu === 'run')!
+    expect(run.groups.flatMap((group) => group.items.map((item) => item.id))).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+  })
+})

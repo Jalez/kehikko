@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 33
+const TESTS = 45
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -85,6 +85,7 @@ async function mount(
     answer?: (press: Pressing) => Pressed | Promise<Pressed>
     surface?: import('../src/canvas/HeaderMenus.tsx').Surface
     order?: string[]
+    pinned?: boolean
   } = {},
 ) {
   const host = document.createElement('div')
@@ -101,7 +102,7 @@ async function mount(
     act(async () => {
       root.render(
         <TooltipProvider>
-          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} onKeyboard={() => { handed.n += 1 }} surface={more.surface} mode={more.mode ?? 'words'} note={note} />
+          <Menus.HeaderMenus items={items} name="Paper" onPress={onPress} onKeyboard={() => { handed.n += 1 }} surface={more.surface} mode={more.mode ?? 'words'} pinned={more.pinned} note={note} />
         </TooltipProvider>,
       )
     })
@@ -617,5 +618,176 @@ describe('a run that asks for full screen (protocol 1.4.0)', () => {
     await open('run')
     await choose(row('present'))
     expect(presses).toEqual([{ item: 'present' }])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Pinned runs (protocol 1.6.0)
+ * ------------------------------------------------------------------ */
+
+const review = (over: Record<string, Record<string, unknown>> = {}): HeaderItem[] =>
+  headerItemsSchema.parse([
+    { kind: 'run', id: 'back', label: 'Previous edit', icon: 'chevron-left', pinned: true, ...(over.back ?? {}) },
+    { kind: 'run', id: 'accept', label: 'Accept edit', icon: 'check', pinned: true, ...(over.accept ?? {}) },
+    { kind: 'run', id: 'reject', label: 'Decline edit', icon: 'x', pinned: true, confirm: true, ...(over.reject ?? {}) },
+    { kind: 'run', id: 'next', label: 'Next edit', icon: 'chevron-right', pinned: true, ...(over.next ?? {}) },
+    { kind: 'run', id: 'fifth', label: 'Fifth thing', icon: 'play', pinned: true },
+    { kind: 'run', id: 'menu', label: 'Only in the menu', icon: 'pencil' },
+    { kind: 'toggle', id: 'auto', label: 'Auto', checked: false, pinned: true },
+  ])
+
+const pins = () => [...document.querySelectorAll<HTMLElement>('[data-pinned]')]
+const pin = (id: string) => document.querySelector<HTMLElement>(`[data-pinned="${id}"]`)!
+
+describe('pinned runs are icon buttons in the header row', () => {
+  if (!inChild) return
+
+  test('drawn left of the menus in declaration order, at most four, an item without pinned is menu-only', async () => {
+    const { host } = await mount(review())
+    expect(pins().map((el) => el.getAttribute('data-pinned'))).toEqual(['back', 'accept', 'reject', 'next'])
+    const all = [...host.querySelectorAll('[data-pinned], [data-menu]')].map((el) => el.getAttribute('data-pinned') ?? el.getAttribute('data-menu'))
+    expect(all).toEqual(['back', 'accept', 'reject', 'next', 'view', 'run'])
+    /* Same size as every other control in the row. */
+    expect(pin('accept').className).toContain('size-6')
+    await open('run')
+    /* The menu keeps every run, pinned or not. */
+    expect([...content('run')!.querySelectorAll('[data-item]')].map((el) => el.getAttribute('data-item'))).toEqual(['back', 'accept', 'reject', 'next', 'fifth', 'menu'])
+  })
+
+  test('the label is the accessible name, the icon is drawn, an unknown or missing icon is the first letters', async () => {
+    await mount(review({ next: { icon: 'no-such-icon' }, back: { icon: undefined } }))
+    expect(pin('accept').getAttribute('aria-label')).toBe('Accept edit')
+    expect(pin('accept').querySelector('[data-icon="check"]')).not.toBeNull()
+    expect(pin('reject').querySelector('[data-icon="x"]')).not.toBeNull()
+    expect(pin('next').querySelector('[data-initials]')!.textContent).toBe('Ne')
+    expect(pin('back').querySelector('[data-initials]')!.textContent).toBe('Pr')
+    expect(Menus.initials('★ 1')).toBe('1')
+  })
+
+  test('every name in the protocol vocabulary is known to the host', async () => {
+    const { HEADER_ICONS: vocabulary } = await import('kehikot-module-protocol')
+    for (const name of vocabulary) expect(Menus.HEADER_ICONS.has(name), name).toBe(true)
+  })
+
+  test('a press goes the same way the menu sends it, and then the keyboard is the module’s', async () => {
+    const { presses, handed } = await mount(review())
+    await choose(pin('accept'))
+    expect(presses).toEqual([{ item: 'accept' }])
+    expect(handed.n).toBe(1)
+  })
+
+  test('a refused press says why on the button and leaves the keyboard here', async () => {
+    const { handed } = await mount(review(), { answer: () => ({ ok: false, why: 'The edit is gone.' }) })
+    await choose(pin('accept'))
+    expect(handed.n).toBe(0)
+    expect(said()).toBe('The edit is gone.')
+  })
+
+  test('disabled is dimmed, inert, never hidden, and the reason is in the tooltip text', async () => {
+    const { presses } = await mount(review({ accept: { disabled: 'No edit is open' } }))
+    expect(pin('accept')).not.toBeNull()
+    expect(pin('accept').getAttribute('aria-disabled')).toBe('true')
+    expect(pin('accept').className).toContain('opacity-50')
+    await choose(pin('accept'))
+    expect(presses).toEqual([])
+    const { TooltipProvider: _ } = { TooltipProvider }
+    await act(async () => {
+      pin('accept').dispatchEvent(new FocusEvent('focus'))
+      pin('accept').focus()
+    })
+    expect(document.body.textContent).toContain('Accept edit — No edit is open')
+  })
+
+  test('busy is a spinner that takes no press, failed is the menu’s mark', async () => {
+    const { presses } = await mount(review({ accept: { state: 'busy' }, next: { state: 'failed', result: '2 errors' } }))
+    expect(pin('accept').querySelector('.animate-spin')).not.toBeNull()
+    expect(pin('accept').getAttribute('aria-busy')).toBe('true')
+    await choose(pin('accept'))
+    expect(presses).toEqual([])
+    expect(pin('next').getAttribute('data-state-run')).toBe('failed')
+    expect(pin('next').querySelector('.animate-spin')).toBeNull()
+    expect(pin('next').querySelector('[class*="size-3"]')).not.toBeNull()
+  })
+
+  test('confirm arms on the first press, runs on the second, and Escape or a click elsewhere disarms', async () => {
+    const { presses } = await mount(review())
+    await choose(pin('reject'))
+    expect(presses).toEqual([])
+    expect(pin('reject').getAttribute('data-armed')).toBe('true')
+    expect(document.body.textContent).toContain('press again to confirm')
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(pin('reject').getAttribute('data-armed')).toBeNull()
+    await choose(pin('reject'))
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    })
+    expect(pin('reject').getAttribute('data-armed')).toBeNull()
+    await choose(pin('reject'))
+    await choose(pin('reject'))
+    expect(presses).toEqual([{ item: 'reject' }])
+    expect(pin('reject').getAttribute('data-armed')).toBeNull()
+  })
+
+  test('full screen is asked from the pinned button’s click, before the press', async () => {
+    const order: string[] = []
+    const surface = { enter: () => (order.push('enter'), Promise.resolve(true)), leave: () => void order.push('leave') }
+    await mount(review({ accept: { surface: 'fullscreen' } }), { surface, order })
+    await choose(pin('accept'))
+    expect(order).toEqual(['enter', 'press'])
+  })
+
+  test('narrow: not drawn under icons or merged mode, and the menu keeps them', async () => {
+    for (const mode of ['icons', 'merged'] as const) {
+      const { host } = await mount(review(), { mode })
+      expect(pins()).toHaveLength(0)
+      expect(host.querySelector('[data-menu]')).not.toBeNull()
+      act(() => unmount?.())
+      document.body.innerHTML = ''
+    }
+    expect(Menus.PINNED_BELOW).toBe(360)
+  })
+
+  test('narrow: a container measured under 360 px draws none, and 360 draws them', async () => {
+    const grip = document.createElement('div')
+    grip.className = 'container-grip'
+    let width = 340
+    Object.defineProperty(grip, 'offsetWidth', { get: () => width })
+    document.body.appendChild(grip)
+    const root = createRoot(grip)
+    unmount = () => root.unmount()
+    const draw = () =>
+      act(async () => {
+        root.render(
+          <TooltipProvider>
+            <Menus.HeaderMenus items={review()} name="Paper" onPress={async () => ({ ok: true, why: '' })} />
+          </TooltipProvider>,
+        )
+      })
+    await draw()
+    expect(pins()).toHaveLength(0)
+    expect(trigger('run')).not.toBeNull()
+    width = 360
+    unmount()
+    const again = createRoot(grip)
+    unmount = () => again.unmount()
+    await act(async () => {
+      again.render(
+        <TooltipProvider>
+          <Menus.HeaderMenus items={review()} name="Paper" onPress={async () => ({ ok: true, why: '' })} />
+        </TooltipProvider>,
+      )
+    })
+    expect(pins()).toHaveLength(4)
+  })
+
+  test('a container folded draws no menus, and so no pinned buttons', async () => {
+    const { host } = await mount(review(), { pinned: true })
+    expect(pins().length).toBe(4)
+    /* `Container` does not draw HeaderMenus when `collapsed`; see its header slot. */
+    const source = await Bun.file(new URL('../src/canvas/Container.tsx', import.meta.url)).text()
+    expect(source).toMatch(/showing\.kind === 'page' && !collapsed \? \(\s*<HeaderMenus/)
+    expect(host).not.toBeNull()
   })
 })

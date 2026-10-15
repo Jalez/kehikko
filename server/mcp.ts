@@ -15,7 +15,7 @@ import { place } from '../src/host/canvases.ts'
 import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
-import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, type Pressed, type Pressing } from '../src/host/header.ts'
+import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, pinnedOf, type Pressed, type Pressing } from '../src/host/header.ts'
 
 /**
  * The host's own door, which it did not have until now.
@@ -467,7 +467,11 @@ function canvasText(
         const said = forText(sighting)
         if (said) lines.push(`      ${said}`)
       }
-      for (const item of declared?.get(p.i) ?? []) lines.push(`      ${itemText(item)}`)
+      {
+        const items = declared?.get(p.i) ?? []
+        const pinned = new Set(pinnedOf(items).map((one) => one.id))
+        for (const item of items) lines.push(`      ${itemText(item, pinned.has(item.id))}`)
+      }
       for (const row of activity?.filter((one) => one.module === p.i) ?? []) lines.push(`      ${activityText(row)}`)
     }
     if (declared === null) {
@@ -564,7 +568,7 @@ function quoted(text: string): string {
  * what `value` takes. For the rest a count is the whole of what is useful,
  * and forty section titles a line is forty strings a stranger wrote.
  */
-function itemText(item: HeaderItem): string {
+function itemText(item: HeaderItem, pinned = false): string {
   const standing = agentStanding(item)
   const state =
     item.kind === 'switch'
@@ -592,7 +596,7 @@ function itemText(item: HeaderItem): string {
         : item.kind === 'run' && item.confirm
           ? 'The person’s: it takes their second press.'
           : 'The person’s.'
-  return `${item.id} — ${item.kind} ${quoted(item.label)} in ${MENU_TITLES[HEADER_MENUS[item.kind]]}: ${state}. ${who}`
+  return `${item.id} — ${item.kind} ${quoted(item.label)} in ${MENU_TITLES[HEADER_MENUS[item.kind]]}${pinned ? ' (pinned: a button in the container header)' : ''}: ${state}. ${who}`
 }
 
 /**
