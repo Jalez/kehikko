@@ -5,6 +5,8 @@ import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
+import { spell } from './trackers/edit.ts'
+import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
 import {
   createCanvas,
@@ -2201,7 +2203,36 @@ const server = Bun.serve({
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
       const signal = trackers.signal(project.path)
       const reading = trackers.get(project.path, { refs: [] })
-      return json({ ...signal, sources: 'refused' in reading ? [] : reading.sources })
+      const listing = await trackers.describe(project.path)
+      return json({ ...signal, sources: 'refused' in reading ? [] : reading.sources, listing })
+    }
+
+    /*
+     * One edit of the project's tracker sources — add, remove, switch a flag,
+     * the schedule, the remotes switch — or a one-off "Check" of a source
+     * before it is added. The page's alone (`PAGE_ONLY`): it writes
+     * `.kehikot/kehikko/trackers.json` and spends the person's rate limit.
+     * Answered with the sources as they now stand; a write has the host read
+     * again, and every container is told as for any read.
+     */
+    if (url.pathname === '/host/trackers' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown; edit?: unknown } | null
+      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      const asked = trackerEditSchema.safeParse(body?.edit)
+      if (!asked.success) return json({ error: 'That is not an edit of the tracker sources.' }, 400)
+      const edit = asked.data
+      if (edit.kind === 'check') {
+        const spelled = spell(edit.input, edit.tracker, edit.host)
+        if (!spelled.ok) return json({ outcome: 'declined', why: spelled.why, needs: spelled.needs ?? null, said: '' })
+        const found = await trackers.check({ tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
+        return json(
+          found.ok
+            ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issue${found.issues === 1 && !found.capped ? '' : 's'}, ${found.changes}${found.capped ? '+' : ''} change${found.changes === 1 && !found.capped ? '' : 's'} found.`, issues: found.issues, changes: found.changes, source: spelled }
+            : { outcome: 'failed', why: found.why, said: '', source: spelled },
+        )
+      }
+      return json(await trackers.edit(project.path, edit))
     }
 
     /*

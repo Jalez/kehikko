@@ -17,6 +17,8 @@ import { epicsIn, listEpics, readEpic, readLive, readStepsSaid } from './holding
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
+import type { Edit, Edited } from './trackers/edit.ts'
+import type { TrackerListing } from '../src/host/trackerSources.ts'
 import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
 /**
@@ -29,6 +31,10 @@ export interface TrackerDoor {
   refresh(root: string, scope: Scope): Promise<TrackerRefreshResult>
   /** `live.get`'s four bags for one epic, from the reading, or null when it holds nothing for it. */
   live(root: string, epic: string): Record<string, unknown> | null
+  /** The project's sources as a person is told them. Absent in a test's stand-in. */
+  describe?(root: string): Promise<TrackerListing>
+  /** One edit of the project's tracker sources; see `Trackers.edit`. */
+  edit?(root: string, edit: Edit): Promise<Edited & { listing: TrackerListing }>
 }
 
 /**

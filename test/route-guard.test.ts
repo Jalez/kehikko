@@ -199,6 +199,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/open', body: { page: 'somebody', kehikko } },
       { method: 'POST', path: '/host/headers', body: { page: 'somebody', kehikko, headers: {} } },
       { method: 'POST', path: '/host/pressed', body: { page: 'somebody', id: 'nothing', ok: true, why: '' } },
+      { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },

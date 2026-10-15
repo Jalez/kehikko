@@ -80,8 +80,11 @@ export interface Refusal {
  *  - `/host/headers`, `/host/pressed` — a browser's word about what a frame
  *    said, and what came of a press (`headers.ts`). A module's frame is
  *    another origin, and so is every other site.
+ *  - `/host/trackers` — a person's edit of the project's tracker sources, which
+ *    writes a file that travels with the repository, and the "Check" before
+ *    it, which spends their login's rate limit.
  */
-export const PAGE_ONLY: readonly string[] = ['/host/restart-anyway', '/host/headers', '/host/pressed']
+export const PAGE_ONLY: readonly string[] = ['/host/restart-anyway', '/host/headers', '/host/pressed', '/host/trackers']
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */
 const LOOPBACK = ['127.0.0.1', 'localhost'] as const
