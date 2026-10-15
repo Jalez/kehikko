@@ -23,6 +23,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 class FakeSource {
   static last: FakeSource | null = null
   onmessage: ((event: { data: string }) => void) | null = null
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
+  readyState = 0
   closed = false
 
   constructor(readonly url: string) {
@@ -31,6 +34,7 @@ class FakeSource {
 
   close(): void {
     this.closed = true
+    this.readyState = 2
   }
 
   send(data: string): void {
@@ -133,5 +137,77 @@ describe('what the page does with each kind of news', () => {
     source?.send(JSON.stringify({ kehikko: 7 }))
     expect(woke).toEqual([7])
     stop()
+  })
+})
+
+/**
+ * A stream that the host closed for good is opened again.
+ *
+ * `EventSource` reconnects by itself only after a connection that dropped. A
+ * reconnection answered with anything but a stream — the dev proxy's 500
+ * while the API was still starting — leaves it CLOSED, and a page with a
+ * closed stream never told a restarted host which kehikko it had open again:
+ * the MCP door said no page had, until somebody reloaded.
+ */
+describe('after the host went away', () => {
+  const opened = (source: FakeSource | null) => {
+    if (!source) throw new Error('no stream was opened')
+    source.readyState = 1
+    source.onopen?.()
+  }
+  const closedForGood = (source: FakeSource | null) => {
+    if (!source) throw new Error('no stream was opened')
+    source.readyState = 2
+    source.onerror?.()
+  }
+  const after = (ms: number) => new Promise((done) => setTimeout(done, ms))
+
+  test('a closed stream is opened again, on the same url, and says it is a reopening', async () => {
+    const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
+    const said: boolean[] = []
+    let looked = 0
+    const stop = watchCanvases(7, () => {}, () => (looked += 1), undefined, undefined, undefined, undefined, undefined, (again) => said.push(again))
+    const first = FakeSource.last
+    opened(first)
+    expect(said).toEqual([false])
+
+    closedForGood(first)
+    expect(FakeSource.last).toBe(first)
+    await after(REOPEN_FIRST_MS + 100)
+    const second = FakeSource.last
+    expect(second).not.toBe(first)
+    /* The url is what tells the restarted host which kehikko is open. */
+    expect(second?.url).toBe(first?.url ?? '')
+    expect(second?.url).toContain('kehikko=7')
+
+    opened(second)
+    /* A reopening is when the page says again what it has open, and looks
+       again for whatever it missed while the host was away. */
+    expect(said).toEqual([false, true])
+    expect(looked).toBe(1)
+    stop()
+    expect(second?.closed).toBe(true)
+  })
+
+  test('a stream that is only reconnecting by itself is left to do so', async () => {
+    const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
+    const stop = watchCanvases(7, () => {})
+    const first = FakeSource.last
+    if (!first) throw new Error('no stream was opened')
+    first.readyState = 0
+    first.onerror?.()
+    await after(REOPEN_FIRST_MS + 100)
+    expect(FakeSource.last).toBe(first)
+    stop()
+  })
+
+  test('a page that stopped listening does not open another stream', async () => {
+    const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
+    const stop = watchCanvases(7, () => {})
+    const first = FakeSource.last
+    closedForGood(first)
+    stop()
+    await after(REOPEN_FIRST_MS + 100)
+    expect(FakeSource.last).toBe(first)
   })
 })

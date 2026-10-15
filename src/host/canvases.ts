@@ -440,9 +440,10 @@ export function watchCanvases(
   /**
    * The stream is open: the first time, and again after every reconnection.
    * A server that restarted has forgotten what this page told it — which
-   * headers its modules declared — and this is when to say it again.
+   * headers its modules declared, and which kehikko this page has open — and
+   * this is when to say it again. `again` is false the first time.
    */
-  opened?: () => void,
+  opened?: (again: boolean) => void,
   /**
    * A project's inbox changed — see `inboxChanged` in `server/wake.ts`.
    * Given the project's id and the revision of the record the news is
@@ -473,17 +474,41 @@ export function watchCanvases(
   const where = new URL('/host/watch', window.location.origin)
   where.searchParams.set('page', pageId())
   if (kehikko !== null) where.searchParams.set('kehikko', String(kehikko))
-  const stream = new EventSource(where.pathname + where.search)
   /* A stream that had to reconnect may have missed a wake while it was away —
      the host restarted, the machine slept. Looking again on every reopening
      after the first is what catches up. */
   let before = false
-  stream.onopen = () => {
-    if (before) looked?.()
-    before = true
-    opened?.()
+  let stopped = false
+  let stream: EventSource
+  let again: ReturnType<typeof setTimeout> | null = null
+  let wait = REOPEN_FIRST_MS
+  const connect = () => {
+    again = null
+    stream = new EventSource(where.pathname + where.search)
+    stream.onopen = () => {
+      wait = REOPEN_FIRST_MS
+      const reopened = before
+      if (reopened) looked?.()
+      before = true
+      opened?.(reopened)
+    }
+    /*
+     * `EventSource` reconnects on its own only after a connection that DROPPED.
+     * A reconnection the server answers with anything but a stream — the dev
+     * proxy's 500 while the API is still starting — closes it for good, and a
+     * page left with a closed stream never says what it has open again. So a
+     * closed stream is opened again here, a little later each time up to
+     * `REOPEN_MOST_MS`. This runs only while the host is away; a page whose
+     * stream is open makes no requests at all.
+     */
+    stream.onerror = () => {
+      if (stopped || stream.readyState !== CLOSED) return
+      again = setTimeout(connect, wait)
+      wait = Math.min(wait * 2, REOPEN_MOST_MS)
+    }
+    stream.onmessage = heard
   }
-  stream.onmessage = (event) => {
+  const heard = (event: MessageEvent<string>) => {
     try {
       const parsed: unknown = JSON.parse(event.data)
       const id = (parsed as { kehikko?: unknown })?.kehikko
@@ -522,8 +547,20 @@ export function watchCanvases(
          does not happen, and the page is no worse off than before this existed. */
     }
   }
-  return () => stream.close()
+  connect()
+  return () => {
+    stopped = true
+    if (again !== null) clearTimeout(again)
+    stream.close()
+  }
 }
+
+/** `EventSource.CLOSED`, spelled out so this file does not need the global to read it. */
+const CLOSED = 2
+/** How soon a stream the host closed for good is opened again, the first time. */
+export const REOPEN_FIRST_MS = 500
+/** And at most — so a page notices a host that is back within a couple of seconds. */
+export const REOPEN_MOST_MS = 2000
 
 /**
  * One press an agent asked for, as the server hands it to the page that is to

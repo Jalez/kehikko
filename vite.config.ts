@@ -4,6 +4,32 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 /**
+ * A proxied answer that the API stopped in the middle ends for the page too.
+ *
+ * Vite's proxy does not pass that on. When the API process goes away while a
+ * response is still streaming — `/host/watch`, which streams for as long as
+ * the page is open — the proxy keeps its half to the page open, and the page
+ * goes on holding a stream nothing will ever write to again. `EventSource`
+ * reconnects only when it sees its connection end, so it never reconnected:
+ * after the API restarted, the page never said again which kehikko it had
+ * open, and the host's MCP door answered that no page had said so until
+ * somebody reloaded. The compiled host serves the page itself, with no proxy,
+ * and its streams already end when it does.
+ *
+ * `complete` is false only for an answer that ended before all of it arrived,
+ * so an ordinary answer is left to finish the ordinary way.
+ */
+export function endWithUpstream(
+  upstream: { complete: boolean; on(event: 'close', listener: () => void): unknown },
+  _request: unknown,
+  response: { writableEnded: boolean; destroy(): void },
+): void {
+  upstream.on('close', () => {
+    if (!upstream.complete && !response.writableEnded) response.destroy()
+  })
+}
+
+/**
  * The build, and the one interesting line in it.
  *
  * `server.proxy` sends everything under `/host/` to the small server beside
@@ -48,6 +74,7 @@ export default defineConfig({
       '/host': {
         target: `http://127.0.0.1:${process.env.HOST_PORT ?? 4180}`,
         changeOrigin: false,
+        configure: (proxy) => proxy.on('proxyRes', endWithUpstream),
       },
     },
   },
