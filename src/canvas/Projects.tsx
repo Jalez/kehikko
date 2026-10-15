@@ -78,7 +78,7 @@ export function Projects({
   const [browsing, setBrowsing] = useState(false)
 
   return (
-    <div className="flex shrink-0 items-center">
+    <div className="flex min-w-0 shrink items-center">
       <DropdownMenu>
         <Hint
           label={
@@ -93,7 +93,7 @@ export function Projects({
               variant="ghost"
               size="sm"
               aria-label="switch project"
-              className="text-foreground h-6 max-w-44 gap-1 px-1.5 text-xs font-medium"
+              className="text-foreground h-6 max-w-44 min-w-7 shrink gap-1 px-1.5 text-xs font-medium"
             >
               <FolderOpen className="text-muted-foreground size-3 shrink-0" />
               {/*

@@ -171,7 +171,7 @@ export function Parts({
   const still = typing !== null || none ? STILL : undefined
 
   return (
-    <span className="inline-flex shrink-0 items-center" data-narrowed={said.narrowed ? '' : undefined}>
+    <span className="inline-flex min-w-0 shrink items-center" data-narrowed={said.narrowed ? '' : undefined}>
       <DropdownMenu>
         <Hint label={none ? 'this epic has no parts yet — press to add one' : said.hint} align="start">
           <DropdownMenuTrigger asChild>
@@ -188,8 +188,8 @@ export function Parts({
               }
               className={
                 said.narrowed
-                  ? 'h-6 max-w-56 gap-1 rounded-r-none px-1.5 text-xs'
-                  : 'text-muted-foreground h-6 max-w-56 gap-1 px-1.5 text-xs'
+                  ? 'h-6 max-w-56 min-w-7 shrink gap-1 rounded-r-none px-1.5 text-xs'
+                  : 'text-muted-foreground h-6 max-w-56 min-w-7 shrink gap-1 px-1.5 text-xs'
               }
             >
               <Focus className="size-3 shrink-0" />

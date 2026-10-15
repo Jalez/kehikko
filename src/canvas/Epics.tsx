@@ -213,14 +213,14 @@ export function Epics({
             so never opens its tooltip — which is precisely the moment the
             explanation is worth having. The same trick `Canvases.tsx` uses on
             the delete button, for the same reason. */}
-        <span className="inline-flex shrink-0">
+        <span className="inline-flex min-w-0 shrink">
           <DropdownMenuTrigger asChild disabled={shut}>
             <Button
               variant="ghost"
               size="sm"
               aria-label="the epic this project is on"
               disabled={shut}
-              className="h-6 max-w-72 gap-1 px-1.5 text-xs disabled:pointer-events-none"
+              className="h-6 max-w-72 min-w-7 shrink gap-1 px-1.5 text-xs disabled:pointer-events-none"
             >
               {epic ? (
                 <Circle className="text-muted-foreground size-3 shrink-0" />

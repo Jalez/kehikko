@@ -49,7 +49,7 @@ describe('the parts control', () => {
     expect(html).toContain('data-parts="0"')
     /* The same control the picker is, not a second one: a menu. */
     expect(html).toContain('aria-haspopup="menu"')
-    expect(html).toContain('h-6 max-w-56 gap-1 px-1.5 text-xs')
+    expect(html).toContain('h-6 max-w-56 min-w-7 shrink gap-1 px-1.5 text-xs')
     /* Quiet: it is not a focus, and must not look like one. */
     expect(html).not.toContain('data-narrowed')
     expect(html).not.toContain('clear the focus')

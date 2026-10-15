@@ -27,6 +27,7 @@ import {
   ordered,
   partMarks,
   placeOpened,
+  placeSplit,
   placeWords,
   readSeen,
   replaced,
@@ -241,10 +242,19 @@ describe('the dots', () => {
   test('the menu is not drawn with nothing held; its badge is the attention count; a row is dot, label, module, place', () => {
     expect(renderToStaticMarkup(<TooltipProvider><ActivityMenu rows={[]} onPress={() => {}} /></TooltipProvider>)).toBe('')
     const held = items(item({ id: 'a', state: 'attention', label: 'Needs a reply' }), item({ id: 'b', state: 'working' }), item({ id: 'c', state: 'done' }))
-    const rows = held.map((one) => ({ item: one, seen: false, module: 'Claude', place: 'The thesis' }))
+    const rows = held.map((one) => ({ item: one, seen: false, module: 'Claude', epic: 'The thesis', here: 'Methods · second' }))
     const html = renderToStaticMarkup(<TooltipProvider><ActivityMenu rows={rows} onPress={() => {}} /></TooltipProvider>)
     expect(html).toContain('aria-label="activity — 1 needs your attention, 1 working, 1 finished"')
     expect(html).toContain('data-activity-count="">1<')
+  })
+
+  test('seen-only draws no control; the specific place comes before the epic, so the epic is what is cut', () => {
+    const done = items(item({ id: 'c', state: 'done' }))
+    const seenOnly = done.map((one) => ({ item: one, seen: true, module: 'Claude', epic: 'The thesis', here: 'Methods' }))
+    expect(renderToStaticMarkup(<TooltipProvider><ActivityMenu rows={seenOnly} onPress={() => {}} /></TooltipProvider>)).toBe('')
+    const names: Namer = { epic: () => 'A very long epic title', part: () => 'Methods', kehikko: () => 'second' }
+    expect(placeSplit({ epic: 'e', parts: ['m'], kehikko: 'k' }, names)).toEqual({ epic: 'A very long epic title', here: 'Methods · second' })
+    expect(placeSplit(undefined, names)).toEqual({ epic: '', here: '' })
   })
 
   test('a part row and a kehikko row carry a dot where something there holds activity, and none elsewhere', () => {

@@ -181,12 +181,12 @@ export function Bar({
        of waiting out the delay again, which is what makes a row of icons
        readable in one pass rather than four. */
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
-      <header className="bg-background flex h-8 shrink-0 items-center gap-1 px-2">
+      <header className="bg-background flex h-8 shrink-0 items-center gap-1 overflow-hidden px-2">
         {/* Whose window this is, before anything it holds. The mark is the same
             one the update panel draws, still. */}
         <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none">
           <KehikkoMark working={false} className="size-4" />
-          Kehikot
+          <span className="max-[480px]:hidden">Kehikot</span>
         </span>
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
 
@@ -279,7 +279,8 @@ export function Bar({
         {needing > 0 ? (
           <Hint label="modules that need something from you — open Kehikko modules to see which, and what to do">
             <span className="cursor-default text-[11px] text-amber-600 dark:text-amber-400">
-              {needing} {needing === 1 ? 'needs' : 'need'} attention
+              {needing}
+              <span className="max-[640px]:sr-only"> {needing === 1 ? 'needs' : 'need'} attention</span>
             </span>
           </Hint>
         ) : null}

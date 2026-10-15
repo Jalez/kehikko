@@ -71,7 +71,7 @@ import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useActivity } from './canvas/useActivity.ts'
-import { epicMarks, kehikkoMarks, moduleMark, partMarks, placeWords, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
+import { epicMarks, kehikkoMarks, moduleMark, partMarks, placeSplit, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import type { ActivityRow } from './host/activity.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
@@ -2980,7 +2980,7 @@ export function App() {
         item,
         seen: !activity.live.includes(item),
         module: nameOf(item.module),
-        place: placeWords(item.place, activityNames),
+        ...placeSplit(item.place, activityNames),
       })),
       onPress: goToActivity,
     }

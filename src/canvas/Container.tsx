@@ -443,20 +443,25 @@ export function Container({
             beside the condition dot, the same size, drawn only when something
             is held. A finished one can be pressed to say it was seen. */}
         {activity ? (
-          activity === 'done' && onActivitySeen ? (
-            <button
-              type="button"
-              aria-label="finished — mark as seen"
-              title="finished — press to mark as seen"
-              className="flex shrink-0 cursor-default items-center"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={onActivitySeen}
-            >
-              <ActivityDot state="done" />
-            </button>
-          ) : (
-            <ActivityDot state={activity} />
-          )
+          /* Not the condition dot's twin: a hair larger, with a thin ring of
+             the header's own colour round it and a thin divider after it, so the
+             two read as two things and not as one state. */
+          <span className="border-border mr-0.5 flex shrink-0 items-center border-r pr-1.5">
+            {activity === 'done' && onActivitySeen ? (
+              <button
+                type="button"
+                aria-label="finished — mark as seen"
+                title="finished — press to mark as seen"
+                className="flex shrink-0 cursor-default items-center"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={onActivitySeen}
+              >
+                <ActivityDot state="done" className="ring-border size-2 ring-1" />
+              </button>
+            ) : (
+              <ActivityDot state={activity} className="ring-border size-2 ring-1" />
+            )}
+          </span>
         ) : null}
         <ConditionDot
           condition={condition}
