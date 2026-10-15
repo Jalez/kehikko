@@ -14,6 +14,9 @@ import {
 import { Input } from '@/components/ui/input.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
 import type { Epic, Epics as Held } from '@/host/projects.ts'
+import type { ActivityState } from 'kehikot-module-protocol'
+import { worstOther } from '@/host/activity.ts'
+import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
@@ -123,6 +126,9 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * `App.tsx` argues: a person who pressed `+` and typed a title has chosen this
  * epic; an agent has not chosen it for them.
  */
+/* A map that is never written to, so a render without marks reads the same one. */
+const NO_MARKS: ReadonlyMap<string, ActivityState> = new Map()
+
 export function Epics({
   epic,
   held,
@@ -131,6 +137,7 @@ export function Epics({
   onRetitle,
   onCreate,
   onDelete,
+  marks = NO_MARKS,
 }: {
   /** What the kehikko is on now, straight from the canvas's subject. */
   epic: string | null
@@ -162,6 +169,8 @@ export function Epics({
    * `server/holdings.ts`.
    */
   onDelete(slug: string): void
+  /** What each epic holds that a module said it is doing (`host/activity.ts`): a small dot on its row. */
+  marks?: ReadonlyMap<string, ActivityState>
 }) {
   /** Which epic is being retitled, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<string | null>(null)
@@ -221,6 +230,12 @@ export function Epics({
               <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
                 {picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
               </span>
+              {/* Another epic holds something: said on the closed control, so
+                  it is not found only by opening the list. */}
+              {(() => {
+                const other = worstOther(marks, epic)
+                return other ? <ActivityDot state={other} what="another epic" /> : null
+              })()}
               {shut ? null : <ChevronDown className="text-muted-foreground size-3 shrink-0" />}
             </Button>
           </DropdownMenuTrigger>
@@ -291,6 +306,7 @@ export function Epics({
                 {/* How much it names, when the file says. Never invented — see
                     `countOf` in `server/holdings.ts`, which answers null rather
                     than zero when there is nothing to count. */}
+                {marks.get(one.slug) ? <ActivityDot state={marks.get(one.slug)!} what={titleOf(one)} /> : null}
                 {one.size ? (
                   <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{one.size}</span>
                 ) : null}

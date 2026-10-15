@@ -11,6 +11,9 @@ import { attention } from '@/host/moduleMenu.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
+import type { ActivityState } from 'kehikot-module-protocol'
+import type { HeldItem } from '@/host/activity.ts'
+import { ActivityMenu, type MenuRow } from './Activity.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
@@ -58,6 +61,15 @@ import { TrackerReading } from './TrackerReading.tsx'
  * be the only thing announcing that the host is a place. The containers have edges
  * of their own and those edges are the ones that mean something.
  */
+/** What the bar is given about activity; built in `App.tsx` from `host/activity.ts`. */
+export interface BarActivity {
+  epics: ReadonlyMap<string, ActivityState>
+  parts: ReadonlyMap<string, ActivityState>
+  kehikot: ReadonlyMap<string, ActivityState>
+  rows: readonly MenuRow[]
+  onPress(item: HeldItem): void
+}
+
 export function Bar({
   registry,
   canvases,
@@ -95,6 +107,7 @@ export function Bar({
   looking,
   tracker = null,
   onRefreshTrackers = () => {},
+  activity = null,
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -150,6 +163,12 @@ export function Bar({
   /** The open project's tracker reading, or null with no project open. See `TrackerReading.tsx`. */
   tracker?: TrackerState | null
   onRefreshTrackers?(): void
+  /**
+   * What the modules say they are doing (`host/activity.ts`): a mark per epic,
+   * per part and per kehikko, and the one list as a menu. Null for a host
+   * that has none, and then nothing is drawn.
+   */
+  activity?: BarActivity | null
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -197,6 +216,7 @@ export function Bar({
          * list of what exists is a way to make a typo authoritative.
          */}
         <Epics
+          marks={activity?.epics}
           epic={subject.epic}
           held={held}
           hasProject={project !== null}
@@ -219,11 +239,19 @@ export function Bar({
          * kehikko is a layout and carries no focus. It is also where the
          * parts are made, renamed, moved and removed. See `Parts.tsx`.
          */}
-        <Parts parts={parts} picked={pickedParts} onPick={onParts} epic={subject.epic} onEdit={onEditParts} />
+        <Parts
+          parts={parts}
+          picked={pickedParts}
+          onPick={onParts}
+          epic={subject.epic}
+          onEdit={onEditParts}
+          marks={activity?.parts}
+        />
 
         <span className="bg-border mx-1 h-4 w-px shrink-0" />
 
         <Canvases
+          marks={activity?.kehikot}
           canvases={canvases}
           open={open}
           onOpen={onOpen}
@@ -235,6 +263,11 @@ export function Bar({
         <span className="flex-1" />
 
         <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
+
+        {/* What the modules are doing: one small control with the worst dot
+            and how many need you, drawn only while something is held. The one
+            list lives in its menu. See `Activity.tsx`. */}
+        {activity ? <ActivityMenu rows={activity.rows} onPress={activity.onPress} /> : null}
 
         {/* The project's shared tracker reading: its age, and "Refresh all". */}
         {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} /> : null}

@@ -1,5 +1,6 @@
 import { canonicalModuleId, headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
+import type { ActivityRow } from '../src/host/activity.ts'
 import type { Pressed, Pressing } from '../src/host/header.ts'
 import type { PressOrder } from './wake.ts'
 
@@ -78,6 +79,8 @@ interface Posting {
   /** When it was posted, by the page's own clock: an older one that arrives late does not replace a newer. */
   at: number
   headers: Map<string, HeaderItem[]>
+  /** What the page's modules say they are doing; `read_canvas` lists it. See `host/activity.ts`. */
+  activity: ActivityRow[]
 }
 
 interface Waiting {
@@ -102,7 +105,7 @@ export class Headers {
    * The whole map, replacing what that page said before. Answers `null`, or
    * the sentence saying what was wrong with it.
    */
-  posted(page: string, kehikko: number, at: number, raw: unknown): string | null {
+  posted(page: string, kehikko: number, at: number, raw: unknown, rawActivity?: unknown): string | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'headers is an object of module id to its items.'
     const entries = Object.entries(raw as Record<string, unknown>)
     if (entries.length > MODULES_MAX) return `No kehikko holds more than ${MODULES_MAX} containers.`
@@ -120,7 +123,7 @@ export class Headers {
       const oldest = [...this.#pages.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) this.#pages.delete(oldest[0])
     }
-    this.#pages.set(page, { kehikko, at, headers })
+    this.#pages.set(page, { kehikko, at, headers, activity: activityRows(rawActivity) })
     return null
   }
 
@@ -154,6 +157,16 @@ export class Headers {
    * was one to write to. `null` when there was not: the page went away
    * between being chosen and being asked.
    */
+  /** What the modules of a kehikko say they are doing, from the page that has it open; null when none does. */
+  activityOn(kehikko: number, hears: (page: string) => boolean): ActivityRow[] | null {
+    let found: Posting | null = null
+    for (const [page, posting] of this.#pages) {
+      if (posting.kehikko !== kehikko || !hears(page)) continue
+      if (!found || posting.at > found.at) found = posting
+    }
+    return found ? found.activity : null
+  }
+
   press(
     page: string,
     order: Omit<PressOrder, 'id' | 'page'>,
@@ -234,7 +247,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         return reply({ ok: false, why: 'A posting of headers names the kehikko the page has open.' }, 400)
       }
       const at = typeof body.at === 'number' && Number.isFinite(body.at) ? body.at : Date.now()
-      const wrong = held.posted(body.page, kehikko, at, body.headers)
+      const wrong = held.posted(body.page, kehikko, at, body.headers, body.activity)
       return wrong ? reply({ ok: false, why: wrong }, 400) : reply({ ok: true })
     }
 
@@ -252,6 +265,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
     door: {
       on: (kehikko: number): ReadonlyMap<string, readonly HeaderItem[]> | null =>
         held.on(kehikko, deps.hears)?.headers ?? null,
+      activity: (kehikko: number): ActivityRow[] | null => held.activityOn(kehikko, deps.hears),
       press: (kehikko: number, module: string, press: Pressing): Promise<Pressed | null> => {
         const found = held.on(kehikko, deps.hears)
         if (!found) return Promise.resolve(null)
@@ -264,6 +278,44 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
       },
     },
   }
+}
+
+/** The most rows a posting carries: `LIMITS.ACTIVITY_ITEMS` for each of the containers it may name. */
+const ACTIVITY_ROWS_MAX = 512
+const STATES = new Set(['working', 'attention', 'done'])
+
+/**
+ * The activity rows of a posting, read defensively: a browser's word, bounded
+ * and made of strings. A row that is not one is left out and the rest stand.
+ */
+function activityRows(raw: unknown): ActivityRow[] {
+  if (!Array.isArray(raw)) return []
+  const text = (value: unknown, max: number): string | null =>
+    typeof value === 'string' && value.length <= max ? value : null
+  const out: ActivityRow[] = []
+  for (const one of raw.slice(0, ACTIVITY_ROWS_MAX)) {
+    if (typeof one !== 'object' || one === null) continue
+    const row = one as Record<string, unknown>
+    const module = text(row.module, 64)
+    const id = text(row.id, 128)
+    const label = text(row.label, 120)
+    const place = text(row.place, 600)
+    if (!module || !id || label === null || place === null) continue
+    if (typeof row.state !== 'string' || !STATES.has(row.state)) continue
+    const name = text(row.name, 120)
+    const detail = text(row.detail, 200)
+    out.push({
+      module: canonicalModuleId(module),
+      id,
+      state: row.state as ActivityRow['state'],
+      label,
+      place,
+      ...(name ? { name } : {}),
+      ...(detail ? { detail } : {}),
+      seen: row.seen === true,
+    })
+  }
+  return out
 }
 
 function reply(body: unknown, status = 200): Response {

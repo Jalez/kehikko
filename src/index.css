@@ -420,3 +420,16 @@
 }
 @keyframes updates-fade-in { from { opacity: 0; } }
 @keyframes updates-fade-out { to { opacity: 0; } }
+
+/* A container shown from the activity menu (a press on an item with no place):
+   a ring for a moment, so the eye finds it. An outline, so nothing moves; and
+   not at all where motion is asked to be less. See `revealContainer` in App. */
+[data-activity-flash] {
+  outline: 2px solid var(--color-amber-500, #f59e0b);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-activity-flash] {
+    transition: outline-color 1.2s ease-out;
+  }
+}

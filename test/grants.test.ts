@@ -37,6 +37,7 @@ const PARAMS: Record<string, unknown> = {
   'filters.set': { filters: {} },
   'showing.set': { refs: [], documents: [] },
   'projects.pick': {},
+  'activity.set': { items: [] },
   'events.emit': { extension: 'kehikot.notifications@1', payload: {} },
 }
 
@@ -131,6 +132,7 @@ describe('the canvas holds every method it answers', () => {
     filter: () => (calls.push('filter'), { ok: true, filters: {} }),
     pickProject: async () => (calls.push('pick'), { outcome: 'cancelled', project: null, why: '' }),
     fold: () => (calls.push('fold'), { outcome: 'unchanged', folded: [], unfolded: [], why: '' }),
+    activity: () => (calls.push('activity'), { outcome: 'taken', taken: 0, why: '' }),
     project: () => null,
   }
 

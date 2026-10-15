@@ -134,6 +134,10 @@ export const ANSWERED_BY_THE_VIEW = [
      those, and the person watching is the point. See `asked` in
      `host/folds.ts`. */
   'view.fold',
+  /* What a module's things are doing now. Held per project beside the seen
+     set, marked on the pickers and containers and listed in one menu — all of
+     which are the page's. See `host/activity.ts`. */
+  'activity.set',
 ] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */

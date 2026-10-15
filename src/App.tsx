@@ -70,6 +70,11 @@ import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } fro
 import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
+import { useActivity } from './canvas/useActivity.ts'
+import { epicMarks, kehikkoMarks, moduleMark, partMarks, placeWords, rowsFor, type HeldItem, type Namer } from './host/activity.ts'
+import type { BarActivity } from './canvas/Bar.tsx'
+import type { ActivityRow } from './host/activity.ts'
+import type { ActivityState } from 'kehikot-module-protocol'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
@@ -1697,6 +1702,14 @@ export function App() {
     why: 'This host is not ready to move yet.',
   }))
 
+  /* `activity.set`, answered by the lists held further down (`useActivity`);
+     through a ref for the reason `gotoRef` is one. */
+  const activityRef = useRef<NonNullable<CanvasControls['activity']>>(() => ({
+    outcome: 'declined',
+    taken: 0,
+    why: 'This host is not ready to hold activity yet.',
+  }))
+
   /* What a module may ask the canvas to do. See `host/ask.ts`. */
   const controls = useMemo<CanvasControls>(
     () => ({
@@ -1764,6 +1777,7 @@ export function App() {
          Through a ref — see `foldRef`. */
       fold: (from, call) => foldRef.current(from, call),
       goto: (call) => gotoRef.current(call),
+      activity: (from, items) => activityRef.current(from, items),
     }),
     [change, bus],
   )
@@ -2781,31 +2795,6 @@ export function App() {
     })()
   }
 
-  /**
-   * What the modules on the open kehikko have declared, said to the server.
-   *
-   * So that `read_canvas` can list a container's header items and
-   * `press_item` can refuse before anything is pressed. Only the open
-   * kehikko's containers: a page loaded for the kehikko next door is declared
-   * too, and is not what anybody is looking at. Posted whole whenever it
-   * changes, and again when the stream reopens — a server that restarted
-   * has forgotten it.
-   */
-  const declaredHere = useMemo(() => {
-    if (!open) return null
-    const on: [string, Headers[string]][] = []
-    for (const placement of open.placements) {
-      const items = headers[placement.i]
-      if (items) on.push([placement.i, items])
-    }
-    return JSON.stringify(on)
-  }, [open, headers])
-  const postDeclared = useCallback(() => {
-    if (openId === null || declaredHere === null) return
-    void postHeaders(openId, Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]))
-  }, [openId, declaredHere])
-  useEffect(() => postDeclared(), [postDeclared])
-  repostRef.current = postDeclared
 
   /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
   const pinViews = useMemo(() => {
@@ -2896,6 +2885,143 @@ export function App() {
     [containers],
   )
   const placed = placements.map((p) => p.i)
+
+  /*
+   * What the modules say they are doing (`activity.set`), held per project and
+   * drawn as small dots on what already exists, plus the one menu in the bar.
+   * See `host/activity.ts`. A module's list goes when its container is on no
+   * kehikko of the project or its server stops answering.
+   */
+  const activityAlive = useMemo(() => {
+    if (!registry) return null
+    const on = new Set(here.flatMap((one) => one.placements.map((p) => p.i)))
+    return new Set(registry.presences.filter((p) => p.condition === 'ready' && on.has(p.id)).map((p) => p.id))
+  }, [registry, here])
+  const activityAt = useMemo(
+    () => ({ epic: about.epic, parts: about.parts, kehikko: open?.key ?? null }),
+    [about.epic, about.parts, open?.key],
+  )
+  const activity = useActivity(projectId, activityAlive, activityAt)
+  activityRef.current = activity.receive
+  const activityNames = useMemo<Namer>(
+    () => ({
+      epic: (slug) => {
+        const row = held?.epics.find((one) => one.slug === slug)
+        return row ? (row.title ?? row.slug) : null
+      },
+      part: (epic, id) => {
+        const rows = epic === null ? [] : (held?.epics.find((one) => one.slug === epic)?.parts ?? [])
+        return rows.find((part) => part.id === id)?.heading ?? null
+      },
+      kehikko: (key) => here.find((one) => one.key === key)?.name ?? null,
+    }),
+    [held, here],
+  )
+  const activityMarks = useMemo(() => {
+    const live = activity.live
+    const moduleOf = new Map<string, ActivityState>()
+    for (const module of new Set(live.map((one) => one.module))) {
+      const mark = moduleMark(live, module)
+      if (mark) moduleOf.set(module, mark)
+    }
+    return {
+      modules: moduleOf,
+      epics: epicMarks(live, about.epic, (slug) => (held?.epics.find((one) => one.slug === slug)?.parts ?? []).map((p) => p.id)),
+      parts: partMarks(live, about.epic),
+      kehikot: kehikkoMarks(live),
+    }
+  }, [activity.live, about.epic, held])
+  const revealContainer = useCallback(
+    (module: string) => {
+      const flash = () => {
+        const element = [...document.querySelectorAll<HTMLElement>('[data-module]')].find(
+          (one) => one.dataset.module === module,
+        )
+        if (!element) return
+        element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        element.setAttribute('data-activity-flash', '')
+        window.setTimeout(() => element.removeAttribute('data-activity-flash'), 1600)
+      }
+      if (open?.placements.some((p) => p.i === module)) return flash()
+      const other = here.find((one) => one.placements.some((p) => p.i === module))
+      if (!other) return
+      setOpenId(other.id)
+      window.setTimeout(flash, 300)
+    },
+    [open, here],
+  )
+  const goToActivity = useCallback(
+    (item: HeldItem) => {
+      if (item.state === 'done') activity.markSeen([item])
+      const place = item.place
+      if (place?.epic !== undefined) {
+        gotoRef.current({ epic: place.epic, parts: place.parts, kehikko: place.kehikko })
+        return
+      }
+      if (place?.kehikko !== undefined) {
+        const target = here.find((one) => one.key === place.kehikko)
+        if (target) {
+          setOpenId(target.id)
+          return
+        }
+      }
+      revealContainer(item.module)
+    },
+    [activity, here, revealContainer],
+  )
+  const barActivity = useMemo<BarActivity | null>(() => {
+    if (!activity.items.length) return null
+    const nameOf = (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module
+    return {
+      epics: activityMarks.epics,
+      parts: activityMarks.parts,
+      kehikot: activityMarks.kehikot,
+      rows: activity.items.map((item) => ({
+        item,
+        seen: !activity.live.includes(item),
+        module: nameOf(item.module),
+        place: placeWords(item.place, activityNames),
+      })),
+      onPress: goToActivity,
+    }
+  }, [activity.items, activity.live, activityMarks, activityNames, registry, goToActivity])
+  /* What `read_canvas` lists, posted with the headers. */
+  const activityRows = useMemo(() => {
+    const nameOf = (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module
+    return JSON.stringify(
+      rowsFor(activity.items, activity.seen, activityNames).map((row) => ({ ...row, name: nameOf(row.module) })),
+    )
+  }, [activity.items, activity.seen, activityNames, registry])
+
+  /**
+   * What the modules on the open kehikko have declared, said to the server.
+   *
+   * So that `read_canvas` can list a container's header items and
+   * `press_item` can refuse before anything is pressed. Only the open
+   * kehikko's containers: a page loaded for the kehikko next door is declared
+   * too, and is not what anybody is looking at. Posted whole whenever it
+   * changes, and again when the stream reopens — a server that restarted
+   * has forgotten it.
+   */
+  const declaredHere = useMemo(() => {
+    if (!open) return null
+    const on: [string, Headers[string]][] = []
+    for (const placement of open.placements) {
+      const items = headers[placement.i]
+      if (items) on.push([placement.i, items])
+    }
+    return JSON.stringify(on)
+  }, [open, headers])
+  const postDeclared = useCallback(() => {
+    if (openId === null || declaredHere === null) return
+    void postHeaders(
+      openId,
+      Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
+      JSON.parse(activityRows) as ActivityRow[],
+    )
+  }, [openId, declaredHere, activityRows])
+  useEffect(() => postDeclared(), [postDeclared])
+  repostRef.current = postDeclared
 
   /**
    * Every module page that currently has a document, and where each one goes.
@@ -3205,6 +3331,7 @@ export function App() {
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
+        activity={barActivity}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */
@@ -3500,6 +3627,10 @@ export function App() {
                   /* The server has written the pin and woken this page for the
                      kehikko; looking again picks up what the version is doing. */
                   onVersion={() => void look()}
+                  activity={activityMarks.modules.get(presence.id) ?? null}
+                  onActivitySeen={() =>
+                    activity.markSeen(activity.items.filter((one) => one.module === presence.id && one.state === 'done'))
+                  }
                 />
               </div>
             )
