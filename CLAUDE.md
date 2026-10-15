@@ -142,3 +142,16 @@
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
 - The Notifications module still receives the lines (`noticeFor`), and its own
   `.kehikot/notifications/notifications.json` is imported once and never written.
+
+## Tracker sources
+
+- A project's sources are its git remotes plus `<project>/.kehikot/kehikko/trackers.json`.
+  The ONE writer of that file is `editTrackers` in `server/trackers/edit.ts`
+  (one edit per call, whole file kept, no change → no write); the page reaches it
+  at `POST /host/trackers` (`PAGE_ONLY`) and agents through `set_tracker_source`.
+  Never hand-write the file from another code path.
+- `off: true` on a `sources` entry means "do not read this repository even though a
+  remote names it"; `sourcesOf` skips it everywhere (remote, entry, named ref).
+  Older hosts strip the key and read the repository: additive, not breaking.
+- The words a person is told about a source (`rolesOf`, `readSaid`) live in
+  `src/host/trackerSources.ts`, shared by the panel and the MCP tools.

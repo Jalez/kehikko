@@ -3,6 +3,8 @@ import {
   BookOpen,
   Bot,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleStop,
   Code,
   Columns2,
@@ -45,9 +47,11 @@ import {
   Terminal,
   Trash2,
   TriangleAlert,
+  Undo2,
   Unplug,
   Upload,
   WrapText,
+  X,
   Zap,
   type LucideIcon,
 } from 'lucide-react'
@@ -78,7 +82,7 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
-import { focusAfter, menusOf, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing } from '@/host/header.ts'
+import { focusAfter, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
@@ -138,6 +142,15 @@ import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
  * drawn at all — a switch for a page nobody can see is a press with no
  * visible effect. `modeFor` is the rule.
  *
+ * ## Pinned runs (protocol 1.6.0)
+ *
+ * A `run` with `pinned: true` is ALSO drawn as a 24 px icon button in this
+ * same row, left of the menus (`PinnedRun`; `pinnedOf` in `host/header.ts` is
+ * the rule: declaration order, at most four). It takes no height and no new
+ * row. Not drawn under `PINNED_BELOW` (360 px of measured container), nor in
+ * the icons/merged modes, nor folded (the menus are not drawn folded): the
+ * Run menu always holds every run, so nothing is lost.
+ *
  * Every label is one line, cut with an ellipsis and whole in its `title`.
  * The longest thing a module can say here is the reason a run is disabled,
  * which is a sentence: it is drawn under the row, small, and wraps inside the
@@ -163,6 +176,14 @@ export const ICONS_BELOW = 300
 /** Under this many, View, Go and Run are one menu. */
 export const MERGE_BELOW = 220
 
+/**
+ * Under this many pixels of container, pinned runs (protocol 1.6.0) are not
+ * drawn as buttons and are only in the Run menu, which always holds every run.
+ * Measured on the container's header, not the window. A merged "⋯" header
+ * (under `MERGE_BELOW`) is narrower than this, so it draws none either.
+ */
+export const PINNED_BELOW = 360
+
 /** The mode for a header this wide. `null` is "not measured yet", which is drawn as the widest. */
 export function modeFor(width: number | null): MenuMode {
   if (width === null) return 'words'
@@ -171,7 +192,7 @@ export function modeFor(width: number | null): MenuMode {
 }
 
 /**
- * The mode for the header this is drawn in, kept as the container is resized.
+ * The mode (and whether it is 360 px or wider) for the header this is drawn in, kept as the container is resized.
  *
  * Measured rather than asked of a container query, which is how the header's
  * gaps are closed, because the two narrow modes are not the same elements
@@ -179,20 +200,25 @@ export function modeFor(width: number | null): MenuMode {
  * header that has module menus, which is a few containers, and it sets state
  * only when the mode changes — a drag across a hundred pixels is one render.
  */
-function useMode(anchor: RefObject<HTMLElement | null>, active: boolean): MenuMode {
+function useMode(anchor: RefObject<HTMLElement | null>, active: boolean): { mode: MenuMode; wide: boolean } {
   const [mode, setMode] = useState<MenuMode>('words')
+  const [wide, setWide] = useState(true)
   useLayoutEffect(() => {
     if (!active) return
     const header = anchor.current?.closest<HTMLElement>('.container-grip')
     if (!header) return
-    const measure = () => setMode(modeFor(header.offsetWidth || null))
+    const measure = () => {
+      const width = header.offsetWidth || null
+      setMode(modeFor(width))
+      setWide(width === null || width >= PINNED_BELOW)
+    }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const watching = new ResizeObserver(measure)
     watching.observe(header)
     return () => watching.disconnect()
   }, [anchor, active])
-  return mode
+  return { mode, wide }
 }
 
 /* ------------------------------------------------------------------ *
@@ -252,6 +278,17 @@ export const HEADER_ICONS: ReadonlyMap<string, LucideIcon> = new Map<string, Luc
   ['upload', Upload],
   ['wrap-text', WrapText],
   ['zap', Zap],
+  /* The protocol's own vocabulary (`HEADER_ICONS` in the package, 1.6.0): the
+     names a module may count on for a pinned run. Its spelling for a few is not
+     lucide's, so they are keys of their own beside lucide's. */
+  ['x', X],
+  ['chevron-left', ChevronLeft],
+  ['chevron-right', ChevronRight],
+  ['undo-2', Undo2],
+  ['undo', Undo2],
+  ['stop', Square],
+  ['refresh', RefreshCw],
+  ['external', ExternalLink],
 ])
 
 function ItemIcon({ name }: { name: string | undefined }) {
@@ -291,7 +328,8 @@ interface Pressable {
   pending: readonly string[]
   said: Said | null
   arm(item: HeaderItem): void
-  press(item: HeaderItem, value?: PressValue): void
+  disarm(): void
+  press(item: HeaderItem, value?: PressValue, then?: (came: Pressed) => void): void
   /** How the menu that is open came to close, for `focusAfter`. Written by a press and by `useOpen`. */
   closing: MutableRefObject<Closing>
   /** Hand the keyboard to the module's page. */
@@ -312,6 +350,7 @@ export function HeaderMenus({
   surface,
   note = null,
   mode: asked,
+  pinned: askedPinned,
 }: {
   /** What the module last declared. Empty draws nothing at all. */
   items: readonly HeaderItem[]
@@ -336,11 +375,16 @@ export function HeaderMenus({
   note?: PressNote | null
   /** The mode, when the caller knows it. Left out, the header is measured. */
   mode?: MenuMode
+  /** Whether pinned runs are drawn, when the caller knows. Left out, it follows the measured width. */
+  pinned?: boolean
 }) {
   const anchor = useRef<HTMLSpanElement>(null)
   const menus = useMemo(() => menusOf(items), [items])
-  const measured = useMode(anchor, menus.length > 0 && asked === undefined)
-  const mode = asked ?? measured
+  const measured = useMode(anchor, menus.length > 0 && (asked === undefined || askedPinned === undefined))
+  const mode = asked ?? measured.mode
+  /* Pinned buttons need words-width AND 360 px of container. */
+  const buttons = askedPinned ?? (mode === 'words' && measured.wide)
+  const pinned = useMemo(() => (buttons ? pinnedOf(items) : []), [buttons, items])
 
   /*
    * The one confirmed run that has had its first press, and what it looked
@@ -405,7 +449,8 @@ export function HeaderMenus({
     pending,
     said,
     arm: (item) => setArmed({ id: item.id, as: JSON.stringify(item) }),
-    press: (item, value) => {
+    disarm: () => setArmed(null),
+    press: (item, value, then) => {
       setArmed(null)
       if (pending.includes(item.id)) return
       setPending((was) => [...was, item.id])
@@ -443,6 +488,7 @@ export function HeaderMenus({
           if (!came.ok && sent.current === nth && closing.current === 'pressed') closing.current = 'refused'
           if (!mounted.current) return
           setPending((was) => was.filter((id) => id !== item.id))
+          then?.(came)
           if (!came.ok) setSaid({ item: item.id, menu: HEADER_MENUS[item.kind], text: came.why, tone: 'refused' })
         })
     },
@@ -454,6 +500,9 @@ export function HeaderMenus({
        carry their own padding, and the header's eight-pixel gap three times
        over is twenty-four pixels the module's name would rather have. */
     <span ref={anchor} className="flex shrink-0 items-center" data-header-menus={mode}>
+      {pinned.map((item) => (
+        <PinnedRun key={item.id} item={item} rows={rows} word={said?.item === item.id ? said : null} />
+      ))}
       {mode === 'merged' ? (
         <Menu which="more" menus={menus} mode={mode} name={name} rows={rows} onClosed={disarm} word={said} />
       ) : (
@@ -475,6 +524,110 @@ export function HeaderMenus({
         {said?.text ?? ''}
       </span>
     </span>
+  )
+}
+
+/** The first one or two letters (or digits) of a label, for a pinned run whose icon is not known. */
+export function initials(label: string): string {
+  const letters = label.match(/[\p{L}\p{N}]/gu) ?? []
+  if (!letters.length) return Array.from(label.trim())[0] ?? '·'
+  return letters.length === 1 ? letters[0]!.toUpperCase() : `${letters[0]!.toUpperCase()}${letters[1]!.toLowerCase()}`
+}
+
+/**
+ * One pinned run (protocol 1.6.0), as an icon button in the header row: the
+ * same twenty-four pixels as every other control there, so the row does not
+ * grow. The run stays in the Run menu as well; both go through `rows`, so
+ * arming, the pending guard, full screen and `focusAfter` are one path.
+ *
+ * Never colour alone: disabled is dimmed AND inert AND carries its reason in
+ * the tooltip; busy is a spinner; failed is the menu's triangle; armed is a
+ * ringed button that holds its tooltip open saying "Press again to confirm".
+ * A disabled button is `aria-disabled`, not `disabled`, so it keeps the
+ * pointer and the keyboard and its reason can be read.
+ */
+function PinnedRun({ item, rows, word }: { item: RunItem; rows: Pressable; word: Said | null }) {
+  const quiet = useRef(false)
+  const ref = useRef<HTMLButtonElement>(null)
+  const armed = rows.armed === item.id
+  const busy = item.state === 'busy'
+  const failed = item.state === 'failed'
+  const waiting = rows.pending.includes(item.id)
+  const inert = item.disabled !== null || busy || waiting
+  const Drawn = item.icon === undefined ? undefined : HEADER_ICONS.get(item.icon)
+
+  /* Click-away and Escape disarm, as the menu's closing does for its row. */
+  useEffect(() => {
+    if (!armed) return
+    const away = (event: Event) => {
+      if (!ref.current?.contains(event.target as Node)) rows.disarm()
+    }
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') rows.disarm()
+    }
+    document.addEventListener('pointerdown', away, true)
+    document.addEventListener('keydown', key, true)
+    window.addEventListener('blur', rows.disarm)
+    return () => {
+      document.removeEventListener('pointerdown', away, true)
+      document.removeEventListener('keydown', key, true)
+      window.removeEventListener('blur', rows.disarm)
+    }
+  }, [armed, rows])
+
+  const hint = armed
+    ? 'Press again to confirm'
+    : `${item.label}${item.disabled ? ` — ${item.disabled}` : busy ? ' — running' : failed ? ` — the last run failed${item.result ? `: ${item.result}` : ''}` : item.result ? ` — ${item.result}` : ''}`
+  const shown: Said | null = word ?? (armed ? { item: item.id, menu: 'run', text: `${item.label} — press again to confirm`, tone: 'noted' } : null)
+
+  return (
+    <Word hint={hint} word={shown} quiet={quiet}>
+      <Button
+        ref={ref}
+        variant="ghost"
+        type="button"
+        aria-label={item.label}
+        aria-disabled={inert || undefined}
+        aria-busy={busy || undefined}
+        data-pinned-run={item.id}
+        data-armed={armed ? 'true' : undefined}
+        data-state-run={item.state}
+        {...modal}
+        className={`pointer-events-auto aria-disabled:hover:bg-transparent size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING} ${
+          armed
+            ? 'bg-destructive/15 text-destructive ring-destructive ring-1'
+            : failed
+              ? 'text-destructive hover:text-destructive'
+              : 'text-muted-foreground hover:text-foreground'
+        } ${item.disabled !== null ? 'opacity-50' : ''}`}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={() => {
+          if (inert) return
+          if (item.confirm && !armed) {
+            rows.arm(item)
+            return
+          }
+          /* A press that was sent puts the keyboard in the module's page, as a
+             menu's run does: the person continues in the content. A refused
+             one leaves it here, where the reason is said. */
+          rows.press(item, undefined, (came) => {
+            if (came.ok) rows.keyboard()
+          })
+        }}
+      >
+        {busy ? (
+          <LoaderCircle className="size-3 animate-spin" aria-hidden />
+        ) : failed ? (
+          <TriangleAlert className="size-3" aria-hidden />
+        ) : Drawn ? (
+          <Drawn className="size-3" aria-hidden data-icon={item.icon} />
+        ) : (
+          <span className="text-[10px] leading-none font-semibold" aria-hidden data-initials>
+            {initials(item.label)}
+          </span>
+        )}
+      </Button>
+    </Word>
   )
 }
 

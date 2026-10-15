@@ -22,7 +22,9 @@ import { HOST_ID } from '../kehikot.ts'
 import type { Adapter, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { gitlabAdapter } from './gitlab.ts'
-import { EVERY_DEFAULT, readConfig, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
+import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
+import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
+import type { TrackerListing } from '../../src/host/trackerSources.ts'
 
 /**
  * The host's one tracker reading per project, and the only thing in Kehikot
@@ -294,6 +296,99 @@ export class Trackers {
     return { at: held.stored.at, refreshing: held.running !== null }
   }
 
+  /**
+   * The project's sources as a person is shown them: where each came from, its
+   * switches, what it last read and how much — beside the schedule and the
+   * remotes switch. Worked out from the file and the remotes, not from the
+   * last read, so an edit shows at once.
+   */
+  listing(root: string, remotes: ReadonlyArray<{ name: string; url: string }>): TrackerListing {
+    const held = this.#of(root)
+    const config = readConfig(root)
+    if (!config.ok) {
+      return { sources: [], remotes: true, every: EVERY_DEFAULT, broken: { file: config.file, why: config.why } }
+    }
+    const stored = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
+    const counts = new Map<string, { issues: number; changes: number }>()
+    for (const row of held.stored.rows) {
+      const key = sourceKey(row)
+      const one = counts.get(key) ?? { issues: 0, changes: 0 }
+      if (row.kind === 'change') one.changes += 1
+      else one.issues += 1
+      counts.set(key, one)
+    }
+    return {
+      sources: listSources(config.config, remotes).map((s) => {
+        const was = stored.get(sourceKey(s))
+        const n = counts.get(sourceKey(s))
+        return {
+          tracker: s.tracker,
+          host: s.host,
+          repo: s.repo,
+          default: s.default,
+          listed: s.listed,
+          origin: s.origin,
+          remote: s.remote,
+          off: s.off,
+          at: was?.at ?? null,
+          error: was?.error ?? null,
+          issues: was?.at ? (n?.issues ?? 0) : null,
+          changes: was?.at ? (n?.changes ?? 0) : null,
+        }
+      }),
+      remotes: config.config.remotes,
+      every: config.config.every,
+      broken: null,
+    }
+  }
+
+  /** `listing`, with the project's remotes asked of git. */
+  async describe(root: string): Promise<TrackerListing> {
+    return this.listing(root, await remotesNamed(root, this.#run))
+  }
+
+  /**
+   * One edit of the project's tracker sources — the only way the file is
+   * written. A change has the host read again; an answer is the sentence and
+   * the sources as they now stand.
+   */
+  async edit(root: string, edit: Edit | { kind: 'fresh' }): Promise<Edited & { listing: TrackerListing }> {
+    const remotes = await remotesNamed(root, this.#run)
+    const done = edit.kind === 'fresh' ? startFresh(root) : editTrackers(root, edit, remotes)
+    if (done.outcome === 'changed') this.sourcesChanged(root, remotes.map((r) => r.url))
+    return { ...done, listing: this.listing(root, remotes) }
+  }
+
+  /**
+   * The file changed: work the sources out again at once, so the next answer
+   * is the new list, and read. Every container is told when the read starts
+   * and lands, as for any read.
+   */
+  sourcesChanged(root: string, remotes: readonly string[]): void {
+    const held = this.#of(root)
+    const config = readConfig(root)
+    held.sources = sourcesOf(
+      config.ok ? config.config : { version: 1, sources: [], remotes: true, every: EVERY_DEFAULT },
+      remotes,
+      [...allEpicRefs(root), ...held.stored.asked],
+    )
+    this.#start(root, { project: true })
+  }
+
+  /**
+   * Read one source once, now, as it would be read — nothing is stored. What
+   * it found in counts, or why it could not in words with the next step.
+   */
+  async check(source: Source): Promise<{ ok: true; issues: number; changes: number; capped: boolean } | { ok: false; why: string }> {
+    const adapter = this.#adapters[source.tracker]
+    const limit = 100
+    const read = await adapter.list(source, limit, this.#now().toISOString())
+    if (!read.ok) return { ok: false, why: nextStep(read.why, source.tracker, source.host) }
+    const issues = read.rows.filter((r) => r.kind === 'issue').length
+    const changes = read.rows.filter((r) => r.kind === 'change').length
+    return { ok: true, issues, changes, capped: issues >= limit || changes >= limit }
+  }
+
   /** The sources as last known, for sentences and for `get`. */
   #sourcesFor(held: Held): Source[] {
     if (held.sources) return held.sources
@@ -539,7 +634,7 @@ export class Trackers {
         outcome: 'declined',
         at: held.stored.at,
         why: config.ok
-          ? 'This project has no GitHub or GitLab remote and names no tracker in .kehikot/kehikko/trackers.json, so there is nothing to read.'
+          ? 'This project has no GitHub or GitLab remote and has no source added, so there is nothing to read. Add one from the trackers panel in the bar.'
           : `${config.file} will not read (${config.why}).`,
       }
     }
@@ -608,8 +703,11 @@ export class Trackers {
       if (source && name) wantedIds.add(identity(source, name.kind, name.number))
     }
     const byId = new Map<string, TrackerRow>()
+    const stillRead = new Set(sources.map(sourceKey))
     for (const row of held.stored.rows) {
       const key = sourceKey(row)
+      /* A source that is no longer read (removed, or turned off) takes its rows with it. */
+      if (!stillRead.has(key)) continue
       if (listedNow.has(key) && !wantedIds.has(rowIdentity(row))) continue
       byId.set(rowIdentity(row), row)
     }

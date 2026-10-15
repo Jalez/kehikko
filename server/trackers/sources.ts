@@ -69,6 +69,12 @@ const entrySchema = z.object({
   repo: z.string().regex(NAME).max(LIMITS.TRACKER_REPO),
   default: z.boolean().optional(),
   list: z.boolean().optional(),
+  /**
+   * Do not read this repository, even though a git remote names it. Additive:
+   * `z.object` strips what it does not know, so an older host reads the file
+   * whole and simply goes on reading the repository.
+   */
+  off: z.boolean().optional(),
 })
 
 const fileSchema = z.object({
@@ -115,6 +121,27 @@ export function readConfig(projectPath: string): ConfigRead {
  * GitLab on a host called something else is written in `trackers.json`.
  */
 export function sourceOfRemote(remote: string): Omit<Source, 'default' | 'listed'> | null {
+  const found = splitRemote(remote)
+  if (!found) return null
+  const { host, repo } = found
+  const bare = host.replace(/:\d+$/, '')
+  if (bare === 'github.com') return { tracker: 'github', host: 'github.com', repo }
+  if (bare.split('.').some((part) => part === 'gitlab' || part.startsWith('gitlab'))) {
+    return { tracker: 'gitlab', host: bare, repo }
+  }
+  return null
+}
+
+/**
+ * The host and repository path of a remote URL — `git@host:group/proj.git`,
+ * `ssh://git@host:2222/group/proj`, `https://host/group/sub/proj.git` — with
+ * nothing said about which tracker it is. Null for what is not one.
+ *
+ * What a person pastes is often a page of the repository rather than its
+ * clone address (`…/issues/12`, `…/-/merge_requests/7`), so the path is cut
+ * at the first segment no repository name is made of.
+ */
+export function splitRemote(remote: string): { host: string; repo: string } | null {
   const url = remote.trim()
   const forms = [
     /^[A-Za-z0-9_.-]+@([A-Za-z0-9.-]+):(?:\/)?(.+?)(?:\.git)?\/?$/, // git@host:owner/repo.git
@@ -125,20 +152,22 @@ export function sourceOfRemote(remote: string): Omit<Source, 'default' | 'listed
     const match = form.exec(url)
     if (!match) continue
     const host = match[1]!.toLowerCase()
-    const repo = match[2]!
+    let repo = match[2]!
+    const page = repo.search(/\/(?:-|issues|pulls?|merge_requests|tree|blob|commits?|wiki|actions)(?:\/|$)/)
+    if (page > 0) repo = repo.slice(0, page).replace(/\.git$/, '')
     if (!NAME.test(repo) || repo.length > LIMITS.TRACKER_REPO) return null
-    const bare = host.replace(/:\d+$/, '')
-    if (bare === 'github.com') return { tracker: 'github', host: 'github.com', repo }
-    if (bare.split('.').some((part) => part === 'gitlab' || part.startsWith('gitlab'))) {
-      return { tracker: 'gitlab', host: bare, repo }
-    }
-    return null
+    return { host, repo }
   }
   return null
 }
 
 /** The fetch URLs of a project's remotes, `origin` first. Nothing when it is not a repository. */
 export async function remotesOf(projectPath: string, run: Runner): Promise<string[]> {
+  return (await remotesNamed(projectPath, run)).map((r) => r.url)
+}
+
+/** The same, with each remote's name, for saying which one a source came from. */
+export async function remotesNamed(projectPath: string, run: Runner): Promise<Array<{ name: string; url: string }>> {
   const ran = await run(['git', '-C', projectPath, 'remote', '-v'], { timeout: 5_000 })
   if (ran.code !== 0) return []
   const seen = new Map<string, string>()
@@ -148,8 +177,11 @@ export async function remotesOf(projectPath: string, run: Runner): Promise<strin
     seen.set(name, url)
   }
   const names = [...seen.keys()].sort((a, b) => (a === 'origin' ? -1 : b === 'origin' ? 1 : a.localeCompare(b)))
-  return names.map((name) => seen.get(name)!)
+  return names.map((name) => ({ name, url: seen.get(name)! }))
 }
+
+const hostOf = (entry: { tracker: Tracker; host?: string | undefined }) =>
+  entry.host ?? (entry.tracker === 'github' ? 'github.com' : 'gitlab.com')
 
 const same = (a: Pick<Source, 'tracker' | 'host' | 'repo'>, b: Pick<Source, 'tracker' | 'host' | 'repo'>) =>
   a.tracker === b.tracker && a.host.toLowerCase() === b.host.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase()
@@ -161,6 +193,10 @@ const same = (a: Pick<Source, 'tracker' | 'host' | 'repo'>, b: Pick<Source, 'tra
  */
 export function sourcesOf(config: TrackerConfig, remotes: readonly string[], namedRefs: readonly string[] = []): Source[] {
   const out: Source[] = []
+  /* An entry that says `off` wins over every other way a repository comes to
+     be read: its remote, another entry, a ref that names it outright. */
+  const off = config.sources.filter((e) => e.off).map((e) => ({ tracker: e.tracker, host: hostOf(e), repo: e.repo }))
+  const isOff = (one: Pick<Source, 'tracker' | 'host' | 'repo'>) => off.some((o) => same(o, one))
   const add = (one: Source) => {
     const at = out.findIndex((s) => same(s, one))
     if (at === -1) out.push(one)
@@ -169,11 +205,12 @@ export function sourcesOf(config: TrackerConfig, remotes: readonly string[], nam
   if (config.remotes) {
     for (const remote of remotes) {
       const found = sourceOfRemote(remote)
-      if (found && !out.some((s) => same(s, found))) add({ ...found, default: false, listed: true })
+      if (found && !isOff(found) && !out.some((s) => same(s, found))) add({ ...found, default: false, listed: true })
     }
   }
   for (const entry of config.sources) {
-    const host = entry.host ?? (entry.tracker === 'github' ? 'github.com' : 'gitlab.com')
+    const host = hostOf(entry)
+    if (isOff({ tracker: entry.tracker, host, repo: entry.repo })) continue
     const before = out.find((s) => same(s, { tracker: entry.tracker, host, repo: entry.repo }))
     add({
       tracker: entry.tracker,
@@ -199,7 +236,7 @@ export function sourcesOf(config: TrackerConfig, remotes: readonly string[], nam
     if (!name?.repo) continue
     const host = name.tracker === 'github' ? 'github.com' : glHost
     const one = { tracker: name.tracker, host, repo: name.repo }
-    if (!out.some((s) => same(s, one))) out.push({ ...one, default: false, listed: false })
+    if (!isOff(one) && !out.some((s) => same(s, one))) out.push({ ...one, default: false, listed: false })
   }
   return out.slice(0, LIMITS.TRACKER_SOURCES)
 }
@@ -213,3 +250,47 @@ export function sourceFor(sources: readonly Source[], ref: string): Source | nul
 }
 
 export const sourceKey = (s: Pick<Source, 'tracker' | 'host' | 'repo'>) => `${s.tracker}|${s.host.toLowerCase()}|${s.repo.toLowerCase()}`
+
+/** One source as a person is shown it: where it came from, and whether it is read at all. */
+export interface Listed extends Source {
+  /** `remote`: the project's git remote names it (and the file may adjust it). `file`: somebody added it. */
+  origin: 'remote' | 'file'
+  /** The remote's name, for `remote`. */
+  remote: string | null
+  /** The file says not to read it. */
+  off: boolean
+}
+
+/**
+ * Every source the project's remotes and file name — the ones read, and the
+ * ones turned off — in the order they are read. Refs that name a repository
+ * outright are not here: nobody chose those, and they have no switches.
+ */
+export function listSources(config: TrackerConfig, remotes: ReadonlyArray<{ name: string; url: string }>): Listed[] {
+  const read = sourcesOf(config, remotes.map((r) => r.url))
+  const out: Listed[] = []
+  const origins = new Map<string, string>()
+  if (config.remotes) {
+    for (const remote of remotes) {
+      const found = sourceOfRemote(remote.url)
+      if (found && !origins.has(sourceKey(found))) origins.set(sourceKey(found), remote.name)
+    }
+  }
+  for (const source of read) {
+    const from = origins.get(sourceKey(source))
+    out.push({ ...source, origin: from ? 'remote' : 'file', remote: from ?? null, off: false })
+  }
+  /* The turned-off ones, where a person can find them to turn back on. */
+  for (const entry of config.sources) {
+    if (!entry.off) continue
+    const one = { tracker: entry.tracker, host: hostOf(entry), repo: entry.repo }
+    if (out.some((s) => same(s, one))) continue
+    const from = origins.get(sourceKey(one))
+    if (!from && !entry.off) continue
+    out.push({ ...one, default: false, listed: entry.list ?? false, origin: from ? 'remote' : 'file', remote: from ?? null, off: true })
+  }
+  /* A remote that names an off repository has no entry in `read` and, with an
+     entry that also says off, is already added above. One without any entry
+     cannot be off. */
+  return out
+}

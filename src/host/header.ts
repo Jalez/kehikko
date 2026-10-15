@@ -32,6 +32,7 @@
 import {
   HEADER_MENUS,
   HEADER_MENU_NAMES,
+  pinnedRuns,
   pressRefusal,
   type HeaderItem,
   type HeaderMenu,
@@ -66,6 +67,18 @@ export function withdrawn(held: Headers, id: string): Headers {
 
 /** What each module menu is called. The names are the protocol's; the words are the host's. */
 export const MENU_TITLES: Readonly<Record<HeaderMenu, string>> = { view: 'View', go: 'Go', run: 'Run' }
+
+/** A `run` item, narrowed. */
+export type RunItem = Extract<HeaderItem, { kind: 'run' }>
+
+/**
+ * The runs drawn as icon buttons in the header (protocol 1.6.0): the protocol's
+ * `pinnedRuns`, in declaration order, at most `LIMITS.PINNED_MAX`. Each is
+ * ALSO in the Run menu: `menusOf` is not told about pinning.
+ */
+export function pinnedOf(items: readonly HeaderItem[]): RunItem[] {
+  return pinnedRuns(items).filter((item): item is RunItem => item.kind === 'run')
+}
 
 /** Items that named the same `group`, in the order the first of each group came. `null` is "no group". */
 export interface MenuGroup {

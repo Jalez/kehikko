@@ -205,6 +205,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/inbox/notice', body: { project, module: 'kehikot.nothing', name: 'Nothing', line: { epic: 'one', message: 'Unwanted', level: 'done' } } },
       { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
       { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
+      { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },
