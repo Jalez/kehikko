@@ -72,17 +72,23 @@ export function useActivity(
     return { outcome: 'taken' as const, taken: list.length, why: '' }
   }, [])
 
+  /* The updater is pure — a strict render runs it twice, and one that wrote
+     storage would make its second run see its first run's work and decline. */
   const markSeen = useCallback((these: readonly HeldItem[]) => {
     const id = projectRef.current
     if (id === null) return
     setSeenBy((was) => {
       const base = was[id] ?? readSeen(window.localStorage, id)
       const next = sawItems(base, these)
-      if (next === base) return was
-      writeSeen(window.localStorage, id, next)
-      return { ...was, [id]: next }
+      return next === base && was[id] !== undefined ? was : { ...was, [id]: next }
     })
   }, [])
+
+  /* Remembered across a reload, per browser and project. */
+  useEffect(() => {
+    const kept = project === null ? undefined : seenBy[project]
+    if (project !== null && kept) writeSeen(storage, project, kept)
+  }, [project, seenBy, storage])
 
   /* A module's list goes once it has stayed out of `alive` for the grace: its
      server died, or its container went. */

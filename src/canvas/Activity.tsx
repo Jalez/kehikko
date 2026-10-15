@@ -29,7 +29,7 @@ const LOOK: Record<ActivityState, string> = {
   /* A filled grey that breathes where motion is welcome, and a hollow ring
      where it is not. */
   working:
-    'bg-neutral-500 dark:bg-neutral-400 motion-safe:animate-pulse motion-reduce:bg-transparent motion-reduce:ring-[1.5px] motion-reduce:ring-inset motion-reduce:ring-neutral-500 dark:motion-reduce:ring-neutral-400',
+    'bg-neutral-500 dark:bg-neutral-400 motion-safe:animate-pulse motion-reduce:bg-transparent dark:motion-reduce:bg-transparent motion-reduce:ring-[1.5px] motion-reduce:ring-inset motion-reduce:ring-neutral-500 dark:motion-reduce:ring-neutral-400',
 }
 
 /** The classes a state's dot carries; exported for a test of the reduced-motion rule. */
