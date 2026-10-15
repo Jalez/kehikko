@@ -563,12 +563,17 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
  * Failures are swallowed, for `reportOpen`'s reason: a post that did not land
  * costs an agent a refusal it can act on.
  */
-export function postHeaders(kehikko: number, headers: Readonly<Record<string, readonly HeaderItem[]>>): Promise<void> {
+export function postHeaders(
+  kehikko: number,
+  headers: Readonly<Record<string, readonly HeaderItem[]>>,
+  /** What the modules say they are doing, for `read_canvas` (`host/activity.ts`). */
+  activity: readonly object[] = [],
+): Promise<void> {
   return fetch('/host/headers', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     /* `at`, so a posting that arrives after a later one does not replace it. */
-    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers }),
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, activity }),
   })
     .then(() => undefined)
     .catch(() => {

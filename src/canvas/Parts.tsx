@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { alone, focusSaid, goneSaid, pickedIn, stepTo, toggled, type Part, type PartsEdit } from '@/host/parts.ts'
+import { worstActivity, type ActivityState } from 'kehikot-module-protocol'
+import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
 import { AddItem, Remove } from './Menu.tsx'
 
@@ -119,12 +121,15 @@ import { AddItem, Remove } from './Menu.tsx'
  * Either way it is one `onPick` with the whole list: one write, one context.
  * See `alone` in `host/parts.ts`.
  */
+const NO_MARKS: ReadonlyMap<string, ActivityState> = new Map()
+
 export function Parts({
   parts,
   picked,
   onPick,
   epic = null,
   onEdit = null,
+  marks = NO_MARKS,
 }: {
   /** Every part of the open epic, in the epic's order. Empty opens onto the row that makes one. */
   parts: readonly Part[]
@@ -141,6 +146,8 @@ export function Parts({
    * nothing.
    */
   onEdit?: ((edit: PartsEdit) => Promise<boolean>) | null
+  /** What each part holds that a module said it is doing (`host/activity.ts`): a small dot on its row. */
+  marks?: ReadonlyMap<string, ActivityState>
 }) {
   /* What is being typed: a new part's name, or another name for one part. */
   const [typing, setTyping] = useState<'new' | { rename: string } | null>(null)
@@ -187,6 +194,13 @@ export function Parts({
             >
               <Focus className="size-3 shrink-0" />
               <span className="min-w-0 truncate">{none ? 'no parts' : said.label}</span>
+              {/* Only what is out of sight: with the whole epic shown, a part's
+                  own row is the one that says. */}
+              {(() => {
+                if (!said.narrowed) return null
+                const out = worstActivity(parts.filter((p) => !on.includes(p.id)).flatMap((p) => marks.get(p.id) ?? []))
+                return out ? <ActivityDot state={out} what="a part that is not picked" /> : null
+              })()}
               <ChevronDown className="size-3 shrink-0 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
@@ -299,6 +313,7 @@ export function Parts({
                         <span className="sr-only">only </span>
                         {part.heading}
                       </span>
+                      {marks.get(part.id) ? <ActivityDot state={marks.get(part.id)!} what={part.heading} /> : null}
                       {/* What is under the heading, when anything is. A part with
                           nothing in it yet is still a part somebody can pick; the
                           blank here is why a module then shows nothing for it. */}

@@ -11,6 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import type { Canvas } from '@/host/canvases.ts'
+import type { ActivityState } from 'kehikot-module-protocol'
+import { worstOther } from '@/host/activity.ts'
+import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
@@ -25,6 +28,8 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * in two presses, made by "new kehikko" at the end. The remove is flat rather
  * than gone when this is the only kehikko, because the server refuses that.
  */
+const NO_MARKS: ReadonlyMap<string, ActivityState> = new Map()
+
 export function Canvases({
   canvases,
   open,
@@ -32,6 +37,7 @@ export function Canvases({
   onRename,
   onCreate,
   onDelete,
+  marks = NO_MARKS,
 }: {
   canvases: readonly Canvas[]
   open: Canvas | null
@@ -39,6 +45,8 @@ export function Canvases({
   onRename(id: number, name: string): void
   onCreate(): void
   onDelete(id: number): void
+  /** What each kehikko (by its key) holds that a module said it is doing: a small dot on its row. */
+  marks?: ReadonlyMap<string, ActivityState>
 }) {
   /** Which kehikko is being renamed, if any. Null is the ordinary list. */
   const [editing, setEditing] = useState<number | null>(null)
@@ -59,6 +67,10 @@ export function Canvases({
           >
             <LayoutGrid className="text-muted-foreground size-3 shrink-0" />
             <span className="min-w-0 truncate">{open?.name ?? 'no kehikko'}</span>
+            {(() => {
+              const other = worstOther(marks, open?.key ?? null)
+              return other ? <ActivityDot state={other} what="another kehikko" /> : null
+            })()}
             <ChevronDown className="text-muted-foreground size-3 shrink-0" />
           </Button>
         </DropdownMenuTrigger>
@@ -97,6 +109,9 @@ export function Canvases({
               >
                 <DropdownMenuCheck checked={canvas.id === open?.id} />
                 <span className="min-w-0 flex-1 truncate">{canvas.name}</span>
+                {canvas.key !== undefined && marks.get(canvas.key) ? (
+                  <ActivityDot state={marks.get(canvas.key)!} what={canvas.name} />
+                ) : null}
                 <RowPencil label={`rename ${canvas.name}`} title="rename (F2)" onStart={() => setEditing(canvas.id)} />
                 {/* How much is on it: how a person tells two kehikot apart
                     when they gave both the same forgettable name. */}

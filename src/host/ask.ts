@@ -1,5 +1,6 @@
 import {
   methodParams,
+  type ActivityItem,
   type FilterChoice,
   type FoldResult,
   type Passage,
@@ -214,6 +215,13 @@ export interface CanvasControls {
    * in `host/folds.ts`.
    */
   fold(from: string, call: { fold: string[]; unfold: string[] }): Folded
+  /**
+   * Hold one module's whole list of activity (`activity.set`, protocol 1.5.0),
+   * replacing its last one. `from` is out of the registration, as for `emit`:
+   * a module can only say what its own things are doing. Declined with a
+   * sentence when no project is open, since the list is held per project.
+   */
+  activity?(from: string, items: ActivityItem[]): { outcome: 'taken' | 'declined'; taken: number; why: string }
   /**
    * Which project the canvas is standing in, as an id, read at call time.
    *
@@ -460,6 +468,14 @@ function answerInTheView(
   if (method === 'view.fold') {
     const call = parsed.data as { fold: string[]; unfold: string[] }
     return succeeded(method, canvas.fold(moduleId, call))
+  }
+
+  if (method === 'activity.set') {
+    const { items } = parsed.data as { items: ActivityItem[] }
+    if (!canvas.activity) {
+      return succeeded(method, { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' })
+    }
+    return succeeded(method, canvas.activity(moduleId, items))
   }
 
   if (method === 'events.emit') {

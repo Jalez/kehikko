@@ -11,6 +11,8 @@ import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
+import type { ActivityState } from 'kehikot-module-protocol'
+import { ActivityDot } from './Activity.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
@@ -91,6 +93,8 @@ export function Container({
   version = null,
   current = null,
   onVersion = () => {},
+  activity = null,
+  onActivitySeen,
 }: {
   presence: Presence
   /**
@@ -218,6 +222,10 @@ export function Container({
   current?: string | null
   /** A pin or unpin went through. */
   onVersion?(): void
+  /** The worst state this module's items hold (`host/activity.ts`), or null. Drawn as one dot beside the condition dot. */
+  activity?: ActivityState | null
+  /** The finished dot was pressed: this module's finished items were seen. */
+  onActivitySeen?(): void
 }) {
   const name = presence.name ?? presence.id
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
@@ -431,6 +439,25 @@ export function Container({
           />
         </Hint>
 
+        {/* What this module says it is doing (`host/activity.ts`): one dot
+            beside the condition dot, the same size, drawn only when something
+            is held. A finished one can be pressed to say it was seen. */}
+        {activity ? (
+          activity === 'done' && onActivitySeen ? (
+            <button
+              type="button"
+              aria-label="finished — mark as seen"
+              title="finished — press to mark as seen"
+              className="flex shrink-0 cursor-default items-center"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={onActivitySeen}
+            >
+              <ActivityDot state="done" />
+            </button>
+          ) : (
+            <ActivityDot state={activity} />
+          )
+        ) : null}
         <ConditionDot
           condition={condition}
           lifecycle={showing.kind === 'cover' ? showing.state : showing.kind === 'notice' && showing.asleep ? 'asleep' : undefined}

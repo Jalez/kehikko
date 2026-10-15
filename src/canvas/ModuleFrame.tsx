@@ -203,6 +203,8 @@ export function ModuleFrame({
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),
         filter: (from, choice) => canvasRef.current.filter(from, choice),
+        activity: (from, items) =>
+          canvasRef.current.activity?.(from, items) ?? { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' },
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
         goto: (call) => canvasRef.current.goto(call),
