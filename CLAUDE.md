@@ -42,6 +42,12 @@
   the host brings level with the repository's main branch before starting it
   (`level` in `server/server.ts`; never while it runs). A registration never
   names a working checkout or a worktree.
+- Every container's header shows the branch its module is running from, after
+  the version: quiet on `main`, an amber chip with the reason otherwise (another
+  branch, behind or ahead, uncommitted changes, not the registered folder). It
+  reads the folder the RUNNING process is in (`server/source.ts`), so a module
+  somebody started by hand is caught too. `bun dev/source.probe.ts` prints the
+  same for every module.
 - An agent changing a module works in a git worktree of that module's
   repository and opens a PR; it never edits the installed copy and never runs
   `bun run register`. To see a change running it starts its own dev server from

@@ -33,6 +33,7 @@ import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.
 import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
+import { sourceOf } from './source.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
@@ -506,14 +507,24 @@ async function survey(): Promise<{
        perfectly and offering tools that no agent has been told exist; nothing
        errors, the tools are simply absent from the conversation. See
        `agents.ts`. */
-    presences: presences.map((presence) => ({
-      ...presence,
-      state: readState(db, presence.id),
-      agent: awareness(presence),
-      /* Where the registration says the program lives, for the details under a
-         row in the module list. Absent for a module somebody starts themselves. */
-      dir: registered.get(presence.id)?.dir,
-    })),
+    presences: await Promise.all(
+      presences.map(async (presence) => {
+        const registration = registered.get(presence.id)
+        return {
+          ...presence,
+          state: readState(db, presence.id),
+          agent: awareness(presence),
+          /* Where the registration says the program lives, for the details under a
+             row in the module list. Absent for a module somebody starts themselves. */
+          dir: registration?.dir,
+          /* Which folder and branch it is actually running from, for the
+             container's header. See `source.ts`. */
+          source: registration
+            ? await sourceOf(presence.id, registration.url, registration.dir, presence.reached, systemProcesses)
+            : null,
+        }
+      }),
+    ),
     /* The host's own door, read against the same `knows` in the same sweep.
        This is the whole of what the page needs to draw the plug on the host's
        strip with the same states a container's plug has — and it is a READ of
