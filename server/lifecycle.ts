@@ -371,6 +371,13 @@ export interface Doing {
   installing: boolean
   /** The host stopped it because nothing needed it. */
   asleep: boolean
+  /**
+   * The host is bringing its installed copy level with its branch, on the way
+   * to starting it (`begin` in `server.ts`). Part of starting: a page told
+   * nothing here would draw a Start button over a start already under way, and
+   * would not look again until somebody pressed it or came back to the window.
+   */
+  levelling: boolean
 }
 
 /**
@@ -384,6 +391,7 @@ export interface Doing {
 export function lifecycleOf(silent: boolean, doing: Doing, now: number): Lifecycle | undefined {
   if (doing.work) return doing.work
   if (!silent) return undefined
+  if (doing.levelling) return 'starting'
   if (doing.ranAt !== null) {
     const since = now - doing.ranAt
     if (doing.alive && doing.installing && since < INSTALLING_FOR_MS) return 'installing'
@@ -424,7 +432,7 @@ export function theirsLine(id: string, at: string): string {
 /** Said on a container whose module the host has just run. */
 export function startingLine(id: string, at: string): string {
   return (
-    `${id} is starting. This kehikko has it, so the host ran its run.sh; ` +
+    `${id} is starting. This kehikko has it, so the host is running its run.sh; ` +
     `it has not answered at ${at} yet. This resolves on its own — the container becomes the module, ` +
     `or says the module was run and did not answer.`
   )

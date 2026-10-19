@@ -939,6 +939,7 @@ function doing(id: string): Doing {
     /* Read only for a start still in flight: it is a file read. */
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
+    levelling: levelling.has(id),
   }
 }
 
@@ -1031,6 +1032,13 @@ function begin(id: string): void {
         levelling.delete(id)
         levelledAt.set(id, Date.now())
         begin(id)
+        /* The start this was on the way to happened after whatever asked for
+           it had its answer, so the pages are told rather than left to find
+           out on the next focus or press. The fault this closes: after a
+           launch every installed module levels first, the page's sweep read
+           them as not running, and the canvas offered Start over modules that
+           were already up until somebody switched apps and back. */
+        wakes.registryChanged()
       })
     return
   }
@@ -3085,7 +3093,24 @@ const server = Bun.serve({
              a few seconds, and a page that waits that long is a page the MCP
              door says has nothing open for that long. */
           controller.enqueue(encoder.encode(`: listening\nretry: ${WATCH_RETRY_MS}\n\n`))
-          if (page && kehikko !== null) openness.streamed(connection, page, kehikko)
+          if (page && kehikko !== null) {
+            openness.streamed(connection, page, kehikko)
+            /* A report, so acted on like one: what that kehikko has is started
+               now, whatever became of the page's own POST and sweep. A page
+               that has made those makes nothing more until it is focused or
+               pressed, and this stream is the one request it is sure to hold.
+               The pages are told only when something was started — a wake
+               makes every page sweep, and a stream opens on every switch. */
+            void sweep()
+              .then((view) => {
+                const begins = toStart(standings(view.presences, Date.now())).length > 0
+                govern(view.presences)
+                if (begins) wakes.registryChanged()
+              })
+              .catch(() => {
+                /* A sweep that failed is a decision not made, which is the safe one. */
+              })
+          }
           /* A screen is standing in a project: its `.kehikot/` is watched for
              as long as one is. See `ContentWatch`. */
           watchOpenProjects()
