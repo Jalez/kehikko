@@ -118,7 +118,7 @@ fi
 #
 # That is no longer where epics come from. A kehikko belongs to a PROJECT, a
 # project is a folder, and epics are read from `<project>/.kehikot/kehikko/epics`
-# (once `<project>/data/epics`, then `<project>/.kehikot/roadmap/epics`; the host
+# (once `<project>/data/epics`; the host
 # brings a legacy one over when it starts, adopts or adds the project — see
 # `server/hostData.ts`) — so a
 # person with two projects open gets two different answers, which is the whole
@@ -150,11 +150,10 @@ fi
 # There is no default here, for exactly that reason: the projects table is the
 # answer on every start, and this variable only seeds a fresh database when
 # somebody sets it on purpose.
-# Whether a folder holds epics: `.kehikot/kehikko/epics`, or one of the older
-# places the host brings over when it adopts the folder — `.kehikot/roadmap/epics`
-# (from before the app was renamed) or the legacy `data/epics`.
+# Whether a folder holds epics: `.kehikot/kehikko/epics`, or the older
+# place the host brings over when it adopts the folder — the legacy `data/epics`.
 holds_epics() {
-  [ -d "$1/.kehikot/kehikko/epics" ] || [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
+  [ -d "$1/.kehikot/kehikko/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
 }
 
 if [ -n "${KEHIKOT_SEED_PROJECT:-}" ]; then

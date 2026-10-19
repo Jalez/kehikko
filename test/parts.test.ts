@@ -69,8 +69,8 @@ function project(store: Database, dir: string): Project {
 /* The shape of the one real epic that has groups: headings and refs, no ids,
    and steps that name refs and say nothing about a part. */
 const asOnDisk = {
-  slug: 'the-roadmap-tracks-itself',
-  title: 'The roadmap can be trusted about its own state',
+  slug: 'the-thesis-tracks-itself',
+  title: 'The thesis can be trusted about its own state',
   steps: [
     { title: 'The one path that writes in public has a gate on it', body: '', refs: ['gh#1'], notes: [] },
     { title: 'The claim ledger is safe to be wrong about', body: '', refs: ['gh#3'], notes: [] },
@@ -410,19 +410,19 @@ describe('the list of epics says which have parts', () => {
   test('an epic with groups carries them; one without is exactly as it was', () => {
     const dir = folder()
     mkdirSync(epicsDir(dir), { recursive: true })
-    writeFileSync(join(epicsDir(dir), 'the-roadmap-tracks-itself.json'), JSON.stringify(asOnDisk))
+    writeFileSync(join(epicsDir(dir), 'the-thesis-tracks-itself.json'), JSON.stringify(asOnDisk))
     writeFileSync(join(epicsDir(dir), 'plain.json'), JSON.stringify({ slug: 'plain', title: 'Plain', groups: [] }))
     const epics = listEpics(dir)
     const plain = epics.find((epic) => epic.slug === 'plain')
     expect(plain).toEqual({ slug: 'plain', title: 'Plain' })
-    const divided = epics.find((epic) => epic.slug === 'the-roadmap-tracks-itself')
+    const divided = epics.find((epic) => epic.slug === 'the-thesis-tracks-itself')
     expect(divided?.parts?.map((part) => part.id)).toEqual(['the-posting-seam', 'the-agent-seam', 'what-the-page-shows'])
   })
 })
 
 describe('every module is told every part', () => {
   const parts = partsOf(asOnDisk)
-  const subject = { epic: 'the-roadmap-tracks-itself', project: null }
+  const subject = { epic: 'the-thesis-tracks-itself', project: null }
   const wire = (picked: string[], epic: string | null = subject.epic) =>
     toWireContext({ ...subject, epic }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], partsOnWire(parts, picked))
 
@@ -451,7 +451,7 @@ describe('every module is told every part', () => {
       return rest
     }
     expect(older(wire(['the-agent-seam']))).toEqual(older(wire([])))
-    expect(older(wire(['the-agent-seam'])).epic).toBe('the-roadmap-tracks-itself')
+    expect(older(wire(['the-agent-seam'])).epic).toBe('the-thesis-tracks-itself')
   })
 
   test('the context that leaves is one the protocol’s own schema takes whole, parts and all', () => {

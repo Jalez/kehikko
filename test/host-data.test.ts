@@ -12,13 +12,10 @@ import { HOST_ID } from '../server/kehikot.ts'
 import { HOST_FOLDER, epicsDir, migrateHostData, stateDir } from '../server/hostData.ts'
 
 /**
- * A project's epics and state moved from `<project>/data/{epics,state}`, and
- * then from `<project>/.kehikot/roadmap/{epics,state}` (the folder named after
- * the app before it was Kehikot), to `<project>/.kehikot/kehikko/{epics,state}`.
- * These hold the migration to the rules it promises: move `data/` and copy
- * `.kehikot/roadmap/` when the new place is free, never overwrite, never delete
- * the pre-rename copy, leave both when both exist, and remove `data/` only when
- * the move emptied it.
+ * A project's epics and state moved from `<project>/data/{epics,state}` to
+ * `<project>/.kehikot/kehikko/{epics,state}`. These hold the migration to the
+ * rules it promises: move `data/` when the new place is free, never overwrite,
+ * leave both when both exist, and remove `data/` only when the move emptied it.
  */
 
 let scratch: string
@@ -91,7 +88,7 @@ describe('migrateHostData', () => {
     const root = join(scratch, 'thesis')
     mkdirSync(root)
     const said = migrateHostData(root, log)
-    expect(said).toEqual({ moved: [], copied: [], conflicts: [], removedData: false })
+    expect(said).toEqual({ moved: [], conflicts: [], removedData: false })
     expect(existsSync(join(root, '.kehikot'))).toBe(false)
   })
 
@@ -105,57 +102,9 @@ describe('migrateHostData', () => {
   })
 })
 
-function preRename(name: string): string {
-  const root = join(scratch, name)
-  for (const dir of ['epics', 'state']) {
-    mkdirSync(join(root, '.kehikot', 'roadmap', dir), { recursive: true })
-    writeFileSync(join(root, '.kehikot', 'roadmap', dir, 'a.json'), `{"slug":"a","title":"Before the rename","in":"${dir}"}\n`)
-  }
-  return root
-}
-
-describe('migrateHostData, from .kehikot/roadmap/', () => {
-  test('the host folder is the one its own id names', () => {
+describe('the host folder', () => {
+  test('is the one its own id names', () => {
     expect(HOST_FOLDER).toBe(moduleFolder(HOST_ID))
-  })
-
-  test('copies epics and state into .kehikot/kehikko, and leaves the originals where they are', () => {
-    const root = preRename('p')
-    const said = migrateHostData(root, log)
-    expect(said.copied).toEqual([
-      [join(root, '.kehikot', 'roadmap', 'epics'), join(root, '.kehikot', 'kehikko', 'epics')],
-      [join(root, '.kehikot', 'roadmap', 'state'), join(root, '.kehikot', 'kehikko', 'state')],
-    ])
-    expect(epicsDir(root)).toBe(join(root, '.kehikot', 'kehikko', 'epics'))
-    expect(readFileSync(join(epicsDir(root), 'a.json'), 'utf8')).toContain('Before the rename')
-    expect(readFileSync(join(stateDir(root), 'a.json'), 'utf8')).toContain('state')
-    expect(existsSync(join(root, '.kehikot', 'roadmap', 'epics', 'a.json'))).toBe(true)
-    expect(existsSync(join(root, '.kehikot', 'roadmap', 'state', 'a.json'))).toBe(true)
-  })
-
-  test('is idempotent, and never overwrites what is already in the new place', () => {
-    const root = preRename('p')
-    mkdirSync(join(root, '.kehikot', 'kehikko', 'epics'), { recursive: true })
-    writeFileSync(join(root, '.kehikot', 'kehikko', 'epics', 'b.json'), '{"slug":"b","title":"Already here"}\n')
-    const first = migrateHostData(root, log)
-    expect(first.copied.map(([, to]) => to)).toEqual([join(root, '.kehikot', 'kehikko', 'state')])
-    expect(existsSync(join(epicsDir(root), 'a.json'))).toBe(false)
-    expect(migrateHostData(root, log)).toEqual({ moved: [], copied: [], conflicts: [], removedData: false })
-  })
-
-  test('reads the pre-rename folder while the new one is not there', () => {
-    const root = preRename('p')
-    expect(epicsDir(root)).toBe(join(root, '.kehikot', 'roadmap', 'epics'))
-    expect(listEpics(root).map((epic) => epic.slug)).toEqual(['a'])
-  })
-
-  test('a legacy data/ beside a pre-rename folder is a conflict, and is left alone', () => {
-    const root = legacy('p', { state: false })
-    preRename('p')
-    const said = migrateHostData(root, log)
-    expect(said.moved).toHaveLength(0)
-    expect(said.conflicts).toEqual([[join(root, 'data', 'epics'), join(root, '.kehikot', 'kehikko', 'epics')]])
-    expect(existsSync(join(root, 'data', 'epics', 'a.json'))).toBe(true)
   })
 })
 

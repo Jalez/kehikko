@@ -89,7 +89,6 @@ describe('proposing a module for the official list', () => {
   test('an official module is never proposed', async () => {
     const { desk, calls } = world()
     expect(await desk.propose('kehikot.slides')).toMatchObject({ ok: false, status: 409 })
-    expect(await desk.propose('roadmap.slides')).toMatchObject({ ok: false })
     expect(calls).toEqual([])
   })
 

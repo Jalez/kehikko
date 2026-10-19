@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, canonicalModuleId, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
@@ -243,7 +243,7 @@ const contentWatch = new ContentWatch({
       try {
         /* Under the name it has now: a module registered from before the
            rename reports as the same one, and must be the same source. */
-        if (moduleFolder(id) === folder) return canonicalModuleId(id)
+        if (moduleFolder(id) === folder) return id
       } catch {
         /* An id that names no folder keeps none. */
       }
@@ -950,11 +950,73 @@ function begin(id: string): void {
   /* Somebody else was running it and it has only just gone: theirs to bring
      back first. See `THEIRS_TO_RESTART_MS`. */
   if (theirs.has(id)) return
-  const can = startable(registered.get(id) ?? null)
+  /* Being brought level with its branch; started when that is done. */
+  if (levelling.has(id)) return
+  const registration = registered.get(id) ?? null
+  const can = startable(registration)
   if (!can.ok) return
+  if (registration?.dir && isInstalled(registration.dir) && Date.now() - (levelledAt.get(id) ?? 0) > LEVEL_AT_MOST_EVERY_MS) {
+    levelling.add(id)
+    void level({ id, name: id, dir: registration.dir })
+      .catch((error: unknown) => console.log(`kehikko: could not bring ${id} level before starting it: ${String(error)}`))
+      .finally(() => {
+        levelling.delete(id)
+        levelledAt.set(id, Date.now())
+        begin(id)
+      })
+    return
+  }
   const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
   console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko has it (pid ${ran.child.pid})`)
+}
+
+/**
+ * A module the app installed runs from its repository's main branch.
+ *
+ * Installed modules (`installs.ts`) live in a folder this host owns and nobody
+ * works in. Before one is started it is brought level with the branch it
+ * tracks — fetched, and fast-forwarded when it is behind — so what the app
+ * runs is what is merged. Only at a start: a module that is running is never
+ * changed under the person using it. `update` refuses anything that is not a
+ * clean fast-forward, and then the copy starts as it is and the log says why.
+ */
+const levelling = new Set<string>()
+const levelledAt = new Map<string, number>()
+/** How often a module is checked against its branch on its way to starting. */
+const LEVEL_AT_MOST_EVERY_MS = 10 * 60_000
+
+function isInstalled(dir: string): boolean {
+  const root = installsDir()
+  const real = (path: string) => {
+    try {
+      return realpathSync(path)
+    } catch {
+      return path
+    }
+  }
+  const inside = real(dir)
+  const under = real(root)
+  return inside === under || inside.startsWith(`${under}/`)
+}
+
+async function level(place: Place): Promise<void> {
+  const reading = await readCheckout(place, true)
+  if ('error' in reading) {
+    console.log(`kehikko: could not read ${place.dir} before starting ${place.id}: ${reading.error}`)
+    return
+  }
+  if (reading.behind === 0) return
+  if (reading.blocked) {
+    console.log(`kehikko: ${place.id} is ${reading.behind} behind ${reading.upstream} and was not updated: ${reading.blocked}`)
+    return
+  }
+  const done = await update(place)
+  console.log(
+    done.ok
+      ? `kehikko: brought ${place.id} level with ${reading.upstream} before starting it (${done.changed.length} files changed)`
+      : `kehikko: ${done.why}`,
+  )
 }
 
 /**
@@ -1814,8 +1876,7 @@ function canvasId(pathname: string): number | null {
 
 /** The module id out of a request, bounded before it is looked at. */
 function moduleIn(value: unknown): string | null {
-  /* Canonical, so `roadmap.x` from anything written before the rename is `kehikot.x`. */
-  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? canonicalModuleId(value) : null
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
 }
 
 const server = Bun.serve({
@@ -1920,7 +1981,7 @@ const server = Bun.serve({
       if (body.method.length > LIMITS.METHOD || body.module.length > 64) {
         return json({ ok: false, reason: 'failed', error: 'A call names a module and a method.' }, 400)
       }
-      const named = canonicalModuleId(body.module)
+      const named = body.module
 
       /* If nothing has swept yet — a module framed by a page that was already
          open when this server restarted — sweep once so the answer is about the
@@ -2539,7 +2600,7 @@ const server = Bun.serve({
       if (!body || typeof body.module !== 'string' || body.module.length > 64) {
         return json({ ok: false, why: 'A start names one module.' }, 400)
       }
-      const named = canonicalModuleId(body.module)
+      const named = body.module
 
       /* Read the registrations now rather than trusting the last sweep, because
          the commonest reason to press Start is that somebody has just edited a

@@ -35,7 +35,7 @@ function epicFile(dir: string, slug: string): string {
 }
 
 /*
- * A real epic's shape, in the roadmap's own formatting: two spaces, a trailing
+ * A real epic's shape, in the epic file's own formatting: two spaces, a trailing
  * newline, and — the part that matters — a nested `"title"` on every step. A
  * naive rewrite that looked for the first `"title": "…"` in the text would
  * rename a step in files like this one and the epic in files without steps,

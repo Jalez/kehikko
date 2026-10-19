@@ -166,7 +166,7 @@ describe('the data guard', () => {
     expect(recordDataVersion(project, 'kehikot.notes', 2)).toBe(true)
     expect(recordDataVersion(project, 'kehikot.notes', 1)).toBe(false)
     expect(recordDataVersion(project, 'kehikot.notes', 2)).toBe(false)
-    expect(recordDataVersion(project, 'roadmap.checklist', 3)).toBe(true)
+    expect(recordDataVersion(project, 'kehikot.checklist', 3)).toBe(true)
     expect(readDataVersions(project)).toEqual({ 'kehikot.notes': 2, 'kehikot.checklist': 3 })
     expect(dataVersionsFile(project)).toBe(join(project, '.kehikot', 'kehikko', 'data-versions.json'))
     expect(recordedFor(readDataVersions(project), 'kehikot.notes')).toBe(2)

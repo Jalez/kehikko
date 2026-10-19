@@ -6,13 +6,10 @@
   protocol helpers (`KEHIKOT_DIR`, `kehikotDir`, `moduleDir`, `moduleFile` from
   `kehikot-module-protocol`). Never `join(ROOT|HERE|import.meta.dir|process.cwd()|__dirname, 'data', …)`,
   never `homedir()` for storage. The host's own epics/state are
-  `<project>/.kehikot/kehikko/{epics,state}/` (spelled once in `server/hostData.ts`;
-  the pre-rename `.kehikot/roadmap/` is copied over on start and read as a
-  fallback, never written).
+  `<project>/.kehikot/kehikko/{epics,state}/` (spelled once in `server/hostData.ts`).
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/`, `installed/` and `official-modules.json` — `~/.claude*`, `~/Library/LaunchAgents|Logs`, the old service
-  marker, temp dirs), each with a one-line reason. A one-off exception needs
+  `frame.sqlite`, `versions/`, `installed/` and `official-modules.json` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
@@ -30,26 +27,30 @@
   test that moves one of those variables restores what it found — never
   `delete`. A new machine-level location goes in that file's `LOCATIONS`.
 
-## The rename from "roadmap"
+## Manifests
 
-- The app was called "roadmap" before it was Kehikot. Module ids are
-  `kehikot.<name>`; a `roadmap.<name>` id from a registration, a manifest, a
-  database row, a `kehikot.json` or an MCP call is the SAME module — pass it
-  through `canonicalModuleId` (protocol) wherever a module id comes in.
-- That respelling is the HOST's job since protocol 1.0.0: the protocol's
-  schemas carry an id as written, and the canvases database is respelled on
-  open (`renameModuleIds` in `server/canvases.ts`, which writes the old
-  `'roadmap.'` prefix out itself). `roadmap.<name>.json` in the registry
-  registers `kehikot.<name>`.
-- The old DIALECT is gone (protocol 1.0.0): a module built against the
-  protocol before 0.25 (`roadmap.module` at `/.well-known/roadmap-module.json`,
-  `roadmap.*` messages) is not asked for and not greeted. There is one
-  spelling of the wire; `Conversation` posts a message as built.
 - A manifest must say how the module relates to the parts of an epic
   (`reacts: ['parts']` or a `partless` sentence, not both); the protocol's
   schema refuses one that does not. `look` in `server/discover.ts` marks that
   presence `refused`, and the modules list says the protocol's sentence and
   "Update the module to use it." (`attention` in `src/host/moduleMenu.ts`).
+
+## Modules run from main
+
+- The app runs every module from its installed copy under
+  `~/Library/Application Support/Kehikot/installed/<id>/` (`installsDir`), which
+  the host brings level with the repository's main branch before starting it
+  (`level` in `server/server.ts`; never while it runs). A registration never
+  names a working checkout or a worktree.
+- An agent changing a module works in a git worktree of that module's
+  repository and opens a PR; it never edits the installed copy and never runs
+  `bun run register`. To see a change running it starts its own dev server from
+  the worktree on a spare port (`PORT=… ./run.sh`) — protocol 2.0.0's `serves()`
+  will not take over the app's registration from another folder — and stops it
+  by pid when done.
+- What reaches the app is what is merged to main; the host itself reaches
+  people only through a desktop release (kehikko-desktop: bump the version,
+  push a `vX.Y.Z` tag).
 
 ## The official module list
 

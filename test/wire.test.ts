@@ -276,7 +276,7 @@ describe('one question, one answer, one id', () => {
     conversation.close()
   })
 
-  test('anything without a kehikot. or roadmap. prefix is not ours and is left alone', () => {
+  test('anything without the kehikot. prefix is not ours and is left alone', () => {
     const { frame, contentWindow } = frameAndWindow()
     const faults: string[] = []
     const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, {

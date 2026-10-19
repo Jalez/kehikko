@@ -156,12 +156,6 @@ describe('which process would be stopped', () => {
     expect(m.signals).toEqual([])
   })
 
-  test('a pre-rename id in the manifest is the same module', async () => {
-    const root = dir()
-    const { world } = machine({ listener: 1234, cwds: { 1234: root }, groups: { 1234: 1234 }, says: 'roadmap.terminal' })
-    expect((await aim(ID, runnable(root), world)).ok).toBe(true)
-  })
-
   const refusals: Array<[string, (root: string) => Partial<Machine>, RegExp]> = [
     ['nothing listens on the port', () => ({ listener: null }), /nothing is listening on port 7920 any more/],
     ['the listener answers as another module', (root) => ({ listener: 1234, cwds: { 1234: root }, groups: { 1234: 1234 }, says: 'kehikot.notes' }), /answers as kehikot\.notes, not as kehikot\.terminal/],
@@ -422,7 +416,7 @@ describe('the route', () => {
   test('the first press says what will be stopped and stops nothing; the second stops that process and starts the module', async () => {
     const root = dir()
     const { post, m, restarts, events } = desk(kept(root))
-    const armed = await post({ module: 'roadmap.terminal', press: 'arm' })
+    const armed = await post({ module: 'kehikot.terminal', press: 'arm' })
     expect(armed.status).toBe(200)
     expect(armed.body.armed?.forMs).toBe(ARMED_FOR_MS)
     expect(armed.body.armed?.sentence).toContain('Restarting kehikot.terminal ends whatever it is running')

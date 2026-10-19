@@ -416,7 +416,7 @@ describe('when the two copies of an epic disagree', () => {
 
     test('and this host’s own file says so too, where there is no record to say it', () => {
       /* The fallback is read the same way: a project with no journeys and an
-         epic file from the roadmap, `steps: []` beside a `stepsFrom`. */
+         epic file from the epics module, `steps: []` beside a `stepsFrom`. */
       const root = project()
       writeFileSync(join(epicsDir(root), 'a-paper.json'), `${JSON.stringify(paper, null, 2)}\n`)
       expect(asked(root, 'steps.list', { epic: 'a-paper' })).toEqual({ stepsFrom: paper.stepsFrom })

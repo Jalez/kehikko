@@ -1,20 +1,16 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync, watch, type FSWatcher } from 'node:fs'
-import { basename, dirname, join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import {
   CONTENT_HOST,
   EPIC_SLUG,
   JOURNEYS_MODULE,
   LIMITS,
   MODULE_ID,
-  canonicalModuleId,
   kehikotDir,
   type ContentChange,
 } from 'kehikot-module-protocol'
-import { HOST_FOLDER, LEGACY_DATA_DIR, epicsDir, stateDir } from './hostData.ts'
-
-/** `roadmap`: the host's folder from before the rename, still read where the new one is not there. */
-const LEGACY_FOLDER = basename(LEGACY_DATA_DIR)
+import { HOST_FOLDER, epicsDir, stateDir } from './hostData.ts'
 
 /**
  * Telling every container that the material it shows for an epic has changed.
@@ -130,7 +126,7 @@ export class Contents {
  */
 export function stepsAreKeptBy(source: string): boolean {
   try {
-    return canonicalModuleId(source) === JOURNEYS_MODULE
+    return source === JOURNEYS_MODULE
   } catch {
     return false
   }
@@ -305,11 +301,9 @@ export class ContentWatch {
     const leaf = parts[parts.length - 1] ?? ''
     if (!folder || parts.length < 2 || leaf.startsWith('.') || leaf.endsWith('~') || /\.tmp(-|$)|\.swp$/.test(leaf)) return
 
-    /* The host's own folder, wherever this project keeps it — `hostData.ts`
-       reads a pre-rename folder when the new one could not be made, and so
-       does this. Compared by directory rather than by name for that reason. */
+    /* The host's own folder. */
     const full = join(dir, name)
-    if (folder === HOST_FOLDER || folder === LEGACY_FOLDER) {
+    if (folder === HOST_FOLDER) {
       if (!leaf.endsWith('.json')) return
       const slug = leaf.slice(0, -'.json'.length)
       if (!EPIC_SLUG.test(slug)) return

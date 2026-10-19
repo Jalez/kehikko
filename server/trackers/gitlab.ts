@@ -24,7 +24,7 @@ import type { Source } from './sources.ts'
 /**
  * GitLab, through `glab api`, on any host — gitlab.com or a self-hosted one.
  *
- * Lifted in substance from `innovium-roadmap`'s `src/trackers/gitlab.ts`, which
+ * Written against a real self-hosted GitLab, where it
  * solved this against a real self-hosted GitLab: batched GraphQL by `iids`,
  * chunked at twenty-five so one refusal costs one batch, and — the part that matters
  * most — which merge request delivers which issue decided by the merge

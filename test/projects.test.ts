@@ -51,12 +51,12 @@ function withoutEpics(name: string): string {
 
 describe('a project is a name and a folder', () => {
   test('adding one keeps the folder, names it after the folder, and gives it a kehikko', () => {
-    const root = withEpics('roadmap')
+    const root = withEpics('thesis')
     const added = addProject(db, root)
     expect(added.ok).toBe(true)
     if (!added.ok) return
 
-    expect(added.project.name).toBe('roadmap')
+    expect(added.project.name).toBe('thesis')
     expect(added.project.path).toBe(require('node:fs').realpathSync(root))
     expect(added.project.epics).toBe(true)
 
@@ -79,7 +79,7 @@ describe('a project is a name and a folder', () => {
   })
 
   test('the same folder twice is one project, not two names for it', () => {
-    const root = withEpics('roadmap')
+    const root = withEpics('thesis')
     const first = addProject(db, root)
     const second = addProject(db, root)
     expect(first.ok && second.ok).toBe(true)
@@ -90,10 +90,10 @@ describe('a project is a name and a folder', () => {
   })
 
   test('two folders may share a name, because a name is not the identity', () => {
-    mkdirSync(join(scratch, 'a', 'roadmap'), { recursive: true })
-    mkdirSync(join(scratch, 'b', 'roadmap'), { recursive: true })
-    expect(addProject(db, join(scratch, 'a', 'roadmap')).ok).toBe(true)
-    expect(addProject(db, join(scratch, 'b', 'roadmap')).ok).toBe(true)
+    mkdirSync(join(scratch, 'a', 'thesis'), { recursive: true })
+    mkdirSync(join(scratch, 'b', 'thesis'), { recursive: true })
+    expect(addProject(db, join(scratch, 'a', 'thesis')).ok).toBe(true)
+    expect(addProject(db, join(scratch, 'b', 'thesis')).ok).toBe(true)
     expect(listProjects(db)).toHaveLength(2)
   })
 
@@ -110,31 +110,31 @@ describe('a project is a name and a folder', () => {
   })
 
   test('epics are read per project, and the wrong project does not leak into the right one', () => {
-    const roadmap = withEpics('roadmap', [
+    const epicsHere = withEpics('thesis', [
       { slug: 'modes-are-modules', title: 'Modes are modules', steps: [1, 2] },
       { slug: 'tables-declare-themselves', title: 'Tables declare themselves' },
     ])
     const thesis = withoutEpics('thesis_latex')
 
-    expect(holdsEpics(roadmap)).toBe(true)
+    expect(holdsEpics(epicsHere)).toBe(true)
     expect(holdsEpics(thesis)).toBe(false)
 
-    expect(listEpics(roadmap).map((epic) => epic.slug)).toEqual([
+    expect(listEpics(epicsHere).map((epic) => epic.slug)).toEqual([
       'modes-are-modules',
       'tables-declare-themselves',
     ])
     /* Not an empty list from the thesis — no list at all, because there is no
        directory to have read. `epicsIn` is what tells those two apart. */
     expect(epicsIn(thesis)).toBeNull()
-    expect(epicsIn(roadmap)).toBe(roadmap)
+    expect(epicsIn(epicsHere)).toBe(epicsHere)
   })
 
   test('a call answers out of the project it names and not one a variable named at startup', () => {
-    const roadmap = withEpics('roadmap', [{ slug: 'modes-are-modules', title: 'Modes are modules' }])
+    const epicsHere = withEpics('thesis', [{ slug: 'modes-are-modules', title: 'Modes are modules' }])
     const thesis = withoutEpics('thesis_latex')
     const known = (id: string) => id === 'example.notes'
 
-    const here = answer('example.notes', 'epics.list', {}, known, () => {}, roadmap)
+    const here = answer('example.notes', 'epics.list', {}, known, () => {}, epicsHere)
     expect(here).toEqual({ ok: true, data: { epics: [{ slug: 'modes-are-modules', title: 'Modes are modules' }] } })
 
     /* The same call, from a kehikko in a project that has none. An empty list
@@ -149,15 +149,15 @@ describe('a project is a name and a folder', () => {
   })
 
   test('an epic is read out of its own project, and not out of another', () => {
-    const roadmap = withEpics('roadmap', [{ slug: 'modes-are-modules', title: 'Modes are modules' }])
+    const epicsHere = withEpics('thesis', [{ slug: 'modes-are-modules', title: 'Modes are modules' }])
     const thesis = withoutEpics('thesis_latex')
     const known = (id: string) => id === 'example.notes'
 
-    const found = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, known, () => {}, roadmap)
+    const found = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, known, () => {}, epicsHere)
     expect(found.ok).toBe(true)
 
     /* The same slug, asked from the thesis. Refused rather than answered out of
-       the roadmap, which is the failure this whole change is about: a host that
+       the project that has them, which is the failure this whole change is about: a host that
        showed one project and answered about another, correctly, with nothing to
        indicate it. */
     const missing = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, known, () => {}, thesis)
@@ -255,7 +255,7 @@ describe('the kehikot that were written before projects existed', () => {
 
 describe('a kehikko belongs to a project', () => {
   test('it is made in one, and the store keeps the key', () => {
-    const added = addProject(db, withEpics('roadmap'))
+    const added = addProject(db, withEpics('thesis'))
     expect(added.ok).toBe(true)
     if (!added.ok) return
     const made = createCanvas(db, 'writing', added.project.id)
@@ -264,7 +264,7 @@ describe('a kehikko belongs to a project', () => {
   })
 
   test('moving one between projects is an edit, and a project that does not exist is not one', () => {
-    const one = addProject(db, withEpics('roadmap'))
+    const one = addProject(db, withEpics('thesis'))
     const two = addProject(db, withoutEpics('thesis_latex'))
     if (!one.ok || !two.ok) throw new Error('the projects were not added')
 
@@ -278,7 +278,7 @@ describe('a kehikko belongs to a project', () => {
   })
 
   test('the last kehikko in a project cannot be removed, even when other projects have some', () => {
-    const one = addProject(db, withEpics('roadmap'))
+    const one = addProject(db, withEpics('thesis'))
     const two = addProject(db, withoutEpics('thesis_latex'))
     if (!one.ok || !two.ok) throw new Error('the projects were not added')
 
@@ -297,7 +297,7 @@ describe('a kehikko belongs to a project', () => {
   })
 
   test('removing a project takes its kehikot with it, and leaves the others alone', () => {
-    const one = addProject(db, withEpics('roadmap'))
+    const one = addProject(db, withEpics('thesis'))
     const two = addProject(db, withoutEpics('thesis_latex'))
     if (!one.ok || !two.ok) throw new Error('the projects were not added')
 

@@ -211,9 +211,7 @@ export async function fetchManifest(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = MANIFEST_TIMEOUT_MS,
 ): Promise<{ ok: true; text: string } | { ok: false; why: string; reached: boolean }> {
-  /* One path. A module from before the rename serves its manifest at
-     `/.well-known/roadmap-module.json`; since protocol 1.0.0 that is not asked,
-     and such a module reads as answering 404 here. */
+  /* One path: the protocol's well-known manifest. */
   const path = WELL_KNOWN
   const url = new URL(path, origin).toString()
   const abort = new AbortController()

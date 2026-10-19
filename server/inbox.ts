@@ -2,7 +2,6 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import {
   activityItemsSchema,
-  canonicalModuleId,
   moduleFile,
   within,
   type ActivityItem,
@@ -324,7 +323,7 @@ export class Inbox {
     items: readonly ActivityItem[],
     options: { silent?: boolean; loadedAt?: number } = {},
   ): Reported {
-    const id = canonicalModuleId(module)
+    const id = module
     const now = this.clock()
     const run = this.db.transaction((): Reported => {
       const have = this.#entries(project, id)
@@ -368,7 +367,7 @@ export class Inbox {
     line: NoticeLine,
     kehikko?: string,
   ): Reported {
-    const id = canonicalModuleId(module)
+    const id = module
     const now = this.clock()
     const run = this.db.transaction((): Reported => {
       const made = noticeEntry(id, name, line, `notice:${now.toString(36)}:${crypto.randomUUID().slice(0, 8)}`, now, kehikko)
@@ -423,7 +422,7 @@ export class Inbox {
       for (const key of keys) {
         const row = this.db
           .query<ItemRow, [number, string, string]>('select * from inbox_items where project = ? and module = ? and id = ?')
-          .get(project, canonicalModuleId(key.module), key.id)
+          .get(project, key.module, key.id)
         if (!row) continue
         const entry = toEntry(row)
         const next = change(entry)
@@ -457,7 +456,7 @@ export class Inbox {
     narrowing: Narrowing | null,
   ): { forgotten: number; rev: number } {
     const run = this.db.transaction(() => {
-      const named = keys ? new Set(keys.map((one) => rowKey({ module: canonicalModuleId(one.module), id: one.id }))) : null
+      const named = keys ? new Set(keys.map((one) => rowKey({ module: one.module, id: one.id }))) : null
       let forgotten = 0
       for (const entry of this.all(project)) {
         if (named && !named.has(rowKey(entry))) continue
@@ -514,7 +513,7 @@ export class Inbox {
       for (const [key, entered] of Object.entries(seenNow)) {
         const [module, id] = key.split('\u0000')
         const row = module && id
-          ? this.db.query<ItemRow, [number, string, string]>('select * from inbox_items where project = ? and module = ? and id = ?').get(project, canonicalModuleId(module), id)
+          ? this.db.query<ItemRow, [number, string, string]>('select * from inbox_items where project = ? and module = ? and id = ?').get(project, module, id)
           : null
         if (row && row.state === 'done' && row.entered === entered) {
           this.db.query('update inbox_items set seen = ? where project = ? and module = ? and id = ?').run(entered, project, row.module, row.id)
@@ -554,7 +553,7 @@ export class Inbox {
       const now = this.clock()
       for (const row of rows ?? []) {
         const id = `imported:${row.seq}`
-        const module = canonicalModuleId(row.from)
+        const module = row.from
         const exists = this.db
           .query('select 1 from inbox_items where project = ? and module = ? and id = ?')
           .get(project, module, id)

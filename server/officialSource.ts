@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { canonicalModuleId } from 'kehikot-module-protocol'
 
 import { HOST_REPO, readOfficial, type Official } from './official.ts'
 
@@ -103,9 +102,9 @@ export function readFetched(raw: unknown): Official[] {
 /** The fetched list over the built-in one. See "The merge" above. */
 export function mergeLists(builtIn: readonly Official[], fetched: readonly Official[] | null): Official[] {
   if (!fetched) return [...builtIn]
-  const newer = new Map(fetched.map((entry) => [canonicalModuleId(entry.id), entry]))
+  const newer = new Map(fetched.map((entry) => [entry.id, entry]))
   const merged = builtIn.map((entry) => {
-    const id = canonicalModuleId(entry.id)
+    const id = entry.id
     const over = newer.get(id)
     newer.delete(id)
     return over ?? entry

@@ -1,4 +1,4 @@
-import { canonicalModuleId, LIMITS, MODULE_ID, PACKAGE_VERSION } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import listed from '../modules.json'
@@ -102,6 +102,6 @@ export function meetsProtocol(need: string | undefined, have: string = PACKAGE_V
 
 /** The entry for a module id, in either spelling of it, or null when it is not on the list. */
 export function officialOf(id: string, list: readonly Official[] = OFFICIAL): Official | null {
-  const canonical = canonicalModuleId(id)
+  const canonical = id
   return list.find((entry) => entry.id === canonical) ?? null
 }

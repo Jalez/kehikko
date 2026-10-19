@@ -265,8 +265,6 @@ describe('press_item', () => {
     expect((await press(id, { module: 'kehikot.tests', item: 'run' })).text).toBe(
       `kehikot.tests is not a container on kehikko ${id} (the wire). What is on it: kehikot.notes, kehikot.paper. Nothing was pressed.`,
     )
-    /* The old spelling of a module id is the same module. */
-    expect((await press(id, { module: 'roadmap.paper', item: 'compile' })).failed).toBe(false)
   })
 
   test('no page has the kehikko open: refused, and said — nothing is queued for later', async () => {

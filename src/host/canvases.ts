@@ -212,8 +212,6 @@ export type Canvas = z.infer<typeof canvasSchema>
 
 /** Which canvas this browser had open. See below for why this one thing is local. */
 export const OPEN_KEY = 'kehikot.frame.open.v1'
-/** The same key before the app was renamed. Read when the new one is absent, never written. */
-export const LEGACY_OPEN_KEY = 'roadmap.frame.open.v1'
 
 /**
  * Every kehikko, from every project, and the projects themselves.
@@ -652,7 +650,7 @@ export function answerPress(id: string, came: { ok: boolean; why: string }): Pro
  */
 export function readOpen(storage: Pick<Storage, 'getItem'>): number | null {
   try {
-    const raw = storage.getItem(OPEN_KEY) ?? storage.getItem(LEGACY_OPEN_KEY)
+    const raw = storage.getItem(OPEN_KEY)
     if (raw === null) return null
     const id = Number(raw)
     return Number.isInteger(id) && id > 0 ? id : null

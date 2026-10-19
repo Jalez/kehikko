@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { canonicalModuleId, MODULE_ID } from 'kehikot-module-protocol'
+import { MODULE_ID } from 'kehikot-module-protocol'
 import { modulesDir } from './machineDirs.ts'
 
 /**
@@ -173,10 +173,7 @@ export function readRegistration(
       why: `"${named}" is not a module id: lowercase letters, digits, dots and dashes, 3 to 64 characters.`,
     }
   }
-  /* Canonical: `roadmap.history.json`, written by a module from before the app
-     was renamed, registers the same module as `kehikot.history.json`. The file
-     is never renamed — the module that wrote it will write it again. */
-  const id = canonicalModuleId(named)
+  const id = named
 
   let fields: Record<string, string>
   try {

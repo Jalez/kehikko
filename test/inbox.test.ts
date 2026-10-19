@@ -407,7 +407,7 @@ describe('the store', () => {
   describe('importing the Notifications module’s rows', () => {
     const rows = [
       { seq: 1, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 3, name: 'Main', key: 'k1' }, payload: { epic: 'thesis', message: 'Finished: "Intro"', level: 'done', refs: ['gh#1'] } },
-      { seq: 2, from: 'roadmap.tests', at: '2026-01-02T11:00:00.000Z', kehikko: null, payload: { epic: 'thesis', message: 'Failed', level: 'attention', refs: [], place: { epic: 'thesis', parts: ['p'] } } },
+      { seq: 2, from: 'kehikot.tests', at: '2026-01-02T11:00:00.000Z', kehikko: null, payload: { epic: 'thesis', message: 'Failed', level: 'attention', refs: [], place: { epic: 'thesis', parts: ['p'] } } },
       { seq: 3, from: 'x', at: 'bad date', kehikko: null, payload: { message: '' } },
     ]
     const file = () => join(folder, '.kehikot', 'notifications', 'notifications.json')
