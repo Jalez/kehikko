@@ -12,6 +12,7 @@ import {
 } from 'kehikot-module-protocol'
 import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
+import { formerRegistration } from './formerName.ts'
 
 /**
  * Ask each registered program what it is, and decide whether it can be
@@ -125,6 +126,12 @@ export interface Presence {
    * the page says to update the module instead. See `attention`.
    */
   refused?: true
+  /**
+   * Set when `line` already ends with what to do and nothing is to be added to
+   * it — no "start the module again", no press: what is wrong is a file, and
+   * the sentence names it. See `attention` in `src/host/moduleMenu.ts`.
+   */
+  remedy?: true
   /** Both numbers, whenever the host had both. The reason `incompatible` is legible. */
   protocols?: { host: number; module: number | null; range: string }
 }
@@ -405,6 +412,11 @@ export async function look(
      identifies a module by a string it was handed — but a host that framed it
      silently would be showing a program under a name nobody chose for it. */
   if (manifest.id !== id) {
+    /* One mismatch the host can name the fix for: a registration file from
+       before the app was renamed (`formerName.ts`). Starting it again would
+       not help, so the sentence is the whole of what to do. */
+    const former = formerRegistration(registration, manifest.id)
+    if (former) return { id, at, condition: 'silent', reached: true, served: true, remedy: true, line: former }
     return {
       id,
       at,

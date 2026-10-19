@@ -7,6 +7,7 @@ import { answerCall } from './answers.ts'
 import { Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
+import { forgetFormerName } from './formerName.ts'
 import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
 import {
   createCanvas,
@@ -171,6 +172,11 @@ if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id
 ensureKnown(db)
 /* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
 const inbox = new Inbox(db)
+
+/* Leftovers from before the app was called Kehikot — registrations, project
+   files and database rows under the old module ids — migrated once, before any
+   registration is read or project file synced. `formerName.ts`; to be removed. */
+forgetFormerName(db)
 
 /**
  * Every project's kehikot, read from the project's own file before anything is

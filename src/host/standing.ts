@@ -83,10 +83,11 @@ export function showing(said: Said, found: Found | undefined, asked = true): Sho
  */
 export function noticeOf(
   notice: Extract<Showing, { kind: 'notice' }>,
-  presence: { refused?: true; detail?: string[] },
+  presence: { refused?: true; remedy?: true; detail?: string[] },
 ): { line: string; detail?: string[]; offer: 'start' | 'update' | null } {
   if (notice.condition !== 'silent') return { line: notice.line, detail: presence.detail, offer: null }
   if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update' }
+  if (presence.remedy) return { line: notice.line, offer: null }
   return { line: notice.line, detail: presence.detail, offer: 'start' }
 }
 

@@ -113,6 +113,8 @@ export interface Presence {
   module?: FramedModule
   /** The module itself answered, and its manifest is one this host will not read. See `attention` in `moduleMenu.ts`. */
   refused?: true
+  /** The sentence already says what to do; nothing is added to it and nothing offered. See `attention` in `moduleMenu.ts`. */
+  remedy?: true
   protocols?: { host: number; module: number | null; range: string }
   /**
    * Whatever this host is keeping for the module, or null when it keeps
