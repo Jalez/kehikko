@@ -41,6 +41,7 @@ import {
   type Placement,
   type PressOrder,
 } from './host/canvases.ts'
+import { arrive, oneAfterAnother } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
   addProject,
@@ -540,9 +541,11 @@ export function App() {
    */
   useEffect(() => {
     let here = true
-    void reportOpen(openId).then(async () => {
-      if (!here) return
-      await lookRef.current?.()
+    /* On arriving, and on nothing else: not focus, not visibility, not a
+       frame. See `arrive`. */
+    void arrive(openId, async () => {
+      if (here) await lookRef.current?.()
+    }).then(() => {
       /* The server has now been asked knowing what this page has open. Until
          then a module that is not running may only be one it has not been
          asked to start — see `asked` in `host/standing.ts`. */
@@ -880,25 +883,20 @@ export function App() {
   }, [])
 
   /*
-   * One sweep at a time, and a record of when the last one finished.
-   *
-   * Refs rather than state, because neither of these should cause a render:
-   * they exist to stop a second sweep starting, and a component that re-rendered
-   * every time it decided NOT to do something would be doing the thing it is
-   * avoiding. A sweep asks every registered module for its manifest — eleven
-   * localhost requests here — so two of them overlapping is eleven wasted
-   * requests and two answers racing to be the one that lands.
+   * When the last sweep finished, for the focus sweep's quiet floor. A ref,
+   * because it should cause no render. That sweeps never overlap — a sweep asks
+   * every registered module for its manifest, and two at once are two answers
+   * racing to land — is `oneAfterAnother`.
    */
-  const sweeping = useRef(false)
   const sweptAt = useRef(0)
   /** Which process each module was last seen ready on, to see a restart. */
   const runs = useRef(new Runs())
   /** The current `look`, for the effects declared above it. See `reportOpen`. */
   const lookRef = useRef<(() => Promise<void>) | null>(null)
 
-  const look = useCallback(async () => {
-    if (sweeping.current) return
-    sweeping.current = true
+  /* One at a time, and a call made during one gets one more after it rather
+     than nothing: see `oneAfterAnother`. */
+  const look = useMemo(() => oneAfterAnother(async () => {
     setLooking(true)
     try {
       const view = await fetchRegistry()
@@ -934,11 +932,10 @@ export function App() {
          not true of the other three. */
       setTrouble(notAnswering(error, 'Nothing is known about what is registered until it does.'))
     } finally {
-      sweeping.current = false
       sweptAt.current = Date.now()
       setLooking(false)
     }
-  }, [])
+  }), [])
 
   lookRef.current = look
 

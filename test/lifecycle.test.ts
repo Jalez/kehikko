@@ -411,7 +411,7 @@ describe('asleep does not read like broken', () => {
 })
 
 describe('what the host says it is doing', () => {
-  const idle: Doing = { work: null, ranAt: null, alive: false, installing: false, asleep: false }
+  const idle: Doing = { work: null, ranAt: null, alive: false, installing: false, asleep: false, levelling: false }
 
   test('nothing, of a module that answers and that the host is not touching', () => {
     expect(lifecycleOf(false, idle, NOW)).toBeUndefined()
@@ -426,6 +426,18 @@ describe('what the host says it is doing', () => {
   test('starting, for as long as that word is true', () => {
     expect(lifecycleOf(true, { ...idle, ranAt: NOW - 1000, alive: true }, NOW)).toBe('starting')
     expect(lifecycleOf(true, { ...idle, ranAt: NOW - STARTING_FOR_MS - 1, alive: true }, NOW)).toBeUndefined()
+  })
+
+  test('starting while an installed copy is brought level on the way to running — the first start after a launch', () => {
+    /* Before this, the sweep that set the levelling going answered "not
+       running", the page drew Start over a start under way, and asked again
+       only when the window was focused. Starting makes the page look again. */
+    const levelling: Doing = { ...idle, levelling: true }
+    expect(lifecycleOf(true, levelling, NOW)).toBe('starting')
+    expect(inFlight(lifecycleOf(true, levelling, NOW))).toBe(true)
+    expect(lifecycleOf(true, { ...levelling, asleep: true }, NOW)).toBe('starting')
+    /* Said only of a module that is not answering, like every start. */
+    expect(lifecycleOf(false, levelling, NOW)).toBeUndefined()
   })
 
   test('installing is its own state, and does not lapse to "not running" after thirty seconds', () => {
