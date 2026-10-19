@@ -7,7 +7,7 @@ import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
 import { createEpic, editParts, readParts } from './holdings.ts'
 import { keep } from './kehikot.ts'
-import { projectById } from './projects.ts'
+import { MISSING_SAID, projectById } from './projects.ts'
 import type { Inbox } from './inbox.ts'
 import { activityRowsFor, earlierLines, readInboxText } from './inboxText.ts'
 import { listingText, rolesOf, sourceName } from '../src/host/trackerSources.ts'
@@ -302,6 +302,11 @@ function kehikkoIn(value: unknown): number | null | undefined {
 }
 
 /** Every kehikko this host holds, one per line, for a refusal somebody has to act on. */
+/** What an agent is told about a project whose folder is gone. Never thrown, never written. */
+function missingSaid(project: { name: string; path: string }): string {
+  return `${project.name} (${project.path}): ${MISSING_SAID} Nothing was read from it or written to it. The person can find it again from the project list.`
+}
+
 function roster(db: Database): string {
   const canvases = listCanvases(db)
   if (!canvases.length) return 'This host holds no kehikot at all.'
@@ -310,7 +315,7 @@ function roster(db: Database): string {
     + canvases
         .map((canvas) => {
           const project = canvas.project === null ? null : projectById(db, canvas.project)
-          const where = project ? ` in ${project.name} (${project.path})` : ''
+          const where = project ? ` in ${project.name} (${project.path}${project.missing ? ', folder missing' : ''})` : ''
           return `  ${canvas.id}: ${canvas.name}${where}`
         })
         .join('\n')
@@ -399,7 +404,7 @@ function canvasText(
   lines.push(`kehikko ${canvas.id}: ${canvas.name} — ${how}.`)
   lines.push(
     project
-      ? `project: ${project.name} at ${project.path}`
+      ? `project: ${project.name} at ${project.path}${project.missing ? ` — ${MISSING_SAID} Nothing is read from it or written to it until it is found again.` : ''}`
       : 'project: none. This kehikko is in no project, so modules on it are told no folder to work in.',
   )
   /* The project's, not the kehikko's: the epic is picked per project and every
@@ -1670,6 +1675,7 @@ function markAt(
       failed: true,
     }
   }
+  if (project.missing) return { text: missingSaid(project), failed: true }
 
   /* `value` is required here even though the schema would read a missing one
      as an error anyway: the sentence for it should say that null is how a
@@ -1726,6 +1732,7 @@ async function readTrackerAt(
   if (!project) {
     return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so there is no tracker reading for it.`, failed: true }
   }
+  if (project.missing) return { text: missingSaid(project), failed: true }
   const asked = methodParams['tracker.get'].safeParse(
     args.refs !== undefined ? { refs: args.refs } : args.epic !== undefined ? { epic: args.epic } : { project: true },
   )
@@ -1779,6 +1786,7 @@ async function setTrackerSourceAt(
   if (!trackers?.edit || !trackers.describe) return { text: 'This host has no tracker sources to change.', failed: true }
   const project = canvas.project === null ? null : projectById(door.db, canvas.project)
   if (!project) return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so there are no tracker sources to change.`, failed: true }
+  if (project.missing) return { text: missingSaid(project), failed: true }
   const action = args.action
   const source = typeof args.source === 'string' && args.source.length <= 600 ? args.source.trim() : ''
   if (action !== 'add' && action !== 'remove' && action !== 'default' && action !== 'list' && action !== 'off') {
@@ -1856,6 +1864,7 @@ function createEpicAt(
       failed: true,
     }
   }
+  if (project.missing) return { text: missingSaid(project), failed: true }
 
   const title = textIn(args.title)
   if (title === null || title === undefined) {
@@ -1913,6 +1922,7 @@ function setPartsAt(
       failed: true,
     }
   }
+  if (project.missing) return { text: missingSaid(project), failed: true }
   const epic = args.epic === undefined || args.epic === null ? readSubject(door.db, project.id)?.epic : args.epic
   if (typeof epic !== 'string' || !epic) {
     return { text: `${project.name} is on no epic, so set_parts needs epic: the slug of one of its epics.`, failed: true }

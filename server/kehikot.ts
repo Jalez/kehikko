@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
@@ -20,6 +20,7 @@ import {
 } from './canvases.ts'
 import { partIdsIn } from '../src/host/parts.ts'
 import { listProjects, projectById } from './projects.ts'
+import { makeUnderRoot, projectRootExists, sayMissing } from './projectRoot.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 
 /**
@@ -643,7 +644,8 @@ export function keep(db: Database, projectId: number | null): void {
     /* Not there yet. */
   }
   if (before === text) return
-  mkdirSync(dirname(file), { recursive: true })
+  /* Never the project's folder itself: one that was renamed away stays gone. */
+  if (!makeUnderRoot(project.path, dirname(file))) return
   writeFileSync(`${file}.tmp`, text)
   renameSync(`${file}.tmp`, file)
 }
@@ -653,6 +655,7 @@ export type Synced =
   | { file: string; outcome: 'written' }
   | { file: string; outcome: 'nothing' }
   | { file: string; outcome: 'refused'; why: string }
+  | { file: string; outcome: 'missing' }
 
 /**
  * Make this machine's database agree with a project's file.
@@ -666,6 +669,12 @@ export type Synced =
 export function syncProject(db: Database, project: { id: number; path: string }): Synced {
   const file = kehikotFile(project.path)
   if (file === null) return { file: '', outcome: 'nothing' }
+  /* The folder is gone — renamed, moved or deleted. Its file is not read and
+     certainly not written from the database, which would make the folder again. */
+  if (!projectRootExists(project.path)) {
+    sayMissing(project.path)
+    return { file, outcome: 'missing' }
+  }
 
   let text: string | null = null
   try {
@@ -775,6 +784,11 @@ function asCanvasFields(kehikko: FileKehikko): Pick<Canvas, 'name' | 'placements
 export function syncEvery(db: Database): string[] {
   const trouble: string[] = []
   for (const project of listProjects(db)) {
+    /* Gone since it was added: said once in the terminal, never read, never written. */
+    if (project.missing) {
+      sayMissing(project.path)
+      continue
+    }
     const synced = syncProject(db, project)
     if (synced.outcome === 'refused') {
       trouble.push(

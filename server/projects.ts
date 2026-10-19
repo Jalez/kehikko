@@ -1,12 +1,15 @@
 import type { Database } from 'bun:sqlite'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } from 'kehikot-module-protocol'
 
 import { createCanvas, listCanvases } from './canvases.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
+import { MISSING_SAID, projectRootExists } from './projectRoot.ts'
+
+export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
 
 /**
  * Projects: the containers, and the thing this host had the wrong way round.
@@ -78,6 +81,14 @@ export interface Project {
    * be lying about a file the person could see.
    */
   shared: boolean
+  /**
+   * Whether the folder is gone — renamed, moved or deleted since it was added.
+   *
+   * Read on every list, like `epics`. A missing project is still listed, so the
+   * person can see what became of it, and nothing is ever written under it: see
+   * `projectRoot.ts`, which is the rule every writer asks.
+   */
+  missing: boolean
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -100,7 +111,7 @@ export function listProjects(db: Database): Project[] {
       'select id, name, path from projects order by rank, id',
     )
     .all()
-    .map((row) => ({ ...row, name: named(row.path), epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }))
+    .map((row) => described(row))
 }
 
 /**
@@ -133,6 +144,35 @@ export function isProject(db: Database, asked: unknown): boolean {
   return rows.some((row) => resolved(row.path) === real)
 }
 
+/**
+ * Whether a path is a project a person added whose folder is now gone.
+ *
+ * `isProject` says no for it — a module must not write there, and the folder
+ * cannot be resolved to compare anyway — so this is the second word that says
+ * why: the path is the one stored, character for character once made absolute,
+ * and nothing is at it. Only ever true for a path the asker already holds.
+ */
+export function isMissingProject(db: Database, asked: unknown): boolean {
+  if (typeof asked !== 'string' || asked.length === 0 || asked.length > LIMITS.PATH || !isAbsolute(asked)) return false
+  const rows = db.query<{ path: string }, []>('select path from projects').all()
+  const wanted = new Set([resolve(asked), throughParent(asked)])
+  return rows.some((row) => wanted.has(resolve(row.path)) && !projectRootExists(row.path))
+}
+
+/**
+ * A path whose last folder is gone, with its parent resolved by the filesystem:
+ * `/tmp/x` is stored as `/private/tmp/x` on a Mac, and the folder `x` cannot be
+ * resolved any more to say so.
+ */
+function throughParent(asked: string): string {
+  const full = resolve(asked)
+  try {
+    return join(realpathSync(dirname(full)), basename(full))
+  } catch {
+    return full
+  }
+}
+
 /** One project by id, or null. */
 export function projectById(db: Database, id: number): Project | null {
   const row = db
@@ -140,9 +180,22 @@ export function projectById(db: Database, id: number): Project | null {
       'select id, name, path from projects where id = ?',
     )
     .get(id)
-  return row
-    ? { ...row, name: named(row.path), epics: holdsEpics(row.path), git: hasGit(row.path), shared: sharesKehikot(row.path) }
-    : null
+  return row ? described(row) : null
+}
+
+/** A row as the page and the agents see it, read off the disk now. */
+function described(row: { id: number; name: string; path: string }): Project {
+  const missing = !projectRootExists(row.path)
+  return {
+    ...row,
+    name: named(row.path),
+    epics: !missing && holdsEpics(row.path),
+    /* A folder that is gone has no history of its own; walking up from it would
+       answer for whatever folder it used to sit in. */
+    git: !missing && hasGit(row.path),
+    shared: missing ? false : sharesKehikot(row.path),
+    missing,
+  }
 }
 
 /**
@@ -338,6 +391,7 @@ export type Shared = { ok: true; project: Project } | { ok: false; why: string; 
 export function shareKehikot(db: Database, id: number, shared: boolean): Shared {
   const project = projectById(db, id)
   if (!project) return { ok: false, why: 'There is no project by that id.', status: 404 }
+  if (project.missing) return { ok: false, why: `${MISSING_SAID} Its .gitignore was not touched.`, status: 409 }
   if (!project.git) {
     return {
       ok: false,
@@ -536,7 +590,7 @@ export function adopt(
   /* Every project this host already knows gets its legacy epics and state brought
      under `.kehikot/kehikko/` at startup, so a project added before the move
      reads the same epics after it. See `hostData.ts`. */
-  for (const project of projects) migrateHostData(project.path)
+  for (const project of projects) if (!project.missing) migrateHostData(project.path)
   if (projects.length) projects = listProjects(db)
 
   const first = projects[0] ?? null

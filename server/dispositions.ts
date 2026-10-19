@@ -7,6 +7,8 @@ import {
   type Disposition,
   type DispositionValue,
 } from 'kehikot-module-protocol'
+
+import { MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
 import { z } from 'zod'
 
 import { HOST_ID } from './kehikot.ts'
@@ -139,6 +141,10 @@ export function setDisposition(
   if (file === null) {
     return { ok: false, why: 'There is no project open, so there is nowhere to keep a disposition.' }
   }
+  if (!projectRootExists(projectPath)) {
+    sayMissing(projectPath!)
+    return { ok: false, why: `${MISSING_SAID} Nothing was written.` }
+  }
   const read = readDispositions(projectPath)
   if (!read.ok) {
     return {
@@ -184,6 +190,7 @@ export function setDisposition(
 }
 
 function write(file: string, marks: readonly Disposition[]): void {
+  /* The root was checked above; this makes `.kehikot/kehikko/` inside it. */
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(`${file}.tmp`, `${JSON.stringify({ version: VERSION, dispositions: marks }, null, 2)}\n`)
   renameSync(`${file}.tmp`, file)

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   LIMITS,
@@ -19,6 +19,7 @@ import { z } from 'zod'
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { HOST_ID } from '../kehikot.ts'
+import { makeUnderRoot } from '../projectRoot.ts'
 import type { Adapter, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { gitlabAdapter } from './gitlab.ts'
@@ -112,7 +113,8 @@ ${FILE_NAME}.json.tmp
 function saveReading(projectPath: string, stored: Stored): void {
   const file = readingFile(projectPath)
   if (!file) return
-  mkdirSync(dirname(file), { recursive: true })
+  /* A cache, and the folder it would go in is gone: keep it in memory, make nothing. */
+  if (!makeUnderRoot(projectPath, dirname(file))) return
   const ignore = join(dirname(file), '.gitignore')
   try {
     if (!existsSync(ignore)) writeFileSync(ignore, IGNORE)
