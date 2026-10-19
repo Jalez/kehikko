@@ -16,7 +16,7 @@ import { alone, focusSaid, goneSaid, pickedIn, stepTo, toggled, type Part, type 
 import { worstActivity, type ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
-import { AddItem, Remove } from './Menu.tsx'
+import { AddItem, HIT_AREA, Remove } from './Menu.tsx'
 
 /**
  * Which parts of the open epic the project is pointed at.
@@ -451,21 +451,22 @@ function Tool({
   children: ReactNode
 }) {
   return (
-    <span
-      role="button"
-      tabIndex={-1}
-      aria-label={label}
-      aria-disabled={off || undefined}
-      title={title}
-      className={off ? 'text-muted-foreground shrink-0 opacity-30' : 'text-muted-foreground hover:text-foreground shrink-0'}
-      onClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!off) onPress()
-      }}
-    >
-      {children}
-    </span>
+    <Hint label={title}>
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-label={label}
+        aria-disabled={off || undefined}
+        className={`${off ? 'text-muted-foreground shrink-0 opacity-30' : 'text-muted-foreground hover:text-foreground shrink-0'} relative ${HIT_AREA}`}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (!off) onPress()
+        }}
+      >
+        {children}
+      </span>
+    </Hint>
   )
 }
 

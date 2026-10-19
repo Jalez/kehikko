@@ -147,6 +147,12 @@ export const epicSchema = z.object({
   project: z.string().optional(),
   lede: z.string().optional(),
   size: z.number().optional(),
+  /* What `size` adds up, present exactly when it is. `catch` so that an odd
+     value costs the tooltip and not the list. */
+  sizeParts: z
+    .object({ parts: z.number(), steps: z.number(), exists: z.number(), open: z.number() })
+    .optional()
+    .catch(undefined),
   /* The parts the epic is divided into. Empty for an epic with none and for a
      server from before parts were read — both mean there is nothing to focus
      on, and the picker is not drawn. `catch` rather than a refusal: parts that
@@ -375,4 +381,19 @@ async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
   return `the host's server answered ${response.status}`
+}
+
+/**
+ * The tooltip and label for an epic's number: only the non-zero parts, in
+ * words. An epic with no parts yet says so first, because its number is then
+ * its steps and not the count the parts menu shows.
+ */
+export function sizeWords(parts: { parts: number; steps: number; exists: number; open: number }): string {
+  const said: string[] = []
+  if (parts.parts) said.push(`${parts.parts} ${parts.parts === 1 ? 'part' : 'parts'}`)
+  else said.push('no parts yet')
+  if (parts.steps) said.push(`${parts.steps} ${parts.steps === 1 ? 'step' : 'steps'}`)
+  if (parts.exists) said.push(`${parts.exists} already in place`)
+  if (parts.open) said.push(`${parts.open} open ${parts.open === 1 ? 'question' : 'questions'}`)
+  return said.join(' · ')
 }

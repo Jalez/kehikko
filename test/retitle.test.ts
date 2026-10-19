@@ -87,7 +87,8 @@ describe('retitling an epic', () => {
       title: 'The page is components',
       project: 'Workbench',
       lede: 'Seven thousand lines of hand-written rendering, and a "template literal" the compiler never looks inside',
-      size: 2,
+      size: 1,
+      sizeParts: { parts: 0, steps: 1, exists: 0, open: 1 },
     })
     /* And the list agrees, which is what the header will draw. */
     expect(listEpics(dir)[0]?.title).toBe('The page is components')

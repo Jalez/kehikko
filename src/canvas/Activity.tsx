@@ -2,6 +2,7 @@ import type { ActivityState } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils'
 import { markWords } from '@/host/activity.ts'
+import { Hint } from './Hint.tsx'
 
 /**
  * What the modules are doing, drawn as small dots on what already exists —
@@ -39,12 +40,17 @@ export function ActivityDot({
 }) {
   const words = markWords(state, what)
   return (
-    <span
-      role="img"
-      title={words}
-      aria-label={words}
-      data-activity={state}
-      className={cn('inline-block size-1.5 shrink-0 rounded-full', LOOK[state], className)}
-    />
+    <Hint label={words}>
+      <span
+        role="img"
+        aria-label={words}
+        data-activity={state}
+        className={cn(
+          "relative inline-block size-1.5 shrink-0 rounded-full after:absolute after:-inset-1 after:content-['']",
+          LOOK[state],
+          className,
+        )}
+      />
+    </Hint>
   )
 }

@@ -129,11 +129,10 @@ describe('words', () => {
 })
 
 describe('the dots', () => {
-  test('each dot says its state in words, to assistive technology and in its title', () => {
+  test('each dot says its state in words, to assistive technology and in its label', () => {
     for (const state of ['attention', 'done', 'working'] as const) {
       const html = renderToStaticMarkup(<ActivityDot state={state} />)
       expect(html).toContain(`aria-label="${ACTIVITY_WORDS[state]}"`)
-      expect(html).toContain(`title="${ACTIVITY_WORDS[state]}"`)
     }
     expect(renderToStaticMarkup(<ActivityDot state="working" what="Thesis" />)).toContain('Thesis — working')
   })
