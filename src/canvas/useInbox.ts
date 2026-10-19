@@ -38,7 +38,7 @@ const folder = (path: string): string => (path.length > 1 ? path.replace(/\/+$/,
  * A tagged list (protocol 1.8.0) as one complete list per project: each item
  * under the project whose folder its `project` names — the open one when it
  * names none — without the field; every project in `before` (where the module
- * reported last time) that it names nothing in now gets `[]`. An item naming a
+ * reported last time, or holds open items) that it names nothing in now gets `[]`. An item naming a
  * folder no project is in is counted in `unknown` and kept nowhere.
  */
 export function byProject(
@@ -60,6 +60,17 @@ export function byProject(
   }
   for (const id of before) if (!lists.has(id)) lists.set(id, [])
   return { lists, unknown }
+}
+
+/**
+ * The projects whose record holds open entries of one module: places that module
+ * must be told `[]` for when its complete list no longer names them, even if this
+ * page never reported there (after a reload, or a module restart, `sent` is empty).
+ */
+export function projectsHolding(snaps: Readonly<Record<number, Snapshot | undefined>>, module: string): number[] {
+  return Object.entries(snaps).flatMap(([id, snap]) =>
+    snap?.open.some((entry) => entry.module === module && isOpen(entry)) ? [Number(id)] : [],
+  )
 }
 
 /** Another project's live entries, for the Inbox to show under that project's name. */
@@ -300,10 +311,16 @@ export function useInbox(options: {
         reportTo(open, from, list)
         return { outcome: 'taken' as const, taken: list.length, why: '', projects: true }
       }
-      const before = [...sent.current.keys()].flatMap((key) => {
-        const [id, module] = key.split('\u0000')
-        return module === from ? [Number(id)] : []
-      })
+      /* Where this page reported before, and where the record still holds this module's open items. */
+      const before = [
+        ...new Set([
+          ...[...sent.current.keys()].flatMap((key) => {
+            const [id, module] = key.split('\u0000')
+            return module === from ? [Number(id)] : []
+          }),
+          ...projectsHolding(snapsRef.current, from),
+        ]),
+      ]
       const { lists, unknown } = byProject(list, open, projectsRef.current, before)
       for (const [id, items] of lists) reportTo(id, from, items)
       const taken = list.length - unknown
