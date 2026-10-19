@@ -13,6 +13,7 @@ import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
+import { MissingProject } from './canvas/MissingProject.tsx'
 import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
@@ -3548,6 +3549,12 @@ export function App() {
        * asserts every page is within zero pixels of its container's body.
        */}
       <main ref={surface} className="relative min-h-0 flex-1 overflow-auto">
+        {/* A project whose folder is gone opens on the sentence, not on a canvas
+            whose modules would be pointed at a path that is not there. */}
+        {project?.missing ? (
+          <MissingProject project={project} />
+        ) : (
+          <>
         {containers.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
 
         {/*
@@ -3841,6 +3848,8 @@ export function App() {
           onDocument={onDocument}
           moving={moving}
         />
+          </>
+        )}
       </main>
 
       {/* The prompt dialog, owned by the host. A module cannot open one: its

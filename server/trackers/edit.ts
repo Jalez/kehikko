@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { LIMITS, TRACKERS, type Tracker } from 'kehikot-module-protocol'
 
+import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from '../projectRoot.ts'
 import { configFile, EVERY_DEFAULT, listSources, readConfig, sourceKey, sourceOfRemote, splitRemote, type Listed } from './sources.ts'
 
 /**
@@ -155,6 +156,10 @@ export function editTrackers(
   const declined = (why: string): Edited => ({ outcome: 'declined', why, said: '' })
   const file = configFile(root)
   if (!root || !file) return declined('There is no project to keep tracker sources in.')
+  if (!projectRootExists(root)) {
+    sayMissing(root)
+    return declined(`${MISSING_SAID} Its tracker sources were not changed.`)
+  }
 
   const read = readConfig(root)
   if (!read.ok) {
@@ -282,7 +287,7 @@ export function editTrackers(
   if (existed ? isDeepStrictEqual(before, tidy) : isDeepStrictEqual({ version: 1 }, tidy) || isDeepStrictEqual({ version: 1, sources: [] }, tidy)) {
     return { outcome: 'unchanged', why: '', said: `Nothing changed: ${said.replace(/\.$/, '')} already.` }
   }
-  mkdirSync(dirname(file), { recursive: true })
+  if (!makeUnderRoot(root, dirname(file))) return declined(`${MISSING_SAID} Its tracker sources were not changed.`)
   const beside = `${file}.tmp-${process.pid}`
   try {
     writeFileSync(beside, `${JSON.stringify(tidy, null, 2)}\n`, 'utf8')

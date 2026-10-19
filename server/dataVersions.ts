@@ -1,6 +1,8 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { LIMITS, MODULE_ID, moduleFile } from 'kehikot-module-protocol'
+
+import { makeUnderRoot } from './projectRoot.ts'
 
 import { HOST_ID } from './kehikot.ts'
 
@@ -75,7 +77,8 @@ export function recordDataVersion(projectPath: string, module: string, dataVersi
   const id = module
   if (Object.hasOwn(now, id) && now[id]! >= dataVersion) return false
   now[id] = dataVersion
-  mkdirSync(dirname(file), { recursive: true })
+  /* Never the project's folder itself: a project whose folder is gone records nothing. */
+  if (!makeUnderRoot(projectPath, dirname(file))) return false
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, `${JSON.stringify(now, null, 2)}\n`)
   renameSync(tmp, file)

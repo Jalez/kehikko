@@ -17,6 +17,7 @@ import { slugFrom } from '../src/host/epics.ts'
 
 import { edited, listedIn, partsHeld, type Part, type PartsEdit } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
+import { MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
 
 /**
  * What this host actually holds, when it is pointed at something.
@@ -627,6 +628,11 @@ export function createEpic(
   const dir = epicsDir(root)
   const madeDirectory = !existsSync(dir)
   if (madeDirectory) {
+    /* Inside the project, never the project: a folder that was renamed away is not made again. */
+    if (!projectRootExists(root)) {
+      sayMissing(root)
+      return { ok: false, why: `${MISSING_SAID} No epic was made.`, status: 409 }
+    }
     try {
       mkdirSync(dir, { recursive: true })
     } catch (error) {

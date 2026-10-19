@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { fetchFolders, type Entry, type Listing, type Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
+import { MISSING_SAID, MissingMark } from './MissingProject.tsx'
 import { AddItem, armedSelect, Remove } from './Menu.tsx'
 
 /**
@@ -83,7 +84,9 @@ export function Projects({
         <Hint
           label={
             open
-              ? `project — ${open.path}${open.epics ? '' : ' (no .kehikot/kehikko/epics here)'}`
+              ? open.missing
+                ? `project — ${open.path}: ${MISSING_SAID}`
+                : `project — ${open.path}${open.epics ? '' : ' (no .kehikot/kehikko/epics here)'}`
               : 'no project is open'
           }
           align="start"
@@ -115,7 +118,11 @@ export function Projects({
               onSelect={armedSelect(arming === project.id, () => setArming(null), () => onOpen(project.id))}
             >
               <DropdownMenuCheck checked={project.id === open?.id} />
-              <span className="min-w-0 truncate">{project.name}</span>
+              {/* Greyed when its folder is gone, and still openable: opening it
+                  shows why there is no canvas, and forgetting it still works. */}
+              <span className={`min-w-0 truncate${project.missing ? ' text-muted-foreground line-through decoration-1' : ''}`}>
+                {project.name}
+              </span>
               <span className="flex-1" />
               {/*
                * Forget this project, in two presses.
@@ -143,7 +150,9 @@ export function Projects({
                   list rather than only after switching, because "this project
                   has none" is the difference between a picker worth opening and
                   one that looks broken. */}
-              {project.epics ? (
+              {project.missing ? (
+                <MissingMark />
+              ) : project.epics ? (
                 <Layers className="text-muted-foreground size-3 shrink-0" />
               ) : (
                 <span className="text-muted-foreground shrink-0 text-[10px]">no epics</span>
@@ -190,7 +199,9 @@ export function Projects({
           {open && (
             <>
               <DropdownMenuSeparator />
-              {open.git ? (
+              {open.missing ? (
+                <div className="text-muted-foreground px-2 py-1.5 text-[11px] leading-snug">{MISSING_SAID}</div>
+              ) : open.git ? (
                 <>
                   <DropdownMenuItem onSelect={() => onShare(open.id, !open.shared)}>
                     <DropdownMenuCheck checked={open.shared} />

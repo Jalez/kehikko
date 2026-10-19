@@ -55,6 +55,12 @@ export const projectSchema = z.object({
    * is a file the person can edit themselves.
    */
   shared: z.boolean(),
+  /**
+   * Whether the folder is gone — moved, renamed or deleted since it was added.
+   * The page shows it as such and opens no canvas on it; the host writes nothing
+   * under it. Absent from an older host, which never said; absent is not missing.
+   */
+  missing: z.boolean().optional(),
 })
 export type Project = z.infer<typeof projectSchema>
 

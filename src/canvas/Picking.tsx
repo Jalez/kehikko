@@ -2,6 +2,7 @@ import { FolderOpen } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { MISSING_SAID, MISSING_WORDS } from './MissingProject.tsx'
 import {
   Dialog,
   DialogContent,
@@ -140,8 +141,12 @@ export function Picking({
                 <button
                   type="button"
                   data-project={project.id}
+                  /* A project whose folder is gone is not handed to a module:
+                     the path it would be given is not on the disk. */
+                  disabled={project.missing}
+                  title={project.missing ? MISSING_SAID : undefined}
                   onClick={() => onPick(project)}
-                  className="hover:bg-accent/60 focus-visible:ring-ring flex w-full items-start gap-2 px-3 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
+                  className="disabled:opacity-50 hover:bg-accent/60 focus-visible:ring-ring flex w-full items-start gap-2 px-3 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <FolderOpen className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                   <span className="min-w-0 flex-1">
@@ -152,6 +157,7 @@ export function Picking({
                         A person deciding should be reading the thing that is
                         being handed over. */}
                     <span className="text-muted-foreground block text-xs break-all">{project.path}</span>
+                    {project.missing ? <span className="text-muted-foreground block text-[11px] italic">{MISSING_WORDS}</span> : null}
                   </span>
                 </button>
               </li>

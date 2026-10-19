@@ -26,7 +26,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, forgetProject, isProject, listProjects, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, forgetProject, isMissingProject, isProject, listProjects, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -2144,7 +2144,11 @@ const server = Bun.serve({
      * to no other page (`guard.ts`): a module's PAGE cannot ask.
      */
     if (url.pathname === '/host/is-project' && request.method === 'GET') {
-      return json({ ok: true, project: isProject(db, url.searchParams.get('path')) })
+      const asked = url.searchParams.get('path')
+      /* A project whose folder is gone is not one a module may write in, and it
+         is told so in a sentence rather than a bare no. */
+      if (isMissingProject(db, asked)) return json({ ok: true, project: false, missing: true, why: MISSING_SAID })
+      return json({ ok: true, project: isProject(db, asked) })
     }
 
     /*
