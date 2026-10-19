@@ -23,6 +23,51 @@ import {
 
 const NONE: readonly Entry[] = []
 
+/** A project as the Inbox needs it: what a tagged item names (`path`) and what a person reads (`name`). */
+export interface ProjectRef {
+  id: number
+  name: string
+  path: string
+}
+const NO_PROJECTS: readonly ProjectRef[] = []
+
+/** A folder as it is compared: without a trailing slash. */
+const folder = (path: string): string => (path.length > 1 ? path.replace(/\/+$/, '') : path)
+
+/**
+ * A tagged list (protocol 1.8.0) as one complete list per project: each item
+ * under the project whose folder its `project` names — the open one when it
+ * names none — without the field; every project in `before` (where the module
+ * reported last time) that it names nothing in now gets `[]`. An item naming a
+ * folder no project is in is counted in `unknown` and kept nowhere.
+ */
+export function byProject(
+  list: readonly ActivityItem[],
+  open: number | null,
+  projects: readonly ProjectRef[],
+  before: readonly number[] = [],
+): { lists: Map<number, ActivityItem[]>; unknown: number } {
+  const byFolder = new Map(projects.map((one) => [folder(one.path), one.id]))
+  const lists = new Map<number, ActivityItem[]>()
+  let unknown = 0
+  for (const { project: path, ...item } of list) {
+    const id = path === undefined ? open : (byFolder.get(folder(path)) ?? null)
+    if (id === null) {
+      unknown += 1
+      continue
+    }
+    lists.set(id, [...(lists.get(id) ?? []), item])
+  }
+  for (const id of before) if (!lists.has(id)) lists.set(id, [])
+  return { lists, unknown }
+}
+
+/** Another project's live entries, for the Inbox to show under that project's name. */
+export interface Elsewhere {
+  project: ProjectRef
+  entries: readonly Entry[]
+}
+
 /**
  * How long a module may be out of the live set before what it had open
  * closes: a sweep that failed once is not a death.
@@ -50,17 +95,37 @@ export const DROP_GRACE_MS = 6000
  * while its place is already open stays green until one of those.
  *
  * `notify` is told once for each entry that ENTERS attention or done as news
- * (the server decides what is news), unless its place is open on screen.
+ * (the server decides what is news), unless its place is open on screen. An
+ * entry of another project is told with that project's id.
+ *
+ * ## Every project, not only the open one
+ *
+ * Switching project used to silence the others: their wake-ups were dropped
+ * and only the open project's record was read. Now every project's record is
+ * held (`others`), read again whenever the server says it changed, and what
+ * enters attention or done there is news like any other.
+ *
+ * A module whose things span projects (an agent session keeps running after
+ * the person switches project) tags each item with its project's folder
+ * (protocol 1.8.0, `ActivityItem.project`). Its list is then its complete list
+ * across every project: each item is filed under the project it names, and a
+ * project it reported to before and names nothing in now is told `[]`. The
+ * answer says `projects: true`, which is how the module learns it may.
  */
 export function useInbox(options: {
   project: number | null
+  /** Every project the host knows, to file a tagged item under and to read the record of. */
+  projects?: readonly ProjectRef[]
   alive: ReadonlySet<string> | null
   at: Where
   nameOf: (module: string) => string
   graceMs?: number
-  notify?: (entry: Entry) => void
+  notify?: (entry: Entry, project: number) => void
 }) {
   const { project, alive, at, graceMs = DROP_GRACE_MS } = options
+  const projects = options.projects ?? NO_PROJECTS
+  const projectsRef = useRef(projects)
+  projectsRef.current = projects
   const [snaps, setSnaps] = useState<Record<number, Snapshot>>({})
   const snapsRef = useRef<Record<number, Snapshot>>({})
   const setSnap = useCallback((id: number, next: Snapshot | ((was: Snapshot | undefined) => Snapshot)) => {
@@ -130,37 +195,71 @@ export function useInbox(options: {
     }
   }, [project, adopt])
 
-  /** Read again: the server said something changed, or the stream reopened. */
-  const refresh = useCallback(
-    (id?: number, rev?: number | null) => {
-      const which = id ?? projectRef.current
-      if (which === null || which !== projectRef.current) return
-      /* The news names the revision it is about; this page may hold it already. */
-      if (rev != null && rev <= (snapsRef.current[which]?.rev ?? -1)) return
-      void fetchInbox(which).then((got) => {
-        if (got && got.rev !== snapsRef.current[which]?.rev) adopt(which, got)
-      })
-    },
-    [adopt],
-  )
-
-  const forward = useCallback((news: readonly Entry[]) => {
+  /** What has been told as news, so a report's answer and a wake-up's read do not tell one thing twice. */
+  const told = useRef(new Set<string>())
+  const forward = useCallback((id: number, news: readonly Entry[]) => {
     for (const entry of news) {
-      if (placeOpened(entry.place, atRef.current)) continue
-      notifyRef.current?.(entry)
+      const said = `${id}\u0000${rowKey(entry)}\u0000${entry.state}\u0000${entry.entered}`
+      if (told.current.has(said)) continue
+      told.current.add(said)
+      /* A place can only be open on screen in the open project. */
+      if (id === projectRef.current && placeOpened(entry.place, atRef.current)) continue
+      notifyRef.current?.(entry, id)
     }
   }, [])
 
-  /** `activity.set` from one module. Declined, with the reason, when no project is open. */
-  const receive = useCallback(
-    (from: string, list: ActivityItem[]) => {
-      const id = projectRef.current
-      if (id === null) {
-        return { outcome: 'declined' as const, taken: 0, why: 'No project is open, so there is nothing for this to be about.' }
+  /** Read again: the server said something changed, or the stream reopened. Any project, not only the open one. */
+  const refresh = useCallback(
+    (id?: number, rev?: number | null) => {
+      /* No id: the stream reopened, and anything may have changed anywhere. */
+      const which = id === undefined ? [...new Set([...(projectRef.current === null ? [] : [projectRef.current]), ...projectsRef.current.map((one) => one.id)])] : [id]
+      for (const one of which) {
+        /* The news names the revision it is about; this page may hold it already. */
+        if (rev != null && rev <= (snapsRef.current[one]?.rev ?? -1)) continue
+        void fetchInbox(one).then((got) => {
+          const was = snapsRef.current[one]
+          if (!got || got.rev === was?.rev) return
+          /* Another project's record has no report of this page's behind it to say what is news:
+             what entered attention or done since the last read is. The first read is not news. */
+          if (one !== projectRef.current && was) {
+            const before = new Map(was.open.map((entry) => [rowKey(entry), entry]))
+            forward(
+              one,
+              got.open.filter((entry) => {
+                if (entry.state === 'working' || !isLive(entry)) return false
+                const prior = before.get(rowKey(entry))
+                return !prior || prior.state !== entry.state || prior.entered !== entry.entered
+              }),
+            )
+          }
+          adopt(one, got)
+        })
       }
+    },
+    [adopt, forward],
+  )
+
+  /* Every project's record, read once each project is known: what is going on elsewhere is the point. */
+  const known = projects.map((one) => one.id).join(',')
+  useEffect(() => {
+    let cancelled = false
+    for (const one of projectsRef.current) {
+      if (one.id === projectRef.current || snapsRef.current[one.id]) continue
+      void fetchInbox(one.id).then((got) => {
+        if (!cancelled && !snapsRef.current[one.id]) adopt(one.id, got)
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [known, adopt])
+
+  /** One module's complete list for one project: marked now, posted, and the server's answer adopted. */
+  const reportTo = useCallback(
+    (id: number, from: string, list: ActivityItem[]) => {
       const key = `${id}\u0000${from}`
       const json = JSON.stringify(list)
-      if (sent.current.get(key) === json) return { outcome: 'taken' as const, taken: list.length, why: '' }
+      if (sent.current.get(key) === json) return
       sent.current.set(key, json)
       const name = nameRef.current(from)
       /* Marked now by the same rule the server applies; replaced by its answer. */
@@ -178,13 +277,44 @@ export function useInbox(options: {
             sent.current.delete(key)
             return
           }
-          forward(got.news)
+          forward(id, got.news)
           adopt(id, got)
         },
       )
-      return { outcome: 'taken' as const, taken: list.length, why: '' }
     },
     [adopt, forward, queue, setSnap],
+  )
+
+  /**
+   * `activity.set` from one module. A list with no `project` on any item is the
+   * open project's, and is declined, with the reason, when none is open. One
+   * that tags its items is filed by project (see the top).
+   */
+  const receive = useCallback(
+    (from: string, list: ActivityItem[]) => {
+      const open = projectRef.current
+      if (!list.some((item) => item.project !== undefined)) {
+        if (open === null) {
+          return { outcome: 'declined' as const, taken: 0, why: 'No project is open, so there is nothing for this to be about.', projects: true }
+        }
+        reportTo(open, from, list)
+        return { outcome: 'taken' as const, taken: list.length, why: '', projects: true }
+      }
+      const before = [...sent.current.keys()].flatMap((key) => {
+        const [id, module] = key.split('\u0000')
+        return module === from ? [Number(id)] : []
+      })
+      const { lists, unknown } = byProject(list, open, projectsRef.current, before)
+      for (const [id, items] of lists) reportTo(id, from, items)
+      const taken = list.length - unknown
+      return {
+        outcome: 'taken' as const,
+        taken,
+        why: unknown ? `${unknown} of these name a project this host does not know, and were not kept.` : '',
+        projects: true,
+      }
+    },
+    [reportTo],
   )
 
   /** One legacy `kehikot.notifications@1` line, kept as an entry born closed. */
@@ -204,8 +334,10 @@ export function useInbox(options: {
       what: 'seen' | 'dismiss' | 'forget' | 'seen-all',
       keys: readonly { module: string; id: string }[] | undefined,
       narrowing?: Narrowing | null,
+      /** Another project's record; the open one's when absent. */
+      inProject?: number,
     ) => {
-      const id = projectRef.current
+      const id = inProject ?? projectRef.current
       if (id === null) return
       /* The guess, so the dot goes at once. */
       if (keys && (what === 'seen' || what === 'dismiss')) {
@@ -234,13 +366,13 @@ export function useInbox(options: {
     [adopt, queue, setSnap],
   )
 
-  const see = useCallback((entries: readonly Entry[]) => {
+  const see = useCallback((entries: readonly Entry[], inProject?: number) => {
     const fresh = entries.filter((one) => one.state === 'done' && !isSeen(one))
-    if (fresh.length) act('seen', fresh.map((one) => ({ module: one.module, id: one.id })))
+    if (fresh.length) act('seen', fresh.map((one) => ({ module: one.module, id: one.id })), null, inProject)
   }, [act])
   const dismiss = useCallback(
-    (entries: readonly Entry[]) => {
-      if (entries.length) act('dismiss', entries.map((one) => ({ module: one.module, id: one.id })))
+    (entries: readonly Entry[], inProject?: number) => {
+      if (entries.length) act('dismiss', entries.map((one) => ({ module: one.module, id: one.id })), null, inProject)
     },
     [act],
   )
@@ -293,5 +425,15 @@ export function useInbox(options: {
 
   const live = useMemo(() => open.filter(isLive), [open])
 
-  return { open, live, rev, earlier, receive, notice, see, dismiss, act, refresh }
+  /* The other projects' live entries, each under its project; the ones with nothing live are left out. */
+  const others = useMemo<readonly Elsewhere[]>(
+    () =>
+      projects
+        .filter((one) => one.id !== project)
+        .map((one) => ({ project: one, entries: (snaps[one.id]?.open ?? NONE).filter(isLive) }))
+        .filter((one) => one.entries.length > 0),
+    [projects, project, snaps],
+  )
+
+  return { open, live, others, rev, earlier, receive, notice, see, dismiss, act, refresh }
 }

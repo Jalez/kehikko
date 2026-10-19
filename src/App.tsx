@@ -248,6 +248,9 @@ interface Live {
  */
 const QUIET_BETWEEN_SWEEPS_MS = 3000
 
+/** Names for another project's places: none are read for a project that is not open, so a line says its slugs. */
+const OTHER_NAMES: Namer = { epic: () => null, part: () => null, kehikko: () => null }
+
 /**
  * How long the page waits before looking again while its own server is silent.
  *
@@ -2930,13 +2933,15 @@ export function App() {
      consumes `kehikot.notifications@1` — a Notifications module on a canvas —
      as if the module had sent it. The record already holds it; this only
      forwards. See `noticeFor`. */
-  const noticeRef = useRef<(entry: Entry) => void>(() => undefined)
+  const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
+  const inboxProjects = useMemo(() => projects.map(({ id, name, path }) => ({ id, name, path })), [projects])
   const inbox = useInbox({
     project: projectId,
+    projects: inboxProjects,
     alive: activityAlive,
     at: activityAt,
     nameOf: moduleName,
-    notify: (entry) => noticeRef.current(entry),
+    notify: (entry, project) => noticeRef.current(entry, project),
   })
   activityRef.current = inbox.receive
   inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
@@ -2959,9 +2964,14 @@ export function App() {
     }),
     [held, here],
   )
-  noticeRef.current = (entry) => {
-    const line = noticeFor(entry, activityAt, activityNames)
+  noticeRef.current = (entry, project) => {
+    /* Another project's: its names are not this page's to read, so the line says the project instead. */
+    const elsewhere = project !== projectRef.current ? (projects.find((one) => one.id === project)?.name ?? 'another project') : null
+    const line = elsewhere
+      ? noticeFor(entry, { epic: entry.place?.epic ?? null, parts: [], kehikko: null }, OTHER_NAMES)
+      : noticeFor(entry, activityAt, activityNames)
     if (!line) return
+    if (elsewhere) line.message = `${elsewhere}: ${line.message}`
     const out = bus.emit(entry.module, 'kehikot.notifications@1', line, kehikkoRef.current)
     if (!out.ok) console.info('The host did not carry a notice derived from activity.', out.error)
   }
@@ -3029,6 +3039,32 @@ export function App() {
     },
     [inbox, here, revealContainer],
   )
+  /*
+   * An item of another project: that project is opened, and once its epics
+   * have been read again — `held` goes to null on the switch and back — the
+   * item is gone to as any other. Never on the epics of the project left.
+   */
+  const goElsewhere = useRef<{ project: number; entry: Entry; cleared: boolean } | null>(null)
+  const goToElsewhere = useCallback(
+    (project: number, entry: Entry) => {
+      if (entry.state === 'done') inbox.see([entry], project)
+      setInboxOpen(false)
+      goElsewhere.current = { project, entry, cleared: false }
+      onProject(project)
+    },
+    [inbox, onProject],
+  )
+  useEffect(() => {
+    const pending = goElsewhere.current
+    if (!pending || pending.project !== projectId) return
+    if (held === null) {
+      pending.cleared = true
+      return
+    }
+    if (!pending.cleared) return
+    goElsewhere.current = null
+    goToEntry(pending.entry)
+  }, [projectId, held, goToEntry])
   /* Which scope the Inbox shows. The default is everywhere: what is going on in
      other kehikot, parts and epics is the point, one press from "This kehikko".
      Only a person who narrowed it is remembered, per project, in this browser. */
@@ -3083,16 +3119,20 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const barActivity = useMemo<BarActivity | null>(() => {
-    if (inbox.open.length === 0 && inbox.earlier === 0 && !inboxOpen) return null
+    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen) return null
     const narrowing = { scope: inboxScope, epic: about.epic, kehikko: open?.key ?? null }
     return {
       epics: activityMarks.epics,
       parts: activityMarks.parts,
       kehikot: activityMarks.kehikot,
       kehikotCounts: activityMarks.counts,
-      worst: activityMarks.worst,
+      /* Another project needing the person lights the control too: switching project silences nothing. */
+      worst: worstActivity([...(activityMarks.worst ? [activityMarks.worst] : []), ...inbox.others.flatMap((one) => one.entries.map((entry) => entry.state))]),
       inbox: {
         entries: inbox.open,
+        elsewhere: inbox.others,
+        onGoElsewhere: goToElsewhere,
+        onDismissElsewhere: (project, entries) => inbox.dismiss(entries, project),
         earlierCount: inbox.earlier,
         at: { epic: about.epic, kehikko: open?.key ?? null },
         scope: inboxScope,
@@ -3124,6 +3164,7 @@ export function App() {
     activityNames,
     nextEntry,
     goToEntry,
+    goToElsewhere,
     about.epic,
     open?.key,
     projectId,

@@ -55,6 +55,14 @@ import { Hint } from './Hint.tsx'
 export interface InboxView {
   /** Every open entry of the project (put-away ones are filtered here). */
   entries: readonly Entry[]
+  /**
+   * The other projects' live entries, each under its project. Switching
+   * project silences nothing: these are shown, and counted on the control,
+   * whichever project is open. Pressing one opens its project first.
+   */
+  elsewhere?: readonly { project: { id: number; name: string }; entries: readonly Entry[] }[]
+  onGoElsewhere?(project: number, entry: Entry): void
+  onDismissElsewhere?(project: number, entries: readonly Entry[]): void
   /** How many closed entries the record holds: whether there is an Earlier at all. */
   earlierCount: number
   at: { epic: string | null; kehikko: string | null }
@@ -81,13 +89,20 @@ export interface InboxView {
 }
 
 const PAGE = 20
+/** Another project's items: what needs the person first, then what is going on, then what finished. */
+const ELSEWHERE_ORDER: Record<ActivityState, number> = { attention: 0, working: 1, done: 2 }
 /** Rows drawn per section before "show more": a bound on the DOM. */
 const SECTION_ROWS = 25
 
 const sayNames = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
+/** How many things need the person in the other projects. */
+export function needingElsewhere(view: Pick<InboxView, 'elsewhere'>): number {
+  return (view.elsewhere ?? []).reduce((sum, one) => sum + one.entries.filter((entry) => entry.state === 'attention').length, 0)
+}
+
 /** The control's words, for its tooltip and its accessible name. */
-export function controlWords(tally: Tally, shortcut: string): string {
+export function controlWords(tally: Tally, shortcut: string, otherProjects = 0): string {
   const said: string[] = []
   const need = tally.needHere + tally.needElsewhere
   if (need) {
@@ -97,6 +112,7 @@ export function controlWords(tally: Tally, shortcut: string): string {
         : `${need} ${need === 1 ? 'needs' : 'need'} you`,
     )
   }
+  if (otherProjects) said.push(`${otherProjects} ${otherProjects === 1 ? 'needs' : 'need'} you in other projects`)
   if (tally.working) said.push(`${tally.working} working`)
   if (tally.finished) said.push(`${tally.finished} finished`)
   return `inbox — ${said.length ? said.join(', ') : 'nothing new'} (${shortcut} for the next that needs you)`
@@ -448,7 +464,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
 
         {nothing ? (
           <div className="px-2 py-2 text-xs" data-inbox-empty="">
-            <p>{view.tally.needHere + view.tally.needElsewhere === 0 ? 'Nothing needs you.' : 'Nothing needs you here.'}</p>
+            <p>{view.tally.needHere + view.tally.needElsewhere + needingElsewhere(view) === 0 ? 'Nothing needs you.' : 'Nothing needs you here.'}</p>
             {scope === 'here' && elsewhere + view.tally.working + view.tally.finished > 0 ? (
               <p className="text-muted-foreground mt-0.5">
                 {elsewhere ? `${sayNames(elsewhere, 'thing needs', 'things need')} you elsewhere` : 'Nothing here'}
@@ -505,6 +521,38 @@ export function InboxPanel({ view }: { view: InboxView }) {
             <ul>{folded(s.finished, 'finished')}</ul>
           </section>
         ) : null}
+
+        {(view.elsewhere ?? []).map(({ project, entries }) => {
+          const ordered = [...entries].sort((a, b) => ELSEWHERE_ORDER[a.state] - ELSEWHERE_ORDER[b.state] || b.entered - a.entered)
+          return (
+            <section key={`project:${project.id}`} aria-label={`in ${project.name}`} data-inbox-project={project.id}>
+              <SectionHeading count={entries.length}>{`In ${project.name}`}</SectionHeading>
+              <ul>
+                {ordered.slice(0, SECTION_ROWS).map((entry) => {
+                  const where = [entry.place?.epic, entry.place?.parts?.join(' + ')].filter(Boolean).join(' · ')
+                  return (
+                    <Row
+                      key={`${project.id}:${rowKey(entry)}`}
+                      data={`elsewhere-${entry.state}`}
+                      dot={entry.state}
+                      by={byLine(entry)}
+                      state={STATE_WORDS[entry.state]}
+                      label={entry.label}
+                      {...(entry.detail ? { detail: entry.detail } : {})}
+                      place={where ? `${project.name} · ${where}` : project.name}
+                      age={ageWords(now, entry.entered)}
+                      priority={entry.priority}
+                      onPress={() => view.onGoElsewhere?.(project.id, entry)}
+                      {...(entry.state !== 'working' && view.onDismissElsewhere
+                        ? { action: { label: `dismiss ${entry.label}`, title: 'Dismiss — it returns only if it changes', run: () => view.onDismissElsewhere?.(project.id, [entry]) } }
+                        : {})}
+                    />
+                  )
+                })}
+              </ul>
+            </section>
+          )
+        })}
 
         {view.earlierCount > 0 || logTotal > 0 || s.seen.length > 0 ? (
           <section aria-label="earlier">
@@ -573,8 +621,9 @@ export function InboxPanel({ view }: { view: InboxView }) {
 
 /** The bar's one control: the worst live dot and the count of what needs the person. */
 export function InboxControl({ view, worst }: { view: InboxView; worst: ActivityState | null }) {
-  const label = controlWords(view.tally, view.shortcut)
-  const needing = view.tally.needHere + view.tally.needElsewhere
+  const others = needingElsewhere(view)
+  const label = controlWords(view.tally, view.shortcut, others)
+  const needing = view.tally.needHere + view.tally.needElsewhere + others
   return (
     <Popover open={view.open} onOpenChange={view.onOpenChange}>
       <Hint label={label} align="end">
