@@ -198,6 +198,21 @@ export function moduleNote(module: { ran: 'page' | 'restarted' | 'started' | 'id
   }
 }
 
+/**
+ * The release notes the app's row offers: the version it runs, and the one on
+ * its way while it downloads, installs or waits for a restart. Empty for a
+ * module's row, and for an app that names no version.
+ */
+export function appNotes(row: UpdateRow): { version: string; label: string; pending: boolean }[] {
+  if (row.source !== 'app') return []
+  const out: { version: string; label: string; pending: boolean }[] = []
+  if (row.current) out.push({ version: row.current, label: "What's new", pending: false })
+  if (row.version && row.version !== row.current && (row.state === 'updating' || row.state === 'ready')) {
+    out.push({ version: row.version, label: `Kehikot ${row.version} — what's new`, pending: true })
+  }
+  return out
+}
+
 /** What "Restart anyway" says on its two presses. The second is the one that stops the module. */
 export const RESTART_ANYWAY = 'Restart anyway'
 export const RESTART_ANYWAY_ARMED = 'Press again to restart'

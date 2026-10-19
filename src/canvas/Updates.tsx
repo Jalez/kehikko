@@ -26,9 +26,10 @@ import {
   type Preview,
   type Reading,
 } from '@/host/updates.ts'
-import { connect, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
+import { watchApp, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
 import {
   APP_ROW_ID,
+  appNotes,
   indicator,
   moduleNote,
   moduleRow,
@@ -46,6 +47,8 @@ import {
 } from '@/host/updateModel.ts'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
+import { NotesButton, useReleaseNotes } from './ReleaseNotes.tsx'
+import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -196,11 +199,12 @@ export function Updates({
   /** The desktop app's updater: its last status, and the commands. Null outside the app. */
   const [app, setApp] = useState<AppUpdateStatus | null>(null)
   const engine = useRef<AppEngine | null>(null)
+  const notes = useReleaseNotes()
 
   /* Listen to the shell's push, and ask once now — which is also what tells
      the shell this page draws updates, so it keeps its own alert to itself. */
   useEffect(() => {
-    const link = connect(setApp)
+    const link = watchApp(setApp)
     engine.current = link.engine
     return () => link.stop()
   }, [])
@@ -542,6 +546,14 @@ export function Updates({
         side="bottom"
         aria-label="Updates"
         className="updates-panel flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] flex-col p-0"
+        /* The release-notes dialog is outside this panel: the panel stays
+           open behind it, so focus has its button to come back to. */
+        onFocusOutside={(event) => {
+          if (notes.open) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (notes.open) event.preventDefault()
+        }}
       >
         <div className="border-b px-3 py-2">
           <p className="text-sm font-medium">Updates</p>
@@ -551,7 +563,16 @@ export function Updates({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {appOne && !restarting ? <AppRow row={appOne} onApply={applyApp} onRetry={checkAll} /> : null}
+          {appOne && !restarting ? (
+            <AppRow
+              row={appOne}
+              onApply={applyApp}
+              onRetry={checkAll}
+              onNotes={(version, opener) =>
+                notes.show({ repo: APP_REPO, tag: tagFor(version), name: APP_NAME, version, opener })
+              }
+            />
+          ) : null}
           {restarting || phase.kind === 'checking' ? (
             <div className="flex flex-col items-center gap-3 py-4" data-testid="updates-working">
               <KehikkoMark key={restarting ? 'r' : 'c'} working className="text-foreground size-12" />
@@ -672,6 +693,7 @@ export function Updates({
             </div>
           )}
         </div>
+        {notes.dialog}
       </PopoverContent>
     </Popover>
   )
@@ -683,12 +705,27 @@ export function Updates({
  * is "Restart to update" once an update is ready, and "Try again" after a
  * failure.
  */
-function AppRow({ row, onApply, onRetry }: { row: UpdateRow; onApply(): void; onRetry(): void }) {
+export function AppRow({
+  row,
+  onApply,
+  onRetry,
+  onNotes,
+}: {
+  row: UpdateRow
+  onApply(): void
+  onRetry(): void
+  /** Show a version's release notes. See `appNotes`. */
+  onNotes?(version: string, opener: HTMLElement): void
+}) {
+  const offered = appNotes(row)
+  const running = offered.find((one) => !one.pending)
+  const coming = offered.find((one) => one.pending)
   return (
     <div className="mb-2 rounded-md border px-3 py-2 text-xs" data-testid="updates-app" data-state={row.state}>
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">Kehikot app</span>
         <span className="text-muted-foreground shrink-0 font-mono text-[11px]">{row.current}</span>
+        {running && onNotes ? <NotesButton version={running.version} onShow={(opener) => onNotes(running.version, opener)} /> : null}
       </div>
       <p className={row.state === 'failed' ? 'text-destructive pt-1' : row.state === 'uptodate' || row.state === 'unknown' ? 'text-muted-foreground pt-1' : 'text-foreground pt-1'}>
         {stateText(row)}
@@ -705,6 +742,12 @@ function AppRow({ row, onApply, onRetry }: { row: UpdateRow; onApply(): void; on
             className={`bg-foreground/60 h-full ${row.progress === null ? 'w-1/3 animate-pulse' : ''}`}
             style={row.progress === null ? undefined : { width: `${Math.round(row.progress * 100)}%` }}
           />
+        </div>
+      ) : null}
+      {coming && onNotes ? (
+        <div className="text-muted-foreground flex items-center gap-1.5 pt-1" data-testid="updates-app-coming">
+          <span className="min-w-0 flex-1 truncate">{coming.label}</span>
+          <NotesButton version={coming.version} onShow={(opener) => onNotes(coming.version, opener)} />
         </div>
       ) : null}
       {row.state === 'ready' ? (

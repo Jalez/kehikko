@@ -5,7 +5,8 @@ import { readDataVersions, recordDataVersion, recordedFor, refusal } from './dat
 import type { Presence } from './discover.ts'
 import { projectById } from './projects.ts'
 import type { Registration } from './registrations.ts'
-import { isVersionTag, remoteOf, type Runner, type TagLister } from './versions.ts'
+import { githubRepo } from './feedback.ts'
+import { compareSemver, isVersionTag, parseTag, remoteOf, type Runner, type Semver, type TagLister } from './versions.ts'
 import { versionKey, type FactsStore, type Instance, type Materialiser, type VersionRuns } from './versionRuns.ts'
 
 /**
@@ -26,6 +27,10 @@ import { versionKey, type FactsStore, type Instance, type Materialiser, type Ver
  * to null.
  */
 
+function sameVersion(a: Semver | null, b: Semver): boolean {
+  return a !== null && compareSemver(a, b) === 0
+}
+
 /** One tag as the picker shows it. */
 export interface VersionEntry {
   tag: string
@@ -41,6 +46,8 @@ export interface VersionEntry {
   prepared: boolean
   /** Running right now for some container. */
   running: boolean
+  /** Its repository has a GitHub release for this tag, so it has release notes to show. */
+  release: boolean
 }
 
 /** Everything the picker in a container's header shows. */
@@ -48,7 +55,9 @@ export interface VersionListing {
   module: string
   name: string
   /** The module's own checkout: what its manifest calls itself, and its commit. */
-  latest: { version: string | null; commit: string | null; dataVersion: number | null }
+  latest: { version: string | null; commit: string | null; dataVersion: number | null; release: string | null }
+  /** `owner/repo` on GitHub, when the module's remote is there: where its release notes are read. */
+  repo: string | null
   /** The tag this container is pinned to, or null for latest. */
   pinned: string | null
   /** The highest data format recorded for this module in this kehikko's project. */
@@ -91,6 +100,8 @@ export interface PinsDeps {
   wake(canvas: number): void
   /** Write the project's `kehikot.json`. */
   keep(project: number | null): void
+  /** The tags of a GitHub repository that have a release, or null when unknown. See `releaseNotes.ts`. */
+  released?(repo: string): Promise<ReadonlySet<string> | null>
 }
 
 /** How many containers pin each version, on every kehikko. */
@@ -175,11 +186,13 @@ export class Pins {
       version: latestPresence?.module?.version ?? null,
       commit,
       dataVersion: latestPresence?.module?.dataVersion ?? null,
+      release: null as string | null,
     }
     const base: VersionListing = {
       module,
       name,
       latest,
+      repo: null,
       pinned: placement?.version ?? null,
       recorded,
       versions: [],
@@ -197,11 +210,18 @@ export class Pins {
     if (!remote) {
       return { ...base, hint: `${registration.dir} has no remote to read versions from, so only its checkout is available.` }
     }
-    const got = await deps.tags.tags(remote, fresh)
-    if (!got.ok) return { ...base, error: `could not read the versions from ${remote}: ${got.why}` }
+    const repo = githubRepo(remote)
+    /* Which tags have release notes, asked beside the tags and never failing
+       the listing: without it the picker only offers no notes. */
+    const [got, released] = await Promise.all([
+      deps.tags.tags(remote, fresh),
+      repo && deps.released ? deps.released(repo).catch(() => null) : Promise.resolve(null),
+    ])
+    if (!got.ok) return { ...base, repo, error: `could not read the versions from ${remote}: ${got.why}` }
     if (!got.tags.length) {
       return {
         ...base,
+        repo,
         hint: `${name} has no releases yet. Its author can publish one by tagging, e.g. git tag v1.0.0 && git push --tags.`,
       }
     }
@@ -219,9 +239,13 @@ export class Pins {
         blocked: refusal(name, tag, dataVersion, recorded),
         prepared: deps.materialiser.prepared(module, tag) !== null,
         running: instance?.state === 'running',
+        release: released?.has(tag) ?? false,
       }
     })
-    return { ...base, versions }
+    /* Latest has notes when what its checkout calls itself is a released tag. */
+    const own = latest.version ? parseTag(latest.version) : null
+    const same = own ? got.tags.find((tag) => released?.has(tag) && sameVersion(parseTag(tag), own)) : undefined
+    return { ...base, repo, latest: { ...latest, release: same ?? null }, versions }
   }
 
   /**

@@ -102,3 +102,41 @@ export function connect(onStatus: (status: AppUpdateStatus) => void): { engine: 
     },
   }
 }
+
+/*
+ * One connection, shared. The shell pushes to ONE function on the window, so
+ * two components that each called `connect` would take it from each other.
+ * The Updates menu and the version beside the name both watch the app through
+ * `watchApp`, which holds a single `connect` while anyone listens, hands a new
+ * listener the last status at once, and lets go when the last one leaves.
+ */
+let shared: { engine: AppEngine | null; stop(): void } | null = null
+let last: AppUpdateStatus | null = null
+const listeners = new Set<(status: AppUpdateStatus) => void>()
+
+export function watchApp(onStatus: (status: AppUpdateStatus) => void): { engine: AppEngine | null; stop(): void } {
+  listeners.add(onStatus)
+  if (!shared) {
+    shared = connect((status) => {
+      last = status
+      for (const listener of [...listeners]) listener(status)
+    })
+  } else if (last) {
+    onStatus(last)
+  }
+  const engine = shared.engine
+  let stopped = false
+  return {
+    engine,
+    stop() {
+      if (stopped) return
+      stopped = true
+      listeners.delete(onStatus)
+      if (listeners.size === 0 && shared) {
+        shared.stop()
+        shared = null
+        last = null
+      }
+    },
+  }
+}

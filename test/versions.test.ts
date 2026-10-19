@@ -482,6 +482,7 @@ describe('pinning a container', () => {
     /* For a test that wants something to land while a pin is waiting on the module's tags, the last
        thing it waits for: told when the read is asked for, and the read held open until `waiting` is done. */
     tagsRead: { asked: () => void; waiting: Promise<void> } = { asked: () => {}, waiting: Promise.resolve() },
+    more: { remote?: string; released?: (repo: string) => Promise<ReadonlySet<string> | null> } = {},
   ) {
     const db: Database = openDb(':memory:')
     const dir = scratch('pinproject')
@@ -508,7 +509,7 @@ describe('pinning a container', () => {
     } as unknown as VersionRuns
     const woken: number[] = []
     const runner: Runner = async (argv) =>
-      argv.includes('get-url') ? { ok: true, out: '/r/notes.git' } : argv.includes('rev-parse') ? { ok: true, out: 'abc1234' } : { ok: false, why: 'no' }
+      argv.includes('get-url') ? { ok: true, out: more.remote ?? '/r/notes.git' } : argv.includes('rev-parse') ? { ok: true, out: 'abc1234' } : { ok: false, why: 'no' }
     const lister = new TagLister(async () => {
       tagsRead.asked()
       await tagsRead.waiting
@@ -535,15 +536,49 @@ describe('pinning a container', () => {
       look: async () => latest,
       wake: (c) => woken.push(c),
       keep: (project) => keep(db, project),
+      ...(more.released ? { released: more.released } : {}),
     })
     return { db, dir, canvas, pins, ensured, woken }
   }
+
+  test('a GitHub module marks the tags that have release notes, and latest when it is one of them', async () => {
+    const asked: string[] = []
+    const { canvas, pins } = world(['v1.0.0', 'v2.1.0', 'v2.2.0'], {}, undefined, {
+      remote: 'git@github.com:Jalez/kehikko-notes.git',
+      released: async (repo) => {
+        asked.push(repo)
+        return new Set(['v2.1.0', 'v1.0.0'])
+      },
+    })
+    const listed = await pins.list('kehikot.notes', canvas.id)
+    if ('why' in listed) throw new Error(listed.why)
+    expect(asked).toEqual(['Jalez/kehikko-notes'])
+    expect(listed.repo).toBe('Jalez/kehikko-notes')
+    expect(Object.fromEntries(listed.versions.map((v) => [v.tag, v.release]))).toEqual({ 'v2.2.0': false, 'v2.1.0': true, 'v1.0.0': true })
+    expect(listed.latest.release).toBe('v2.1.0')
+  })
+
+  test('releases that cannot be read leave the versions listed, with no notes offered', async () => {
+    const { canvas, pins } = world(['v1.0.0'], {}, undefined, {
+      remote: 'https://github.com/Jalez/kehikko-notes',
+      released: async () => {
+        throw new Error('offline')
+      },
+    })
+    const listed = await pins.list('kehikot.notes', canvas.id)
+    if ('why' in listed) throw new Error(listed.why)
+    expect(listed.versions).toHaveLength(1)
+    expect(listed.versions[0]!.release).toBe(false)
+    expect(listed.latest.release).toBeNull()
+  })
 
   test('lists latest and the tags, and pins one: stored, written to the file, woken, started', async () => {
     const { db, dir, canvas, pins, ensured, woken } = world(['v1.0.0', 'v1.1.0'])
     const listed = await pins.list('kehikot.notes', canvas.id)
     if ('why' in listed) throw new Error(listed.why)
-    expect(listed.latest).toEqual({ version: '2.1.0', commit: 'abc1234', dataVersion: 2 })
+    expect(listed.latest).toEqual({ version: '2.1.0', commit: 'abc1234', dataVersion: 2, release: null })
+    expect(listed.repo).toBeNull()
+    expect(listed.versions.every((v) => v.release === false)).toBe(true)
     expect(listed.versions.map((v) => v.tag)).toEqual(['v1.1.0', 'v1.0.0'])
     expect(listed.pinned).toBeNull()
 

@@ -87,7 +87,8 @@ import { Wakes } from './wake.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
-import { feedbackDesk, spawnRunner } from './feedback.ts'
+import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
+import { releaseNotesDesk } from './releaseNotes.ts'
 import { installDesk } from './installs.ts'
 import { HOST_REPO, OFFICIAL } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
@@ -763,6 +764,28 @@ const versionRuns = new VersionRuns({
   log: (line) => console.log(line),
 })
 
+/* Release notes from GitHub, for the app's own version and a module's tags —
+   only for repositories this host knows: the app's, the official list's, and
+   each registered module's own remote. See `releaseNotes.ts`. */
+const remotesByDir = new Map<string, { at: number; repo: string | null }>()
+const releaseNotes = releaseNotesDesk({
+  allowed: async (repo) => {
+    const asked = repo.toLowerCase()
+    if (official.current().some((one) => one.repo.toLowerCase() === asked)) return true
+    for (const registration of registered.values()) {
+      if (!registration.dir) continue
+      let kept = remotesByDir.get(registration.dir)
+      if (!kept || Date.now() - kept.at > 60_000) {
+        const remote = await remoteOf(registration.dir, runQuietly)
+        kept = { at: Date.now(), repo: remote ? githubRepo(remote) : null }
+        remotesByDir.set(registration.dir, kept)
+      }
+      if (kept.repo?.toLowerCase() === asked) return true
+    }
+    return false
+  },
+})
+
 const pins = new Pins({
   db,
   runs: versionRuns,
@@ -775,6 +798,7 @@ const pins = new Pins({
   look: (id, origin) => look({ id, url: origin, file: `version of ${id}` }),
   wake: (canvas) => wakes.woke(canvas),
   keep: (project) => keep(db, project),
+  released: (repo) => releaseNotes.released(repo),
 })
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
@@ -2595,6 +2619,10 @@ const server = Bun.serve({
     /* The issues this person opened on a module, and a new one. `feedback.ts`. */
     const feedbackAnswer = await feedback.route(request, url)
     if (feedbackAnswer) return feedbackAnswer
+
+    /* Release notes, for the app's version and a module's tags. `releaseNotes.ts`. */
+    const notesAnswer = await releaseNotes.route(request, url)
+    if (notesAnswer) return notesAnswer
 
     /* The official module list, installing from it, and proposing for it. */
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url))

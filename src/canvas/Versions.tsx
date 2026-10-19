@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { fetchVersions, pinVersion, versionLabel, versionRows, type VersionListing } from '@/host/versions.ts'
 import { Hint } from './Hint.tsx'
+import { NotesButton, useReleaseNotes } from './ReleaseNotes.tsx'
 
 /**
  * The version in a container's header, as a control.
@@ -54,6 +55,7 @@ export function VersionPicker({
   const [listing, setListing] = useState<VersionListing | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const notes = useReleaseNotes()
 
   const load = useCallback(
     async (fresh: boolean) => {
@@ -116,9 +118,28 @@ export function VersionPicker({
           </button>
         </PopoverTrigger>
       </Hint>
-      <PopoverContent align="start" className="w-72 p-1" onMouseDown={(event) => event.stopPropagation()}>
+      <PopoverContent
+        align="start"
+        className="w-72 p-1"
+        onMouseDown={(event) => event.stopPropagation()}
+        /* The notes dialog is outside this popover: the picker stays open
+           behind it, so focus has its button to come back to. */
+        onFocusOutside={(event) => {
+          if (notes.open) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (notes.open) event.preventDefault()
+        }}
+      >
         {listing ? (
-          <VersionList listing={listing} busy={busy} onChoose={(tag) => void choose(tag)} />
+          <VersionList
+            listing={listing}
+            busy={busy}
+            onChoose={(tag) => void choose(tag)}
+            onNotes={(tag, opener) =>
+              listing.repo ? notes.show({ repo: listing.repo, tag, name, version: tag, opener }) : undefined
+            }
+          />
         ) : trouble ? null : (
           <p className="text-muted-foreground px-2 py-1.5 text-xs">Reading the versions of {name}…</p>
         )}
@@ -133,6 +154,7 @@ export function VersionPicker({
           </button>
         ) : null}
       </PopoverContent>
+      {notes.dialog}
     </Popover>
   )
 }
@@ -156,42 +178,51 @@ export function VersionList({
   listing,
   busy = null,
   onChoose,
+  onNotes,
 }: {
   listing: VersionListing
   /** The row being pinned right now, `latest` for latest. */
   busy?: string | null
   onChoose(tag: string | null): void
+  /** Show a released tag's notes, without choosing it. No button is drawn without it. */
+  onNotes?(tag: string, opener: HTMLElement): void
 }) {
   const rows = versionRows(listing)
   return (
     <div role="menu" aria-label={`versions of ${listing.name}`} className="flex flex-col">
       {rows.map((row) => (
-        <button
-          key={row.tag ?? 'latest'}
-          type="button"
-          role="menuitemradio"
-          aria-checked={row.chosen}
-          aria-disabled={row.disabled ? true : undefined}
-          disabled={row.disabled !== null}
-          data-version={row.tag ?? 'latest'}
-          data-mark={row.mark ?? undefined}
-          onClick={() => {
-            if (!row.disabled && !row.chosen) onChoose(row.tag)
-          }}
-          className="hover:bg-accent flex w-full cursor-default flex-col items-start rounded-sm px-2 py-1 text-left text-xs disabled:opacity-60 disabled:hover:bg-transparent"
-        >
-          <span className="flex w-full items-center gap-1.5">
-            <span className="flex size-3 shrink-0 items-center">{row.chosen ? <Check className="size-3" /> : null}</span>
-            <span className={row.tag ? 'font-mono' : 'font-medium'}>{row.label}</span>
-            {row.detail ? <span className="text-muted-foreground min-w-0 truncate text-[11px]">({row.detail})</span> : null}
-            {row.mark ? (
-              <span className="text-destructive ml-auto shrink-0 text-[10px] uppercase">{row.mark}</span>
-            ) : busy === (row.tag ?? 'latest') ? (
-              <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">…</span>
-            ) : null}
-          </span>
-          {row.disabled ? <span className="text-muted-foreground pl-4.5 text-[11px] leading-snug">{row.disabled}</span> : null}
-        </button>
+        <div key={row.tag ?? 'latest'} role="none" className="flex items-start">
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={row.chosen}
+            aria-disabled={row.disabled ? true : undefined}
+            disabled={row.disabled !== null}
+            data-version={row.tag ?? 'latest'}
+            data-mark={row.mark ?? undefined}
+            onClick={() => {
+              if (!row.disabled && !row.chosen) onChoose(row.tag)
+            }}
+            className="hover:bg-accent flex min-w-0 flex-1 cursor-default flex-col items-start rounded-sm px-2 py-1 text-left text-xs disabled:opacity-60 disabled:hover:bg-transparent"
+          >
+            <span className="flex w-full items-center gap-1.5">
+              <span className="flex size-3 shrink-0 items-center">{row.chosen ? <Check className="size-3" /> : null}</span>
+              <span className={row.tag ? 'font-mono' : 'font-medium'}>{row.label}</span>
+              {row.detail ? <span className="text-muted-foreground min-w-0 truncate text-[11px]">({row.detail})</span> : null}
+              {row.mark ? (
+                <span className="text-destructive ml-auto shrink-0 text-[10px] uppercase">{row.mark}</span>
+              ) : busy === (row.tag ?? 'latest') ? (
+                <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">…</span>
+              ) : null}
+            </span>
+            {row.disabled ? <span className="text-muted-foreground pl-4.5 text-[11px] leading-snug">{row.disabled}</span> : null}
+          </button>
+          {row.notes && onNotes ? (
+            <span className="flex h-6 shrink-0 items-center px-1">
+              <NotesButton version={row.notes} onShow={(opener) => onNotes(row.notes!, opener)} />
+            </span>
+          ) : null}
+        </div>
       ))}
       {listing.error ? <p className="text-destructive px-2 py-1 text-[11px]">{listing.error}</p> : null}
       {listing.hint ? (
