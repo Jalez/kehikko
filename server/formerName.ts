@@ -19,6 +19,7 @@ import { dataVersionsFile } from './dataVersions.ts'
 import { hostRoot } from './hostData.ts'
 import { kehikotFile } from './kehikot.ts'
 import { modulesDir } from './machineDirs.ts'
+import { makeUnderRoot, projectRootExists } from './projectRoot.ts'
 
 /**
  * The leftovers from before the app was called Kehikot, cleaned up once, at
@@ -181,6 +182,8 @@ export function migrateRegistrations(env: Env, say: Log): void {
 /* ---- 2. projects ---- */
 
 export function migrateProject(root: string, say: Log): void {
+  /* Gone, or a ghost an older host left at the path (`projectRoot.ts`): nothing to migrate, nothing written. */
+  if (!projectRootExists(root)) return
   copyHostData(root, say)
   respellKehikot(root, say)
   respellDataVersions(root, say)
@@ -193,7 +196,8 @@ function copyHostData(root: string, say: Log): void {
     const now = join(hostRoot(root), name)
     if (existsSync(now) || !isDir(before)) continue
     const tmp = `${now}.copying`
-    mkdirSync(dirname(now), { recursive: true })
+    /* Inside the project, never the project (`projectRoot.ts`). */
+    if (!makeUnderRoot(root, dirname(now))) return
     cpSync(before, tmp, { recursive: true, force: true })
     renameSync(tmp, now)
     say(`copied ${before} → ${now}`)

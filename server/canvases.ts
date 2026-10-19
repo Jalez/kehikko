@@ -696,6 +696,14 @@ export function open(file = databaseFile()): Database {
    * `POST /host/projects/followed`.
    */
   add(db, 'projects', 'followed_from', 'text')
+  /*
+   * The folder's identity on its disk (device and inode, `folderIdentity` in
+   * `projectRoot.ts`), recorded whenever this host knows the folder at `path`
+   * is the project. A folder at the path with another identity and nothing in
+   * it but `.kehikot/` is a ghost an older host made, not the project. Null
+   * for a row from before, and off a disk that keeps no inodes.
+   */
+  add(db, 'projects', 'folder', 'text')
   db.exec(`
     create table if not exists project_paths (
       project_id integer not null references projects(id) on delete cascade,
