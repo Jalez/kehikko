@@ -26,7 +26,7 @@
  *
  * - `data-segment`: a `join(`/`resolve(` with a `'data'` segment — `join(ROOT,
  *   'data', 'epics')`, `join(HERE, 'data')`, `join(process.cwd(), 'data')`,
- *   `join(roadmap, 'data', 'papers')`.
+ *   `join(somewhere, 'data', 'papers')`.
  * - `data-literal`: a string literal that starts `data/…` or `./data/…`, and a
  *   `data/…` path in a shell script.
  * - `home-path`: a path joined onto the home directory (`join(homedir(), …)`,
@@ -39,7 +39,7 @@
  *
  * Comments are skipped (`//`, `/* … *\/`, ` * ` continuation lines, `#` in
  * shell), and so are tests, `dev/` scripts, build output, `node_modules`,
- * `.claude/worktrees`, and the roadmap's `modules/` built-ins (dead code).
+ * `.claude/worktrees`, and the like.
  *
  * ## Machine-level state is allowed, and listed
  *
@@ -112,13 +112,8 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   },
   {
     id: 'launchd',
-    match: /Library['"`]?\s*,\s*['"`](?:LaunchAgents|Logs)|Library\/(?:LaunchAgents|Logs)/,
-    reason: '~/Library/LaunchAgents and ~/Library/Logs are where macOS keeps the roadmap service\'s plist and logs, and ~/Library/Logs/Kehikot the output of the modules the host starts (host server/machineDirs.ts `logsDir`)',
-  },
-  {
-    id: 'service-marker',
-    match: /\.innovium-roadmap\.running/,
-    reason: 'the machine-level "roadmap is serving on port N" marker the delivery hook reads',
+    match: /Library['"`]?\s*,\s*['"`]Logs|Library\/Logs/,
+    reason: '~/Library/Logs/Kehikot is where macOS keeps the output of the modules the host starts (host server/machineDirs.ts `logsDir`)',
   },
   {
     id: 'temp',
@@ -280,8 +275,8 @@ export function scanRepo(repo: Repo): Violation[] {
 }
 
 /**
- * The workspace: this host, the protocol, and every registered module. The
- * roadmap prototype is retired and deliberately not scanned. Read-only. Missing repos are reported in `missing`, not scanned.
+ * The workspace: this host, the protocol, and every registered module.
+ * Read-only. Missing repos are reported in `missing`, not scanned.
  */
 export function workspace(env: Record<string, string | undefined> = process.env): { repos: Repo[]; missing: string[] } {
   const home = env.HOME ?? homedir()

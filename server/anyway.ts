@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { canonicalModuleId, WELL_KNOWN } from 'kehikot-module-protocol'
+import { WELL_KNOWN } from 'kehikot-module-protocol'
 
 import type { Runnable, Startable, Stopped } from './launch.ts'
 import type { Registration } from './registrations.ts'
@@ -124,7 +124,7 @@ export async function aim(id: string, run: Runnable, world: AnywayWorld): Promis
   if (said === null) {
     return unshown(id, `the program on port ${run.port} did not answer ${WELL_KNOWN} with a manifest.`)
   }
-  if (canonicalModuleId(said) !== id) {
+  if (said !== id) {
     return unshown(id, `the program on port ${run.port} answers as ${said}, not as ${id}.`)
   }
 
@@ -258,7 +258,7 @@ export function anywayDesk(deps: AnywayDeps) {
     ) {
       return reply({ ok: false, why: 'A restart names one module and one of arm or confirm, and a confirm carries what the arm was given.' }, 400)
     }
-    const id = canonicalModuleId(body.module)
+    const id = body.module
 
     const registration = await deps.registration(id)
     const can = deps.startable(registration)

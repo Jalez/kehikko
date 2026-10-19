@@ -58,7 +58,7 @@ import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
  * `.kehikot/kehikko/epics/<slug>.json` is what a person wrote: the title, the
  * project, the prose, the order of things. `.kehikot/kehikko/state/<slug>.json`
  * is what the trackers
- * last reported, written by a refresh and never by hand. The roadmap that owns
+ * last reported, written by a refresh and never by hand. The epics module that owns
  * those files enforces the split, and this reads both without blurring it —
  * `epic.get` answers from the first, `live.get` from the second, and neither
  * borrows from the other.
@@ -255,8 +255,8 @@ export function readEpic(dir: string, slug: string): Record<string, unknown> | n
  * Every epic used to exist twice in a project: this host's file,
  * `.kehikot/kehikko/epics/<slug>.json`, and the Journeys module's record in
  * `.kehikot/journeys/journeys.json`, which is where a step was actually
- * edited. Nothing has written steps to this host's file since the roadmap it
- * was stopped being the place they are edited; it is a snapshot, and in one
+ * edited. Nothing has written steps to this host's file since this
+ * file stopped being the place they are edited; it is a snapshot, and in one
  * real project it was three steps behind — nine here, twelve there — with
  * every answer correct about the copy it happened to read.
  *
@@ -544,18 +544,18 @@ export type Created =
  *
  * ## What the file contains, and why so little
  *
- * `slug`, `title`, and `written` — the date, the way the roadmap's own
- * `create_epic` stamps it. That is the minimum every reader of these files
+ * `slug`, `title`, and `written` — the date, the way `create_epic`
+ * stamps it. That is the minimum every reader of these files
  * accepts: this host reads them with everything optional (`summarise`), and the
- * roadmap's `epicSchema` requires the slug and the title and defaults the rest.
+ * epics module's `epicSchema` requires the slug and the title and defaults the rest.
  * Nothing else is invented. Not `lede: ""`, not `steps: []` — `countOf` beside
  * this answers null rather than zero when there is nothing to count, and an
  * empty list written here would be this host asserting "no steps" on behalf of
- * somebody who has said nothing yet. The person, or the roadmap, fills the
+ * somebody who has said nothing yet. The person, or the epics module, fills the
  * document in; this makes it exist.
  *
- * Two-space JSON with a trailing newline, which is the shape the roadmap's
- * `writeEpic` writes, so that the first edit the roadmap makes to this file is
+ * Two-space JSON with a trailing newline, which is the shape
+ * `writeEpic` writes, so that the first edit the epics module makes to this file is
  * a one-field diff rather than a reformat.
  *
  * ## The slug is derived unless somebody says otherwise
@@ -841,7 +841,7 @@ function shown(text: string): string {
  *
  * Round-tripping through `JSON.parse` and `JSON.stringify(epic, null, 2)` would
  * in fact reproduce both of the projects on this machine exactly — that is the
- * shape the roadmap's own `writeEpic` writes. It would also be this host
+ * shape the epic file's own writer writes. It would also be this host
  * asserting that shape over a file it did not write, and the first file laid
  * out any other way would come back reformatted from top to bottom with the
  * person's own name on the commit. "Change one field" should change one field.
@@ -849,7 +849,7 @@ function shown(text: string): string {
  * ## Why it is not a regular expression either
  *
  * `"title"` is not a unique key in these documents. Every step in an epic has
- * one — `the-roadmap-tracks-itself.json` has dozens — so a pattern matching the
+ * one — `the-thesis-tracks-itself.json` has dozens — so a pattern matching the
  * first `"title": "…"` in the text is a pattern that rewrites the title of a
  * step in some files and the epic in others, depending on nothing a person can
  * see. What is needed is the top-level member and only that, so the text is
@@ -995,7 +995,7 @@ function endOfValue(raw: string, from: number): number {
  *
  * The file is handed back close to verbatim: its four bags — `issues`, `mrs`,
  * `ghIssues`, `ghPrs` — are the shape a module reading references already
- * expects, because both sides learned it from the same roadmap. `generated` is
+ * expects, because both sides learned it from the same source. `generated` is
  * carried with them, and it is the most important field in the answer: it is
  * the only thing that says how old this is, and a module drawing tracker state
  * with no date on it is a module presenting last week as now.

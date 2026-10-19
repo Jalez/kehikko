@@ -30,7 +30,7 @@ import { join } from 'node:path'
 const { chromium } = await import(process.env.PLAYWRIGHT ?? '/tmp/height-drive/node_modules/playwright-core/index.mjs')
 
 const PAGE = process.argv[2] ?? 'http://127.0.0.1:4391/'
-const PROJECT = process.argv[3] ?? '/tmp/epics-made-scratch/projects/roadmapish'
+const PROJECT = process.argv[3] ?? '/tmp/epics-made-scratch/projects/thesisish'
 const API = process.env.API ?? 'http://127.0.0.1:4390'
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME })

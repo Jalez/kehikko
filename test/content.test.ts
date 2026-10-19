@@ -94,11 +94,10 @@ describe('a change to the journeys is a change to the steps this host answers wi
     expect(second).not.toBe(first)
   })
 
-  test('a Journeys registered from before the rename is the same module', () => {
+  test('Journeys keeps the steps, and its announcement is the host’s', () => {
     expect(stepsAreKeptBy('kehikot.journeys')).toBe(true)
-    expect(stepsAreKeptBy('roadmap.journeys')).toBe(true)
     const contents = new Contents()
-    contents.announce('/p', 'roadmap.journeys', 'x')
+    contents.announce('/p', 'kehikot.journeys', 'x')
     expect(contents.of('/p').some((one) => one.source === CONTENT_HOST && one.epic === 'x')).toBe(true)
   })
 

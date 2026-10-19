@@ -131,18 +131,15 @@ and never anchored at a program's own folder (`import.meta.dir`, `__dirname`,
 of a module's is READ by the host and never written: `.kehikot/journeys/journeys.json`,
 for an epic's steps, through the protocol's own reader — see the section on
 whose the steps are, below. The host
-brings older layouts there when it starts, adopts or adds a project
-(`server/hostData.ts`): `.kehikot/roadmap/{epics,state}` (from before the app
-was renamed) is COPIED and left where it is, and read as a fallback while the
-new folder is missing; a legacy `<project>/data/epics` or `data/state` is moved.
+brings an older layout there when it starts, adopts or adds a project
+(`server/hostData.ts`): a legacy `<project>/data/epics` or `data/state` is moved.
 It never overwrites, and leaves both and logs both paths if both exist.
 
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a
 reason: the module registry and canvases cache under
-`~/Library/Application Support/Kehikot/`, Claude's own `~/.claude*` config, the roadmap
-service's `~/Library/LaunchAgents` / `~/Library/Logs` and its
-`~/.innovium-roadmap.running` marker, and temp dirs. Anything else needs a
+`~/Library/Application Support/Kehikot/`, Claude's own `~/.claude*` config,
+`~/Library/Logs/Kehikot`, and temp dirs. Anything else needs a
 `// kehikot-storage: allow <reason>` comment on the line, and a reviewer who
 agrees.
 
@@ -817,26 +814,3 @@ a webview — an iframe. So the exception there is the rule here.
 **MCP** — the reason an agent can use any of this. Each module owns its own
 server rather than the host proxying, so a module's tools work whether or not
 anything is framed.
-
-## The rename
-
-This app was called "roadmap" before it was Kehikot, and so were its names:
-`roadmap-module-protocol`, `roadmap.module`, `roadmap.*` messages,
-`roadmap.<name>` module ids, `<project>/.kehikot/roadmap/`. They are
-`kehikot-module-protocol`, `kehikot.module`, `kehikot.*`, `kehikot.<name>` and
-`<project>/.kehikot/kehikko/` now. What is on a person's disk from before is
-still read; the old wire is not:
-
-- A module built against the protocol from before 0.25 — serving
-  `roadmap.module` at `/.well-known/roadmap-module.json` and speaking
-  `roadmap.*` — is no longer found or greeted (protocol 1.0.0 removed that
-  dialect). It has to move to `kehikot-module-protocol`.
-- `<project>/.kehikot/roadmap/` is read while the new folder is missing.
-- `roadmap.<name>` is the same module as `kehikot.<name>` everywhere an id
-  comes in — registrations (both file names, newest wins), manifests, the
-  canvases database (respelled on every start), a project's `kehikot.json`
-  (read either way, written in the new ids on its next write) and MCP calls.
-- A module's own data stays where it is: `moduleFolder` gives both ids the
-  same folder.
-
-What a module changes to move over is listed in the protocol's `MIGRATING.md`.

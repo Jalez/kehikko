@@ -330,8 +330,6 @@ export async function deleteEpic(project: number, slug: string): Promise<void> {
 
 /** Which project this browser had open, for the reason the open kehikko is local. */
 export const OPEN_PROJECT_KEY = 'kehikot.frame.project.v1'
-/** The same key before the app was renamed. Read when the new one is absent, never written. */
-export const LEGACY_OPEN_PROJECT_KEY = 'roadmap.frame.project.v1'
 
 /**
  * Which project was open, remembered per browser rather than per person.
@@ -342,7 +340,7 @@ export const LEGACY_OPEN_PROJECT_KEY = 'roadmap.frame.project.v1'
  */
 export function readOpenProject(storage: Pick<Storage, 'getItem'>): number | null {
   try {
-    const raw = storage.getItem(OPEN_PROJECT_KEY) ?? storage.getItem(LEGACY_OPEN_PROJECT_KEY)
+    const raw = storage.getItem(OPEN_PROJECT_KEY)
     if (raw === null) return null
     const id = Number(raw)
     return Number.isInteger(id) && id > 0 ? id : null

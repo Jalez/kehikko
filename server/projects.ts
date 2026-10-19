@@ -41,7 +41,7 @@ import { epicsDir, migrateHostData } from './hostData.ts'
  * The path is unique. Two rows on one folder are two names for one project, and
  * every count of "how many projects" would then disagree with the disk. The
  * name is not unique and must not be: two folders may both reasonably be called
- * `roadmap`, and a host refusing the second would be a host with an opinion
+ * `notes`, and a host refusing the second would be a host with an opinion
  * about somebody else's filing.
  */
 
@@ -89,8 +89,8 @@ const NAME_MAX = 60
  *
  * `epics` is computed on every read rather than stored, and that is the same
  * decision `holdings.ts` makes about epic files: a directory can appear under a
- * project between one call and the next — somebody runs the roadmap's own
- * tooling, or clones something — and a stored boolean would be this host
+ * project between one call and the next — somebody runs a tool that makes
+ * epics, or clones something — and a stored boolean would be this host
  * reporting what was true when the project was added. It is one `statSync` per
  * project against a local disk.
  */

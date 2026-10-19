@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { canonicalModuleId, LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import {
@@ -293,9 +293,7 @@ const NAME_MAX = 60
  */
 const containerSchema = z
   .object({
-    /* Canonical once read: a file written before the rename says
-       `roadmap.notes`, and that is `kehikot.notes`. The next write says so. */
-    module: z.string().regex(MODULE_ID, 'is not a module id').transform(canonicalModuleId),
+    module: z.string().regex(MODULE_ID, 'is not a module id'),
     x: z.number().int(),
     y: z.number().int(),
     w: z.number().int(),
@@ -303,7 +301,7 @@ const containerSchema = z
     grow: z.boolean().default(false),
     pinned: z.boolean().default(false),
     prompt: z.string().max(LIMITS.PROMPT).default(''),
-    promptFor: z.string().regex(MODULE_ID, 'is not a module id').transform(canonicalModuleId).nullable().default(null),
+    promptFor: z.string().regex(MODULE_ID, 'is not a module id').nullable().default(null),
     collapsed: z.boolean().default(false),
     /* `null` means "the height it has" — a hand-written container, or one
        from a file written before wishes existed. Resolved in `fromContainer`;

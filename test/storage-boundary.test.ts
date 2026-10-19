@@ -16,7 +16,7 @@ describe('what the scanner flags', () => {
   test('the shapes that have actually been wrong', () => {
     expect(rules("const dir = process.env.NOTIFICATIONS_DATA ?? join(HERE, 'data')")).toEqual(['data-segment'])
     expect(rules("const dir = process.env.TESTS_DATA ?? join(process.cwd(), 'data')")).toEqual(['data-segment'])
-    expect(rules("const guess = join(roadmap, 'data', 'papers')")).toEqual(['data-segment'])
+    expect(rules("const guess = join(project, 'data', 'papers')")).toEqual(['data-segment'])
     expect(rules("db = new Database(join(ROOT, 'data', 'requests.db'))")).toEqual(['data-segment'])
     expect(rules("return statSync(resolve(root, 'data', 'epics'))")).toEqual(['data-segment'])
     expect(rules("const where = 'data/epics/x.json'")).toEqual(['data-literal'])
@@ -52,7 +52,7 @@ describe('what the scanner flags', () => {
     expect(rules("return join(homedir(), 'Library', 'Application Support', 'Kehikot', 'modules')")).toEqual([])
     expect(rules("const m = join(homedir(), 'Library', 'Application Support', 'Kehikot')")).toEqual([])
     expect(rules("return join(homedir(), '.claude.json')")).toEqual([])
-    expect(rules("const AGENTS = join(homedir(), 'Library', 'LaunchAgents')")).toEqual([])
+    expect(rules("const LOGS = join(homedir(), 'Library', 'Logs', 'Kehikot')")).toEqual([])
     expect(rules("const dir = mkdtempSync(join(tmpdir(), 'x-'))")).toEqual([])
     expect(rules("const db = new Database(':memory:')")).toEqual([])
     /* File-scoped entries only hold in their file. */

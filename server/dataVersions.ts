@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { canonicalModuleId, LIMITS, MODULE_ID, moduleFile } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, moduleFile } from 'kehikot-module-protocol'
 
 import { HOST_ID } from './kehikot.ts'
 
@@ -58,7 +58,7 @@ export function readDataVersions(projectPath: string): DataVersions {
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!MODULE_ID.test(id)) continue
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > LIMITS.DATA_VERSION) continue
-    out[canonicalModuleId(id)] = value
+    out[id] = value
   }
   return out
 }
@@ -72,7 +72,7 @@ export function recordDataVersion(projectPath: string, module: string, dataVersi
   const file = dataVersionsFile(projectPath)
   if (!file) return false
   const now = readDataVersions(projectPath)
-  const id = canonicalModuleId(module)
+  const id = module
   if (Object.hasOwn(now, id) && now[id]! >= dataVersion) return false
   now[id] = dataVersion
   mkdirSync(dirname(file), { recursive: true })
@@ -84,7 +84,7 @@ export function recordDataVersion(projectPath: string, module: string, dataVersi
 
 /** The highest format recorded for a module in a project, or null when none has run there. */
 export function recordedFor(versions: DataVersions, module: string): number | null {
-  const id = canonicalModuleId(module)
+  const id = module
   return Object.hasOwn(versions, id) ? versions[id]! : null
 }
 

@@ -50,9 +50,9 @@ describe('what a made epic is', () => {
     const dir = project(true)
     const said = createEpic(dir, { title: 'The page is components' }, '2026-09-02')
     expect(said.ok).toBe(true)
-    /* Two-space JSON with a trailing newline, the roadmap's own shape, so its
+    /* Two-space JSON with a trailing newline, the epic file's own shape, so its
        first edit is a one-field diff. No lede, no steps, no callout: those are
-       what a person or the roadmap fills in, and an empty list here would be
+       what a person or the epics module fills in, and an empty list here would be
        this host asserting "no steps" on somebody's behalf. */
     expect(epicFile(dir, 'the-page-is-components')).toBe(
       '{\n  "slug": "the-page-is-components",\n  "title": "The page is components",\n  "written": "2026-09-02"\n}\n',

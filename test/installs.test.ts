@@ -86,8 +86,8 @@ describe('the official list', () => {
     })
   })
 
-  test('a module is found under either spelling of its id', () => {
-    expect(officialOf('roadmap.slides', [slides])?.id).toBe('kehikot.slides')
+  test('a module is found by its id', () => {
+    expect(officialOf('kehikot.slides', [slides])?.id).toBe('kehikot.slides')
     expect(officialOf('me.scores', [slides])).toBeNull()
   })
 

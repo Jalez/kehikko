@@ -1,6 +1,6 @@
 import type { ActivityRow } from '../src/host/activity.ts'
 import type { Database } from 'bun:sqlite'
-import { canonicalModuleId, DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -1109,9 +1109,7 @@ function modulesIn(
           + `${MAX_ID} characters. One of them was not.`,
       }
     }
-    /* Canonical: an agent that learned `roadmap.notes` before the app was
-       renamed means the module that is `kehikot.notes` now. */
-    const id = canonicalModuleId(one.trim())
+    const id = one.trim()
     /* A duplicate is not a second selection of the same container; it is the
        same one, and letting it through would make "how many are selected" a
        number that disagrees with what is on screen. The same rule `refsIn`
@@ -1174,7 +1172,7 @@ export async function call(
   if (name === 'fold_modules') return foldOn(canvas, where.how, args, door)
   if (name === 'module_versions' || name === 'pin_version') {
     if (!door.versions) return { text: 'This host does not run module versions.', failed: true }
-    const module = typeof args.module === 'string' && args.module.length <= MAX_ID ? canonicalModuleId(args.module) : null
+    const module = typeof args.module === 'string' && args.module.length <= MAX_ID ? args.module : null
     if (!module) return { text: `${name} needs module: a module id as read_canvas prints it, e.g. "kehikot.notes".`, failed: true }
     if (name === 'module_versions') {
       const listed = await door.versions.list(module, canvas.id)
@@ -1522,7 +1520,7 @@ async function pressOn(
         + 'out for a run.',
     )
   }
-  const module = canonicalModuleId(args.module.trim())
+  const module = args.module.trim()
   const press: Pressing = { item: args.item.trim(), ...(args.value === undefined ? {} : { value: args.value }) }
   if (!door.headers) return refuse('This host does not press header items.')
 

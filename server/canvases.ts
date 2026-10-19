@@ -3,9 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
-  canonicalModuleId,
   LIMITS,
-  MESSAGE_PREFIX,
   MODULE_ID,
   REFRESH_EVERY_MAX,
   REFRESH_EVERY_MIN,
@@ -513,7 +511,7 @@ export function open(file = databaseFile()): Database {
      * The path is unique, because two rows pointing at the same folder are two
      * names for one project and every list that showed both would be lying
      * about how many there are. The name is NOT unique: two folders may
-     * reasonably be called "roadmap", and refusing the second would be this
+     * reasonably be called "notes", and refusing the second would be this
      * host having an opinion about somebody's disk.
      *
      * A git worktree gets no special column and needs none. A worktree is a
@@ -669,57 +667,9 @@ export function open(file = databaseFile()): Database {
   if (moving) {
     for (const { id } of db.query<{ id: number }, []>('select id from projects').all()) epicFromKehikot(db, id)
   }
-  renameModuleIds(db)
   return db
 }
 
-/**
- * Every module id this database holds, in its current spelling.
- *
- * Modules were `roadmap.<name>` before the app was called Kehikot, and are
- * `kehikot.<name>` now — the same module under its new name, as the protocol's
- * `canonicalModuleId` says. Every column that holds a module id is respelled
- * here: a placement's `module` and `prompt_for`, `module_state`, and
- * `known_modules` when it exists.
- *
- * Run on every open, and idempotent: a database with nothing to respell costs
- * four indexed `like` queries that match nothing. Every open rather than once,
- * because an older host — the installed app — may still be writing old ids
- * into this same file, and those are folded in the next time this one starts.
- *
- * Where a container is on a canvas under BOTH spellings, the new one is kept
- * and the old row dropped: a module is on a kehikko once, and the new row is
- * the one this host wrote. Nothing is lost that was the record — the
- * project's `kehikot.json` is.
- */
-export function renameModuleIds(db: Database): void {
-  /* The prefix module ids carried before the rename. The protocol no longer names it; this is the host's own stored data. */
-  const BEFORE = 'roadmap.'
-  const OLD = `${BEFORE}%`
-  const NEW = MESSAGE_PREFIX
-  const from = BEFORE.length + 1
-  const tables = new Set(
-    db.query<{ name: string }, []>("select name from sqlite_master where type = 'table'").all().map((t) => t.name),
-  )
-  db.transaction(() => {
-    db.query(`update or ignore placements set module = ? || substr(module, ${from}) where module like ?`).run(NEW, OLD)
-    db.query(
-      `delete from placements where module like ?
-         and exists (select 1 from placements p where p.canvas = placements.canvas and p.module = ? || substr(placements.module, ${from}))`,
-    ).run(OLD, NEW)
-    db.query(`update placements set prompt_for = ? || substr(prompt_for, ${from}) where prompt_for like ?`).run(NEW, OLD)
-    db.query(`update or ignore module_state set module = ? || substr(module, ${from}) where module like ?`).run(NEW, OLD)
-    db.query(
-      `delete from module_state where module like ? and exists (select 1 from module_state m where m.module = ? || substr(module_state.module, ${from}))`,
-    ).run(OLD, NEW)
-    if (tables.has('known_modules')) {
-      db.query(`update or ignore known_modules set id = ? || substr(id, ${from}) where id like ?`).run(NEW, OLD)
-      db.query(
-        `delete from known_modules where id like ? and exists (select 1 from known_modules k where k.id = ? || substr(known_modules.id, ${from}))`,
-      ).run(OLD, NEW)
-    }
-  })()
-}
 
 /**
  * A project's subject taken from what its kehikot used to remember: the epic
@@ -1398,9 +1348,7 @@ function cleaned(placements: PlacementInput[]): Placement[] {
   for (const p of placements) {
     if (kept.length >= PLACEMENTS_MAX) break
     if (typeof p?.i !== 'string' || !MODULE_ID.test(p.i)) continue
-    /* Canonical: a container for `roadmap.notes` — from a page, a file or a
-       call written before the rename — is the container for `kehikot.notes`. */
-    const i = canonicalModuleId(p.i)
+    const i = p.i
     if (seen.has(i)) continue
     seen.add(i)
     kept.push({
@@ -1422,7 +1370,7 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          own text, and they are the one who will notice it ends mid-sentence. */
       prompt: typeof p.prompt === 'string' ? p.prompt.slice(0, LIMITS.PROMPT) : '',
       promptFor:
-        typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? canonicalModuleId(p.promptFor) : null,
+        typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
       /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A

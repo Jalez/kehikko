@@ -86,10 +86,6 @@ describe('the merge', () => {
     expect(mergeLists([slides, notes], [])).toEqual([slides, notes])
   })
 
-  test('the pre-rename spelling of an id is the same module, not a second entry', () => {
-    const old = { ...slides, id: 'roadmap.slides', name: 'Old spelling' }
-    expect(mergeLists([slides], [old])).toEqual([old])
-  })
 })
 
 describe('what a fetched list may be', () => {

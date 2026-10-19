@@ -1,4 +1,4 @@
-import { canonicalModuleId, headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
+import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
 import type { PressOrder } from './wake.ts'
@@ -112,7 +112,7 @@ export class Headers {
       /* A list that does not parse is a module the page should not have
          forwarded; dropped, and the rest of the posting stands. */
       const parsed = headerItemsSchema.safeParse(items)
-      if (parsed.success) headers.set(canonicalModuleId(id), parsed.data)
+      if (parsed.success) headers.set(id, parsed.data)
     }
     const held = this.#pages.get(page)
     if (held && held.at > at) return null
