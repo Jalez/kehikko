@@ -7,7 +7,7 @@ import { Markdown } from '../src/canvas/ReleaseNotes.tsx'
 import { AppRow } from '../src/canvas/Updates.tsx'
 import { VersionList } from '../src/canvas/Versions.tsx'
 import type { AppUpdateStatus } from '../src/host/appUpdate.ts'
-import { parseMarkdown, plainText, safeHref } from '../src/host/markdown.ts'
+import { parseMarkdown, plainText, safeHref, whatsNew } from '../src/host/markdown.ts'
 import {
   appReleaseRows,
   notesLabel,
@@ -245,5 +245,44 @@ describe('the notes, rendered safely', () => {
     expect(openExternal('javascript:alert(1)', (u) => opened.push(u))).toBe(false)
     expect(openExternal('file:///etc/passwd', (u) => opened.push(u))).toBe(false)
     expect(opened).toEqual(['https://github.com/Jalez/kehikko-desktop/releases/tag/v0.1.24'])
+  })
+})
+
+describe('whatsNew: what the notes modal shows of a body', () => {
+  const footer = '<sub>Built from [Jalez/kehikko@abc1234](https://github.com/Jalez/kehikko/commit/abc1234)</sub>'
+
+  test('only the What’s new section, without its heading, the install steps or the footer', () => {
+    const body = ["### What's new", '- one', '- two', '', '### Install', '**Download** it.', '', footer].join('\n')
+    expect(whatsNew(body)).toBe('- one\n- two')
+  })
+
+  test('a curly apostrophe, any case, and the section running to the end', () => {
+    expect(whatsNew(['## WHAT’S NEW', '- one', '', footer].join('\n'))).toBe('- one')
+  })
+
+  test('a heading at another level: ends at the same or a higher level, not a lower one', () => {
+    const body = ['## What\'s new', '- one', '### Details', 'more', '# Install', 'x'].join('\n')
+    expect(whatsNew(body)).toBe('- one\n### Details\nmore')
+    expect(whatsNew(['#### What\'s new', 'a', '### Install', 'b'].join('\n'))).toBe('a')
+  })
+
+  test('without the heading: the whole body minus the footer', () => {
+    expect(whatsNew(['- Fixed a thing', '', footer].join('\n'))).toBe('- Fixed a thing')
+    expect(whatsNew('- Fixed a thing')).toBe('- Fixed a thing')
+  })
+
+  test('a footer-only or empty body is empty', () => {
+    expect(whatsNew(footer)).toBe('')
+    expect(whatsNew('')).toBe('')
+  })
+
+  test('an empty section falls back to the whole body', () => {
+    const body = ["### What's new", '', '### Install', 'Download it.', '', footer].join('\n')
+    expect(whatsNew(body)).toBe("### What's new\n\n### Install\nDownload it.")
+  })
+
+  test('a heading inside a code fence is not a heading', () => {
+    const body = ["### What's new", '```', '# not a heading', '```', '### Install', 'x'].join('\n')
+    expect(whatsNew(body)).toBe('```\n# not a heading\n```')
   })
 })

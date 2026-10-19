@@ -204,3 +204,56 @@ export function parseInline(text: string): Inline[] {
 export function plainText(nodes: readonly Inline[]): string {
   return nodes.map((one) => ('children' in one ? plainText(one.children) : one.text)).join('')
 }
+
+const FOOTER = /^<sub>[\s\S]*<\/sub>$/i
+const WHATS_NEW = /^what[’']s new$/i
+
+/** The body without trailing blank lines and `<sub>…</sub>` footer lines. */
+function withoutFooter(lines: string[]): string[] {
+  const out = [...lines]
+  while (out.length) {
+    const last = out[out.length - 1]!.trim()
+    if (last === '' || FOOTER.test(last)) out.pop()
+    else break
+  }
+  return out
+}
+
+/**
+ * What the release-notes modal shows of a release body: the "What's new"
+ * section (heading of any level, either apostrophe) up to the next heading of
+ * the same or a higher level, without its own heading — the modal's title says
+ * it — and without the `<sub>` footer. A body with no such heading, or whose
+ * section is empty, is shown whole, minus a trailing `<sub>Built from …</sub>`.
+ */
+export function whatsNew(body: string): string {
+  const lines = body.replace(/\r\n?/g, '\n').split('\n')
+  const whole = withoutFooter(lines).join('\n').trim()
+  let fence: string | null = null
+  let start = -1
+  let level = 0
+  let end = lines.length
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const f = FENCE.exec(line)
+    if (f) {
+      fence = fence === null ? f[1]! : fence === f[1] ? null : fence
+      continue
+    }
+    if (fence) continue
+    const h = HEADING.exec(line)
+    if (!h) continue
+    if (start < 0) {
+      if (WHATS_NEW.test(h[2]!.trim())) {
+        start = i
+        level = h[1]!.length
+      }
+    } else if (h[1]!.length <= level) {
+      end = i
+      break
+    }
+  }
+  if (start < 0) return whole
+  const section = withoutFooter(lines.slice(start + 1, end)).join('\n').trim()
+  return section || whole
+}

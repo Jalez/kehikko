@@ -21,7 +21,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b5 pass/)
+    expect(out).toMatch(/\b6 pass/)
   }, 60_000)
 }
 
@@ -168,6 +168,30 @@ describe.skipIf(!inChild)('a module’s version picker', () => {
     expect(document.activeElement).toBe(button)
     /* Handed back quietly: its tooltip is not raised. */
     expect(document.querySelector('[role="tooltip"]')).toBeNull()
+  })
+
+  test('an app release shows only its What’s new section, not the install steps or the footer', async () => {
+    const body = [
+      "### What's new",
+      '- **Faster** search',
+      '',
+      '### Install',
+      '**Download** `Kehikot_0.1.25.dmg` for Macs.',
+      '',
+      '<sub>Built from [Jalez/kehikko@abc1234](https://github.com/Jalez/kehikko/commit/abc1234)</sub>',
+    ].join('\n')
+    answer = (url) => (url.startsWith('/host/versions') ? json(listing) : json({ ...notes('v2.1.0'), body }))
+    await render(<VersionPicker module="kehikot.notes" name="Notes" kehikko={1} pinned={null} current="2.1.0" onPicked={() => {}} />)
+    await click(document.querySelector('[data-testid="version-control"]')!)
+    await click(document.querySelectorAll('[aria-label="Show release notes for v2.1.0"]')[1]!)
+    const text = document.querySelector('[data-testid="release-notes-body"]')!.textContent!
+    expect(text).toContain('Faster')
+    expect(text).not.toContain('Install')
+    expect(text).not.toContain('Download')
+    expect(text).not.toContain('Built from')
+    /* The title already says it; the section's own heading is not repeated. */
+    expect(text).not.toContain("What's new")
+    expect(document.querySelector('[data-testid="release-notes-github"]')).not.toBeNull()
   })
 
   test('Open on GitHub opens the release page outside', async () => {

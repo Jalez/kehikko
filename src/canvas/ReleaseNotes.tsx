@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'reac
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { parseMarkdown, type Block, type Inline } from '@/host/markdown.ts'
+import { parseMarkdown, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
 import {
   fetchNotes,
   notesLabel,
@@ -199,8 +199,8 @@ export function ReleaseNotesDialog({
               </p>
               {reading.missing ? null : <p className="text-muted-foreground pt-1">{reading.why}</p>}
             </div>
-          ) : reading.release.body.trim() ? (
-            <Markdown source={reading.release.body} />
+          ) : whatsNew(reading.release.body) ? (
+            <Markdown source={whatsNew(reading.release.body)} />
           ) : (
             <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
           )}
