@@ -211,6 +211,8 @@ export function attention(presence: Presence): string | null {
      lifecycle check on purpose — a module the host just started and then
      refused must not sit there saying only "starting". */
   if (presence.refused) return `${presence.line} Update the module to use it.`
+  /* What is wrong is a file, and the sentence names it (`remedy` in `discover.ts`). */
+  if (presence.remedy) return presence.line
   if (presence.lifecycle || !presence.reached) return null
   return `${presence.line} Check what is running at ${presence.at}, then start the module again.`
 }
