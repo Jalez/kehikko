@@ -24,7 +24,11 @@
   read-only folder keeps its id in `projects.uid` only. Nothing else goes at
   the top of `.kehikot/`. A project is its id: `projects.uid` beside the path,
   a moved folder is relinked (`relinkProject`, "Locate…"), and the paths it had
-  are in `project_paths`.
+  are in `project_paths`. `/host/is-project` (`isProjectAnswer`) answers a
+  project with its `id`, and a path in `project_paths` of a project still here
+  with `movedTo` and `id` (protocol 2.3.0) — only when the folder at it is not
+  itself a project; never the list. A pinned container is the same project by
+  `projectId` (`whileFrozen`) and is told the new path.
 - A folder renamed or moved on the same volume is followed by itself:
   `projects.bookmark` (frame.sqlite, a machine-level cache) holds macOS
   bookmark data minted through `bun:ffi` in `server/bookmarks.ts`;

@@ -145,18 +145,86 @@ export function listProjects(db: Database): Project[] {
  * what else is on the disk.
  */
 export function isProject(db: Database, asked: unknown): boolean {
-  if (typeof asked !== 'string' || asked.length === 0 || asked.length > LIMITS.PATH || !isAbsolute(asked)) return false
-  const resolved = (path: string): string | null => {
-    try {
-      return realpathSync(resolve(path))
-    } catch {
-      return null
-    }
+  return projectAt(db, asked) !== null
+}
+
+/** A folder resolved by the filesystem, or null when nothing is there. */
+const resolvedFolder = (path: string): string | null => {
+  try {
+    return realpathSync(resolve(path))
+  } catch {
+    return null
   }
-  const real = resolved(asked)
-  if (real === null) return false
-  const rows = db.query<{ path: string }, []>('select path from projects').all()
-  return rows.some((row) => resolved(row.path) === real)
+}
+
+const askable = (asked: unknown): asked is string =>
+  typeof asked === 'string' && asked.length > 0 && asked.length <= LIMITS.PATH && isAbsolute(asked)
+
+/**
+ * The project a folder is, by the rule `isProject` says, with its id (`uid`,
+ * null for a project never identified), or null.
+ */
+export function projectAt(db: Database, asked: unknown): { uid: string | null } | null {
+  if (!askable(asked)) return null
+  const real = resolvedFolder(asked)
+  if (real === null) return null
+  const rows = db.query<{ path: string; uid: string | null }, []>('select path, uid from projects').all()
+  const row = rows.find((one) => resolvedFolder(one.path) === real)
+  return row ? { uid: row.uid } : null
+}
+
+/**
+ * The project that USED to be at a folder: a path in `project_paths` of a
+ * project still here, compared as given, made absolute, resolved by the
+ * filesystem, and through its parent (the folder at it is usually gone). The
+ * newest `until` wins. Asked only once `isProject` said no, so a folder that is
+ * itself a project now is never answered with where another one went; and a
+ * project's own current path is never its former one. Says one project's
+ * current path, never the list.
+ */
+export function formerProjectAt(db: Database, asked: unknown): { path: string; uid: string | null } | null {
+  if (!askable(asked)) return null
+  const wanted = new Set([asked, resolve(asked), throughParent(asked)])
+  const real = resolvedFolder(asked)
+  if (real !== null) wanted.add(real)
+  const rows = db
+    .query<{ former: string; path: string; uid: string | null }, []>(
+      `select f.path as former, p.path as path, p.uid as uid
+         from project_paths f join projects p on p.id = f.project_id
+        order by f.until desc, f.rowid desc`,
+    )
+    .all()
+  for (const row of rows) {
+    if (!wanted.has(row.former) && !wanted.has(resolve(row.former))) continue
+    if (wanted.has(row.path) || wanted.has(resolve(row.path))) continue
+    return { path: row.path, uid: row.uid }
+  }
+  return null
+}
+
+/** What `GET /host/is-project` answers (protocol 2.3.0 adds `id` and `movedTo`). */
+export type IsProjectAnswer =
+  | { ok: true; project: true; id?: string }
+  | { ok: true; project: false; missing: true; why: string }
+  | { ok: true; project: false; movedTo: string; id?: string }
+  | { ok: true; project: false }
+
+/**
+ * The answer for one asked path, in this order: a project whose folder is
+ * gone (told so in a sentence rather than a bare no — not one a module may
+ * write in); a project, with its id; a path a project had before it was
+ * renamed or moved, with where it is now and its id, so a module's door can
+ * follow it once — only reached when the folder at the path is not itself a
+ * project, so an existing project always wins; and otherwise no. One project
+ * at most is named, never the list.
+ */
+export function isProjectAnswer(db: Database, asked: unknown): IsProjectAnswer {
+  if (isMissingProject(db, asked)) return { ok: true, project: false, missing: true, why: MISSING_SAID }
+  const here = projectAt(db, asked)
+  if (here) return { ok: true, project: true, ...(here.uid ? { id: here.uid } : {}) }
+  const was = formerProjectAt(db, asked)
+  if (was) return { ok: true, project: false, movedTo: was.path, ...(was.uid ? { id: was.uid } : {}) }
+  return { ok: true, project: false }
 }
 
 /**

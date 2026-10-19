@@ -473,7 +473,14 @@ export function whileFrozen(
      container is looking at, so a pinned Journeys that went on counting a
      won't-do step as delivered would be the frozen theme again. A container
      pinned on another project is not told this one's marks. */
-  const sameProject = held.projectPath === told.projectPath
+  const sameProject = held.projectId && told.projectId ? held.projectId === told.projectId : held.projectPath === told.projectPath
+  /* A project is its id: after a rename or a move the host relinks it, and the
+     canvas's context names the new folder under the same id. A pinned
+     container is still in that project, so it is told where the project is now
+     — a container held on the old path would go on reading a folder that is
+     gone, and (compared by path) would stop hearing the marks, the tracker and
+     the content too. The pin holds WHICH project; never where it was. */
+  const relocated = sameProject && (held.projectPath !== told.projectPath || held.project !== told.project)
   const remarked = sameProject && JSON.stringify(held.dispositions) !== JSON.stringify(told.dispositions)
   /* The tracker signal passes a pin for the marks' reason: a reading is about
      the work, and a pinned Journeys still showing yesterday's states after a
@@ -490,12 +497,14 @@ export function whileFrozen(
      step narrower — and a container pinned on "the posting seam" that widened
      when somebody cleared the bar would not have been held at all. `...held`
      below keeps the parts it was pinned with. */
-  if (!relit && !refiltered && !remarked && !reread && !rewritten) return null
+  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten) return null
   return {
     ...held,
     theme: told.theme,
     filters: told.filters,
-    ...(sameProject ? { dispositions: told.dispositions, tracker: told.tracker, content: told.content } : {}),
+    ...(sameProject
+      ? { project: told.project, projectPath: told.projectPath, dispositions: told.dispositions, tracker: told.tracker, content: told.content }
+      : {}),
   }
 }
 
