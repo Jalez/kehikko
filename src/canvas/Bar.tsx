@@ -19,6 +19,7 @@ import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
+import { AppVersion } from './AppVersion.tsx'
 import { FeedbackButton } from './Feedback.tsx'
 import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
@@ -202,6 +203,10 @@ export function Bar({
         <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none max-[480px]:hidden">
           <KehikkoMark working={false} className="size-4" />
           <span className="max-[640px]:hidden">Kehikot</span>
+          {/* Its version, as a module's sits beside its name; the first thing
+              the strip lets go of. Pressed, Kehikot's releases and their notes.
+              See `AppVersion.tsx`. */}
+          <AppVersion />
         </span>
         <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
 

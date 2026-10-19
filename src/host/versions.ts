@@ -13,13 +13,17 @@ export interface VersionEntry {
   blocked: string | null
   prepared: boolean
   running: boolean
+  /** Its repository has a GitHub release for this tag. Absent from an older server. */
+  release?: boolean
 }
 
 /** Mirrors `VersionListing` in `server/pins.ts`. */
 export interface VersionListing {
   module: string
   name: string
-  latest: { version: string | null; commit: string | null; dataVersion: number | null }
+  latest: { version: string | null; commit: string | null; dataVersion: number | null; release?: string | null }
+  /** `owner/repo` on GitHub, where release notes are read. Absent from an older server. */
+  repo?: string | null
   pinned: string | null
   recorded: number | null
   versions: VersionEntry[]
@@ -48,6 +52,8 @@ export interface VersionRow {
   /** A word in front of the reason: `incompatible` (protocol) or `blocked` (data). */
   mark: 'incompatible' | 'blocked' | null
   chosen: boolean
+  /** The released tag whose notes this row offers, or null when its repository published none. */
+  notes: string | null
 }
 
 /**
@@ -68,6 +74,7 @@ export function versionRows(listing: VersionListing): VersionRow[] {
       disabled: null,
       mark: null,
       chosen: listing.pinned === null,
+      notes: listing.repo ? (listing.latest.release ?? null) : null,
     },
   ]
   for (const one of listing.versions) {
@@ -88,6 +95,7 @@ export function versionRows(listing: VersionListing): VersionRow[] {
       disabled: chosen ? null : (why ?? null),
       mark,
       chosen,
+      notes: listing.repo && one.release ? one.tag : null,
     })
   }
   return rows

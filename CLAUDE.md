@@ -154,3 +154,17 @@
   Older hosts strip the key and read the repository: additive, not breaking.
 - The words a person is told about a source (`rolesOf`, `readSaid`) live in
   `src/host/trackerSources.ts`, shared by the panel and the MCP tools.
+
+## Release notes
+
+- The version beside "Kehikot" is the app's (`update_status.current`) inside
+  the desktop app and "host <version>" anywhere else (`versionShown` in
+  `src/host/releaseNotes.ts`). It is the first thing the strip hides.
+- Notes are read by `server/releaseNotes.ts` (`/host/release-notes`,
+  `/host/releases`), unauthenticated, cached in memory, and only for
+  repositories the host knows: the app's, the official list's, and registered
+  modules' own remotes. Never widen that to a repository the page names.
+- Notes are untrusted text: drawn only through `src/host/markdown.ts` and
+  `Markdown` in `src/canvas/ReleaseNotes.tsx`, never as HTML; links are
+  `https:` only and open through `openExternal` (the desktop shell hands a
+  new-window request to the default browser).
