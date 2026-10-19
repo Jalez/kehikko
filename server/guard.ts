@@ -98,6 +98,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/migrate',
   '/host/trackers',
   '/host/projects/locate',
+  '/host/projects/followed',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

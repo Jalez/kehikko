@@ -26,7 +26,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, forgetProject, isMissingProject, isProject, listProjects, locateProject, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, followedSaid, followProjects, forgetProject, isMissingProject, isProject, listProjects, locateProject, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -142,6 +142,9 @@ const OWN = ownAddress(process.env, PORT, PAGE_ORIGINS)
    folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
    so the door and the folder cannot drift apart. */
 const HOST_VERSION: string = pkg.version
+
+/** How often a missing project's bookmark is asked where its folder went. */
+const FOLLOW_EVERY_MS = 5_000
 
 /* `HOST_REPO` — the repository feedback on the host itself is filed in when
    there is no checkout to ask, and where the published module list is read
@@ -275,6 +278,26 @@ function watchOpenProjects(): void {
 /* A page that moved to another project without reopening its stream is caught
    here rather than never. */
 setInterval(() => watchOpenProjects(), 60_000).unref?.()
+
+/**
+ * A project folder renamed or moved while this host runs is followed by
+ * itself, through its bookmark (`followProjects`, `bookmarks.ts`): the same
+ * relink as "Locate…", then the same news to every page. Checked every few
+ * seconds and whenever a page reads the projects; a pass with no project
+ * missing is one `stat` per project and asks CoreFoundation nothing.
+ */
+function followMoved(): void {
+  const followed = followProjects(db)
+  for (const { id } of followed) {
+    const project = projectById(db, id)
+    if (project) syncProject(db, project)
+  }
+  if (followed.length) {
+    watchOpenProjects()
+    wakes.projectsChanged()
+  }
+}
+setInterval(() => followMoved(), FOLLOW_EVERY_MS).unref?.()
 
 /**
  * The host wrote an epic itself: every container showing it is told, and the
@@ -2132,7 +2155,20 @@ const server = Bun.serve({
      * under, and every check on that string is in `addProject` rather than
      * here — one place, so a second endpoint cannot grow a weaker copy. */
     if (url.pathname === '/host/projects' && request.method === 'GET') {
+      followMoved()
       return json({ projects: listProjects(db) })
+    }
+
+    /*
+     * The page has told the person that a project was followed to where its
+     * folder went (`followed` on the project); it is not said again. The page's
+     * alone (`PAGE_ONLY`).
+     */
+    if (url.pathname === '/host/projects/followed' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+      if (!body || typeof body.id !== 'number') return json({ error: 'Which project.' }, 400)
+      if (followedSaid(db, body.id)) wakes.projectsChanged()
+      return json({ ok: true })
     }
 
     /*
