@@ -7,6 +7,7 @@ import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } fro
 
 import { createCanvas, listCanvases } from './canvases.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
+import { projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
 import { MISSING_SAID, projectRootExists } from './projectRoot.ts'
 
 export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
@@ -89,6 +90,13 @@ export interface Project {
    * `projectRoot.ts`, which is the rule every writer asks.
    */
   missing: boolean
+  /**
+   * The project's permanent id (protocol 2.1.0): what is in its own
+   * `.kehikot/project.json`, and what `context.projectId` carries. Null for a
+   * project this host has not yet met in its folder — one already gone when
+   * this host first looked. See `identify` and `projectIdentity.ts`.
+   */
+  uid: string | null
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -107,8 +115,8 @@ const NAME_MAX = 60
  */
 export function listProjects(db: Database): Project[] {
   return db
-    .query<{ id: number; name: string; path: string }, []>(
-      'select id, name, path from projects order by rank, id',
+    .query<Row, []>(
+      'select id, name, path, uid from projects order by rank, id',
     )
     .all()
     .map((row) => described(row))
@@ -176,15 +184,18 @@ function throughParent(asked: string): string {
 /** One project by id, or null. */
 export function projectById(db: Database, id: number): Project | null {
   const row = db
-    .query<{ id: number; name: string; path: string }, [number]>(
-      'select id, name, path from projects where id = ?',
+    .query<Row, [number]>(
+      'select id, name, path, uid from projects where id = ?',
     )
     .get(id)
   return row ? described(row) : null
 }
 
+/** A project's row, as stored. */
+type Row = { id: number; name: string; path: string; uid: string | null }
+
 /** A row as the page and the agents see it, read off the disk now. */
-function described(row: { id: number; name: string; path: string }): Project {
+function described(row: Row): Project {
   const missing = !projectRootExists(row.path)
   return {
     ...row,
@@ -195,6 +206,7 @@ function described(row: { id: number; name: string; path: string }): Project {
     git: !missing && hasGit(row.path),
     shared: missing ? false : sharesKehikot(row.path),
     missing,
+    uid: row.uid,
   }
 }
 
@@ -426,7 +438,7 @@ export function shareKehikot(db: Database, id: number, shared: boolean): Shared 
 }
 
 export type Added =
-  | { ok: true; project: Project; already: boolean }
+  | { ok: true; project: Project; already: boolean; relinked?: boolean }
   | { ok: false; why: string; status: number }
 
 /**
@@ -487,19 +499,9 @@ export function addProject(
     }
   }
 
-  let real: string
-  try {
-    real = realpathSync(resolve(asked))
-  } catch {
-    return { ok: false, why: 'There is no folder at that path.', status: 400 }
-  }
-  try {
-    if (!statSync(real).isDirectory()) {
-      return { ok: false, why: 'That is a file. A project is a folder.', status: 400 }
-    }
-  } catch {
-    return { ok: false, why: 'There is no folder at that path.', status: 400 }
-  }
+  const found = folderAt(asked)
+  if (!found.ok) return found
+  const real = found.real
 
   /* A legacy `data/epics` / `data/state` moves under `.kehikot/kehikko/` the
      moment the folder becomes (or is re-added as) a project — see
@@ -511,8 +513,24 @@ export function addProject(
      the browser that it was already a project. They get the one that exists. */
   const standing = db.query<{ id: number }, [string]>('select id from projects where path = ?').get(real)
   if (standing) {
+    identify(db, standing.id)
     const project = projectById(db, standing.id)
     if (project) return { ok: true, project, already: true }
+  }
+
+  /* A folder carrying the id of a project this host knows is that project,
+     moved or renamed: the row is pointed here, and its kehikot and Inbox
+     history come with it. Unless the project is still where it was, carrying
+     the same id — then this folder is a COPY of it (`cp -r`), and is added as a
+     project of its own with a fresh id, below. */
+  const carried = readProjectId(real)
+  if (carried !== null) {
+    const holder = db.query<Row, [string]>('select id, name, path, uid from projects where uid = ?').get(carried)
+    if (holder && !(projectRootExists(holder.path) && readProjectId(holder.path) === carried)) {
+      const moved = relinkProject(db, holder.id, real)
+      if (!moved.ok) return moved
+      return { ok: true, project: moved.project, already: true, relinked: true }
+    }
   }
 
   const total = db.query<{ n: number }, []>('select count(*) as n from projects').get()?.n ?? 0
@@ -537,6 +555,9 @@ export function addProject(
     .get(label, real)
   if (!row) return { ok: false, why: 'The project was not written.', status: 500 }
 
+  /* Its id: adopted from the folder, or minted and written there. A copy of
+     a project still in place is given a fresh one here — see `identify`. */
+  identify(db, row.id)
   if (alsoAKehikko) createCanvas(db, 'kehikko', row.id)
   const project = projectById(db, row.id)
   if (!project) return { ok: false, why: 'The project was not written.', status: 500 }
@@ -591,6 +612,9 @@ export function adopt(
      under `.kehikot/kehikko/` at startup, so a project added before the move
      reads the same epics after it. See `hostData.ts`. */
   for (const project of projects) if (!project.missing) migrateHostData(project.path)
+  /* Every project's id, oldest first, so that of two folders carrying one id
+     the project added first keeps it. See `identify`. */
+  identifyAll(db)
   if (projects.length) projects = listProjects(db)
 
   const first = projects[0] ?? null
@@ -619,4 +643,184 @@ function tidy(name: string | undefined): string | null {
   if (typeof name !== 'string') return null
   const trimmed = name.trim().slice(0, NAME_MAX)
   return trimmed || null
+}
+
+/**
+ * A folder a person named, made absolute, resolved and checked to be one: the
+ * refusals `addProject` and `locateProject` share, so neither grows a weaker copy.
+ */
+function folderAt(asked: string): { ok: true; real: string } | { ok: false; why: string; status: number } {
+  let real: string
+  try {
+    real = realpathSync(resolve(asked))
+  } catch {
+    return { ok: false, why: 'There is no folder at that path.', status: 400 }
+  }
+  try {
+    if (!statSync(real).isDirectory()) {
+      return { ok: false, why: 'That is a file. A project is a folder.', status: 400 }
+    }
+  } catch {
+    return { ok: false, why: 'There is no folder at that path.', status: 400 }
+  }
+  return { ok: true, real }
+}
+
+/**
+ * Settle one project's id against its folder (protocol 2.1.0), and answer it.
+ *
+ * - A folder that is gone: nothing is read or written; the row keeps what it had.
+ * - The folder carries a valid id that no other row holds: that is the id.
+ * - It carries one another row holds — the folder is a COPY (`cp -r`, a clone
+ *   or a worktree that carried the file). The OLDER row keeps the id; the newer
+ *   folder is given a fresh one, its `project.json` rewritten (the only rewrite
+ *   there is), and the terminal says so — and, once, that git tracks the file
+ *   when it does, since ignoring a tracked file does not untrack it.
+ * - No file, or one that does not parse: the row's id, or a fresh
+ *   `crypto.randomUUID()`, written there — never into the home folder, and a
+ *   folder that will not take the write keeps it in the database only.
+ */
+export function identify(db: Database, id: number): string | null {
+  const row = db.query<Row, [number]>('select id, name, path, uid from projects where id = ?').get(id)
+  if (!row) return null
+  if (!projectRootExists(row.path)) return row.uid
+  const git = (): boolean => hasGit(row.path)
+  const set = (project: number, uid: string | null) =>
+    db.query('update projects set uid = ? where id = ?').run(uid, project)
+
+  const carried = readProjectId(row.path)
+  if (carried !== null) {
+    if (carried === row.uid) return carried
+    const holder = db.query<Row, [string, number]>('select id, name, path, uid from projects where uid = ? and id <> ?').get(carried, row.id)
+    if (holder && holder.id < row.id) {
+      const fresh = crypto.randomUUID()
+      set(row.id, fresh)
+      const written = writeProjectId(row.path, fresh, git())
+      sayIdentity(
+        `kehikko: ${row.path} carries the id of ${named(holder.path)} (${holder.path}) — a copy of it. ${holder.path} keeps the id; `
+          + `${row.path} is a project of its own now, id ${fresh}${written === 'written' ? '' : ' (kept by this host only: its project.json could not be rewritten)'}.`,
+      )
+      for (const path of [row.path, holder.path]) {
+        if (git() && projectFileTracked(path)) {
+          sayIdentity(
+            `kehikko: git tracks ${path}/.kehikot/project.json. It should not be committed — every clone of it is taken for the same project. `
+              + 'Untrack it with `git rm --cached .kehikot/project.json`.',
+          )
+        }
+      }
+      return fresh
+    }
+    if (holder) {
+      /* This row is the older: it takes the id, and the newer is settled again
+         — as the copy, if its folder still carries this id. */
+      set(holder.id, null)
+      set(row.id, carried)
+      identify(db, holder.id)
+      return carried
+    }
+    if (row.uid !== null) {
+      sayIdentity(`kehikko: ${row.path} carries the id ${carried}, not the ${row.uid} this host had for it; it is known by the folder's now.`)
+    }
+    set(row.id, carried)
+    return carried
+  }
+
+  const uid = row.uid ?? crypto.randomUUID()
+  if (row.uid === null) set(row.id, uid)
+  writeProjectId(row.path, uid, git())
+  return uid
+}
+
+/** Every project's id, oldest row first. Run at startup, by `adopt`. */
+export function identifyAll(db: Database): void {
+  for (const { id } of db.query<{ id: number }, []>('select id from projects order by id').all()) identify(db, id)
+}
+
+export type Relinked = { ok: true; project: Project } | { ok: false; why: string; status: number; anyway?: boolean }
+
+/**
+ * Point a project at the folder it is in now, keeping everything keyed by its
+ * row — its kehikot, their placements and its Inbox history, none of which
+ * store the path. The path it had is kept in `project_paths`, with when.
+ * Refused when another project is already that folder.
+ */
+export function relinkProject(db: Database, id: number, real: string): Relinked {
+  const row = db.query<Row, [number]>('select id, name, path, uid from projects where id = ?').get(id)
+  if (!row) return { ok: false, why: 'There is no project by that id.', status: 404 }
+  if (row.path !== real) {
+    const other = db.query<{ id: number }, [string, number]>('select id from projects where path = ? and id <> ?').get(real, id)
+    if (other) {
+      return { ok: false, why: `That folder is already a project here: ${named(real)}. Forget one of the two first.`, status: 409 }
+    }
+    db.transaction(() => {
+      db.query('insert into project_paths (project_id, path, until) values (?, ?, ?)').run(id, row.path, new Date().toISOString())
+      db.query('update projects set path = ? where id = ?').run(real, id)
+    })()
+  }
+  const project = projectById(db, id)
+  return project ? { ok: true, project } : { ok: false, why: 'The project was not written.', status: 500 }
+}
+
+/** The paths a project was relinked away from, newest first. */
+export function formerPaths(db: Database, id: number): { path: string; until: string }[] {
+  return db
+    .query<{ path: string; until: string }, [number]>(
+      'select path, until from project_paths where project_id = ? order by until desc, rowid desc',
+    )
+    .all(id)
+}
+
+/** The start of every refusal `locateProject` gives, on the page as it is here. */
+export const NOT_THIS_PROJECT = "That folder isn't this project:"
+
+/**
+ * "Locate…": the person says where a project's folder went.
+ *
+ * The folder must carry the project's own id — that is what makes it the same
+ * project rather than a folder that happens to be called the same. A folder
+ * with no id, or another id, is refused in a sentence. A project that never
+ * had an id (it was gone before this host first looked) has nothing to compare
+ * with, so the refusal offers a second step, `anyway`, that takes the folder on
+ * the person's word — unless the folder is another project this host knows.
+ */
+export function locateProject(db: Database, id: number, asked: unknown, anyway = false): Relinked {
+  const row = db.query<Row, [number]>('select id, name, path, uid from projects where id = ?').get(id)
+  if (!row) return { ok: false, why: 'There is no project by that id.', status: 404 }
+  if (typeof asked !== 'string' || !asked || asked.length > LIMITS.PATH || asked.includes('\0') || !isAbsolute(asked)) {
+    return { ok: false, why: 'A folder is named by one absolute path.', status: 400 }
+  }
+  const found = folderAt(asked)
+  if (!found.ok) return found
+  const real = found.real
+  const carried = readProjectId(real)
+
+  if (row.uid !== null) {
+    if (carried !== row.uid) {
+      const other = carried === null ? null : db.query<Row, [string]>('select id, name, path, uid from projects where uid = ?').get(carried)
+      const why =
+        carried === null
+          ? `it has no Kehikot id (.kehikot/project.json), and ${named(row.path)} has one.`
+          : other
+            ? `it is ${named(other.path)}, another project here.`
+            : 'it carries a different Kehikot id.'
+      return { ok: false, why: `${NOT_THIS_PROJECT} ${why}`, status: 409 }
+    }
+  } else {
+    const other = carried === null ? null : db.query<Row, [string, number]>('select id, name, path, uid from projects where uid = ? and id <> ?').get(carried, id)
+    if (other) return { ok: false, why: `${NOT_THIS_PROJECT} it is ${named(other.path)}, another project here.`, status: 409 }
+    if (!anyway) {
+      return {
+        ok: false,
+        why: `${NOT_THIS_PROJECT} ${named(row.path)} never had a Kehikot id to compare it with, so this host cannot tell. Use the folder anyway only if you are sure it is the one.`,
+        status: 409,
+        anyway: true,
+      }
+    }
+  }
+
+  const moved = relinkProject(db, id, real)
+  if (!moved.ok) return moved
+  identify(db, id)
+  const project = projectById(db, id)
+  return project ? { ok: true, project } : { ok: false, why: 'The project was not written.', status: 500 }
 }

@@ -448,6 +448,11 @@ export function watchCanvases(
    * about; the page re-reads `/host/inbox` unless it already holds that.
    */
   inboxed?: (project: number, rev: number | null) => void,
+  /**
+   * The list of projects changed — a project was found again where its folder
+   * went. See `projectsChanged` in `server/wake.ts`. Carries nothing.
+   */
+  relisted?: () => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -517,6 +522,7 @@ export function watchCanvases(
          server sending something else under this name is news this page does
          not understand rather than news it half-understands. */
       if ((parsed as { registry?: unknown })?.registry === true) looked?.()
+      if ((parsed as { projects?: unknown })?.projects === true) relisted?.()
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
       const inbox = (parsed as { inbox?: unknown })?.inbox

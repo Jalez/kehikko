@@ -177,6 +177,14 @@ describe('the page', () => {
     expect(html).toContain("Kehikot can&#x27;t find this folder any more. It was moved, renamed or deleted.")
     expect(html).toContain('/old/renamed-away')
     expect(html).toContain('data-missing-project')
+    expect(html).not.toContain('Locate…')
+  })
+
+  test('with somewhere to send it, it offers Locate…', () => {
+    const html = renderToStaticMarkup(
+      <MissingProject project={{ name: 'renamed-away', path: '/old/renamed-away' }} onLocate={() => {}} />,
+    )
+    expect(html).toContain('Locate…')
   })
 
   test('its row in the list says moved or renamed, with the sentence as its label', () => {

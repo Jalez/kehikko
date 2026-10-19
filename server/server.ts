@@ -26,7 +26,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, forgetProject, isMissingProject, isProject, listProjects, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, forgetProject, isMissingProject, isProject, listProjects, locateProject, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -2235,7 +2235,35 @@ const server = Bun.serve({
          empty kehikko `addProject` just made, which is the point. A file that
          will not read is reported on the load the page does next. */
       if (!added.already) syncProject(db, added.project)
-      return json({ project: added.project, already: added.already }, added.already ? 200 : 201)
+      /* The folder carried the id of a project whose folder had gone: that
+         project is here now. Its file is read where it is, and every page is
+         told the list changed. */
+      if (added.relinked) {
+        syncProject(db, added.project)
+        wakes.projectsChanged()
+      }
+      return json({ project: added.project, already: added.already, relinked: added.relinked === true }, added.already ? 200 : 201)
+    }
+
+    /*
+     * "Locate…": a project whose folder is gone, pointed at where it went.
+     *
+     * The page's alone (`PAGE_ONLY`): it is a person's answer to a question
+     * the page asked. Every check — that the folder carries the project's own
+     * id, and the second step for a project that never had one — is in
+     * `locateProject`. On success the project's file is read where it is now,
+     * and every page is told the list changed.
+     */
+    if (url.pathname === '/host/projects/locate' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown; path?: unknown; anyway?: unknown } | null
+      if (!body || typeof body.id !== 'number' || typeof body.path !== 'string') {
+        return json({ error: 'Which project, and which folder.' }, 400)
+      }
+      const found = locateProject(db, body.id, body.path, body.anyway === true)
+      if (!found.ok) return json({ error: found.why, ...(found.anyway ? { anyway: true } : {}) }, found.status)
+      syncProject(db, found.project)
+      wakes.projectsChanged()
+      return json({ project: found.project })
     }
 
     /*
