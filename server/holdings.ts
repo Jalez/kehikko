@@ -25,21 +25,21 @@ import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
  *
  * Every answer in `answers.ts` was an answer about emptiness, and the essay
  * there is still right about why the two kinds of emptiness must be told apart.
- * What changed first is that there was something to read: a roadmap directory
- * on this machine, named by `KEHIKKO_ROADMAP_DIR`.
+ * What changed first is that there was something to read: epics in a folder
+ * on this machine.
  *
- * ## And then that one directory turned out to be one project's
+ * ## And that folder is one project's
  *
- * The epics under `$KEHIKKO_ROADMAP_DIR` are not "the host's epics". They are
- * the epics of one folder — `~/Projects/roadmap` — which is one project among however
- * many a person has. A host that read epics from a variable set at startup
+ * Epics are not "the host's epics". They are the epics of one folder, which is
+ * one project among however many a person has. A host that read epics from a
+ * variable set at startup
  * could show a person a second project and go on answering `epics.list` out of
  * the first, correctly, with nothing to indicate it.
  *
  * So the root is a PARAMETER now and never an environment lookup. Every
  * function here takes the project folder it is to read under, and the caller —
  * `server.ts`, which knows which project the call was made from — is the one
- * that decides. `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`) survives as the seed for the first
+ * that decides. `KEHIKOT_SEED_PROJECT` survives as the seed for the first
  * project and nothing else reads it; see `adopt()` in `projects.ts`.
  *
  * ## Not every project has any

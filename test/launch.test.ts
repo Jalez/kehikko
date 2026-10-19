@@ -179,16 +179,13 @@ describe('what a module the host started is given', () => {
     const wrote = join(root, 'env.txt')
     writeFileSync(
       join(root, RUN_SCRIPT),
-      `#!/bin/sh\nprintf '%s\\n%s\\n%s\\n%s' "\${KEHIKOT_ORIGIN:-none}" "\${ROADMAP_ORIGIN:-none}" "\${KEHIKOT_ORIGINS:-none}" "\${PORT:-none}" > "${wrote}"\n`,
+      `#!/bin/sh\nprintf '%s\\n%s\\n%s' "\${KEHIKOT_ORIGIN:-none}" "\${KEHIKOT_ORIGINS:-none}" "\${PORT:-none}" > "${wrote}"\n`,
     )
     chmodSync(join(root, RUN_SCRIPT), 0o755)
 
-    /* The old name is not passed on: the only modules that read it alone
-       speak a dialect this host no longer greets (`originEnv`). */
-    const before = { kehikot: process.env.KEHIKOT_ORIGIN, roadmap: process.env.ROADMAP_ORIGIN, origins: process.env.KEHIKOT_ORIGINS }
+    const before = { kehikot: process.env.KEHIKOT_ORIGIN, origins: process.env.KEHIKOT_ORIGINS }
     delete process.env.KEHIKOT_ORIGINS
     process.env.KEHIKOT_ORIGIN = 'tauri://localhost'
-    delete process.env.ROADMAP_ORIGIN
     try {
       const can = startable(registration({ dir: root }))
       expect(can.ok).toBe(true)
@@ -200,18 +197,15 @@ describe('what a module the host started is given', () => {
       }
       /* Both current names carry the one list, the shell's origin first: every
          module puts whichever it reads straight into `frame-ancestors`. */
-      const [kehikot, roadmap, list, port] = readFileSync(wrote, 'utf8').split('\n')
+      const [kehikot, list, port] = readFileSync(wrote, 'utf8').split('\n')
       expect(list!.split(' ')[0]).toBe('tauri://localhost')
       expect(list!.split(' ')).toContain('http://127.0.0.1:4181')
       expect(list!.split(' ')).toContain('http://127.0.0.1:4170')
       expect(kehikot).toBe(list)
-      expect(roadmap).toBe('none')
       expect(port).toBe('7999')
     } finally {
       if (before.kehikot === undefined) delete process.env.KEHIKOT_ORIGIN
       else process.env.KEHIKOT_ORIGIN = before.kehikot
-      if (before.roadmap === undefined) delete process.env.ROADMAP_ORIGIN
-      else process.env.ROADMAP_ORIGIN = before.roadmap
       if (before.origins === undefined) delete process.env.KEHIKOT_ORIGINS
       else process.env.KEHIKOT_ORIGINS = before.origins
     }

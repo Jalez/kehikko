@@ -340,20 +340,12 @@ export function setPageOrigins(origins: readonly string[]): void {
  * name interpolates it straight into `frame-ancestors 'self' ${...}` — the
  * desktop shell already relies on that, passing four origins in it — so a list
  * there is what it already expects.
- *
- * `ROADMAP_ORIGIN` is still READ from this host's own environment (an old
- * script that starts the host with it keeps working) and is no longer SET for
- * the modules it starts. The only modules that read that name alone are built
- * against the protocol from before 0.25, and they speak the `roadmap` dialect
- * that this host, on protocol 1.0.0, neither asks for nor greets — telling one
- * who may frame it would frame nothing. That holds for a module VERSION a
- * project pins too (`versionRuns.ts`): a tag that old is never found answering.
  */
 export function originEnv(
   env: Record<string, string | undefined>,
   pageOrigins: readonly string[] = ownPageOrigins,
 ): { KEHIKOT_ORIGINS: string; KEHIKOT_ORIGIN: string } {
-  const single = env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN
+  const single = env.KEHIKOT_ORIGIN
   const words = (value: string | undefined) => (value ?? '').split(/\s+/).filter(Boolean)
   const list = [...new Set([...words(env.KEHIKOT_ORIGINS), ...words(single), ...pageOrigins, ...DEFAULT_FRAME_ORIGINS])]
   const all = list.join(' ')

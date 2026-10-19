@@ -206,11 +206,9 @@ export function answer(
    * Which project folder this call is about, or null.
    *
    * A parameter, and never an environment variable read in here. It used to be
-   * the latter — `holdingsDir()` off `KEHIKKO_ROADMAP_DIR` — and that made
-   * every epic answer be about one folder for the life of the process, however
-   * many projects the person had open and whichever one they were looking at.
-   * The host would have shown them the thesis and answered `epics.list` out of
-   * the roadmap, correctly, with no symptom.
+   * the latter, and that made every epic answer be about one folder for the
+   * life of the process, however many projects the person had open and
+   * whichever one they were looking at.
    *
    * Null is the ordinary state and not a failure: a host with no project open,
    * a call from a frame on a project that has no `.kehikot/kehikko/epics`, or a test that

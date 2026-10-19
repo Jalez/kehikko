@@ -16,7 +16,7 @@ import { epicsDir } from './hostData.ts'
  * The obvious build is a file input or the File System Access API, and neither
  * can work here. `showDirectoryPicker()` returns an opaque `FileSystemHandle`:
  * the page can read files THROUGH it and can never learn where it points. What
- * this host needs is the string `/Users/somebody/Projects/roadmap`, because
+ * this host needs is the string `/Users/somebody/Projects/thesis`, because
  * that string is what goes into `kehikot.context.projectPath` and what every
  * module joins its own subdirectory onto. A handle is unusable for that, and no
  * amount of asking the browser more politely produces the path.

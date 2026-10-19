@@ -92,13 +92,7 @@ nothing has a module list compiled into it.
 cache live in `~/Library/Application Support/Kehikot/` (`modules/`,
 `frame.sqlite`; `$XDG_DATA_HOME/kehikot` off macOS), spelled once in
 `server/machineDirs.ts`. `KEHIKOT_MODULES_DIR` and `KEHIKOT_FRAME_DB` point
-either somewhere else. They used to live in `~/.roadmap/`: on its first start a
-host copies `~/.roadmap/frame.sqlite` (a consistent `VACUUM INTO` snapshot, safe
-while an older host has it open) and the registrations across, and never
-changes anything under `~/.roadmap`. A registration still sitting in
-`~/.roadmap/modules` stays in the list — the host reads that directory as a
-fallback, and on an id registered in both places the more recently written
-file wins.
+either somewhere else.
 
 Then **add a project**: the button at the end of the project list opens a folder
 browser. Point it at a repository you work in.
@@ -146,8 +140,7 @@ It never overwrites, and leaves both and logs both paths if both exist.
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a
 reason: the module registry and canvases cache under
-`~/Library/Application Support/Kehikot/` (and the retired `~/.roadmap/modules`
-modules still register in), Claude's own `~/.claude*` config, the roadmap
+`~/Library/Application Support/Kehikot/`, Claude's own `~/.claude*` config, the roadmap
 service's `~/Library/LaunchAgents` / `~/Library/Logs` and its
 `~/.innovium-roadmap.running` marker, and temp dirs. Anything else needs a
 `// kehikot-storage: allow <reason>` comment on the line, and a reviewer who
@@ -711,8 +704,7 @@ passes `KEHIKOT_ORIGINS`, a space-separated list of all of them plus its own
 page, to every module it starts (`frameOrigins` in the protocol's `/serve`
 reads it), and puts the same list in `KEHIKOT_ORIGIN`: a module that reads
 only the single name already puts whatever is in it straight into
-`frame-ancestors`. (`ROADMAP_ORIGIN` is no longer passed on: only a module from
-before the rename reads it alone, and this host no longer greets one.) Whatever the desktop shell set on the
+`frame-ancestors`. Whatever the desktop shell set on the
 host comes first in the list.
 
 Nothing waits, either. Starting is a spawn and the answer says `starting`
@@ -737,7 +729,7 @@ across a fold.
 layer sits under it so the module stays clickable. A control that does not opt
 in will look dead.
 
-**Start it with `./run.sh`.** Anything else loses `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`), which
+**Start it with `./run.sh`.** Anything else loses `KEHIKOT_SEED_PROJECT`, which
 seeds the first project, and `epics.list` then honestly answers with nothing — a
 failure where every layer reports correctly and the map is simply empty.
 
@@ -839,9 +831,7 @@ still read; the old wire is not:
   `roadmap.module` at `/.well-known/roadmap-module.json` and speaking
   `roadmap.*` — is no longer found or greeted (protocol 1.0.0 removed that
   dialect). It has to move to `kehikot-module-protocol`.
-- `~/.roadmap` is copied over once and its `modules/` read as a fallback (see
-  "Where this machine's state lives" above), and `<project>/.kehikot/roadmap/` is read while the new
-  folder is missing.
+- `<project>/.kehikot/roadmap/` is read while the new folder is missing.
 - `roadmap.<name>` is the same module as `kehikot.<name>` everywhere an id
   comes in — registrations (both file names, newest wins), manifests, the
   canvases database (respelled on every start), a project's `kehikot.json`

@@ -61,7 +61,6 @@ import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from 
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
 import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
-import { legacyModulesDir, migrateMachineData } from './machineDirs.ts'
 import {
   addArgs,
   awarenessAt,
@@ -151,14 +150,7 @@ const HOST_VERSION: string = pkg.version
  * Opened eagerly rather than on the first request that needs it, so that a
  * database this host cannot open is a startup failure with a stack trace and
  * not a page that loads, looks fine, and cannot save anything.
- *
- * Before it opens, `~/.roadmap` is brought over to the machine directory once
- * (see `machineDirs.ts`) — copied, never moved, so an older host still running
- * on the old database is not disturbed.
  */
-const migrated = migrateMachineData()
-if (migrated.frameDb) console.log(`copied the canvases from ${migrated.frameDb.from} to ${migrated.frameDb.to}`)
-if (migrated.modules.length) console.log(`copied ${migrated.modules.length} module registrations from ${legacyModulesDir()} to ${registryDir()}`)
 const db = open()
 
 /**
@@ -713,15 +705,7 @@ const versionRuns = new VersionRuns({
     const tag = key.slice(at + 1)
     /* Its own registry: a module's dev server registers wherever it answers,
        and a version answering on its own port must not rewrite the
-       registration that points at the module's checkout.
-
-       `ROADMAP_MODULES_DIR` is still set beside the current name, and only
-       here: a pinned tag can be older than the module's checkout, and a tree
-       from before the rename reads that name alone. This host (protocol 1.0.0)
-       will not find such a version answering, but it does START it, and
-       without the old name it would register itself in `~/.roadmap/modules` —
-       which `readRegistrations` still reads as a fallback — over the
-       registration this is here to protect. */
+       registration that points at the module's checkout. */
     const registry = join(VERSIONS, id, `${tag}.registry`)
     mkdirSync(registry, { recursive: true })
     const url = `http://127.0.0.1:${port}`
@@ -731,7 +715,7 @@ const versionRuns = new VersionRuns({
       port,
       url,
       command: `PORT=${port} ${tree.script}`,
-      env: { KEHIKOT_MODULES_DIR: registry, ROADMAP_MODULES_DIR: registry },
+      env: { KEHIKOT_MODULES_DIR: registry },
       log,
     })
     if (!ran.ok || !ran.child) return { ok: false, why: ran.why ?? 'it could not be started' }
@@ -3027,7 +3011,7 @@ const server = Bun.serve({
 })
 
 console.log(`the canvas is at http://127.0.0.1:${server.port}`)
-console.log(`registrations are read from ${registryDir()}${legacyModulesDir() ? ` (and, for modules that still register there, ${legacyModulesDir()})` : ''}`)
+console.log(`registrations are read from ${registryDir()}`)
 console.log(`canvases are kept in ${databaseFile()}`)
 console.log(`this host speaks protocol ${PROTOCOL}`)
 console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`)

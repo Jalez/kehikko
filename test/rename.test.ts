@@ -206,19 +206,15 @@ describe('who may frame a module this host starts', () => {
       expect(list).toContain(origin)
     }
     /* The single name carries the same list: a module reading it puts it
-       straight into `frame-ancestors`. The pre-rename name is not set — only a
-       module this host can no longer greet reads it alone. */
+       straight into `frame-ancestors`. */
     expect(env.KEHIKOT_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
-    expect('ROADMAP_ORIGIN' in env).toBe(false)
   })
 
   test('the origins the host was started with come first, and nothing is lost', () => {
-    const env = originEnv({ ROADMAP_ORIGIN: 'tauri://localhost http://tauri.localhost' }, [])
+    const env = originEnv({ KEHIKOT_ORIGIN: 'tauri://localhost http://tauri.localhost' }, [])
     expect(env.KEHIKOT_ORIGINS!.startsWith('tauri://localhost http://tauri.localhost ')).toBe(true)
     expect(env.KEHIKOT_ORIGINS!.split(' ')).toContain('http://127.0.0.1:4181')
-    /* Read from the host's own environment still (the line above), never passed on. */
     expect(env.KEHIKOT_ORIGIN).toBe(env.KEHIKOT_ORIGINS)
-    expect('ROADMAP_ORIGIN' in env).toBe(false)
   })
 
   test('a list the host was given is kept, first', () => {

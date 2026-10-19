@@ -49,8 +49,6 @@ describe('what the scanner flags', () => {
   })
 
   test('the allowlist: machine-level state, each with a reason', () => {
-    expect(rules("return env.ROADMAP_MODULES_DIR ?? join(homedir(), '.roadmap', 'modules')")).toEqual([])
-    expect(rules("return env.ROADMAP_FRAME_DB ?? join(homedir(), '.roadmap', 'frame.sqlite')")).toEqual([])
     expect(rules("return join(homedir(), 'Library', 'Application Support', 'Kehikot', 'modules')")).toEqual([])
     expect(rules("const m = join(homedir(), 'Library', 'Application Support', 'Kehikot')")).toEqual([])
     expect(rules("return join(homedir(), '.claude.json')")).toEqual([])
@@ -60,7 +58,6 @@ describe('what the scanner flags', () => {
     /* File-scoped entries only hold in their file. */
     expect(scanText('const db = new Database(file, { create: true })', 'server/canvases.ts')).toEqual([])
     expect(rules('const db = new Database(file, { create: true })', 'server/other.ts')).toEqual(['database'])
-    expect(scanText('db = new Database(DB_PATH, { create: true })', 'src/requests.ts')).toEqual([])
     expect(rules('db = new Database(somewhere, { create: true })', 'src/requests.ts')).toEqual(['database'])
   })
 

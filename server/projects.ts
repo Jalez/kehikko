@@ -17,8 +17,7 @@ import { epicsDir, migrateHostData } from './hostData.ts'
  * onto a canvas, and every canvas on this machine had it set to NULL — not
  * through neglect, but because a label nobody has to fill in is a label nobody
  * fills in, and because the relationship it was modelling runs the other way.
- * Three kehikot here all read their epics out of `~/Projects/roadmap` and not
- * one of them said so.
+ * Kehikot that all read one folder's epics did not say so.
  *
  * The user's own framing settled it: *"a project can have one or many kehikkos
  * — one kehikko can focus on writing documentation, another on design, another
@@ -498,9 +497,7 @@ export function addProject(
  *
  * ## The seed
  *
- * `KEHIKOT_SEED_PROJECT` (once `KEHIKKO_ROADMAP_DIR`, still read as a fallback)
- * still means what it meant: where this host's epics come
- * from. `run.sh` defaults it and says so in the terminal, and an existing setup
+ * `KEHIKOT_SEED_PROJECT` says where this host's epics come from. `run.sh` defaults it and says so in the terminal, and an existing setup
  * has to keep starting — a host that suddenly had no projects would be a
  * regression a person meets before they meet the feature. So on a database with
  * no projects in it, that directory becomes the first one.
@@ -514,12 +511,9 @@ export function addProject(
  *
  * ## The adoption
  *
- * Every canvas written before projects existed has `project_id` NULL. There are
- * three of them on this machine and all three show epics out of
- * `~/Projects/roadmap`, which is exactly where the seed points — so filing them
- * there loses nothing and writes down something that was already true. They go
- * to the FIRST project, because on the run where this matters there is only
- * one.
+ * Every canvas written before projects existed has `project_id` NULL. They go
+ * to the FIRST project — the seed — because on the run where this matters
+ * there is only one, and it is where their epics came from.
  */
 export function adopt(
   db: Database,
@@ -531,7 +525,7 @@ export function adopt(
   const orphans = listCanvases(db).filter((canvas) => canvas.project === null)
 
   if (!projects.length) {
-    const named = env.KEHIKOT_SEED_PROJECT || env.KEHIKKO_ROADMAP_DIR
+    const named = env.KEHIKOT_SEED_PROJECT
     const seed = named && existsSync(named) ? named : homedir()
     /* A seed that cannot be added is not fatal. The host starts, the header
        says there is no project, and "add a project" still works — a far better

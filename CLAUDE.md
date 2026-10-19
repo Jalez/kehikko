@@ -15,19 +15,11 @@
   marker, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
-  helpers. The retired `~/.roadmap` is only ever READ (copied once at startup
-  by `migrateMachineData`, and `~/.roadmap/modules` read as a registry fallback
-  by `readRegistrations`) — never write to it. The protocol package (1.0.0)
-  no longer reads `~/.roadmap` at all, so these two are the only things
-  standing between an install that has not migrated and an empty app: keep
-  them, and their tests in `test/machineDirs.test.ts`.
+  helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
   `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
-  `KEHIKOT_SEED_PROJECT`. The HOST still reads the old `ROADMAP_FRAME_DB`,
-  `ROADMAP_MODULES_DIR`, `ROADMAP_ORIGIN` and `KEHIKKO_ROADMAP_DIR` as
-  fallbacks for its own settings; the protocol and the modules do not, so
-  always set the `KEHIKOT_` name. Process plumbing between the desktop shell and this host
+  `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
   `KEHIKKO_PORT`, `KEHIKKO_API_PORT`) keeps its `KEHIKKO_` name.
 - Run `bun run check:storage` before finishing; it scans this host,

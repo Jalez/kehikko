@@ -112,9 +112,9 @@ fi
 #
 # ## It is a SEED, and only a seed
 #
-# It used to be the answer: `server/holdings.ts` read the epics under
-# `$KEHIKKO_ROADMAP_DIR` (now `$KEHIKOT_SEED_PROJECT`) on every call, so this one variable decided what every module was
-# told about epics for the life of the process.
+# It used to be the answer: `server/holdings.ts` read the epics under it on
+# every call, so this one variable decided what every module was told about
+# epics for the life of the process.
 #
 # That is no longer where epics come from. A kehikko belongs to a PROJECT, a
 # project is a folder, and epics are read from `<project>/.kehikot/kehikko/epics`
@@ -147,11 +147,9 @@ fi
 # host said what its environment told it. Nothing was broken and nothing could be
 # grepped for.
 #
-# There used to be a default here — `~/Projects/roadmap` — for exactly that
-# reason. The roadmap prototype is retired and its folder is gone (its epics now
-# live in the kehikko project's `.kehikot/`), so the default is too: the
-# projects table is the answer on every start, and this variable only seeds a
-# fresh database when somebody sets it on purpose.
+# There is no default here, for exactly that reason: the projects table is the
+# answer on every start, and this variable only seeds a fresh database when
+# somebody sets it on purpose.
 # Whether a folder holds epics: `.kehikot/kehikko/epics`, or one of the older
 # places the host brings over when it adopts the folder — `.kehikot/roadmap/epics`
 # (from before the app was renamed) or the legacy `data/epics`.
@@ -159,11 +157,6 @@ holds_epics() {
   [ -d "$1/.kehikot/kehikko/epics" ] || [ -d "$1/.kehikot/roadmap/epics" ] || [ -d "$1/data/epics" ] # kehikot-storage: allow legacy location, read only to seed; the host migrates it
 }
 
-# `KEHIKOT_SEED_PROJECT` is the name; `KEHIKKO_ROADMAP_DIR`, the old one, is
-# still honoured so an existing setup keeps starting.
-if [ -z "${KEHIKOT_SEED_PROJECT:-}" ] && [ -n "${KEHIKKO_ROADMAP_DIR:-}" ]; then
-  KEHIKOT_SEED_PROJECT="$KEHIKKO_ROADMAP_DIR"
-fi
 if [ -n "${KEHIKOT_SEED_PROJECT:-}" ]; then
   export KEHIKOT_SEED_PROJECT
   if holds_epics "$KEHIKOT_SEED_PROJECT"; then

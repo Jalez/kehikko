@@ -7,18 +7,16 @@
  *
  * The protocol says where a module's data goes (`KEHIKOT_DIR`, `moduleDir`,
  * `moduleFile` in `kehikko-protocol/src/project.ts`), and for a while every
- * module followed it except the ones that did not: the roadmap kept epics,
- * state, papers and `requests.db` under its own `data/`, notifications kept a
- * store next to its own source (`join(HERE, 'data')`), tests kept one under
- * whatever directory it was started from (`process.cwd()/data`), citations read
- * papers out of `$KEHIKKO_ROADMAP_DIR/data/papers`, and this host read
+ * module followed it except the ones that did not: notifications kept a store
+ * next to its own source (`join(HERE, 'data')`), tests kept one under whatever
+ * directory it was started from (`process.cwd()/data`), and this host read
  * `<project>/data/epics`. None of those were bugs anybody could see — each
  * worked — and each put somebody's work where the next program would not look.
  *
  * So the rule is checked, not asked for. This walks the source of this host,
  * the protocol, and every module in the registry
- * (`Application Support/Kehikot/modules/*.json`, and the retired
- * `~/.roadmap/modules`; each names its `dir`), READ-ONLY, and reports
+ * (`Application Support/Kehikot/modules/*.json`; each names its `dir`),
+ * READ-ONLY, and reports
  * every line that builds a storage path outside `.kehikot/`.
  *
  * ## What it flags
@@ -61,7 +59,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
-import { legacyModulesDir, modulesDir } from '../server/machineDirs.ts'
+import { modulesDir } from '../server/machineDirs.ts'
 
 export interface Violation {
   repo: string
@@ -97,20 +95,9 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
   },
   {
-    id: 'module-registry',
-    match: /\.roadmap['"`]?\s*,\s*['"`]modules|\.roadmap\/modules/,
-    reason: '~/.roadmap/modules is the RETIRED module registry (named after the app before it was Kehikot): modules built against kehikot-module-protocol < 0.25 registered there, and the host reads it as a fallback and copies it over once (the protocol itself stopped reading it in 1.0.0)',
-  },
-  {
     id: 'frame-db',
     match: /frame\.sqlite/,
-    reason: 'frame.sqlite is the host\'s canvases cache (Application Support/Kehikot; once ~/.roadmap); <project>/.kehikot/kehikot.json is the record',
-  },
-  {
-    id: 'frame-db-migrate',
-    match: /new Database\(from, \{ readonly: true \}\)/,
-    file: /(^|\/)server\/machineDirs\.ts$/,
-    reason: 'the host opening the retired ~/.roadmap/frame.sqlite READ-ONLY to snapshot it into the new home',
+    reason: 'frame.sqlite is the host\'s canvases cache (Application Support/Kehikot); <project>/.kehikot/kehikot.json is the record',
   },
   {
     id: 'frame-db-open',
@@ -137,18 +124,6 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     id: 'temp',
     match: /tmpdir\(\)|mkdtemp|['"`]\/tmp\b|\$TMPDIR|\bTMPDIR\b/,
     reason: 'temporary directories are scratch, not storage',
-  },
-  {
-    id: 'module-codegen',
-    match: /mkdirSync\(join\(ROOT, OUT_MODULES/,
-    file: /(^|\/)scripts\/split-modules\.ts$/,
-    reason: 'the roadmap\'s code generator writing module SOURCE trees into the repo, not data',
-  },
-  {
-    id: 'roadmap-requests-db',
-    match: /new Database\((?:dbPath\(\)|DB_PATH|process\.env\.ROADMAP_DB \?\? join\(DATA, 'requests\.db'\))/,
-    file: /(^|\/)src\/(?:calls|requests|concerns|stages|activity|journeys)\.ts$/,
-    reason: 'the retired roadmap app opening requests.db, whose default is DATA = <project>/.kehikot/roadmap (src/store.ts)',
   },
   {
     id: 'memory-db',
@@ -316,10 +291,7 @@ export function workspace(env: Record<string, string | undefined> = process.env)
     { name: 'kehikko', dir: host },
     { name: 'kehikko-protocol', dir: env.KEHIKOT_SCAN_PROTOCOL ?? join(projects, 'kehikko-protocol') },
   ]
-  /* The registry, and the retired one modules may still write to. */
-  const registries = [modulesDir({ ...env, HOME: home }), legacyModulesDir({ ...env, HOME: home })].filter(
-    (dir): dir is string => dir !== null,
-  )
+  const registries = [modulesDir({ ...env, HOME: home })]
   const files: Array<{ registry: string; file: string }> = []
   for (const registry of registries) {
     try {

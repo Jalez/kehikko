@@ -28,8 +28,8 @@ describe('what this host knows about itself', () => {
       'http://tauri.localhost',
       'https://tauri.localhost',
     ])
-    /* The name the desktop shell still passes. */
-    expect(pageOriginsOf({ ROADMAP_ORIGIN: 'tauri://localhost http://127.0.0.1:4170' }, [])).toContain('http://127.0.0.1:4170')
+    /* The name the desktop shell passes. */
+    expect(pageOriginsOf({ KEHIKOT_ORIGIN: 'tauri://localhost http://127.0.0.1:4170' }, [])).toContain('http://127.0.0.1:4170')
   })
 
   test('another host’s default page is not this host’s page', () => {
