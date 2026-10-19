@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
-import type { Epic, Epics as Held } from '@/host/projects.ts'
+import { sizeWords, type Epic, type Epics as Held } from '@/host/projects.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
 import { ActivityDot } from './Activity.tsx'
@@ -307,9 +307,7 @@ export function Epics({
                     `countOf` in `server/holdings.ts`, which answers null rather
                     than zero when there is nothing to count. */}
                 {marks.get(one.slug) ? <ActivityDot state={marks.get(one.slug)!} what={titleOf(one)} /> : null}
-                {one.size ? (
-                  <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">{one.size}</span>
-                ) : null}
+                {one.size ? <EpicSize size={one.size} parts={one.sizeParts} /> : null}
                 <Remove
                   armed={arming === one.slug}
                   label={`delete ${titleOf(one)}`}
@@ -485,4 +483,20 @@ function sentenceFor(hasProject: boolean, held: Held | null): string {
 /** The title when the file has one, the slug when it does not. Never invented. */
 function titleOf(epic: Epic): string {
   return epic.title ?? epic.slug
+}
+
+/**
+ * The number on an epic's row, with what it counts said on hover. The server
+ * sends the breakdown (`sizeParts`) with the number; an older server sends
+ * only the number, and then the words are the sum's own.
+ */
+export function EpicSize({ size, parts }: { size: number; parts?: { parts: number; steps: number; exists: number; open: number } }) {
+  const words = parts ? sizeWords(parts) : `${size}: parts, or steps for an epic with no parts yet`
+  return (
+    <Hint label={words}>
+      <span role="img" aria-label={words} className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+        <span aria-hidden>{size}</span>
+      </span>
+    </Hint>
+  )
 }

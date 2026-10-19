@@ -103,17 +103,34 @@ export function epicsIn(root: string | null | undefined): string | null {
  */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/
 
+/** What the number on an epic's row is made from. */
+export interface SizeParts {
+  /** The epic's parts: the same list, from the same function, as the page's `context.parts`. */
+  parts: number
+  steps: number
+  exists: number
+  open: number
+}
+
 export interface EpicSummary {
   slug: string
   title?: string
   project?: string
   lede?: string
   /**
-   * How many things this epic names, when the file says. Never invented —
+   * The number the row shows: the epic's parts, or, for an epic with none
+   * yet, its steps (or, with no steps either, its other items) — see
+   * `sizeOf`. How many things this epic names, when the file says. Never invented —
    * and never given for an epic whose steps are kept elsewhere, where a count
    * of what is here would be a count with the steps left out of it.
    */
   size?: number
+  /**
+   * What `size` is made from: the epic's parts, its steps (what has to
+   * happen), what already exists to build on, and its open questions. Present
+   * exactly when `size` is — absent rather than null, for the reason `size` is.
+   */
+  sizeParts?: SizeParts
   /**
    * Where the steps are, for an epic whose steps are not here to count. Its
    * presence is what stands in for `size`: the row cannot say how many, and
@@ -201,12 +218,15 @@ function summarise(
   if (lede) summary.lede = lede
   const said = stepsSaid(epic)
   if (said.kind === 'elsewhere') summary.stepsFrom = said.from
-  const size = countOf(epic)
-  if (size !== null) summary.size = size
   /* Absent rather than `[]` for an epic with none, for the reason `size` is
      absent rather than zero: the list is then exactly what it was before
      parts were read at all. */
   const parts = partsHeld(listedIn(own), epic, ownKey(holdings, slug), slug, holdingsSpoken(dir, slug))
+  const sizeParts = sizePartsOf(epic, parts.length)
+  if (sizeParts) {
+    summary.size = sizeOf(sizeParts)
+    summary.sizeParts = sizeParts
+  }
   if (parts.length) summary.parts = parts
   return summary
 }
@@ -1068,23 +1088,31 @@ function str(value: unknown): string | undefined {
 }
 
 /**
- * How much an epic names, when that can be said honestly.
- *
- * `null` rather than `0` when there is nothing to count, because a module is
- * required to tell "no size given" from "a size of none" — see the reading
- * rules in Atlas, which say the same thing from the other end. A zero here
- * would be this host asserting a fact it does not have.
+ * The number an epic's row shows, when that can be said honestly: its parts —
+ * the count the parts menu calls "all N parts" — or, with none yet, its steps,
+ * or, with no steps either, what is in place and open.
  */
-function countOf(epic: Record<string, unknown>): number | null {
+export function sizeOf(parts: SizeParts): number {
+  return parts.parts || parts.steps || parts.exists + parts.open
+}
+
+/**
+ * What the number is made from, or `null` rather than a zero when there is
+ * nothing to count, because a module is required to tell "no size given" from
+ * "a size of none" — see the reading rules in Atlas, which say the same thing
+ * from the other end. A zero here would be this host asserting a fact it does
+ * not have. `parts` is `partsHeld(...).length`, passed in so that the row and
+ * the menu cannot count differently.
+ */
+export function sizePartsOf(epic: Record<string, unknown>, parts: number): SizeParts | null {
   /* An epic whose steps are kept elsewhere has no size this host can give.
-     Its `exists` and `open` could be counted, and the number would be about
-     the epic with its steps left out — a row saying "4" beside an epic with
-     twenty sections. No size given is the true answer, and `stepsFrom` on the
-     row says why. */
+     Its parts, `exists` and `open` could be counted, and the number would be
+     about the epic with its steps left out — a row saying "4" beside an epic
+     with twenty sections. No size given is the true answer, and `stepsFrom`
+     on the row says why. */
   if (stepsSaid(epic).kind === 'elsewhere') return null
   const steps = Array.isArray(epic.steps) ? epic.steps.length : 0
   const exists = Array.isArray(epic.exists) ? epic.exists.length : 0
   const open = Array.isArray(epic.open) ? epic.open.length : 0
-  const total = steps + exists + open
-  return total > 0 ? total : null
+  return parts + steps + exists + open > 0 ? { parts, steps, exists, open } : null
 }

@@ -117,14 +117,15 @@ export function Canvases({
                   <ActivityDot state={marks.get(canvas.key)!} what={canvas.name} />
                 ) : null}
                 {canvas.key !== undefined && (counts.get(canvas.key) ?? 0) > 0 ? (
-                  <span
-                    className="text-amber-600 dark:text-amber-400 shrink-0 text-[11px] tabular-nums"
-                    data-attention-count={counts.get(canvas.key)}
-                    title={`${counts.get(canvas.key)} ${counts.get(canvas.key) === 1 ? 'needs' : 'need'} you`}
-                  >
-                    <span className="sr-only">, {counts.get(canvas.key) === 1 ? '1 needs' : `${counts.get(canvas.key)} need`} you</span>
-                    <span aria-hidden>{counts.get(canvas.key)}</span>
-                  </span>
+                  <Hint label={`${counts.get(canvas.key)} ${counts.get(canvas.key) === 1 ? 'needs' : 'need'} you`}>
+                    <span
+                      className="text-amber-600 dark:text-amber-400 shrink-0 text-[11px] tabular-nums"
+                      data-attention-count={counts.get(canvas.key)}
+                    >
+                      <span className="sr-only">, {counts.get(canvas.key) === 1 ? '1 needs' : `${counts.get(canvas.key)} need`} you</span>
+                      <span aria-hidden>{counts.get(canvas.key)}</span>
+                    </span>
+                  </Hint>
                 ) : null}
                 <RowPencil label={`rename ${canvas.name}`} title="rename (F2)" onStart={() => setEditing(canvas.id)} />
                 {/* How much is on it: how a person tells two kehikot apart

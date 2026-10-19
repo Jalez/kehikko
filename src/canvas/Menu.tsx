@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { Hint } from './Hint.tsx'
 
 /**
  * The row grammar the three header menus share — project, epic, kehikko.
@@ -55,7 +56,7 @@ export function Remove({
     return (
       <button
         type="button"
-        className="text-destructive shrink-0 text-[10px] font-medium"
+        className={`text-destructive ${ARMED_HIT} shrink-0 text-[10px] font-medium`}
         onClick={(event) => {
           event.stopPropagation()
           onConfirm()
@@ -65,13 +66,13 @@ export function Remove({
       </button>
     )
   }
-  return (
+  const words = removeWords({ label, why })
+  const button = (
     <button
       type="button"
       aria-label={disabled && why ? why : label}
-      title={why}
       disabled={disabled}
-      className="text-muted-foreground hover:text-destructive disabled:hover:text-muted-foreground shrink-0 disabled:opacity-40"
+      className={`text-muted-foreground hover:text-destructive disabled:hover:text-muted-foreground ${HIT} shrink-0 disabled:opacity-40`}
       onClick={(event) => {
         event.stopPropagation()
         onArm()
@@ -80,6 +81,30 @@ export function Remove({
       <X className="size-3" />
     </button>
   )
+  /* A disabled button gets no pointer events, so its tooltip would never
+     open: the tooltip goes on a wrapper then. */
+  return disabled ? (
+    <Hint label={words}>
+      <span className="inline-flex shrink-0">{button}</span>
+    </Hint>
+  ) : (
+    <Hint label={words}>{button}</Hint>
+  )
+}
+
+/**
+ * The hit area of a small icon control: the glyph stays 12px and the row keeps
+ * its height, while an invisible pseudo-element reaches 6px past it on every
+ * side — 24 by 24 in all. `HIT_AREA` is what a test looks for.
+ */
+export const HIT_AREA = 'after:absolute after:-inset-1.5 after:content-[\'\']'
+const HIT = `relative ${HIT_AREA}`
+/** The armed question is text, 10px tall: reach 6px above and below, 4px to the sides. */
+const ARMED_HIT = "relative after:absolute after:-inset-x-1 after:-inset-y-1.5 after:content-['']"
+
+/** What a remove's tooltip says: the reason it is flat, what it does, or else its name. */
+export function removeWords({ label, why }: { label: string; why?: string }): string {
+  return why ?? label
 }
 
 /**
@@ -136,20 +161,21 @@ export function renameKey(start: () => void) {
  */
 export function RowPencil({ label, title, onStart }: { label: string; title: string; onStart(): void }) {
   return (
-    <span
-      role="button"
-      tabIndex={-1}
-      aria-label={label}
-      title={title}
-      className="text-muted-foreground hover:text-foreground pointer-events-auto shrink-0 opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100"
-      onClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onStart()
-      }}
-    >
-      <Pencil className="size-3" />
-    </span>
+    <Hint label={title}>
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-label={label}
+        className={`text-muted-foreground hover:text-foreground pointer-events-auto ${HIT} shrink-0 opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100`}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onStart()
+        }}
+      >
+        <Pencil className="size-3" />
+      </span>
+    </Hint>
   )
 }
 

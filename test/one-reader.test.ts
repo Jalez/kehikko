@@ -78,6 +78,17 @@ function asked(root: string, method: string, params: unknown): Record<string, un
   return given.data as Record<string, unknown>
 }
 
+type SizedRow = { size?: number; parts?: unknown[]; sizeParts?: { steps: number; exists: number; open: number } }
+/** The number a row shows: its parts, else its steps, else what is in place and open. */
+const shown = (r: unknown) => {
+  const { parts, sizeParts: z } = r as SizedRow
+  return parts?.length || z!.steps || z!.exists + z!.open
+}
+const sum = (r: unknown) => {
+  const z = (r as SizedRow).sizeParts!
+  return z.steps + z.exists + z.open
+}
+
 describe('every answer about an epic is about the same epic', () => {
   for (const slug of ['the-posting-seam', 'plain']) {
     describe(slug, () => {
@@ -95,7 +106,10 @@ describe('every answer about an epic is about the same epic', () => {
 
       test('the row in `epics.list` counts those steps and is divided by those groups', () => {
         const size = steps.length + ((epic.exists as unknown[]) ?? []).length + ((epic.open as unknown[]) ?? []).length
-        expect(row.size).toBe(size)
+        /* The number is the parts' count; the lists it used to sum are its breakdown. */
+        expect(row.sizeParts).toMatchObject({ steps: steps.length })
+        expect(sum(row)).toBe(size)
+        expect(row.size).toBe(shown(row))
         const parts = partsOf(epic)
         if (parts.length) expect(row.parts).toEqual(parts)
         else expect('parts' in row).toBe(false)
@@ -132,7 +146,8 @@ describe('every answer about an epic is about the same epic', () => {
       { id: 'the-agent-seam', heading: 'The agent seam', refs: ['gh#6', 'gh#2', 'gh#3'], steps: 1 },
       { id: 'what-the-page-shows', heading: 'What the page shows', refs: ['gh#7', 'gh#5', 'gh#2'], steps: 1 },
     ])
-    expect(row.size).toBe(6)
+    expect(row.size).toBe(shown(row))
+    expect(row.sizeParts).toMatchObject({ parts: row.parts?.length ?? 0 })
   })
 
   test('what a retitle and a create answer with is a row of that same list', () => {
@@ -257,7 +272,7 @@ describe('when the two copies of an epic disagree', () => {
         expect(steps.length).toBeGreaterThan(0)
         expect(steps).toEqual(epic.steps as typeof steps)
         expect(readSteps(root, slug)).toEqual(steps)
-        expect(row.size).toBe(steps.length + ((epic.exists as unknown[]) ?? []).length + ((epic.open as unknown[]) ?? []).length)
+        expect(row.size).toBe(shown(row))
         const parts = partsOf(epic)
         if (parts.length) expect(row.parts).toEqual(parts)
         else expect('parts' in row).toBe(false)
@@ -313,7 +328,8 @@ describe('when the two copies of an epic disagree', () => {
     const root = disagreeing()
     const row = listEpics(root).find((one) => one.slug === 'the-posting-seam')!
     /* 3 steps + 2 exists + 0 open, where the snapshot would have said 2 + 1 + 1. */
-    expect(row.size).toBe(5)
+    expect(row.size).toBe(shown(row))
+    expect(row.sizeParts).toMatchObject({ steps: 3, exists: 2, open: 0 })
     expect(row.lede).toBe(record.lede)
     expect(row.parts).toEqual([
       { id: 'the-agent-seam', heading: 'The agent seam', refs: ['gh#6', 'gh#2', 'gh#3'], steps: 1 },
