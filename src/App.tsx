@@ -15,6 +15,7 @@ import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
 import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
+import { Followed } from './canvas/Followed.tsx'
 import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
@@ -3916,6 +3917,10 @@ export function App() {
           onWrite={(text, aimedAt) => onWritePrompt(prompted.i, text, aimedAt)}
         />
       ) : null}
+
+      {/* A project whose folder was renamed or moved, followed there by the
+          host itself; said once. See `Followed.tsx`. */}
+      <Followed projects={projects} />
 
       {/* The project picker a module gets instead of a listing. Owned by the
           host for the reason every dialog here is — a modal inside a 220-pixel

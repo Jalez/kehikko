@@ -7,7 +7,8 @@ import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } fro
 
 import { createCanvas, listCanvases } from './canvases.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
-import { projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
+import { bookmarks, type Bookmarks } from './bookmarks.ts'
+import { isHome, projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
 import { MISSING_SAID, projectRootExists } from './projectRoot.ts'
 
 export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
@@ -97,6 +98,12 @@ export interface Project {
    * this host first looked. See `identify` and `projectIdentity.ts`.
    */
   uid: string | null
+  /**
+   * Where the folder was before this host followed it there by itself (a
+   * rename or a move, found through its bookmark — see `followProjects`), until
+   * a page has said so to the person once. Null otherwise.
+   */
+  followed: string | null
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -116,7 +123,7 @@ const NAME_MAX = 60
 export function listProjects(db: Database): Project[] {
   return db
     .query<Row, []>(
-      'select id, name, path, uid from projects order by rank, id',
+      'select id, name, path, uid, followed_from from projects order by rank, id',
     )
     .all()
     .map((row) => described(row))
@@ -185,7 +192,7 @@ function throughParent(asked: string): string {
 export function projectById(db: Database, id: number): Project | null {
   const row = db
     .query<Row, [number]>(
-      'select id, name, path, uid from projects where id = ?',
+      'select id, name, path, uid, followed_from from projects where id = ?',
     )
     .get(id)
   return row ? described(row) : null
@@ -195,10 +202,11 @@ export function projectById(db: Database, id: number): Project | null {
 type Row = { id: number; name: string; path: string; uid: string | null }
 
 /** A row as the page and the agents see it, read off the disk now. */
-function described(row: Row): Project {
+function described({ followed_from, ...row }: Row & { followed_from?: string | null }): Project {
   const missing = !projectRootExists(row.path)
   return {
     ...row,
+    followed: followed_from ?? null,
     name: named(row.path),
     epics: !missing && holdsEpics(row.path),
     /* A folder that is gone has no history of its own; walking up from it would
@@ -514,6 +522,7 @@ export function addProject(
   const standing = db.query<{ id: number }, [string]>('select id from projects where path = ?').get(real)
   if (standing) {
     identify(db, standing.id)
+    keepBookmark(db, standing.id)
     const project = projectById(db, standing.id)
     if (project) return { ok: true, project, already: true }
   }
@@ -529,7 +538,8 @@ export function addProject(
     if (holder && !(projectRootExists(holder.path) && readProjectId(holder.path) === carried)) {
       const moved = relinkProject(db, holder.id, real)
       if (!moved.ok) return moved
-      return { ok: true, project: moved.project, already: true, relinked: true }
+      keepBookmark(db, holder.id)
+      return { ok: true, project: projectById(db, holder.id) ?? moved.project, already: true, relinked: true }
     }
   }
 
@@ -558,6 +568,7 @@ export function addProject(
   /* Its id: adopted from the folder, or minted and written there. A copy of
      a project still in place is given a fresh one here — see `identify`. */
   identify(db, row.id)
+  keepBookmark(db, row.id)
   if (alsoAKehikko) createCanvas(db, 'kehikko', row.id)
   const project = projectById(db, row.id)
   if (!project) return { ok: false, why: 'The project was not written.', status: 500 }
@@ -607,6 +618,12 @@ export function adopt(
        state than refusing to serve a page. */
     if (addProject(db, seed, undefined, orphans.length === 0).ok) projects = listProjects(db)
   }
+
+  /* A folder renamed or moved while this host was not running is found again
+     by its bookmark before anything is read or written at the old path — see
+     `followProjects`. Thorough at start: also a project whose old path now
+     holds some other folder, and every bookmark refreshed. */
+  if (projects.length && followProjects(db, { thorough: true }).length) projects = listProjects(db)
 
   /* Every project this host already knows gets its legacy epics and state brought
      under `.kehikot/host/` at startup, so a project added before the move
@@ -821,6 +838,109 @@ export function locateProject(db: Database, id: number, asked: unknown, anyway =
   const moved = relinkProject(db, id, real)
   if (!moved.ok) return moved
   identify(db, id)
+  keepBookmark(db, id)
   const project = projectById(db, id)
   return project ? { ok: true, project } : { ok: false, why: 'The project was not written.', status: 500 }
+}
+
+/**
+ * Mint a project's bookmark again and keep it (`bookmarks.ts`): when its
+ * folder is there and is the project — it carries the project's id, or none
+ * yet. A folder carrying another id is not bookmarked as this one. Quietly
+ * nothing off macOS.
+ */
+export function keepBookmark(db: Database, id: number, marks: Bookmarks | null = bookmarks()): void {
+  if (!marks) return
+  const row = db.query<Row, [number]>('select id, name, path, uid from projects where id = ?').get(id)
+  if (!row || !projectRootExists(row.path)) return
+  const carried = readProjectId(row.path)
+  if (carried !== null && row.uid !== null && carried !== row.uid) return
+  const minted = marks.mint(row.path)
+  if (minted) db.query('update projects set bookmark = ? where id = ?').run(minted, id)
+}
+
+/** A project this host followed to where its folder went. */
+export interface Followed {
+  id: number
+  from: string
+  to: string
+}
+
+/**
+ * Find projects whose folders were renamed or moved, by their bookmarks, and
+ * relink each to where it is now — the same path as "Locate…": the path is
+ * updated, the old one kept in `project_paths`, and the caller wakes the pages.
+ *
+ * Only for a project with an id, and only when the folder the bookmark points
+ * at carries that same id: what a bookmark resolves to is a path nobody has
+ * checked, so nothing is read there but `.kehikot/project.json` and nothing is
+ * ever written there before the id matches. Refused, and left missing, when it
+ * resolves to a folder in the Trash, to the home folder, to a folder another
+ * project here already is, or to one that carries another id or none (deleted
+ * and re-made, re-cloned, or something else entirely). Never makes a folder.
+ *
+ * Every pass looks at the projects whose folder is gone. A `thorough` one (at
+ * start) also looks at a project whose path holds a folder that is not it —
+ * the project moved away and something else was put where it was — and mints
+ * a bookmark for every project that has none or whose bookmark resolved stale.
+ */
+export function followProjects(
+  db: Database,
+  { thorough = false, marks = bookmarks() }: { thorough?: boolean; marks?: Bookmarks | null } = {},
+): Followed[] {
+  if (!marks) return []
+  const followed: Followed[] = []
+  const rows = db
+    .query<Row & { bookmark: Uint8Array | null }, []>('select id, name, path, uid, bookmark from projects order by id')
+    .all()
+  for (const row of rows) {
+    const here = projectRootExists(row.path)
+    if (here && !thorough) continue
+    const resolved = row.bookmark ? marks.resolve(row.bookmark) : null
+    /* Still where it was, carrying its own id (or one not settled yet): the
+       folder is the project. Only a bookmark to mint, or one to mint again. */
+    const stays = here && (row.uid === null || readProjectId(row.path) === row.uid)
+    const to = stays || row.uid === null || !resolved ? null : followable(db, row, resolved.path)
+    if (to === null) {
+      if (stays && (!resolved || resolved.stale || realOf(resolved.path) !== row.path)) keepBookmark(db, row.id, marks)
+      continue
+    }
+    const moved = relinkProject(db, row.id, to)
+    if (!moved.ok) continue
+    db.query('update projects set followed_from = ? where id = ?').run(row.path, row.id)
+    keepBookmark(db, row.id, marks)
+    followed.push({ id: row.id, from: row.path, to })
+    sayIdentity(`kehikko: ${named(row.path)} was moved to ${to} (it was at ${row.path}); this host followed it.`)
+  }
+  return followed
+}
+
+/** Where a bookmark resolved, if it may be followed there: a real folder carrying the project's id. */
+function followable(db: Database, row: Row, resolved: string): string | null {
+  const real = realOf(resolved)
+  if (real === null || real === row.path) return null
+  try {
+    if (!statSync(real).isDirectory()) return null
+  } catch {
+    return null
+  }
+  if (real.split(sep).some((part) => part === '.Trash' || part === '.Trashes')) return null
+  if (isHome(real)) return null
+  if (readProjectId(real) !== row.uid) return null
+  const other = db.query<{ id: number }, [string, number]>('select id from projects where path = ? and id <> ?').get(real, row.id)
+  return other ? null : real
+}
+
+/** A path as the filesystem resolves it, or null when there is nothing there. */
+function realOf(path: string): string | null {
+  try {
+    return realpathSync(path)
+  } catch {
+    return null
+  }
+}
+
+/** The page has said to the person that this project was followed; it is not said again. */
+export function followedSaid(db: Database, id: number): boolean {
+  return db.query('update projects set followed_from = null where id = ? and followed_from is not null').run(id).changes > 0
 }

@@ -68,8 +68,31 @@ export const projectSchema = z.object({
    * a project the host has not met in its folder yet; absent from an older host.
    */
   uid: z.string().nullable().optional(),
+  /**
+   * Where the folder was before the host followed it to `path` by itself — a
+   * rename or a move it found through the folder's bookmark — until the page
+   * has said so once. Null otherwise; absent from an older host.
+   */
+  followed: z.string().nullable().optional(),
 })
 export type Project = z.infer<typeof projectSchema>
+
+/**
+ * The one sentence said about a project the host followed to where its folder
+ * went: "<name> was moved to <path>." Null for a project it did not follow.
+ */
+export function followedSaid(project: Pick<Project, 'name' | 'path' | 'followed'>): string | null {
+  return project.followed ? `${project.name} was moved to ${project.path}. Kehikot followed it.` : null
+}
+
+/** Tell the host the person has been told a project was followed, so it is not said again. */
+export async function sayFollowed(id: number): Promise<void> {
+  await fetch('/host/projects/followed', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }).catch(() => undefined)
+}
 
 /**
  * A project as `projects.pick` hands it to a module: its path and name, and its

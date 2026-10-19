@@ -682,6 +682,20 @@ export function open(file = databaseFile()): Database {
    * because a module may need them — Claude's transcripts, for one, are filed
    * under `~/.claude/projects/<escaped path>`, the path the project had then.
    */
+  /*
+   * Where a project's folder is, as macOS can find it again after a rename or
+   * a move: bookmark data (`bookmarks.ts`), minted when a project is added or
+   * relinked and whenever it resolves stale. A machine-level cache, never
+   * project data: what it resolves to is checked against the project's id
+   * before anything is done with it (`followProjects`). Null off macOS.
+   */
+  add(db, 'projects', 'bookmark', 'blob')
+  /*
+   * The path a project was followed away from by its bookmark, until a page has
+   * said so to the person once ("<name> was moved to …"). Cleared by
+   * `POST /host/projects/followed`.
+   */
+  add(db, 'projects', 'followed_from', 'text')
   db.exec(`
     create table if not exists project_paths (
       project_id integer not null references projects(id) on delete cascade,

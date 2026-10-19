@@ -25,6 +25,14 @@
   the top of `.kehikot/`. A project is its id: `projects.uid` beside the path,
   a moved folder is relinked (`relinkProject`, "Locate…"), and the paths it had
   are in `project_paths`.
+- A folder renamed or moved on the same volume is followed by itself:
+  `projects.bookmark` (frame.sqlite, a machine-level cache) holds macOS
+  bookmark data minted through `bun:ffi` in `server/bookmarks.ts`;
+  `followProjects` resolves it at start, every few seconds for a missing
+  project and on `GET /host/projects`, and relinks only to a folder carrying
+  the project's own id (never one in the Trash, never home, never another
+  project's). The page says it once (`followed`, `src/canvas/Followed.tsx`).
+  Off macOS it is a no-op and "Locate…" is the way back.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
   `frame.sqlite`, `versions/`, `installed/`, `official-modules.json` and the Browser module's `browser-profile/` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
