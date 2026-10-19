@@ -4,7 +4,7 @@ import type { ActivityItem } from 'kehikot-module-protocol'
 
 import { InboxControl, InboxPanel, type InboxView } from '../src/canvas/Inbox.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { byProject } from '../src/canvas/useInbox.ts'
+import { byProject, projectsHolding } from '../src/canvas/useInbox.ts'
 import { tally, type Entry } from '../src/host/inbox.ts'
 
 /** Switching project silences nothing: other projects' items are filed, shown and counted. */
@@ -28,6 +28,23 @@ describe('a tagged list, filed by project', () => {
   test('complete across projects: a project reported to before and named by nothing now is told []', () => {
     const { lists } = byProject([item('a', { project: THESIS.path })], THESIS.id, [THESIS, PORTAL], [PORTAL.id])
     expect(lists.get(PORTAL.id)).toEqual([])
+  })
+
+  test('after a reload: a project holding open items of the module is told [] though this page never reported to it', () => {
+    const open = (module: string, closed: number | null = null): Entry => ({
+      module, name: module, id: 'w', state: 'working', label: 'w', priority: 'normal', refs: [],
+      entered: 1, opened: 1, closed, how: null, seen: null, dismissed: null, origin: 'activity',
+    })
+    const snaps = {
+      [THESIS.id]: { rev: 1, earlier: 0, open: [open('kehikot.claude', 5)] },
+      [PORTAL.id]: { rev: 1, earlier: 0, open: [open('kehikot.claude'), open('kehikot.other')] },
+      4: { rev: 1, earlier: 0, open: [open('kehikot.other')] },
+    }
+    const holding = projectsHolding(snaps, 'kehikot.claude')
+    expect(holding).toEqual([PORTAL.id])
+    const { lists } = byProject([item('a', { project: THESIS.path })], THESIS.id, [THESIS, PORTAL], holding)
+    expect(lists.get(PORTAL.id)).toEqual([])
+    expect([...lists.keys()].sort()).toEqual([THESIS.id, PORTAL.id])
   })
 
   test('a folder no project is in is kept nowhere, and counted', () => {
