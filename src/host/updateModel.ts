@@ -353,3 +353,24 @@ function list(names: readonly string[]): string {
   if (names.length <= 1) return names.join('')
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
+
+/** How old a check may be before opening the Updates menu repeats it (modules and app alike). */
+export const ON_FOCUS_AFTER_MS = 10 * 60_000
+
+/**
+ * What opening the Updates menu checks out loud. The modules when their last
+ * check is older than the threshold; the app, through its engine, when the
+ * engine is there and enabled, is not in the middle of something, and its own
+ * `checkedAt` (Unix ms, null when it never has) is older than the same threshold.
+ */
+export function shouldCheckOnOpen(
+  now: number,
+  lastModuleCheck: number,
+  app: AppUpdateStatus | null,
+): { modules: boolean; app: boolean } {
+  const busy = app !== null && ['checking', 'downloading', 'ready', 'installing'].includes(app.state)
+  return {
+    modules: now - lastModuleCheck > ON_FOCUS_AFTER_MS,
+    app: app !== null && app.enabled && !busy && (app.checkedAt === null || now - app.checkedAt > ON_FOCUS_AFTER_MS),
+  }
+}

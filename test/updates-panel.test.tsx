@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b20 pass/)
+    expect(out).toMatch(/\b21 pass/)
   }, 60_000)
 }
 
@@ -85,7 +85,7 @@ type AppStatus = {
   checkedAt: number | null
 }
 function standIn(first: Partial<AppStatus>) {
-  let now: AppStatus = { enabled: true, current: '0.1.1', state: 'uptodate', version: null, progress: null, error: null, checkedAt: 1, ...first }
+  let now: AppStatus = { enabled: true, current: '0.1.1', state: 'uptodate', version: null, progress: null, error: null, checkedAt: Date.now(), ...first }
   const calls: string[] = []
   ;(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
     invoke: async (cmd: string) => {
@@ -300,6 +300,23 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await engine.push({ state: 'failed', error: 'the signature did not verify' })
     expect(app()?.textContent).toContain('Failed: the signature did not verify')
     expect(indicatorText()).toBe('Update failed')
+  })
+
+  test('opening the menu checks the app when its last check is stale, and not when it is fresh or busy', async () => {
+    answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('notes', 0)]) : {})
+    for (const [more, expected] of [
+      [{ checkedAt: Date.now() - 60 * 60_000 }, true],
+      [{ checkedAt: Date.now() - 60_000 }, false],
+      [{ checkedAt: 1, state: 'downloading' }, false],
+    ] as const) {
+      const engine = standIn(more)
+      const host = await mount()
+      await press(host)
+      await settle()
+      expect(engine.calls.includes('check_for_update')).toBe(expected)
+      act(() => unmount?.())
+      document.body.innerHTML = ''
+    }
   })
 
   test('Check now checks the app and every module at once', async () => {

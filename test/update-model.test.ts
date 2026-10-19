@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { appEngine, connect, readStatus, type AppUpdateStatus } from '../src/host/appUpdate.ts'
-import { appRow, indicator, moduleNote, moduleRow, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
+import { appRow, indicator, ON_FOCUS_AFTER_MS, shouldCheckOnOpen, moduleNote, moduleRow, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
 import type { Reading } from '../src/host/updates.ts'
 
 /* One update model: the desktop app's updater and the module checkouts, read
@@ -279,5 +279,29 @@ describe('what an update will do, said before the press', () => {
       'terminal, paper and tests will be restarted, which ends anything they are running.',
     )
     expect(previewAll([{ name: 'notes', preview: 'page' }, { name: 'slides', preview: 'kept' }, { name: 'paper', preview: undefined }])).toBeNull()
+  })
+})
+
+describe('what opening the menu checks', () => {
+  const now = 10_000_000
+  const stale = now - ON_FOCUS_AFTER_MS - 1
+  test('a stale app is checked, a fresh one is not', () => {
+    expect(shouldCheckOnOpen(now, now, status({ checkedAt: stale })).app).toBe(true)
+    expect(shouldCheckOnOpen(now, now, status({ checkedAt: null })).app).toBe(true)
+    expect(shouldCheckOnOpen(now, now, status({ checkedAt: now - 1000 })).app).toBe(false)
+  })
+  test('a busy app is left alone', () => {
+    for (const state of ['checking', 'downloading', 'ready', 'installing'] as const) {
+      expect(shouldCheckOnOpen(now, now, status({ state, checkedAt: stale })).app).toBe(false)
+    }
+    expect(shouldCheckOnOpen(now, now, status({ state: 'failed', checkedAt: stale })).app).toBe(true)
+  })
+  test('no engine or a disabled one is not checked', () => {
+    expect(shouldCheckOnOpen(now, now, null).app).toBe(false)
+    expect(shouldCheckOnOpen(now, now, status({ enabled: false, checkedAt: stale })).app).toBe(false)
+  })
+  test('the modules keep the same threshold', () => {
+    expect(shouldCheckOnOpen(now, stale, null).modules).toBe(true)
+    expect(shouldCheckOnOpen(now, now - 1000, null).modules).toBe(false)
   })
 })

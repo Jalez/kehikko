@@ -39,6 +39,8 @@ import {
   RESTART_ANYWAY_ARMED,
   RESTART_THE_HOST,
   RESTART_TO_UPDATE,
+  ON_FOCUS_AFTER_MS,
+  shouldCheckOnOpen,
   staleNote,
   stateText,
   updateRows,
@@ -124,7 +126,6 @@ import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
  */
 
 const BACKGROUND_EVERY_MS = 30 * 60_000
-const ON_FOCUS_AFTER_MS = 10 * 60_000
 const FIRST_CHECK_AFTER_MS = 5_000
 /**
  * How long the mark takes to draw itself once — the last strut starts at 1.8s
@@ -318,7 +319,13 @@ export function Updates({
       /* Opening shows what is known. A check older than the focus threshold
          is refreshed out loud; a fresh one is not asked again, so opening the
          menu to press "Restart to update" does not first wait on git. */
-      if (Date.now() - last.current > ON_FOCUS_AFTER_MS) void run(true)
+      const due = shouldCheckOnOpen(Date.now(), last.current, engine.current ? app : null)
+      if (due.modules) void run(true)
+      if (due.app) {
+        void engine.current?.check().then((status) => {
+          if (status) setApp(status)
+        })
+      }
     } else {
       /* Closing while something runs cancels it — a panel that closes on a
          job that carries on unseen is a job nobody can see finish. */
