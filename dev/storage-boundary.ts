@@ -90,6 +90,12 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions and the official modules installed from the app (host server/machineDirs.ts)',
   },
   {
+    id: 'browser-profile',
+    match: /browser-profile/,
+    file: /(^|\/)browser\/engine\.ts$/,
+    reason: 'Application Support/Kehikot/browser-profile (XDG data dir elsewhere) is the Browser module\'s Chromium profile, so logins survive restarts: machine-level, the person\'s browser rather than a project\'s data, never their own Chrome profile (kehikko-browser browser/engine.ts `profileDir`)',
+  },
+  {
     id: 'official-list-cache',
     match: /official-modules\.json/,
     reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
