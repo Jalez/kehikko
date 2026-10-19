@@ -56,7 +56,7 @@ import { epicsDir } from './hostData.ts'
  *
  * Three facts, all cheap and all the ones a person needs to recognise a folder
  * they meant: whether it is a git repository, whether it is a git worktree, and
- * whether it holds `.kehikot/kehikko/epics`. The last is the one that changes what a
+ * whether it holds `.kehikot/host/epics`. The last is the one that changes what a
  * kehikko there can do, and showing it in the picker means nobody adds a
  * project and then wonders why the epic list is empty.
  */
@@ -68,7 +68,7 @@ export interface Entry {
   git: boolean
   /** `.git` is a FILE: a worktree, or a submodule. Both are folders you may open. */
   worktree: boolean
-  /** `.kehikot/kehikko/epics` is under it, so a kehikko here would have epics to pick. */
+  /** `.kehikot/host/epics` is under it, so a kehikko here would have epics to pick. */
   epics: boolean
 }
 

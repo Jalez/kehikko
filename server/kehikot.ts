@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX, moduleFile } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import {
@@ -22,6 +22,7 @@ import { partIdsIn } from '../src/host/parts.ts'
 import { listProjects, projectById } from './projects.ts'
 import { makeUnderRoot, projectRootExists, sayMissing } from './projectRoot.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
+import { hostPath } from './hostData.ts'
 
 /**
  * A project's kehikot, as a file in the project — the copy that travels.
@@ -117,14 +118,14 @@ import { isVersionTag, TAG_MAX } from './versions.ts'
  *
  * ## Where the file goes
  *
- * `<project>/.kehikot/kehikko/kehikot.json`, by the protocol's own
- * `moduleFile()` — the host's id is `kehikko`, which is a legal module id, so
+ * `<project>/.kehikot/host/kehikot.json`, through `hostPath` (`hostData.ts`, over the protocol's `hostFile`) — the host's
+ * folder by the protocol's own spelling, so
  * no second convention had to be invented and no code here joins a path by
  * hand. A folder of its own rather than a file at the root of `.kehikot`,
  * because the convention is that a folder in there is owned by the program
  * named on it: somebody listing `.kehikot/` sees `checklist/ notes/ paper/
- * kehikko/` and knows what each is and who to ask, and `rm -r
- * .kehikot/kehikko` removes exactly the host's material and nothing else's. A
+ * host/` and knows what each is and who to ask, and `rm -r
+ * .kehikot/host` removes exactly the host's material and nothing else's. A
  * loose file at the root would be the one thing in that folder with no owner.
  *
  * ## When the file is not there
@@ -419,7 +420,7 @@ type FileContainer = z.infer<typeof containerSchema>
 
 /** The file for a project, or null when there is no project path to put it under. */
 export function kehikotFile(projectPath: string | null | undefined): string | null {
-  return moduleFile(projectPath, HOST_ID, FILE_NAME)
+  return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
 /** A placement, in the order and under the names the file uses. */

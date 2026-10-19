@@ -101,7 +101,7 @@ browser. Point it at a repository you work in.
 
 ```
 project  (a repository or worktree — a folder on disk)
-  ├── epics    (<project>/.kehikot/kehikko/epics, when it has any)
+  ├── epics    (<project>/.kehikot/host/epics, when it has any)
   └── kehikot  (many; one per purpose)
 ```
 
@@ -126,8 +126,8 @@ path is built with the protocol's helpers — `KEHIKOT_DIR`, `kehikotDir`,
 `moduleDir`, `moduleFile` from `kehikot-module-protocol` — never spelled by hand
 and never anchored at a program's own folder (`import.meta.dir`, `__dirname`,
 `process.cwd()`, a repo `ROOT`) or the home directory. The host's own data is
-`.kehikot/kehikko/epics/` and `.kehikot/kehikko/state/`, beside
-`.kehikot/kehikko/kehikot.json`; papers are `.kehikot/paper/<epic>/`. One file
+`.kehikot/host/epics/` and `.kehikot/host/state/`, beside
+`.kehikot/host/kehikot.json`; papers are `.kehikot/paper/<epic>/`. One file
 of a module's is READ by the host and never written: `.kehikot/journeys/journeys.json`,
 for an epic's steps, through the protocol's own reader — see the section on
 whose the steps are, below. The host
@@ -152,7 +152,7 @@ startup without refusing to start.
 ## An epic's steps are the Journeys module's, and the host reads them there
 
 Every epic used to exist twice in a project: the host's file,
-`.kehikot/kehikko/epics/<slug>.json`, and the Journeys module's record in
+`.kehikot/host/epics/<slug>.json`, and the Journeys module's record in
 `.kehikot/journeys/journeys.json`, which is where a step is actually edited.
 Nothing kept the two in step. The host has not written steps to its own file
 since it stopped being the place they are edited, so that file is a snapshot —
@@ -296,12 +296,12 @@ so a part nobody holds anything for is the same four fields it always was. See
 
 "Rename this epic" names two operations, and the picker offers one of them. The
 pencil that appears on a row in the epic menu changes the epic's **title** —
-what it is called — in `.kehikot/kehikko/epics/<slug>.json`, and the form says while you are
+what it is called — in `.kehikot/host/epics/<slug>.json`, and the form says while you are
 typing that the slug is staying where it is.
 
 The **slug** is the identity, and everything that has ever pointed at an epic
 points at it by that string: the `epic` column on a project, the
-`kehikot.context.epic` every framed module is told, `.kehikot/kehikko/state/<slug>.json`
+`kehikot.context.epic` every framed module is told, `.kehikot/host/state/<slug>.json`
 written by a tracker refresh, a record keyed by slug in
 `.kehikot/journeys/journeys.json`, a file per epic under `.kehikot/checklist/`,
 and a whole directory under `.kehikot/paper/`. Renaming the epic's own file and
@@ -311,7 +311,7 @@ answers "nothing here" for an unknown slug rather than failing. That is a
 migration across six programs, four of which this host does not own, and it does
 not go behind a pencil in a dropdown. So the control does not say "rename".
 
-It is the only write this host makes into a project's `.kehikot/kehikko/`, and it changes
+It is the only write this host makes into a project's `.kehikot/host/`, and it changes
 one field: the file is read, one span of text is replaced, and every other byte
 is written back exactly as it was. These are documents somebody wrote by hand,
 under their own name in that repository's history, and a host that reformatted
@@ -541,8 +541,8 @@ these tools:
 | `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
-| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/kehikko/epics/<slug>.json` — without opening it |
-| `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/kehikko/dispositions.json`, signed `agent (MCP)` |
+| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/host/epics/<slug>.json` — without opening it |
+| `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/host/dispositions.json`, signed `agent (MCP)` |
 | `read_tracker` | the project's shared tracker reading |
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
 | `fold_modules` | fold containers to their headers or unfold them, on a kehikko a page has open; marked on the container as an agent's doing |

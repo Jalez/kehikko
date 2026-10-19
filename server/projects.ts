@@ -28,7 +28,7 @@ export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
  * on coding. Project and their epics can have one or many kehikkos."* So:
  *
  *     project (a folder on disk)
- *       ├── epics      (.kehikot/kehikko/epics under it, when it has any)
+ *       ├── epics      (.kehikot/host/epics under it, when it has any)
  *       └── kehikot    (many; one per purpose)
  *
  * ## Why a folder, and why that is the whole of it
@@ -54,7 +54,7 @@ export interface Project {
   name: string
   /** Absolute, and real: the path as the filesystem resolved it. */
   path: string
-  /** Whether `.kehikot/kehikko/epics` exists under it. Read now, never cached — see below. */
+  /** Whether `.kehikot/host/epics` exists under it. Read now, never cached — see below. */
   epics: boolean
   /**
    * Whether this folder has a git history at all.
@@ -456,7 +456,7 @@ export type Added =
  * ## A project with no epics is not an error
  *
  * The user's thesis lives in a folder with `main.tex`, `chapters/` and
- * `references.bib` and no `.kehikot/kehikko/epics` anywhere in it. A kehikko there is a
+ * `references.bib` and no `.kehikot/host/epics` anywhere in it. A kehikko there is a
  * perfectly good kehikko — it is where the writing modules go — and it honestly
  * has no epics to pick. Refusing that folder would be this host insisting that
  * work it cannot index is not work. So `epics` is reported and never required,
@@ -503,7 +503,7 @@ export function addProject(
   if (!found.ok) return found
   const real = found.real
 
-  /* A legacy `data/epics` / `data/state` moves under `.kehikot/kehikko/` the
+  /* A legacy `data/epics` / `data/state` moves under `.kehikot/host/` the
      moment the folder becomes (or is re-added as) a project — see
      `hostData.ts`. Never overwrites; a folder with both keeps both. */
   migrateHostData(real)
@@ -579,7 +579,7 @@ export function addProject(
  *
  * With no `KEHIKOT_SEED_PROJECT` and no projects, the seed is the person's home
  * folder. That is a guess and it is deliberately a visible one: home certainly
- * exists, it holds no `.kehikot/kehikko/epics`, so the header says there are no epics here
+ * exists, it holds no `.kehikot/host/epics`, so the header says there are no epics here
  * — which is true — and "add a project" is one press away. The alternative was
  * leaving canvases in no project at all, and a kehikko no dropdown lists is
  * work somebody cannot reach.
@@ -609,7 +609,7 @@ export function adopt(
   }
 
   /* Every project this host already knows gets its legacy epics and state brought
-     under `.kehikot/kehikko/` at startup, so a project added before the move
+     under `.kehikot/host/` at startup, so a project added before the move
      reads the same epics after it. See `hostData.ts`. */
   for (const project of projects) if (!project.missing) migrateHostData(project.path)
   /* Every project's id, oldest first, so that of two folders carrying one id

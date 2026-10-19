@@ -331,7 +331,7 @@ export function App() {
    * What the open project holds, or null while it is being read.
    *
    * Null is "not known yet" and is not the same as `{ holds: false }`, which is
-   * "this project has no .kehikot/kehikko/epics". The epic picker draws a different
+   * "this project has no .kehikot/host/epics". The epic picker draws a different
    * sentence for each — see `Epics.tsx` — because an empty box is what a
    * project with none and a read that failed both look like.
    */
@@ -795,7 +795,7 @@ export function App() {
    * picker that briefly offers epics from somewhere else is a picker somebody
    * can click during that moment.
    *
-   * Not cached per project. `.kehikot/kehikko/epics` is rewritten underneath a running host
+   * Not cached per project. `.kehikot/host/epics` is rewritten underneath a running host
    * by anything that refreshes the epics, and a cache here would be this page
    * showing what was on disk when the project was first opened.
    */
@@ -1088,7 +1088,7 @@ export function App() {
    * registration was gone came off every canvas that held it, and the
    * arrangement was written back without it. That write is now the most
    * dangerous thing this page could do. The arrangement lives in the project's
-   * own `.kehikot/kehikko/kehikot.json` and travels with the project — see
+   * own `.kehikot/host/kehikot.json` and travels with the project — see
    * `server/kehikot.ts` — and the other computer will not have every module
    * registered. Reconciling there would have written machine A's containers
    * out of the file on machine B, and the next push would have deleted them

@@ -60,9 +60,9 @@ describe('which sources a project reads', () => {
   })
 
   test('the file adds a GitLab default and an extra repository; a ref names one outright', () => {
-    mkdirSync(join(folder, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
-      join(folder, '.kehikot', 'kehikko', 'trackers.json'),
+      join(folder, '.kehikot', 'host', 'trackers.json'),
       JSON.stringify({ version: 1, sources: [{ tracker: 'gitlab', host: 'gitlab.example.org', repo: 'group/project', default: true, list: true }] }),
     )
     const read = readConfig(folder)
@@ -80,8 +80,8 @@ describe('which sources a project reads', () => {
   })
 
   test('a broken file says why rather than reading as defaults', () => {
-    mkdirSync(join(folder, '.kehikot', 'kehikko'), { recursive: true })
-    writeFileSync(join(folder, '.kehikot', 'kehikko', 'trackers.json'), '{"version": 1, "sources": [{"tracker": "jira", "repo": "x/y"}]}')
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'trackers.json'), '{"version": 1, "sources": [{"tracker": "jira", "repo": "x/y"}]}')
     const read = readConfig(folder)
     expect(read.ok).toBe(false)
   })
@@ -303,12 +303,12 @@ describe('one reading per project', () => {
     expect(got.rows.map((r) => r.ref)).toEqual(['gh#41', 'gh:Jalez/kehikko#41'])
   })
 
-  test('it is kept under .kehikot/kehikko/, with an ignore line beside it', async () => {
+  test('it is kept under .kehikot/host/, with an ignore line beside it', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(1)]) }, now: () => NOW })
     await trackers.refresh(folder, { project: true })
-    expect(readingFile(folder)).toBe(join(folder, '.kehikot', 'kehikko', 'tracker-reading.json'))
+    expect(readingFile(folder)).toBe(join(folder, '.kehikot', 'host', 'tracker-reading.json'))
     expect(existsSync(readingFile(folder)!)).toBe(true)
-    expect(readFileSync(join(folder, '.kehikot', 'kehikko', '.gitignore'), 'utf8')).toContain('tracker-reading.json')
+    expect(readFileSync(join(folder, '.kehikot', 'host', '.gitignore'), 'utf8')).toContain('tracker-reading.json')
     /* And a second host process reads it back. */
     const again = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
     const got = again.get(folder, { project: true })
@@ -380,9 +380,9 @@ describe('one reading per project', () => {
   })
 
   test('an epic’s refs, and live.get’s four bags over the same reading', async () => {
-    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
+    mkdirSync(join(folder, '.kehikot', 'host', 'epics'), { recursive: true })
     const epic = { slug: 'one', title: 'One', umbrella: 'gh#9', steps: [{ title: 's', refs: ['gh#1', 'gh#3', 'not a ref'] }] }
-    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify(epic))
+    writeFileSync(join(folder, '.kehikot', 'host', 'epics', 'one.json'), JSON.stringify(epic))
     expect(refsInEpic(epic).sort()).toEqual(['gh#1', 'gh#3', 'gh#9'])
     const trackers = new Trackers({
       run: remotes,
@@ -516,7 +516,7 @@ describe('an issue carries every held change that declares it', () => {
 
   test('a reading stored before this is linked when it is loaded', () => {
     const file = readingFile(folder)!
-    mkdirSync(join(folder, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
     writeFileSync(file, JSON.stringify({
       version: 1,
       at: NOW.toISOString(),
@@ -561,8 +561,8 @@ describe('an issue carries every held change that declares it', () => {
 describe('live.get folds changes under their issues from the reading', () => {
   const known = () => true
   const epicFile = (epic: object) => {
-    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
-    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify({ slug: 'one', title: 'One', ...epic }))
+    mkdirSync(join(folder, '.kehikot', 'host', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'epics', 'one.json'), JSON.stringify({ slug: 'one', title: 'One', ...epic }))
   }
   const closes = (...refs: string[]) => ({ links: refs.map((ref) => ({ ref, relation: 'closes' as const })) })
 
@@ -612,9 +612,9 @@ describe('live.get folds changes under their issues from the reading', () => {
 
   test('and the answer merges them with the links a state file already had', async () => {
     epicFile({ steps: [{ title: 's', refs: ['gh#2', 'gh#3'] }] })
-    mkdirSync(join(folder, '.kehikot', 'kehikko', 'state'), { recursive: true })
+    mkdirSync(join(folder, '.kehikot', 'host', 'state'), { recursive: true })
     writeFileSync(
-      join(folder, '.kehikot', 'kehikko', 'state', 'one.json'),
+      join(folder, '.kehikot', 'host', 'state', 'one.json'),
       JSON.stringify({
         generated: '2026-10-01T00:00:00.000Z',
         ghIssues: {},
@@ -670,8 +670,8 @@ describe('the methods, answered', () => {
 describe('live.get from the shared reading alone', () => {
   const EPIC = { slug: 'one', title: 'One', umbrella: 'gh#9', steps: [{ title: 's', refs: ['gh#1'] }] }
   const put = (folder: string, epic: object) => {
-    mkdirSync(join(folder, '.kehikot', 'kehikko', 'epics'), { recursive: true })
-    writeFileSync(join(folder, '.kehikot', 'kehikko', 'epics', 'one.json'), JSON.stringify(epic))
+    mkdirSync(join(folder, '.kehikot', 'host', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'epics', 'one.json'), JSON.stringify(epic))
   }
 
   test('a landed read with nothing live for the epic is an empty reading, not a refusal; unread is null', async () => {

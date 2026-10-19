@@ -2,7 +2,6 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   LIMITS,
-  moduleFile,
   readTrackerRef,
   trackerRowSchema,
   trackerSourceSchema,
@@ -18,7 +17,6 @@ import { z } from 'zod'
 
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
-import { HOST_ID } from '../kehikot.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
 import type { Adapter, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
@@ -26,6 +24,7 @@ import { gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
+import { hostPath } from '../hostData.ts'
 
 /**
  * The host's one tracker reading per project, and the only thing in Kehikot
@@ -33,7 +32,7 @@ import type { TrackerListing } from '../../src/host/trackerSources.ts'
  *
  * ## Where it is kept
  *
- * `<project>/.kehikot/kehikko/tracker-reading.json`, spelled with `moduleFile`
+ * `<project>/.kehikot/host/tracker-reading.json`, spelled with `hostPath`
  * beside the project's other host files. It is a cache of what the trackers
  * said — nothing is lost by deleting it — so the host writes a `.gitignore`
  * line for it beside it, the way References marks its own cache.
@@ -87,7 +86,7 @@ type Stored = z.infer<typeof fileSchema>
 const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [] })
 
 export function readingFile(projectPath: string): string | null {
-  return moduleFile(projectPath, HOST_ID, FILE_NAME)
+  return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
 /** The project's stored reading, or an empty one — a broken cache is a cache to rebuild, not a verdict to keep. */

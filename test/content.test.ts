@@ -269,8 +269,8 @@ describe('a project’s .kehikot, watched', () => {
 
   test('the host’s own bookkeeping beside its epics is nobody’s content', async () => {
     const one = await project()
-    writeFileSync(join(kehikotDir(one.root)!, 'kehikko', 'tracker-reading.json'), '{}\n')
-    writeFileSync(join(kehikotDir(one.root)!, 'kehikko', 'dispositions.json'), '[]\n')
+    writeFileSync(join(kehikotDir(one.root)!, 'host', 'tracker-reading.json'), '{}\n')
+    writeFileSync(join(kehikotDir(one.root)!, 'host', 'dispositions.json'), '[]\n')
     await settle()
     expect(one.heard).toEqual([])
     expect(one.states()).toBe(0)

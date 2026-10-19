@@ -168,14 +168,14 @@ describe('the data guard', () => {
     expect(recordDataVersion(project, 'kehikot.notes', 2)).toBe(false)
     expect(recordDataVersion(project, 'kehikot.checklist', 3)).toBe(true)
     expect(readDataVersions(project)).toEqual({ 'kehikot.notes': 2, 'kehikot.checklist': 3 })
-    expect(dataVersionsFile(project)).toBe(join(project, '.kehikot', 'kehikko', 'data-versions.json'))
+    expect(dataVersionsFile(project)).toBe(join(project, '.kehikot', 'host', 'data-versions.json'))
     expect(recordedFor(readDataVersions(project), 'kehikot.notes')).toBe(2)
     expect(recordedFor(readDataVersions(project), 'constructor')).toBeNull()
   })
 
   test('a hand-edited file keeps only what it can believe', () => {
     const project = scratch('edited')
-    mkdirSync(join(project, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(project, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       dataVersionsFile(project)!,
       JSON.stringify({ 'kehikot.notes': 2, 'kehikot.paper': 0, 'kehikot.x': 1.5, 'Not An Id': 3, 'kehikot.y': '4' }),

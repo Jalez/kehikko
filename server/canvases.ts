@@ -52,7 +52,7 @@ import { isVersionTag } from './versions.ts'
  *
  * Everything above was written when this file was the only place a kehikko
  * existed. It is not any more: each project's kehikot are written to
- * `<project>/.kehikot/kehikko/kehikot.json`, that file is what travels between
+ * `<project>/.kehikot/host/kehikot.json`, that file is what travels between
  * computers, and when the two disagree the file wins. `kehikot.ts` has the
  * essay, the rule for every case, and the list of which fields travel — read
  * that list before adding a column here, because a column that is not on it
@@ -309,7 +309,7 @@ export interface Canvas {
    * — and a rename would turn one kehikko into a different one.
    *
    * So each canvas carries a short generated key, written into the project's
-   * own `.kehikot/kehikko/kehikot.json` beside its name, and that file is what
+   * own `.kehikot/host/kehikot.json` beside its name, and that file is what
    * `server/kehikot.ts` reads on another machine to say "this row is that
    * kehikko". Eight hex characters: unique enough for a list a person can see
    * all of, short enough to read in a diff. A person may also write one by hand
@@ -432,7 +432,7 @@ export interface CanvasEdit {
  * ## Where it lives
  *
  * Two columns on `projects`, as the cache, and a top-level `"epic"` and
- * `"selection"` in the project's own `.kehikot/kehikko/kehikot.json`, as the
+ * `"selection"` in the project's own `.kehikot/host/kehikot.json`, as the
  * record — the same arrangement every other portable fact has; see
  * `server/kehikot.ts`. The selection is one JSON column rather than rows for
  * the reason it always was: it is read whole, written whole, and never queried

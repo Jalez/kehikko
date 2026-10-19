@@ -89,7 +89,7 @@ export function Projects({
             open
               ? open.missing
                 ? `project — ${open.path}: ${MISSING_SAID}`
-                : `project — ${open.path}${open.epics ? '' : ' (no .kehikot/kehikko/epics here)'}`
+                : `project — ${open.path}${open.epics ? '' : ' (no .kehikot/host/epics here)'}`
               : 'no project is open'
           }
           align="start"
@@ -247,12 +247,12 @@ export function Projects({
                   <div className="text-muted-foreground px-2 pb-1.5 text-[11px] leading-snug">
                     {open.shared ? (
                       <>
-                        Its kehikot are in <span className="font-mono">.kehikot/kehikko/kehikot.json</span> and
+                        Its kehikot are in <span className="font-mono">.kehikot/host/kehikot.json</span> and
                         travel with the repository.
                       </>
                     ) : (
                       <>
-                        Its kehikot are written to <span className="font-mono">.kehikot/kehikko/kehikot.json</span>,
+                        Its kehikot are written to <span className="font-mono">.kehikot/host/kehikot.json</span>,
                         but while the folder is ignored they stay on this computer.
                       </>
                     )}
@@ -381,7 +381,7 @@ export function Browser({
             {description ?? (
               <>
                 A project is a folder — a repository, a git worktree, or any directory with work in it. Epics
-                come from <span className="font-mono">.kehikot/kehikko/epics</span> under it, and a project that has none is
+                come from <span className="font-mono">.kehikot/host/epics</span> under it, and a project that has none is
                 still a project.
               </>
             )}

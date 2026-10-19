@@ -787,12 +787,12 @@ function tools() {
     {
       name: 'create_epic',
       description:
-        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/kehikko/epics/<slug>.json, with the '
+        'Make a new epic in the project a kehikko is standing in: one file, .kehikot/host/epics/<slug>.json, with the '
         + 'slug, the title and today’s date, and nothing else invented — steps and prose come later, through the '
         + 'host. The slug is derived from the title (lowercase, dashes) unless you give one. The person sees the '
         + 'epic appear in their dropdown at once. It does NOT open the epic on the kehikko: which epic somebody is '
         + 'looking at is theirs to change, so if you want them to look at it, say so to them. A slug that is '
-        + 'already an epic here is refused, never overwritten. A project with no .kehikot/kehikko/epics gets the directory made.',
+        + 'already an epic here is refused, never overwritten. A project with no .kehikot/host/epics gets the directory made.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -943,7 +943,7 @@ function tools() {
         + 'listed; "off" stops reading a repository a git remote names (value: false turns it back on); "remove" '
         + 'takes out a source somebody added. A source named by a git remote cannot be removed, only turned off. '
         + 'This cannot log anybody in: if gh or glab is not logged in, the person must run its auth login in a '
-        + 'terminal once. Writes .kehikot/kehikko/trackers.json in the project; every container is told.',
+        + 'terminal once. Writes .kehikot/host/trackers.json in the project; every container is told.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1892,7 +1892,7 @@ function createEpicAt(
   return {
     text:
       `Created ${made.epic.slug} ("${made.epic.title}") in ${project.name} — ${made.file}`
-      + (made.madeDirectory ? ', and made .kehikot/kehikko/epics there, which did not exist' : '')
+      + (made.madeDirectory ? ', and made .kehikot/host/epics there, which did not exist' : '')
       + `. It is in the dropdown now. ${project.name} is still about ${
         readSubject(door.db, project.id)?.epic ?? 'no epic'
       }: this tool does not switch what somebody is looking at. If they should open it, ask them.`,

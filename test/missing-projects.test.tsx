@@ -24,7 +24,7 @@ import { MISSING_SAID, MissingMark, MissingProject } from '../src/canvas/Missing
  * Every write under a project root used to `mkdirSync(…, { recursive: true })`,
  * and at every start `syncEvery` wrote `kehikot.json` from the database for a
  * project whose file would not read — which, for a folder that is gone, rebuilt
- * the old path with `.kehikot/kehikko/kehikot.json` inside it.
+ * the old path with `.kehikot/host/kehikot.json` inside it.
  */
 
 let scratch: string
@@ -54,7 +54,7 @@ function goneProject(): { id: number; canvas: number } {
   if (!added.ok) throw new Error(added.why)
   const canvas = createCanvas(db, 'second', added.project.id).id
   keep(db, added.project.id)
-  expect(existsSync(join(root, '.kehikot', 'kehikko', 'kehikot.json'))).toBe(true)
+  expect(existsSync(join(root, '.kehikot', 'host', 'kehikot.json'))).toBe(true)
   rmSync(root, { recursive: true, force: true })
   return { id: added.project.id, canvas }
 }
@@ -123,10 +123,10 @@ describe('a project whose folder is gone', () => {
   })
 
   test('the helper makes folders inside a root that is there, and never the root', () => {
-    expect(makeUnderRoot(root, join(root, '.kehikot', 'kehikko'))).toBe(true)
-    expect(existsSync(join(root, '.kehikot', 'kehikko'))).toBe(true)
+    expect(makeUnderRoot(root, join(root, '.kehikot', 'host'))).toBe(true)
+    expect(existsSync(join(root, '.kehikot', 'host'))).toBe(true)
     rmSync(root, { recursive: true, force: true })
-    expect(makeUnderRoot(root, join(root, '.kehikot', 'kehikko'))).toBe(false)
+    expect(makeUnderRoot(root, join(root, '.kehikot', 'host'))).toBe(false)
     nothingMade()
   })
 

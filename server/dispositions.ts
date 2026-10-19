@@ -3,7 +3,6 @@ import { dirname } from 'node:path'
 import {
   LIMITS,
   dispositionSchema,
-  moduleFile,
   type Disposition,
   type DispositionValue,
 } from 'kehikot-module-protocol'
@@ -11,7 +10,7 @@ import {
 import { MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
 import { z } from 'zod'
 
-import { HOST_ID } from './kehikot.ts'
+import { hostPath } from './hostData.ts'
 
 /**
  * Why a project's closed references closed, in people's words.
@@ -23,8 +22,8 @@ import { HOST_ID } from './kehikot.ts'
  *
  * ## Per project, in the project
  *
- * `<project>/.kehikot/kehikko/dispositions.json`, beside `kehikot.json`, spelled
- * with `moduleFile` like everything this host keeps for a project. A verdict on
+ * `<project>/.kehikot/host/dispositions.json`, beside `kehikot.json`, spelled
+ * with `hostPath` like everything this host keeps for a project. A verdict on
  * `#2274` is about the work and not about a canvas or a machine, so it travels
  * with the repository the way the arrangement does, and every kehikko standing
  * in that project reads the same marks.
@@ -62,7 +61,7 @@ const fileSchema = z
 
 /** The file for a project, or null when there is no project path to put it under. */
 export function dispositionsFile(projectPath: string | null | undefined): string | null {
-  return moduleFile(projectPath, HOST_ID, FILE_NAME)
+  return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
 /** One mark as it is asked for: `value: null` takes the ref's mark back. */
@@ -190,7 +189,7 @@ export function setDisposition(
 }
 
 function write(file: string, marks: readonly Disposition[]): void {
-  /* The root was checked above; this makes `.kehikot/kehikko/` inside it. */
+  /* The root was checked above; this makes `.kehikot/host/` inside it. */
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(`${file}.tmp`, `${JSON.stringify({ version: VERSION, dispositions: marks }, null, 2)}\n`)
   renameSync(`${file}.tmp`, file)

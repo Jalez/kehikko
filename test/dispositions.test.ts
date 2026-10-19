@@ -30,8 +30,8 @@ afterEach(() => rmSync(folder, { recursive: true, force: true }))
 const AT = new Date('2026-10-05T12:00:00.000Z')
 
 describe('the file', () => {
-  test('lives under the project’s .kehikot/kehikko/, beside kehikot.json', () => {
-    expect(dispositionsFile(folder)).toBe(join(folder, '.kehikot', 'kehikko', 'dispositions.json'))
+  test('lives under the project’s .kehikot/host/, beside kehikot.json', () => {
+    expect(dispositionsFile(folder)).toBe(join(folder, '.kehikot', 'host', 'dispositions.json'))
     expect(dispositionsFile(null)).toBeNull()
   })
 
