@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { LIMITS, TRACKERS, moduleFile, readTrackerRef, type Tracker } from 'kehikot-module-protocol'
+import { LIMITS, TRACKERS, readTrackerRef, type Tracker } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import type { Runner } from '../feedback.ts'
-import { HOST_ID } from '../kehikot.ts'
+import { hostPath } from '../hostData.ts'
 
 /**
  * Which places a project's trackers are read from.
@@ -14,8 +14,8 @@ import { HOST_ID } from '../kehikot.ts'
  * have to write that down. So the sources start as the project's git remotes —
  * `origin` first — each on a host this can tell is GitHub or GitLab.
  *
- * What the remotes cannot say is written in `<project>/.kehikot/kehikko/trackers.json`,
- * beside `kehikot.json`, spelled with `moduleFile` like everything else this
+ * What the remotes cannot say is written in `<project>/.kehikot/host/trackers.json`,
+ * beside `kehikot.json`, spelled with `hostPath` like everything else this
  * host keeps for a project. It is a person's choice about the project, so it
  * travels with the repository:
  *
@@ -86,7 +86,7 @@ const fileSchema = z.object({
 export type TrackerConfig = z.infer<typeof fileSchema>
 
 export function configFile(projectPath: string | null | undefined): string | null {
-  return moduleFile(projectPath, HOST_ID, FILE_NAME)
+  return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
 export type ConfigRead = { ok: true; config: TrackerConfig } | { ok: false; file: string; why: string }

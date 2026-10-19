@@ -7,7 +7,7 @@ import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from '../p
 import { configFile, EVERY_DEFAULT, listSources, readConfig, sourceKey, sourceOfRemote, splitRemote, type Listed } from './sources.ts'
 
 /**
- * The one writer of a project's `.kehikot/kehikko/trackers.json`.
+ * The one writer of a project's `.kehikot/host/trackers.json`.
  *
  * One edit at a time, read-modify-write and synchronous (nothing can write
  * between the read and the rename), the whole file kept — keys this host does

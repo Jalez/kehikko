@@ -25,9 +25,9 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(folder, { recursive: true, force: true }))
 
-const fileOf = () => join(folder, '.kehikot', 'kehikko', 'trackers.json')
+const fileOf = () => join(folder, '.kehikot', 'host', 'trackers.json')
 const put = (text: string) => {
-  mkdirSync(join(folder, '.kehikot', 'kehikko'), { recursive: true })
+  mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
   writeFileSync(fileOf(), text)
 }
 const text = () => readFileSync(fileOf(), 'utf8')
@@ -97,7 +97,7 @@ describe('the writer', () => {
     expect(done.outcome).toBe('unchanged')
     expect(text()).toBe(before)
     expect(statSync(fileOf()).mtime.getTime()).toBe(stamp.getTime())
-    expect(readdirSync(join(folder, '.kehikot', 'kehikko')).filter((n) => n.includes('.tmp'))).toEqual([])
+    expect(readdirSync(join(folder, '.kehikot', 'host')).filter((n) => n.includes('.tmp'))).toEqual([])
   })
 
   test('with no file, a no-op does not create one', () => {

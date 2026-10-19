@@ -10,7 +10,7 @@ import {
   kehikotDir,
   type ContentChange,
 } from 'kehikot-module-protocol'
-import { HOST_FOLDER, epicsDir, stateDir } from './hostData.ts'
+import { HOST_FOLDER, LEGACY_HOST_FOLDER, epicsDir, stateDir } from './hostData.ts'
 
 /**
  * Telling every container that the material it shows for an epic has changed.
@@ -183,7 +183,7 @@ interface Watched {
  * ## Why this host watches after saying it would not
  *
  * `epicsChanged` in `wake.ts` refuses a watcher, and for a reason that still
- * holds: something rewrites `.kehikot/kehikko/` under a running host, and a
+ * holds: something rewrites `.kehikot/host/` under a running host, and a
  * page re-reading on every one of those is the tick-driven read this host
  * refuses everywhere. What changed is not the reason but the cost of the
  * alternative. Modules write from their own server processes now — an agent at
@@ -204,9 +204,9 @@ interface Watched {
  *
  * ## What a path means
  *
- * `kehikko/epics/<slug>.json` is the host's epic of that slug. `kehikko/state/…`
+ * `host/epics/<slug>.json` is the host's epic of that slug. `host/state/…`
  * is what an outside refresher read, which is the tracker's business and goes
- * to `stateChanged`. Anything else under `kehikko/` is the host's own
+ * to `stateChanged`. Anything else under `host/` is the host's own
  * bookkeeping — the reading, the marks, the arrangement — and each of those
  * already has its own news. Every other folder is the module's whose folder it
  * is, for no epic in particular: the host does not read a module's files and
@@ -301,9 +301,10 @@ export class ContentWatch {
     const leaf = parts[parts.length - 1] ?? ''
     if (!folder || parts.length < 2 || leaf.startsWith('.') || leaf.endsWith('~') || /\.tmp(-|$)|\.swp$/.test(leaf)) return
 
-    /* The host's own folder. */
+    /* The host's own folder, or — in a project it could not be moved in — the
+       one it had before protocol 2.2.0. Never a module's either way. */
     const full = join(dir, name)
-    if (folder === HOST_FOLDER) {
+    if (folder === HOST_FOLDER || folder === LEGACY_HOST_FOLDER) {
       if (!leaf.endsWith('.json')) return
       const slug = leaf.slice(0, -'.json'.length)
       if (!EPIC_SLUG.test(slug)) return

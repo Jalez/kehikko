@@ -9,9 +9,9 @@ import { resolve } from 'node:path'
  * A project is a folder the person picked, and folders get renamed, moved and
  * deleted. Every write this host makes under a project went through a
  * `mkdirSync(dirname(file), { recursive: true })`, which is the right call for
- * `.kehikot/kehikko/` inside a folder that is there — and, when the folder is
+ * `.kehikot/host/` inside a folder that is there — and, when the folder is
  * gone, quietly rebuilds the path the person just moved away from: an empty
- * `<old name>/.kehikot/kehikko/kehikot.json` beside the folder they renamed,
+ * `<old name>/.kehikot/host/kehikot.json` beside the folder they renamed,
  * remade at every start.
  *
  * So every write under a project root asks here first. Inside a root that

@@ -30,7 +30,7 @@ export const projectSchema = z.object({
   /** Absolute, and what the filesystem resolved it to. This is what modules are told. */
   path: z.string(),
   /**
-   * Whether this project brings its own `.kehikot/kehikko/epics`.
+   * Whether this project brings its own `.kehikot/host/epics`.
    *
    * The field the header depends on. A project with no epics directory and a
    * project whose epics directory is empty both produce an empty list, and only
@@ -209,7 +209,7 @@ export const epicSchema = z.object({
 export type Epic = z.infer<typeof epicSchema>
 
 export interface Epics {
-  /** Whether the project has a `.kehikot/kehikko/epics` at all. See `projectSchema.epics`. */
+  /** Whether the project has a `.kehikot/host/epics` at all. See `projectSchema.epics`. */
   holds: boolean
   epics: Epic[]
 }
@@ -350,7 +350,7 @@ export async function retitleEpic(project: number, slug: string, title: string):
  * that drifts. See `src/host/epics.ts`.
  *
  * The epic comes back as the server wrote and re-read it, for the reason
- * `retitleEpic` gives. `madeDirectory` says whether `.kehikot/kehikko/epics` had to be
+ * `retitleEpic` gives. `madeDirectory` says whether `.kehikot/host/epics` had to be
  * created, which is worth a sentence to a person whose thesis folder just
  * gained a `.kehikot/`.
  */

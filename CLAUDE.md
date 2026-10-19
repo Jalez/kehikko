@@ -5,8 +5,18 @@
 - Project data goes **only** under `<project>/.kehikot/<module>/`, built with the
   protocol helpers (`KEHIKOT_DIR`, `kehikotDir`, `moduleDir`, `moduleFile` from
   `kehikot-module-protocol`). Never `join(ROOT|HERE|import.meta.dir|process.cwd()|__dirname, 'data', …)`,
-  never `homedir()` for storage. The host's own epics/state are
-  `<project>/.kehikot/kehikko/{epics,state}/` (spelled once in `server/hostData.ts`).
+  never `homedir()` for storage.
+- The host's own folder is `<project>/.kehikot/host/` (protocol 2.2.0:
+  `HOST_FOLDER`, `hostDir`, `hostFile`): epics/state, `kehikot.json`,
+  `trackers.json`, the tracker reading, dispositions, `data-versions.json`.
+  Reach it only through `hostRoot`/`hostPath`/`epicsDir`/`stateDir` in
+  `server/hostData.ts`; never `moduleFile(…, HOST_ID, …)`. `HOST_ID` stays
+  `kehikko` — the host's name on the wire and its MCP door — only the folder
+  changed. It was `.kehikot/kehikko/` before; `server/hostFolderMove.ts`
+  renames it once (at start and when a project is added; both there → keep
+  `host/`, leave `kehikko/`, log). Until moved (a read-only project) `hostRoot`
+  answers the old folder; nothing ever creates `.kehikot/kehikko/`. Hosts
+  ≤0.1.25 find no data after the move — accepted.
 - The ONE exception: `<project>/.kehikot/project.json` (protocol 2.1.0,
   `projectFile`), the project's permanent id, written only by the host
   (`server/projectIdentity.ts`; `identify` in `server/projects.ts`) and kept
@@ -152,7 +162,7 @@
 
 ## Tracker sources
 
-- A project's sources are its git remotes plus `<project>/.kehikot/kehikko/trackers.json`.
+- A project's sources are its git remotes plus `<project>/.kehikot/host/trackers.json`.
   The ONE writer of that file is `editTrackers` in `server/trackers/edit.ts`
   (one edit per call, whole file kept, no change → no write); the page reaches it
   at `POST /host/trackers` (`PAGE_ONLY`) and agents through `set_tracker_source`.

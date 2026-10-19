@@ -26,7 +26,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-grid-layout": "^1.5.4",
-    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.1.0",
+    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#928f83667428bee88b3155ad1c56a06635253ff9",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.25.76"
   },

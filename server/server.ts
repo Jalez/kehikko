@@ -2230,7 +2230,7 @@ const server = Bun.serve({
       const added = addProject(db, body.path, typeof body.name === 'string' ? body.name : undefined)
       if (!added.ok) return json({ error: added.why }, added.status)
       /* This is the moment a kehikko arrives from another computer: the folder
-         was cloned with `.kehikot/kehikko/kehikot.json` in it, and reading it
+         was cloned with `.kehikot/host/kehikot.json` in it, and reading it
          here is what makes adding the project enough. The file wins over the
          empty kehikko `addProject` just made, which is the point. A file that
          will not read is reported on the load the page does next. */
@@ -2292,7 +2292,7 @@ const server = Bun.serve({
      * own host would be worse than a second route.
      *
      * `holds` is the field that matters and it is why this is not just a list.
-     * A project with no `.kehikot/kehikko/epics` and a project whose `.kehikot/kehikko/epics` is empty
+     * A project with no `.kehikot/host/epics` and a project whose `.kehikot/host/epics` is empty
      * both answer with no epics, and only one of those should make the header
      * say "this project has none". See `Epics.tsx`.
      */
@@ -2340,7 +2340,7 @@ const server = Bun.serve({
      * One edit of the project's tracker sources — add, remove, switch a flag,
      * the schedule, the remotes switch — or a one-off "Check" of a source
      * before it is added. The page's alone (`PAGE_ONLY`): it writes
-     * `.kehikot/kehikko/trackers.json` and spends the person's rate limit.
+     * `.kehikot/host/trackers.json` and spends the person's rate limit.
      * Answered with the sources as they now stand; a write has the host read
      * again, and every container is told as for any read.
      */
@@ -2379,8 +2379,8 @@ const server = Bun.serve({
     /*
      * What one epic is CALLED, changed. What it IS does not move.
      *
-     * The one write this host makes into a project’s `.kehikot/kehikko/`, and the only one
-     * it will: `.kehikot/kehikko/epics/<slug>.json` is a document somebody wrote, under
+     * The one write this host makes into a project’s `.kehikot/host/`, and the only one
+     * it will: `.kehikot/host/epics/<slug>.json` is a document somebody wrote, under
      * their name in that repository's history, and this changes one field of it
      * and leaves every other byte alone. `retitleEpic` has the essay on why the
      * OTHER rename — the slug — is a migration across six programs rather than
@@ -2411,11 +2411,11 @@ const server = Bun.serve({
     /*
      * A new epic, from the `+` beside the epic select.
      *
-     * The second write this host makes into a project’s `.kehikot/kehikko/` — the first
+     * The second write this host makes into a project’s `.kehikot/host/` — the first
      * was the retitle above — and it is a file that did not exist rather than
      * a field of one that did. `createEpic` decides everything: the slug rule,
      * the title rule, the refusal to overwrite, and that a project with no
-     * `.kehikot/kehikko/epics` gets one made. This end turns a project id into a folder,
+     * `.kehikot/host/epics` gets one made. This end turns a project id into a folder,
      * as the retitle does, and says so to every page standing in that
      * project — `epicsChanged` in `wake.ts` — because a second window's
      * dropdown would otherwise not have the new row until it switched project
@@ -3160,11 +3160,11 @@ console.log(`this host's own MCP door is at http://127.0.0.1:${server.port}/mcp`
 if (settled.seeded) {
   console.log(
     `projects are folders; the first is ${settled.seeded.name} at ${settled.seeded.path}` +
-      (settled.seeded.epics ? '' : ' (which holds no .kehikot/kehikko/epics, so kehikot there have no epics to pick)'),
+      (settled.seeded.epics ? '' : ' (which holds no .kehikot/host/epics, so kehikot there have no epics to pick)'),
   )
 }
 if (settled.adopted) {
   console.log(`${settled.adopted} kehikko(t) written before projects existed were filed under it`)
 }
-console.log('each project keeps its kehikot in .kehikot/kehikko/kehikot.json; that file is the record and the database is its cache')
+console.log('each project keeps its kehikot in .kehikot/host/kehikot.json; that file is the record and the database is its cache')
 for (const sentence of unreadable) console.log(sentence)

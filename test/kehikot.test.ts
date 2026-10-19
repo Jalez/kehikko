@@ -260,7 +260,7 @@ describe('a module this computer does not have', () => {
   test('its container survives the read, and survives being written back', () => {
     const dir = folder()
     const file = kehikotFile(dir)!
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       file,
       JSON.stringify({
@@ -422,7 +422,7 @@ describe('a file that will not read', () => {
     const dir = folder()
     const store = db()
     const p = project(store, dir)
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       kehikotFile(dir)!,
       `{
@@ -504,7 +504,7 @@ describe('the file is the record', () => {
 
   test('a value the database bounds is bounded on the way in, as it would be from a page', () => {
     const dir = folder()
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       kehikotFile(dir)!,
       JSON.stringify({
@@ -592,7 +592,7 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
 
   test('the project takes the first kehikko’s epic that had one, and the file is written again as version 2', () => {
     const dir = folder()
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       kehikotFile(dir)!,
       v1([
@@ -618,7 +618,7 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
 
   test('a version-1 file with no epic anywhere leaves the project about nothing', () => {
     const dir = folder()
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(kehikotFile(dir)!, v1([{ key: 'a1', name: 'a', epic: null, containers: [] }]))
     const store = db()
     const p = project(store, dir)
@@ -742,7 +742,7 @@ describe('a filter value in the file is held to the wire’s bounds, half by hal
   test('a hand-written empty set reads, and is kept as nothing', () => {
     const dir = folder()
     const file = kehikotFile(dir)!
-    mkdirSync(join(dir, '.kehikot', 'kehikko'), { recursive: true })
+    mkdirSync(join(dir, '.kehikot', 'host'), { recursive: true })
     writeFileSync(
       file,
       JSON.stringify({

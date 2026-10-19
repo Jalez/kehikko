@@ -1,10 +1,10 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { LIMITS, MODULE_ID, moduleFile } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID } from 'kehikot-module-protocol'
 
 import { makeUnderRoot } from './projectRoot.ts'
 
-import { HOST_ID } from './kehikot.ts'
+import { hostPath } from './hostData.ts'
 
 /**
  * The data guard: which format each module's data in a project has been written in.
@@ -25,7 +25,7 @@ import { HOST_ID } from './kehikot.ts'
  *
  * ## Where
  *
- * `<project>/.kehikot/kehikko/data-versions.json`, beside the host's
+ * `<project>/.kehikot/host/data-versions.json`, beside the host's
  * `kehikot.json`: it is a fact about the project's data, so it travels with
  * the project, and a clone of the project on another machine refuses the same
  * downgrade. One object, module id to integer.
@@ -42,7 +42,7 @@ const FILE_NAME = 'data-versions'
 export type DataVersions = Record<string, number>
 
 export function dataVersionsFile(projectPath: string): string | null {
-  return moduleFile(projectPath, HOST_ID, FILE_NAME)
+  return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
 /** What the project's file says, keeping only entries that are a module id and a positive integer. */
@@ -109,6 +109,6 @@ export function refusal(
   return (
     `${name} ${tag} writes its data in format ${candidate}, and this project's ${name} data has already been `
     + `written in format ${recorded} by a newer version. ${tag} might misread it and write it back wrong, so it `
-    + `is not run here. (Recorded in .kehikot/kehikko/data-versions.json.)`
+    + `is not run here. (Recorded in .kehikot/host/data-versions.json.)`
   )
 }

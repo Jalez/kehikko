@@ -16,7 +16,7 @@ import { basename, dirname, join } from 'node:path'
 import { KEHIKOT_DIR, MODULE_ID } from 'kehikot-module-protocol'
 
 import { dataVersionsFile } from './dataVersions.ts'
-import { HOST_DATA_DIR } from './hostData.ts'
+import { hostRoot } from './hostData.ts'
 import { kehikotFile } from './kehikot.ts'
 import { modulesDir } from './machineDirs.ts'
 
@@ -53,7 +53,8 @@ import { modulesDir } from './machineDirs.ts'
  *    `<file>.migrated`. A module checkout from before the rename may write
  *    its old file again on every start; the next host start repeats this.
  * 2. Each known project's `.kehikot/roadmap/{epics,state}` is copied to
- *    `.kehikot/kehikko/` when that does not exist yet (the copy the hosts
+ *    the host's folder (`.kehikot/host/`, `.kehikot/kehikko/` before protocol
+ *    2.2.0) when that does not exist yet (the copy the hosts
  *    before eaafa6c made), and the module ids in its `kehikot.json` and
  *    `data-versions.json` are respelled — ids only.
  * 3. `frame.sqlite`: every column that holds a module id is respelled, in one
@@ -185,11 +186,11 @@ export function migrateProject(root: string, say: Log): void {
   respellDataVersions(root, say)
 }
 
-/** `.kehikot/roadmap/{epics,state}` → `.kehikot/kehikko/`, copied into a temporary sibling and renamed into place. */
+/** `.kehikot/roadmap/{epics,state}` → the host's folder (`.kehikot/host/`), copied into a temporary sibling and renamed into place. */
 function copyHostData(root: string, say: Log): void {
   for (const name of ['epics', 'state']) {
     const before = join(root, KEHIKOT_DIR, 'roadmap', name)
-    const now = join(root, HOST_DATA_DIR, name)
+    const now = join(hostRoot(root), name)
     if (existsSync(now) || !isDir(before)) continue
     const tmp = `${now}.copying`
     mkdirSync(dirname(now), { recursive: true })

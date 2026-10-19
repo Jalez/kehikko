@@ -170,7 +170,7 @@ describe('project files', () => {
   test('kehikot.json: module ids respelled, every other character kept', () => {
     const { root, env } = scratch()
     const project = join(root, 'project')
-    const dir = join(project, '.kehikot', 'kehikko')
+    const dir = join(project, '.kehikot', 'host')
     mkdirSync(dir, { recursive: true })
     const text = [
       '{',
@@ -201,7 +201,7 @@ describe('project files', () => {
   test('kehikot.json holding a module under both names keeps the new one', () => {
     const { root, env } = scratch()
     const project = join(root, 'project')
-    const dir = join(project, '.kehikot', 'kehikko')
+    const dir = join(project, '.kehikot', 'host')
     mkdirSync(dir, { recursive: true })
     writeFileSync(
       join(dir, 'kehikot.json'),
@@ -217,7 +217,7 @@ describe('project files', () => {
     expect(after.kehikot[0].containers).toEqual([{ module: 'kehikot.notes', x: 5 }])
   })
 
-  test('.kehikot/roadmap/{epics,state} is copied when .kehikot/kehikko has none', () => {
+  test('.kehikot/roadmap/{epics,state} is copied when .kehikot/host has none', () => {
     const { root, env } = scratch()
     const project = join(root, 'project')
     mkdirSync(join(project, '.kehikot', 'roadmap', 'epics'), { recursive: true })
@@ -225,7 +225,7 @@ describe('project files', () => {
     const db = database(root)
     db.run("insert into projects (name, path, rank) values ('p', ?, 0)", [project])
     forgetFormerName(db, env, silent)
-    expect(readFileSync(join(project, '.kehikot', 'kehikko', 'epics', 'one.json'), 'utf8')).toBe('{}')
+    expect(readFileSync(join(project, '.kehikot', 'host', 'epics', 'one.json'), 'utf8')).toBe('{}')
     expect(existsSync(join(project, '.kehikot', 'roadmap', 'epics', 'one.json'))).toBe(true)
   })
 })

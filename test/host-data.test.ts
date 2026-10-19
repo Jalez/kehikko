@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,11 +9,12 @@ import { addProject, adopt } from '../server/projects.ts'
 import { moduleFolder } from 'kehikot-module-protocol'
 
 import { HOST_ID } from '../server/kehikot.ts'
-import { HOST_FOLDER, epicsDir, migrateHostData, stateDir } from '../server/hostData.ts'
+import { HOST_FOLDER, LEGACY_HOST_FOLDER, epicsDir, hostPath, hostRoot, migrateHostData, stateDir } from '../server/hostData.ts'
+import { moveHostFolder } from '../server/hostFolderMove.ts'
 
 /**
  * A project's epics and state moved from `<project>/data/{epics,state}` to
- * `<project>/.kehikot/kehikko/{epics,state}`. These hold the migration to the
+ * `<project>/.kehikot/host/{epics,state}`. These hold the migration to the
  * rules it promises: move `data/` when the new place is free, never overwrite,
  * leave both when both exist, and remove `data/` only when the move emptied it.
  */
@@ -43,7 +44,7 @@ function legacy(name: string, { epics = true, state = true, other = false } = {}
 }
 
 describe('migrateHostData', () => {
-  test('moves data/epics and data/state under .kehikot/kehikko and removes the emptied data/', () => {
+  test('moves data/epics and data/state under .kehikot/host and removes the emptied data/', () => {
     const root = legacy('p')
     const said = migrateHostData(root, log)
     expect(said.moved).toHaveLength(2)
@@ -52,7 +53,7 @@ describe('migrateHostData', () => {
     expect(existsSync(join(root, 'data'))).toBe(false)
     expect(readFileSync(join(epicsDir(root), 'a.json'), 'utf8')).toContain('Legacy A')
     expect(readFileSync(join(stateDir(root), 'a.json'), 'utf8')).toContain('then')
-    expect(epicsDir(root)).toBe(join(root, '.kehikot', 'kehikko', 'epics'))
+    expect(epicsDir(root)).toBe(join(root, '.kehikot', 'host', 'epics'))
   })
 
   test('keeps data/ when something else is still in it', () => {
@@ -103,8 +104,97 @@ describe('migrateHostData', () => {
 })
 
 describe('the host folder', () => {
-  test('is the one its own id names', () => {
-    expect(HOST_FOLDER).toBe(moduleFolder(HOST_ID))
+  test('is .kehikot/host, the protocol’s HOST_FOLDER, and no longer the one its id names', () => {
+    expect(HOST_FOLDER).toBe('host')
+    expect(LEGACY_HOST_FOLDER).toBe(moduleFolder(HOST_ID))
+    expect(HOST_ID).toBe('kehikko')
+  })
+})
+
+/** A project laid out by a host before protocol 2.2.0: `.kehikot/kehikko/{kehikot.json,epics,trackers.json}`. */
+function before(name: string): string {
+  const root = join(scratch, name)
+  const old = join(root, '.kehikot', 'kehikko')
+  mkdirSync(join(old, 'epics'), { recursive: true })
+  writeFileSync(join(old, 'epics', 'x.json'), '{"slug":"x","title":"Before X"}\n')
+  writeFileSync(join(old, 'kehikot.json'), '{"version":1,"kehikot":[]}\n')
+  writeFileSync(join(old, 'trackers.json'), '{"version":1}\n')
+  return root
+}
+
+describe('moveHostFolder: .kehikot/kehikko becomes .kehikot/host', () => {
+  test('renamed whole, once, and said', () => {
+    const root = before('p')
+    const said = moveHostFolder(root, log)
+    expect(said).toEqual({ did: 'moved', from: join(root, '.kehikot', 'kehikko'), to: join(root, '.kehikot', 'host') })
+    expect(existsSync(join(root, '.kehikot', 'kehikko'))).toBe(false)
+    expect(readFileSync(join(root, '.kehikot', 'host', 'epics', 'x.json'), 'utf8')).toContain('Before X')
+    expect(existsSync(join(root, '.kehikot', 'host', 'kehikot.json'))).toBe(true)
+    expect(existsSync(join(root, '.kehikot', 'host', 'trackers.json'))).toBe(true)
+    expect(lines.some((line) => line.includes('moved'))).toBe(true)
+    lines.length = 0
+    expect(moveHostFolder(root, log)).toEqual({ did: 'nothing' })
+    expect(lines).toEqual([])
+  })
+
+  test('nothing to move in a project with no old folder, or none at all', () => {
+    const root = join(scratch, 'fresh')
+    mkdirSync(root)
+    expect(moveHostFolder(root, log)).toEqual({ did: 'nothing' })
+    expect(existsSync(join(root, '.kehikot'))).toBe(false)
+  })
+
+  test('with both, host/ is kept and read, kehikko/ is left untouched, and it is said once', () => {
+    const root = before('both')
+    mkdirSync(join(root, '.kehikot', 'host', 'epics'), { recursive: true })
+    writeFileSync(join(root, '.kehikot', 'host', 'epics', 'y.json'), '{"slug":"y","title":"After Y"}\n')
+    expect(moveHostFolder(root, log).did).toBe('both')
+    expect(moveHostFolder(root, log).did).toBe('both')
+    expect(lines.filter((line) => line.includes('both')).length).toBe(1)
+    expect(existsSync(join(root, '.kehikot', 'kehikko', 'epics', 'x.json'))).toBe(true)
+    expect(existsSync(join(root, '.kehikot', 'host', 'epics', 'x.json'))).toBe(false)
+    expect(epicsDir(root)).toBe(join(root, '.kehikot', 'host', 'epics'))
+  })
+
+  test('a project that cannot be moved is read where it is, and nothing is made beside it', () => {
+    const root = before('read-only')
+    chmodSync(join(root, '.kehikot'), 0o555)
+    try {
+      expect(moveHostFolder(root, log).did).toBe('failed')
+      expect(hostRoot(root)).toBe(join(root, '.kehikot', 'kehikko'))
+      expect(epicsDir(root)).toBe(join(root, '.kehikot', 'kehikko', 'epics'))
+      expect(hostPath(root, 'kehikot.json')).toBe(join(root, '.kehikot', 'kehikko', 'kehikot.json'))
+      expect(existsSync(join(root, '.kehikot', 'host'))).toBe(false)
+    } finally {
+      chmodSync(join(root, '.kehikot'), 0o755)
+    }
+  })
+
+  test('migrateHostData moves it first, so data/ lands in host/', () => {
+    const root = before('both-layouts')
+    mkdirSync(join(root, 'data', 'state'), { recursive: true })
+    writeFileSync(join(root, 'data', 'state', 'x.json'), '{}\n')
+    migrateHostData(root, log)
+    expect(existsSync(join(root, '.kehikot', 'kehikko'))).toBe(false)
+    expect(existsSync(join(root, '.kehikot', 'host', 'state', 'x.json'))).toBe(true)
+    expect(existsSync(join(root, '.kehikot', 'host', 'epics', 'x.json'))).toBe(true)
+  })
+
+  test('a new project’s files go to host/, and kehikko/ is never made', () => {
+    const root = join(scratch, 'new')
+    mkdirSync(root)
+    expect(hostPath(root, 'trackers.json')).toBe(join(root, '.kehikot', 'host', 'trackers.json'))
+    expect(hostPath(null, 'trackers.json')).toBeNull()
+    expect(() => hostPath(root, '..', 'x')).toThrow()
+  })
+
+  test('addProject moves it, and the project then reports its epics from host/', () => {
+    const db = open(':memory:')
+    const root = before('added')
+    const added = addProject(db, root)
+    expect(added.ok).toBe(true)
+    expect(existsSync(join(root, '.kehikot', 'kehikko'))).toBe(false)
+    expect(listEpics(root).map((epic) => epic.slug)).toContain('x')
   })
 })
 

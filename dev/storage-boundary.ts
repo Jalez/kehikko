@@ -89,6 +89,10 @@ export interface Repo {
  * top of `.kehikot/`, and no module writes that file; a module reads the id
  * from `context.projectId`.
  *
+ * The host's own folder is `.kehikot/host/` (protocol 2.2.0, `hostDir` /
+ * `hostFile`; `server/hostData.ts`), a folder like a module's but named for its
+ * role. It was `.kehikot/kehikko/` before; `server/hostFolderMove.ts` renames it.
+ *
  * Machine-level state that is allowed outside `.kehikot/`. Matched against the
  * code on the line (comments already stripped). Each entry needs its reason.
  */
@@ -162,8 +166,10 @@ const SKIP_DIRS = new Set([
 const SKIP_FILE = /\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/
 
 /* `projectFile` (protocol 2.1.0) builds `<project>/.kehikot/project.json`, the
-   ONE file outside `.kehikot/<module>/` — see the exception above `ALLOW`. */
-const HELPERS = /\bKEHIKOT_DIR\b|\bkehikotDir\b|\bmoduleDir\b|\bmoduleFile\b|\bprojectFile\b/
+   ONE file outside `.kehikot/<module>/` — see the exception above `ALLOW`.
+   `hostDir`/`hostFile` (protocol 2.2.0) and the host's `hostPath` build the
+   host's own `<project>/.kehikot/host/` (`.kehikot/kehikko/` before 2.2.0). */
+const HELPERS = /\bKEHIKOT_DIR\b|\bkehikotDir\b|\bmoduleDir\b|\bmoduleFile\b|\bprojectFile\b|\bhostDir\b|\bhostFile\b|\bhostPath\b/
 
 const RULES: ReadonlyArray<{ rule: Rule; match: RegExp; shell?: boolean; code?: boolean }> = [
   { rule: 'data-segment', code: true, match: /\b(?:join|resolve|joinPath)\([^;]*?['"`]data['"`]/ },
