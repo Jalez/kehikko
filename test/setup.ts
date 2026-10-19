@@ -20,9 +20,8 @@
  * saves and restores a variable restores THIS. Then, before and after every
  * test, each location the code would resolve is checked: one under the real
  * home fails the test, naming the variable and where it would have written. (A
- * test may still set `HOME` to a scratch home and remove an override, which is
- * how the migration from `~/.roadmap` is tested — that resolves under its
- * scratch home, and passes.)
+ * test may still set `HOME` to a scratch home and remove an override — that
+ * resolves under its scratch home, and passes.)
  *
  * The same idea as `test/setup.ts` in the protocol package, which guards the
  * one location it writes.
@@ -58,10 +57,6 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
 
 function pointAtScratch(): void {
   for (const { variable, scratch } of LOCATIONS) process.env[variable] = scratch
-  /* The pre-rename names are still read as fallbacks by `machineDirs.ts`; one
-     inherited from the shell must not be what a test falls through to. */
-  delete process.env.ROADMAP_MODULES_DIR
-  delete process.env.ROADMAP_FRAME_DB
   /* And no test asks GitHub for the official module list (`officialSource.ts`). */
   process.env.KEHIKOT_OFFICIAL_LIST = 'off'
 }

@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { canonicalModuleId, MODULE_ID } from 'kehikot-module-protocol'
-import { legacyModulesDir, modulesDir } from './machineDirs.ts'
+import { modulesDir } from './machineDirs.ts'
 
 /**
  * Where the host looks, and the whole of what it is told.
@@ -263,42 +263,24 @@ export function isLoopback(hostname: string): boolean {
  * where it looked. "No modules" and "no such directory" are two different
  * things to be told, and only one of them is fixed by starting a program.
  *
- * ## Two directories, for now
- *
- * Called with no directory, this also reads the retired `~/.roadmap/modules`
- * (`legacyModulesDir`), because modules register themselves and one from
- * before the rename wrote there. The protocol package stopped reading that
- * directory in 1.0.0, so this is the host's own fallback and the only one. On an id present in both, the file
- * modified most recently wins, ties to the new directory: a module that
- * restarts on another port rewrites ITS file, and the copy the host made when
- * it migrated must not keep pointing at the old port. Called with a directory,
- * only that one is read.
+ * Two files can name one module — one named after its id and one that is
+ * not, say. The most recently modified wins, because a module that restarts
+ * on another port rewrites ITS file and the others are what it said before;
+ * ties go to the file named after the id. Called with a directory, that one
+ * is read instead of the registry.
  */
 export async function readRegistrations(dir?: string): Promise<RegistrationSweep> {
   const primary = dir ?? registryDir()
-  const legacy = dir === undefined ? legacyModulesDir() : null
   const now = await sweep(primary)
-  const old = legacy && legacy !== primary ? await sweep(legacy) : { registrations: [], rejected: [], dir: legacy ?? primary }
-
-  /*
-   * One registration per module, whichever files name it. Two files can: the
-   * same id in both directories, and — since the rename — `roadmap.x.json` and
-   * `kehikot.x.json` for one module, in either. The most recently modified
-   * wins, because a module that restarts on another port rewrites ITS file and
-   * the others are what it said before. Ties go to the new directory, then to
-   * the file named with the current spelling.
-   */
-  const byId = new Map<string, { registration: Registration; rank: [number, number, number] }>()
-  for (const [list, inPrimary] of [[old.registrations, 0], [now.registrations, 1]] as const) {
-    for (const registration of list) {
-      const canonicalName = basename(registration.file).startsWith(`${registration.id}.`) ? 1 : 0
-      const rank: [number, number, number] = [await modified(registration.file), inPrimary, canonicalName]
-      const held = byId.get(registration.id)
-      if (!held || outranks(rank, held.rank)) byId.set(registration.id, { registration, rank })
-    }
+  const byId = new Map<string, { registration: Registration; rank: [number, number] }>()
+  for (const registration of now.registrations) {
+    const canonicalName = basename(registration.file).startsWith(`${registration.id}.`) ? 1 : 0
+    const rank: [number, number] = [await modified(registration.file), canonicalName]
+    const held = byId.get(registration.id)
+    if (!held || outranks(rank, held.rank)) byId.set(registration.id, { registration, rank })
   }
   const registrations = [...byId.values()].map((entry) => entry.registration).sort((a, b) => a.id.localeCompare(b.id))
-  return { registrations, rejected: [...now.rejected, ...old.rejected], dir: primary }
+  return { registrations, rejected: now.rejected, dir: primary }
 }
 
 function outranks(a: readonly number[], b: readonly number[]): boolean {

@@ -109,9 +109,9 @@ const words = (value: string | undefined) => (value ?? '').split(/\s+/).filter(B
 
 /**
  * Every origin this host's page is served from: where this host itself serves
- * it (`page`), what whoever started the host said (`KEHIKOT_ORIGINS`,
- * `KEHIKOT_ORIGIN`, and the pre-rename `ROADMAP_ORIGIN` the desktop shell
- * still passes), and the desktop window's own.
+ * it (`page`), what whoever started the host said (`KEHIKOT_ORIGINS` and
+ * `KEHIKOT_ORIGIN`, which the desktop shell passes), and the desktop window's
+ * own.
  *
  * Narrower than `originEnv` in `launch.ts`, on purpose. That list is who may
  * FRAME a module, and includes the default ports of every host on this
@@ -123,7 +123,7 @@ export function pageOriginsOf(env: Record<string, string | undefined>, page: rea
     ...new Set([
       ...page,
       ...words(env.KEHIKOT_ORIGINS),
-      ...words(env.KEHIKOT_ORIGIN || env.ROADMAP_ORIGIN),
+      ...words(env.KEHIKOT_ORIGIN),
       ...WINDOW_ORIGINS,
     ]),
   ]

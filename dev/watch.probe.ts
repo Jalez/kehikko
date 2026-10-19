@@ -18,7 +18,7 @@
  * is the right number and why making it fast enough to test comfortably would
  * be making it the polling loop this host refuses.
  *
- * Nothing here touches this machine's real Kehikot data (or the old ~/.roadmap). The modules directory and the database are
+ * Nothing here touches this machine's real Kehikot data. The modules directory and the database are
  * both temporary and both removed at the end, which is the only reason it is
  * safe to run beside a live host.
  */

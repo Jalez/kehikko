@@ -99,7 +99,7 @@ describe('a project is a name and a folder', () => {
 
   test('a path that is not a folder, or not there, or not absolute, is refused', () => {
     writeFileSync(join(scratch, 'notes.txt'), 'hello')
-    for (const bad of [join(scratch, 'notes.txt'), join(scratch, 'nowhere'), 'Projects/roadmap', '']) {
+    for (const bad of [join(scratch, 'notes.txt'), join(scratch, 'nowhere'), 'Projects/thesis', '']) {
       const tried = addProject(db, bad)
       expect(tried.ok).toBe(false)
       if (tried.ok) continue
@@ -212,13 +212,13 @@ describe('the kehikot that were written before projects existed', () => {
     expect(columns).toContain('project_id')
     expect(columns).not.toContain('project')
 
-    /* The migration proper: they belong to `~/Projects/roadmap`, which is where
-       the epics they show come from, so filing them there loses nothing and
-       writes down something that was already true. */
-    const roadmap = withEpics('roadmap')
-    const settled = adopt(now, { KEHIKKO_ROADMAP_DIR: roadmap })
+    /* The migration proper: they belong to the seed, which is where the epics
+       they show come from, so filing them there loses nothing and writes down
+       something that was already true. */
+    const seed = withEpics('seed')
+    const settled = adopt(now, { KEHIKOT_SEED_PROJECT: seed })
     expect(settled.adopted).toBe(3)
-    expect(settled.seeded?.name).toBe('roadmap')
+    expect(settled.seeded?.name).toBe('seed')
 
     const after = listCanvases(now)
     expect(after.every((canvas) => canvas.project === settled.seeded?.id)).toBe(true)
@@ -230,22 +230,16 @@ describe('the kehikot that were written before projects existed', () => {
     expect(after[0]?.placements).toHaveLength(1)
 
     /* Twice is not an error, because a host is started more than once. */
-    expect(adopt(now, { KEHIKKO_ROADMAP_DIR: roadmap }).adopted).toBe(0)
+    expect(adopt(now, { KEHIKOT_SEED_PROJECT: seed }).adopted).toBe(0)
     expect(listProjects(now)).toHaveLength(1)
     now.close()
     rmSync(file, { force: true })
   })
 
   test('KEHIKOT_SEED_PROJECT seeds the first project', () => {
-    const roadmap = withEpics('roadmap')
-    const settled = adopt(db, { KEHIKOT_SEED_PROJECT: roadmap, KEHIKKO_ROADMAP_DIR: '/nowhere/at/all' })
-    expect(settled.seeded?.path).toBe(require('node:fs').realpathSync(roadmap))
-  })
-
-  test('the old KEHIKKO_ROADMAP_DIR still seeds the first project, so an existing setup starts', () => {
-    const roadmap = withEpics('roadmap')
-    const settled = adopt(db, { KEHIKKO_ROADMAP_DIR: roadmap })
-    expect(settled.seeded?.path).toBe(require('node:fs').realpathSync(roadmap))
+    const seed = withEpics('seed')
+    const settled = adopt(db, { KEHIKOT_SEED_PROJECT: seed })
+    expect(settled.seeded?.path).toBe(require('node:fs').realpathSync(seed))
     expect(settled.seeded?.epics).toBe(true)
   })
 

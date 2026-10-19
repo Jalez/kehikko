@@ -351,10 +351,9 @@ export interface Canvas {
    * one canvas. It was NULL on every canvas that has ever existed here, and
    * that is not because nobody filled it in — it is because it was the wrong
    * way round. A project is not a thing a canvas HAS; it is the thing a canvas
-   * is IN. Three kehikot on this machine all showed epics out of
-   * `~/Projects/roadmap` and not one of them said so, because saying so was a
-   * label somebody had to remember to type rather than a fact about where they
-   * were standing.
+   * is IN. Kehikot that all showed one folder's epics did not say so, because
+   * saying so was a label somebody had to remember to type rather than a fact
+   * about where they were standing.
    *
    * So a project is a row of its own — a name and a folder — and this is a
    * foreign key into it. The hierarchy the user asked for is the one VS Code
@@ -691,8 +690,7 @@ export function open(file = databaseFile()): Database {
  * Where a container is on a canvas under BOTH spellings, the new one is kept
  * and the old row dropped: a module is on a kehikko once, and the new row is
  * the one this host wrote. Nothing is lost that was the record — the
- * project's `kehikot.json` is, and the database it was first copied from
- * (`~/.roadmap/frame.sqlite`) is never touched.
+ * project's `kehikot.json` is.
  */
 export function renameModuleIds(db: Database): void {
   /* The prefix module ids carried before the rename. The protocol no longer names it; this is the host's own stored data. */

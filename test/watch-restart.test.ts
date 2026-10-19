@@ -39,7 +39,6 @@ async function start(): Promise<void> {
       KEHIKKO_RESTART_FILE: at('restart'),
       KEHIKOT_ORIGIN: '',
       KEHIKOT_ORIGINS: '',
-      ROADMAP_ORIGIN: '',
     },
     stdout: 'ignore',
     stderr: 'ignore',

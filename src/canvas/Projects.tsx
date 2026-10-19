@@ -255,7 +255,7 @@ export function Projects({
  * A browser cannot hand a page a real filesystem path. `showDirectoryPicker()`
  * returns an opaque handle: the page may read files THROUGH it and can never
  * learn where it points. What this host needs is the string
- * `/Users/somebody/Projects/roadmap`, because that string becomes
+ * `/Users/somebody/Projects/thesis`, because that string becomes
  * `kehikot.context.projectPath` and every module joins its own subdirectory
  * onto it. A handle cannot be turned into that, by any means, on purpose.
  *
