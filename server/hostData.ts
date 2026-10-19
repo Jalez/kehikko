@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, renameSync, rmdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { moveHostFolder } from './hostFolderMove.ts'
+import { makeUnderRoot, projectRootExists } from './projectRoot.ts'
 
 import { HOST_FOLDER, KEHIKOT_DIR, LEGACY_HOST_FOLDER, hostDir as hostFolder, hostFile, legacyHostFile } from 'kehikot-module-protocol'
 
@@ -121,6 +122,8 @@ export interface Migrated {
  */
 export function migrateHostData(root: string, log: (line: string) => void = (line) => console.warn(line)): Migrated {
   const said: Migrated = { moved: [], conflicts: [], removedData: false }
+  /* A folder that is gone, or a ghost an older host left at a project's path (`projectRoot.ts`), is not migrated into. */
+  if (!projectRootExists(root)) return said
 
   /* `.kehikot/kehikko/` → `.kehikot/host/` first, so what follows lands in the folder that stays. */
   moveHostFolder(root, log)
@@ -138,7 +141,8 @@ export function migrateHostData(root: string, log: (line: string) => void = (lin
       continue
     }
     try {
-      mkdirSync(hostRoot(root), { recursive: true })
+      /* Inside the project, never the project (`projectRoot.ts`). */
+      if (!makeUnderRoot(root, hostRoot(root))) break
       renameSync(legacy, now)
       said.moved.push([legacy, now])
       log(`kehikko: moved ${legacy} -> ${now}`)

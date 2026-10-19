@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
@@ -9,7 +9,7 @@ import { createCanvas, listCanvases } from './canvases.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
 import { bookmarks, type Bookmarks } from './bookmarks.ts'
 import { isHome, projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
-import { MISSING_SAID, projectRootExists } from './projectRoot.ts'
+import { folderIdentity, looksMadeByAHost, MISSING_SAID, projectRootExists, setRecordedFolders } from './projectRoot.ts'
 
 export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
 
@@ -169,7 +169,8 @@ export function projectAt(db: Database, asked: unknown): { uid: string | null } 
   const real = resolvedFolder(asked)
   if (real === null) return null
   const rows = db.query<{ path: string; uid: string | null }, []>('select path, uid from projects').all()
-  const row = rows.find((one) => resolvedFolder(one.path) === real)
+  /* A ghost at the path (`projectRoot.ts`) is not the project, so a module is not told to write in it. */
+  const row = rows.find((one) => resolvedFolder(one.path) === real && projectRootExists(one.path))
   return row ? { uid: row.uid } : null
 }
 
@@ -589,6 +590,9 @@ export function addProject(
      the browser that it was already a project. They get the one that exists. */
   const standing = db.query<{ id: number }, [string]>('select id from projects where path = ?').get(real)
   if (standing) {
+    /* The person picked this very folder: it is the project, even holding
+       nothing but `.kehikot/` (`projectRoot.ts`). */
+    vouch(db, standing.id, real)
     identify(db, standing.id)
     keepBookmark(db, standing.id)
     const project = projectById(db, standing.id)
@@ -769,6 +773,7 @@ export function identify(db: Database, id: number): string | null {
   const row = db.query<Row, [number]>('select id, name, path, uid from projects where id = ?').get(id)
   if (!row) return null
   if (!projectRootExists(row.path)) return row.uid
+  vouch(db, row.id, row.path)
   const git = (): boolean => hasGit(row.path)
   const set = (project: number, uid: string | null) =>
     db.query('update projects set uid = ? where id = ?').run(uid, project)
@@ -821,6 +826,35 @@ export function identifyAll(db: Database): void {
   for (const { id } of db.query<{ id: number }, []>('select id from projects order by id').all()) identify(db, id)
 }
 
+/**
+ * Record that the folder at `path` is this project, by its identity on disk
+ * (`projects.folder`): what tells the project's own folder from a ghost an
+ * older host made at its path (`projectRoot.ts`). Written only when it changes.
+ */
+export function vouch(db: Database, id: number, path: string): void {
+  const identity = folderIdentity(path)
+  if (identity === null) return
+  db.query('update projects set folder = ? where id = ? and (folder is null or folder <> ?)').run(identity, id, identity)
+}
+
+/**
+ * Hand the guard in `projectRoot.ts` this database's record of each project's
+ * folder, so a ghost at a project's path is missing for every write and on
+ * every list. Called once, by the server, as soon as the database is open.
+ */
+export function knowFolders(db: Database): void {
+  const asked = db.query<{ folder: string | null }, [string]>('select folder from projects where path = ?')
+  setRecordedFolders((root) => {
+    try {
+      const row = asked.get(root)
+      return row ? row.folder : undefined
+    } catch {
+      /* A database closed under us knows no projects. */
+      return undefined
+    }
+  })
+}
+
 export type Relinked = { ok: true; project: Project } | { ok: false; why: string; status: number; anyway?: boolean }
 
 /**
@@ -839,7 +873,7 @@ export function relinkProject(db: Database, id: number, real: string): Relinked 
     }
     db.transaction(() => {
       db.query('insert into project_paths (project_id, path, until) values (?, ?, ?)').run(id, row.path, new Date().toISOString())
-      db.query('update projects set path = ? where id = ?').run(real, id)
+      db.query('update projects set path = ?, folder = ? where id = ?').run(real, folderIdentity(real), id)
     })()
   }
   const project = projectById(db, id)
@@ -879,7 +913,22 @@ export function locateProject(db: Database, id: number, asked: unknown, anyway =
   const real = found.real
   const carried = readProjectId(real)
 
-  if (row.uid !== null) {
+  /* The folder at the project's path holds nothing but `.kehikot/`, made there
+     by an older host after the person moved their files away (`projectRoot.ts`):
+     the id it carries may have been minted INTO that leftover, so a folder with
+     no id at all is not refused on it — it is taken on the person's word. */
+  const ghost = isDirectory(row.path) && !projectRootExists(row.path)
+
+  if (row.uid !== null && carried === null && ghost) {
+    if (!anyway) {
+      return {
+        ok: false,
+        why: `${NOT_THIS_PROJECT} it has no Kehikot id, and the folder at ${row.path} holds nothing but what an older Kehikot left there, so this host cannot tell. Use the folder anyway only if you are sure it is the one.`,
+        status: 409,
+        anyway: true,
+      }
+    }
+  } else if (row.uid !== null) {
     if (carried !== row.uid) {
       const other = carried === null ? null : db.query<Row, [string]>('select id, name, path, uid from projects where uid = ?').get(carried)
       const why =
@@ -905,10 +954,20 @@ export function locateProject(db: Database, id: number, asked: unknown, anyway =
 
   const moved = relinkProject(db, id, real)
   if (!moved.ok) return moved
+  /* The person said this folder is the project: it is, whatever it holds. */
+  vouch(db, id, real)
   identify(db, id)
   keepBookmark(db, id)
   const project = projectById(db, id)
   return project ? { ok: true, project } : { ok: false, why: 'The project was not written.', status: 500 }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -959,7 +1018,7 @@ export function followProjects(
   if (!marks) return []
   const followed: Followed[] = []
   const rows = db
-    .query<Row & { bookmark: Uint8Array | null }, []>('select id, name, path, uid, bookmark from projects order by id')
+    .query<Row & { bookmark: Uint8Array | null; folder: string | null }, []>('select id, name, path, uid, bookmark, folder from projects order by id')
     .all()
   for (const row of rows) {
     const here = projectRootExists(row.path)
@@ -968,7 +1027,7 @@ export function followProjects(
     /* Still where it was, carrying its own id (or one not settled yet): the
        folder is the project. Only a bookmark to mint, or one to mint again. */
     const stays = here && (row.uid === null || readProjectId(row.path) === row.uid)
-    const to = stays || row.uid === null || !resolved ? null : followable(db, row, resolved.path)
+    const to = stays || row.uid === null ? null : (resolved ? followable(db, row, resolved.path) : null) ?? (here ? null : elsewhere(db, row, thorough))
     if (to === null) {
       if (stays && (!resolved || resolved.stale || realOf(resolved.path) !== row.path)) keepBookmark(db, row.id, marks)
       continue
@@ -984,7 +1043,7 @@ export function followProjects(
 }
 
 /** Where a bookmark resolved, if it may be followed there: a real folder carrying the project's id. */
-function followable(db: Database, row: Row, resolved: string): string | null {
+function followable(db: Database, row: Row & { folder: string | null }, resolved: string): string | null {
   const real = realOf(resolved)
   if (real === null || real === row.path) return null
   try {
@@ -995,8 +1054,41 @@ function followable(db: Database, row: Row, resolved: string): string | null {
   if (real.split(sep).some((part) => part === '.Trash' || part === '.Trashes')) return null
   if (isHome(real)) return null
   if (readProjectId(real) !== row.uid) return null
+  /* A folder an older host made (nothing in it but `.kehikot/`, born with it)
+     carries the id only because a host wrote it there; the files are not in it.
+     CoreFoundation resolves a bookmark to one re-made at the old path. The
+     project's own folder, moved, is the folder this host recorded, and is
+     followed whatever it holds. */
+  if (looksMadeByAHost(real) && folderIdentity(real) !== row.folder) return null
   const other = db.query<{ id: number }, [string, number]>('select id from projects where path = ? and id <> ?').get(real, row.id)
   return other ? null : real
+}
+
+/**
+ * Where else a project whose bookmark leads nowhere useful may be: a path it
+ * had before (`project_paths`), newest first, and — in a `thorough` pass, at
+ * start — a folder beside its old one, the way a person moves their files
+ * into a sibling folder. Each held to `followable`: it carries the project's
+ * id and is not a folder a host made.
+ */
+function elsewhere(db: Database, row: Row & { folder: string | null }, thorough: boolean): string | null {
+  const offered = formerPaths(db, row.id).map((one) => one.path)
+  if (thorough) {
+    const parent = dirname(row.path)
+    try {
+      for (const name of readdirSync(parent).sort()) {
+        if (!name.startsWith('.')) offered.push(join(parent, name))
+      }
+    } catch {
+      /* The parent is gone too. */
+    }
+  }
+  for (const path of offered) {
+    if (path === row.path) continue
+    const to = followable(db, row, path)
+    if (to !== null) return to
+  }
+  return null
 }
 
 /** A path as the filesystem resolves it, or null when there is nothing there. */

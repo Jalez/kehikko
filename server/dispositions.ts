@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   LIMITS,
@@ -7,7 +7,7 @@ import {
   type DispositionValue,
 } from 'kehikot-module-protocol'
 
-import { MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
+import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
 import { z } from 'zod'
 
 import { hostPath } from './hostData.ts'
@@ -157,7 +157,7 @@ export function setDisposition(
 
   if (marking.value === null) {
     if (!before) return { ok: true, marks: read.marks, mark: null, changed: false }
-    write(file, others)
+    if (!write(projectPath!, file, others)) return { ok: false, why: `${MISSING_SAID} Nothing was written.` }
     return { ok: true, marks: others, mark: null, changed: true }
   }
 
@@ -184,13 +184,14 @@ export function setDisposition(
   /* Where it was, when it was there: a file somebody reads in a diff should
      show a changed line rather than one removed and one added at the end. */
   const marks = before ? read.marks.map((one) => (one.ref === mark.ref ? mark : one)) : [...read.marks, mark]
-  write(file, marks)
+  if (!write(projectPath!, file, marks)) return { ok: false, why: `${MISSING_SAID} Nothing was written.` }
   return { ok: true, marks, mark, changed: true }
 }
 
-function write(file: string, marks: readonly Disposition[]): void {
-  /* The root was checked above; this makes `.kehikot/host/` inside it. */
-  mkdirSync(dirname(file), { recursive: true })
+function write(root: string, file: string, marks: readonly Disposition[]): boolean {
+  /* `.kehikot/host/` inside the project, never the project: gone since the check above, nothing is written. */
+  if (!makeUnderRoot(root, dirname(file))) return false
   writeFileSync(`${file}.tmp`, `${JSON.stringify({ version: VERSION, dispositions: marks }, null, 2)}\n`)
   renameSync(`${file}.tmp`, file)
+  return true
 }

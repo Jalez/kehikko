@@ -37,6 +37,14 @@
   the project's own id (never one in the Trash, never home, never another
   project's). The page says it once (`followed`, `src/canvas/Followed.tsx`).
   Off macOS it is a no-op and "Locate…" is the way back.
+- This host never creates a project's folder: every write under a project
+  makes its folders through `makeUnderRoot` (`server/projectRoot.ts`), and
+  `test/project-writes.test.ts` fails on any other folder-making call in
+  `server/`. A folder at a project's path holding nothing but `.kehikot/` that
+  the host cannot vouch for (`projects.folder`, the folder's device and inode;
+  or, for an older row, born with its `.kehikot/`) is a GHOST an older host
+  made: `projectRootExists` says missing, nothing is written into it, a
+  bookmark is not followed into one, and "Locate…"/Add relink past it.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
   `frame.sqlite`, `versions/`, `installed/`, `official-modules.json` and the Browser module's `browser-profile/` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs

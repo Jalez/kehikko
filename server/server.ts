@@ -26,7 +26,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, listProjects, locateProject, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -158,6 +158,10 @@ const FOLLOW_EVERY_MS = 5_000
  * not a page that loads, looks fine, and cannot save anything.
  */
 const db = open()
+/* Before anything reads or writes a project: the guard in `projectRoot.ts`
+   learns which folder each project is, so a ghost an older host left at a
+   project's path is missing rather than written into. */
+knowFolders(db)
 
 /**
  * The projects, settled before a single request is served.

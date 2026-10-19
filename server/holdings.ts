@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -17,7 +17,7 @@ import { slugFrom } from '../src/host/epics.ts'
 
 import { edited, listedIn, partsHeld, type Part, type PartsEdit } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
-import { MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
+import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
 
 /**
  * What this host actually holds, when it is pointed at something.
@@ -464,6 +464,11 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
   if (!epicsIn(root)) {
     return { ok: false, why: `This project has no ${EPICS_REL}, so there is no epic in it to retitle.`, status: 409 }
   }
+  /* A ghost an older host left at the path (`projectRoot.ts`) is not written into. */
+  if (!projectRootExists(root)) {
+    sayMissing(root)
+    return { ok: false, why: `${MISSING_SAID} The epic was not retitled.`, status: 409 }
+  }
 
   const path = join(epicsDir(root), `${slug}.json`)
   let raw: string
@@ -629,12 +634,8 @@ export function createEpic(
   const madeDirectory = !existsSync(dir)
   if (madeDirectory) {
     /* Inside the project, never the project: a folder that was renamed away is not made again. */
-    if (!projectRootExists(root)) {
-      sayMissing(root)
-      return { ok: false, why: `${MISSING_SAID} No epic was made.`, status: 409 }
-    }
     try {
-      mkdirSync(dir, { recursive: true })
+      if (!makeUnderRoot(root, dir)) return { ok: false, why: `${MISSING_SAID} No epic was made.`, status: 409 }
     } catch (error) {
       return { ok: false, why: `${EPICS_REL} could not be made in this project: ${(error as Error).message}`, status: 500 }
     }
@@ -776,6 +777,11 @@ export function editParts(root: string | null | undefined, slug: unknown, edit: 
   })
   if (typeof slug !== 'string' || !SLUG.test(slug) || !root || !epicsIn(root)) {
     return declined('There is no such epic in the open project.')
+  }
+  /* A ghost an older host left at the path (`projectRoot.ts`) is not written into. */
+  if (!projectRootExists(root)) {
+    sayMissing(root)
+    return declined(`${MISSING_SAID} The parts were not changed.`)
   }
   const path = join(epicsDir(root), `${slug}.json`)
   let raw: string
