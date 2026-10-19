@@ -132,6 +132,13 @@ export interface Presence {
    * `ready`, serving tools, while no agent has been told the door exists.
    */
   agent?: AgentAwareness
+  /**
+   * Which folder and branch the module is actually running from — the
+   * container's header shows the branch, and marks it when it is not `main`,
+   * level, clean and the registered folder. Null when it cannot be read;
+   * absent from an older host. See `server/source.ts`.
+   */
+  source?: import('./source.ts').Source | null
 }
 
 /**

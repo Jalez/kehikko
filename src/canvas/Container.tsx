@@ -21,6 +21,7 @@ import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { Start, Update } from './Start.tsx'
+import { BranchMark } from './Branch.tsx'
 import { VersionPicker } from './Versions.tsx'
 
 /**
@@ -516,6 +517,8 @@ export function Container({
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
         />
+        {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
+        <BranchMark source={presence.source} />
         <span className="flex-1" />
 
         {/*
