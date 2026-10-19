@@ -26,7 +26,7 @@ import {
   setSubject,
   type CanvasEdit,
 } from './canvases.ts'
-import { addProject, adopt, followedSaid, followProjects, forgetProject, isMissingProject, isProject, listProjects, locateProject, MISSING_SAID, projectById, shareKehikot } from './projects.ts'
+import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, listProjects, locateProject, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -2174,17 +2174,16 @@ const server = Bun.serve({
     /*
      * Whether one folder is a project a person added here. For a module's
      * server, which is told a path by its page and has no other way to know
-     * the path is one this host handed out. One path in, one word out; the
-     * list is not what a module is given — see `isProject`. Answered to this
+     * the path is one this host handed out. One path in, one answer out: yes
+     * with the project's id, or no — with where the project went when the path
+     * is one a project had (`isProjectAnswer`). The list is not what a module
+     * is given — see `isProject`. Answered to this
      * host's page and to programs on this machine, like every read here, and
      * to no other page (`guard.ts`): a module's PAGE cannot ask.
      */
     if (url.pathname === '/host/is-project' && request.method === 'GET') {
       const asked = url.searchParams.get('path')
-      /* A project whose folder is gone is not one a module may write in, and it
-         is told so in a sentence rather than a bare no. */
-      if (isMissingProject(db, asked)) return json({ ok: true, project: false, missing: true, why: MISSING_SAID })
-      return json({ ok: true, project: isProject(db, asked) })
+      return json(isProjectAnswer(db, asked))
     }
 
     /*
