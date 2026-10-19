@@ -9,7 +9,7 @@
   `<project>/.kehikot/kehikko/{epics,state}/` (spelled once in `server/hostData.ts`).
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/`, `installed/` and `official-modules.json` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
+  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json` and the Browser module's `browser-profile/` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
