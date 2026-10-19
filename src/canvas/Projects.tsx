@@ -1,5 +1,5 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, Layers } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, Layers } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -48,6 +48,7 @@ export function Projects({
   onAdd,
   onShare,
   onForget,
+  onLocate,
 }: {
   projects: readonly Project[]
   open: Project | null
@@ -71,6 +72,8 @@ export function Projects({
    * This undoes the add and leaves every file where it is.
    */
   onForget(id: number): void
+  /** "Locate…": point a project whose folder is gone at where it went. Opens the folder browser. */
+  onLocate?(id: number): void
 }) {
   /* Which project has been asked about but not yet confirmed. One at a time:
      arming a second forgets the first, because two armed destructive controls
@@ -151,7 +154,21 @@ export function Projects({
                   has none" is the difference between a picker worth opening and
                   one that looks broken. */}
               {project.missing ? (
-                <MissingMark />
+                <>
+                  <MissingMark />
+                  {/* Not stopped: the press also opens the project, which is
+                      where the person is about to be standing anyway. */}
+                  {onLocate ? (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground shrink-0 text-[10px] underline-offset-2 hover:underline"
+                      aria-label={`locate ${project.name}`}
+                      onClick={() => onLocate(project.id)}
+                    >
+                      locate…
+                    </button>
+                  ) : null}
+                </>
               ) : project.epics ? (
                 <Layers className="text-muted-foreground size-3 shrink-0" />
               ) : (
@@ -200,7 +217,15 @@ export function Projects({
             <>
               <DropdownMenuSeparator />
               {open.missing ? (
-                <div className="text-muted-foreground px-2 py-1.5 text-[11px] leading-snug">{MISSING_SAID}</div>
+                <>
+                  <div className="text-muted-foreground px-2 py-1.5 text-[11px] leading-snug">{MISSING_SAID}</div>
+                  {onLocate ? (
+                    <DropdownMenuItem onSelect={() => onLocate(open.id)}>
+                      <FolderSearch className="text-muted-foreground size-3 shrink-0" />
+                      <span className="min-w-0 flex-1">locate its folder…</span>
+                    </DropdownMenuItem>
+                  ) : null}
+                </>
               ) : open.git ? (
                 <>
                   <DropdownMenuItem onSelect={() => onShare(open.id, !open.shared)}>
@@ -282,17 +307,31 @@ export function Projects({
  * kehikko there can do, and showing it before the project is added is what
  * stops somebody adding one and then wondering why the epic picker is empty.
  */
-function Browser({
+export function Browser({
   open,
   onOpenChange,
   start,
   onPick,
+  title = 'Add a project',
+  description,
+  pick = 'add this folder',
+  pickOne = 'add',
+  children,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
   /** Where to start walking. The open project's folder, or the server's default. */
   start: string | null
   onPick(path: string): void
+  /** The dialog's words, for a use other than adding ("Locate…"). Adding's own by default. */
+  title?: string
+  description?: ReactNode
+  /** The button that picks the folder the dialog is standing in. */
+  pick?: string
+  /** The button on each row that picks that folder. */
+  pickOne?: string
+  /** Said above the buttons: a refusal, and what to do about it. */
+  children?: ReactNode
 }) {
   const [listing, setListing] = useState<Listing | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -318,6 +357,13 @@ function Browser({
         setTrouble(null)
       } catch (error) {
         if (stop.signal.aborted) return
+        /* Where it was asked to start cannot be listed — the folder a missing
+           project used to sit in may be gone too. Home, rather than a dialog
+           with nowhere to walk from. */
+        if (at !== null && at === start) {
+          setAt(null)
+          return
+        }
         /* The server's own sentence. "That folder is outside the places this
            host will list" is something a person can act on; 403 is not. */
         setTrouble((error as Error).message)
@@ -330,11 +376,15 @@ function Browser({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add a project</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            A project is a folder — a repository, a git worktree, or any directory with work in it. Epics
-            come from <span className="font-mono">.kehikot/kehikko/epics</span> under it, and a project that has none is
-            still a project.
+            {description ?? (
+              <>
+                A project is a folder — a repository, a git worktree, or any directory with work in it. Epics
+                come from <span className="font-mono">.kehikot/kehikko/epics</span> under it, and a project that has none is
+                still a project.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -362,7 +412,7 @@ function Browser({
               </li>
             ) : null}
             {(listing?.entries ?? []).map((entry) => (
-              <Row key={entry.path} entry={entry} onEnter={() => walk(entry.path)} onPick={onPick} />
+              <Row key={entry.path} entry={entry} onEnter={() => walk(entry.path)} onPick={onPick} pick={pickOne} />
             ))}
             {listing && !listing.entries.length && !trouble ? (
               <li className="text-muted-foreground px-3 py-3 text-xs">
@@ -379,6 +429,8 @@ function Browser({
           ) : null}
         </div>
 
+        {children}
+
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             cancel
@@ -388,7 +440,7 @@ function Browser({
               second piece of state saying the same thing — and disagreeing with
               it the moment somebody walks without re-picking. */}
           <Button size="sm" disabled={!listing} onClick={() => listing && onPick(listing.path)}>
-            add this folder
+            {pick}
           </Button>
         </div>
       </DialogContent>
@@ -400,10 +452,12 @@ function Row({
   entry,
   onEnter,
   onPick,
+  pick,
 }: {
   entry: Entry
   onEnter(): void
   onPick(path: string): void
+  pick: string
 }) {
   return (
     <li className="flex items-center gap-1">
@@ -435,14 +489,14 @@ function Row({
           </span>
         ) : null}
       </button>
-      <Hint label={`add ${entry.name} as a project`} side="left">
+      <Hint label={pick === 'add' ? `add ${entry.name} as a project` : `${pick}: ${entry.name}`} side="left">
         <Button
           variant="ghost"
           size="sm"
           className="mr-1 h-6 shrink-0 px-2 text-[11px]"
           onClick={() => onPick(entry.path)}
         >
-          add
+          {pick}
         </Button>
       </Hint>
     </li>

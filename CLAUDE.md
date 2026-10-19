@@ -7,6 +7,14 @@
   `kehikot-module-protocol`). Never `join(ROOT|HERE|import.meta.dir|process.cwd()|__dirname, 'data', …)`,
   never `homedir()` for storage. The host's own epics/state are
   `<project>/.kehikot/kehikko/{epics,state}/` (spelled once in `server/hostData.ts`).
+- The ONE exception: `<project>/.kehikot/project.json` (protocol 2.1.0,
+  `projectFile`), the project's permanent id, written only by the host
+  (`server/projectIdentity.ts`; `identify` in `server/projects.ts`) and kept
+  out of git with `withProjectFileIgnored`. Never in the home folder; a
+  read-only folder keeps its id in `projects.uid` only. Nothing else goes at
+  the top of `.kehikot/`. A project is its id: `projects.uid` beside the path,
+  a moved folder is relinked (`relinkProject`, "Locate…"), and the paths it had
+  are in `project_paths`.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
   `frame.sqlite`, `versions/`, `installed/`, `official-modules.json` and the Browser module's `browser-profile/` — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs

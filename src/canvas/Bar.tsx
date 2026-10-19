@@ -90,6 +90,7 @@ export function Bar({
   onAddProject,
   onShareProject,
   onForgetProject,
+  onLocateProject,
   onOpen,
   onRename,
   onCreate,
@@ -138,6 +139,8 @@ export function Bar({
   onShareProject(id: number, shared: boolean): void
   /** Stop holding a folder as a project. Nothing on disk is deleted. */
   onForgetProject(id: number): void
+  /** "Locate…": point a project whose folder is gone at where it went. */
+  onLocateProject?(id: number): void
   onOpen(id: number): void
   onRename(id: number, name: string): void
   onCreate(): void
@@ -222,6 +225,7 @@ export function Bar({
           onAdd={onAddProject}
           onShare={onShareProject}
           onForget={onForgetProject}
+          onLocate={onLocateProject}
         />
 
         {/*

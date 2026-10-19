@@ -114,6 +114,10 @@ export type News =
   /* The seventh kind, and the first that is not news: an ORDER, for one page.
      See `PressOrder`. */
   | { press: PressOrder }
+  /* The eighth kind: the list of projects is not what a page last read — a
+     project was found again where its folder went ("Locate…", or adding the
+     moved folder). Carries nothing; the page re-reads `/host/projects`. */
+  | { projects: true }
 
 /**
  * One item of a module's header to press, handed to the page that has the
@@ -261,6 +265,14 @@ export class Wakes {
    */
   registryChanged(): void {
     this.#tell({ registry: true })
+  }
+
+  /**
+   * Say that the list of projects changed under the pages: a project was
+   * pointed at the folder it moved to. Sent by the route that did it.
+   */
+  projectsChanged(): void {
+    this.#tell({ projects: true })
   }
 
   /**

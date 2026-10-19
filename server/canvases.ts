@@ -664,6 +664,32 @@ export function open(file = databaseFile()): Database {
      which is "the whole epic": a database from before parts existed reads as
      every project on all of its epic, which is what it was. */
   add(db, 'projects', 'parts', "text not null default '[]'")
+  /*
+   * A project's permanent id (protocol 2.1.0), the one in its own
+   * `.kehikot/project.json` — see `projectIdentity.ts`. The path is where the
+   * project is NOW; this is what it is, and a folder found elsewhere carrying
+   * it is the same project, its kehikot and Inbox history kept by `update
+   * projects set path`. Nullable: a database from before it, and a project
+   * whose folder was already gone when this host first looked, have none until
+   * the folder is met. Unique by an index, because `alter table add column`
+   * cannot add a unique column — and a unique index lets any number of NULLs in.
+   */
+  add(db, 'projects', 'uid', 'text')
+  db.exec('create unique index if not exists projects_by_uid on projects (uid)')
+  /*
+   * Where a project used to be: one row per path it was relinked away from,
+   * with when. Nothing in this host reads a project by these; they are kept
+   * because a module may need them — Claude's transcripts, for one, are filed
+   * under `~/.claude/projects/<escaped path>`, the path the project had then.
+   */
+  db.exec(`
+    create table if not exists project_paths (
+      project_id integer not null references projects(id) on delete cascade,
+      path       text    not null,
+      until      text    not null
+    );
+    create index if not exists project_paths_by_project on project_paths (project_id);
+  `)
   if (moving) {
     for (const { id } of db.query<{ id: number }, []>('select id from projects').all()) epicFromKehikot(db, id)
   }

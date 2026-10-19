@@ -1,5 +1,6 @@
 import {
   LIMITS,
+  PROJECT_ID,
   dispositionSchema,
   partsSetResult,
   trackerRefreshResult,
@@ -61,8 +62,48 @@ export const projectSchema = z.object({
    * under it. Absent from an older host, which never said; absent is not missing.
    */
   missing: z.boolean().optional(),
+  /**
+   * The project's permanent id (protocol 2.1.0), kept in its own
+   * `.kehikot/project.json`: what `context.projectId` and a pick carry. Null for
+   * a project the host has not met in its folder yet; absent from an older host.
+   */
+  uid: z.string().nullable().optional(),
 })
 export type Project = z.infer<typeof projectSchema>
+
+/**
+ * A project as `projects.pick` hands it to a module: its path and name, and its
+ * permanent `id` (2.1.0) when the host has one the protocol takes.
+ */
+export function pickedFrom(project: Pick<Project, 'path' | 'name' | 'uid'>): { path: string; name: string; id?: string } {
+  const id = typeof project.uid === 'string' && PROJECT_ID.test(project.uid) ? project.uid : undefined
+  return { path: project.path, name: project.name, ...(id ? { id } : {}) }
+}
+
+/** What became of a "Locate…": the project, found, or the host's sentence and whether it offers "anyway". */
+export type Located = { ok: true; project: Project } | { ok: false; why: string; anyway: boolean }
+
+/**
+ * Point a project whose folder is gone at where it went. The host checks that
+ * the folder carries the project's own id; `anyway` is the person's second step
+ * for a project that never had one, and only when the host offered it.
+ */
+export async function locateProject(id: number, path: string, anyway = false): Promise<Located> {
+  const response = await fetch('/host/projects/locate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id, path, anyway }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: unknown; anyway?: unknown } | null
+    return {
+      ok: false,
+      why: typeof body?.error === 'string' ? body.error : `the host's server answered ${response.status}`,
+      anyway: body?.anyway === true,
+    }
+  }
+  return { ok: true, project: z.object({ project: projectSchema }).parse(await response.json()).project }
+}
 
 /**
  * Put a project's `.kehikot/` into its history, or take it out again.

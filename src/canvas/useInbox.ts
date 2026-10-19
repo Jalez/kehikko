@@ -28,6 +28,8 @@ export interface ProjectRef {
   id: number
   name: string
   path: string
+  /** Its permanent id (2.1.0), what an item's `projectId` names; null or absent when the host has none. */
+  uid?: string | null
 }
 const NO_PROJECTS: readonly ProjectRef[] = []
 
@@ -36,7 +38,7 @@ const folder = (path: string): string => (path.length > 1 ? path.replace(/\/+$/,
 
 /**
  * A tagged list (protocol 1.8.0) as one complete list per project: each item
- * under the project whose folder its `project` names — the open one when it
+ * under the project its `projectId` names (2.1.0), else the one whose folder its `project` names — the open one when it
  * names none — without the field; every project in `before` (where the module
  * reported last time, or holds open items) that it names nothing in now gets `[]`. An item naming a
  * folder no project is in is counted in `unknown` and kept nowhere.
@@ -48,10 +50,16 @@ export function byProject(
   before: readonly number[] = [],
 ): { lists: Map<number, ActivityItem[]>; unknown: number } {
   const byFolder = new Map(projects.map((one) => [folder(one.path), one.id]))
+  /* An item's `projectId` (2.1.0) first: the folder it names may be where the
+     project WAS, and the id is the project wherever it is now. */
+  const byUid = new Map(projects.flatMap((one) => (one.uid ? [[one.uid, one.id] as const] : [])))
   const lists = new Map<number, ActivityItem[]>()
   let unknown = 0
-  for (const { project: path, ...item } of list) {
-    const id = path === undefined ? open : (byFolder.get(folder(path)) ?? null)
+  for (const { project: path, projectId, ...item } of list) {
+    const id =
+      path === undefined
+        ? open
+        : ((projectId !== undefined ? byUid.get(projectId) : undefined) ?? byFolder.get(folder(path)) ?? null)
     if (id === null) {
       unknown += 1
       continue

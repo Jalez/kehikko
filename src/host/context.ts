@@ -3,6 +3,7 @@ import {
   KEHIKKO_KEY,
   partsFor,
   partsSchema,
+  PROJECT_ID,
   passageSchema,
   type CanvasContainer,
   type ContentChange,
@@ -122,6 +123,12 @@ export interface Subject {
 }
 
 export const NO_SUBJECT: Subject = { epic: null, project: null }
+
+/** A project's id as the wire takes it (`PROJECT_ID`), or null: none yet, or one the protocol would refuse. */
+function idOf(project: Project | null): string | null {
+  const id = project?.uid
+  return typeof id === 'string' && PROJECT_ID.test(id) ? id : null
+}
 
 /**
  * The subject, as the wire spells it.
@@ -306,6 +313,10 @@ export function toWireContext(
        have exactly one place that writes them. */
     project: subject.project?.name ?? null,
     projectPath: subject.project?.path ?? null,
+    /* Its permanent id (2.1.0), from the same object for the same reason:
+       what a module keys machine-level state by, so a renamed folder is not
+       a stranger. Null when the host has none for it yet. */
+    projectId: idOf(subject.project),
     theme,
     selection,
     kehikko: wire,
@@ -359,6 +370,7 @@ export function toWireContext(
     epic: null,
     project: subject.project?.name ?? null,
     projectPath: subject.project?.path ?? null,
+    projectId: idOf(subject.project),
     theme,
     selection: [],
     kehikko: wire,

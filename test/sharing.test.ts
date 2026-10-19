@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 
-import { KEHIKOT_IGNORE, ignoresKehikot } from 'kehikot-module-protocol'
+import { KEHIKOT_IGNORE, PROJECT_FILE_IGNORE, ignoresKehikot, ignoresProjectFile, withProjectFileIgnored } from 'kehikot-module-protocol'
 
 import { addProject, forgetProject, listProjects, named, shareKehikot } from '../server/projects.ts'
 import { open as openDb } from '../server/canvases.ts'
@@ -48,20 +48,21 @@ function added(store: Database, dir: string) {
 }
 
 describe('whether a project keeps its .kehikot out of git', () => {
-  test('a folder with no .gitignore is already sharing, and is not given one', () => {
+  test('a folder with no .gitignore is already sharing, and is given only the rule for its id', () => {
     const store = db()
     const dir = project(true)
     const one = added(store, dir)
-    /* The absence of a file is the absence of a rule. Anything else would have
-       the host inventing an ignore nobody wrote in order to report one. */
+    /* The absence of a file is the absence of a rule, so the folder is shared.
+       What the host does write (2.1.0) is the rule that keeps `project.json` out
+       of git — nobody's setting, and not the folder's rule. */
     expect(one.shared).toBe(true)
-    expect(existsSync(join(dir, '.gitignore'))).toBe(false)
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(PROJECT_FILE_IGNORE)
 
     /* And turning ON what is already on writes nothing, so pressing a checkbox
        that is already where you pressed it does not put a file in `git status`. */
     const again = shareKehikot(store, one.id, true)
     expect(again.ok).toBe(true)
-    expect(existsSync(join(dir, '.gitignore'))).toBe(false)
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(PROJECT_FILE_IGNORE)
   })
 
   test('turning it off writes the rule, and turning it back on removes it', () => {
@@ -79,8 +80,13 @@ describe('whether a project keeps its .kehikot out of git', () => {
     const on = shareKehikot(store, one.id, true)
     expect(on.ok && on.project.shared).toBe(true)
     /* The round trip, which is the property that makes this a setting rather
-       than a one-way door: what was there before is what is there after. */
-    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\ndist\n')
+       than a one-way door: what was there before is what is there after —
+       with the id's rule, which was added with the project and which sharing
+       the folder never takes away. */
+    const after = readFileSync(join(dir, '.gitignore'), 'utf8')
+    expect(after).toBe(withProjectFileIgnored('node_modules\ndist\n'))
+    expect(ignoresProjectFile(after)).toBe(true)
+    expect(ignoresKehikot(after)).toBe(false)
   })
 
   test('what the list says is what the file says, not what was stored', () => {
@@ -187,7 +193,8 @@ describe('forgetting a project', () => {
     expect(listProjects(store).map((p) => p.id)).not.toContain(one.id)
 
     expect(existsSync(join(dir, '.kehikot', 'paper', 'thesis', 'main.tex'))).toBe(true)
-    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('dist\n')
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(withProjectFileIgnored('dist\n'))
+    expect(existsSync(join(dir, '.kehikot', 'project.json'))).toBe(true)
   })
 
   /* What it does delete, and why the count comes back: the arrangement of

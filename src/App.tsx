@@ -14,6 +14,7 @@ import { ToolsDialog } from './canvas/Tools.tsx'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
 import { MissingProject } from './canvas/MissingProject.tsx'
+import { Locate } from './canvas/Locate.tsx'
 import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
@@ -53,6 +54,7 @@ import {
   fetchEpics,
   fetchProjects,
   forgetProject,
+  pickedFrom,
   retitleEpic,
   shareProject,
   readOpenProject,
@@ -304,6 +306,21 @@ export function App() {
    */
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
+  /* Which project's folder is being located ("Locate…"), or null. See `Locate.tsx`. */
+  const [locating, setLocating] = useState<number | null>(null)
+  /* Read the projects and the kehikot again, when the server says a project was
+     found where its folder went. Through a ref for `lookRef`'s reason. */
+  const relistRef = useRef<(() => Promise<void>) | null>(null)
+  relistRef.current = async () => {
+    try {
+      const [found, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
+      setProjects(everyProject)
+      setCanvases(found.canvases)
+      setSubjects(found.subjects)
+    } catch {
+      /* The list the page has is the list it had; the next load reads it. */
+    }
+  }
   /**
    * What each project is about — its epic and the refs picked out of it — by
    * project id. Beside the projects and NOT inside the kehikot: the kehikko is
@@ -747,6 +764,9 @@ export function App() {
         inboxWokeRef.current?.(-1, null)
       },
       (project, rev) => inboxWokeRef.current?.(project, rev),
+      /* A project was found again where its folder went, in this window or
+         another: the list, and the kehikot read from the file where it is now. */
+      () => void relistRef.current?.(),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -1610,7 +1630,8 @@ export function App() {
       const ask = askingRef.current
       if (!ask) return
       setAsking(null)
-      ask.settle({ outcome: 'picked', project: { path: project.path, name: project.name }, why: '' })
+      /* Its id too (2.1.0) — see `pickedFrom`. */
+      ask.settle({ outcome: 'picked', project: pickedFrom(project), why: '' })
     },
     [],
   )
@@ -2674,6 +2695,26 @@ export function App() {
    * header naming a project that no longer exists over a canvas that went with
    * it.
    */
+  /**
+   * A project found again where its folder went ("Locate…"). Same row, same
+   * kehikot, same Inbox; only the path changed, so the list is read again and
+   * the page stands in it.
+   */
+  const onLocated = useCallback(async (found: Project) => {
+    setLocating(null)
+    try {
+      const [read, everyProject] = await Promise.all([fetchCanvases(), fetchProjects()])
+      setProjects(everyProject)
+      setCanvases(read.canvases)
+      setSubjects(read.subjects)
+      setProjectId(found.id)
+      setOpenId((was) => (read.canvases.some((c) => c.id === was && c.project === found.id) ? was : chooseOpen(read.canvases, null, found.id)))
+      setTrouble(null)
+    } catch (error) {
+      setTrouble(`The projects could not be read again: ${(error as Error).message}`)
+    }
+  }, [])
+
   const onForgetProject = useCallback(
     async (id: number) => {
       try {
@@ -2935,7 +2976,7 @@ export function App() {
      as if the module had sent it. The record already holds it; this only
      forwards. See `noticeFor`. */
   const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
-  const inboxProjects = useMemo(() => projects.map(({ id, name, path }) => ({ id, name, path })), [projects])
+  const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
   const inbox = useInbox({
     project: projectId,
     projects: inboxProjects,
@@ -3478,6 +3519,7 @@ export function App() {
         onAddProject={(path) => void onAddProject(path)}
         onShareProject={(id, shared) => void onShareProject(id, shared)}
         onForgetProject={(id) => void onForgetProject(id)}
+        onLocateProject={setLocating}
         onOpen={setOpenId}
         onRename={onRename}
         onCreate={() => void onCreate()}
@@ -3552,7 +3594,7 @@ export function App() {
         {/* A project whose folder is gone opens on the sentence, not on a canvas
             whose modules would be pointed at a path that is not there. */}
         {project?.missing ? (
-          <MissingProject project={project} />
+          <MissingProject project={project} onLocate={() => setLocating(project.id)} />
         ) : (
           <>
         {containers.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
@@ -3851,6 +3893,15 @@ export function App() {
           </>
         )}
       </main>
+
+      {/* "Locate…", for a project whose folder is gone. See `Locate.tsx`. */}
+      <Locate
+        project={projects.find((one) => one.id === locating) ?? null}
+        onOpenChange={(open) => {
+          if (!open) setLocating(null)
+        }}
+        onLocated={(found) => void onLocated(found)}
+      />
 
       {/* The prompt dialog, owned by the host. A module cannot open one: its
           page is in an iframe, so a modal it rendered would be clipped to the

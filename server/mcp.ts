@@ -315,7 +315,9 @@ function roster(db: Database): string {
     + canvases
         .map((canvas) => {
           const project = canvas.project === null ? null : projectById(db, canvas.project)
-          const where = project ? ` in ${project.name} (${project.path}${project.missing ? ', folder missing' : ''})` : ''
+          const where = project
+            ? ` in ${project.name} (${project.path}${project.uid ? `, project id ${project.uid}` : ''}${project.missing ? ', folder missing' : ''})`
+            : ''
           return `  ${canvas.id}: ${canvas.name}${where}`
         })
         .join('\n')
@@ -404,7 +406,7 @@ function canvasText(
   lines.push(`kehikko ${canvas.id}: ${canvas.name} — ${how}.`)
   lines.push(
     project
-      ? `project: ${project.name} at ${project.path}${project.missing ? ` — ${MISSING_SAID} Nothing is read from it or written to it until it is found again.` : ''}`
+      ? `project: ${project.name} at ${project.path}${project.uid ? ` (project id ${project.uid}, which stays the same when its folder is renamed or moved)` : ''}${project.missing ? ` — ${MISSING_SAID} Nothing is read from it or written to it until it is found again.` : ''}`
       : 'project: none. This kehikko is in no project, so modules on it are told no folder to work in.',
   )
   /* The project's, not the kehikko's: the epic is picked per project and every

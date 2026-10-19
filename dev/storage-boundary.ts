@@ -35,7 +35,7 @@
  *   `new Database`, …) on the same line as a path anchored at the program's own
  *   location (`import.meta.dir`, `__dirname`, `process.cwd()`, `HERE`, `ROOT`).
  * - `database`: `new Database(` that is not `:memory:`, in a file that never
- *   mentions `KEHIKOT_DIR`/`kehikotDir`/`moduleDir`/`moduleFile`.
+ *   mentions `KEHIKOT_DIR`/`kehikotDir`/`moduleDir`/`moduleFile`/`projectFile`.
  *
  * Comments are skipped (`//`, `/* … *\/`, ` * ` continuation lines, `#` in
  * shell), and so are tests, `dev/` scripts, build output, `node_modules`,
@@ -80,6 +80,15 @@ export interface Repo {
 }
 
 /**
+ * ## The one exception inside a project: `.kehikot/project.json`
+ *
+ * A project's data lives under `.kehikot/<module>/`, written by that module —
+ * with ONE exception: `<project>/.kehikot/project.json` (protocol 2.1.0,
+ * `projectFile`), the project's permanent id, written only by the host
+ * (`server/projectIdentity.ts`) and never committed. Nothing else goes at the
+ * top of `.kehikot/`, and no module writes that file; a module reads the id
+ * from `context.projectId`.
+ *
  * Machine-level state that is allowed outside `.kehikot/`. Matched against the
  * code on the line (comments already stripped). Each entry needs its reason.
  */
@@ -152,7 +161,9 @@ const SKIP_DIRS = new Set([
 ])
 const SKIP_FILE = /\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/
 
-const HELPERS = /\bKEHIKOT_DIR\b|\bkehikotDir\b|\bmoduleDir\b|\bmoduleFile\b/
+/* `projectFile` (protocol 2.1.0) builds `<project>/.kehikot/project.json`, the
+   ONE file outside `.kehikot/<module>/` — see the exception above `ALLOW`. */
+const HELPERS = /\bKEHIKOT_DIR\b|\bkehikotDir\b|\bmoduleDir\b|\bmoduleFile\b|\bprojectFile\b/
 
 const RULES: ReadonlyArray<{ rule: Rule; match: RegExp; shell?: boolean; code?: boolean }> = [
   { rule: 'data-segment', code: true, match: /\b(?:join|resolve|joinPath)\([^;]*?['"`]data['"`]/ },

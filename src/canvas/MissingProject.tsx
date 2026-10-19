@@ -1,5 +1,6 @@
-import { FolderX } from 'lucide-react'
+import { FolderSearch, FolderX } from 'lucide-react'
 
+import { Button } from '@/components/ui/button.tsx'
 import type { Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
 
@@ -29,7 +30,14 @@ export function MissingMark() {
 }
 
 /** What the canvas shows when the open project's folder is gone. */
-export function MissingProject({ project }: { project: Pick<Project, 'name' | 'path'> }) {
+export function MissingProject({
+  project,
+  onLocate,
+}: {
+  project: Pick<Project, 'name' | 'path'>
+  /** "Locate…": the folder browser, to point this project at where its folder went. See `Locate.tsx`. */
+  onLocate?: () => void
+}) {
   return (
     <div
       role="status"
@@ -39,13 +47,15 @@ export function MissingProject({ project }: { project: Pick<Project, 'name' | 'p
       <FolderX className="size-5" aria-hidden />
       <p className="text-foreground">{MISSING_SAID}</p>
       <p className="font-mono text-[11px] break-all">{project.path}</p>
-      {/*
-       * LOCATE — the next change goes here: a "Locate…" button that opens the
-       * folder browser and points this project at where the folder went,
-       * keeping its kehikot. Not built yet; until then the person can forget
-       * the project and add the folder again from the project list.
-       */}
       <p className="text-[11px]">Nothing is written there while it is missing.</p>
+      {/* Where the folder went, said by the person: the host checks that the
+          folder carries this project's id, and keeps its kehikot and Inbox. */}
+      {onLocate ? (
+        <Button variant="outline" size="sm" className="mt-1 h-7 gap-1.5 text-xs" onClick={onLocate}>
+          <FolderSearch className="size-3.5" aria-hidden />
+          Locate…
+        </Button>
+      ) : null}
     </div>
   )
 }
