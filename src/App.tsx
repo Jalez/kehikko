@@ -16,6 +16,7 @@ import { Missing } from './canvas/Missing.tsx'
 import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
 import { Followed } from './canvas/Followed.tsx'
+import { WentTo } from './canvas/WentTo.tsx'
 import type { CanvasControls, Folded } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
@@ -76,6 +77,7 @@ import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
+import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
 import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
 import { fetchLog } from './host/inboxClient.ts'
@@ -3055,64 +3057,64 @@ export function App() {
       worst: worstActivity(live.map((one) => one.state)),
     }
   }, [inbox.live, about.epic, held])
-  const revealContainer = useCallback(
-    (module: string) => {
-      const flash = () => {
-        const element = [...document.querySelectorAll<HTMLElement>('[data-module]')].find(
-          (one) => one.dataset.module === module,
-        )
-        if (!element) return
-        element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-        element.setAttribute('data-activity-flash', '')
-        window.setTimeout(() => element.removeAttribute('data-activity-flash'), 1600)
-      }
-      if (open?.placements.some((p) => p.i === module)) return flash()
-      const other = here.find((one) => one.placements.some((p) => p.i === module))
-      if (!other) return
-      setOpenId(other.id)
-      window.setTimeout(flash, 300)
-    },
-    [open, here],
-  )
+  /* Light a module's container on the open kehikko: after a move, once the screen has caught up. */
+  const flashContainer = useCallback((module: string, later: boolean) => {
+    const flash = () => {
+      const element = [...document.querySelectorAll<HTMLElement>('[data-module]')].find(
+        (one) => one.dataset.module === module,
+      )
+      if (!element) return
+      element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      element.setAttribute('data-activity-flash', '')
+      window.setTimeout(() => element.removeAttribute('data-activity-flash'), 1600)
+    }
+    if (later) window.setTimeout(flash, 300)
+    else flash()
+  }, [])
   /* Whether the Inbox's panel is open, held here so that the keyboard can open it. */
   const [inboxOpen, setInboxOpen] = useState(false)
-  const goToEntry = useCallback(
-    (entry: Entry) => {
-      if (entry.state === 'done') inbox.see([entry])
-      setInboxOpen(false)
-      const place = entry.place
-      if (place?.epic !== undefined) {
-        /* An item that names an epic and no parts is about the whole epic, so
-           the picked parts are cleared rather than left narrowing it. */
-        gotoRef.current({ epic: place.epic, parts: place.parts ?? [], kehikko: place.kehikko })
-        return
-      }
-      if (place?.kehikko !== undefined) {
-        const target = here.find((one) => one.key === place.kehikko)
-        if (target) {
-          setOpenId(target.id)
-          return
-        }
-      }
-      revealContainer(entry.module)
-    },
-    [inbox, here, revealContainer],
-  )
   /*
    * An item of another project: that project is opened, and once its epics
    * have been read again — `held` goes to null on the switch and back — the
    * item is gone to as any other. Never on the epics of the project left.
    */
   const goElsewhere = useRef<{ project: number; entry: Entry; cleared: boolean } | null>(null)
-  const goToElsewhere = useCallback(
-    (project: number, entry: Entry) => {
-      if (entry.state === 'done') inbox.see([entry], project)
-      setInboxOpen(false)
+  /*
+   * Pressing an item goes to where it happened (`host/goToPlace.ts`): its
+   * project, its kehikko by key, its epic and parts, and then its module's
+   * container is lit THERE — with the pickers' own functions. Where that stops
+   * short, or the item named no place, a line says so (`WentTo`).
+   */
+  const placeGo = useGoToPlace({
+    here: { project: projectId, epic: about.epic, parts: about.parts, kehikko: open?.key ?? null },
+    targetOf: (project) => ({
+      project,
+      kehikot: inProject(canvases, project).flatMap((one) =>
+        one.key === undefined ? [] : [{ key: one.key, name: one.name, modules: one.placements.map((p) => p.i) }],
+      ),
+      epics: project === projectId && held ? held.epics.map((one) => one.slug) : null,
+    }),
+    switchProject: (project, entry) => {
       goElsewhere.current = { project, entry, cleared: false }
       onProject(project)
     },
-    [inbox, onProject],
+    openKehikko: (key) => {
+      const target = here.find((one) => one.key === key)
+      if (target) setOpenId(target.id)
+    },
+    goto: (call) => gotoRef.current(call),
+    highlight: flashContainer,
+  })
+  const goToEntry = useCallback(
+    (entry: Entry, project: number | null = projectId) => {
+      if (project === null) return
+      if (entry.state === 'done') inbox.see([entry], project)
+      setInboxOpen(false)
+      placeGo.go(entry, project)
+    },
+    [inbox, projectId, placeGo.go],
   )
+  const goToElsewhere = useCallback((project: number, entry: Entry) => goToEntry(entry, project), [goToEntry])
   useEffect(() => {
     const pending = goElsewhere.current
     if (!pending || pending.project !== projectId) return
@@ -3122,8 +3124,8 @@ export function App() {
     }
     if (!pending.cleared) return
     goElsewhere.current = null
-    goToEntry(pending.entry)
-  }, [projectId, held, goToEntry])
+    placeGo.go(pending.entry, pending.project)
+  }, [projectId, held, placeGo.go])
   /* Which scope the Inbox shows. The default is everywhere: what is going on in
      other kehikot, parts and epics is the point, one press from "This kehikko".
      Only a person who narrowed it is remembered, per project, in this browser. */
@@ -3201,7 +3203,7 @@ export function App() {
         next: nextEntry,
         open: inboxOpen,
         onOpenChange: setInboxOpen,
-        onGo: goToEntry,
+        onGo: (entry) => goToEntry(entry),
         onNext: () => goNextRef.current(),
         onSee: inbox.see,
         onDismiss: inbox.dismiss,
@@ -3948,6 +3950,7 @@ export function App() {
       {/* A project whose folder was renamed or moved, followed there by the
           host itself; said once. See `Followed.tsx`. */}
       <Followed projects={projects} />
+      <WentTo note={placeGo.note} onClose={placeGo.clearNote} />
 
       {/* The project picker a module gets instead of a listing. Owned by the
           host for the reason every dialog here is — a modal inside a 220-pixel
