@@ -87,3 +87,13 @@ export function installsDir(env: Env = process.env): string {
 export function officialListFile(env: Env = process.env): string {
   return env.KEHIKOT_OFFICIAL_CACHE || join(machineDir(env), 'official-modules.json')
 }
+
+/**
+ * Where the Browser module keeps its Chromium profile, so its logins survive a
+ * restart (kehikko-browser `browser/engine.ts`, `profileDir`). Not this host's
+ * to write: the host only measures it for the storage overview
+ * (`server/storage.ts`). `KEHIKOT_BROWSER_PROFILE` points it elsewhere (tests).
+ */
+export function browserProfileDir(env: Env = process.env): string {
+  return env.KEHIKOT_BROWSER_PROFILE || join(machineDir(env), 'browser-profile') // kehikot-storage: allow the Browser module's profile, measured read-only for the storage overview
+}

@@ -207,6 +207,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
       { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
       { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
+      { method: 'POST', path: '/host/storage', body: {} },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },
@@ -257,6 +258,11 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('DELETE', '/host/projects', { id: added.body.project.id })).status).toBe(200)
 
     expect((await pressed('POST', '/host/epics', { project, slug: 'two', title: 'Two' })).status).toBe(201)
+    /* The storage overview answers the page, measured and read-only. */
+    const measured = await pressed('POST', '/host/storage', {})
+    expect(measured.status).toBe(200)
+    expect(Array.isArray(measured.body.projects)).toBe(true)
+    expect(Array.isArray(measured.body.machine.parts)).toBe(true)
     expect((await pressed('PATCH', '/host/epics', { project, slug: 'two', title: 'Second' })).body.epic.title).toBe('Second')
     expect((await pressed('PATCH', '/host/subject', { project, epic: 'two' })).body.subject.epic).toBe('two')
     /* The picker's edit of an epic's parts: the protocol's result, and the row as it now reads. */

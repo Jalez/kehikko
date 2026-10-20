@@ -52,7 +52,7 @@
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
-  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
@@ -192,6 +192,17 @@
   Older hosts strip the key and read the repository: additive, not breaking.
 - The words a person is told about a source (`rolesOf`, `readSaid`) live in
   `src/host/trackerSources.ts`, shared by the panel and the MCP tools.
+
+## The storage overview
+- What every module's data takes in every project, and Kehikot's machine data:
+  measured by `server/storage.ts` (async, never at startup, a time and entry
+  budget, symlinks counted and never followed, cached 30 s); shapes and words in
+  `src/host/storage.ts`, shared by the page (`src/canvas/Storage.tsx`, "storage…"
+  in the projects menu) and the door's read-only `storage` tool. The route is
+  `POST /host/storage`, in `PAGE_ONLY`.
+- Read-only. Never add a delete here: clearing data is the module's own job. A
+  module offers its own storage view with a header `switch`/`go` option whose
+  id is `storage` (`storageViewOf`); the view links to it.
 
 ## Release notes
 

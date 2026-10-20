@@ -320,6 +320,7 @@ describe('the host’s server, running', () => {
         'set_my_place',
         'set_parts',
         'set_tracker_source',
+        'storage',
       ])
 
       /* The POST route reaches the host's door too — refused here, before
