@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { isLoopback, parseRegistrationBody, readRegistration } from '../server/registrations.ts'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { idOfFile, isLoopback, parseRegistrationBody, readRegistration, readRegistrations } from '../server/registrations.ts'
 
 /**
  * How the host finds anything at all.
@@ -86,5 +90,28 @@ describe('loopback, written out rather than guessed at', () => {
     for (const host of ['example.com', '10.0.0.1', '0.0.0.0', '127.example.com', '1270.0.0.1']) {
       expect(isLoopback(host)).toBe(false)
     }
+  })
+})
+
+describe('a sweep that could not read the folder says so', () => {
+  test('a missing folder is nothing registered; an unreadable one is not knowing', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'kehikko-registry-'))
+    expect((await readRegistrations(join(base, 'none'))).unreadable).toBeUndefined()
+    const locked = join(base, 'locked')
+    mkdirSync(locked)
+    writeFileSync(join(locked, 'kehikot.notes.json'), '{"url":"http://127.0.0.1:7811"}')
+    chmodSync(locked, 0o000)
+    try {
+      const swept = await readRegistrations(locked)
+      if (process.getuid?.() !== 0) expect(swept.unreadable).toBe(true)
+    } finally {
+      chmodSync(locked, 0o755)
+    }
+    expect((await readRegistrations(locked)).unreadable).toBeUndefined()
+  })
+
+  test('a file the host would not use still names its module', () => {
+    expect(idOfFile('/x/kehikot.notes.json')).toBe('kehikot.notes')
+    expect(idOfFile('/x/kehikot.notes.yaml')).toBe('kehikot.notes')
   })
 })

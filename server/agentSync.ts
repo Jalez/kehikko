@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { readdirSync } from 'node:fs'
 
 import type { ModuleSkill } from 'kehikot-module-protocol'
 
@@ -15,7 +16,7 @@ import {
   type ToolState,
 } from '../src/host/agentSettings.ts'
 import type { Inbox } from './inbox.ts'
-import { forgetMade, madeEntries, readSettings, recordMade, type Made } from './agentSettings.ts'
+import { forgetLeft, forgetMade, leftSkills, madeEntries, readSettings, recordLeft, recordMade, type Made } from './agentSettings.ts'
 import { awarenessAt, connect, disconnect, repoint, runClaude, type Door, type Ran, type Runner } from './register.ts'
 import { fetchSkillText, readLocal, sha256, statusOf, syncSkill } from './skills.ts'
 
@@ -53,6 +54,15 @@ import { fetchSkillText, readLocal, sha256, statusOf, syncSkill } from './skills
  * and a name Kehikot did not install are never written over. Those are said,
  * and left.
  *
+ * A module that is not running is connected from the door it had when it last
+ * ran (`knownDoors` in `known.ts`), at the address its registration gives now;
+ * when it starts and its door is somewhere else, Kehikot's entry is re-pointed.
+ *
+ * Skills of a module that is no longer registered (`tidySkills`) are removed —
+ * whatever the settings say, because Kehikot installed them — but only an
+ * untouched install whose marker names that module. One the person changed is
+ * left, and said once.
+ *
  * Every change is one line in the Inbox (`tell`). What could not be done is the
  * one quiet item (`trouble`), cleared when nothing is wrong.
  */
@@ -88,6 +98,12 @@ export interface SyncDeps {
   tell(line: string): void
   /** What could not be done, as the one quiet item; empty clears it. */
   trouble(problems: string[]): void
+  /**
+   * Every module id the registry holds now, a file it would not read included,
+   * or null when the registry could not be read. Asked after `modules`. Absent:
+   * no skill is ever tidied away.
+   */
+  registry?(): ReadonlySet<string> | null
 }
 
 /** What one run found and did. `transient`: something is worth trying again. */
@@ -170,7 +186,9 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
       if (auto) problems.push(one.refusal)
       return excepted ? 'excepted' : 'refused'
     }
-    if (!one.answering) return excepted ? 'excepted' : 'asleep'
+    /* Not running and no door remembered: nothing to connect yet. One that is
+       not running WITH a door is connected from it, as if it were. */
+    if (!one.answering && !one.door) return excepted ? 'excepted' : 'asleep'
     const door = one.door
     if (!door) return null
     const aw = awarenessAt(door, known)
@@ -273,8 +291,68 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
     return out
   }
 
+  const registry = deps.registry?.() ?? null
+  if (registry) {
+    const tidied = tidySkills(deps.db, deps.skillsRoot(), registry, tell)
+    problems.push(...tidied.problems)
+    if (tidied.problems.length) transient = true
+  }
+
   deps.trouble(problems)
   return { status: { at: Date.now(), running: false, modules: rows, problems }, told, transient }
+}
+
+/**
+ * The skills of modules no longer registered: each untouched install whose
+ * marker names such a module is removed through `syncSkill`, which refuses
+ * anything else; one the person changed is left and said once (`skill_left`).
+ *
+ * Not held to the settings: Kehikot installed these — from the sync or from a
+ * press in a module's Skills window — so it takes them away with the module.
+ * A folder with no marker, or one naming a module still registered, is never
+ * looked at twice.
+ */
+export function tidySkills(
+  db: Database,
+  root: string,
+  registry: ReadonlySet<string>,
+  tell: (line: string) => void,
+): { removed: string[]; left: string[]; problems: string[] } {
+  const removed: string[] = []
+  const left: string[] = []
+  const problems: string[] = []
+  const said = leftSkills(db)
+  let names: string[]
+  try {
+    names = readdirSync(root, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? [entry.name] : []))
+  } catch {
+    names = []
+  }
+  const still = new Set<string>()
+  for (const name of names.sort()) {
+    const marker = readLocal(root, name, '').marker
+    if (!marker || registry.has(marker.module)) continue
+    const local = readLocal(root, name, marker.module)
+    if (local.kind === 'edited') {
+      still.add(name)
+      left.push(name)
+      if (said.get(name) !== marker.module) {
+        recordLeft(db, name, marker.module)
+        tell(`Left the /${name} skill (${root}/${name}): ${marker.module}, which installed it, is no longer installed, and you changed it`)
+      }
+      continue
+    }
+    if (local.kind !== 'ours') continue
+    const done = syncSkill(root, marker.module, { name, summary: '', version: marker.version }, 'remove')
+    if (done.ok) {
+      removed.push(name)
+      tell(`Removed the /${name} skill: ${marker.module}, which installed it, is no longer installed`)
+    } else {
+      problems.push(`The /${name} skill of ${marker.module}, which is no longer installed, could not be removed: ${done.why}`)
+    }
+  }
+  for (const name of said.keys()) if (!still.has(name)) forgetLeft(db, name)
+  return { removed, left, problems }
 }
 
 export interface SyncTiming {

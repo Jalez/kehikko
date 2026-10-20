@@ -152,8 +152,10 @@ export const FIRST_QUESTION = {
  * - `connected`: the agent's list has an entry pointing at it.
  * - `missing`: it has none (and the sync is not keeping it, or has not run yet).
  * - `excepted`: the person left this module out.
- * - `asleep`: the module is not answering, so its door cannot be read. It is
- *   connected the next time it runs.
+ * - `asleep`: the module is not answering and has never been seen running, so
+ *   where its door is is not known. It is connected the next time it runs. A
+ *   module that is not answering and HAS run is connected from the door it had
+ *   then, and is `connected` (`toolSays` adds "not running now").
  * - `conflict`: an entry of its name points elsewhere and Kehikot did not make it.
  * - `refused`: the name its manifest asks for is taken (`nameRefusal`).
  * - `failed`: the claude command did not do it; tried again later.
@@ -206,12 +208,20 @@ export const EMPTY_STATUS: SyncStatus = { at: null, running: false, modules: [],
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
-/** "14 connected, 1 left to you" — the tools section's status line. */
+/** One module's tools, in words: a connected module that is stopped says so. */
+export function toolSays(row: Pick<ModuleSync, 'tools' | 'answering'>): string {
+  if (!row.tools) return ''
+  if (row.tools === 'connected' && !row.answering) return 'Connected (not running now)'
+  return TOOL_STATE_SAYS[row.tools]
+}
+
+/** "14 connected (3 not running now), 1 left to you" — the tools section's status line. */
 export function toolsSaid(status: SyncStatus): string {
   const states = status.modules.flatMap((one) => (one.tools ? [one.tools] : []))
   if (states.length === 0) return status.at === null ? 'Not looked yet.' : 'No module offers tools.'
   const by = (state: ToolState) => states.filter((one) => one === state).length
-  const parts = [`${by('connected')} connected`]
+  const stopped = status.modules.filter((one) => one.tools === 'connected' && !one.answering).length
+  const parts = [`${by('connected')} connected${stopped ? ` (${stopped} not running now)` : ''}`]
   if (by('missing')) parts.push(`${by('missing')} not connected`)
   if (by('excepted')) parts.push(`${by('excepted')} left to you`)
   if (by('asleep')) parts.push(`${by('asleep')} not running`)

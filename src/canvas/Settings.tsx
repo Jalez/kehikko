@@ -13,7 +13,7 @@ import {
   SKILL_STATE_SAYS,
   skillsSaid,
   START_HOOK_WHERE,
-  TOOL_STATE_SAYS,
+  toolSays,
   toolsSaid,
   type AgentSettings,
   type SettingsAnswer,
@@ -291,7 +291,7 @@ export function SettingsBody({ answer, busy, onChange }: { answer: SettingsAnswe
         {doors.length ? (
           <Exceptions
             label="Which modules"
-            rows={doors.map((one) => ({ id: one.id, name: one.name, says: TOOL_STATE_SAYS[one.tools!], out: settings.tools.except.includes(one.id) }))}
+            rows={doors.map((one) => ({ id: one.id, name: one.name, says: toolSays(one), out: settings.tools.except.includes(one.id) }))}
             keep="keep connected"
             disabled={busy || !active(settings, 'tools')}
             onOut={(module, out) => onChange({ except: { kind: 'tools', module, out } })}

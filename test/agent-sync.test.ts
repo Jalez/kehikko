@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { skillPath, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { claudeSettingsFile, ensureSettings, madeEntries, readSettings, recordMade, settingsRoute, startHook, writeSettings } from '../server/agentSettings.ts'
-import { AgentSync, fingerprintOf, settingsInbox, syncOnce, type ModuleSeen, type SyncDeps } from '../server/agentSync.ts'
+import { AgentSync, fingerprintOf, settingsInbox, syncOnce, tidySkills, type ModuleSeen, type SyncDeps } from '../server/agentSync.ts'
 import { open } from '../server/canvases.ts'
 import { PAGE_ONLY, refusal, type Own } from '../server/guard.ts'
 import { Inbox } from '../server/inbox.ts'
@@ -20,6 +20,7 @@ import {
   settingsPatched,
   skillsSaid,
   SYNC_TROUBLE_ID,
+  toolSays,
   toolsSaid,
   type AgentSettings,
 } from '../src/host/agentSettings.ts'
@@ -272,6 +273,96 @@ describe('skills, kept installed and up to date', () => {
       expect(at.told).toEqual([])
       expect(ran.status.modules[0]!.skills[0]!.state).toBe(settings.asked ? 'excepted' : 'absent')
     }
+  })
+})
+
+describe('a module that is not running', () => {
+  test('is connected from the door it had when it last ran, and says so', async () => {
+    const at = setup([mod('kehikot.notes', 7802, { answering: false, version: null })])
+    const ran = await syncOnce(at.deps)
+    expect(at.claude.calls).toEqual([['mcp', 'add', '--scope', 'user', '--transport', 'http', 'notes', 'http://127.0.0.1:7802/mcp']])
+    expect(at.told).toEqual(['Connected Notes’s tools for Claude Code'])
+    expect(madeEntries(at.db).map((one) => one.url)).toEqual(['http://127.0.0.1:7802/mcp'])
+    const row = ran.status.modules[0]!
+    expect(row).toMatchObject({ tools: 'connected', answering: false })
+    expect(toolSays(row)).toBe('Connected (not running now)')
+    expect(toolsSaid(ran.status)).toBe('1 connected (1 not running now)')
+  })
+
+  test('when it starts with its door somewhere else, Kehikot’s entry is re-pointed', async () => {
+    const at = setup([mod('kehikot.notes', 7802, { answering: false, version: null })])
+    await syncOnce(at.deps)
+    at.state.seen = [mod('kehikot.notes', 7812)]
+    const ran = await syncOnce(at.deps)
+    expect(at.claude.calls.slice(1)).toEqual([
+      ['mcp', 'remove', 'notes'],
+      ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'notes', 'http://127.0.0.1:7812/mcp'],
+    ])
+    expect(toolSays(ran.status.modules[0]!)).toBe('Connected')
+  })
+
+  test('one never seen running has no door to connect: still “not running”', async () => {
+    const at = setup([mod('kehikot.notes', 7802, { answering: false, door: null, version: null })])
+    const ran = await syncOnce(at.deps)
+    expect(at.claude.calls).toEqual([])
+    expect(toolSays(ran.status.modules[0]!)).toBe('Not running')
+  })
+})
+
+describe('skills of an uninstalled module', () => {
+  async function installed(names: string[], module = 'kehikot.notes') {
+    const table = Object.fromEntries(names.map((name) => [name, skillText(name)]))
+    const at = setup([mod(module, 7830, { door: null, skills: names.map((name) => skill(name)) })], ON, fakeClaude(), table)
+    await syncOnce(at.deps)
+    at.told.length = 0
+    return at
+  }
+
+  test('untouched installs are removed, an edited one is left and said once, whatever the settings', async () => {
+    const at = await installed(['tidy', 'kept'])
+    writeFileSync(join(at.root, 'kept', 'SKILL.md'), 'my own words\n')
+    /* The person's own skill with no marker, and another registered module's. */
+    mkdirSync(join(at.root, 'own'))
+    writeFileSync(join(at.root, 'own', 'SKILL.md'), 'mine\n')
+    writeSettings(at.db, { ...DEFAULT_SETTINGS, skills: { auto: false, except: [] } })
+    at.state.seen = []
+    at.deps.registry = () => new Set(['kehikot.other'])
+    await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'tidy'))).toBe(false)
+    expect(readFileSync(join(at.root, 'kept', 'SKILL.md'), 'utf8')).toBe('my own words\n')
+    expect(existsSync(join(at.root, 'own', 'SKILL.md'))).toBe(true)
+    expect(at.told).toEqual([
+      `Left the /kept skill (${at.root}/kept): kehikot.notes, which installed it, is no longer installed, and you changed it`,
+      'Removed the /tidy skill: kehikot.notes, which installed it, is no longer installed',
+    ])
+    at.told.length = 0
+    await syncOnce(at.deps)
+    expect(at.told).toEqual([])
+  })
+
+  test('a registered module’s skills, and every skill when the registry could not be read, stay', async () => {
+    const at = await installed(['stay'])
+    at.deps.registry = () => new Set(['kehikot.notes'])
+    await syncOnce(at.deps)
+    at.deps.registry = () => null
+    at.state.seen = []
+    await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'stay', 'SKILL.md'))).toBe(true)
+    expect(at.told).toEqual([])
+  })
+
+  test('tidySkills removes only through the marker’s own module', () => {
+    const db = new Database(':memory:')
+    ensureSettings(db)
+    const root = freshRoot()
+    mkdirSync(join(root, 'odd'))
+    const text = skillText('odd')
+    writeFileSync(join(root, 'odd', 'SKILL.md'), text)
+    writeFileSync(join(root, 'odd', MARKER), JSON.stringify({ module: 'kehikot.gone', name: 'odd', version: '1', sha256: sha256(text) }))
+    const lines: string[] = []
+    expect(tidySkills(db, root, new Set(['kehikot.gone']), (line) => lines.push(line)).removed).toEqual([])
+    expect(tidySkills(db, root, new Set(), (line) => lines.push(line)).removed).toEqual(['odd'])
+    expect(lines).toEqual(['Removed the /odd skill: kehikot.gone, which installed it, is no longer installed'])
   })
 })
 

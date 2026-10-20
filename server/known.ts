@@ -59,6 +59,15 @@ export function ensureKnown(db: Database): void {
   const has = new Set(db.query<{ name: string }, []>('pragma table_info(known_modules)').all().map((c) => c.name))
   if (!has.has('summary')) db.exec("alter table known_modules add column summary text not null default ''")
   if (!has.has('tags')) db.exec("alter table known_modules add column tags text not null default '[]'")
+  db.exec(`
+    create table if not exists known_doors (
+      id        text primary key,
+      path      text not null,
+      transport text not null,
+      as_name   text,
+      seen      integer not null
+    )
+  `)
 }
 
 /** What the host keeps about a module for when it is not answering. */
@@ -120,4 +129,98 @@ export function forgetUnregistered(db: Database, ids: readonly string[]): void {
   for (const id of known(db).keys()) {
     if (!keep.has(id)) db.query('delete from known_modules where id = ?').run(id)
   }
+  for (const id of knownDoors(db).keys()) {
+    if (!keep.has(id)) forgetDoor(db, id)
+  }
+}
+
+/**
+ * Where a module's MCP door was, the last time it was running.
+ *
+ * ## Why this one is remembered, when the tools are not
+ *
+ * The essay above refuses to repeat for a sleeping module what it OFFERS. The
+ * door is remembered for one use that is not a claim of that kind: keeping an
+ * entry in the person's agent (Settings, `agentSync.ts`) while the module is
+ * stopped, so a module that sleeps most of the time is not one the agent
+ * forgets most of the time. Nothing says the module is answering because its
+ * door is remembered; the Settings line says "connected (not running now)".
+ *
+ * ## What is kept, and why not the address
+ *
+ * The door's PATH on the module's origin, its transport and the name it asks
+ * for (`mcp.as`). Not the url: a door is same-origin by the protocol
+ * (`resolveOnOrigin`), and the origin is the registration's, which a module's
+ * start script rewrites when it has to move port. So the address is derived
+ * every time from the registration as it is now (`doorAt`), and a module that
+ * moved while asleep is pointed at where it will answer.
+ *
+ * ## Why not read it without the module ever having run
+ *
+ * The registration says only where a module answers, and a manifest is built
+ * by the module's own code (`manifest.ts`), not a file a host can read without
+ * running it. Reading that source as text would be guessing at a program. So a
+ * module never seen running has no door here until its first run.
+ *
+ * Replaced on every sweep that reads a manifest; forgotten when the running
+ * module declares no door, and with its registration.
+ */
+export interface KnownDoor {
+  path: string
+  transport: string
+  /** The name its manifest asks for, or null for the one its id derives. */
+  as: string | null
+}
+
+export function rememberDoor(db: Database, id: string, door: KnownDoor, now = Date.now()): void {
+  if (!id || !door.path || !door.transport) return
+  db.query(
+    `insert into known_doors (id, path, transport, as_name, seen) values (?, ?, ?, ?, ?)
+     on conflict(id) do update set path = excluded.path, transport = excluded.transport, as_name = excluded.as_name, seen = excluded.seen`,
+  ).run(id, door.path, door.transport, door.as, now)
+}
+
+export function forgetDoor(db: Database, id: string): void {
+  db.query('delete from known_doors where id = ?').run(id)
+}
+
+export function knownDoors(db: Database): Map<string, KnownDoor> {
+  const rows = db
+    .query<{ id: string; path: string; transport: string; as_name: string | null }, []>('select id, path, transport, as_name from known_doors')
+    .all()
+  return new Map(rows.map((row) => [row.id, { path: row.path, transport: row.transport, as: row.as_name }]))
+}
+
+/** What a running module's manifest says of its door, as kept: the path of its resolved url. */
+export function doorKept(mcp: { url: string; transport: string; as?: string }): KnownDoor | null {
+  try {
+    const url = new URL(mcp.url)
+    return { path: `${url.pathname}${url.search}`, transport: mcp.transport, as: mcp.as ?? null }
+  } catch {
+    return null
+  }
+}
+
+/** The address a remembered door has now: its path on the registration's origin. Null when they do not make one. */
+export function doorAt(origin: string, door: KnownDoor): string | null {
+  try {
+    const base = new URL(origin)
+    const url = new URL(door.path, base)
+    return url.origin === base.origin ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A stopped module's door as a manifest would have said it: the remembered
+ * path at the registration's origin now, with its transport and name. Null when
+ * nothing is remembered or the two do not make an address.
+ */
+export function rememberedMcp(
+  kept: KnownDoor | undefined,
+  origin: string | undefined,
+): { url: string; transport: string; as?: string } | null {
+  const url = kept && origin ? doorAt(origin, kept) : null
+  return kept && url ? { url, transport: kept.transport, ...(kept.as ? { as: kept.as } : {}) } : null
 }

@@ -49,7 +49,31 @@ export function ensureSettings(db: Database): void {
       at       integer not null,
       primary key (provider, module)
     );
+    create table if not exists skill_left (
+      name   text primary key,
+      module text not null,
+      at     integer not null
+    );
   `)
+}
+
+/**
+ * Skills of an uninstalled module that the person changed, so they were left
+ * where they are — remembered so that is said once, not on every run.
+ */
+export function leftSkills(db: Database): Map<string, string> {
+  const rows = db.query<{ name: string; module: string }, []>('select name, module from skill_left').all()
+  return new Map(rows.map((row) => [row.name, row.module]))
+}
+
+export function recordLeft(db: Database, name: string, module: string, now = Date.now()): void {
+  db.query(
+    'insert into skill_left (name, module, at) values (?, ?, ?) on conflict (name) do update set module = excluded.module, at = excluded.at',
+  ).run(name, module, now)
+}
+
+export function forgetLeft(db: Database, name: string): void {
+  db.query('delete from skill_left where name = ?').run(name)
 }
 
 export function readSettings(db: Database): AgentSettings {

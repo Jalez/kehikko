@@ -66,7 +66,7 @@ function answer(over: Partial<SettingsAnswer> = {}): SettingsAnswer {
       problems: ['The /mine skill from Claude was changed by you, so Kehikot does not update it.'],
       modules: [
         { id: 'kehikko', name: 'Kehikot', tools: 'connected', skills: [], answering: true },
-        { id: 'kehikot.browser', name: 'Browser', tools: 'connected', skills: [], answering: true },
+        { id: 'kehikot.browser', name: 'Browser', tools: 'connected', skills: [], answering: false },
         { id: 'kehikot.notes', name: 'Notes', tools: 'excepted', skills: [], answering: true },
         { id: 'kehikot.claude', name: 'Claude', tools: null, skills: [{ name: 'kehikot-here', state: 'installed' }, { name: 'mine', state: 'edited' }], answering: true },
       ],
@@ -148,7 +148,8 @@ test('Settings: agents, tools and skills with status in words and exceptions, an
   }
   expect(body.textContent).toContain('Set up Claude Code')
   expect(body.textContent).toContain('More agents are coming')
-  expect(body.querySelector('[data-status="tools"]')!.textContent).toBe('2 connected, 1 left to you')
+  expect(body.querySelector('[data-status="tools"]')!.textContent).toBe('2 connected (1 not running now), 1 left to you')
+  expect(body.querySelector('[data-module="kehikot.browser"]')!.textContent).toContain('Connected (not running now)')
   expect(body.querySelector('[data-status="skills"]')!.textContent).toBe('1 installed, 1 changed by you')
   expect(body.querySelector('[data-hook="off"]')).not.toBeNull()
   expect(body.textContent).toContain('Report them')

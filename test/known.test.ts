@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 
-import { ensureKnown, forgetUnregistered, known, remember } from '../server/known.ts'
+import { doorAt, doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from '../server/known.ts'
 
 /**
  * Remembering what a module is called.
@@ -92,5 +92,38 @@ describe('what a module is called', () => {
     remember(db, 'kehikot.paper', 'Paper')
     ensureKnown(db)
     expect(known(db).get('kehikot.paper')?.name).toBe('Paper')
+  })
+})
+
+describe('where a module’s door was', () => {
+  test('kept as a path, and given back at the registration’s origin as it is now', () => {
+    const db = fresh()
+    const kept = doorKept({ url: 'http://127.0.0.1:7861/mcp?x=1', transport: 'http', as: 'kehikko-claude' })!
+    expect(kept).toEqual({ path: '/mcp?x=1', transport: 'http', as: 'kehikko-claude' })
+    rememberDoor(db, 'kehikot.claude', kept)
+    expect(rememberedMcp(knownDoors(db).get('kehikot.claude'), 'http://127.0.0.1:7999')).toEqual({
+      url: 'http://127.0.0.1:7999/mcp?x=1',
+      transport: 'http',
+      as: 'kehikko-claude',
+    })
+  })
+
+  test('nothing remembered, no origin, or a path that leaves the origin, is no door', () => {
+    expect(rememberedMcp(undefined, 'http://127.0.0.1:7999')).toBeNull()
+    expect(rememberedMcp({ path: '/mcp', transport: 'http', as: null }, undefined)).toBeNull()
+    expect(doorAt('http://127.0.0.1:7999', { path: '//example.org/mcp', transport: 'http', as: null })).toBeNull()
+    expect(rememberedMcp({ path: '/mcp', transport: 'http', as: null }, 'http://127.0.0.1:7999')).toEqual({ url: 'http://127.0.0.1:7999/mcp', transport: 'http' })
+  })
+
+  test('replaced by the next reading, forgotten on its own and with the registration', () => {
+    const db = fresh()
+    rememberDoor(db, 'kehikot.notes', { path: '/mcp', transport: 'http', as: null })
+    rememberDoor(db, 'kehikot.notes', { path: '/door', transport: 'sse', as: 'notes2' })
+    rememberDoor(db, 'kehikot.paper', { path: '/mcp', transport: 'http', as: null })
+    expect(knownDoors(db).get('kehikot.notes')).toEqual({ path: '/door', transport: 'sse', as: 'notes2' })
+    forgetUnregistered(db, ['kehikot.notes'])
+    expect([...knownDoors(db).keys()]).toEqual(['kehikot.notes'])
+    forgetDoor(db, 'kehikot.notes')
+    expect(knownDoors(db).size).toBe(0)
   })
 })
