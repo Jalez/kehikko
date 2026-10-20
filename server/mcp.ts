@@ -1,4 +1,5 @@
 import type { ActivityRow } from '../src/host/activity.ts'
+import { storageText, type StorageReport } from '../src/host/storage.ts'
 import type { Database } from 'bun:sqlite'
 import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
 
@@ -246,6 +247,11 @@ export interface Door {
    * nobody was looking. Read-only here. See `server/inbox.ts`.
    */
   inbox?: Inbox
+  /**
+   * The storage overview, for `storage`: every project's `.kehikot/` by module
+   * and this machine's Kehikot data. Read-only. See `server/storage.ts`.
+   */
+  storage?(fresh: boolean): Promise<StorageReport>
   /** The shared tracker reading, for `read_tracker`. Absent, the tool says so. */
   trackers?: TrackerDoor
   /** A module's versions and a container's pin, for `module_versions` and `pin_version`. See `pins.ts`. */
@@ -292,6 +298,7 @@ export const TOOL_NAMES = [
   'read_inbox',
   'my_place',
   'set_my_place',
+  'storage',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -754,6 +761,24 @@ function tools() {
           parts: { type: 'array', items: { type: 'string' }, description: 'Part ids of that epic, as read_canvas prints them. Left out: the whole epic.' },
         },
         required: ['epic'],
+      },
+    },
+    {
+      name: 'storage',
+      description:
+        'How much room Kehikot data takes on this machine: for every project this host knows, the size of its '
+        + '.kehikot/ folder and of each module’s folder in it (named by module), the file count, the largest files and '
+        + 'when it last changed; the total per module across all projects (e.g. "Checklist: 2.4 MB across 3 projects"); '
+        + 'and Kehikot’s own machine data — its database, installed modules, prepared versions, the Browser module’s '
+        + 'profile and the logs. A project whose folder is gone is named and not measured. Measuring is bounded in '
+        + 'time and size, and a number it did not finish says "at least". Read-only: nothing here deletes anything — '
+        + 'clearing a module’s data is that module’s own job. fresh: true measures again instead of answering from '
+        + 'the last half minute.',
+      annotations: { title: 'Storage overview', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: { fresh: { type: 'boolean', description: 'Measure again rather than use a report from the last 30 seconds.' } },
+        required: [],
       },
     },
     {
@@ -1258,6 +1283,12 @@ export async function call(
 ): Promise<{ text: string; failed: boolean }> {
   if (name === 'my_place') return myPlace(door)
   if (name === 'set_my_place') return setMyPlace(args, door)
+  /* About the machine and every project, so it names no kehikko. */
+  if (name === 'storage') {
+    if (!door.storage) return { text: 'This host does not measure storage.', failed: true }
+    if (args.fresh !== undefined && typeof args.fresh !== 'boolean') return { text: 'storage takes fresh: true or false.', failed: true }
+    return { text: storageText(await door.storage(args.fresh === true)), failed: false }
+  }
   const where = decide(door, args)
   if (!where.ok) return { text: where.why, failed: true }
   const canvas = where.canvas

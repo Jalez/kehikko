@@ -26,6 +26,7 @@ import { ToolsMark } from './Tools.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { Trouble } from './Trouble.tsx'
 import { TrackerReading } from './TrackerReading.tsx'
+import type { StorageViews } from './Storage.tsx'
 
 /**
  * The whole of the host's own interface.
@@ -91,6 +92,7 @@ export function Bar({
   onShareProject,
   onForgetProject,
   onLocateProject,
+  storageViews,
   onOpen,
   onRename,
   onCreate,
@@ -141,6 +143,8 @@ export function Bar({
   onForgetProject(id: number): void
   /** "Locate…": point a project whose folder is gone at where it went. */
   onLocateProject?(id: number): void
+  /** Which modules on the open kehikko offer their own storage view (the projects menu's Storage). */
+  storageViews?: StorageViews
   onOpen(id: number): void
   onRename(id: number, name: string): void
   onCreate(): void
@@ -226,6 +230,7 @@ export function Bar({
           onShare={onShareProject}
           onForget={onForgetProject}
           onLocate={onLocateProject}
+          storageViews={storageViews}
         />
 
         {/*

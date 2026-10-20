@@ -105,6 +105,7 @@ import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
 import { within } from './takeover.ts'
 import { resolve } from 'node:path'
 import { embeddedPage, servePage } from './page.ts'
+import { storageDesk } from './storage.ts'
 import pkg from '../package.json' with { type: 'json' }
 
 /**
@@ -418,6 +419,23 @@ const official = officialSource({
   log: (line) => console.log(line),
 })
 void official.refresh()
+
+/* The storage overview: what every module's data takes in every project, and
+   this machine's own Kehikot data. Measured only when asked (the page's Storage
+   view, the door's `storage` tool), never at startup; read-only. Modules are
+   named by their registration first, then by the official list, so a folder
+   left by a module no longer registered still has a name. See `storage.ts`. */
+const storage = storageDesk({
+  projects: () => listProjects(db).map((project) => ({ id: project.id, name: project.name, path: project.path, missing: project.missing })),
+  modules: async () => {
+    const remembered = known(db)
+    const registeredIds = (await readRegistrations()).registrations.map((r) => r.id)
+    return [
+      ...registeredIds.map((id) => ({ id, name: remembered.get(id)?.name ?? official.current().find((one) => one.id === id)?.name ?? id })),
+      ...official.current().map((one) => ({ id: one.id, name: one.name })),
+    ]
+  },
+})
 
 /* What is on that list, and installing one that is not on this machine yet.
    What is registered is read from the disk at the press, so an install never
@@ -2437,6 +2455,18 @@ const server = Bun.serve({
     }
 
     /*
+     * The storage overview, for the page's Storage view: every project's
+     * `.kehikot/` by module, and this machine's Kehikot data. The page's alone
+     * (`PAGE_ONLY`) — a POST so that rule can hold it; it changes nothing.
+     * `fresh: true` measures again rather than answering from the last few
+     * seconds' report.
+     */
+    if (url.pathname === '/host/storage' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { fresh?: unknown } | null
+      return json(await storage.read(body?.fresh === true))
+    }
+
+    /*
      * "Refresh all": read every source of the project again, and answer when
      * it lands. Every page standing in the project hears it start and land
      * through `/host/watch`, and every module through `context.tracker`.
@@ -3210,6 +3240,7 @@ const server = Bun.serve({
             if (root) epicWritten(root, slug)
           },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
+          storage: (fresh) => storage.read(fresh),
           headers: headerDesk.door,
           inbox,
           trackers,

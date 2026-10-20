@@ -1,4 +1,4 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, Layers } from 'lucide-react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, HardDrive, Layers } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -22,6 +22,7 @@ import { fetchFolders, type Entry, type Listing, type Project } from '@/host/pro
 import { Hint } from './Hint.tsx'
 import { MISSING_SAID, MissingMark } from './MissingProject.tsx'
 import { AddItem, armedSelect, Remove } from './Menu.tsx'
+import { Storage, type StorageViews } from './Storage.tsx'
 
 /**
  * The project: which one you are in, and how to open another.
@@ -49,6 +50,7 @@ export function Projects({
   onShare,
   onForget,
   onLocate,
+  storageViews,
 }: {
   projects: readonly Project[]
   open: Project | null
@@ -74,12 +76,15 @@ export function Projects({
   onForget(id: number): void
   /** "Locate…": point a project whose folder is gone at where it went. Opens the folder browser. */
   onLocate?(id: number): void
+  /** Which modules on the open kehikko offer their own storage view, for the Storage dialog. */
+  storageViews?: StorageViews
 }) {
   /* Which project has been asked about but not yet confirmed. One at a time:
      arming a second forgets the first, because two armed destructive controls
      on one screen is a way to press the wrong one. */
   const [arming, setArming] = useState<number | null>(null)
   const [browsing, setBrowsing] = useState(false)
+  const [measuring, setMeasuring] = useState(false)
 
   return (
     <div className="flex min-w-6 shrink-[0.01] items-center max-[400px]:min-w-5">
@@ -181,6 +186,15 @@ export function Projects({
           <AddItem icon={<FolderPlus className="text-muted-foreground size-3 shrink-0" />} onAdd={() => setBrowsing(true)}>
             add a project…
           </AddItem>
+          {/*
+           * What every project's Kehikot data takes, and Kehikot's own. Here
+           * because it is about all the projects at once, and this list is
+           * where they all are; not in the header row, which has no room.
+           */}
+          <DropdownMenuItem onSelect={() => setMeasuring(true)}>
+            <HardDrive className="text-muted-foreground size-3 shrink-0" />
+            <span className="min-w-0 flex-1">storage…</span>
+          </DropdownMenuItem>
 
           {/*
            * Whether the open project's `.kehikot/` is committed with it.
@@ -271,6 +285,8 @@ export function Projects({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Storage open={measuring} onOpenChange={setMeasuring} views={storageViews} />
 
       <Browser
         open={browsing}

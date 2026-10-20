@@ -32,7 +32,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
 import { agentConfigFile } from '../server/agents.ts'
-import { frameDbFile, installsDir, logsDir, modulesDir, officialListFile, versionsDir } from '../server/machineDirs.ts'
+import { browserProfileDir, frameDbFile, installsDir, logsDir, modulesDir, officialListFile, versionsDir } from '../server/machineDirs.ts'
 
 /* Read once, before any test can set `HOME` to something else. */
 const REAL_HOME = realpathSync(homedir())
@@ -52,6 +52,7 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_INSTALLS_DIR', scratch: join(SCRATCH, 'installed'), resolved: () => installsDir() },
   { variable: 'KEHIKOT_OFFICIAL_CACHE', scratch: join(SCRATCH, 'official-modules.json'), resolved: () => officialListFile() },
   { variable: 'KEHIKOT_LOGS_DIR', scratch: join(SCRATCH, 'logs'), resolved: () => logsDir() },
+  { variable: 'KEHIKOT_BROWSER_PROFILE', scratch: join(SCRATCH, 'browser-profile'), resolved: () => browserProfileDir() },
   { variable: 'CLAUDE_CONFIG', scratch: join(SCRATCH, 'claude.json'), resolved: () => agentConfigFile() },
 ]
 

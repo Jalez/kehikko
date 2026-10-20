@@ -87,6 +87,8 @@ import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
+import { storageViewOf } from './host/storage.ts'
+import type { StorageViews } from './canvas/Storage.tsx'
 import { agentRefusal, declared, NO_HEADER, NO_HEADERS, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
@@ -2811,6 +2813,22 @@ export function App() {
   )
 
   /**
+   * The modules on this kehikko that offer their own storage view (a header
+   * switch or go with a `storage` option), for the Storage dialog, and the
+   * press that opens one — the same press a person makes in its menu.
+   */
+  const storageViews = useMemo<StorageViews>(
+    () => ({
+      of: (module) => storageViewOf(headers[module]) !== null,
+      open: (module) => {
+        const press = storageViewOf(headersRef.current[module])
+        return press ? onPressItem(module, press) : Promise.resolve({ ok: false, why: 'That module no longer offers a storage view here.' })
+      },
+    }),
+    [headers, onPressItem],
+  )
+
+  /**
    * An agent's `press_item`, made by this page.
    *
    * The door is on the server and the module's frame is here, so the server
@@ -3529,6 +3547,7 @@ export function App() {
         onShareProject={(id, shared) => void onShareProject(id, shared)}
         onForgetProject={(id) => void onForgetProject(id)}
         onLocateProject={setLocating}
+        storageViews={storageViews}
         onOpen={setOpenId}
         onRename={onRename}
         onCreate={() => void onCreate()}

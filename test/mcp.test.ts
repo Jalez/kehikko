@@ -112,6 +112,7 @@ describe('the door says what it is and what it offers', () => {
       'set_my_place',
       'set_parts',
       'set_tracker_source',
+      'storage',
     ])
   })
 
