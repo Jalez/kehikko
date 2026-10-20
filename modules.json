@@ -19,6 +19,7 @@
     { "id": "kehikot.history", "name": "History", "repo": "Jalez/kehikko-history", "port": 7960, "tags": ["code"], "summary": "A project's git history: what is committed and what is not, with commit and discard by file." },
     { "id": "kehikot.orchestrator", "name": "Orchestrator", "repo": "Jalez/kehikko-orchestrator", "port": 7850, "tags": ["agents"], "summary": "Start a session on what you picked, and watch what it says." },
     { "id": "kehikot.notifications", "name": "Notifications", "repo": "Jalez/kehikko-notifications", "port": 7910, "tags": ["agents"], "summary": "Folded into the app: the Inbox in the bar now holds what modules need, are doing and have said. This module still receives the lines for anyone who keeps it on a canvas." },
-    { "id": "kehikot.browser", "name": "Browser", "repo": "Jalez/kehikko-browser", "port": 8020, "tags": ["review", "code"], "summary": "A real browser in a container: the issues and pull requests the canvas picks, and the app you are building, with agents and Playwright driving the same page." }
+    { "id": "kehikot.browser", "name": "Browser", "repo": "Jalez/kehikko-browser", "port": 8020, "tags": ["review", "code"], "summary": "A real browser in a container: the issues and pull requests the canvas picks, and the app you are building, with agents and Playwright driving the same page." },
+    { "id": "kehikot.editor", "name": "Editor", "repo": "Jalez/kehikko-editor", "port": 8030, "tags": ["code", "writing"], "summary": "Edit the file the canvas points at: explicit save, refused when the file changed on disk, never under .kehikot/." }
   ]
 }
