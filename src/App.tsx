@@ -90,7 +90,9 @@ import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-pro
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { dragged, granted, mostFor, pressed, redrawn, wishing } from './host/columns.ts'
+import { dragged, granted, mostFor, mostUp, pressed, redrawn, topEdge, wishing } from './host/columns.ts'
+import { cornerOf } from './host/corners.ts'
+import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
@@ -397,6 +399,15 @@ export function App() {
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
   const [moving, setMoving] = useState<string | null>(null)
+  /* Which container's TOP edge a hand is pulling, if any: a top corner trades
+     rows with what is on top of the container rather than with what is below
+     it, so how far it may travel is a different number (`mostUp`). Known only
+     once the press has landed on a handle, hence state and not a constant. */
+  const [pulling, setPulling] = useState<string | null>(null)
+  /* What the containers on top of the one whose top edge is being pulled have
+     been given, by id: their new heights, and so their new wishes. Written by
+     `onResize`, consumed by `onLayoutChange` on release like `resized`. */
+  const traded = useRef<Map<string, number>>(new Map())
   /* The container whose corner a hand is on, from `onResizeStart` until
      `onLayoutChange` reads it on release. A ref and not state, because it is
      read inside a callback the grid calls synchronously on release, before any
@@ -2413,7 +2424,9 @@ export function App() {
        * changed nothing and this was never called.
        */
       const held = resized.current
-      resized.current = null
+      /* The rows a top edge took from, or gave to, the containers on top of
+         it: those heights were chosen by the same hand, so they are wishes. */
+      const given = traded.current
       const placements = next.map((item) => {
         const before = was.find((p) => p.i === item.i)
         /*
@@ -2442,7 +2455,7 @@ export function App() {
           prompt: before?.prompt ?? '',
           promptFor: before?.promptFor ?? null,
           collapsed: said.collapsed,
-          wish: said.wish,
+          wish: given.get(item.i) ?? said.wish,
           selected: before?.selected ?? false,
           /* Carried across for the same reason as everything above it. A drag is
              not a change of mind about what a container is showing, nor about how
@@ -2468,7 +2481,15 @@ export function App() {
        * is one request rather than forty.
        */
       const drawn = redrawn(placements)
-      if (!same(open?.placements ?? [], drawn)) change({ placements: drawn })
+      if (!same(open?.placements ?? [], drawn)) {
+        /* Spent only by a call that writes. The grid also reports a layout at
+           the START of a gesture, when `maxH` changes as the press lands on a
+           top corner, and that report changes nothing: clearing these then
+           would lose what the hand has not yet said. */
+        resized.current = null
+        traded.current = new Map()
+        change({ placements: drawn })
+      }
     },
     [change, open?.placements],
   )
@@ -2969,8 +2990,17 @@ export function App() {
    * field by field, so nothing of this reaches the database.
    */
   const laid = useMemo(
-    () => containers.map((one) => ({ ...one, maxH: mostFor(containers, one.i) }) as Layout),
-    [containers],
+    () =>
+      containers.map(
+        (one) =>
+          ({
+            ...one,
+            /* A bottom edge travels as far as the column below can pay; a top
+               edge as far as the containers on top can spare. */
+            maxH: pulling === one.i ? Math.min(CANVAS_ROWS, one.h + mostUp(containers, one.i)) : mostFor(containers, one.i),
+          }) as Layout,
+      ),
+    [containers, pulling],
   )
   const placed = placements.map((p) => p.i)
 
@@ -3722,9 +3752,11 @@ export function App() {
             setMoving(null)
             settle()
           }}
-          onResizeStart={(_all, _old, item) => {
+          onResizeStart={(_all, _old, item, _placeholder, event) => {
             resized.current = item.i
+            traded.current = new Map()
             setMoving(item.i)
+            setPulling(cornerOf(event?.target)?.startsWith('n') ? item.i : null)
           }}
           /*
            * The column pays for the growth, and it pays WHILE the handle is
@@ -3782,6 +3814,29 @@ export function App() {
           onResize={(layout, _old, item) => {
             const stored = open?.placements ?? []
             const before = stored.find((p) => p.i === item.i)
+            if (before && pulling === item.i) {
+              /* A top corner: the bottom edge stays where it is and the
+                 container trades rows with what is on top of it. The grid
+                 swapped places with whatever the top edge ran into; this puts
+                 them back and gives each the rows it now has. */
+              const pulled = topEdge(stored, item.i, item.h)
+              traded.current = pulled.given
+              for (const one of layout) {
+                if (one.i === item.i) {
+                  one.h = pulled.h
+                  one.y = pulled.y
+                  continue
+                }
+                const height = pulled.given.get(one.i)
+                const was = stored.find((p) => p.i === one.i)
+                if (height !== undefined && was) {
+                  one.h = height
+                  one.y = was.y
+                }
+              }
+              remeasure()
+              return
+            }
             const heights = before ? wishing(stored, item.i, dragged(before, item.h)) : granted(stored)
             for (const one of layout) {
               const height = heights.get(one.i)
@@ -3790,6 +3845,7 @@ export function App() {
             remeasure()
           }}
           onResizeStop={() => {
+            setPulling(null)
             setMoving(null)
             settle()
           }}
@@ -3798,7 +3854,8 @@ export function App() {
              module a person cannot find is worse than one they have to arrange
              around. */
           compactType="vertical"
-          resizeHandles={['se']}
+          resizeHandles={['se', 'sw', 'ne', 'nw']}
+          resizeHandle={cornerHandle}
         >
           {containers.map((placement) => {
             /* A pinned container shows its version's presence, or the pin's
