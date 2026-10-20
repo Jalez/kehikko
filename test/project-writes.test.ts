@@ -30,6 +30,8 @@ const MACHINE_LEVEL: Record<string, string> = {
   "canvases.ts: if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })": 'frame.sqlite',
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
+  'skills.ts: mkdirSync(root, { recursive: true })': "Claude Code's skills directory (~/.claude/skills)",
+  'skills.ts: mkdirSync(tmp)': "a temporary folder inside Claude Code's skills directory",
 }
 
 function sources(dir: string): string[] {

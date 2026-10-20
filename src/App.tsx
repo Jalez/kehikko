@@ -11,6 +11,7 @@ import { Covers, registryBehind, Replacing, Runs, showing } from './host/standin
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
+import { SkillsDialog } from './canvas/Skills.tsx'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
 import { MissingProject } from './canvas/MissingProject.tsx'
@@ -422,6 +423,8 @@ export function App() {
      own container, and what this window shows is not the module's material anyway —
      it is what the AGENT has been told. See `Tools.tsx`. */
   const [toolsFor, setToolsFor] = useState<string | null>(null)
+  /* Whose Claude Code skills are open (protocol 2.5.0). See `Skills.tsx`. */
+  const [skillsFor, setSkillsFor] = useState<string | null>(null)
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
@@ -3869,6 +3872,7 @@ export function App() {
                   onSelect={(selected) => onSelect(presence.id, selected)}
                   onPrompts={() => setPrompting(presence.id)}
                   onTools={() => setToolsFor(presence.id)}
+                  onSkills={() => setSkillsFor(presence.id)}
                   onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
@@ -3981,6 +3985,16 @@ export function App() {
             toolsFor === registry?.host?.id ? 'this host' : (byId.get(toolsFor)?.name ?? toolsFor)
           }
           onChanged={() => void look()}
+        />
+      ) : null}
+
+      {/* A module's Claude Code skills, read and installed on the person's press. Asked when it opens. */}
+      {skillsFor ? (
+        <SkillsDialog
+          open
+          onOpenChange={(isOpen) => setSkillsFor(isOpen ? skillsFor : null)}
+          module={skillsFor}
+          name={byId.get(skillsFor)?.name ?? skillsFor}
         />
       ) : null}
 

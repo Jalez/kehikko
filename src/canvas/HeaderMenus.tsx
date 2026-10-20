@@ -84,6 +84,7 @@ import {
 import { whenLeft } from '@/host/surface.ts'
 import { focusAfter, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
+import { skillsSaying } from '@/host/skills.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
 
@@ -1156,6 +1157,8 @@ export function FrameMenu({
   name,
   agent,
   onTools,
+  skills,
+  onSkills,
   prompted,
   onPrompts,
   kehikko,
@@ -1166,6 +1169,13 @@ export function FrameMenu({
   /** What the sweep read of the agent's configuration for this module. `none` or absent: no door, no row. */
   agent: AgentAwareness | undefined
   onTools(): void
+  /**
+   * The Claude Code skills the module's manifest offers (protocol 2.5.0). None or absent: no row.
+   * A row beside Tools rather than a mark of its own on the header: the header is one row that has
+   * to fit at 380, 280 and 200 pixels and folded, and this menu's trigger is on it at every one.
+   */
+  skills?: readonly { name: string }[]
+  onSkills?(): void
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
@@ -1178,12 +1188,13 @@ export function FrameMenu({
   const quiet = useRef(false)
   const [open, setOpen] = useOpen(() => {}, closing)
   const tools = toolsSaying(agent, name)
+  const offered = onSkills ? skillsSaying(skills, name) : null
 
   return (
     <>
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <Word
-          hint={tools?.loud ? tools.hint : `frame: ${name}'s tools, feedback and prompts`}
+          hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, feedback and prompts`}
           word={null}
           quiet={quiet}
         >
@@ -1231,6 +1242,13 @@ export function FrameMenu({
               {tools.loud ? <Unplug className="size-3.5" /> : <Plug className="text-muted-foreground size-3.5" />}
               <span className="flex-1">Tools…</span>
               <span className={tools.loud ? 'text-[10px] font-medium' : 'text-muted-foreground text-[10px]'}>{tools.state}</span>
+            </DropdownMenuItem>
+          ) : null}
+          {offered && onSkills ? (
+            <DropdownMenuItem className={ROW} title={offered.hint} data-frame="skills" onSelect={onSkills}>
+              <ScrollText className="text-muted-foreground size-3.5" />
+              <span className="flex-1">Skills…</span>
+              <span className="text-muted-foreground text-[10px]">{offered.state}</span>
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSub onOpenChange={feedback.opened}>

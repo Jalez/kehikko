@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 45
+const TESTS = 46
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -506,7 +506,7 @@ describe('in the container', () => {
     agent: { kind: 'untold' },
   } as unknown as import('../src/host/registry.ts').Presence
 
-  async function container(collapsed: boolean, header: HeaderItem[]) {
+  async function container(collapsed: boolean, header: HeaderItem[], over: Partial<import('../src/host/registry.ts').Presence> = {}, onSkills?: () => void) {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
@@ -515,7 +515,7 @@ describe('in the container', () => {
       root.render(
         <TooltipProvider>
           <Box.Container
-            presence={presence}
+            presence={{ ...presence, ...over }}
             showing={{ kind: 'page' }}
             fault={null}
             body={nothing}
@@ -540,6 +540,7 @@ describe('in the container', () => {
             onSelect={nothing}
             onPrompts={nothing}
             onTools={nothing}
+            onSkills={onSkills}
             onStarted={nothing}
             onRemove={nothing}
             kehikko="thesis"
@@ -565,6 +566,33 @@ describe('in the container', () => {
     expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'feedback', 'prompts'])
     expect(Menus.toolsSaying({ kind: 'told', as: 'paper' }, 'Paper')).toMatchObject({ state: 'connected', loud: false })
     expect(Menus.toolsSaying({ kind: 'none' }, 'Paper')).toBeNull()
+  })
+  test('a module that offers skills has a Skills row beside Tools, in the Frame menu that stands on the header folded or not', async () => {
+    const skills = [{ name: 'paper-cite', summary: 'Cite from the paper.', version: '1' }, { name: 'paper-build', summary: 'Build it.', version: '2' }]
+    const module = { declares: { protocol: '>=2', uses: [], storage: false, skills } } as never
+    let opened = 0
+    for (const [collapsed, items, menus] of [
+      [false, paper(), ['view', 'go', 'run', 'frame']],
+      [true, paper(), ['frame']],
+      [false, [], ['frame']],
+    ] as const) {
+      /* No mark of its own: the header gains nothing, at any width or folded. */
+      expect(await container(collapsed, [...items], { module }, () => opened++)).toEqual([...menus])
+      expect(document.querySelector('header [data-frame="skills"], header [aria-label*="skills" i]')).toBeNull()
+      await open('frame')
+      expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'skills', 'feedback', 'prompts'])
+      expect(content('frame')!.querySelector('[data-frame="skills"]')!.textContent).toContain('2 skills offered')
+      act(() => unmount?.())
+    }
+    await container(false, [], { module }, () => opened++)
+    await open('frame')
+    await choose(content('frame')!.querySelector<HTMLElement>('[data-frame="skills"]')!)
+    expect(opened).toBe(1)
+    act(() => unmount?.())
+    /* A module that offers none has no row. */
+    await container(false, [], {}, () => opened++)
+    await open('frame')
+    expect(content('frame')!.querySelector('[data-frame="skills"]')).toBeNull()
   })
   test('folded, the remove button is lifted over the grid’s resize handle, which otherwise lies on its lower half', async () => {
     const remove = () => document.querySelector('button[aria-label="take Paper off the canvas"]')!

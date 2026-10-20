@@ -86,6 +86,7 @@ export function Container({
   onSelect,
   onPrompts,
   onTools,
+  onSkills,
   onStarted,
   onRemove,
   kehikko,
@@ -205,6 +206,8 @@ export function Container({
   onPrompts(): void
   /** Open the host's tools window for this module. */
   onTools(): void
+  /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
+  onSkills?(): void
   /** Look again, after this module has been started. */
   onStarted(): void
   onRemove(): void
@@ -652,6 +655,8 @@ export function Container({
           name={name}
           agent={presence.agent}
           onTools={onTools}
+          skills={presence.module?.declares.skills}
+          onSkills={onSkills}
           prompted={presence.module?.declares.prompt === true}
           onPrompts={onPrompts}
           kehikko={kehikko}
