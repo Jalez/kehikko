@@ -1,6 +1,8 @@
 import { Plug, Unplug } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
+
 import { Button } from '@/components/ui/button.tsx'
 import {
   Dialog,
@@ -220,6 +222,8 @@ export function ToolsDialog({
   const [stale, setStale] = useState<Stale | null>(null)
   const [pressing, setPressing] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
+  /* Whether Settings keeps this module connected, and leaving it out from here. */
+  const kept = useAgentSettings(open)
 
   /*
    * Asked when the window opens, and never on the sweep.
@@ -319,6 +323,16 @@ export function ToolsDialog({
             MCP door, and whether any agent has been told the door exists.
           </DialogDescription>
         </DialogHeader>
+
+        <KeptBySettings
+          kind="tools"
+          module={module}
+          name={name}
+          answer={kept.answer}
+          busy={kept.busy}
+          onExcept={(out) => void kept.change({ except: { kind: 'tools', module, out } })}
+          onSettings={() => toSettings(() => onOpenChange(false))}
+        />
 
         {refused ? <p className="text-sm leading-relaxed break-words">{refused}</p> : null}
 

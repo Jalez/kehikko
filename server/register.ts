@@ -226,7 +226,20 @@ export type Runner = (args: string[]) => Promise<{ ok: boolean; said: string }>
  * interpolated into a command line, so a module id that contained a semicolon
  * would be a name that does not match a server rather than a shell.
  */
-export const runClaude: Runner = (args) =>
+export const runClaude: Runner = (args) => {
+  /* One `claude` at a time, whoever asked — a press in a Tools window and the
+     Settings sync (`agentSync.ts`) both write the same file through it. */
+  const turn = claudeQueue.then(() => spawnClaude(args))
+  claudeQueue = turn.then(
+    () => undefined,
+    () => undefined,
+  )
+  return turn
+}
+
+let claudeQueue: Promise<void> = Promise.resolve()
+
+const spawnClaude: Runner = (args) =>
   new Promise((settle) => {
     let out = ''
     try {

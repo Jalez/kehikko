@@ -12,6 +12,8 @@ import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
+import { AgentSettingsHost } from './canvas/Settings.tsx'
+import { openSettings, SETTINGS_INBOX_MODULE } from './host/agentSettings.ts'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
 import { MissingProject } from './canvas/MissingProject.tsx'
@@ -3113,6 +3115,11 @@ export function App() {
       if (project === null) return
       if (entry.state === 'done') inbox.see([entry], project)
       setInboxOpen(false)
+      /* The agent sync's lines have no place on a canvas: they are about Settings. */
+      if (entry.module === SETTINGS_INBOX_MODULE) {
+        openSettings()
+        return
+      }
       placeGo.go(entry, project)
     },
     [inbox, projectId, placeGo.go],
@@ -3997,6 +4004,11 @@ export function App() {
           name={byId.get(skillsFor)?.name ?? skillsFor}
         />
       ) : null}
+
+      {/* The app-wide Settings for the person's agents, and the one-time
+          question while it is unanswered. Opened from the projects menu, a
+          module's Tools or Skills window, and the sync's lines in the Inbox. */}
+      <AgentSettingsHost />
 
     </div>
   )

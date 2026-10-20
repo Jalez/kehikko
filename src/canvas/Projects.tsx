@@ -1,4 +1,4 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, HardDrive, Layers } from 'lucide-react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, HardDrive, Layers, Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
+import { openSettings } from '@/host/agentSettings.ts'
 import { fetchFolders, type Entry, type Listing, type Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
 import { MISSING_SAID, MissingMark } from './MissingProject.tsx'
@@ -194,6 +195,12 @@ export function Projects({
           <DropdownMenuItem onSelect={() => setMeasuring(true)}>
             <HardDrive className="text-muted-foreground size-3 shrink-0" />
             <span className="min-w-0 flex-1">storage…</span>
+          </DropdownMenuItem>
+          {/* How Kehikot works with the person's agents, for every project at
+              once — so beside storage, which is about all of them too. */}
+          <DropdownMenuItem onSelect={() => openSettings()}>
+            <Settings2 className="text-muted-foreground size-3 shrink-0" />
+            <span className="min-w-0 flex-1">settings…</span>
           </DropdownMenuItem>
 
           {/*

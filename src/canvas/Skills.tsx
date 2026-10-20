@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
+
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { notAnswering } from '@/host/reachable.ts'
@@ -47,6 +49,8 @@ export function SkillsDialog({
   const [reading, setReading] = useState<string | null>(null)
   const [pressing, setPressing] = useState<string | null>(null)
   const [said, setSaid] = useState<{ name: string; text: string } | null>(null)
+  /* Whether Settings keeps this module's skills installed, and leaving it out from here. */
+  const kept = useAgentSettings(open)
 
   const ask = useCallback(async () => {
     setAsking(true)
@@ -113,6 +117,16 @@ export function SkillsDialog({
             , so read what it says before you install it.
           </DialogDescription>
         </DialogHeader>
+
+        <KeptBySettings
+          kind="skills"
+          module={module}
+          name={name}
+          answer={kept.answer}
+          busy={kept.busy}
+          onExcept={(out) => void kept.change({ except: { kind: 'skills', module, out } })}
+          onSettings={() => toSettings(() => onOpenChange(false))}
+        />
 
         {refused ? <p className="text-sm leading-relaxed break-words">{refused}</p> : null}
 
