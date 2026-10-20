@@ -18,7 +18,7 @@ import {
 import type { Inbox } from './inbox.ts'
 import { forgetLeft, forgetMade, leftSkills, madeEntries, readSettings, recordLeft, recordMade, type Made } from './agentSettings.ts'
 import { awarenessAt, connect, disconnect, repoint, runClaude, type Door, type Ran, type Runner } from './register.ts'
-import { fetchSkillText, readLocal, sha256, statusOf, syncSkill } from './skills.ts'
+import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSkill, thisRegistry } from './skills.ts'
 
 /**
  * Keeping every module's tools and skills set up in the person's agent, as the
@@ -311,12 +311,20 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
  * press in a module's Skills window — so it takes them away with the module.
  * A folder with no marker, or one naming a module still registered, is never
  * looked at twice.
+ *
+ * Only this host's own installs: a marker names the registry of the host that
+ * wrote it, and a host with another registry (a scratch or dev one, sharing the
+ * person's Claude config) has not seen that module uninstalled — its registry
+ * simply never held it. A marker from before the registry was recorded is
+ * tidied only by a host on the machine's own registry, which is where every
+ * such marker was written in practice.
  */
 export function tidySkills(
   db: Database,
   root: string,
   registry: ReadonlySet<string>,
   tell: (line: string) => void,
+  here: { registry: string; machine: boolean } = { registry: thisRegistry(), machine: isMachineRegistry() },
 ): { removed: string[]; left: string[]; problems: string[] } {
   const removed: string[] = []
   const left: string[] = []
@@ -332,6 +340,7 @@ export function tidySkills(
   for (const name of names.sort()) {
     const marker = readLocal(root, name, '').marker
     if (!marker || registry.has(marker.module)) continue
+    if (marker.registry ? marker.registry !== here.registry : !here.machine) continue
     const local = readLocal(root, name, marker.module)
     if (local.kind === 'edited') {
       still.add(name)

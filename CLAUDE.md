@@ -257,7 +257,10 @@
   untouched install whose marker names it — whatever the settings say — and
   leaves an edited one, said once (`skill_left`). Nothing is tidied when the
   registry folder could not be read (`unreadable`), and a registration file the
-  host would not use still counts as registered.
+  host would not use still counts as registered. Only THIS host's installs: the
+  marker records the writer's resolved registry (`thisRegistry`), and a marker
+  without one (written before) is tidied only by a host on the machine's own
+  registry (`isMachineRegistry`), so a scratch or dev host never removes them.
 
 ## Settings: a module that is not running
 

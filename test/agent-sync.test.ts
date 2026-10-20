@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { skillPath, type ModuleSkill } from 'kehikot-module-protocol'
 
@@ -13,7 +13,7 @@ import { PAGE_ONLY, refusal, type Own } from '../server/guard.ts'
 import { Inbox } from '../server/inbox.ts'
 import { addProject } from '../server/projects.ts'
 import type { Runner } from '../server/register.ts'
-import { claudeSkillsDir, MARKER, sha256 } from '../server/skills.ts'
+import { claudeSkillsDir, isMachineRegistry, MARKER, sha256, thisRegistry } from '../server/skills.ts'
 import {
   DEFAULT_SETTINGS,
   SETTINGS_INBOX_MODULE,
@@ -351,18 +351,49 @@ describe('skills of an uninstalled module', () => {
     expect(at.told).toEqual([])
   })
 
-  test('tidySkills removes only through the marker’s own module', () => {
+  function placed(root: string, name: string, module: string, registry?: string) {
+    mkdirSync(join(root, name))
+    const text = skillText(name)
+    writeFileSync(join(root, name, 'SKILL.md'), text)
+    writeFileSync(join(root, name, MARKER), JSON.stringify({ module, name, version: '1', sha256: sha256(text), ...(registry ? { registry } : {}) }))
+  }
+
+  test('a marker names the registry of the host that wrote it', async () => {
+    const at = await installed(['named'])
+    const marker = JSON.parse(readFileSync(join(at.root, 'named', MARKER), 'utf8'))
+    expect(marker.registry).toBe(thisRegistry())
+    expect(marker.registry).toBe(resolve(process.env.KEHIKOT_MODULES_DIR!))
+  })
+
+  test('only this host’s registry tidies: another registry’s install stays, however gone its module is here', () => {
     const db = new Database(':memory:')
     ensureSettings(db)
     const root = freshRoot()
-    mkdirSync(join(root, 'odd'))
-    const text = skillText('odd')
-    writeFileSync(join(root, 'odd', 'SKILL.md'), text)
-    writeFileSync(join(root, 'odd', MARKER), JSON.stringify({ module: 'kehikot.gone', name: 'odd', version: '1', sha256: sha256(text) }))
+    placed(root, 'mine', 'kehikot.gone', '/registry/here')
+    placed(root, 'theirs', 'kehikot.gone', '/registry/elsewhere')
     const lines: string[] = []
-    expect(tidySkills(db, root, new Set(['kehikot.gone']), (line) => lines.push(line)).removed).toEqual([])
-    expect(tidySkills(db, root, new Set(), (line) => lines.push(line)).removed).toEqual(['odd'])
-    expect(lines).toEqual(['Removed the /odd skill: kehikot.gone, which installed it, is no longer installed'])
+    const here = { registry: '/registry/here', machine: false }
+    expect(tidySkills(db, root, new Set(['kehikot.gone']), (line) => lines.push(line), here).removed).toEqual([])
+    expect(tidySkills(db, root, new Set(), (line) => lines.push(line), here).removed).toEqual(['mine'])
+    expect(existsSync(join(root, 'theirs', 'SKILL.md'))).toBe(true)
+    expect(lines).toEqual(['Removed the /mine skill: kehikot.gone, which installed it, is no longer installed'])
+  })
+
+  test('a marker from before the registry was recorded is tidied only by a host on the machine’s own registry', () => {
+    const db = new Database(':memory:')
+    ensureSettings(db)
+    const root = freshRoot()
+    placed(root, 'older', 'kehikot.gone')
+    expect(tidySkills(db, root, new Set(), () => {}, { registry: '/scratch/modules', machine: false }).removed).toEqual([])
+    expect(existsSync(join(root, 'older', 'SKILL.md'))).toBe(true)
+    expect(tidySkills(db, root, new Set(), () => {}, { registry: '/machine/modules', machine: true }).removed).toEqual(['older'])
+  })
+
+  test('which registry is the machine’s own', () => {
+    const home = '/Users/someone'
+    expect(isMachineRegistry({ HOME: home })).toBe(true)
+    expect(isMachineRegistry({ HOME: home, KEHIKOT_MODULES_DIR: '/tmp/scratch-modules' })).toBe(false)
+    expect(isMachineRegistry({ HOME: home, KEHIKOT_MODULES_DIR: thisRegistry({ HOME: home }) })).toBe(true)
   })
 })
 
