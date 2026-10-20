@@ -2,6 +2,7 @@ import {
   LIMITS,
   spellTrackerRef,
   trackerRowSchema,
+  type TrackerBoard,
   type TrackerDetailFacts,
   type TrackerRow,
 } from 'kehikot-module-protocol'
@@ -25,11 +26,34 @@ import type { Source } from './sources.ts'
  * no shell anywhere.
  */
 
+/**
+ * A board as the host keeps it: the protocol's board, and for a GitLab board
+ * what it takes to place an issue on it — the label of each list in board
+ * order, the labels the board is scoped to, and whether it shows its Open and
+ * Closed lists. Never sent as it is: `tracker.columns` takes the protocol's
+ * three fields.
+ */
+export interface HeldBoard extends TrackerBoard {
+  lists?: string[]
+  scope?: string[]
+  open?: boolean
+  closed?: boolean
+}
+
+/**
+ * What a read learned of a source's boards: the boards it saw, or why it
+ * could not see any (a sentence a person can act on, said once in the
+ * tracker sources panel). A read that did not look says nothing.
+ */
+export type BoardsRead = { boards: HeldBoard[] } | { unreadable: string }
+
 /** What one read of one source came to. */
 export type Read =
   | {
       ok: true
       rows: TrackerRow[]
+      /** The boards the read saw its items on, when it looked. */
+      boards?: BoardsRead
       /** Numbers asked for that the tracker says do not exist, with the kind asked where it was known. */
       notFound: Array<{ number: number; kind: 'issue' | 'change' | null }>
       /** Numbers the tracker refused to answer (not "does not exist"); the rows above are the rest. */
@@ -50,6 +74,12 @@ export interface Adapter {
   refs(source: Source, wanted: readonly Wanted[], now: string): Promise<Read>
   /** The detail of these rows, by number. */
   detail(source: Source, rows: readonly TrackerRow[], now: string): Promise<Map<string, TrackerDetailFacts> | { why: string }>
+  /**
+   * The source's boards, read on their own — for a tracker whose items do not
+   * say where they stand (GitLab: the list is worked out from the labels).
+   * Null when they could not be read; the boards held before stay.
+   */
+  boards?(source: Source): Promise<BoardsRead | null>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)

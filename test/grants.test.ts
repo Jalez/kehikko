@@ -28,6 +28,7 @@ const PARAMS: Record<string, unknown> = {
   'disposition.set': { ref: '#1', value: 'done' },
   'tracker.get': { project: true },
   'tracker.refresh': { project: true },
+  'tracker.columns': {},
   'content.changed': {},
   'parts.set': { epic: 'one', add: { name: 'A part' } },
   'view.goto': { epic: 'one' },

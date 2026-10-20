@@ -1,0 +1,149 @@
+{
+ "data": {
+  "repository": {
+   "issues": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": "Y3Vyc29yOnYyOpHOAAAAAQ=="
+    },
+    "nodes": [
+     {
+      "number": 41,
+      "state": "OPEN",
+      "stateReason": null,
+      "title": "Issue 41",
+      "url": "https://github.com/Jalez/kehikko/issues/41",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "updatedAt": "2026-10-02T00:00:00Z",
+      "closedAt": null,
+      "author": {
+       "login": "jalez"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "closedByPullRequestsReferences": {
+       "nodes": []
+      }
+     },
+     {
+      "number": 42,
+      "state": "OPEN",
+      "stateReason": null,
+      "title": "Issue 42",
+      "url": "https://github.com/Jalez/kehikko/issues/42",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "updatedAt": "2026-10-02T00:00:00Z",
+      "closedAt": null,
+      "author": {
+       "login": "jalez"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "closedByPullRequestsReferences": {
+       "nodes": []
+      }
+     },
+     {
+      "number": 43,
+      "state": "OPEN",
+      "stateReason": null,
+      "title": "Issue 43",
+      "url": "https://github.com/Jalez/kehikko/issues/43",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "updatedAt": "2026-10-02T00:00:00Z",
+      "closedAt": null,
+      "author": {
+       "login": "jalez"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "closedByPullRequestsReferences": {
+       "nodes": []
+      }
+     },
+     {
+      "number": 44,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "Issue 44",
+      "url": "https://github.com/Jalez/kehikko/issues/44",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "updatedAt": "2026-10-02T00:00:00Z",
+      "closedAt": "2026-10-03T00:00:00Z",
+      "author": {
+       "login": "jalez"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "closedByPullRequestsReferences": {
+       "nodes": []
+      }
+     }
+    ]
+   },
+   "pullRequests": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "number": 45,
+      "state": "OPEN",
+      "title": "Do 41",
+      "url": "https://github.com/Jalez/kehikko/pull/45",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "updatedAt": "2026-10-02T00:00:00Z",
+      "closedAt": null,
+      "mergedAt": null,
+      "isDraft": false,
+      "reviewDecision": "REVIEW_REQUIRED",
+      "author": {
+       "login": "jalez"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "assignees": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "nodes": [
+        {
+         "number": 41
+        }
+       ]
+      },
+      "commits": {
+       "nodes": [
+        {
+         "commit": {
+          "statusCheckRollup": {
+           "state": "PENDING"
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ }
+}

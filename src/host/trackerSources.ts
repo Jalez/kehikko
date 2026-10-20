@@ -23,6 +23,8 @@ export const listedSourceSchema = z.object({
   error: z.string().nullable(),
   issues: z.number().nullable(),
   changes: z.number().nullable(),
+  /** The boards the last read saw this source's items on, with their columns in board order. */
+  boards: z.array(z.object({ board: z.string(), columns: z.array(z.string()) })).optional(),
 })
 export type ListedSource = z.infer<typeof listedSourceSchema>
 
@@ -34,6 +36,11 @@ export const trackerListingSchema = z.object({
   every: z.number(),
   /** The file would not read: where, and why. Nothing else in the listing is then the file's. */
   broken: z.object({ file: z.string(), why: z.string() }).nullable(),
+  /**
+   * Why the boards could not be read, said once for the whole panel — today
+   * only GitHub without `read:project`. Null or absent when nothing stops them.
+   */
+  boardsNote: z.string().nullable().optional(),
 })
 export type TrackerListing = z.infer<typeof trackerListingSchema>
 
@@ -90,17 +97,24 @@ export function readSaid(s: ListedSource, now: number): string {
   return `${counts}${ago(Date.parse(s.at), now)}`
 }
 
+/** One board as a line: its title and its columns, left to right. */
+export function boardSaid(b: { board: string; columns: readonly string[] }): string {
+  return b.columns.length ? `${b.board}: ${b.columns.join(' → ')}` : b.board
+}
+
 /** The whole listing as sentences, for an agent. */
 export function listingText(listing: TrackerListing, now: number): string {
   const lines = listing.sources.map(
     (s) =>
       `- ${s.tracker} ${sourceName(s)}: ${rolesOf(s).join('; ')}.`
-      + (s.off ? '' : ` ${s.error ? `Last read failed — ${s.error}` : `Last read: ${readSaid(s, now)}.`}`),
+      + (s.off ? '' : ` ${s.error ? `Last read failed — ${s.error}` : `Last read: ${readSaid(s, now)}.`}`)
+      + (!s.off && s.boards?.length ? ` Boards — ${s.boards.map(boardSaid).join('; ')}.` : ''),
   )
   const schedule = listing.every > 0 ? `reads again every ${listing.every} minutes while somebody is looking` : 'does not read on a schedule'
   return [
     TRACKERS_ARE_FOR,
     listing.sources.length ? lines.join('\n') : 'No sources: this project has no GitHub or GitLab remote and nobody has added one.',
+    ...(listing.boardsNote ? [listing.boardsNote] : []),
     `The project's git remotes are ${listing.remotes ? 'read' : 'not read'}, and the host ${schedule}.`,
   ].join('\n')
 }

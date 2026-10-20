@@ -1,0 +1,55 @@
+[
+ {
+  "iid": 12,
+  "state": "opened",
+  "title": "Issue 12",
+  "web_url": "https://gitlab.example.org/group/project/-/issues/12",
+  "labels": [
+   "workflow::doing",
+   "frontend"
+  ],
+  "assignees": [],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-02T00:00:00.000Z",
+  "closed_at": null
+ },
+ {
+  "iid": 13,
+  "state": "opened",
+  "title": "Issue 13",
+  "web_url": "https://gitlab.example.org/group/project/-/issues/13",
+  "labels": [
+   "bug"
+  ],
+  "assignees": [],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-02T00:00:00.000Z",
+  "closed_at": null
+ },
+ {
+  "iid": 14,
+  "state": "closed",
+  "title": "Issue 14",
+  "web_url": "https://gitlab.example.org/group/project/-/issues/14",
+  "labels": [
+   "workflow::doing"
+  ],
+  "assignees": [],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-02T00:00:00.000Z",
+  "closed_at": "2026-10-03T00:00:00.000Z"
+ },
+ {
+  "iid": 15,
+  "state": "opened",
+  "title": "Issue 15",
+  "web_url": "https://gitlab.example.org/group/project/-/issues/15",
+  "labels": [
+   "workflow::review"
+  ],
+  "assignees": [],
+  "created_at": "2026-10-01T00:00:00.000Z",
+  "updated_at": "2026-10-02T00:00:00.000Z",
+  "closed_at": null
+ }
+]

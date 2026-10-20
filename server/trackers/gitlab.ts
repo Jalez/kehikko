@@ -1,4 +1,4 @@
-import { LIMITS, type PipelineState, type TrackerDetailFacts, type TrackerRow } from 'kehikot-module-protocol'
+import { LIMITS, type PipelineState, type TrackerColumn, type TrackerDetailFacts, type TrackerRow } from 'kehikot-module-protocol'
 
 import type { Runner } from '../feedback.ts'
 import {
@@ -17,6 +17,8 @@ import {
   trouble,
   who,
   type Adapter,
+  type BoardsRead,
+  type HeldBoard,
   type Read,
 } from './common.ts'
 import type { Source } from './sources.ts'
@@ -213,6 +215,71 @@ export function detailQuery(source: Source, issues: readonly number[], merges: r
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
 
+/*
+ * Board columns.
+ *
+ * A GitLab issue board is lists, each a label; an issue is in the list whose
+ * label it carries, scoped labels (`workflow::doing`) included — GitLab lets an
+ * issue carry one label per scope, so a scoped board has one answer. An open
+ * issue carrying none of the lists' labels is in the board's Open list, and a
+ * closed issue is in its Closed list, whatever its labels — which is how the
+ * board shows them. A board scoped to labels holds only the issues carrying
+ * all of them. Lists by assignee, milestone or iteration are not labels and
+ * are left out. Merge requests are on no GitLab board.
+ *
+ * The boards are one REST call per source, on a whole read; an issue's column
+ * is worked out from them and its labels wherever the row was read
+ * (`columnsOn`), so a ref read by name is placed too.
+ */
+
+/** The Open and Closed lists, as GitLab names them on a board. */
+export const OPEN_LIST = 'Open'
+export const CLOSED_LIST = 'Closed'
+
+/** One board from `GET projects/:id/boards`, as the host keeps it. */
+export function boardOf(source: Source, raw: unknown): HeldBoard | null {
+  const b = obj(raw)
+  const name = clip(str(b.name).trim() || 'Development', LIMITS.TITLE)
+  const id = typeof b.id === 'number' ? b.id : null
+  const lists = list(b.lists)
+    .map(obj)
+    .filter((l) => str(obj(l.label).name))
+    .sort((x, y) => (Number(x.position) || 0) - (Number(y.position) || 0))
+    .map((l) => clip(str(obj(l.label).name), LIMITS.TRACKER_LABEL))
+  const open = b.hide_backlog_list !== true
+  const closed = b.hide_closed_list !== true
+  const url = id === null ? '' : `https://${source.host}/${source.repo}/-/boards/${id}`
+  return {
+    board: name,
+    ...(url && url.length <= LIMITS.URL ? { boardUrl: url } : {}),
+    columns: [...(open ? [OPEN_LIST] : []), ...lists, ...(closed ? [CLOSED_LIST] : [])].slice(0, LIMITS.TRACKER_COLUMNS),
+    lists,
+    scope: labelsOf(b.labels),
+    open,
+    closed,
+  }
+}
+
+/** Where one issue stands on one board, or null when the board does not hold it. */
+export function columnOn(row: Pick<TrackerRow, 'kind' | 'state' | 'labels'>, board: HeldBoard): TrackerColumn | null {
+  if (row.kind !== 'issue') return null
+  const labels = new Set(row.labels)
+  if ((board.scope ?? []).some((l) => !labels.has(l))) return null
+  const at = { board: board.board, ...(board.boardUrl ? { boardUrl: board.boardUrl } : {}) }
+  if (row.state !== 'open') return { name: CLOSED_LIST, ...at }
+  const list = (board.lists ?? []).find((l) => labels.has(l))
+  if (list) return { name: list, ...at }
+  return board.open === false ? null : { name: OPEN_LIST, ...at }
+}
+
+/** A GitLab row with its column on each board put in afresh, or taken off when it is on none. */
+export function columnsOn(row: TrackerRow, boards: readonly HeldBoard[]): TrackerRow {
+  const { column: _column, columns: _columns, ...rest } = row
+  const placed = boards.map((b) => columnOn(row, b)).filter((c): c is TrackerColumn => c !== null).slice(0, LIMITS.TRACKER_BOARDS)
+  if (!placed.length) return rest
+  return placed.length > 1 ? { ...rest, column: placed[0], columns: placed } : { ...rest, column: placed[0] }
+}
+
 /** How many pages of a hundred a listing of `limit` takes. */
 /** References per GraphQL query: GitLab's complexity grows with it (148 at 25 + 25, against a limit of 250). */
 const BATCH = 25
@@ -343,6 +410,19 @@ export function gitlabAdapter(run: Runner): Adapter {
         }
       }
       return { ok: true, rows: linkDeclarers(rows), notFound: [] }
+    },
+
+    async boards(source): Promise<BoardsRead | null> {
+      const ran = await glab([`${project(source)}/boards?per_page=100`], source)
+      if (ran.code !== 0) return null
+      const got = parsed(ran)
+      if (!Array.isArray(got)) return null
+      return {
+        boards: got
+          .map((one) => boardOf(source, one))
+          .filter((one): one is HeldBoard => one !== null)
+          .slice(0, LIMITS.TRACKER_BOARDS),
+      }
     },
 
     async refs(source, wanted, now): Promise<Read> {
