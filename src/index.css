@@ -212,9 +212,115 @@
   pointer-events: none;
 }
 
-.react-grid-item > .react-resizable-handle::after {
-  border-right-color: var(--muted-foreground);
-  border-bottom-color: var(--muted-foreground);
+/*
+ * The four corners of a container resize it, and none of them is drawn.
+ *
+ * A corner has no grip. Its rounded arc is tinted instead, following the
+ * container's own radius exactly: a box the size of the radius, in the corner,
+ * with a border on its two outer sides only and the corner between them
+ * rounded by `--radius` (the same value `rounded-lg` gives the container), so
+ * the band is the arc and stops where the arc does. The tint is
+ * the foreground at a low strength, so it is lighter than the card in a dark
+ * theme and darker in a light one with no per-mode colour. It shows while the
+ * container's chrome is hovered, stronger on the corner under the pointer, and
+ * on every corner while one is being pulled. It is a pointer affordance and
+ * carries no meaning, so there is nothing for colour to be the only signal of.
+ *
+ * The hit area is a small square AT the corner. The header's own controls are
+ * lifted above it in `Container.tsx`, and the rest of the header, which drags
+ * the container, is never under it.
+ */
+.react-grid-item > .react-resizable-handle.corner-handle {
+  width: 12px;
+  height: 12px;
+  background: none;
+  padding: 0;
+  transform: none;
+  z-index: 2;
+  touch-action: none;
+}
+@media (pointer: coarse) {
+  .react-grid-item > .react-resizable-handle.corner-handle {
+    width: 22px;
+    height: 22px;
+  }
+}
+.react-grid-item > .react-resizable-handle.corner-handle.react-resizable-handle-nw,
+.react-grid-item > .react-resizable-handle.corner-handle.react-resizable-handle-se {
+  cursor: nwse-resize;
+}
+.react-grid-item > .react-resizable-handle.corner-handle.react-resizable-handle-ne,
+.react-grid-item > .react-resizable-handle.corner-handle.react-resizable-handle-sw {
+  cursor: nesw-resize;
+}
+.react-grid-item > .corner-handle::after {
+  content: '';
+  position: absolute;
+  width: var(--radius);
+  height: var(--radius);
+  box-sizing: border-box;
+  border: 0 solid transparent;
+  background: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+  --corner-tint: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.react-grid-item > .react-resizable-handle-nw::after {
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  border-width: 2px 0 0 2px;
+  border-top-color: var(--corner-tint);
+  border-left-color: var(--corner-tint);
+  border-top-left-radius: var(--radius);
+}
+.react-grid-item > .react-resizable-handle-ne::after {
+  top: 0;
+  right: 0;
+  left: auto;
+  bottom: auto;
+  border-width: 2px 2px 0 0;
+  border-top-color: var(--corner-tint);
+  border-right-color: var(--corner-tint);
+  border-top-right-radius: var(--radius);
+}
+.react-grid-item > .react-resizable-handle-sw::after {
+  bottom: 0;
+  left: 0;
+  right: auto;
+  top: auto;
+  border-width: 0 0 2px 2px;
+  border-bottom-color: var(--corner-tint);
+  border-left-color: var(--corner-tint);
+  border-bottom-left-radius: var(--radius);
+}
+.react-grid-item > .react-resizable-handle-se::after {
+  bottom: 0;
+  right: 0;
+  left: auto;
+  top: auto;
+  border-width: 0 2px 2px 0;
+  border-bottom-color: var(--corner-tint);
+  border-right-color: var(--corner-tint);
+  border-bottom-right-radius: var(--radius);
+}
+.react-grid-item:hover > .corner-handle::after {
+  opacity: 1;
+}
+.react-grid-item > .corner-handle:hover::after,
+.react-grid-item > .corner-handle:active::after {
+  opacity: 1;
+  --corner-tint: color-mix(in oklab, var(--foreground) 38%, transparent);
+}
+.react-grid-item.resizing > .corner-handle::after {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-grid-item > .corner-handle::after {
+    transition: none;
+  }
 }
 
 /*

@@ -594,14 +594,13 @@ describe('in the container', () => {
     await open('frame')
     expect(content('frame')!.querySelector('[data-frame="skills"]')).toBeNull()
   })
-  test('folded, the remove button is lifted over the grid’s resize handle, which otherwise lies on its lower half', async () => {
+  test('the remove button is lifted over the handle in the top right corner, folded or not', async () => {
     const remove = () => document.querySelector('button[aria-label="take Paper off the canvas"]')!
-    await container(true, [])
-    expect(remove().hasAttribute('data-over-handle')).toBe(true)
-    expect(remove().className).toContain('data-[over-handle]:z-10')
-    act(() => unmount?.())
-    await container(false, [])
-    expect(remove().hasAttribute('data-over-handle')).toBe(false)
+    for (const folded of [true, false]) {
+      await container(folded, [])
+      expect(remove().className).toContain('relative z-10')
+      act(() => unmount?.())
+    }
   })
 })
 

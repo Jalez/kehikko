@@ -512,3 +512,70 @@ export function dragged(
   if (h <= folded) return { wish: before.wish, collapsed: true }
   return { wish: h, collapsed: false }
 }
+
+/**
+ * Everything that sits directly on top of `box` in a column it shares: the
+ * containers whose bottom edge is this container's top edge.
+ *
+ * Flush, not merely above. The grid compacts vertically, so whatever the top
+ * edge of a container is touching is what it would be taking rows from if the
+ * edge were pulled up, and what it would be giving rows to if the edge were
+ * pushed down.
+ */
+export function onTopOf<T extends Box>(boxes: readonly T[], box: Box): T[] {
+  return boxes.filter((other) => shares(box, other) && other.y + other.h === box.y)
+}
+
+/**
+ * How many rows a container's TOP edge could be pulled up.
+ *
+ * The rows are the ones the containers on top of it can spare: each keeps its
+ * floor (`SQUEEZED_ROWS`, or its own height if that is already smaller, which
+ * is how a folded one keeps its single row). The least any of them can spare
+ * is the answer, since they all give the same number. A container with nothing
+ * on top of it has no top edge to move: the grid compacts upward and would
+ * not leave a gap, so the answer is 0.
+ */
+export function mostUp(boxes: readonly Wished[], id: string, floor = SQUEEZED_ROWS): number {
+  const box = boxes.find((one) => one.i === id)
+  if (!box) return 0
+  const over = onTopOf(boxes, box)
+  if (over.length === 0) return 0
+  return Math.max(0, Math.min(...over.map((one) => one.h - Math.min(one.h, floor))))
+}
+
+/**
+ * A top edge pulled to make a container `h` rows tall, its bottom edge fixed.
+ *
+ * Returns the height the container really gets (clamped to what the containers
+ * on top of it can spare, and to a row), where its top edge `y` then is, and
+ * the new height of every container on top of it: a top edge is the boundary
+ * between this container and what is above, so what one gains the other loses.
+ * That is the mirror of `granted`, where a bottom edge takes from what is
+ * below, and the same rule for the same reason: nothing overflows and nothing
+ * is lost without being given to a neighbour.
+ *
+ * A container with nothing on top has no room to grow upward; pulling its top
+ * edge down shortens it, and the grid settles it back against the top, so its
+ * `y` does not move.
+ *
+ * Pure: the answer depends only on the stored arrangement and the requested
+ * height, never on what the grid is holding mid-gesture, for the reason
+ * `onResize` in `App.tsx` gives.
+ */
+export function topEdge(
+  boxes: readonly Wished[],
+  id: string,
+  h: number,
+  floor = SQUEEZED_ROWS,
+): { h: number; y: number; given: Map<string, number> } {
+  const box = boxes.find((one) => one.i === id)
+  const given = new Map<string, number>()
+  if (!box) return { h, y: 0, given }
+  const over = onTopOf(boxes, box)
+  const grown = Math.max(1, Math.min(Math.round(h), box.h + mostUp(boxes, id, floor)))
+  const d = grown - box.h
+  if (over.length === 0) return { h: Math.min(grown, box.h), y: box.y, given }
+  for (const one of over) if (!one.collapsed || d > 0) given.set(one.i, one.h - d)
+  return { h: grown, y: box.y - d, given }
+}

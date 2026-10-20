@@ -1,0 +1,158 @@
+import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { createRef } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import { CornerHandle, cornerHandle } from '../src/canvas/CornerHandle.tsx'
+import { SQUEEZED_ROWS, mostUp, onTopOf, redrawn, topEdge, type Wished } from '../src/host/columns.ts'
+import { cornerOf } from '../src/host/corners.ts'
+
+/**
+ * A container resizes from any of its four corners.
+ *
+ * The side edges are the grid's (`react-grid-layout` moves `x` and `w` together
+ * so the opposite edge stays put); the top edge is this host's, because the
+ * grid compacts upward and a column is a height budget (`columns.ts`). What is
+ * here is the top edge's arithmetic, and what makes the corners usable without
+ * costing the header anything.
+ */
+const box = (i: string, x: number, y: number, w: number, h: number, extra: Partial<Wished> = {}): Wished => ({
+  i, x, y, w, h, wish: h, collapsed: false, ...extra,
+})
+
+describe('a top edge pulled up', () => {
+  const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10), box('side', 6, 0, 6, 28)]
+
+  test('keeps the bottom edge and takes the rows from the container on top', () => {
+    const pull = topEdge(column, 'b', 14)
+    expect(pull.h).toBe(14)
+    expect(pull.y).toBe(4)
+    expect(pull.y + pull.h).toBe(8 + 10)
+    expect(pull.given.get('a')).toBe(4)
+    expect(pull.given.has('side')).toBe(false)
+  })
+
+  test('stops where the container on top is at its floor', () => {
+    const pull = topEdge(column, 'b', 40)
+    expect(mostUp(column, 'b')).toBe(8 - SQUEEZED_ROWS)
+    expect(pull.h).toBe(10 + 8 - SQUEEZED_ROWS)
+    expect(pull.given.get('a')).toBe(SQUEEZED_ROWS)
+    expect(pull.y).toBe(SQUEEZED_ROWS)
+  })
+
+  test('a container with nothing on top has no top edge to raise', () => {
+    expect(mostUp(column, 'a')).toBe(0)
+    const pull = topEdge(column, 'a', 12)
+    expect(pull.h).toBe(8)
+    expect(pull.y).toBe(0)
+    expect(pull.given.size).toBe(0)
+  })
+
+  test('a folded container on top has nothing to spare', () => {
+    const folded = [box('a', 0, 0, 6, 1, { wish: 8, collapsed: true }), box('b', 0, 1, 6, 10)]
+    expect(mostUp(folded, 'b')).toBe(0)
+    expect(topEdge(folded, 'b', 20).h).toBe(10)
+  })
+
+  test('every container flush on top gives the same rows', () => {
+    const wide = [box('a', 0, 0, 3, 8), box('c', 3, 0, 3, 6), box('b', 0, 8, 6, 8)]
+    expect(onTopOf(wide, wide[2]!).map((one) => one.i)).toEqual(['a'])
+    const flush = [box('a', 0, 0, 3, 8), box('c', 3, 0, 3, 8), box('b', 0, 8, 6, 8)]
+    expect(topEdge(flush, 'b', 11).given).toEqual(new Map([['a', 5], ['c', 5]]))
+  })
+})
+
+describe('a top edge pushed down', () => {
+  const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
+
+  test('gives the rows to the container on top, bottom edge fixed', () => {
+    const pull = topEdge(column, 'b', 6)
+    expect(pull.h).toBe(6)
+    expect(pull.y).toBe(12)
+    expect(pull.y + pull.h).toBe(18)
+    expect(pull.given.get('a')).toBe(12)
+  })
+
+  test('never below one row, which is a fold', () => {
+    expect(topEdge(column, 'b', -5).h).toBe(1)
+    expect(topEdge(column, 'b', 0).h).toBe(1)
+  })
+
+  test('without anything on top it shortens in place and the grid settles it back', () => {
+    const alone = [box('a', 0, 0, 6, 10)]
+    const pull = topEdge(alone, 'a', 4)
+    expect(pull).toMatchObject({ h: 4, y: 0 })
+  })
+})
+
+describe('a top edge at rest', () => {
+  test('changes nothing, and what it gives is what the arrangement already draws', () => {
+    const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
+    const pull = topEdge(column, 'b', 10)
+    expect(pull).toMatchObject({ h: 10, y: 8 })
+    expect(pull.given.get('a')).toBe(8)
+    const settled = column.map((one) => (pull.given.has(one.i) ? { ...one, wish: pull.given.get(one.i)! } : one))
+    expect(redrawn(settled)).toEqual(settled)
+  })
+
+  test('after a pull the stored arrangement is the one the wishes draw, so the release writes it once', () => {
+    const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
+    const pull = topEdge(column, 'b', 14)
+    const written = [
+      { ...column[0]!, h: pull.given.get('a')!, wish: pull.given.get('a')! },
+      { ...column[1]!, y: pull.y, h: pull.h, wish: pull.h },
+    ]
+    expect(redrawn(written)).toEqual(written)
+    expect(written.reduce((rows, one) => Math.max(rows, one.y + one.h), 0)).toBe(18)
+  })
+})
+
+describe('which corner a press landed on', () => {
+  test('reads the handle, or a child of it', () => {
+    for (const corner of ['nw', 'ne', 'sw', 'se'] as const) {
+      const handle = { closest: (s: string) => (s === '[data-corner]' ? { getAttribute: () => corner } : null) }
+      expect(cornerOf(handle as unknown as EventTarget)).toBe(corner)
+    }
+  })
+  test('is nothing for anything else', () => {
+    expect(cornerOf(null)).toBeNull()
+    expect(cornerOf({ closest: () => null } as unknown as EventTarget)).toBeNull()
+    expect(cornerOf({ closest: () => ({ getAttribute: () => 'n' }) } as unknown as EventTarget)).toBeNull()
+  })
+})
+
+describe('the corner handle', () => {
+  test('carries its corner, a class the grid styles, and the props the grid hands it', () => {
+    const html = renderToStaticMarkup(<CornerHandle corner="nw" onMouseDown={() => {}} />)
+    expect(html).toContain('data-corner="nw"')
+    expect(html).toContain('react-resizable-handle-nw')
+    expect(html).toContain('corner-handle')
+    expect(renderToStaticMarkup(cornerHandle('se', createRef()))).toContain('data-corner="se"')
+  })
+
+  test('is a small hit area that stays out from over the header, whose controls sit above it', () => {
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    const handle = css.match(/\.react-grid-item > \.react-resizable-handle\.corner-handle \{([^}]*)\}/)![1]!
+    const size = Number(handle.match(/width:\s*(\d+)px/)![1])
+    const layer = Number(handle.match(/z-index:\s*(\d+)/)![1])
+    expect(size).toBeLessThanOrEqual(12)
+    const container = readFileSync(new URL('../src/canvas/Container.tsx', import.meta.url), 'utf8')
+    const remove = container.match(/className="([^"]*-mr-1 size-6[^"]*)"/)![1]!
+    expect(remove).toContain('relative')
+    expect(Number(remove.match(/\bz-(\d+)\b/)![1])).toBeGreaterThan(layer)
+    /* The top-right handle covers the right-most twelve pixels of the header;
+       the remove button's box begins six pixels in (header padding of ten, less
+       the -mr-1), so what is left to the handle is a corner the button is
+       lifted above. Nothing else in the header reaches the edge. */
+    expect(container).toContain('container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5')
+  })
+
+  test('is not drawn: the old grip is gone and the arc is tinted from the theme', () => {
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    expect(css).not.toContain('border-right-color: var(--muted-foreground)')
+    expect(css).toContain('border-top-left-radius: var(--radius)')
+    expect(css).toContain('color-mix(in oklab, var(--foreground)')
+    expect(css).toContain('cursor: nwse-resize')
+    expect(css).toContain('cursor: nesw-resize')
+  })
+})
