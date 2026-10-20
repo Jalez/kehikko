@@ -34,13 +34,14 @@ describe('the version and the branch in a header', () => {
     test(`${name}: shrinks, with a truncating label`, () => {
       expect(html).not.toMatch(/^<[^>]*\sclass="[^"]*\bshrink-0\b/)
       expect(html).toMatch(/min-w-5 shrink-\[\d+\]/)
-      expect(html).toContain('min-w-0 truncate')
+      expect(html).toMatch(/min-w-(0|\[9ch\]) truncate/)
     })
   }
 
-  test('the version gives way before the branch, and the labels before the chips', () => {
-    expect(version('v1.2.3')).toContain('shrink-[50]')
-    expect(branch(source)).toContain('shrink-[20]')
+  test('the branch gives way before the version, which keeps nine characters, and the labels before the chips', () => {
+    expect(branch(source)).toContain('shrink-[50]')
+    expect(version('v1.2.3')).toContain('shrink-[20]')
+    expect(version('v1.2.3')).toContain('min-w-[9ch] truncate')
     expect(version('v1.2.3')).toContain('@max-[300px]/container:hidden')
     expect(branch(source)).toContain('@max-[220px]/container:hidden')
   })

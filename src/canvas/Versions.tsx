@@ -110,12 +110,12 @@ export function VersionPicker({
             onMouseDown={(event) => event.stopPropagation()}
             className={
               pinned
-                ? 'pointer-events-auto inline-flex min-w-5 shrink-[50] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-                : 'text-muted-foreground hover:text-foreground pointer-events-auto flex min-w-5 shrink-[50] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
+                ? 'pointer-events-auto inline-flex min-w-5 shrink-[20] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
+                : 'text-muted-foreground hover:text-foreground pointer-events-auto flex min-w-5 shrink-[20] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
             }
           >
             {pinned ? <Tag className="size-2.5 shrink-0" /> : null}
-            <span data-testid="version-label" className="min-w-0 truncate @max-[300px]/container:hidden">{label}</span>
+            <span data-testid="version-label" className="min-w-[9ch] truncate @max-[300px]/container:hidden">{label}</span>
           </button>
         </PopoverTrigger>
       </Hint>
