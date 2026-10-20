@@ -252,3 +252,21 @@
   a press carries the sha256 of the text the person was shown and is refused
   if the module's text changed. `POST /host/skills` is in `PAGE_ONLY`, and no
   MCP tool installs or removes a skill.
+- A module no longer registered takes its skills with it: the Settings sync
+  (`tidySkills` in `server/agentSync.ts`) removes, through `syncSkill`, each
+  untouched install whose marker names it — whatever the settings say — and
+  leaves an edited one, said once (`skill_left`). Nothing is tidied when the
+  registry folder could not be read (`unreadable`), and a registration file the
+  host would not use still counts as registered. Only THIS host's installs: the
+  marker records the writer's resolved registry (`thisRegistry`), and a marker
+  without one (written before) is tidied only by a host on the machine's own
+  registry (`isMachineRegistry`), so a scratch or dev host never removes them.
+
+## Settings: a module that is not running
+
+- The sync connects a stopped module from the door it had when it last ran:
+  `known_doors` (frame.sqlite, `known.ts`) keeps its path, transport and `as`,
+  never the url; the address is the path on the registration's origin as it is
+  now (`rememberedMcp`). A module never seen running has none and stays "Not
+  running". When it starts somewhere else, Kehikot's own entry is re-pointed.
+  Its row says "Connected (not running now)" (`toolSays`).

@@ -8,7 +8,7 @@ import { Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { forgetFormerName } from './formerName.ts'
-import { ensureKnown, forgetUnregistered, known, remember } from './known.ts'
+import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
 import {
   createCanvas,
   databaseFile,
@@ -64,7 +64,7 @@ import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
-import { readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
+import { idOfFile, readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import {
   addArgs,
   awarenessAt,
@@ -529,7 +529,22 @@ async function survey(): Promise<{
       }
     }
   }
+  /* Where each running module's door is, for keeping it connected while the
+     module sleeps (`knownDoors`, `agentSync.ts`). A running module that
+     declares none has none to keep. */
+  for (const presence of presences) {
+    if (!presence.module) continue
+    const kept = presence.module.mcp ? doorKept(presence.module.mcp) : null
+    if (kept) rememberDoor(db, presence.id, kept)
+    else forgetDoor(db, presence.id)
+  }
   forgetUnregistered(db, found.registrations.map((r) => r.id))
+  /* What the registry held, files the host would not read included: a module
+     whose file is there is not uninstalled. Null when the folder could not be
+     read, which says nothing about what was removed. */
+  lastRegistry = found.unreadable
+    ? null
+    : new Set([...found.registrations.map((r) => r.id), ...found.rejected.map((one) => idOfFile(one.file))])
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
   /* Whether anything the agent sync cares about moved. It runs only when so. `agentSync.ts`. */
@@ -858,6 +873,8 @@ const pins = new Pins({
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
 const lastPresences = new Map<string, Presence>()
+/** Every module id the registry held at the last sweep, or null when it could not be read. See `sweep`. */
+let lastRegistry: ReadonlySet<string> | null = null
 
 /** What each module's manifest asks for (`declares.uses`), as a sweep last read it. No call can write it. */
 const lastDeclared = new Map<string, readonly string[]>()
@@ -1807,13 +1824,21 @@ const skillDesk = skillsRoute({
 
 /** Every registered module as the sync reads it, and the host's own door first. */
 function seenOf(presences: readonly Presence[]): ModuleSeen[] {
+  const doors = knownDoors(db)
+  /* The door a module that is not running had when it last was, at the address
+     its registration gives now. See `knownDoors`. */
+  const remembered = (presence: Presence) =>
+    presence.module ? null : rememberedMcp(doors.get(presence.id), registered.get(presence.id)?.url)
   const held = new Map<string, string | null>()
-  for (const presence of presences) held.set(presence.id, heldName(presence, presence.id))
+  for (const presence of presences) {
+    const asleep = remembered(presence)
+    held.set(presence.id, asleep ? doorName(presence.id, asleep.as) : heldName(presence, presence.id))
+  }
   const host: ModuleSeen = { id: own.module, name: 'Kehikot', answering: true, version: HOST_VERSION, door: own, refusal: null, origin: '', skills: [] }
   return [
     host,
     ...presences.map((presence): ModuleSeen => {
-      const mcp = presence.module?.mcp ?? null
+      const mcp = presence.module?.mcp ?? remembered(presence)
       const refusal = mcp ? nameRefusal(presence.id, mcp.as, held) : null
       return {
         id: presence.id,
@@ -1848,6 +1873,7 @@ const agentSync = new AgentSync({
   modules: async () => seenOf((await sweep()).presences),
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
+  registry: () => lastRegistry,
   ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),
 })
 

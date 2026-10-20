@@ -95,6 +95,17 @@ export interface RegistrationSweep {
   rejected: RejectedRegistration[]
   /** The directory swept, always reported so an empty result can be explained. */
   dir: string
+  /**
+   * Set when the directory exists and could not be read. The sweep is then
+   * empty for a reason that says nothing about what is registered, and nothing
+   * that tidies up after an uninstalled module may act on it.
+   */
+  unreadable?: true
+}
+
+/** The module id a registration file's name gives, whether or not the file could be used. */
+export function idOfFile(file: string): string {
+  return basename(file).replace(/\.(json|ya?ml)$/i, '')
 }
 
 /**
@@ -277,7 +288,7 @@ export async function readRegistrations(dir?: string): Promise<RegistrationSweep
     if (!held || outranks(rank, held.rank)) byId.set(registration.id, { registration, rank })
   }
   const registrations = [...byId.values()].map((entry) => entry.registration).sort((a, b) => a.id.localeCompare(b.id))
-  return { registrations, rejected: now.rejected, dir: primary }
+  return { registrations, rejected: now.rejected, dir: primary, ...(now.unreadable ? { unreadable: true as const } : {}) }
 }
 
 function outranks(a: readonly number[], b: readonly number[]): boolean {
@@ -300,8 +311,10 @@ async function sweep(dir: string): Promise<RegistrationSweep> {
   let names: string[]
   try {
     names = await readdir(dir)
-  } catch {
-    return { registrations: [], rejected: [], dir }
+  } catch (error) {
+    /* No folder is nothing registered; a folder that is there and unreadable is not knowing. */
+    const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
+    return { registrations: [], rejected: [], dir, ...(missing ? {} : { unreadable: true as const }) }
   }
 
   const registrations: Registration[] = []

@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import { isSkillName, LIMITS, skillPath, skillTextIssue, type ModuleSkill } from 'kehikot-module-protocol'
 
+import { machineDir, modulesDir } from './machineDirs.ts'
 import { SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
 
 /**
@@ -64,6 +65,22 @@ export interface SkillMarker {
   version: string
   sha256: string
   at: string
+  /**
+   * The registry of the host that wrote it (`thisRegistry`), so that only that
+   * host tidies it away when its module is gone. Absent from markers written
+   * before it was recorded.
+   */
+  registry?: string
+}
+
+/** This host's registry folder, resolved: what a marker it writes names. */
+export function thisRegistry(env: Env = process.env): string {
+  return resolve(modulesDir(env))
+}
+
+/** Whether this host's registry is the machine's own (`<machine dir>/modules`), not a scratch or dev one. */
+export function isMachineRegistry(env: Env = process.env): boolean {
+  return thisRegistry(env) === resolve(join(machineDir(env), 'modules'))
 }
 
 /** What is on disk under one name, read against the module asking. */
@@ -81,7 +98,14 @@ function readMarker(path: string): SkillMarker | null {
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<SkillMarker>
     if (typeof raw.module !== 'string' || typeof raw.sha256 !== 'string' || typeof raw.name !== 'string') return null
-    return { module: raw.module, name: raw.name, version: String(raw.version ?? ''), sha256: raw.sha256, at: String(raw.at ?? '') }
+    return {
+      module: raw.module,
+      name: raw.name,
+      version: String(raw.version ?? ''),
+      sha256: raw.sha256,
+      at: String(raw.at ?? ''),
+      ...(typeof raw.registry === 'string' && raw.registry ? { registry: raw.registry } : {}),
+    }
   } catch {
     return null
   }
@@ -181,6 +205,7 @@ const markerFor = (module: string, skill: ModuleSkill, text: string): SkillMarke
   version: skill.version,
   sha256: sha256(text),
   at: new Date().toISOString(),
+  registry: thisRegistry(),
 })
 
 const tmpName = (root: string, name: string) => join(root, `.${name}.kehikot-${randomBytes(6).toString('hex')}`)
