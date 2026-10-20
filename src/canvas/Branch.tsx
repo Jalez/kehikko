@@ -25,12 +25,12 @@ export function BranchMark({ source }: { source: Source | null | undefined }) {
         aria-label={hint}
         className={
           marked
-            ? 'inline-flex shrink-0 cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-            : 'text-muted-foreground shrink-0 cursor-default font-mono text-[10px] @max-[300px]/container:hidden'
+            ? 'inline-flex min-w-5 shrink-[20] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
+            : 'text-muted-foreground flex min-w-5 shrink-[20] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
         }
       >
-        {marked ? <GitBranch className="size-2.5" aria-hidden /> : null}
-        {branchWord(source)}
+        {marked ? <GitBranch className="size-2.5 shrink-0" aria-hidden /> : null}
+        <span data-testid="branch-label" className="min-w-0 truncate @max-[220px]/container:hidden">{branchWord(source)}</span>
       </span>
     </Hint>
   )
