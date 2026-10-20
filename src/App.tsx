@@ -79,6 +79,7 @@ import { useInbox } from './canvas/useInbox.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
 import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
 import { fetchLog } from './host/inboxClient.ts'
+import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
@@ -3193,6 +3194,14 @@ export function App() {
         rev: inbox.rev,
         shortcut: 'Alt+Shift+N',
         now: () => Date.now(),
+        /* The host's ask "which epic is this conversation for?": the person answers with one press. */
+        choicesFor: (entry) =>
+          isPlaceAsk(entry) && projectId !== null
+            ? askChoices(about.epic, held?.epics ?? []).map((choice) => ({
+                label: choice.label,
+                run: () => void answerAsk({ project: projectId, session: entry.id, epic: choice.epic, kehikko: open?.id ?? null }),
+              }))
+            : null,
       },
     }
   }, [
@@ -3207,6 +3216,8 @@ export function App() {
     goToElsewhere,
     about.epic,
     open?.key,
+    open?.id,
+    held,
     projectId,
   ])
 

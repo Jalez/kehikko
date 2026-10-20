@@ -6,8 +6,9 @@ import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } fr
 import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
 import { createEpic, editParts, readParts } from './holdings.ts'
+import { belongsWords, lookingAt, lookingWords, sameAsLooking, type Here, type Looking, type Unrecorded } from './doorPlaces.ts'
 import { keep } from './kehikot.ts'
-import { MISSING_SAID, projectById } from './projects.ts'
+import { MISSING_SAID, projectById, type Project } from './projects.ts'
 import type { Inbox } from './inbox.ts'
 import { activityRowsFor, earlierLines, readInboxText } from './inboxText.ts'
 import { listingText, rolesOf, sourceName } from '../src/host/trackerSources.ts'
@@ -174,6 +175,8 @@ export interface Reply {
   status: number
   /** `null` means "answer with no body", which is what a notification gets. */
   body: unknown
+  /** Response headers: `Mcp-Session-Id` on the answer to `initialize`. */
+  headers?: Record<string, string>
 }
 
 interface Rpc {
@@ -250,6 +253,25 @@ export interface Door {
     list(module: string, kehikko: number): Promise<VersionListing | { why: string; status: number }>
     pin(kehikko: number, module: string, version: string | null): Promise<Pinned>
   }
+  /**
+   * The place this call is in — its token, or its MCP session's binding —
+   * resolved by the server (`resolveHere` in `doorPlaces.ts`). Absent or null:
+   * the call has none, and every tool answers about the open kehikko as before.
+   */
+  here?: Here | null
+  /** A token the call carried whose record could not be read, and why. */
+  unrecorded?: Unrecorded | null
+  /** The MCP session the call carried (`Mcp-Session-Id`), when the door gave it one. */
+  session?: string | null
+  /** Sessions and places: what `my_place` and `set_my_place` need. See `doorPlaces.ts`. */
+  places?: {
+    /** A new MCP session, for `initialize`. `client` is what the client calls itself. */
+    open(client: string): string
+    /** Bind the session to a place in a project; the answer says what was bound. */
+    bind(session: string, project: Project, place: { epic: string | null; parts: string[]; kehikko: string | null }): Here | null
+    /** The session asks the person which epic it is for: one Inbox item per session, in that project. */
+    ask(session: string, project: Project): void
+  }
 }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
@@ -268,6 +290,8 @@ export const TOOL_NAMES = [
   'fold_modules',
   'press_item',
   'read_inbox',
+  'my_place',
+  'set_my_place',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -349,6 +373,21 @@ function decide(
   }
 
   const id = asked ?? null
+  const here = door.here ?? null
+  if (id === null && here?.canvas) {
+    /* The conversation's own kehikko, whatever the person has on screen. */
+    const canvas = listCanvases(door.db).find((c) => c.id === here.canvas!.id) ?? here.canvas
+    const open = door.which()
+    const watched = door.watched?.() ?? (open.ok ? [open.id] : [])
+    const shown = watched.includes(canvas.id)
+    return {
+      ok: true,
+      canvas,
+      how: shown
+        ? 'this conversation’s own kehikko, which a page of this host has open'
+        : 'this conversation’s own kehikko — not the one on screen now; no page has it open',
+    }
+  }
   if (id === null) {
     const open = door.which()
     if (!open.ok) return { ok: false, why: `${open.why}\n\n${roster(door.db)}` }
@@ -364,7 +403,13 @@ function decide(
           + `it was probably deleted in another window.\n\n${roster(door.db)}`,
       }
     }
-    return { ok: true, canvas, how: 'the kehikko a page of this host has open' }
+    return {
+      ok: true,
+      canvas,
+      how: here
+        ? `the kehikko a page of this host has open — this conversation’s own kehikko (${here.key ?? 'none'}) is not in ${here.project.name} any more`
+        : 'the kehikko a page of this host has open',
+    }
   }
 
   const canvas = listCanvases(door.db).find((c) => c.id === id)
@@ -398,12 +443,24 @@ function canvasText(
   activity?: readonly ActivityRow[] | null,
   /** A bounded summary of the inbox's log, for the end of the activity lines. */
   earlier?: readonly string[],
+  /**
+   * The conversation's place and what the person is looking at. With a place
+   * in this kehikko's project, the epic and parts said are the PLACE's, and
+   * what the person has on screen is said beside them.
+   */
+  placed?: { here: Here | null; looking: Looking | null; unrecorded?: Unrecorded | null },
 ): string {
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const known = new Map(seen.map((sighting) => [sighting.id, sighting]))
 
   const lines: string[] = []
   lines.push(`kehikko ${canvas.id}: ${canvas.name} — ${how}.`)
+  if (placed?.here) {
+    lines.push(belongsWords(placed.here))
+    lines.push(lookingWords(placed.here, placed.looking))
+  } else if (placed) {
+    lines.push(placed.unrecorded ? unreadLine(placed.unrecorded) : UNPLACED_LINE)
+  }
   lines.push(
     project
       ? `project: ${project.name} at ${project.path}${project.uid ? ` (project id ${project.uid}, which stays the same when its folder is renamed or moved)` : ''}${project.missing ? ` — ${MISSING_SAID} Nothing is read from it or written to it until it is found again.` : ''}`
@@ -411,12 +468,22 @@ function canvasText(
   )
   /* The project's, not the kehikko's: the epic is picked per project and every
      kehikko in it shows the same one. See `Subject` in `canvases.ts`. */
-  const about = canvas.project === null ? null : readSubject(db, canvas.project)
-  lines.push(
-    about?.epic
-      ? `epic: ${about.epic} (the project's; every kehikko in it is on the same epic)`
-      : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
-  )
+  const subject = canvas.project === null ? null : readSubject(db, canvas.project)
+  const here = placed?.here && placed.here.project.id === canvas.project ? placed.here : null
+  const about = here && subject ? { ...subject, epic: here.epic, parts: here.parts } : subject
+  if (here) {
+    lines.push(
+      here.epic
+        ? `epic: ${here.epic} — this conversation's epic. ${placed?.looking && sameAsLooking(here, placed.looking) ? 'The person is looking at it too.' : `The project's open epic (what the person picks for every kehikko) is ${subject?.epic ?? 'none'}.`}`
+        : `epic: none — this conversation belongs to no epic of the project. The project's open epic is ${subject?.epic ?? 'none'}.`,
+    )
+  } else {
+    lines.push(
+      about?.epic
+        ? `epic: ${about.epic} (the project's; every kehikko in it is on the same epic)`
+        : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
+    )
+  }
   /* The parts of the epic, each with its id — which is what `set_parts`
      takes and what a module files its own material under — and its name.
      Ids of the stored picks are marked; one that names no part of the epic
@@ -434,8 +501,10 @@ function canvasText(
     )
     if (on.length) {
       lines.push(
-        `parts of the epic picked out: ${on.join(', ')} — every module here is pointed at those parts only; `
-          + 'the rest of the epic is still there.',
+        here
+          ? `parts this conversation is about: ${on.join(', ')} — the rest of the epic is still there.`
+          : `parts of the epic picked out: ${on.join(', ')} — every module here is pointed at those parts only; `
+            + 'the rest of the epic is still there.',
       )
     }
     if (gone.length) lines.push(`picked, and no longer a part of the epic (narrows nothing): ${gone.join(', ')}.`)
@@ -546,6 +615,16 @@ function canvasText(
   return lines.join('\n')
 }
 
+/** What an answer says to a conversation with no place of its own. */
+const UNPLACED_LINE =
+  'This conversation is not recorded under any place, so this answer is about what the person has open NOW — which '
+  + 'is not this conversation’s place, only their current view. my_place says how a record is made.'
+
+/** The same, for a call that carried a module's token whose record could not be read. */
+const unreadLine = (unrecorded: Unrecorded): string =>
+  `This conversation carries a place from ${unrecorded.module}, but ${unrecorded.why}; so this answer is about what `
+  + 'the person has open NOW, not this conversation’s place.'
+
 /** One activity row as a line: who said it, its label as the module's own words, its state in words, where, and whether seen. */
 function activityText(row: ActivityRow): string {
   const words = { attention: 'needs your attention', working: 'working', done: 'finished' }[row.state]
@@ -644,6 +723,39 @@ function tools() {
   } as const
 
   return [
+    {
+      name: 'my_place',
+      description:
+        'Which project, epic, parts and kehikko THIS conversation belongs to, as its record says — which can differ '
+        + 'from what the person is looking at, because they switch epics while several conversations work. A '
+        + 'conversation started from a place in Kehikot is recorded there; one that is not recorded says so, and is '
+        + 'recorded with set_my_place (or by the person, from the ask this puts in their Inbox). Also says what the '
+        + 'person is looking at now, labelled as that. Ask this before acting on "the epic"; every tool here '
+        + 'answers about the recorded place, and says when it fell back to the person’s view.',
+      annotations: { title: 'This conversation’s place', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'set_my_place',
+      description:
+        'Record which epic THIS conversation is for, as the person told you, so every later call — read_canvas, '
+        + 'set_parts, read_tracker and the rest — answers about that epic whatever the person switches to. For a '
+        + 'conversation that is not recorded under any place (my_place says); ask the person which epic it is for '
+        + 'first — never assume the one on screen. epic is the slug of an epic the project already has, or null '
+        + 'for "not about an epic". parts are part ids of that epic; kehikko is the whole number read_canvas '
+        + 'prints, and the project is the one that kehikko stands in. It changes nothing on screen. The record is '
+        + 'of this connection: an agent that restarts or reconnects is a new connection, and is asked again.',
+      annotations: { title: 'Record this conversation’s epic', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          epic: { type: ['string', 'null'], description: 'The slug of an existing epic of the project, or null for none.' },
+          parts: { type: 'array', items: { type: 'string' }, description: 'Part ids of that epic, as read_canvas prints them. Left out: the whole epic.' },
+        },
+        required: ['epic'],
+      },
+    },
     {
       name: 'read_canvas',
       description:
@@ -928,6 +1040,12 @@ function tools() {
           refs: { type: 'array', items: { type: 'string' }, description: `Up to ${LIMITS.TRACKER_ASK} refs.` },
           epic: { type: 'string', description: 'An epic slug: every ref it names.' },
           refresh: { type: 'boolean', description: 'Read the trackers again before answering.' },
+          whole: {
+            type: 'boolean',
+            description:
+              'For a conversation that belongs to an epic, where leaving out refs and epic reads that epic: true '
+              + 'reads the whole project instead.',
+          },
         },
       },
     },
@@ -1138,9 +1256,12 @@ export async function call(
   args: Record<string, unknown>,
   door: Door,
 ): Promise<{ text: string; failed: boolean }> {
+  if (name === 'my_place') return myPlace(door)
+  if (name === 'set_my_place') return setMyPlace(args, door)
   const where = decide(door, args)
   if (!where.ok) return { text: where.why, failed: true }
   const canvas = where.canvas
+  const placed = door.here === undefined ? undefined : { here: door.here, looking: looking(door), unrecorded: door.unrecorded ?? null }
 
   if (name === 'read_canvas') {
     return {
@@ -1153,6 +1274,7 @@ export async function call(
         'all',
         door.inbox && canvas.project !== null ? activityRowsFor(door.inbox, door.db, canvas.project) : undefined,
         door.inbox && canvas.project !== null ? earlierLines(door.inbox, door.db, canvas.project, 5, Date.now()) : undefined,
+        placed,
       ),
       failed: false,
     }
@@ -1239,7 +1361,7 @@ export async function call(
         ? `Selected on kehikko ${canvas.id} (${canvas.name}), ${where.how}: ${asked.ids.join(', ')}.`
         : `Nothing is selected on kehikko ${canvas.id} (${canvas.name}) any more, ${where.how}.`)
       + '\n\n'
-      + canvasText(door.db, written, where.how, await door.seen()),
+      + canvasText(door.db, written, where.how, await door.seen(), undefined, undefined, undefined, undefined, placed),
     failed: false,
   }
 }
@@ -1735,8 +1857,11 @@ async function readTrackerAt(
     return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so there is no tracker reading for it.`, failed: true }
   }
   if (project.missing) return { text: missingSaid(project), failed: true }
+  /* A conversation that belongs to an epic of this project reads that epic unless it asks for more. */
+  const here = door.here && door.here.project.id === project.id && door.here.epic ? door.here : null
+  const ownEpic = args.refs === undefined && args.epic === undefined && args.whole !== true && here ? here.epic : null
   const asked = methodParams['tracker.get'].safeParse(
-    args.refs !== undefined ? { refs: args.refs } : args.epic !== undefined ? { epic: args.epic } : { project: true },
+    args.refs !== undefined ? { refs: args.refs } : args.epic !== undefined ? { epic: args.epic } : ownEpic ? { epic: ownEpic } : { project: true },
   )
   if (!asked.success) {
     const issue = asked.error.issues[0]
@@ -1765,7 +1890,7 @@ async function readTrackerAt(
   const listing = door.trackers.describe ? await door.trackers.describe(project.path) : null
   return {
     text:
-      `${refreshed}${listing ? `${listingText(listing, Date.now())}\n\n` : ''}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
+      `${ownEpic ? `This conversation's epic, ${ownEpic}: the refs it names. whole: true reads the whole project.\n` : ''}${refreshed}${listing ? `${listingText(listing, Date.now())}\n\n` : ''}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
       + `${reading.refreshing ? ' (a read is running now)' : ''}.\n${sources || 'No sources.'}\n\n`
       + (shown.length ? shown.map(line).join('\n') : 'No rows.')
       + (reading.rows.length > shown.length ? `\n…and ${reading.rows.length - shown.length} more.` : '')
@@ -1925,9 +2050,18 @@ function setPartsAt(
     }
   }
   if (project.missing) return { text: missingSaid(project), failed: true }
-  const epic = args.epic === undefined || args.epic === null ? readSubject(door.db, project.id)?.epic : args.epic
+  const here = door.here && door.here.project.id === project.id ? door.here : null
+  const unnamed = args.epic === undefined || args.epic === null
+  const epic = !unnamed ? args.epic : here ? here.epic : readSubject(door.db, project.id)?.epic
+  /* An unplaced conversation editing "the epic" edits the one on screen, as before — and the person is asked which is its own. */
+  const note = unnamed && !here && door.here === null && door.session && door.places ? (door.places.ask(door.session, project), UNPLACED_PARTS) : ''
   if (typeof epic !== 'string' || !epic) {
-    return { text: `${project.name} is on no epic, so set_parts needs epic: the slug of one of its epics.`, failed: true }
+    return {
+      text: here
+        ? 'This conversation belongs to no epic, so set_parts needs epic: the slug of one of the project’s epics.'
+        : `${project.name} is on no epic, so set_parts needs epic: the slug of one of its epics.`,
+      failed: true,
+    }
   }
   const given = Object.fromEntries(
     (['add', 'rename', 'move', 'remove'] as const).filter((key) => args[key] !== undefined && args[key] !== null).map((key) => [key, args[key]]),
@@ -1965,7 +2099,113 @@ function setPartsAt(
           : 'move' in edit
             ? `Moved ${id}.`
             : `Removed ${id} from the list; what modules hold under that id was not touched.`
-  return { text: `${did} ${now}`, failed: false }
+  return { text: `${did} ${now}${note ? `\n\n${note}` : ''}`, failed: false }
+}
+
+const UNPLACED_PARTS =
+  'This conversation is not recorded under any place, so set_parts fell back to the epic open on screen — the '
+  + 'person’s current view, not a record. If that is not this conversation’s epic, ask the person which is and '
+  + 'call set_my_place; they have also been asked in their Inbox.'
+
+/** What the person has on screen: the kehikko a page has open, when exactly one is. */
+function looking(door: Door): Looking | null {
+  const open = door.which()
+  return lookingAt(door.db, open.ok ? open.id : null)
+}
+
+/**
+ * `my_place`: which place this conversation belongs to, and what the person is looking at.
+ *
+ * Without a place it says what it CAN — the project and epic on screen — and
+ * what to do: ask the person, then `set_my_place`. The person is asked too, in
+ * their Inbox, once per session (`places.ask`). The project a conversation runs
+ * in cannot be read off the call: the door is one request and one answer, so a
+ * client's roots — which it would have to be asked for over a stream — never
+ * reach it.
+ */
+function myPlace(door: Door): { text: string; failed: boolean } {
+  const now = looking(door)
+  const here = door.here ?? null
+  if (here) {
+    return {
+      text: [
+        belongsWords(here),
+        lookingWords(here, now),
+        here.via === 'session'
+          ? 'Recorded for this connection with set_my_place (or by the person, from their Inbox). If the agent restarts or reconnects, it is a new connection with no record, and is asked again.'
+          : `Read from ${here.module ?? 'the module'}'s record of this conversation${here.conversation ? ` (${here.conversation})` : ''}, as it is now.`,
+        'Every tool here answers about this place unless you name another kehikko or epic.',
+      ].join('\n'),
+      failed: false,
+    }
+  }
+  const project = now?.project ?? null
+  const asked = Boolean(project && !project.missing && project.uid && door.session && door.places)
+  if (asked) door.places!.ask(door.session!, project!)
+  return {
+    text: [
+      door.unrecorded
+        ? `This conversation carries a place from ${door.unrecorded.module}, but ${door.unrecorded.why}. So it is not recorded under any place this door can read.`
+        : 'This conversation isn’t recorded under any place.',
+      'A record is made by: starting the conversation from a place in Kehikot (or attaching it to one there); '
+        + 'set_my_place, recording the epic the person tells you it is for; or the person’s answer to the ask in '
+        + 'their Inbox. Ask the person which epic this conversation is for rather than assuming the one on screen.',
+      asked ? `The person has been asked in their Inbox (${project!.name}); their answer is recorded the same way.` : '',
+      !door.session ? 'This client did not keep the session this door gave it at initialize, so nothing can be recorded for it here.' : '',
+      `For information only, NOT this conversation’s place: ${lookingWords(null, now)}`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    failed: false,
+  }
+}
+
+/** `set_my_place`: record this MCP session's place — an existing epic of the project, or none. */
+function setMyPlace(args: Record<string, unknown>, door: Door): { text: string; failed: boolean } {
+  if (!door.places || !door.session) {
+    return {
+      text: 'This call carried no session of this door (Mcp-Session-Id), so there is nothing to record a place for. A client that keeps the session it is given at initialize can be recorded.',
+      failed: true,
+    }
+  }
+  if (door.here?.via === 'token') {
+    return {
+      text: `${belongsWords(door.here)} That record is ${door.here.module ?? 'the module'}'s, and stays as it is: to move the conversation, the person makes it another place's own there. Name the kehikko or epic in a call to act elsewhere once.`,
+      failed: true,
+    }
+  }
+  const where = decide({ ...door, here: null }, args)
+  if (!where.ok) return { text: where.why, failed: true }
+  const project = where.canvas.project === null ? null : projectById(door.db, where.canvas.project)
+  if (!project) return { text: `kehikko ${where.canvas.id} (${where.canvas.name}) is in no project, so there is no epic to belong to.`, failed: true }
+  if (project.missing) return { text: missingSaid(project), failed: true }
+  if (!project.uid) return { text: `${project.name} has no project id yet, so a place in it cannot be kept. Open it in Kehikot once.`, failed: true }
+  const epic = args.epic === undefined ? undefined : args.epic
+  if (epic === undefined) return { text: 'set_my_place needs epic: the slug of one of the project’s epics, or null for none.', failed: true }
+  if (epic !== null && (typeof epic !== 'string' || epic.length > 80 || readParts(project.path, epic) === null)) {
+    return {
+      text: `${typeof epic === 'string' ? `"${epic.slice(0, 80)}" is not an epic of ${project.name}` : 'epic must be a slug or null'} — only an epic the project already has can be recorded; read_canvas names the open one and the person’s dropdown lists them all. Nothing was recorded.`,
+      failed: true,
+    }
+  }
+  const rawParts = args.parts === undefined || args.parts === null ? [] : args.parts
+  if (!Array.isArray(rawParts) || rawParts.length > 64 || rawParts.some((one) => typeof one !== 'string')) {
+    return { text: 'parts is a list of part ids, as read_canvas prints them. Nothing was recorded.', failed: true }
+  }
+  const parts = rawParts as string[]
+  if (parts.length) {
+    const has = new Set(epic === null ? [] : (readParts(project.path, epic) ?? []).map((part) => part.id))
+    const strangers = parts.filter((one) => !has.has(one))
+    if (strangers.length) {
+      return { text: `${strangers.map((one) => one.slice(0, 80)).join(', ')} ${strangers.length === 1 ? 'is not a part' : 'are not parts'} of ${epic ?? 'no epic'}. Nothing was recorded.`, failed: true }
+    }
+  }
+  const here = door.places.bind(door.session, project, { epic: epic as string | null, parts, kehikko: where.canvas.key })
+  if (!here) return { text: 'The place could not be kept. Nothing was recorded.', failed: true }
+  return {
+    text: `Recorded. ${belongsWords(here)}\n${lookingWords(here, looking(door))}\nEvery tool here now answers about this place unless you name another kehikko or epic. Nothing on screen changed.`,
+    failed: false,
+  }
 }
 
 /**
@@ -1981,7 +2221,13 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
     reply({ content: [{ type: 'text', text: s }], ...(isError ? { isError } : {}) })
 
   if (rpc.method === 'initialize') {
-    return reply({
+    /* A session id for every client, so that a conversation that is not started
+       from a place can be tied to one (`set_my_place`). A client that does not
+       keep it is answered exactly as before. */
+    const info = (rpc.params as unknown as { clientInfo?: { title?: unknown; name?: unknown } } | undefined)?.clientInfo
+    const client = typeof info?.title === 'string' ? info.title : typeof info?.name === 'string' ? info.name : ''
+    const session = door.places && !door.here ? door.places.open(client) : null
+    const answered = reply({
       protocolVersion: '2025-06-18',
       capabilities: { tools: {} },
       serverInfo: about,
@@ -1999,8 +2245,11 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'take off with one press, what it folds or unfolds is marked on the container as an agent’s doing and put '
         + 'back with one press, and what it presses is said on the container. read_canvas lists each container’s '
         + 'header items and which of them an agent may press; where an item names a tool, the module’s own MCP door '
-        + 'is the way to do that.',
+        + 'is the way to do that. A conversation belongs to a place — a project, an epic, its parts and a kehikko — '
+        + 'which can differ from what the person is looking at: my_place says which, and every tool here answers about '
+        + 'that place by default.',
     })
+    return session ? { ...answered, headers: { 'mcp-session-id': session } } : answered
   }
   /* A notification carries no id and is answered with nothing. */
   if (typeof rpc.method === 'string' && rpc.method.startsWith('notifications/')) {
@@ -2017,7 +2266,11 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
     }
     try {
       const done = await call(name as ToolName, args, door)
-      return text(done.text, done.failed)
+      /* Said every time a tool fell back to the person's view for want of a record — never silently. */
+      const fellBack =
+        door.here === null && args.kehikko === undefined && !done.failed && !['my_place', 'set_my_place', 'read_canvas'].includes(name)
+      const note = fellBack ? `\n\n${door.unrecorded ? unreadLine(door.unrecorded) : UNPLACED_LINE}` : ''
+      return text(`${done.text}${note}`, done.failed)
     } catch (e) {
       /* A refusal is an answer and the sentence is the useful half, so it comes
          back as a tool error the agent reads rather than a transport failure it

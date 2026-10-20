@@ -84,6 +84,9 @@ export interface Refusal {
  *    `/host/inbox/migrate` — what the page says its modules are doing, and
  *    what a person did with it: seen, put away, forgotten (`inbox.ts`). The
  *    last is the person's, so no program may make it.
+ *  - `/host/place/answer` — a person's answer to "which epic is this
+ *    conversation for?" in the Inbox (`placeRoutes.ts`). An agent says its own
+ *    with `set_my_place`; it never answers the person's ask.
  *  - `/host/trackers` — a person's edit of the project's tracker sources, which
  *    writes a file that travels with the repository, and the "Check" before
  *    it, which spends their login's rate limit.
@@ -99,6 +102,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/trackers',
   '/host/projects/locate',
   '/host/projects/followed',
+  '/host/place/answer',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

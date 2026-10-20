@@ -86,6 +86,12 @@ export interface InboxView {
   rev: number
   shortcut: string
   now: () => number
+  /**
+   * Quick answers drawn under an entry, or null for none: the host's ask
+   * "which epic is this conversation for?" (`host/placeAsk.ts`). A press is
+   * the person's answer, posted by the page.
+   */
+  choicesFor?(entry: Entry): { label: string; run(): void }[] | null
 }
 
 const PAGE = 20
@@ -152,15 +158,16 @@ interface RowProps {
   expanded?: boolean
   onPress(): void
   action?: { label: string; title: string; run(): void }
+  choices?: { label: string; run(): void }[] | null
   dim?: boolean
   data: string
 }
 
-function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, dim, data }: RowProps) {
+function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, choices, dim, data }: RowProps) {
   return (
     <li
       data-inbox-row={data}
-      className={cn('group/row hover:bg-accent/60 flex items-start gap-1 rounded-sm px-1.5 py-1', dim && 'opacity-80')}
+      className={cn('group/row hover:bg-accent/60 flex flex-wrap items-start gap-1 rounded-sm px-1.5 py-1', dim && 'opacity-80')}
     >
       <button
         type="button"
@@ -203,6 +210,15 @@ function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, c
         >
           <X className="size-3" />
         </button>
+      ) : null}
+      {choices?.length ? (
+        <span role="group" aria-label={`answers to ${label}`} className="flex basis-full flex-wrap gap-1 pl-4" data-inbox-choices>
+          {choices.map((choice) => (
+            <Button key={choice.label} type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={choice.run}>
+              {choice.label}
+            </Button>
+          ))}
+        </span>
       ) : null}
     </li>
   )
@@ -283,6 +299,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
         age={ageWords(now, entry.entered)}
         priority={entry.priority}
         onPress={() => view.onGo(entry)}
+        choices={view.choicesFor?.(entry) ?? null}
         {...(dismissable
           ? {
               action: {

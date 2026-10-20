@@ -206,3 +206,23 @@
   `Markdown` in `src/canvas/ReleaseNotes.tsx`, never as HTML; links are
   `https:` only and open through `openExternal` (the desktop shell hands a
   new-window request to the default browser).
+
+## A conversation's place (protocol 2.4.0)
+
+- A conversation's place is what a RECORD says, never what is on screen and
+  never a folder taken as a stand-in. Two records, one owner each: the module
+  that started a conversation keeps its records (Claude's `places.json`) and
+  issues a token (`POST /host/place`); the host keeps only token → issuing
+  module + project id (`door_tokens`) and asks the module every time
+  (`RECORDED_PLACE_PATH`, `server/placeRoutes.ts`). An MCP session with no token
+  is recorded by the host (`door_sessions`) only by `set_my_place` or the
+  person's press on the Inbox ask. Never add a third place that keeps a place.
+- The token travels as `?kehikot-place=` on every Kehikot door URL, in a 0600
+  per-session `--mcp-config` the Claude module writes. It is a pointer, not a
+  credential.
+- `server/mcp.ts` answers from `door.here` when there is one; a tool that used
+  the person's view instead says so every time (`UNPLACED_LINE`). `my_place`
+  with no record says so and how a record is made; what is on screen is said
+  only as information, labelled NOT its place.
+- The Inbox ask is the host's own list (module `kehikko`, ids `place-ask:`);
+  the answer is `/host/place/answer`, in `PAGE_ONLY`. No MCP tool answers it.

@@ -309,6 +309,7 @@ describe('the host’s server, running', () => {
         'fold_modules',
         'mark_disposition',
         'module_versions',
+        'my_place',
         'pin_version',
         'place_modules',
         'press_item',
@@ -316,6 +317,7 @@ describe('the host’s server, running', () => {
         'read_inbox',
         'read_tracker',
         'select_modules',
+        'set_my_place',
         'set_parts',
         'set_tracker_source',
       ])
