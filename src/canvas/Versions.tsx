@@ -104,17 +104,18 @@ export function VersionPicker({
           <button
             type="button"
             data-testid="version-control"
+            data-chip=""
             data-pinned={pinned ? 'true' : 'false'}
             aria-label={pinned ? `${name}: pinned to ${pinned}` : `${name}: latest${current ? ` (${current})` : ''}`}
             onMouseDown={(event) => event.stopPropagation()}
             className={
               pinned
-                ? 'pointer-events-auto inline-flex shrink-0 cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-                : 'text-muted-foreground hover:text-foreground pointer-events-auto shrink-0 cursor-default font-mono text-[10px] @max-[300px]/container:hidden'
+                ? 'pointer-events-auto inline-flex min-w-5 shrink-[20] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
+                : 'text-muted-foreground hover:text-foreground pointer-events-auto flex min-w-5 shrink-[20] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
             }
           >
-            {pinned ? <Tag className="size-2.5" /> : null}
-            {label}
+            {pinned ? <Tag className="size-2.5 shrink-0" /> : null}
+            <span data-testid="version-label" className="min-w-[9ch] truncate @max-[300px]/container:hidden">{label}</span>
           </button>
         </PopoverTrigger>
       </Hint>

@@ -353,10 +353,15 @@
   font-size: 0.6875rem;
 }
 
-.container-grip[data-dense='true'] button,
+.container-grip[data-dense='true'] button:not([data-chip]),
 .container-grip[data-dense='true'] [role='button'] {
   block-size: 1.125rem;
   inline-size: 1.125rem;
+}
+
+/* A text chip (the version) keeps its own width — squared to 18px it spilled its label over the branch beside it. */
+.container-grip[data-dense='true'] button[data-chip] {
+  block-size: 1.125rem;
 }
 
 .container-grip[data-dense='true'] svg {

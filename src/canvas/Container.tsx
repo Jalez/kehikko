@@ -493,10 +493,10 @@ export function Container({
          */}
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
-            <span className="cursor-default truncate text-xs font-medium">{name}</span>
+            <span className="min-w-[2ch] shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
           </Hint>
         ) : (
-          <span className="truncate text-xs font-medium">{name}</span>
+          <span className="min-w-[2ch] shrink-[0.05] truncate text-xs font-medium">{name}</span>
         )}
         {/*
          * The version, and the first thing to go when the container is narrow.
