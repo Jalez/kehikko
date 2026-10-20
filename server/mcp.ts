@@ -1913,6 +1913,7 @@ async function readTrackerAt(
   const line = (row: TrackerRow) =>
     `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
     + `${row.draft ? ' draft' : ''}${row.pipeline ? ` pipeline:${row.pipeline}` : ''}${row.review ? ` review:${row.review}` : ''}`
+    + `${(row.columns ?? (row.column ? [row.column] : [])).map((c) => ` column:"${c.name}" on "${c.board}"`).join('')}`
     + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
   const sources = reading.sources
     .map((s) => `${s.tracker} ${s.host}/${s.repo}${s.default ? ' (default)' : ''}: ${s.error ? `FAILED — ${s.error}` : s.at ? `read ${s.at}` : 'never read'}`)

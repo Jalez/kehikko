@@ -1,0 +1,66 @@
+[
+ {
+  "id": 7,
+  "name": "Development",
+  "hide_backlog_list": false,
+  "hide_closed_list": false,
+  "labels": [],
+  "milestone": null,
+  "lists": [
+   {
+    "id": 2,
+    "label": {
+     "id": 2,
+     "name": "workflow::review",
+     "color": "#428BCA"
+    },
+    "position": 1,
+    "list_type": "label"
+   },
+   {
+    "id": 1,
+    "label": {
+     "id": 1,
+     "name": "workflow::doing",
+     "color": "#428BCA"
+    },
+    "position": 0,
+    "list_type": "label"
+   },
+   {
+    "id": 3,
+    "label": null,
+    "position": 2,
+    "list_type": "assignee",
+    "assignee": {
+     "username": "ann"
+    }
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "name": "Frontend",
+  "hide_backlog_list": true,
+  "hide_closed_list": false,
+  "labels": [
+   {
+    "id": 9,
+    "name": "frontend"
+   }
+  ],
+  "milestone": null,
+  "lists": [
+   {
+    "id": 4,
+    "label": {
+     "id": 4,
+     "name": "workflow::doing",
+     "color": "#428BCA"
+    },
+    "position": 0,
+    "list_type": "label"
+   }
+  ]
+ }
+]

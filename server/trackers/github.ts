@@ -1,4 +1,12 @@
-import { LIMITS, type PipelineState, type ReviewState, type TrackerDetailFacts, type TrackerRow } from 'kehikot-module-protocol'
+import {
+  LIMITS,
+  type PipelineState,
+  type ReviewState,
+  type TrackerBoard,
+  type TrackerColumn,
+  type TrackerDetailFacts,
+  type TrackerRow,
+} from 'kehikot-module-protocol'
 
 import type { Runner } from '../feedback.ts'
 import {
@@ -17,22 +25,39 @@ import {
   trouble,
   who,
   type Adapter,
+  type BoardsRead,
   type Read,
 } from './common.ts'
 import type { Source } from './sources.ts'
 
 /**
- * GitHub, through `gh`.
+ * GitHub, through `gh api graphql`.
  *
- * A listing is two `gh … list --json` calls, which page for themselves; named
- * refs are one GraphQL query per fifty, by `issueOrPullRequest`, because GitHub
- * numbers issues and pull requests from one sequence and `gh#41` cannot say
- * which it is. Detail is a `gh … view` per ref, asked for a few at a time.
+ * A listing is one GraphQL query per page of a hundred issues AND a hundred
+ * pull requests, newest created first (the order `gh issue list` uses); named
+ * refs are one query per fifty, by `issueOrPullRequest`, because GitHub numbers
+ * issues and pull requests from one sequence and `gh#41` cannot say which it
+ * is. Detail is a `gh … view` per ref, asked for a few at a time.
+ *
+ * ## Board columns
+ *
+ * Both queries carry each item's `projectItems`: the GitHub Projects (v2) it is
+ * on, and where it stands on each. The column is the item's value of the
+ * project's single-select field named "Status" — the field a new project's
+ * board groups by. A project with no such field falls back to the first
+ * single-select field the item has a value for, which is what a board made
+ * from a custom field groups by in practice. An item on a project with a Status
+ * field and no value for it ("No Status") has no column on that board. Archived
+ * items and closed projects are left out.
+ *
+ * Projects need the `read:project` scope, which `gh auth login` does not ask
+ * for. Without it GitHub refuses the whole query (`INSUFFICIENT_SCOPES`, no
+ * data), so the query is asked again without `projectItems`, the rows come
+ * back with no `column`, and the read says boards were unreadable — once, as
+ * `NEEDS_PROJECT_SCOPE`. The refusal is remembered per host for
+ * `SCOPE_RECHECK_MS`, so a reading does not pay a refused query every time,
+ * and a `gh auth refresh -s read:project` is noticed within that.
  */
-
-const ISSUE_FIELDS = 'number,state,stateReason,title,url,labels,assignees,author,createdAt,updatedAt,closedAt'
-const PR_FIELDS =
-  'number,state,title,url,labels,assignees,author,createdAt,updatedAt,closedAt,mergedAt,isDraft,reviewDecision,closingIssuesReferences,statusCheckRollup'
 
 /** `--repo` for a source: `owner/repo`, or `host/owner/repo` off github.com. */
 const repoArg = (s: Source) => (s.host === 'github.com' ? s.repo : `${s.host}/${s.repo}`)
@@ -105,6 +130,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     updatedAt: instant(r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
     links,
+    ...placed(r.projectItems),
     readAt: now,
   })
 }
@@ -148,6 +174,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     links,
     pipeline: rollup === undefined || rollup === null ? undefined : pipelineOf(rollup),
     review: reviewOf(r.reviewDecision),
+    ...placed(r.projectItems),
     readAt: now,
   })
 }
@@ -178,45 +205,202 @@ export function linkClosers(rows: TrackerRow[]): TrackerRow[] {
   })
 }
 
-const GRAPH_ISSUE = `__typename
-  ... on Issue { number state stateReason title url createdAt updatedAt closedAt
-    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
-    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } } }
-  ... on PullRequest { number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
-    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
-    closingIssuesReferences(first: 10) { nodes { number } }
-    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }`
+/** What a person is told, once, when GitHub would not show the boards. */
+export const NEEDS_PROJECT_SCOPE = 'Board columns need `gh auth refresh -s read:project`.'
 
-/** The GraphQL for a batch of numbers. Owner and name passed `NAME` in `sources.ts`, so they cannot leave the string. */
-export function refsQuery(source: Source, numbers: readonly number[]): string {
-  const [owner, name] = source.repo.split('/')
-  const asked = numbers.map((n) => `n${n}: issueOrPullRequest(number: ${n}) { ${GRAPH_ISSUE} }`).join('\n')
-  return `query { repository(owner: "${owner}", name: "${name}") {\n${asked}\n} }`
+/** How long a host's refusal of `read:project` is believed before the boards are asked for again. */
+export const SCOPE_RECHECK_MS = 30 * 60_000
+
+const SINGLE_SELECT = '... on ProjectV2SingleSelectField { name options { name } }'
+
+/** An item's place on every project it is on. See "Board columns" above. */
+const PROJECT_ITEMS = `projectItems(first: 10) { nodes { isArchived
+      project { title url closed status: field(name: "Status") { ${SINGLE_SELECT} } }
+      status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+      fieldValues(first: 20) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ${SINGLE_SELECT} } } } } } }`
+
+const optionsOf = (field: unknown): string[] =>
+  list(obj(field).options)
+    .map((o) => clip(str(obj(o).name), LIMITS.TRACKER_LABEL))
+    .filter(Boolean)
+    .slice(0, LIMITS.TRACKER_COLUMNS)
+
+/** The boards one item is on, with its column on each where it has one. */
+export function boardsOf(projectItems: unknown): Array<{ board: TrackerBoard; column: TrackerColumn | null }> {
+  const out: Array<{ board: TrackerBoard; column: TrackerColumn | null }> = []
+  for (const item of nodes(projectItems).map(obj)) {
+    if (item.isArchived === true) continue
+    const project = obj(item.project)
+    const title = clip(str(project.title).trim(), LIMITS.TITLE)
+    if (!title || project.closed === true) continue
+    const url = str(project.url)
+    const at = url && url.length <= LIMITS.URL ? { boardUrl: url } : {}
+    const statusField = obj(project.status)
+    let name: string
+    let columns: string[]
+    if (str(statusField.name)) {
+      /* The project has a Status: that is the board's column, valued or not. */
+      name = str(obj(item.status).name)
+      columns = optionsOf(statusField)
+    } else {
+      const first = nodes(item.fieldValues).map(obj).find((v) => str(v.name) && str(obj(v.field).name))
+      name = first ? str(first.name) : ''
+      columns = first ? optionsOf(first.field) : []
+    }
+    const column = name ? { name: clip(name, LIMITS.TRACKER_LABEL), board: title, ...at } : null
+    out.push({ board: { board: title, ...at, columns }, column })
+  }
+  return out.slice(0, LIMITS.TRACKER_BOARDS)
 }
 
-export function githubAdapter(run: Runner): Adapter {
+/** `column`, and `columns` when there is more than one, for a row; nothing when it is on no board. */
+export function placed(projectItems: unknown): { column?: TrackerColumn; columns?: TrackerColumn[] } {
+  const columns = boardsOf(projectItems)
+    .map((one) => one.column)
+    .filter((one): one is TrackerColumn => one !== null)
+  if (!columns.length) return {}
+  return columns.length > 1 ? { column: columns[0], columns } : { column: columns[0] }
+}
+
+/** Every board the items of one answer are on, each once, by title and link. */
+export function boardsSeen(items: readonly unknown[]): TrackerBoard[] {
+  const out = new Map<string, TrackerBoard>()
+  for (const raw of items) {
+    for (const { board } of boardsOf(obj(raw).projectItems)) {
+      const key = `${board.board}|${board.boardUrl ?? ''}`
+      const was = out.get(key)
+      if (!was || (!was.columns.length && board.columns.length)) out.set(key, board)
+    }
+  }
+  return [...out.values()].slice(0, LIMITS.TRACKER_BOARDS)
+}
+
+const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
+    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
+    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+const PULL_GRAPH = (boards: boolean) => `number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
+    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
+    closingIssuesReferences(first: 10) { nodes { number } }
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+
+const repository = (source: Source) => {
+  const [owner, name] = source.repo.split('/')
+  return `repository(owner: "${owner}", name: "${name}")`
+}
+
+/**
+ * The GraphQL for a batch of numbers, with each item's boards unless `boards`
+ * is false. Owner and name passed `NAME` in `sources.ts`, so they cannot leave
+ * the string.
+ */
+export function refsQuery(source: Source, numbers: readonly number[], boards = true): string {
+  const asked = numbers
+    .map((n) => `n${n}: issueOrPullRequest(number: ${n}) { __typename
+  ... on Issue { ${ISSUE_GRAPH(boards)} }
+  ... on PullRequest { ${PULL_GRAPH(boards)} } }`)
+    .join('\n')
+  return `query { ${repository(source)} {\n${asked}\n} }`
+}
+
+/** A cursor GitHub handed back, checked before it goes into a query: base64 and nothing else. */
+const CURSOR = /^[A-Za-z0-9+/=:_-]{1,200}$/
+
+/**
+ * One page of a listing: up to a hundred issues and a hundred pull requests,
+ * newest created first, after the cursors given. `null` asks for the first
+ * page; `false` leaves that half out (it has run out or is not wanted).
+ */
+export function listQuery(
+  source: Source,
+  after: { issues: string | null | false; pulls: string | null | false },
+  boards = true,
+  size = 100,
+): string {
+  const page = (cursor: string | null) =>
+    `first: ${size}${cursor ? `, after: "${cursor}"` : ''}, orderBy: { field: CREATED_AT, direction: DESC }`
+  const parts: string[] = []
+  if (after.issues !== false) {
+    parts.push(`issues(${page(after.issues)}) { pageInfo { hasNextPage endCursor } nodes { ${ISSUE_GRAPH(boards)} } }`)
+  }
+  if (after.pulls !== false) {
+    parts.push(`pullRequests(${page(after.pulls)}) { pageInfo { hasNextPage endCursor } nodes { ${PULL_GRAPH(boards)} } }`)
+  }
+  return `query { ${repository(source)} {\n${parts.join('\n')}\n} }`
+}
+
+/** GitHub refusing a query for a scope the token lacks — here, only ever `read:project`. */
+export function lacksProjectScope(answer: unknown, ran: { err: string; out: string }): boolean {
+  const errors = list(obj(answer).errors).map(obj)
+  if (errors.some((e) => str(e.type) === 'INSUFFICIENT_SCOPES')) return true
+  return /read:project/.test(`${ran.err}\n${ran.out}`) && !Object.keys(obj(obj(answer).data)).length
+}
+
+export function githubAdapter(run: Runner, clock: () => number = Date.now): Adapter {
   const gh = (args: string[], source: Source) =>
     run(['gh', ...args], { timeout: 30_000 }).then((ran) => ({ ran, source }))
+  /** Hosts that refused `read:project`, until when that is believed. */
+  const noScope = new Map<string, number>()
+
+  /**
+   * One GraphQL query, with the boards when the host is believed to show them,
+   * and again without them when it refuses the scope. Says which it got.
+   */
+  async function graph(source: Source, build: (boards: boolean) => string) {
+    const call = (query: string) => {
+      const args = ['api', 'graphql', '-f', `query=${query}`]
+      if (source.host !== 'github.com') args.push('--hostname', source.host)
+      return gh(args, source).then(({ ran }) => ({ ran, answer: parsed(ran) }))
+    }
+    const believed = noScope.get(source.host)
+    if (believed === undefined || clock() >= believed) {
+      const first = await call(build(true))
+      if (!lacksProjectScope(first.answer, first.ran)) {
+        noScope.delete(source.host)
+        return { ...first, boards: true }
+      }
+      noScope.set(source.host, clock() + SCOPE_RECHECK_MS)
+    }
+    return { ...(await call(build(false))), boards: false }
+  }
+
+  const boardsRead = (boards: boolean, items: readonly unknown[]): BoardsRead =>
+    boards ? { boards: boardsSeen(items) } : { unreadable: NEEDS_PROJECT_SCOPE }
 
   return {
     async list(source, limit, now): Promise<Read> {
-      const [issues, prs] = await Promise.all([
-        gh(['issue', 'list', '--repo', repoArg(source), '--state', 'all', '--limit', String(limit), '--json', ISSUE_FIELDS], source),
-        gh(['pr', 'list', '--repo', repoArg(source), '--state', 'all', '--limit', String(limit), '--json', PR_FIELDS], source),
-      ])
-      for (const { ran } of [issues, prs]) {
-        if (ran.code !== 0) return { ok: false, why: trouble(ran, 'gh', source.host) }
+      if (source.repo.split('/').length !== 2) {
+        return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
       }
-      const a = parsed(issues.ran)
-      const b = parsed(prs.ran)
-      if (!Array.isArray(a) || !Array.isArray(b)) {
-        return { ok: false, why: 'gh answered with something that is not a list. A version of gh answering --json differently.' }
+      const issues: unknown[] = []
+      const pulls: unknown[] = []
+      let after: { issues: string | null | false; pulls: string | null | false } = { issues: null, pulls: null }
+      let boards = true
+      while (after.issues !== false || after.pulls !== false) {
+        const got = await graph(source, (b) => listQuery(source, after, b))
+        boards &&= got.boards
+        const repo = obj(obj(obj(got.answer).data).repository)
+        if (!Object.keys(repo).length) {
+          if (got.ran.code === 0 && obj(got.answer).data) {
+            return { ok: false, why: 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.' }
+          }
+          return { ok: false, why: trouble(got.ran, 'gh', source.host) }
+        }
+        const next = (half: 'issues' | 'pullRequests', into: unknown[], was: string | null | false): string | null | false => {
+          if (was === false) return false
+          const connection = obj(repo[half])
+          into.push(...nodes(connection))
+          const info = obj(connection.pageInfo)
+          const cursor = str(info.endCursor)
+          return info.hasNextPage === true && into.length < limit && CURSOR.test(cursor) ? cursor : false
+        }
+        after = { issues: next('issues', issues, after.issues), pulls: next('pullRequests', pulls, after.pulls) }
       }
+      const items = [...issues.slice(0, limit), ...pulls.slice(0, limit)]
       const rows = [
-        ...a.map((one) => issueRow(source, one, now)),
-        ...b.map((one) => pullRow(source, one, now)),
+        ...issues.slice(0, limit).map((one) => issueRow(source, one, now)),
+        ...pulls.slice(0, limit).map((one) => pullRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
-      return { ok: true, rows: linkClosers(rows), notFound: [] }
+      return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items) }
     },
 
     async refs(source, wanted, now): Promise<Read> {
@@ -225,26 +409,28 @@ export function githubAdapter(run: Runner): Adapter {
       }
       const numbers = [...new Set(wanted.map((w) => w.number))]
       const rows: TrackerRow[] = []
+      const items: unknown[] = []
       const notFound: Array<{ number: number; kind: null }> = []
+      let boards = true
       for (const group of chunks(numbers, 50)) {
-        const args = ['api', 'graphql', '-f', `query=${refsQuery(source, group)}`]
-        if (source.host !== 'github.com') args.push('--hostname', source.host)
-        const { ran } = await gh(args, source)
-        const data = obj(obj(obj(parsed(ran)).data).repository)
+        const got = await graph(source, (b) => refsQuery(source, group, b))
+        boards &&= got.boards
+        const data = obj(obj(obj(got.answer).data).repository)
         /* Partly found is still an answer: GraphQL says NOT_FOUND for a
            number that does not exist and exits 1 with the rest in `data`. */
-        if (!Object.keys(data).length) return { ok: false, why: trouble(ran, 'gh', source.host) }
+        if (!Object.keys(data).length) return { ok: false, why: trouble(got.ran, 'gh', source.host) }
         for (const n of group) {
           const node = data[`n${n}`]
           if (node === null || node === undefined) {
             notFound.push({ number: n, kind: null })
             continue
           }
+          items.push(node)
           const made = str(obj(node).__typename) === 'PullRequest' ? pullRow(source, node, now) : issueRow(source, node, now)
           if (made) rows.push(made)
         }
       }
-      return { ok: true, rows, notFound }
+      return { ok: true, rows, notFound, boards: boardsRead(boards, items) }
     },
 
     async detail(source, rows, now) {

@@ -3,8 +3,10 @@ import { dirname, join } from 'node:path'
 import {
   LIMITS,
   readTrackerRef,
+  trackerBoardSchema,
   trackerRowSchema,
   trackerSourceSchema,
+  type TrackerColumns,
   type TrackerDetailFacts,
   type TrackerMissing,
   type TrackerReading,
@@ -18,9 +20,9 @@ import { z } from 'zod'
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import type { Adapter, Read, Wanted } from './common.ts'
+import type { Adapter, BoardsRead, HeldBoard, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
-import { gitlabAdapter } from './gitlab.ts'
+import { columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
@@ -52,6 +54,17 @@ import { hostPath } from '../hostData.ts'
  * for. While any read runs, the previous reading stays served and the signal
  * says `refreshing`.
  *
+ * ## Boards
+ *
+ * Beside the rows, each source's boards and their columns (`boards`), for
+ * `tracker.columns` and for placing a GitLab issue, which says only its labels.
+ * A GitHub read brings the boards its items are on; a GitLab source's boards
+ * are one more call on a whole read. A whole read replaces a listed source's
+ * boards; a narrower one adds to them. When a tracker would not show its
+ * boards (GitHub without `read:project`), the source holds the sentence saying
+ * so and no boards, and the rows have no `column` — the reading itself is not
+ * failed by it.
+ *
  * ## A failure blanks nothing
  *
  * A source that fails keeps the rows it gave last time, each with its own
@@ -67,6 +80,20 @@ export const LIST_LIMIT = 400
 const LOOKED_AT_MS = 30 * 60_000
 
 const storedSource = trackerSourceSchema.omit({ refreshing: true })
+const heldBoardSchema = trackerBoardSchema.extend({
+  lists: z.array(z.string()).max(LIMITS.TRACKER_COLUMNS).optional(),
+  scope: z.array(z.string()).max(LIMITS.TRACKER_LABELS).optional(),
+  open: z.boolean().optional(),
+  closed: z.boolean().optional(),
+})
+const storedBoards = z.object({
+  /** `sourceKey` of the source these are the boards of. */
+  source: z.string(),
+  boards: z.array(heldBoardSchema).max(LIMITS.TRACKER_BOARDS),
+  /** Why the boards could not be read, in the sentence a person is told; null when they were. */
+  unreadable: z.string().max(LIMITS.REASON).nullable().default(null),
+})
+type StoredBoards = z.infer<typeof storedBoards>
 const fileSchema = z.object({
   version: z.literal(VERSION),
   at: z.string().nullable(),
@@ -80,10 +107,12 @@ const fileSchema = z.object({
   detailed: z.array(z.string().max(LIMITS.REF)).max(LIMITS.TRACKER_ROWS),
   /** Identities the tracker said do not exist. */
   notFound: z.array(z.string()).max(LIMITS.TRACKER_ROWS),
+  /** Each source's boards, as last read. Absent in a file from before boards: none known. */
+  boards: z.array(storedBoards).max(LIMITS.TRACKER_SOURCES).default([]),
 })
 type Stored = z.infer<typeof fileSchema>
 
-const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [] })
+const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [], boards: [] })
 
 export function readingFile(projectPath: string): string | null {
   return hostPath(projectPath, `${FILE_NAME}.json`)
@@ -187,6 +216,40 @@ function backLinked(rows: TrackerRow[]): TrackerRow[] {
       ].slice(0, LIMITS.TRACKER_LINKS),
       ...(closedByMerge !== undefined ? { closedByMerge } : {}),
     }
+  })
+}
+
+/** A board's identity across sources: one GitHub project may hold several repositories' items. */
+const boardKey = (b: Pick<HeldBoard, 'board' | 'boardUrl'>) => `${b.board}|${b.boardUrl ?? ''}`
+
+/** Boards `fresh` over `was`, by identity, fresh ones winning and first. */
+function unionBoards(was: readonly HeldBoard[], fresh: readonly HeldBoard[]): HeldBoard[] {
+  const out = new Map<string, HeldBoard>()
+  for (const b of [...fresh, ...was]) if (!out.has(boardKey(b))) out.set(boardKey(b), b)
+  return [...out.values()].slice(0, LIMITS.TRACKER_BOARDS)
+}
+
+/** Two reads of one source's boards as one: unreadable wins, since then none of them were seen. */
+function joinBoards(a: BoardsRead | undefined, b: BoardsRead | undefined): BoardsRead | undefined {
+  if (!a) return b
+  if (!b) return a
+  if ('unreadable' in a) return a
+  if ('unreadable' in b) return b
+  return { boards: unionBoards(a.boards, b.boards) }
+}
+
+/**
+ * Place each GitLab issue on the boards held for its source. A GitHub row
+ * came from its tracker with its column already; a GitLab row says only its
+ * labels, so its column is worked out here, every time, from the boards as
+ * they now stand.
+ */
+function placedOnBoards(rows: TrackerRow[], boards: readonly StoredBoards[]): TrackerRow[] {
+  const by = new Map(boards.map((b) => [b.source, b.boards]))
+  return rows.map((row) => {
+    if (row.tracker !== 'gitlab') return row
+    const held = by.get(sourceKey(row))
+    return held ? columnsOn(row, held) : row
   })
 }
 
@@ -310,6 +373,7 @@ export class Trackers {
       return { sources: [], remotes: true, every: EVERY_DEFAULT, broken: { file: config.file, why: config.why } }
     }
     const stored = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
+    const boards = new Map(held.stored.boards.map((b) => [b.source, b]))
     const counts = new Map<string, { issues: number; changes: number }>()
     for (const row of held.stored.rows) {
       const key = sourceKey(row)
@@ -335,8 +399,10 @@ export class Trackers {
           error: was?.error ?? null,
           issues: was?.at ? (n?.issues ?? 0) : null,
           changes: was?.at ? (n?.changes ?? 0) : null,
+          boards: (boards.get(sourceKey(s))?.boards ?? []).map(({ board, columns }) => ({ board, columns })),
         }
       }),
+      boardsNote: held.stored.boards.find((b) => b.unreadable && stored.has(b.source))?.unreadable ?? null,
       remotes: config.config.remotes,
       every: config.config.every,
       broken: null,
@@ -471,6 +537,28 @@ export class Trackers {
       rows: rows.slice(0, LIMITS.TRACKER_ROWS),
       missing: missing.slice(0, LIMITS.TRACKER_ROWS),
     }
+  }
+
+  /**
+   * `tracker.columns`: the boards of the sources the project reads now and
+   * their columns, from the reading, at once. A board two sources share is
+   * one board. Nothing read yet starts the first read, as `get` does.
+   */
+  columns(root: string): TrackerColumns {
+    const held = this.#of(root)
+    held.lookedAt = Date.now()
+    if (held.stored.at === null) this.#start(root, { project: true })
+    const now = new Set(this.#sourcesFor(held).map(sourceKey))
+    const seen = new Map<string, TrackerColumns['boards'][number]>()
+    for (const one of held.stored.boards) {
+      if (!now.has(one.source)) continue
+      for (const b of one.boards) {
+        const key = boardKey(b)
+        if (seen.has(key)) continue
+        seen.set(key, { board: b.board, ...(b.boardUrl ? { boardUrl: b.boardUrl } : {}), columns: b.columns })
+      }
+    }
+    return { boards: [...seen.values()].slice(0, LIMITS.TRACKER_BOARDS) }
   }
 
   /**
@@ -657,6 +745,7 @@ export class Trackers {
     }
 
     const errors = new Map<string, string | null>()
+    const boardsRead = new Map<string, BoardsRead>()
     const fresh: TrackerRow[] = []
     const gone = new Set<string>()
     const listedNow = new Set<string>()
@@ -671,6 +760,7 @@ export class Trackers {
           if (!read.ok) return errors.set(key, read.why)
           got = read.rows
           listedNow.add(key)
+          if (read.boards) boardsRead.set(key, read.boards)
         }
         const have = new Set(got.map(rowIdentity))
         let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
@@ -680,6 +770,8 @@ export class Trackers {
           if (!read.ok) return errors.set(key, read.why)
           got = [...got, ...read.rows]
           unread = read.unread
+          const joined = joinBoards(boardsRead.get(key), read.boards)
+          if (joined) boardsRead.set(key, joined)
         }
         const refused = new Set((unread?.refs ?? []).map((r) => identity(source, r.kind, r.number)))
         errors.set(key, unread?.why ?? null)
@@ -692,6 +784,21 @@ export class Trackers {
         for (const [id] of wanted) if (!made.has(id) && !refused.has(id)) gone.add(id)
       }),
     )
+
+    /* A whole read asks a tracker that reads its boards apart (GitLab) for
+       them: one call per source that read cleanly. A failure keeps the boards
+       held before, and fails nothing. */
+    if ('project' in scope) {
+      await Promise.all(
+        sources.map(async (source) => {
+          const key = sourceKey(source)
+          const boards = this.#adapters[source.tracker].boards
+          if (!boards || errors.get(key) || boardsRead.has(key)) return
+          const got = await boards(source).catch(() => null)
+          if (got) boardsRead.set(key, got)
+        }),
+      )
+    }
 
     /* Merge: fresh rows replace their identities; a listed source's rows that
        neither its new listing nor anybody's ref still names are dropped, so
@@ -750,6 +857,25 @@ export class Trackers {
     for (const id of gone) notFound.add(id)
     const asked = 'refs' in scope ? [...new Set([...held.stored.asked, ...scope.refs])] : held.stored.asked
 
+    const boardsWas = new Map(held.stored.boards.map((b) => [b.source, b]))
+    const boards: StoredBoards[] = []
+    for (const source of sources) {
+      const key = sourceKey(source)
+      const was = boardsWas.get(key)
+      const got = boardsRead.get(key)
+      if (!got) {
+        if (was) boards.push(was)
+        continue
+      }
+      if ('unreadable' in got) {
+        boards.push({ source: key, boards: [], unreadable: got.unreadable.slice(0, LIMITS.REASON) })
+        continue
+      }
+      /* A listing saw everything recent, so it replaces; a read by name saw a few, so it adds. */
+      const whole = listedNow.has(key) || source.tracker !== 'github'
+      boards.push({ source: key, boards: whole ? got.boards.slice(0, LIMITS.TRACKER_BOARDS) : unionBoards(was?.boards ?? [], got.boards), unreadable: null })
+    }
+
     held.stored = {
       version: VERSION,
       at: now,
@@ -768,10 +894,11 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: backLinked([...byId.values()]).slice(0, LIMITS.TRACKER_ROWS),
+      rows: placedOnBoards(backLinked([...byId.values()]), boards).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),
+      boards,
     }
     try {
       saveReading(root, held.stored)

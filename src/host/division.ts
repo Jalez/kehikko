@@ -44,6 +44,7 @@ export const ANSWERED_BY_THE_SERVER = [
      process can do. See `server/trackers/reading.ts`. */
   'tracker.get',
   'tracker.refresh',
+  'tracker.columns',
   /* A module saying its own material changed. The server keeps who changed
      what per project and tells every page standing in it — the asking page
      included, which hears it the way it hears an agent's write. See

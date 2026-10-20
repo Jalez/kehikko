@@ -19,7 +19,7 @@ import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
-import type { TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
+import type { TrackerColumns, TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
 
 /**
  * The shared tracker reading, as this file needs it. Injected for `keep`'s
@@ -31,6 +31,8 @@ export interface TrackerDoor {
   refresh(root: string, scope: Scope): Promise<TrackerRefreshResult>
   /** `live.get`'s four bags for one epic, from the reading, or null when it holds nothing for it. */
   live(root: string, epic: string): Record<string, unknown> | null
+  /** `tracker.columns`: the boards of the project's sources and their columns. Absent in a test's stand-in. */
+  columns?(root: string): TrackerColumns
   /** The project's sources as a person is told them. Absent in a test's stand-in. */
   describe?(root: string): Promise<TrackerListing>
   /** One edit of the project's tracker sources; see `Trackers.edit`. */
@@ -472,6 +474,16 @@ export function answer(
     const reading = trackers.get(root, scopeOf(scope), detail)
     if ('refused' in reading) return notMineToSay(reading.refused)
     return nothingToShow('tracker.get', reading)
+  }
+
+  /**
+   * The boards of the project's sources and their columns, from the same
+   * reading. Answered at once; where each item stands is on its row.
+   */
+  case 'tracker.columns': {
+    if (!trackers?.columns) return notMineToSay('This host was not given a tracker reading to answer from.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
+    return nothingToShow('tracker.columns', trackers.columns(root))
   }
 
   /* Reachable only through `answer` called directly: the server sends this one

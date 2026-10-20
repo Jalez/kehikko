@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { editTrackers, type TrackerState } from '@/host/projects.ts'
 import {
   ago,
+  boardSaid,
   EVERY_CHOICES,
   readSaid,
   rolesOf,
@@ -187,6 +188,7 @@ function Sources({
           ))}
         </ul>
       ) : null}
+      {listing.boardsNote && !listing.broken ? <p className="text-muted-foreground">{listing.boardsNote}</p> : null}
       {listing.broken ? null : <AddRow busy={busy} send={send} startOpen={startOpen} setSaid={setSaid} />}
       {said ? (
         <p role="status" className={said.tone === 'bad' ? 'text-destructive' : said.tone === 'ok' ? 'text-foreground' : 'text-muted-foreground'}>
@@ -273,6 +275,13 @@ function SourceRow({
           {s.error ?? readSaid(s, now)}
         </div>
       )}
+      {!s.off && s.boards?.length
+        ? s.boards.map((b) => (
+            <div key={b.board} className="text-muted-foreground">
+              Board {boardSaid(b)}
+            </div>
+          ))
+        : null}
       <div className="flex flex-wrap gap-x-2">
         {s.off ? (
           <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'set', ...key, off: false })}>

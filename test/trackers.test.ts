@@ -89,15 +89,17 @@ describe('which sources a project reads', () => {
 
 describe('GitHub through gh', () => {
   const issues = [
-    { number: 1, state: 'CLOSED', stateReason: 'NOT_PLANNED', title: 'Never', url: 'u1', labels: [{ name: 'bug' }], assignees: [], author: { login: 'a' }, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z' },
-    { number: 2, state: 'CLOSED', stateReason: '', title: 'Done by a PR', url: 'u2', labels: [], assignees: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z' },
+    { number: 1, state: 'CLOSED', stateReason: 'NOT_PLANNED', title: 'Never', url: 'u1', labels: { nodes: [{ name: 'bug' }] }, assignees: { nodes: [] }, author: { login: 'a' }, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z' },
+    { number: 2, state: 'CLOSED', stateReason: null, title: 'Done by a PR', url: 'u2', labels: { nodes: [] }, assignees: { nodes: [] }, closedByPullRequestsReferences: { nodes: [] }, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z' },
   ]
   const prs = [
-    { number: 3, state: 'MERGED', title: 'Fix', url: 'u3', labels: [], assignees: [], author: { login: 'b', name: 'Bee' }, isDraft: false, reviewDecision: 'APPROVED', closingIssuesReferences: [{ number: 2 }], statusCheckRollup: [{ conclusion: 'SUCCESS' }], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z', mergedAt: '2026-01-02T00:00:00Z' },
+    { number: 3, state: 'MERGED', title: 'Fix', url: 'u3', labels: { nodes: [] }, assignees: { nodes: [] }, author: { login: 'b', name: 'Bee' }, isDraft: false, reviewDecision: 'APPROVED', closingIssuesReferences: { nodes: [{ number: 2 }] }, commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] }, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', closedAt: '2026-01-02T00:00:00Z', mergedAt: '2026-01-02T00:00:00Z' },
   ]
 
+  const page = (nodes: unknown[]) => ({ pageInfo: { hasNextPage: false, endCursor: null }, nodes })
+
   test('a listing is rows the facets read as they are', async () => {
-    const run = runner([['gh issue list', ok(issues)], ['gh pr list', ok(prs)]])
+    const run = runner([['gh api graphql', ok({ data: { repository: { issues: page(issues), pullRequests: page(prs) } } })]])
     const read = await githubAdapter(run).list(gh, 400, NOW.toISOString())
     if (!read.ok) throw new Error(read.why)
     const [never, done, fix] = read.rows as [TrackerRow, TrackerRow, TrackerRow]
@@ -108,7 +110,8 @@ describe('GitHub through gh', () => {
     expect(done.closedByMerge).toBe(true)
     expect('stateReason' in done).toBe(false)
     expect(fix).toMatchObject({ ref: 'gh#3', kind: 'change', state: 'merged', pipeline: 'success', review: 'approved', author: 'Bee' })
-    expect(run.asked[0]).toContain('--repo')
+    expect(run.asked).toHaveLength(1)
+    expect(run.asked[0]!.join(' ')).toContain('repository(owner: "Jalez", name: "kehikko")')
     expect(run.asked.flat().join(' ')).not.toContain(';')
   })
 
@@ -124,7 +127,7 @@ describe('GitHub through gh', () => {
   })
 
   test('a logged-out gh is a sentence that says so', async () => {
-    const run = runner([['gh issue list', { code: 4, out: '', err: 'To get started with GitHub CLI, please run:  gh auth login' }], ['gh pr list', ok([])]])
+    const run = runner([['gh api graphql', { code: 4, out: '', err: 'To get started with GitHub CLI, please run:  gh auth login' }]])
     const read = await githubAdapter(run).list(gh, 400, NOW.toISOString())
     expect(read.ok).toBe(false)
     if (!read.ok) expect(read.why).toContain('gh auth login')
