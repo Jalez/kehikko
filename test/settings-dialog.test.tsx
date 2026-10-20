@@ -104,10 +104,10 @@ test('the one-time question: its words, both boxes checked, and what each answer
   expect(dialog.textContent).toContain('change this any time in Settings')
   const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
   expect(boxes.map((one) => one.checked)).toEqual([true, true])
-  expect(button('Keep it set up')).toBeTruthy()
+  expect(button('Save')).toBeTruthy()
   expect(button('I’ll do it myself')).toBeTruthy()
   await act(async () => boxes[1]!.click())
-  await act(async () => button('Keep it set up').click())
+  await act(async () => button('Save').click())
   expect(saved).toEqual([{ settings: { asked: true, tools: { auto: true }, skills: { auto: false } } }])
   expect(document.querySelector('[data-first-question]')).toBeNull()
 })

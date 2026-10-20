@@ -130,7 +130,7 @@ export function AgentSettingsHost({ load = fetchSettings, save = postSettings }:
 }
 
 /**
- * The one-time question. Both boxes checked to start; "Keep it set up" takes
+ * The one-time question. Both boxes checked to start; "Save" takes
  * what is checked, "I'll do it myself" turns both off. Either answer is kept.
  */
 export function FirstQuestion({
