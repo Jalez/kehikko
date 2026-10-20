@@ -41,7 +41,14 @@ export interface FramedModule {
    * The page never gates on it. It is drawn, and only drawn.
    */
   reacts?: string[]
-  declares: { protocol: string; uses: string[]; storage: boolean; prompt?: boolean }
+  /** `skills` (protocol 2.5.0): the Claude Code skills the module offers; absent from older servers and modules. */
+  declares: {
+    protocol: string
+    uses: string[]
+    storage: boolean
+    prompt?: boolean
+    skills?: { name: string; summary: string; version: string }[]
+  }
   /**
    * What the server answering now is built from: version, commit, when its
    * process started, and the protocol package it has. Null or absent for a

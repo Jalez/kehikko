@@ -81,6 +81,7 @@ import {
   type NoDoor,
 } from './register.ts'
 import { toolsAt } from './tools.ts'
+import { skillsRoute } from './skills.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
@@ -1764,6 +1765,33 @@ async function keptAndRunning(): Promise<string[]> {
  * pages say it, and the road an agent's `press_item` takes to a frame. See
  * `headers.ts`.
  */
+/*
+ * The Claude Code skills a module offers, and the person's presses on them. See
+ * `skills.ts`. The module's origin is its registration's and its skills are
+ * what its manifest says now; nothing about either comes from the request.
+ */
+const skillDesk = skillsRoute({
+  lookup: async (id) => {
+    const registration = (await readRegistrations()).registrations.find((r) => r.id === id)
+    if (!registration) return { ok: false, status: 404, why: `Nothing is registered as "${id}".` }
+    const presence = await look(registration)
+    if (!presence.module) {
+      return {
+        ok: false,
+        status: 409,
+        why: `${presence.name ?? id} is not answering, so this host cannot read the skills it offers. Start it and try again.`,
+      }
+    }
+    return {
+      ok: true,
+      module: id,
+      name: presence.module.name,
+      origin: registration.url,
+      skills: presence.module.declares.skills ?? [],
+    }
+  },
+})
+
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
@@ -2853,6 +2881,10 @@ const server = Bun.serve({
     /* What the page says its modules declared, and what came of a press it was handed. `headers.ts`. */
     const headersAnswer = await headerDesk.route(request, url)
     if (headersAnswer) return headersAnswer
+
+    /* A module's Claude Code skills: read, and installed, updated or removed on a press. `skills.ts`. */
+    const skillsAnswer = await skillDesk(request, url)
+    if (skillsAnswer) return skillsAnswer
 
     /*
      * What one module's door offers, and what the agent has been told about it.

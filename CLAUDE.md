@@ -237,3 +237,18 @@
   only as information, labelled NOT its place.
 - The Inbox ask is the host's own list (module `kehikko`, ids `place-ask:`);
   the answer is `/host/place/answer`, in `PAGE_ONLY`. No MCP tool answers it.
+
+## A module's Claude Code skills
+
+- A module offers skills in `declares.skills` (protocol 2.5.0) and serves each
+  SKILL.md at `skillPath(name)`. The PERSON installs, updates or removes them
+  in the Skills window (`src/canvas/Skills.tsx`, a "Skills…" row in the Frame
+  menu beside Tools); `server/skills.ts` does the work into
+  `claudeSkillsDir()` (`~/.claude/skills`, beside `CLAUDE_CONFIG`).
+- `syncSkill` is the one writer, and holds every rule: never overwrite or
+  remove an edited install (`MARKER` sha256), never take a name that is not
+  this module's Kehikot install. A later sync goes through it too.
+- The text is fetched from the registration's origin, never from a request;
+  a press carries the sha256 of the text the person was shown and is refused
+  if the module's text changed. `POST /host/skills` is in `PAGE_ONLY`, and no
+  MCP tool installs or removes a skill.
