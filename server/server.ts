@@ -39,6 +39,8 @@ import { systemProcesses, takeOver } from './takeover.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
+import { placeDesk } from './placeRoutes.ts'
+import { PLACE_PARAM } from './doorPlaces.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -1757,6 +1759,29 @@ const inboxRoutes = inboxDesk({
 })
 
 /*
+ * A conversation's place (protocol 2.4.0): the token a session carries on every
+ * Kehikot door's URL, and the asks in the Inbox. See `placeRoutes.ts`.
+ */
+const placeRoutes = placeDesk({
+  db,
+  inbox,
+  hostUrl: () => own.url,
+  doors: async () =>
+    (await sweep()).presences.flatMap((presence) =>
+      presence.module?.mcp
+        ? [{ module: presence.id, declared: presence.module.mcp.as ?? null, url: presence.module.mcp.url, transport: presence.module.mcp.transport === 'sse' ? ('sse' as const) : ('http' as const) }]
+        : [],
+    ),
+  known: () => agentKnows(),
+  open: () => {
+    const open = openness.open()
+    return open.ok ? open.id : null
+  },
+  changed: (project, rev) => wakes.inboxChanged(project, rev),
+  originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
+})
+
+/*
  * "Restart anyway": the one way a module that is kept is stopped, and only by
  * a person pressing twice in the page. See `anyway.ts`.
  */
@@ -2791,6 +2816,10 @@ const server = Bun.serve({
     const inboxAnswer = await inboxRoutes.route(request, url)
     if (inboxAnswer) return inboxAnswer
 
+    /* A conversation's place, and the person's answer to an ask. `placeRoutes.ts`. */
+    const placeAnswer = await placeRoutes.route(request, url)
+    if (placeAnswer) return placeAnswer
+
     /* What the page says its modules declared, and what came of a press it was handed. `headers.ts`. */
     const headersAnswer = await headerDesk.route(request, url)
     if (headersAnswer) return headersAnswer
@@ -3160,10 +3189,18 @@ const server = Bun.serve({
       if (!body || typeof body.method !== 'string') {
         return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'not a request' } }, 400)
       }
+      /* The place this call is in: the token on the URL, or the binding of its MCP session. */
+      const session = request.headers.get('mcp-session-id')
       const answered = await mcp(
         body,
         {
           db,
+          ...(await (async () => {
+            const { here, unrecorded } = await placeRoutes.resolve(url.searchParams.get(PLACE_PARAM), session)
+            return { here, unrecorded }
+          })()),
+          session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
+          places: placeRoutes.places,
           which: () => openness.open(),
           watched: () => openness.every(),
           wake: (kehikko, folded) => (folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko)),
@@ -3197,9 +3234,10 @@ const server = Bun.serve({
         },
         { name: HOST_ID, version: HOST_VERSION },
       )
-      return answered.body === null
-        ? new Response(null, { status: answered.status })
-        : json(answered.body, answered.status)
+      if (answered.body === null) return new Response(null, { status: answered.status, ...(answered.headers ? { headers: answered.headers } : {}) })
+      const out = json(answered.body, answered.status)
+      for (const [name, value] of Object.entries(answered.headers ?? {})) out.headers.set(name, value)
+      return out
     }
 
     /* Bundled, everything that is not the API is the page. */
