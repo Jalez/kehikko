@@ -71,6 +71,7 @@ import {
   connect,
   disconnect,
   doorFor,
+  doorName,
   heldName,
   hostDoor,
   nameRefusal,
@@ -81,7 +82,9 @@ import {
   type NoDoor,
 } from './register.ts'
 import { toolsAt } from './tools.ts'
-import { skillsRoute } from './skills.ts'
+import { claudeSkillsDir, skillsRoute } from './skills.ts'
+import { ensureSettings, forgetMade, recordMade, settingsRoute } from './agentSettings.ts'
+import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
@@ -184,6 +187,8 @@ if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id
 ensureKnown(db)
 /* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
 const inbox = new Inbox(db)
+/* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
+ensureSettings(db)
 
 /* Leftovers from before the app was called Kehikot — registrations, project
    files and database rows under the old module ids — migrated once, before any
@@ -527,6 +532,8 @@ async function survey(): Promise<{
   forgetUnregistered(db, found.registrations.map((r) => r.id))
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
+  /* Whether anything the agent sync cares about moved. It runs only when so. `agentSync.ts`. */
+  agentSync.saw(seenOf(presences))
   /* What each module's manifest asks for, kept from the last sweep that READ
      one: a module that was slow to answer one sweep has not stopped having
      asked. Gone with the registration, or with a manifest this host refuses. */
@@ -1792,6 +1799,65 @@ const skillDesk = skillsRoute({
   },
 })
 
+/*
+ * Keeping every module's tools and skills set up in the person's agent, as the
+ * app-wide Settings say. See `agentSync.ts` for when it runs and what it never
+ * touches, and `agentSettings.ts` for where the settings are kept.
+ */
+
+/** Every registered module as the sync reads it, and the host's own door first. */
+function seenOf(presences: readonly Presence[]): ModuleSeen[] {
+  const held = new Map<string, string | null>()
+  for (const presence of presences) held.set(presence.id, heldName(presence, presence.id))
+  const host: ModuleSeen = { id: own.module, name: 'Kehikot', answering: true, version: HOST_VERSION, door: own, refusal: null, origin: '', skills: [] }
+  return [
+    host,
+    ...presences.map((presence): ModuleSeen => {
+      const mcp = presence.module?.mcp ?? null
+      const refusal = mcp ? nameRefusal(presence.id, mcp.as, held) : null
+      return {
+        id: presence.id,
+        name: presence.module?.name ?? presence.name ?? presence.id,
+        answering: Boolean(presence.module),
+        version: presence.module?.version ?? null,
+        door: mcp && !refusal ? { module: presence.id, as: doorName(presence.id, mcp.as), url: mcp.url, transport: mcp.transport } : null,
+        refusal,
+        origin: registered.get(presence.id)?.url ?? '',
+        skills: presence.module?.declares.skills ?? [],
+      }
+    }),
+  ]
+}
+
+/**
+ * Where the sync's Inbox lines go: the projects a page has open, else the
+ * first project whose folder is there. The record is per project; these are
+ * about the machine, so they go where the person is looking.
+ */
+function settingsProjects(): number[] {
+  const open = new Set(openness.every())
+  const canvases = listCanvases(db)
+  const looking = [...new Set(canvases.filter((one) => open.has(one.id)).flatMap((one) => (one.project === null ? [] : [one.project])))]
+  if (looking.length) return looking
+  const first = listProjects(db).find((one) => !one.missing)
+  return first ? [first.id] : []
+}
+
+const agentSync = new AgentSync({
+  db,
+  modules: async () => seenOf((await sweep()).presences),
+  known: () => agentKnows(),
+  skillsRoot: () => claudeSkillsDir(),
+  ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),
+})
+
+const settingsDesk = settingsRoute({
+  db,
+  status: () => agentSync.status(),
+  changed: () => agentSync.poke(),
+  skillsAt: () => claudeSkillsDir(),
+})
+
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
@@ -2885,6 +2951,9 @@ const server = Bun.serve({
     /* A module's Claude Code skills: read, and installed, updated or removed on a press. `skills.ts`. */
     const skillsAnswer = await skillDesk(request, url)
     if (skillsAnswer) return skillsAnswer
+    /* The app-wide agent settings. `agentSettings.ts`; the POST is PAGE_ONLY. */
+    const settingsAnswer = await settingsDesk(request, url)
+    if (settingsAnswer) return settingsAnswer
 
     /*
      * What one module's door offers, and what the agent has been told about it.
@@ -3019,6 +3088,11 @@ const server = Bun.serve({
         }
         ran = await disconnect(before.as)
       }
+
+      /* What Kehikot made is what the Settings sync may later re-point or
+         remove (`agent_made`, `agentSettings.ts`); what it removed is not its. */
+      if (ran.ok && press === 'disconnect') forgetMade(db, id)
+      else if (ran.ok) recordMade(db, { module: id, name: door.as, url: door.url, title: id === HOST_ID ? 'Kehikot' : (lastPresences.get(id)?.name ?? id) })
 
       /* Read back rather than assume. The CLI is the thing that decides whether
          it worked, and reporting the awareness this host can now READ is the
@@ -3312,6 +3386,10 @@ const server = Bun.serve({
     return elsewhere()
   },
 })
+
+/* The agent sync's first run, after the server is up and never awaited: it
+   sweeps, and does nothing at all before the one-time question was answered. */
+agentSync.poke()
 
 console.log(`the canvas is at http://127.0.0.1:${server.port}`)
 console.log(`registrations are read from ${registryDir()}`)

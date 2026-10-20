@@ -14,7 +14,9 @@ import { SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/
  * `skillPath(name)` on its own origin. A skill is instructions that land in
  * the person's Claude Code for every project, so nothing here installs one
  * on its own: the page shows the whole text (and for an update, what changed)
- * and the person presses. The server then fetches the text AGAIN from the
+ * and the person presses — or the person chose, once, in Settings, to have
+ * every module's skills kept installed (`agentSync.ts`), which goes through
+ * `syncSkill` below and its rules all the same. The server then fetches the text AGAIN from the
  * module — the registration's origin plus the path, never anything the
  * request carried — and writes it only if it is the text the person was
  * shown (`sha256`).
