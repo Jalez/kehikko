@@ -26,18 +26,19 @@ import { LIMITS, own, type FilterChoice, type FilterGroup } from 'kehikot-module
  * has nothing to press to get the rest back, because the thing to press is not
  * there.
  *
- * So a stored choice is never used as it stands. It is reconciled against the
- * offer the module is making RIGHT NOW, every time, and anything the module is
- * not currently offering is treated as though it were never chosen. That is
- * `chosen` below, and it is the only way a stored value reaches either the menu
- * or the wire.
+ * So a stored choice is never SENT as it stands once there is an offer. It is
+ * reconciled against the offer the module is making RIGHT NOW, and anything the
+ * module is not currently offering is treated, for that message, as though it
+ * were never chosen. That is `chosen` below. It is NOT forgotten: see `settle`,
+ * which keeps what the offer merely lacks (a zero-count option, a module that
+ * is asleep) stored, and `remembered` for the one message before any offer.
  *
  * The module defends itself as well — the protocol says it should fall back to
- * its own default for an id it does not recognise — and the redundancy is
- * deliberate. This host cannot reconcile anything before the module has said
- * what it offers, and the greeting goes out first, so the first choice a module
- * ever receives is one nobody has checked. Two programs each assuming the other
- * got it right is exactly how a stale value survives.
+ * its own default for an id it does not recognise — and that is what the
+ * greeting leans on: this host cannot reconcile anything before the module has
+ * said what it offers, so the greeting carries the stored choice unchecked
+ * (`remembered`) rather than `{}`, and the module's own fallback covers an id
+ * it no longer has until `chosen` replaces it.
  *
  * ## Nothing here is a permission
  *
@@ -136,26 +137,53 @@ export function chosen(offer: readonly FilterGroup[], stored: Choice): Choice {
 }
 
 /**
+ * How many groups one container may keep stored, offered or not. The wire
+ * carries at most `FILTER_GROUPS` and a module offers at most that many; the
+ * rest of this is room for groups that are not on offer right now (a module
+ * asleep, an older version, an offer that was briefly empty) so that they are
+ * there when the module is back. Bounded so a module that invents a new group
+ * id every version cannot grow a container's record without limit.
+ */
+const RESERVED = new Set(['__proto__', 'constructor', 'prototype'])
+
+export const STORED_GROUPS = LIMITS.FILTER_GROUPS * 3
+
+/**
  * What should be WRITTEN DOWN after a press, which is not the same thing.
  *
  * `chosen` fills in every group, because a module has to be told about all of
- * them. This drops every group that is on its resting option, because a store
- * full of "this one is at its default" is a store that cannot tell a person who
- * chose the default from a person who never chose anything — and only one of
- * those should survive the module changing its mind about what the default is.
+ * them. This drops every OFFERED group that is on its resting option, because a
+ * store full of "this one is at its default" is a store that cannot tell a
+ * person who chose the default from a person who never chose anything — and
+ * only one of those should survive the module changing its mind about what the
+ * default is.
  *
- * It also drops any group the module is not offering, which is where a value
- * from an older version of a module finally stops being carried. Reconciling on
- * READ alone would leave it in the database forever, invisible, waiting to come
- * back to life if that option ever returned under the same spelling — attached
- * to a press somebody made two versions ago.
+ * ## What is NOT dropped: anything the offer merely lacks
  *
- * That pruning is why this takes the offer and is only ever called when there
- * is one. A module that is not running offers nothing, and pruning against
- * nothing would silently forget every filter on the canvas the moment somebody
- * restarted the host with a module asleep.
+ * The protocol has no way for a module to say "this group is gone" or "this
+ * option is gone for good". An offer is what it shows right now, and an option
+ * that counts zero is not in it ("Hide closed changes (0)" is not a thing to
+ * press) while it is exactly what a person switched on last week and expects
+ * back when it counts something again. So absence is not a reason to forget:
+ *
+ * - an option id a stored `toggles` set holds that the group does not offer is
+ *   carried through, after the offered ones;
+ * - a stored group the offer does not mention at all is carried through
+ *   untouched, and so is every group when the offer is empty (a module that is
+ *   not running, or has not finished loading, offers nothing, and pruning
+ *   against nothing would forget every filter on the canvas).
+ *
+ * What is dropped is what the PERSON (or the module's own `filters.set`)
+ * changed: `choice` is the group being written, and it replaces that group's
+ * stored value, including a toggles set's offered members. Nothing else ever
+ * leaves, except to the bounds: `STORED_GROUPS` groups, `FILTER_OPTIONS` ids in
+ * a set — the oldest carried values go first, offered ones always stay. Only
+ * `chosen` decides what is SENT, and it sends only what is on offer.
+ *
+ * `before` is what was stored. Without it this is the old pure function of an
+ * offer and a choice.
  */
-export function settle(offer: readonly FilterGroup[], choice: Choice): Choice {
+export function settle(offer: readonly FilterGroup[], choice: Choice, before: Choice = {}): Choice {
   const kept: Choice = {}
   for (const group of offer) {
     const wanted = own(choice, group.id)
@@ -175,16 +203,53 @@ export function settle(offer: readonly FilterGroup[], choice: Choice): Choice {
       continue
     }
     if (group.kind === 'toggles') {
-      /* An empty set is the group at rest, and dropped for the same reason. */
+      /* The offered members as written, then the stored ones this group does
+         not offer right now (zero today, back tomorrow). An empty set with
+         nothing carried is the group at rest, and dropped for the same reason. */
       const on = switchedOn(group, wanted)
-      if (on.length) kept[group.id] = on
+      const offered = new Set(group.options.map((option) => option.id))
+      const old = own(before, group.id)
+      const carried = Array.isArray(old) ? old.filter((id) => !offered.has(id)) : []
+      const all = [...on, ...carried].slice(0, LIMITS.FILTER_OPTIONS)
+      if (all.length) kept[group.id] = all
       continue
     }
     if (typeof wanted !== 'string' || wanted === group.fallback) continue
     if (!group.options.some((option) => option.id === wanted)) continue
     kept[group.id] = wanted
   }
+  /* Groups the offer does not mention: held as they were stored. A group that
+     IS offered but absent from `kept` is at rest and stays dropped. */
+  const offeredIds = new Set(offer.map((group) => group.id))
+  for (const id of Object.keys(before)) {
+    if (Object.keys(kept).length >= STORED_GROUPS) break
+    if (offeredIds.has(id) || RESERVED.has(id)) continue
+    const old = own(before, id)
+    if (old === undefined || old === '' || (Array.isArray(old) && !old.length)) continue
+    kept[id] = Array.isArray(old) ? old.slice(0, LIMITS.FILTER_OPTIONS) : old
+  }
   return kept
+}
+
+/**
+ * The stored choice as a module that has not offered anything yet is told it.
+ *
+ * Before the first offer there is nothing to reconcile against, and `chosen`
+ * against nothing is `{}` — which drew the module unnarrowed for the one round
+ * trip until its offer arrived, then narrowed it: a flash of everything. So the
+ * greeting carries what is stored, as it stands, cut to the wire's bounds; the
+ * protocol already makes a module fall back on an id it does not know, and
+ * `chosen` replaces this with the reconciled choice when the offer arrives.
+ */
+export function remembered(stored: Choice): Choice {
+  const told: Choice = {}
+  for (const id of Object.keys(stored)) {
+    if (Object.keys(told).length >= LIMITS.FILTER_GROUPS) break
+    const value = own(stored, id)
+    if (typeof value === 'string' && value !== '') told[id] = value.slice(0, LIMITS.FILTER_TEXT)
+    else if (Array.isArray(value) && value.length) told[id] = [...new Set(value)].slice(0, LIMITS.FILTER_OPTIONS)
+  }
+  return told
 }
 
 /**

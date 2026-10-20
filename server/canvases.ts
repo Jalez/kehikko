@@ -9,6 +9,7 @@ import {
   REFRESH_EVERY_MIN,
   type FilterChoice,
 } from 'kehikot-module-protocol'
+import { STORED_GROUPS } from '../src/host/filters.ts'
 import { partIdsIn } from '../src/host/parts.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
@@ -1288,7 +1289,8 @@ export function filtersIn(value: unknown): FilterChoice {
   const kept: FilterChoice = {}
   let count = 0
   for (const group of Object.keys(value as Record<string, unknown>)) {
-    if (count >= LIMITS.FILTER_GROUPS) break
+    /* More than the wire's four: the room is for groups not on offer now. */
+    if (count >= STORED_GROUPS) break
     if (RESERVED_FILTER_IDS.has(group)) continue
     if (!group || group.length > LIMITS.FILTER_ID) continue
     const chosen = (value as Record<string, unknown>)[group]

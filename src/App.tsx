@@ -76,7 +76,7 @@ import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } fro
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
-import { chosen, sameChoice, settle as settleFilters } from './host/filters.ts'
+import { chosen, remembered, sameChoice, settle as settleFilters } from './host/filters.ts'
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
@@ -1674,7 +1674,7 @@ export function App() {
     if (offer.length === 0) {
       return { ok: false, error: `${from} has not offered anything to be narrowed by, so there is nothing to set.` }
     }
-    const kept = settleFilters(offer, choice)
+    const kept = settleFilters(offer, choice, container.filters)
     if (!sameChoice(kept, container.filters)) {
       change({ placements: placements.map((p) => (p.i === from ? { ...p, filters: kept } : p)) })
     }
@@ -2028,7 +2028,7 @@ export function App() {
       const placements = open?.placements ?? []
       const container = placements.find((p) => p.i === id)
       if (!container) return
-      const kept = settleFilters(groups, container.filters)
+      const kept = settleFilters(groups, container.filters, container.filters)
       if (sameChoice(kept, container.filters)) return
       change({ placements: placements.map((p) => (p.i === id ? { ...p, filters: kept } : p)) })
     },
@@ -2229,7 +2229,7 @@ export function App() {
       const container = placements.find((p) => p.i === id)
       if (!container) return
       const offer = live[id]?.filters ?? []
-      const kept = settleFilters(offer, { ...container.filters, [group]: option })
+      const kept = settleFilters(offer, { ...container.filters, [group]: option }, container.filters)
       change({ placements: placements.map((p) => (p.i === id ? { ...p, filters: kept } : p)) })
     },
     [change, live, open?.placements],
@@ -3408,9 +3408,12 @@ export function App() {
              that no longer exists degrades to that module's own default instead
              of narrowing by something nobody can see or clear. A module that
              has offered nothing yet — including one that has not been greeted —
-             is told `{}`, which is the truth: this host has nothing for it that
-             it has said it can use. See `host/filters.ts`. */
-          filters: chosen(found?.filters ?? [], placements.find((p) => p.i === id)?.filters ?? {}),
+             is told what is stored, unreconciled, so it does not draw
+             unnarrowed for the round trip until its offer arrives; it falls
+             back on an id it does not know. See `host/filters.ts`. */
+          filters: found?.filters
+            ? chosen(found.filters, placements.find((p) => p.i === id)?.filters ?? {})
+            : remembered(placements.find((p) => p.i === id)?.filters ?? {}),
         }
       })
       .filter((framing): framing is Framing => framing !== null)

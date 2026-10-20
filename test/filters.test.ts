@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import type { FilterGroup } from 'kehikot-module-protocol'
 
 import { Label, saying } from '../src/canvas/Filters.tsx'
-import { chosen, narrowed, sameChoice, settle, switchedOn, toggled } from '../src/host/filters.ts'
+import { STORED_GROUPS, chosen, narrowed, remembered, sameChoice, settle, switchedOn, toggled } from '../src/host/filters.ts'
 import { whileFrozen } from '../src/host/context.ts'
 import { LIMITS, contextSchema } from 'kehikot-module-protocol'
 
@@ -502,5 +502,91 @@ describe('dispositions reach a pinned container in the same project', () => {
   test('another project’s marks do not', () => {
     const told = contextSchema.parse({ epic: 'b', projectPath: '/q', dispositions: [mark] })
     expect(whileFrozen(held, told)).toBeNull()
+  })
+})
+
+/*
+ * A stored choice outlives what is offered right now: a zero-count option, a
+ * module still loading, a module asleep. Only a change to that group removes it.
+ */
+describe('a choice that is kept when it is not offered', () => {
+  const hide: FilterGroup = {
+    id: 'hide',
+    label: 'Hide',
+    kind: 'toggles',
+    options: [
+      { id: 'closed-issues', label: 'Closed issues (3)' },
+      { id: 'closed-changes', label: 'Closed changes (2)' },
+    ],
+  }
+  const without: FilterGroup = { ...hide, options: [hide.options[0]!] }
+
+  test('the greeting carries the stored choice before any offer', () => {
+    const stored = { hide: ['closed-changes'], scope: 'here', search: 'rbac' }
+    expect(remembered(stored)).toEqual(stored)
+  })
+
+  test('the greeting is cut to the wire bounds', () => {
+    const many: Record<string, string> = {}
+    for (let i = 0; i < 9; i++) many[`g${i}`] = 'x'
+    expect(Object.keys(remembered(many))).toHaveLength(LIMITS.FILTER_GROUPS)
+    const ids = Array.from({ length: 30 }, (_, i) => `o${i}`)
+    expect(remembered({ hide: ids }).hide).toHaveLength(LIMITS.FILTER_OPTIONS)
+  })
+
+  test('a zero-count option survives an offer without it and returns when offered again', () => {
+    const stored = { hide: ['closed-issues', 'closed-changes'] }
+    // The offer without "closed-changes": reconciling keeps it stored...
+    const kept = settle([without], stored, stored)
+    expect(kept).toEqual({ hide: ['closed-issues', 'closed-changes'] })
+    // ...sends only what is offered...
+    expect(chosen([without], kept)).toEqual({ hide: ['closed-issues'] })
+    // ...and sends it again when it is offered again.
+    expect(chosen([hide], kept)).toEqual({ hide: ['closed-issues', 'closed-changes'] })
+  })
+
+  test('an option that is only unoffered is still stored, sent as nothing', () => {
+    const stored = { hide: ['closed-changes'] }
+    const kept = settle([without], stored, stored)
+    expect(kept).toEqual(stored)
+    expect(chosen([without], kept)).toEqual({})
+  })
+
+  test('a group the offer does not mention, or an empty offer, is kept', () => {
+    const stored = { hide: ['closed-issues'], scope: 'here' }
+    expect(settle([], stored, stored)).toEqual(stored)
+    expect(settle([hide], stored, stored)).toEqual(stored)
+    expect(chosen([], stored)).toEqual({})
+  })
+
+  test('changing a group replaces it', () => {
+    const stored = { hide: ['closed-issues', 'closed-changes'], scope: 'here' }
+    // Switching "closed-issues" off while "closed-changes" is unoffered: the
+    // offered members are replaced, the unoffered one rides along.
+    expect(settle([without], { ...stored, hide: [] }, stored)).toEqual({ hide: ['closed-changes'], scope: 'here' })
+    // Everything back clears all of it.
+    expect(settle([hide], { ...stored, hide: [] }, stored)).toEqual({ scope: 'here' })
+    // A new value for a choice group replaces the old one.
+    const scope: FilterGroup = {
+      id: 'scope',
+      label: 'Scope',
+      options: [
+        { id: 'all', label: 'All' },
+        { id: 'here', label: 'Here' },
+        { id: 'none', label: 'None' },
+      ],
+      fallback: 'all',
+    }
+    expect(settle([scope], { ...stored, scope: 'none' }, stored).scope).toBe('none')
+  })
+
+  test('the store is capped: groups, and ids in a set', () => {
+    const before: Record<string, string> = {}
+    for (let i = 0; i < STORED_GROUPS + 8; i++) before[`g${i}`] = 'x'
+    expect(Object.keys(settle([], before, before))).toHaveLength(STORED_GROUPS)
+    const carried = Array.from({ length: 30 }, (_, i) => `gone${i}`)
+    const out = settle([hide], { hide: ['closed-issues'] }, { hide: carried })
+    expect(out.hide).toHaveLength(LIMITS.FILTER_OPTIONS)
+    expect((out.hide as string[])[0]).toBe('closed-issues')
   })
 })

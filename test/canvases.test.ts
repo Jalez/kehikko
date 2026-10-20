@@ -668,7 +668,7 @@ describe('a filter choice is part of the arrangement', () => {
       placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, filters: wide }],
     })
     const kept = listCanvases(db)[0]?.placements[0]?.filters ?? {}
-    expect(Object.keys(kept).length).toBeLessThanOrEqual(4)
+    expect(Object.keys(kept).length).toBe(12) // STORED_GROUPS: room for groups not on offer
   })
 
   test('anything that is not a record of strings is no choice at all', () => {
