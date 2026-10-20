@@ -138,7 +138,7 @@ export const FIRST_QUESTION = {
     'Folders under ~/.claude/skills/<name>, one per skill. A skill you changed, or a name another skill already has, is left alone.',
   ],
   after: 'Each change is one line in the Inbox. You can change this any time in Settings, and leave single modules out there.',
-  keep: 'Keep it set up',
+  keep: 'Save',
   self: 'I’ll do it myself',
   toolsBox: 'Connect every module’s tools',
   skillsBox: 'Install every module’s skills and keep them up to date',
