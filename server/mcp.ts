@@ -22,6 +22,7 @@ import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
 import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, pinnedOf, type Pressed, type Pressing } from '../src/host/header.ts'
+import { releaseForAgents } from '../src/host/moduleReleases.ts'
 
 /**
  * The host's own door, which it did not have until now.
@@ -1134,7 +1135,9 @@ function tools() {
       name: 'module_versions',
       description:
         'The versions a module on a kehikko can run: "latest" — the module’s own checkout, which is what every '
-        + 'container runs unless pinned — and the semver tags on its repository, newest first. Each tag says '
+        + 'container runs unless pinned; for a module the app installed that is its newest release (or main, when '
+        + 'its repository has no release yet), and this says which release it runs and the newest it can — and '
+        + 'the semver tags on its repository, newest first. Each tag says '
         + 'whether this host can speak to it (known once it has been prepared once), whether the data guard '
         + 'refuses it for this kehikko’s project (a version whose data format is older than the one the project’s '
         + 'data is already in), and whether it is already prepared or running. Also says which version this '
@@ -1165,7 +1168,7 @@ function tools() {
           module: { type: 'string', description: 'The module id of a container on this kehikko.' },
           version: {
             type: ['string', 'null'],
-            description: 'A tag module_versions lists, e.g. "v1.2.0" — or null (or "latest") to unpin.',
+            description: 'A release tag module_versions lists, e.g. "v1.2.0" — or null (or "latest") to unpin.',
           },
         },
         required: ['module', 'version'],
@@ -1225,6 +1228,7 @@ function versionsText(listing: VersionListing, canvas: Canvas, how: string): str
       listing.latest.commit ? ` at ${listing.latest.commit}` : ''
     }${listing.latest.dataVersion !== null ? `, data format ${listing.latest.dataVersion}` : ''}.`,
   ]
+  if (listing.release) lines.push(releaseForAgents(listing.release))
   if (listing.recorded !== null) lines.push(`This project's data is in format ${listing.recorded}.`)
   if (listing.error) lines.push(listing.error)
   if (listing.hint) lines.push(listing.hint)

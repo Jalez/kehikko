@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
+
 /**
  * Whether the programs this host runs are behind what is on GitHub, and
  * bringing them level.
@@ -62,6 +64,15 @@ export interface Checkout {
   fetchFailed: string | null
   /** Why `update` would refuse, or null when it would go ahead. */
   blocked: string | null
+  /**
+   * An installed module's releases (`moduleReleases.ts`): which one it is on,
+   * the newest, and the one an update moves it to. Absent for a checkout that
+   * is not an installed copy — the host's own, a module registered by hand —
+   * which follows its branch. When it is here and does not say `main`,
+   * `upstream` is the release tag an update moves to and `behind` counts the
+   * commits up to it.
+   */
+  release?: ModuleRelease
 }
 
 export interface Unreadable {
@@ -77,6 +88,29 @@ export interface Place {
   id: string
   name: string
   dir: string
+  /** For an installed module: what reads its releases over the checkout. See `moduleReleases.ts`. */
+  releases?: ReleaseFollower
+}
+
+/** Reads an installed copy's releases over what `readCheckout` found. `releaseFollower` in `moduleReleases.ts`. */
+export interface ReleaseFollower {
+  overlay(place: Place, checkout: Checkout, fetch: boolean): Promise<Checkout>
+  /** A copy just cloned: checked out at its newest release, when it has one. */
+  settle(place: Place): Promise<{ ok: true; tag: string | null } | { ok: false; why: string }>
+}
+
+/** A place as it is said: without the follower, which is not data. */
+function said(place: Place): Omit<Place, 'releases'> {
+  const { releases: _releases, ...rest } = place
+  return rest
+}
+
+/**
+ * Whether there is something for an update to do: a newer release for a copy
+ * that runs releases, new commits on its branch for anything else.
+ */
+export function hasUpdate(c: Pick<Checkout, 'behind' | 'release'>): boolean {
+  return c.release && c.release.follows !== 'main' ? c.release.target !== null : c.behind > 0
 }
 
 const INCOMING_MAX = 10
@@ -120,6 +154,13 @@ async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, sign
   return { ok: false, why: (err.trim() || out.trim() || `git ${args[0]} failed`).split('\n').slice(-3).join(' ') }
 }
 
+/** The newest release (`vX.Y.Z`) a checkout's HEAD is tagged with, or null. */
+export async function releaseAt(dir: string): Promise<string | null> {
+  const tags = await git(dir, ['tag', '--points-at', 'HEAD'])
+  if (!tags.ok) return null
+  return releasesNewestFirst(tags.out.split('\n').filter(Boolean))[0] ?? null
+}
+
 /** The commit a checkout is on, in full, or null when that cannot be read. */
 export async function headOf(dir: string): Promise<string | null> {
   const head = await git(dir, ['rev-parse', 'HEAD'])
@@ -146,12 +187,12 @@ export async function topLevels(places: readonly Place[]): Promise<{ places: Pla
   const unreadable: Unreadable[] = []
   for (const place of places) {
     if (!existsSync(place.dir)) {
-      unreadable.push({ ...place, error: `${place.dir} is not there` })
+      unreadable.push({ ...said(place), error: `${place.dir} is not there` })
       continue
     }
     const top = await git(place.dir, ['rev-parse', '--show-toplevel'])
     if (!top.ok) {
-      unreadable.push({ ...place, error: 'not a git checkout, so there is nothing to compare it with' })
+      unreadable.push({ ...said(place), error: 'not a git checkout, so there is nothing to compare it with' })
       continue
     }
     if (seen.has(top.out)) continue
@@ -165,7 +206,7 @@ export async function topLevels(places: readonly Place[]): Promise<{ places: Pla
 export async function readCheckout(place: Place, fetch: boolean, signal?: AbortSignal): Promise<Reading> {
   const { dir } = place
   const head = await git(dir, ['rev-parse', '--short', 'HEAD'])
-  if (!head.ok) return { ...place, error: head.why }
+  if (!head.ok) return { ...said(place), error: head.why }
 
   const branchRead = await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
   const branch = branchRead.ok ? branchRead.out : null
@@ -210,7 +251,7 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
   }
 
   const checkout: Checkout = {
-    ...place,
+    ...said(place),
     branch,
     commit: head.out,
     dirty,
@@ -223,7 +264,7 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
     blocked: null,
   }
   checkout.blocked = blockedBy(checkout)
-  return checkout
+  return place.releases ? place.releases.overlay(place, checkout, fetch) : checkout
 }
 
 /**
@@ -231,8 +272,8 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
  * and its upstream as last fetched. Local — nothing is asked of the remote —
  * so it is exactly as fresh as the "N new commits" beside it.
  */
-export async function incomingFiles(dir: string): Promise<string[]> {
-  const diff = await git(dir, ['diff', '--name-only', 'HEAD', '@{u}'])
+export async function incomingFiles(dir: string, to = '@{u}'): Promise<string[]> {
+  const diff = await git(dir, ['diff', '--name-only', 'HEAD', to])
   return diff.ok && diff.out ? diff.out.split('\n') : []
 }
 
@@ -270,7 +311,9 @@ export interface Updated {
 export type Updating = Updated | { ok: false; why: string; status: number }
 
 /**
- * Bring one checkout level with its upstream, fast-forward only.
+ * Bring one checkout level with its upstream, fast-forward only — or, for an
+ * installed copy that runs releases, check it out at the newer release's tag
+ * (`moduleReleases.ts`). Nothing else moves a checkout.
  *
  * Re-read first, without fetching — the page decided from a reading that may be
  * minutes old, and this must decide from the disk as it is now. When
@@ -313,7 +356,12 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
     const reset = await git(place.dir, ['checkout', '--', 'bun.lock'])
     if (!reset.ok) return { ok: false, why: `${place.name} was not updated: could not reset bun.lock: ${reset.why}`, status: 409 }
   }
-  const merged = await git(place.dir, ['merge', '--ff-only', '--quiet', '@{u}'])
+  /* A copy that runs releases is checked out at the newer release's tag;
+     anything else is fast-forwarded along its branch. */
+  const release = before.release && before.release.follows !== 'main' ? before.release.target : null
+  const merged = release
+    ? await git(place.dir, ['checkout', '--quiet', '--detach', `refs/tags/${release}`])
+    : await git(place.dir, ['merge', '--ff-only', '--quiet', '@{u}'])
   if (!merged.ok) return { ok: false, why: `${place.name} was not updated: ${merged.why}`, status: 409 }
 
   const diff = await git(place.dir, ['diff', '--name-only', from.out, 'HEAD'])

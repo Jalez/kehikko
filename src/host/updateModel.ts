@@ -1,5 +1,6 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
-import { isCheckout, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
+import { releaseSaid, releaseVersion, type ModuleRelease } from './moduleReleases.ts'
+import { hasUpdate, isCheckout, runsReleases, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
 
 /**
  * One update system: the desktop app's own updater and the module checkouts,
@@ -58,6 +59,8 @@ export interface UpdateRow {
   retryWord?: string
   /** It is running and its registration says to keep it, so the retry is refused: "Restart anyway" is offered beside it. */
   anyway?: boolean
+  /** An installed module's releases: which it runs, and the one an update moves it to. See `moduleReleases.ts`. */
+  release?: ModuleRelease
 }
 
 /** What the server says about one module beyond its checkout. See `Check.progress` and `Check.stale`. */
@@ -136,7 +139,14 @@ export function moduleRow(
     activity: null,
   }
   if (!isCheckout(reading)) return { ...base, state: 'failed', reason: reading.error }
-  const row = { ...base, current: reading.commit, behind: reading.behind }
+  const release = reading.release
+  const row: UpdateRow = {
+    ...base,
+    current: release?.installed ? releaseVersion(release.installed) : reading.commit,
+    behind: reading.behind,
+    ...(release ? { release } : {}),
+    ...(release?.target ? { version: releaseVersion(release.target) } : {}),
+  }
   /* This page's own press first, then what the server says is still running —
      which is all a page that reloaded mid-update has. */
   const phase = running ?? told.phase ?? null
@@ -151,8 +161,8 @@ export function moduleRow(
   /* Left on old code — unless there is something newer to take, which is the
      better thing to offer: an update restarts it, or says again why it cannot. */
   const anyway = told.kept === true ? { anyway: true } : {}
-  if (told.older && reading.behind === 0) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart', ...anyway }
-  if (told.stale && reading.behind === 0) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true, ...anyway }
+  if (told.older && !hasUpdate(reading)) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart', ...anyway }
+  if (told.stale && !hasUpdate(reading)) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true, ...anyway }
   if (pins && pins.containers > 0) {
     return {
       ...row,
@@ -161,7 +171,7 @@ export function moduleRow(
       reason: `${pins.containers} container${pins.containers === 1 ? '' : 's'} pinned to ${pins.versions.join(', ')}`,
     }
   }
-  if (reading.behind > 0) {
+  if (hasUpdate(reading)) {
     return reading.blocked === null ? { ...row, state: 'available' } : { ...row, state: 'blocked', reason: reading.blocked }
   }
   if (reading.fetchFailed) return { ...row, state: 'failed', reason: `GitHub could not be reached: ${reading.fetchFailed}` }
@@ -288,11 +298,11 @@ export function stateText(row: UpdateRow): string {
     case 'checking':
       return 'Checking…'
     case 'uptodate':
-      return 'Up to date'
+      return row.release && !row.reason ? capital(releaseSaid(row.release)) : 'Up to date'
     case 'available':
-      return row.source === 'app'
-        ? `${kehikot(row.version)} is available`
-        : `${row.behind} new commit${row.behind === 1 ? '' : 's'}`
+      if (row.source === 'app') return `${kehikot(row.version)} is available`
+      if (row.release && runsReleases(row)) return releaseSaid(row.release)
+      return `${row.behind} new commit${row.behind === 1 ? '' : 's'}`
     case 'updating':
       if (row.activity === 'installing') return row.source === 'app' ? `Installing ${row.version ?? 'the update'}…` : 'Installing what changed…'
       if (row.activity === 'downloading') {
@@ -310,9 +320,14 @@ export function stateText(row: UpdateRow): string {
       return `Not updated automatically: ${row.reason ?? 'no reason given'}`
     case 'pinned': {
       const pinned = row.reason ?? `Pinned${row.version ? ` to ${row.version}` : ''}`
+      if (row.release && runsReleases(row)) return row.release.target ? `${pinned} · latest moves to ${releaseVersion(row.release.target)}` : pinned
       return row.behind > 0 ? `${pinned} · latest has ${row.behind} new commit${row.behind === 1 ? '' : 's'}` : pinned
     }
   }
+}
+
+function capital(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function kehikot(version: string | null): string {

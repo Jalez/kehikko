@@ -93,7 +93,9 @@ import { Wakes } from './wake.ts'
 import { TrackerNotices } from './trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
-import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
+import { hasUpdate, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
+import { releaseFollower } from './moduleReleases.ts'
+import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { installDesk } from './installs.ts'
@@ -390,14 +392,38 @@ const RESTART_FILE = process.env.KEHIKKO_RESTART_FILE?.trim() || null
  */
 const HOST_DIR: string | null = BUNDLED ? null : resolve(import.meta.dir, '..')
 
-/** The host (when it is a checkout), then every registered module that names a directory. */
+/**
+ * The host (when it is a checkout), then every registered module that names a
+ * directory. An installed module (`installed/<id>/`) runs its releases, so its
+ * place carries the follower that reads them (`moduleReleases.ts`); a module
+ * registered from somebody's own checkout follows its branch as before.
+ */
 function updatePlaces(): Place[] {
   const places: Place[] = HOST_DIR ? [{ id: 'host', name: 'kehikko host', dir: HOST_DIR }] : []
   for (const registration of registered.values()) {
-    if (registration.dir) places.push({ id: registration.id, name: registration.id, dir: registration.dir })
+    if (registration.dir) places.push(placeOf(registration.id, registration.dir))
   }
   return places
 }
+
+/** One module's place: named as it calls itself when that is known, with its releases when it is installed. */
+function placeOf(id: string, dir: string): Place {
+  const name = lastPresences.get(id)?.name ?? lastPresences.get(id)?.module?.name ?? official.current().find((one) => one.id === id)?.name ?? id
+  return { id, name, dir, ...(isInstalled(dir) ? { releases: follower } : {}) }
+}
+
+/**
+ * Which release each installed module runs. The tags come through the
+ * person's own git (and so their credentials, for a private repository), cached
+ * by `tagLister`; a list entry's `protocol` — official, or one of "My
+ * modules" — still applies to every release of it.
+ */
+const follower = releaseFollower({
+  run: runQuietly,
+  tags: { tags: (url, fresh) => tagLister.tags(url, fresh) },
+  entryProtocol: (id) =>
+    official.current().find((one) => one.id === id)?.protocol ?? readMine(myModulesFile()).modules.find((one) => one.id === id)?.protocol,
+})
 
 
 /* Feedback on a module, filed as an issue in its repository. The repository is
@@ -468,6 +494,8 @@ const installs = installDesk({
   registered: async () =>
     (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url), dir: r.dir })),
   installed: () => wakes.registryChanged(),
+  /* A fresh clone is put on its newest release before it is installed. */
+  releases: { settle: (place) => follower.settle(place) },
 })
 
 /* "My modules": what the person installs from a repository that is on no
@@ -879,6 +907,16 @@ const versionRuns = new VersionRuns({
    each registered module's own remote. See `releaseNotes.ts`. */
 const remotesByDir = new Map<string, { at: number; repo: string | null }>()
 const releaseNotes = releaseNotesDesk({
+  /* A private module's notes, read with the login that installed it. */
+  gh: async (path) => {
+    const ran = await spawnRunner(['gh', 'api', path])
+    if (ran.code !== 0) return null
+    try {
+      return JSON.parse(ran.out) as unknown
+    } catch {
+      return null
+    }
+  },
   allowed: async (repo) => {
     const asked = repo.toLowerCase()
     if (official.current().some((one) => one.repo.toLowerCase() === asked)) return true
@@ -909,6 +947,14 @@ const pins = new Pins({
   wake: (canvas) => wakes.woke(canvas),
   keep: (project) => keep(db, project),
   released: (repo) => releaseNotes.released(repo),
+  /* The release an installed module's copy runs, and the newest it can. */
+  release: async (id) => {
+    const registration = await registrationOf(id)
+    if (!registration?.dir || !isInstalled(registration.dir)) return null
+    /* Asks the remote at most once a minute, through `tagLister`'s cache. */
+    const reading = await readCheckout(placeOf(id, registration.dir), true)
+    return 'error' in reading ? null : (reading.release ?? null)
+  },
 })
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
@@ -1104,14 +1150,14 @@ function begin(id: string): void {
   /* Somebody else was running it and it has only just gone: theirs to bring
      back first. See `THEIRS_TO_RESTART_MS`. */
   if (theirs.has(id)) return
-  /* Being brought level with its branch; started when that is done. */
+  /* Being moved to its newest release (or level with its branch); started when that is done. */
   if (levelling.has(id)) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
   if (registration?.dir && isInstalled(registration.dir) && Date.now() - (levelledAt.get(id) ?? 0) > LEVEL_AT_MOST_EVERY_MS) {
     levelling.add(id)
-    void level({ id, name: id, dir: registration.dir })
+    void level({ id, name: id, dir: registration.dir, releases: follower })
       .catch((error: unknown) => console.log(`kehikko: could not bring ${id} level before starting it: ${String(error)}`))
       .finally(() => {
         levelling.delete(id)
@@ -1133,14 +1179,16 @@ function begin(id: string): void {
 }
 
 /**
- * A module the app installed runs from its repository's main branch.
+ * A module the app installed runs its repository's releases.
  *
  * Installed modules (`installs.ts`) live in a folder this host owns and nobody
- * works in. Before one is started it is brought level with the branch it
- * tracks — fetched, and fast-forwarded when it is behind — so what the app
- * runs is what is merged. Only at a start: a module that is running is never
- * changed under the person using it. `update` refuses anything that is not a
- * clean fast-forward, and then the copy starts as it is and the log says why.
+ * works in. Before one is started it is moved to the newest release this host
+ * can run — its tags fetched, and the newer release's tag checked out — so
+ * what the app runs is what was released (`moduleReleases.ts`). A repository
+ * with no release yet is brought level with `main` instead, fast-forward only,
+ * as before releases. Only at a start: a module that is running is never
+ * changed under the person using it. `update` refuses a copy with changes of
+ * its own, and then the copy starts as it is and the log says why.
  */
 const levelling = new Set<string>()
 const levelledAt = new Map<string, number>()
@@ -1167,15 +1215,18 @@ async function level(place: Place): Promise<void> {
     console.log(`kehikko: could not read ${place.dir} before starting ${place.id}: ${reading.error}`)
     return
   }
-  if (reading.behind === 0) return
+  if (!hasUpdate(reading)) {
+    if (reading.release?.follows === 'ahead') console.log(`kehikko: ${place.id} stays where it is: ${reading.blocked}`)
+    return
+  }
   if (reading.blocked) {
-    console.log(`kehikko: ${place.id} is ${reading.behind} behind ${reading.upstream} and was not updated: ${reading.blocked}`)
+    console.log(`kehikko: ${place.id} is behind ${reading.upstream} and was not updated: ${reading.blocked}`)
     return
   }
   const done = await update(place)
   console.log(
     done.ok
-      ? `kehikko: brought ${place.id} level with ${reading.upstream} before starting it (${done.changed.length} files changed)`
+      ? `kehikko: brought ${place.id} to ${reading.upstream} before starting it (${done.changed.length} files changed)`
       : `kehikko: ${done.why}`,
   )
 }
@@ -1625,10 +1676,11 @@ async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<str
   const presences = seen ? (await seen.catch(() => null))?.presences ?? [] : []
   const said: Record<string, UpdatePreview> = {}
   for (const one of checkouts) {
-    if ('error' in one || one.id === 'host' || one.behind === 0 || one.blocked !== null) continue
+    if ('error' in one || one.id === 'host' || !hasUpdate(one) || one.blocked !== null) continue
     const running = presences.find((presence) => presence.id === one.id)?.reached === true
     if (!running) continue
-    const preview = previewUpdate(await incomingFiles(one.dir), serverGraph(one.dir), {
+    const to = one.release && one.release.follows !== 'main' && one.release.target ? `refs/tags/${one.release.target}` : undefined
+    const preview = previewUpdate(await incomingFiles(one.dir, to), serverGraph(one.dir), {
       running,
       keep: registered.get(one.id)?.keep === true,
     })

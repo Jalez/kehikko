@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import type { ModuleRelease } from './moduleReleases.ts'
+
 /**
  * Whether the host and its modules are behind GitHub — the page's side of
  * `server/updates.ts`, which has the rules. Every call takes a signal, because
@@ -19,6 +21,18 @@ export function openUpdates(): void {
 
 const incomingSchema = z.object({ hash: z.string(), subject: z.string() })
 
+/** An installed module's releases. Mirrors `ModuleRelease` in `moduleReleases.ts`. */
+const releaseSchema = z.object({
+  follows: z.enum(['release', 'main', 'ahead']),
+  installed: z.string().nullable(),
+  newest: z.string().nullable(),
+  target: z.string().nullable(),
+  notes: z.array(z.string()).default([]),
+  needsNewer: z.object({ tag: z.string(), protocol: z.string() }).nullable().default(null),
+  repo: z.string().nullable().default(null),
+  error: z.string().nullable().default(null),
+}) satisfies z.ZodType<ModuleRelease, z.ZodTypeDef, unknown>
+
 const checkoutSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -33,6 +47,8 @@ const checkoutSchema = z.object({
   incoming: z.array(incomingSchema),
   fetchFailed: z.string().nullable(),
   blocked: z.string().nullable(),
+  /** Absent for a checkout that is not an installed copy, and from an older host. */
+  release: releaseSchema.optional(),
 })
 
 const unreadableSchema = z.object({ id: z.string(), name: z.string(), dir: z.string(), error: z.string() })
@@ -276,11 +292,32 @@ export async function requestRestart(): Promise<string | null> {
   return response.ok ? null : await reason(response)
 }
 
-/** How many commits, across everything, are waiting. */
+/**
+ * Whether a checkout has something for an update to do: a newer release for an
+ * installed copy that runs releases, new commits on its branch for anything
+ * else. The same rule as `hasUpdate` in `server/updates.ts`.
+ */
+export function hasUpdate(one: Pick<Checkout, 'behind' | 'release'>): boolean {
+  return one.release && one.release.follows !== 'main' ? one.release.target !== null : one.behind > 0
+}
+
+/** Whether a checkout runs releases (rather than following a branch). */
+export function runsReleases(one: Pick<Checkout, 'release'>): boolean {
+  return one.release !== undefined && one.release.follows !== 'main'
+}
+
+/**
+ * How many commits, across everything, are waiting. A copy that runs releases
+ * counts the commits up to its newer release, and at least one: moving onto a
+ * release at the commit it is already on is still an update.
+ */
 export function waiting(checkouts: readonly Reading[], pins: Readonly<Record<string, PinCount>> = {}): number {
   /* A module with pinned containers is not counted: those containers run the
      version they were pinned to, whatever its checkout is behind by. */
-  return checkouts.reduce((sum, one) => sum + (isCheckout(one) && !Object.hasOwn(pins, one.id) ? one.behind : 0), 0)
+  return checkouts.reduce((sum, one) => {
+    if (!isCheckout(one) || Object.hasOwn(pins, one.id) || !hasUpdate(one)) return sum
+    return sum + (runsReleases(one) ? Math.max(1, one.behind) : one.behind)
+  }, 0)
 }
 
 /** "just now", "4 minutes ago", "2 hours ago", or a date. */
@@ -320,7 +357,7 @@ export type Outcome =
 export function needsAttention(reading: Reading, outcome: Outcome | null | undefined, flagged = false): boolean {
   if (outcome || flagged) return true
   if (!isCheckout(reading)) return true
-  return reading.behind > 0 || reading.fetchFailed !== null
+  return hasUpdate(reading) || reading.fetchFailed !== null
 }
 
 /** The checkouts that need a person, most pressing first, and the level rest. */
@@ -343,7 +380,7 @@ export function triage(
    what GitHub could not be asked about, then what was just updated. */
 function weight(one: Reading): number {
   if (!isCheckout(one)) return 2
-  if (one.behind > 0) return 3
+  if (hasUpdate(one)) return 3
   return one.fetchFailed ? 1 : 0
 }
 

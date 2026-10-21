@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { installDesk, portFor } from '../server/installs.ts'
+import { installDesk, portFor, type Deps } from '../server/installs.ts'
 import { OFFICIAL, officialOf, readOfficial, type Official } from '../server/official.ts'
 import { readRegistration } from '../server/registrations.ts'
 import type { Ran, Runner } from '../server/versions.ts'
@@ -24,7 +24,11 @@ afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-function world(answers: (argv: readonly string[]) => Ran = () => ({ ok: true, out: '' }), registered: { id: string; port: number | null }[] = []) {
+function world(
+  answers: (argv: readonly string[]) => Ran = () => ({ ok: true, out: '' }),
+  registered: { id: string; port: number | null }[] = [],
+  releases?: Deps['releases'],
+) {
   const base = mkdtempSync(join(tmpdir(), 'kehikot-installs-'))
   scratch.push(base)
   const root = join(base, 'installed')
@@ -52,6 +56,7 @@ function world(answers: (argv: readonly string[]) => Ran = () => ({ ok: true, ou
       ...(existsSync(registry) ? readdirSync(registry).map((name) => ({ id: name.replace(/\.json$/, ''), port: null })) : []),
     ],
     installed: (id) => woken.push(id),
+    ...(releases ? { releases } : {}),
   })
   return { desk, calls, woken, root, registry, holding: () => (hold = true), release: () => release() }
 }
@@ -100,6 +105,34 @@ describe('the official list', () => {
 })
 
 describe('installing an official module', () => {
+  test('a fresh clone is put on its newest release before its dependencies are installed', async () => {
+    const order: string[] = []
+    const { desk, calls, root } = world(
+      (argv) => {
+        order.push(argv.slice(0, 2).join(' '))
+        return { ok: true, out: '' }
+      },
+      [],
+      {
+        settle: async (place) => {
+          order.push(`settle ${place.id} ${place.dir}`)
+          return { ok: true, tag: 'v1.6.0' }
+        },
+      },
+    )
+    await desk.install('kehikot.slides')
+    expect((await settled(desk, 'kehikot.slides')).installed).toBe(true)
+    expect(order).toEqual(['git clone', `settle kehikot.slides ${join(root, 'kehikot.slides')}`, 'bun install'])
+    expect(calls).toHaveLength(2)
+  })
+
+  test('a release that cannot be checked out fails the install, with the reason', async () => {
+    const { desk } = world(undefined, [], { settle: async () => ({ ok: false, why: 'could not check out v1.6.0: nope' }) })
+    await desk.install('kehikot.slides')
+    const row = await settled(desk, 'kehikot.slides')
+    expect(row.install).toMatchObject({ state: 'failed', why: expect.stringContaining('could not check out v1.6.0') })
+  })
+
   test('clones, installs and registers, in a directory the host owns', async () => {
     const { desk, calls, woken, root, registry } = world()
     const started = await desk.install('kehikot.slides')

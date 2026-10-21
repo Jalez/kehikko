@@ -6,11 +6,12 @@ import { isVersionTag } from './versions.ts'
  * ## What is asked, and of whom
  *
  * `GET https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>` for one
- * release, and `…/releases?per_page=…` for a repository's list. Unauthenticated:
- * release notes are public, a public repository needs no token, and this host
- * holds none. (The person's `gh` is for what is theirs — the issues they file
- * — and spawning it to read a public page would make the notes depend on a
- * login they do not need.)
+ * release, and `…/releases?per_page=…` for a repository's list. Unauthenticated
+ * first: release notes are public, a public repository needs no token, and
+ * this host holds none. Only when GitHub will not answer a stranger — a
+ * private repository, which it calls missing, or the anonymous limit used up
+ * — is the same path asked through the person's own `gh` (`gh api`), so the
+ * notes of one of "My modules" are read with the login that installed it.
  *
  * ## Which repositories
  *
@@ -68,6 +69,12 @@ export type Got<T> = { ok: true; value: T } | { ok: false; why: string; status: 
 export interface Deps {
   /** Whether `owner/repo` is one this host knows. `APP_REPO` is always known. */
   allowed(repo: string): boolean | Promise<boolean>
+  /**
+   * The same API path (`repos/…/releases/…`) asked through the person's `gh`:
+   * the JSON, or null when gh is not there, not logged in, or says no. Used
+   * only when the anonymous request was refused as missing or rate-limited.
+   */
+  gh?(path: string): Promise<unknown | null>
   fetch?: typeof fetch
   now?(): number
 }
@@ -105,8 +112,16 @@ export function releaseNotesDesk(deps: Deps) {
     }
   }
 
-  /** Ask GitHub; a JSON value, or a failure in words. */
+  /** Ask GitHub; anonymously, then through the person's `gh` when that was refused as missing or limited. */
   async function ask(path: string, page: string, missing: string): Promise<Got<unknown> & { until: number }> {
+    const asked = await askAnonymously(path, page, missing)
+    if (asked.ok || !deps.gh || (asked.status !== 404 && asked.status !== 503)) return asked
+    const viaGh = await deps.gh(path.replace(/^\//, '')).catch(() => null)
+    return viaGh === null ? asked : { ok: true, value: viaGh, until: now() + FRESH_MS }
+  }
+
+  /** Ask GitHub without an account; a JSON value, or a failure in words. */
+  async function askAnonymously(path: string, page: string, missing: string): Promise<Got<unknown> & { until: number }> {
     const at = now()
     if (at < limitedUntil) return { ok: false, why: limitedWhy, status: 503, url: page, until: limitedUntil }
     let response: Response

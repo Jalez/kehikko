@@ -23,6 +23,7 @@ import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { Start, Update } from './Start.tsx'
 import { BranchMark } from './Branch.tsx'
+import { releaseShown } from '@/host/source.ts'
 import { VersionPicker } from './Versions.tsx'
 
 /**
@@ -525,7 +526,7 @@ export function Container({
           name={name}
           kehikko={canvas}
           pinned={version}
-          current={current ?? presence.module?.version ?? null}
+          current={current ?? releaseShown(presence.source) ?? presence.module?.version ?? null}
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
         />

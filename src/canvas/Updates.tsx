@@ -9,12 +9,14 @@ import {
   armRestartAnyway,
   confirmRestartAnyway,
   fetchUpdates,
+  hasUpdate,
   isCheckout,
   LeftRunning,
   offersAppRestart,
   OPEN_UPDATES,
   requestRestart,
   restartModule,
+  runsReleases,
   triage,
   waiting,
   type Armed,
@@ -49,8 +51,9 @@ import {
 } from '@/host/updateModel.ts'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
-import { NotesButton, useReleaseNotes } from './ReleaseNotes.tsx'
+import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
+import { needsNewerSaid, releaseSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -96,6 +99,14 @@ import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
  * when the panel closes. `server/anyway.ts` has the rest.
  *
  * ## Whether what this app runs is behind GitHub, and catching it up
+ *
+ * An installed module runs its releases (`server/moduleReleases.ts`), so its
+ * row says releases, not commits: "Journeys 1.5.0 → 1.6.0", "up to date ·
+ * 1.6.0", "following main · no releases yet" (no release yet: it follows
+ * `main` and its row counts commits as before) or "running main ahead of
+ * 1.6.0". "What's new" beside it opens the notes of every release since the
+ * one it runs, newest first (`ModuleNotesDialog`). Update moves it to the
+ * newer release, with the same restart rules as a fast-forward.
  *
  * ## Two ways a check happens
  *
@@ -201,6 +212,12 @@ export function Updates({
   const [app, setApp] = useState<AppUpdateStatus | null>(null)
   const engine = useRef<AppEngine | null>(null)
   const notes = useReleaseNotes()
+  /* A module's "What's new": every release since the one it runs. */
+  const moduleNotes = useModuleNotes()
+  const notesOpen = notes.open || moduleNotes.open
+  const showModuleNotes = (name: string, release: ModuleRelease, opener: HTMLElement) => {
+    if (release.repo && release.notes.length) moduleNotes.show({ repo: release.repo, name, tags: release.notes, opener })
+  }
 
   /* Listen to the shell's push, and ask once now — which is also what tells
      the shell this page draws updates, so it keeps its own alert to itself. */
@@ -502,7 +519,7 @@ export function Updates({
     .filter(Boolean)
     .join(' · ')
   const { attention, level } = triage(checkouts, outcomes, new Set(Object.keys(told)))
-  const ready = attention.filter((one): one is Checkout => isCheckout(one) && one.behind > 0 && one.blocked === null)
+  const ready = attention.filter((one): one is Checkout => isCheckout(one) && hasUpdate(one) && one.blocked === null)
   const endsAll = previewAll(ready.map((one) => ({ name: one.name, preview: check?.previews[one.id] })))
   const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
   const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
@@ -556,10 +573,10 @@ export function Updates({
         /* The release-notes dialog is outside this panel: the panel stays
            open behind it, so focus has its button to come back to. */
         onFocusOutside={(event) => {
-          if (notes.open) event.preventDefault()
+          if (notesOpen) event.preventDefault()
         }}
         onInteractOutside={(event) => {
-          if (notes.open) event.preventDefault()
+          if (notesOpen) event.preventDefault()
         }}
       >
         <div className="border-b px-3 py-2">
@@ -637,6 +654,7 @@ export function Updates({
                     onRestartApp={
                       offersAppRestart(outcome, check?.restartable ?? false) ? () => void restartApp() : null
                     }
+                    onNotes={(release, opener) => showModuleNotes(one.name, release, opener)}
                   />
                 )
               })}
@@ -666,9 +684,18 @@ export function Updates({
                               {pins[one.id]!.containers} pinned to {pins[one.id]!.versions.join(', ')}
                             </span>
                           ) : null}
-                          <span className="shrink-0 font-mono text-[11px]">
-                            {one.branch ?? 'detached'} @ {one.commit}
-                          </span>
+                          {one.release ? (
+                            <span className="shrink-0 text-[11px]" data-testid="updates-release">
+                              {releaseSaid(one.release)}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 font-mono text-[11px]">
+                              {one.branch ?? 'detached'} @ {one.commit}
+                            </span>
+                          )}
+                          {one.release?.repo && one.release.notes.length ? (
+                            <WhatsNew release={one.release} onShow={(opener) => showModuleNotes(one.name, one.release!, opener)} />
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -701,6 +728,7 @@ export function Updates({
           )}
         </div>
         {notes.dialog}
+        {moduleNotes.dialog}
       </PopoverContent>
     </Popover>
   )
@@ -788,6 +816,7 @@ function Row({
   armed,
   onAnyway,
   onRestartApp,
+  onNotes,
 }: {
   /** The same state the app row and the header indicator read. */
   row: UpdateRow
@@ -809,6 +838,8 @@ function Row({
   onAnyway(): void
   /** Null unless the host's server changed and the app can restart it — then the note says to do it by hand. */
   onRestartApp: (() => void) | null
+  /** "What's new" on a module that runs releases: the notes of `release.notes`, newest first. */
+  onNotes?(release: ModuleRelease, opener: HTMLElement): void
 }) {
   if (!isCheckout(reading)) {
     return (
@@ -819,26 +850,42 @@ function Row({
     )
   }
   const one = reading
+  const release = one.release
+  /* A copy that runs releases says them — "Journeys 1.5.0 → 1.6.0" — in place of commits. */
+  const releases = release !== undefined && release.follows !== 'main'
   return (
     <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-medium">{one.name}</span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
-          {one.branch ?? 'detached'} @ {one.commit}
+        <span className="min-w-0 flex-1 truncate font-medium" data-testid="updates-row-title">
+          {one.name}
+          {release ? <span className="text-muted-foreground pl-1.5 font-normal">{releaseSaid(release)}</span> : null}
         </span>
+        {release ? null : (
+          <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+            {one.branch ?? 'detached'} @ {one.commit}
+          </span>
+        )}
+        {release?.repo && release.notes.length && onNotes ? (
+          <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
+        ) : null}
       </div>
+      {release && needsNewerSaid(release) ? <p className="text-muted-foreground pt-1">{needsNewerSaid(release)}</p> : null}
       {row.state === 'pinned' ? (
         <p className="pt-1 text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
           {row.reason}
         </p>
       ) : null}
-      <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
-        {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
-        {one.fetchFailed ? (
-          <span className="text-muted-foreground"> — GitHub could not be reached: {one.fetchFailed}</span>
-        ) : null}
-      </p>
-      {one.incoming.length ? (
+      {releases ? (
+        one.fetchFailed ? <p className="text-muted-foreground pt-1">Its releases could not be read: {one.fetchFailed}</p> : null
+      ) : (
+        <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
+          {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
+          {one.fetchFailed ? (
+            <span className="text-muted-foreground"> — GitHub could not be reached: {one.fetchFailed}</span>
+          ) : null}
+        </p>
+      )}
+      {!releases && one.incoming.length ? (
         <ul className="text-muted-foreground mt-1 space-y-0.5">
           {one.incoming.slice(0, 5).map((commit) => (
             <li key={commit.hash} className="truncate">
@@ -902,7 +949,7 @@ function Row({
             </Button>
           ) : null}
         </div>
-      ) : one.behind && one.blocked === null ? (
+      ) : hasUpdate(one) && one.blocked === null ? (
         <div className="flex items-end gap-2 pt-1.5">
           {/* Said before the press: there is no second button to decline. */}
           <p className={`flex-1 ${preview === 'restart' || preview === 'self' ? 'text-foreground' : 'text-muted-foreground'}`} data-testid="updates-preview">
@@ -912,11 +959,35 @@ function Row({
             Update
           </Button>
         </div>
-      ) : one.behind ? (
+      ) : hasUpdate(one) ? (
         /* Behind, but not something this host will touch on its own. */
         <p className="text-muted-foreground pt-1.5">Not updated automatically: {one.blocked}.</p>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * "What's new" beside a module that runs releases: opens the notes of every
+ * release since the one it runs (or of the one it runs, when up to date). The
+ * press stops where it is, as `NotesButton`'s does.
+ */
+function WhatsNew({ release, onShow }: { release: ModuleRelease; onShow(opener: HTMLElement): void }) {
+  const several = release.notes.length > 1
+  return (
+    <button
+      type="button"
+      data-testid="updates-whats-new"
+      aria-label={several ? `What's new in the ${release.notes.length} releases since the one it runs` : "What's new"}
+      className="text-muted-foreground hover:text-foreground focus-visible:ring-ring shrink-0 rounded-sm text-[11px] underline-offset-2 outline-none hover:underline focus-visible:ring-2"
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onShow(event.currentTarget)
+      }}
+    >
+      What's new
+    </button>
   )
 }
 
@@ -964,8 +1035,13 @@ export function summaryOf(check: Check | null, failed: { why: string } | null, c
   if (failed) return 'The last check did not finish.'
   if (!check) return 'Not checked yet.'
   if (count === 0) return 'Everything is up to date with GitHub.'
-  const behind = check.checkouts.filter((one) => isCheckout(one) && one.behind > 0).length
-  return `${count} new commit${count === 1 ? '' : 's'} across ${behind} repositor${behind === 1 ? 'y' : 'ies'}.`
+  const updating = check.checkouts.filter((one): one is Checkout => isCheckout(one) && !Object.hasOwn(check.pins, one.id) && hasUpdate(one))
+  const releases = updating.filter(runsReleases).length
+  if (releases > 0) {
+    const n = updating.length
+    return `${n} update${n === 1 ? '' : 's'} waiting${releases === n ? ` — ${n === 1 ? 'a new release' : 'new releases'}` : ''}.`
+  }
+  return `${count} new commit${count === 1 ? '' : 's'} across ${updating.length} repositor${updating.length === 1 ? 'y' : 'ies'}.`
 }
 
 export function tooltipFor(

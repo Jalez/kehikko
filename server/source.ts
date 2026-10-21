@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
 
 import { type Processes, within } from './takeover.ts'
-import { readCheckout } from './updates.ts'
+import { readCheckout, releaseAt } from './updates.ts'
 import type { Source } from '../src/host/source.ts'
 
 export type { Source }
@@ -9,8 +9,9 @@ export type { Source }
 /**
  * Which folder, and which branch, a module is running from — for the header.
  *
- * The app runs a module from its installed copy, which follows `main` (see
- * "Modules run from main" in CLAUDE.md). A module that runs from anywhere else
+ * The app runs a module from its installed copy, which is checked out at its
+ * newest release, or follows `main` while it has none (see "Modules run from
+ * their releases" in CLAUDE.md). A module that runs from anywhere else
  * — a checkout somebody started by hand, a worktree, a branch, a copy behind
  * its branch or with uncommitted changes — is still framed, and works, and
  * nothing said so. This is what says so: the container's header shows the
@@ -83,6 +84,7 @@ async function read(
     behind: reading.behind,
     ahead: reading.ahead,
     dirty: reading.dirty,
+    release: reading.branch === null ? await releaseAt(dir) : null,
   }
 }
 

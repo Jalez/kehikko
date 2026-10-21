@@ -20,6 +20,7 @@ import {
   type Materialiser,
   type RunDeps,
 } from '../server/versionRuns.ts'
+import type { ModuleRelease } from '../src/host/moduleReleases.ts'
 import {
   compareSemver,
   isVersionTag,
@@ -482,7 +483,11 @@ describe('pinning a container', () => {
     /* For a test that wants something to land while a pin is waiting on the module's tags, the last
        thing it waits for: told when the read is asked for, and the read held open until `waiting` is done. */
     tagsRead: { asked: () => void; waiting: Promise<void> } = { asked: () => {}, waiting: Promise.resolve() },
-    more: { remote?: string; released?: (repo: string) => Promise<ReadonlySet<string> | null> } = {},
+    more: {
+      remote?: string
+      released?: (repo: string) => Promise<ReadonlySet<string> | null>
+      release?: (id: string) => Promise<ModuleRelease | null>
+    } = {},
   ) {
     const db: Database = openDb(':memory:')
     const dir = scratch('pinproject')
@@ -537,6 +542,7 @@ describe('pinning a container', () => {
       wake: (c) => woken.push(c),
       keep: (project) => keep(db, project),
       ...(more.released ? { released: more.released } : {}),
+      ...(more.release ? { release: more.release } : {}),
     })
     return { db, dir, canvas, pins, ensured, woken }
   }
@@ -570,6 +576,33 @@ describe('pinning a container', () => {
     expect(listed.versions).toHaveLength(1)
     expect(listed.versions[0]!.release).toBe(false)
     expect(listed.latest.release).toBeNull()
+  })
+
+  test('an installed module says the release its copy runs, and is pinned by a release tag', async () => {
+    const { canvas, pins, db } = world(['v1.4.0', 'v1.5.0', 'v1.6.0'], {}, undefined, {
+      release: async () => ({
+        follows: 'release',
+        installed: 'v1.5.0',
+        newest: 'v1.6.0',
+        target: 'v1.6.0',
+        notes: ['v1.6.0'],
+        needsNewer: null,
+        repo: null,
+        error: null,
+      }),
+    })
+    const listed = await pins.list('kehikot.notes', canvas.id)
+    if ('why' in listed) throw new Error(listed.why)
+    expect(listed.release).toMatchObject({ installed: 'v1.5.0', newest: 'v1.6.0' })
+    expect(await pins.pin(canvas.id, 'kehikot.notes', 'v1.4.0')).toMatchObject({ ok: true })
+    expect(listCanvases(db)[0]!.placements[0]!.version).toBe('v1.4.0')
+  })
+
+  test('a module registered from its own checkout has no release to say', async () => {
+    const { canvas, pins } = world(['v1.0.0'])
+    const listed = await pins.list('kehikot.notes', canvas.id)
+    if ('why' in listed) throw new Error(listed.why)
+    expect(listed.release).toBeNull()
   })
 
   test('lists latest and the tags, and pins one: stored, written to the file, woken, started', async () => {

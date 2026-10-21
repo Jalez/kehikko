@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b21 pass/)
+    expect(out).toMatch(/\b22 pass/)
   }, 60_000)
 }
 
@@ -155,6 +155,68 @@ const text = () => panels()[0]?.textContent ?? ''
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 10)))
 
 describe.skipIf(!inChild)('the updates panel', () => {
+  test('a module that runs releases says them, and "What\'s new" shows every release since, newest first', async () => {
+    const release = {
+      follows: 'release',
+      installed: 'v1.4.0',
+      newest: 'v1.6.0',
+      target: 'v1.6.0',
+      notes: ['v1.6.0', 'v1.5.0'],
+      needsNewer: null,
+      repo: 'Jalez/kehikko-journeys',
+      error: null,
+    }
+    const notesAsked: string[] = []
+    answer = async (url) => {
+      if (url.startsWith('/host/updates')) {
+        return check([
+          checkout('kehikot.journeys', 3, { name: 'Journeys', branch: null, upstream: 'v1.6.0', blocked: null, release }),
+          checkout('kehikot.notes', 0, {
+            name: 'Notes',
+            release: { ...release, follows: 'main', installed: null, newest: null, target: null, notes: [], repo: null },
+          }),
+        ])
+      }
+      if (url.startsWith('/host/release-notes')) {
+        const tag = new URL(url, 'http://x').searchParams.get('tag')!
+        notesAsked.push(tag)
+        return {
+          repo: 'Jalez/kehikko-journeys',
+          tag,
+          name: `Journeys ${tag.slice(1)}`,
+          body: `### What's new\n- in ${tag}\n\n<sub>Built from abc1234</sub>`,
+          url: `https://github.com/Jalez/kehikko-journeys/releases/tag/${tag}`,
+          publishedAt: null,
+          prerelease: false,
+        }
+      }
+      return {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    const title = document.querySelector('[data-testid="updates-row-title"]')
+    expect(title?.textContent).toBe('Journeys1.4.0 → 1.6.0')
+    expect(text()).not.toContain('new commits on')
+    expect(text()).toContain('Update')
+    /* The level module says it follows main. */
+    const level = [...document.querySelectorAll('[data-testid="updates-level"] button')].find((b) => b.textContent === 'show') as HTMLButtonElement
+    await act(async () => level.click())
+    expect(document.querySelector('[data-testid="updates-release"]')?.textContent).toBe('following main · no releases yet')
+
+    const whatsNew = document.querySelector('[data-testid="updates-whats-new"]') as HTMLButtonElement
+    await act(async () => whatsNew.click())
+    await settle()
+    const dialog = document.querySelector('[data-testid="release-notes"]')!
+    expect(dialog.textContent).toContain("What's new in Journeys 1.5.0 → 1.6.0")
+    const sections = [...dialog.querySelectorAll('[data-testid="release-notes-release"]')].map((one) => one.getAttribute('data-tag'))
+    expect(sections).toEqual(['v1.6.0', 'v1.5.0'])
+    expect(dialog.textContent).toContain('in v1.5.0')
+    expect(notesAsked.sort()).toEqual(['v1.5.0', 'v1.6.0'])
+    /* Markdown only: the footer is small text, never markup. */
+    expect(dialog.querySelector('sub')).toBeNull()
+  })
+
   test('checking turns into the results in the same panel, listing only what needs attention', async () => {
     answer = (url) =>
       url.startsWith('/host/updates')
