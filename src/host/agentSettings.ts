@@ -1,3 +1,5 @@
+import type { NoticeSettings } from './trackerNotices.ts'
+
 /**
  * How Kehikot works with a person's coding agents, chosen ONCE for every module
  * and every project: the words and the pure parts, shared by the page
@@ -291,4 +293,6 @@ export interface SettingsAnswer {
   hook: StartHook
   /** Where skills are written, for the words. */
   skillsAt: string
+  /** Tracker notices in the Inbox (`trackerNotices.ts`). Absent from an older host. */
+  notices?: NoticeSettings
 }

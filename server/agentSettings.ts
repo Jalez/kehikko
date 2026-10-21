@@ -13,6 +13,8 @@ import {
   type StartHook,
   type SyncStatus,
 } from '../src/host/agentSettings.ts'
+import { noticesPatched } from '../src/host/trackerNotices.ts'
+import { readNotices, writeNotices } from './trackerNotices.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -168,6 +170,8 @@ export interface SettingsDeps {
   status(): SyncStatus
   /** The settings changed: run the sync. */
   changed(settings: AgentSettings): void
+  /** The tracker notices setting changed: every project's notices again. */
+  noticesChanged?(): void
   skillsAt(): string
   hook?(): StartHook
 }
@@ -175,7 +179,8 @@ export interface SettingsDeps {
 /**
  * `GET /host/settings` and `POST /host/settings`.
  *
- * A POST is either a change of the settings (`{ settings: { tools: { auto } } }`,
+ * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
+ * any subset), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
  * what a module's own Tools and Skills windows send, so two windows each
@@ -187,6 +192,7 @@ export function settingsRoute(deps: SettingsDeps) {
     settings: readSettings(deps.db),
     status: deps.status(),
     hook: (deps.hook ?? (() => startHook()))(),
+    notices: readNotices(deps.db),
     skillsAt: deps.skillsAt(),
   })
 
@@ -197,13 +203,21 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
       return json({ ok: false, why: 'The body is not JSON.' }, 400)
     }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ ok: false, why: 'The body is a JSON object.' }, 400)
+
+    if (body.notices !== undefined) {
+      const next = noticesPatched(readNotices(deps.db), body.notices)
+      if (!next) return json({ ok: false, why: 'That is not a change the tracker notices take.' }, 400)
+      writeNotices(deps.db, next)
+      deps.noticesChanged?.()
+      return json(answer())
+    }
 
     const was = readSettings(deps.db)
     let next: AgentSettings | null = null

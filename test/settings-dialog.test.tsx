@@ -2,6 +2,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 
 import { DEFAULT_SETTINGS, type SettingsAnswer } from '../src/host/agentSettings.ts'
+import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
 
 /*
  * Settings and the one-time question, rendered. In a process of its own for
@@ -10,7 +11,7 @@ import { DEFAULT_SETTINGS, type SettingsAnswer } from '../src/host/agentSettings
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 5
+const TESTS = 6
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -167,6 +168,39 @@ test('Settings: agents, tools and skills with status in words and exceptions, an
   )!
   await act(async () => toggle.click())
   expect(saved.at(-1)).toEqual({ settings: { tools: { auto: false }, asked: true } })
+})
+
+test('Tracker notices: on, which items, and each event, every one a labelled native control', async () => {
+  if (!inChild) return
+  const saved: unknown[] = []
+  await render(
+    <Settings.SettingsDialog
+      open
+      onOpenChange={() => {}}
+      load={async () => answer({ notices: DEFAULT_NOTICES })}
+      save={(async (change: unknown) => {
+        saved.push(change)
+        return answer({ notices: DEFAULT_NOTICES })
+      }) as typeof Settings.postSettings}
+    />,
+  )
+  const body = document.querySelector('[data-settings]')!
+  expect([...body.querySelectorAll('h3')].map((one) => one.textContent)).toContain('Tracker notices')
+  expect(body.querySelector('[data-notices-scope="roles"]')).not.toBeNull()
+  expect(body.textContent).toContain('Only where I have a role')
+  const approved = body.querySelector<HTMLInputElement>('[data-notice-event="approved"] input')!
+  expect(approved.checked).toBe(true)
+  expect(body.querySelector(`label[for="${approved.id}"]`)?.textContent).toBe('Approved')
+  await act(async () => approved.click())
+  expect(saved.at(-1)).toEqual({ notices: { events: { approved: false } } })
+  const epics = [...body.querySelectorAll<HTMLInputElement>('input[type="radio"]')][1]!
+  await act(async () => epics.click())
+  expect(saved.at(-1)).toEqual({ notices: { scope: 'epics' } })
+  /* An older host says nothing of notices: no section. */
+  act(() => unmount?.())
+  document.body.innerHTML = ''
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} />)
+  expect([...document.querySelectorAll('h3')].map((one) => one.textContent)).not.toContain('Tracker notices')
 })
 
 test('a module’s Tools window says it is kept connected, and can leave it out', async () => {

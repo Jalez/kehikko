@@ -312,6 +312,17 @@ export function allEpicRefs(root: string): string[] {
   return [...out]
 }
 
+/** Which epic names each ref spelling, the first by slug: where a tracker notice belongs. */
+export function epicsByRef(root: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const dir = epicsIn(root)
+  if (!dir) return out
+  for (const one of listEpics(dir)) {
+    for (const ref of epicRefs(root, one.slug) ?? []) if (!out.has(ref)) out.set(ref, one.slug)
+  }
+  return out
+}
+
 export type Scope = { refs: string[] } | { epic: string } | { project: true }
 
 interface Held {
@@ -335,6 +346,11 @@ export interface TrackersOptions {
   run: Runner
   /** Told whenever a project's signal changes: a read started, or one landed. */
   told?: (projectPath: string, signal: TrackerSignal) => void
+  /**
+   * Told when a read's rows are stored, with who the person is per
+   * `tracker|host` where known: what tracker notices compare (`server/trackerNotices.ts`).
+   */
+  landed?: (projectPath: string, rows: readonly TrackerRow[], me: ReadonlyMap<string, string>) => void
   adapters?: Partial<Record<Source['tracker'], Adapter>>
   now?: () => Date
   listLimit?: number
@@ -344,6 +360,7 @@ export class Trackers {
   #held = new Map<string, Held>()
   #run: Runner
   #told: (projectPath: string, signal: TrackerSignal) => void
+  #landed: NonNullable<TrackersOptions['landed']>
   #adapters: Record<Source['tracker'], Adapter>
   #now: () => Date
   #listLimit: number
@@ -353,6 +370,7 @@ export class Trackers {
   constructor(options: TrackersOptions) {
     this.#run = options.run
     this.#told = options.told ?? (() => {})
+    this.#landed = options.landed ?? (() => {})
     this.#adapters = {
       github: options.adapters?.github ?? githubAdapter(options.run),
       gitlab: options.adapters?.gitlab ?? gitlabAdapter(options.run),
@@ -975,6 +993,13 @@ export class Trackers {
       saveReading(root, held.stored)
     } catch {
       /* The reading is still served from memory; the file is a cache. */
+    }
+    try {
+      const me = new Map<string, string>()
+      for (const [key, known] of this.#me) if ('login' in known.me) me.set(key, known.me.login)
+      this.#landed(root, held.stored.rows, me)
+    } catch {
+      /* A notice that could not be worked out is not a reason to fail the read. */
     }
 
     const failed = [...errors.entries()].filter(([, why]) => why !== null)
