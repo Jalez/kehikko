@@ -505,8 +505,8 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
       {line ? <p className="mt-1 leading-relaxed">{line}</p> : null}
       {row.mine ? (
         <p className="mt-1 leading-relaxed">
-          Added by you from {row.mine.repo}. Kehikot does not vouch for it. It is brought level with its main branch
-          before it starts, like any installed module.
+          Added by you from {row.mine.repo}. Kehikot does not vouch for it. It runs its newest release (its main
+          branch while it has none), moved there before it starts, like any installed module.
         </p>
       ) : null}
       {row.official === false ? <Propose id={row.id} name={row.name} /> : null}

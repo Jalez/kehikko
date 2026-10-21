@@ -73,28 +73,59 @@
   presence `refused`, and the modules list says the protocol's sentence and
   "Update the module to use it." (`attention` in `src/host/moduleMenu.ts`).
 
-## Modules run from main
+## Modules run from their releases
 
 - The app runs every module from its installed copy under
-  `~/Library/Application Support/Kehikot/installed/<id>/` (`installsDir`), which
-  the host brings level with the repository's main branch before starting it
-  (`level` in `server/server.ts`; never while it runs). A registration never
-  names a working checkout or a worktree.
+  `~/Library/Application Support/Kehikot/installed/<id>/` (`installsDir`),
+  checked out (detached) at the module's newest RELEASE: the newest `vX.Y.Z`
+  tag, no pre-releases, whose protocol need this host meets — the
+  `kehikot-module-protocol` pin in that tag's `package.json` (`protocolPin`,
+  the rule `describeModule` uses) and the list entry's `protocol`. All of it is
+  `server/moduleReleases.ts`; the words are `src/host/moduleReleases.ts`.
+- A module release (built by the module's own release script): an annotated
+  `vX.Y.Z` tag on its `main`, `package.json` at `X.Y.Z`, and a GitHub Release
+  "<Module> X.Y.Z" whose body is `### What's new` + bullets + `<sub>Built from
+  <sha7></sub>`. Its manifest reports the package version.
+- Tags are found with `git ls-remote --tags` through the person's git (so a
+  private repository works with their `gh`/ssh credentials), cached by
+  `TagLister` and asked afresh at most once a minute, and only on a check: a
+  reading without `fetch` uses the copy's own tags. A fresh install is put on
+  the newest release before `bun install` (`settle`). Before a module starts
+  (`level` in `server/server.ts`, at most every ten minutes; never while it
+  runs) or when the person presses Update, the copy moves to a newer release:
+  tags fetched, `git checkout --detach refs/tags/<tag>`.
+- A repository with no release yet: the copy follows `main` as before ("following
+  main · no releases yet"), fast-forward only. A copy on `main` moves to the
+  newest release that contains its commit; one AHEAD of the newest release is
+  held where it is ("running main ahead of 1.6.0") and moves to the first
+  release after it. Never moved back, never fast-forwarded along `main` once
+  releases exist. A copy with uncommitted changes is not moved.
+- A module registered from somebody's own checkout (not under `installed/`)
+  follows its branch as before; only an installed copy's `Place` carries the
+  follower (`placeOf` in `server/server.ts`). A registration never names a
+  working checkout or a worktree.
+- The Updates menu says "Journeys 1.5.0 → 1.6.0", "up to date · 1.6.0",
+  "following main · no releases yet" or "running main ahead of 1.6.0"
+  (`releaseSaid`), and "What's new" opens the GitHub Release notes of every
+  release since the installed one, newest first (`ModuleNotesDialog`, the
+  same Markdown-only drawing). `module_versions` says the installed release and
+  the newest; `pin_version` pins a container to a release tag (`versions/`).
 - Every container's header shows the branch its module is running from, after
-  the version: quiet on `main`, an amber chip with the reason otherwise (another
-  branch, behind or ahead, uncommitted changes, not the registered folder). It
-  reads the folder the RUNNING process is in (`server/source.ts`), so a module
-  somebody started by hand is caught too. `bun dev/source.probe.ts` prints the
-  same for every module.
+  the version: quiet on `main` and on a release (the version chip then says the
+  release, `releaseShown`), an amber chip with the reason otherwise (another
+  branch, detached elsewhere, behind or ahead, uncommitted changes, not the
+  registered folder). It reads the folder the RUNNING process is in
+  (`server/source.ts`), so a module somebody started by hand is caught too.
+  `bun dev/source.probe.ts` prints the same for every module.
 - An agent changing a module works in a git worktree of that module's
   repository and opens a PR; it never edits the installed copy and never runs
   `bun run register`. To see a change running it starts its own dev server from
   the worktree on a spare port (`PORT=… ./run.sh`) — protocol 2.0.0's `serves()`
   will not take over the app's registration from another folder — and stops it
   by pid when done.
-- What reaches the app is what is merged to main; the host itself reaches
-  people only through a desktop release (kehikko-desktop: bump the version,
-  push a `vX.Y.Z` tag).
+- What reaches the app is what is RELEASED (what is merged to main, for a
+  module with no release yet); the host itself reaches people only through a
+  desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
 
 ## The official module list
 
@@ -115,9 +146,12 @@
 - `KEHIKOT_OFFICIAL_LIST` is a URL to read the list from instead, or `off`
   for the built-in list only (the test suite sets `off`).
 - Installing one (`server/installs.ts`) clones it under the machine
-  directory's `installed/<id>/`, runs `bun install --frozen-lockfile` and writes
-  its registration. The repository and paths come from the list, never from a
-  request. After that it is an ordinary registered module.
+  directory's `installed/<id>/`, checks out its newest release (stays on
+  `main` when it has none), runs `bun install --frozen-lockfile` and writes its
+  registration. The repository and paths come from the list, never from a
+  request. After that it is an ordinary registered module that runs its
+  releases (see "Modules run from their releases"). An entry's `protocol`
+  applies to every release of it; each release's own `package.json` pin too.
 - A registered module not on the list can be proposed for it
   (`server/proposals.ts`), which files an issue here through the person's `gh`.
 
@@ -139,8 +173,9 @@
 - One install path: `begin` in `server/installs.ts`, for both lists. The
   repository comes from the list entry, never a request. The same protocol
   check (`meetsProtocol`); ports from 9000 up and never an official first port
-  (`minePort`, `portForMine`). Installed under `installed/<id>/`, so the host
-  levels it before starting like any other.
+  (`minePort`, `portForMine`). Installed under `installed/<id>/`, so it runs
+  its releases like any other; its tags and its release notes are read with the
+  person's own credentials (git's helper; `gh api` for the notes).
 - Remove (person-confirmed) stops it and deletes only what the host installed:
   `installed/<id>/` and a registration naming it. A checkout put under
   `installed/` by hand from a repository on no list is OFFERED as "Keep it as
@@ -242,9 +277,11 @@
   the desktop app and "host <version>" anywhere else (`versionShown` in
   `src/host/releaseNotes.ts`). It is the first thing the strip hides.
 - Notes are read by `server/releaseNotes.ts` (`/host/release-notes`,
-  `/host/releases`), unauthenticated, cached in memory, and only for
-  repositories the host knows: the app's, the official list's, and registered
-  modules' own remotes. Never widen that to a repository the page names.
+  `/host/releases`), unauthenticated first and through the person's `gh api`
+  only when GitHub refuses a stranger (a private module's repository, or the
+  anonymous limit), cached in memory, and only for repositories the host
+  knows: the app's, the official list's, and registered modules' own remotes.
+  Never widen that to a repository the page names.
 - Notes are untrusted text: drawn only through `src/host/markdown.ts` and
   `Markdown` in `src/canvas/ReleaseNotes.tsx`, never as HTML; links are
   `https:` only and open through `openExternal` (the desktop shell hands a

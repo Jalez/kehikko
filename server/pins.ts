@@ -7,6 +7,7 @@ import { projectById } from './projects.ts'
 import type { Registration } from './registrations.ts'
 import { githubRepo } from './feedback.ts'
 import { compareSemver, isVersionTag, parseTag, remoteOf, type Runner, type Semver, type TagLister } from './versions.ts'
+import type { ModuleRelease } from '../src/host/moduleReleases.ts'
 import { versionKey, type FactsStore, type Instance, type Materialiser, type VersionRuns } from './versionRuns.ts'
 
 /**
@@ -67,6 +68,8 @@ export interface VersionListing {
   hint: string | null
   /** Why the tags could not be read, when they could not. */
   error: string | null
+  /** For an installed module: the release its copy runs and the newest it can (`moduleReleases.ts`); null otherwise. */
+  release: ModuleRelease | null
 }
 
 /** What one pinned container is doing, for its header and its frame. */
@@ -102,6 +105,8 @@ export interface PinsDeps {
   keep(project: number | null): void
   /** The tags of a GitHub repository that have a release, or null when unknown. See `releaseNotes.ts`. */
   released?(repo: string): Promise<ReadonlySet<string> | null>
+  /** An installed module's releases, or null for a module registered from somebody's own checkout. */
+  release?(id: string): Promise<ModuleRelease | null>
 }
 
 /** How many containers pin each version, on every kehikko. */
@@ -188,6 +193,7 @@ export class Pins {
       dataVersion: latestPresence?.module?.dataVersion ?? null,
       release: null as string | null,
     }
+    const release = deps.release ? await deps.release(module).catch(() => null) : null
     const base: VersionListing = {
       module,
       name,
@@ -198,6 +204,7 @@ export class Pins {
       versions: [],
       hint: null,
       error: null,
+      release,
     }
 
     if (!registration.dir) {

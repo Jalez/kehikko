@@ -6,6 +6,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
 import { splitRemote } from './trackers/sources.ts'
+import type { ReleaseFollower } from './updates.ts'
 import type { Runner } from './versions.ts'
 
 /**
@@ -13,8 +14,9 @@ import type { Runner } from './versions.ts'
  *
  * Two lists feed it, and both go through the one path below (`begin`): the
  * official list, and the person's own "My modules" (`myModules.ts`). An entry
- * from either is cloned, installed, registered, brought level with its branch
- * before it starts and removed the same way; the only differences are where
+ * from either is cloned, put on its newest release (or left on `main` when it
+ * has none yet), installed, registered, moved to a newer release before it
+ * starts (`moduleReleases.ts`) and removed the same way; the only differences are where
  * its repository may be (a personal one may be on a GitLab) and the port it is
  * first given (a personal one never takes a port the official list names).
  *
@@ -100,6 +102,11 @@ export interface Deps {
   registered(): Promise<{ id: string; port: number | null; dir?: string }[]>
   /** Called once a registration has been written, so pages sweep again. */
   installed?(id: string): void
+  /**
+   * Puts a fresh clone on its newest release before its dependencies are
+   * installed (`moduleReleases.ts`). Without it the clone stays on `main`.
+   */
+  releases?: Pick<ReleaseFollower, 'settle'>
 }
 
 const CLONE_TIMEOUT_MS = 5 * 60_000
@@ -214,7 +221,13 @@ export function installDesk(deps: Deps) {
          fast-forward the install goes on with what is there and says so
          should it then fail. */
       const pulled = await deps.run(['git', '-C', dir, 'pull', '--ff-only', '--quiet'], { timeoutMs: CLONE_TIMEOUT_MS })
-      if (!pulled.ok) stale = pulled.why
+      if (!pulled.ok) {
+        /* A clone an earlier attempt already put on a release is detached and
+           cannot pull: its tags are fetched instead, and it is put on the
+           newest release below. */
+        const tags = await deps.run(['git', '-C', dir, 'fetch', '--quiet', '--tags', 'origin'], { timeoutMs: CLONE_TIMEOUT_MS })
+        if (!tags.ok || !deps.releases) stale = pulled.why
+      }
     } else {
       mkdirSync(deps.root, { recursive: true })
       /* Over https first, which needs no account for a public repository (and
@@ -226,6 +239,14 @@ export function installDesk(deps: Deps) {
         const ssh = await deps.run(['git', 'clone', '--quiet', `git@${host}:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
         if (!ssh.ok) throw new Error(`${repoSaid(entry)} could not be cloned: ${https.why}`)
       }
+    }
+
+    /* Modules run their releases: the newest one this host can run, checked
+       out before anything is installed. A repository with no release yet
+       stays on main. */
+    if (deps.releases) {
+      const settled = await deps.releases.settle({ id: entry.id, name: entry.name, dir })
+      if (!settled.ok) throw new Error(`${entry.name} was cloned, and ${settled.why}`)
     }
 
     step('installing')

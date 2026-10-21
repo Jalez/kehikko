@@ -7,7 +7,7 @@ import { Hint } from './Hint.tsx'
  * The branch a module is running from, in its container's header after the
  * version.
  *
- * Quiet in the plain case — `main`, level, clean, the registered folder —
+ * Quiet in the plain case — `main` level with its branch, or a release; clean; the registered folder —
  * styled like the version beside it and gone with it when the container is
  * narrow. Anything else is the amber chip a pinned version uses, kept at every
  * width, because a module running something other than what was merged is

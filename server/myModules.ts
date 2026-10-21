@@ -11,6 +11,7 @@ import { trouble } from './trackers/common.ts'
 import { spell } from './trackers/edit.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { Runner as GitRunner } from './versions.ts'
+import { protocolPin } from './moduleReleases.ts'
 
 /**
  * "My modules": modules a person installs from a repository they can read,
@@ -33,8 +34,9 @@ import type { Runner as GitRunner } from './versions.ts'
  * the same shape as an official one, plus the host its repository is on (a
  * GitLab is fine), and is installed through the same path (`installs.ts`
  * `begin`): cloned into `installed/<id>/`, `bun install --frozen-lockfile`,
- * registered — and, from then on, brought level with its branch before it
- * starts and removable, like any other.
+ * registered — and, from then on, moved to its newest release before it
+ * starts (or brought level with `main` while it has none) and removable, like
+ * any other.
  *
  * ## Who adds to it
  *
@@ -195,8 +197,9 @@ export function describeModule(manifest: string, pkg: string | null): Described 
     return { ok: false, why: 'its package.json is not JSON' }
   }
   if (typeof dependency !== 'string') return { ok: false, why: 'its package.json does not depend on kehikot-module-protocol, so it is not a Kehikot module' }
-  /* `…kehikko-protocol.git#v2.6.0`, `^2.6.0`, `2.6.0`: the version it is built with is what it needs. */
-  const pinned = /(\d{1,6}\.\d{1,6}\.\d{1,6})(?!.*\d+\.\d+\.\d+)/.exec(dependency)?.[1]
+  /* `…kehikko-protocol.git#v2.6.0`, `^2.6.0`, `2.6.0`: the version it is built with is what it needs.
+     The same rule reads each release's need (`moduleReleases.ts`). */
+  const pinned = protocolPin(pkg)
   return {
     ok: true,
     id,

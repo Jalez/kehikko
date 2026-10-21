@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { parseMarkdown, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
+import { releaseNotesTitle, releaseVersion } from '@/host/moduleReleases.ts'
 import {
   fetchNotes,
   notesLabel,
@@ -204,6 +205,145 @@ export function ReleaseNotesDialog({
           ) : (
             <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
           )}
+        </div>
+        <div className="flex justify-end border-t px-5 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            data-testid="release-notes-github"
+            data-href={page}
+            onClick={() => openExternal(page)}
+          >
+            <ExternalLink className="size-3" />
+            Open on GitHub
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** What a module's "What's new" asks for: its repository, its name, and the releases, newest first. */
+interface AskedMany {
+  repo: string
+  name: string
+  tags: string[]
+  opener: HTMLElement | null
+}
+
+/**
+ * The notes of several releases of one module, in one dialog — what the
+ * Updates menu's "What's new" opens for a module that has more than one
+ * release since the one it runs. The same dialog as one release's, with each
+ * release's notes under its own heading, newest first. `show` and `open` as
+ * `useReleaseNotes` has them.
+ */
+export function useModuleNotes(): { show(asked: AskedMany): void; open: boolean; dialog: ReactNode } {
+  const [asked, setAsked] = useState<AskedMany | null>(null)
+  const [open, setOpen] = useState(false)
+  const show = useCallback((next: AskedMany) => {
+    setAsked(next)
+    setOpen(true)
+  }, [])
+  const dialog = asked ? (
+    <ModuleNotesDialog
+      key={`${asked.repo}@${asked.tags.join(',')}`}
+      repo={asked.repo}
+      name={asked.name}
+      tags={asked.tags}
+      open={open}
+      onOpenChange={setOpen}
+      opener={asked.opener}
+    />
+  ) : null
+  return { show, open, dialog }
+}
+
+export function ModuleNotesDialog({
+  repo,
+  name,
+  tags,
+  open,
+  onOpenChange,
+  opener = null,
+  load = fetchNotes,
+}: {
+  repo: string
+  name: string
+  /** Newest first. */
+  tags: string[]
+  open: boolean
+  onOpenChange(open: boolean): void
+  opener?: HTMLElement | null
+  load?: typeof fetchNotes
+}) {
+  const [readings, setReadings] = useState<Record<string, Reading>>({})
+  useEffect(() => {
+    if (!open) return
+    const abort = new AbortController()
+    for (const tag of tags) {
+      load(repo, tag, abort.signal).then(
+        (release) => setReadings((was) => ({ ...was, [tag]: { kind: 'read', release } })),
+        (error: unknown) => {
+          if (abort.signal.aborted) return
+          const trouble = error instanceof NotesTrouble ? error : null
+          setReadings((was) => ({
+            ...was,
+            [tag]: { kind: 'failed', why: (error as Error)?.message ?? 'no reason given', url: trouble?.url ?? releasePage(repo, tag), missing: trouble?.missing ?? false },
+          }))
+        },
+      )
+    }
+    return () => abort.abort()
+  }, [open, repo, tags, load])
+
+  const page = tags.length === 1 ? releasePage(repo, tags[0]) : releasePage(repo)
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex max-h-[min(40rem,85vh)] max-w-xl flex-col gap-3 p-0"
+        data-testid="release-notes"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          if (!opener || !opener.isConnected) return
+          opener.dataset.quietFocus = '1'
+          opener.focus()
+          delete opener.dataset.quietFocus
+        }}
+      >
+        <DialogHeader className="border-b px-5 pt-4 pb-3 pr-10">
+          <DialogTitle>{releaseNotesTitle(name, tags)}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {tags.length === 1 ? `${repo} · ${tags[0]}` : `${repo} · ${tags.length} releases, newest first`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
+          {tags.map((tag) => {
+            const reading = readings[tag] ?? { kind: 'reading' }
+            const published = reading.kind === 'read' ? releaseDate(reading.release.publishedAt) : null
+            return (
+              <section key={tag} data-testid="release-notes-release" data-tag={tag} className="pb-2">
+                {tags.length > 1 ? (
+                  <h3 className="pt-2 text-sm font-semibold">
+                    {name} {releaseVersion(tag)}
+                    {published ? <span className="text-muted-foreground pl-2 text-xs font-normal">{published}</span> : null}
+                  </h3>
+                ) : null}
+                {reading.kind === 'reading' ? (
+                  <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>
+                ) : reading.kind === 'failed' ? (
+                  <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">
+                    {reading.missing ? `No release notes were published for ${tag}.` : `Couldn't load the notes for ${tag}: ${reading.why}`}
+                  </p>
+                ) : whatsNew(reading.release.body) ? (
+                  <Markdown source={whatsNew(reading.release.body)} />
+                ) : (
+                  <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
+                )}
+              </section>
+            )
+          })}
         </div>
         <div className="flex justify-end border-t px-5 py-3">
           <Button
