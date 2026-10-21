@@ -4,12 +4,13 @@ import { join } from 'node:path'
 /**
  * Where this machine's own Kehikot state lives — spelled once, here.
  *
- * Five things are machine-level rather than project-level: the canvases cache
+ * Six things are machine-level rather than project-level: the canvases cache
  * (`frame.sqlite`), the module registry (`modules/<id>.json`), the module
- * versions a container can be pinned to (`versions/`), the official modules
- * installed from the app (`installed/`) and the last official module list read
- * from where it is published (`official-modules.json`). Everything else
- * belongs under `<project>/.kehikot/`.
+ * versions a container can be pinned to (`versions/`), the modules installed
+ * from the app (`installed/`), the last official module list read from where
+ * it is published (`official-modules.json`) and the person's own list of
+ * modules added from a repository (`my-modules.json`). Everything else belongs
+ * under `<project>/.kehikot/`.
  *
  * They live in `~/Library/Application Support/Kehikot/` on macOS (the place
  * the platform keeps an app's own data), and `$XDG_DATA_HOME/kehikot` (default
@@ -68,8 +69,8 @@ export function logsDir(env: Env = process.env, platform: string = process.platf
 }
 
 /**
- * Where official modules installed from the app are cloned: one checkout per
- * module id, `installed/<id>/` — see `server/installs.ts`. Machine-level for
+ * Where modules installed from the app are cloned — official ones and the
+ * person's own (`myModulesFile`): one checkout per module id, `installed/<id>/` — see `server/installs.ts`. Machine-level for
  * `versionsDir`'s reason: it is program code, and it must never land in
  * somebody's own working copy. `KEHIKOT_INSTALLS_DIR` overrides it.
  */
@@ -86,6 +87,17 @@ export function installsDir(env: Env = process.env): string {
  */
 export function officialListFile(env: Env = process.env): string {
   return env.KEHIKOT_OFFICIAL_CACHE || join(machineDir(env), 'official-modules.json')
+}
+
+/**
+ * "My modules": the modules this person added from a repository, private or
+ * not, that are on no official list — see `server/myModules.ts`. One small
+ * file beside the official list's cache. It is this machine's alone: never
+ * published, never proposed, never read by another install, and nothing in it
+ * leaves the machine. `KEHIKOT_MY_MODULES` overrides it (tests, scratch hosts).
+ */
+export function myModulesFile(env: Env = process.env): string {
+  return env.KEHIKOT_MY_MODULES || join(machineDir(env), 'my-modules.json')
 }
 
 /**

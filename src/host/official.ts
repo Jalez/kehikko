@@ -24,6 +24,9 @@ const moduleSchema = z.object({
   newer: z.object({ protocol: z.string(), has: z.string() }).optional(),
   /* Installed from another repository than the list now names: that repository. */
   from: z.string().optional(),
+  /* One of the person's own ("My modules"): the host its repository is on, and that it is theirs. */
+  host: z.string().optional(),
+  mine: z.boolean().optional(),
 })
 
 /* How current the list is: when it was last read from where it is published
@@ -34,6 +37,7 @@ export type ListStanding = z.infer<typeof standingSchema>
 
 export type Installing = z.infer<typeof installingSchema>
 export type OfficialModule = z.infer<typeof moduleSchema>
+export { moduleSchema }
 
 export async function fetchOfficial(signal?: AbortSignal): Promise<{ modules: OfficialModule[]; standing: ListStanding | null }> {
   const response = await fetch('/host/official', { signal, cache: 'no-store' })

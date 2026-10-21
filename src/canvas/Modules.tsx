@@ -7,6 +7,18 @@ import { Input } from '@/components/ui/input.tsx'
 import type { Canvas } from '@/host/canvases.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
+import {
+  addRepository,
+  adoptMine,
+  checkRepository,
+  fetchMine,
+  installMine,
+  removeMine,
+  repoSaid,
+  type Adoptable,
+  type Checked,
+  type MineList,
+} from '@/host/myModules.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import {
   labelFor,
@@ -55,6 +67,17 @@ import { Hint } from './Hint.tsx'
  * that needs a newer app says so and has no button. When it could not be
  * refreshed, one muted line at the foot says which list this is — and nothing
  * else changes.
+ *
+ * ## My modules
+ *
+ * A module that is on no official list — a private repository, or one still
+ * being written — is installed from its repository at the foot of the list
+ * ("Install from repository…", `server/myModules.ts`). The repository is read
+ * with the person's own login and what it holds is shown before anything is
+ * written. Such a module is filed on its shelf like any other and marked
+ * "added by you", because Kehikot does not vouch for it; its details have
+ * Remove. A checkout put under `installed/` by hand is offered there too, as
+ * "Keep it as one of my modules".
  */
 export function ModuleList({
   registry,
@@ -80,7 +103,7 @@ export function ModuleList({
   if (!registry) return <p className="text-muted-foreground p-4 text-sm">Asking the host…</p>
 
   const { presences, sweep } = registry
-  const rows = rowsOf(presences, onCanvas, official.list)
+  const rows = rowsOf(presences, onCanvas, official.list, official.mine?.modules ?? null)
 
   if (!rows.length) {
     return (
@@ -147,7 +170,13 @@ export function ModuleList({
               <ul className="divide-y">
                 {section.rows.map((row) =>
                   row.kind === 'available' ? (
-                    <AvailableRow key={row.id} row={row} onInstall={() => official.install(row.id)} refused={official.refused.get(row.id) ?? null} />
+                    <AvailableRow
+                      key={row.id}
+                      row={row}
+                      onInstall={() => (row.entry.mine ? official.installMine(row.id) : official.install(row.id))}
+                      onRemove={row.entry.mine ? () => official.remove(row.id) : undefined}
+                      refused={official.refused.get(row.id) ?? null}
+                    />
                   ) : (
                     <ModuleRow
                       key={row.id}
@@ -155,6 +184,8 @@ export function ModuleList({
                       relationships={relationships.get(row.id) ?? []}
                       onPlace={() => onPlace(row.id)}
                       onUnplace={() => onUnplace(row.id)}
+                      onRemove={row.mine ? () => official.remove(row.id) : undefined}
+                      refused={official.refused.get(row.id) ?? null}
                     />
                   ),
                 )}
@@ -164,6 +195,14 @@ export function ModuleList({
         ) : (
           <p className="text-muted-foreground p-4 text-sm">No module matches &ldquo;{query.trim()}&rdquo;.</p>
         )}
+        {official.mine ? (
+          <MyModules
+            mine={official.mine}
+            onAdded={official.again}
+            onAdopt={official.adopt}
+            refused={official.refused}
+          />
+        ) : null}
         <div className="space-y-2 border-t p-3">
           <p className="text-muted-foreground font-mono text-[11px] break-all">{sweep.dir}</p>
           <Rejected rejected={sweep.rejected} />
@@ -188,6 +227,7 @@ const INSTALL_POLL_MS = 1500
 
 function useOfficial(onInstalled?: () => void) {
   const [list, setList] = useState<OfficialModule[] | null>(null)
+  const [mine, setMine] = useState<MineList | null>(null)
   const [standing, setStanding] = useState<ListStanding | null>(null)
   const [refused, setRefused] = useState<ReadonlyMap<string, string>>(new Map())
   const [asked, setAsked] = useState(0)
@@ -198,16 +238,19 @@ function useOfficial(onInstalled?: () => void) {
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
-    void fetchOfficial()
-      .then(({ modules: got, standing: how }) => {
+    void Promise.all([fetchOfficial(), fetchMine().catch(() => null)])
+      .then(([{ modules: got, standing: how }, ours]) => {
         if (!alive) return
         setStanding(how)
-        const now = new Set(got.filter((one) => one.installed).map((one) => one.id))
+        const every = [...got, ...(ours?.modules ?? [])]
+        const now = new Set(every.filter((one) => one.installed).map((one) => one.id))
         const before = installed.current
         installed.current = now
-        if (before && [...now].some((id) => !before.has(id))) told.current?.()
+        /* Something became installed, or stopped being (a Remove): the registry is swept again. */
+        if (before && ([...now].some((id) => !before.has(id)) || [...before].some((id) => !now.has(id)))) told.current?.()
         setList(got)
-        if (got.some((one) => one.install?.state === 'installing')) timer = setTimeout(() => setAsked((n) => n + 1), INSTALL_POLL_MS)
+        setMine(ours)
+        if (every.some((one) => one.install?.state === 'installing')) timer = setTimeout(() => setAsked((n) => n + 1), INSTALL_POLL_MS)
       })
       .catch(() => {
         if (alive) setList(null)
@@ -218,14 +261,25 @@ function useOfficial(onInstalled?: () => void) {
     }
   }, [asked])
 
-  function install(id: string) {
+  /** A press: its earlier refusal cleared, the server asked, and the list read again whatever it said. */
+  function press(id: string, ask: () => Promise<void>) {
     setRefused((was) => new Map([...was].filter(([one]) => one !== id)))
-    void installOfficial(id)
+    void ask()
       .catch((error: unknown) => setRefused((was) => new Map(was).set(id, (error as Error).message)))
       .finally(() => setAsked((n) => n + 1))
   }
 
-  return { list, standing, refused, install }
+  return {
+    list,
+    mine,
+    standing,
+    refused,
+    install: (id: string) => press(id, () => installOfficial(id)),
+    installMine: (id: string) => press(id, () => installMine(id)),
+    remove: (id: string) => press(id, () => removeMine(id)),
+    adopt: (id: string) => press(id, () => adoptMine(id)),
+    again: () => setAsked((n) => n + 1),
+  }
 }
 
 /**
@@ -239,7 +293,18 @@ function useOfficial(onInstalled?: () => void) {
  * One that needs a newer app than this one says so and has no button: the
  * host would refuse the module once it was here.
  */
-function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall(): void; refused: string | null }) {
+function AvailableRow({
+  row,
+  onInstall,
+  onRemove,
+  refused,
+}: {
+  row: Available
+  onInstall(): void
+  /** One of the person's own: take it off My modules (and delete what an earlier attempt cloned). */
+  onRemove?(): void
+  refused: string | null
+}) {
   const install = row.entry.install
   const working = install?.state === 'installing'
   const failed = install?.state === 'failed' ? install.why : refused
@@ -252,6 +317,7 @@ function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall()
           <Badge variant="outline" className="text-muted-foreground shrink-0">
             not installed
           </Badge>
+          {row.entry.mine ? <AddedByYou repo={repoSaid(row.entry)} /> : null}
         </div>
         {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
         {row.entry.newer ? (
@@ -261,9 +327,10 @@ function AvailableRow({ row, onInstall, refused }: { row: Available; onInstall()
             {failed}
           </p>
         ) : null}
+        {onRemove && !working ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
       </div>
       {row.entry.newer ? null : (
-        <Hint label={`clone ${row.entry.repo}, install it and register it on this computer`} side="left">
+        <Hint label={`clone ${repoSaid(row.entry)}, install it and register it on this computer`} side="left">
           <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
             {working ? `${install.step}…` : failed ? 'try again' : 'install'}
           </Button>
@@ -278,12 +345,18 @@ function ModuleRow({
   relationships,
   onPlace,
   onUnplace,
+  onRemove,
+  refused,
 }: {
   row: Registered
   /** What this module touches, and how. Empty for most of them, honestly. */
   relationships: readonly Relationship[]
   onPlace(): void
   onUnplace(): void
+  /** One of the person's own: take it off this computer. */
+  onRemove?(): void
+  /** Why the last press on it was refused. */
+  refused?: string | null
 }) {
   const { presence, placed } = row
   const standing = standingOf(presence, relationships)
@@ -306,8 +379,14 @@ function ModuleRow({
             </Badge>
           ) : null}
           <Standings standing={standing} />
+          {row.mine ? <AddedByYou repo={row.mine.repo} /> : null}
         </div>
         {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
+        {refused ? (
+          <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+            {refused}
+          </p>
+        ) : null}
         {trouble ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
             {trouble}
@@ -351,7 +430,7 @@ function ModuleRow({
           </div>
         ) : null}
         <Halves standing={standing} />
-        <Details row={row} shown={trouble} />
+        <Details row={row} shown={trouble} onRemove={onRemove} />
       </div>
       <Hint
         label={
@@ -381,7 +460,7 @@ function ModuleRow({
  * A native disclosure rather than a tooltip on the dot, because an address is
  * something a person copies, and a tooltip closes when the pointer leaves it.
  */
-function Details({ row, shown }: { row: Registered; shown: string | null }) {
+function Details({ row, shown, onRemove }: { row: Registered; shown: string | null; onRemove?(): void }) {
   const { presence } = row
   const built = builtFrom(presence)
   /* The sentence is left out when the row already says it: as the summary of a
@@ -424,8 +503,284 @@ function Details({ row, shown }: { row: Registered; shown: string | null }) {
         ) : null}
       </dl>
       {line ? <p className="mt-1 leading-relaxed">{line}</p> : null}
+      {row.mine ? (
+        <p className="mt-1 leading-relaxed">
+          Added by you from {row.mine.repo}. Kehikot does not vouch for it. It is brought level with its main branch
+          before it starts, like any installed module.
+        </p>
+      ) : null}
       {row.official === false ? <Propose id={row.id} name={row.name} /> : null}
+      {onRemove ? <RemoveMine name={row.name} installed onRemove={onRemove} /> : null}
     </details>
+  )
+}
+
+/**
+ * "Added by you": a module from the person's own list, which nobody else has
+ * looked at. A fixed word in the badge (see `Standings` for why a badge never
+ * holds a stranger's string); the repository is in the tooltip.
+ */
+function AddedByYou({ repo }: { repo: string }) {
+  return (
+    <Hint
+      label={
+        <span className="block max-w-[22rem] leading-relaxed break-words">
+          {`You added this from ${repo}. It is not on the official list, and Kehikot does not vouch for it.`}
+        </span>
+      }
+    >
+      <Badge variant="outline" className="shrink-0 cursor-default border-dashed px-1.5 py-0 text-[10px] font-normal">
+        added by you
+      </Badge>
+    </Hint>
+  )
+}
+
+/**
+ * Remove one of the person's own modules: one press asks, a second does it.
+ * It stops the module and deletes the copy this host installed and its
+ * registration; what it kept in projects stays.
+ */
+function RemoveMine({ name, installed, onRemove }: { name: string; installed: boolean; onRemove(): void }) {
+  const [asking, setAsking] = useState(false)
+  if (!asking) {
+    return (
+      <button type="button" className="text-muted-foreground hover:text-foreground mt-1.5 block text-[11px] underline" onClick={() => setAsking(true)}>
+        {installed ? 'Remove from this computer' : 'Remove from my modules'}
+      </button>
+    )
+  }
+  return (
+    <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+      {installed
+        ? `This stops ${name}, deletes the copy Kehikot installed and its registration, and takes it off My modules. What it kept in your projects stays. `
+        : `This takes ${name} off My modules, and deletes anything an earlier install left. `}
+      <button
+        type="button"
+        className="text-foreground underline"
+        onClick={() => {
+          setAsking(false)
+          onRemove()
+        }}
+      >
+        Remove it
+      </button>{' '}
+      <button type="button" className="underline" onClick={() => setAsking(false)}>
+        Cancel
+      </button>
+    </p>
+  )
+}
+
+/**
+ * The foot of the list: what "My modules" are, installing one from its
+ * repository, and the checkouts installed by hand that could be kept as one.
+ *
+ * ## Install from repository
+ *
+ * Typed, checked, shown, confirmed — four steps, because the last one runs a
+ * stranger's code on this computer. "Check" reads the repository with the
+ * person's own `gh` or `glab` and writes nothing; what it finds is shown with
+ * the plain sentence that Kehikot does not vouch for it; "Install" asks the
+ * server to check again and install. A repository on the official list is
+ * said to be one, and installed as the official module.
+ */
+function MyModules({
+  mine,
+  onAdded,
+  onAdopt,
+  refused,
+}: {
+  mine: MineList
+  onAdded(): void
+  onAdopt(id: string): void
+  refused: ReadonlyMap<string, string>
+}) {
+  return (
+    <section aria-label="My modules" className="border-t">
+      <h3 className="bg-muted/40 text-muted-foreground px-3 py-1 text-[11px] font-medium tracking-wide uppercase">My modules</h3>
+      <div className="space-y-2 p-3">
+        <p className="text-muted-foreground text-[11px] leading-relaxed">
+          Modules you install from a repository you can read, private or not. They are kept on this computer only, and
+          Kehikot does not vouch for them: install only what you trust, because it runs here with your permissions.
+        </p>
+        {mine.broken ? (
+          <p role="alert" className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+            {mine.broken}
+          </p>
+        ) : null}
+        {mine.adoptable.map((one) => (
+          <Adopt key={one.id} one={one} onAdopt={() => onAdopt(one.id)} refused={refused.get(one.id) ?? null} />
+        ))}
+        <InstallFromRepository onAdded={onAdded} />
+      </div>
+    </section>
+  )
+}
+
+function Adopt({ one, onAdopt, refused }: { one: Adoptable; onAdopt(): void; refused: string | null }) {
+  return (
+    <div className="space-y-1 rounded-md border p-2 text-xs">
+      <p className="leading-relaxed break-words">
+        {one.name} was installed by hand from {one.from}, which is on no list.
+        {one.moves
+          ? ` Keeping it moves it off port ${one.moves.from ?? 'none'}, which an official or another module has, to ${one.moves.to}; it is stopped and starts there next time.`
+          : ''}
+      </p>
+      <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" onClick={onAdopt}>
+        Keep it as one of my modules
+      </Button>
+      {refused ? (
+        <p role="alert" className="leading-relaxed text-amber-600 dark:text-amber-400">
+          {refused}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function InstallFromRepository({ onAdded }: { onAdded(): void }) {
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [at, setAt] = useState<'idle' | 'checking' | 'adding'>('idle')
+  const [checked, setChecked] = useState<Checked | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
+
+  function reset() {
+    setOpen(false)
+    setTyped('')
+    setChecked(null)
+    setRefused(null)
+    setAt('idle')
+  }
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => setOpen(true)}>
+        Install from repository…
+      </Button>
+    )
+  }
+
+  function check() {
+    setAt('checking')
+    setChecked(null)
+    setRefused(null)
+    void checkRepository(typed)
+      .then(setChecked)
+      .catch((error: unknown) => setRefused((error as Error).message))
+      .finally(() => setAt('idle'))
+  }
+
+  function add() {
+    setAt('adding')
+    setRefused(null)
+    void addRepository(typed)
+      .then(() => {
+        reset()
+        onAdded()
+      })
+      .catch((error: unknown) => {
+        setRefused((error as Error).message)
+        setAt('idle')
+      })
+  }
+
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (typed.trim() && at === 'idle') check()
+      }}
+    >
+      <div className="flex items-center gap-1.5">
+        <Input
+          autoFocus
+          value={typed}
+          onChange={(event) => {
+            setTyped(event.target.value)
+            setChecked(null)
+          }}
+          placeholder="owner/repo, or a GitHub or GitLab link"
+          aria-label="repository to install from"
+          className="h-7 min-w-0 flex-1 text-xs"
+        />
+        <Button type="submit" variant="secondary" size="sm" className="h-7 shrink-0 px-2 text-xs" disabled={!typed.trim() || at !== 'idle'}>
+          {at === 'checking' ? 'Checking…' : 'Check'}
+        </Button>
+      </div>
+      {checked ? <Found checked={checked} adding={at === 'adding'} onInstall={add} onCancel={reset} /> : null}
+      {refused ? (
+        <p role="alert" className="text-xs leading-relaxed break-words text-amber-600 dark:text-amber-400">
+          {refused}
+        </p>
+      ) : null}
+      {!checked ? (
+        <button type="button" className="text-muted-foreground hover:text-foreground text-[11px] underline" onClick={reset}>
+          Cancel
+        </button>
+      ) : null}
+    </form>
+  )
+}
+
+/** What a check found: the module, where it is from, what it needs, and the one press that installs it. */
+function Found({ checked, adding, onInstall, onCancel }: { checked: Checked; adding: boolean; onInstall(): void; onCancel(): void }) {
+  const actions = (label: string | null) => (
+    <div className="flex items-center gap-2">
+      {label ? (
+        <Button type="button" size="sm" className="h-6 px-2 text-xs" disabled={adding} onClick={onInstall}>
+          {adding ? 'Installing…' : label}
+        </Button>
+      ) : null}
+      <button type="button" className="text-muted-foreground hover:text-foreground text-[11px] underline" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  )
+  if (checked.kind === 'official') {
+    return (
+      <div className="space-y-1.5 rounded-md border p-2 text-xs">
+        <p className="font-medium">{checked.name}</p>
+        <p className="text-muted-foreground leading-relaxed">
+          {checked.installed
+            ? `${checked.repo} is ${checked.name} on the official list, and it is already installed.`
+            : `${checked.repo} is ${checked.name} on the official list, so it is installed as the official module.`}
+        </p>
+        {actions(checked.installed ? null : 'Install')}
+      </div>
+    )
+  }
+  const from = repoSaid(checked)
+  return (
+    <div className="space-y-1.5 rounded-md border p-2 text-xs">
+      <p className="break-words">
+        <span className="font-medium">{checked.name}</span> <span className="text-muted-foreground font-mono text-[11px]">{checked.id}</span>
+      </p>
+      {checked.summary ? <p className="text-muted-foreground leading-relaxed">{checked.summary}</p> : null}
+      <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+        <dt>from</dt>
+        <dd className="font-mono break-all">
+          {from}
+          {checked.private ? ' (private)' : ''}
+        </dd>
+        <dt>protocol</dt>
+        <dd className="font-mono break-all">{checked.protocol ? `needs ${checked.protocol}` : 'does not say'}</dd>
+      </dl>
+      {checked.newer ? (
+        <p className="leading-relaxed text-amber-600 dark:text-amber-400">
+          It needs a newer Kehikot than this one (protocol {checked.newer.protocol}; this one has {checked.newer.has}), so it
+          cannot be installed here.
+        </p>
+      ) : (
+        <p className="text-muted-foreground leading-relaxed">
+          Added by you: Kehikot does not vouch for it. Installing clones it, runs bun install in it and registers it on this
+          computer.
+        </p>
+      )}
+      {actions(checked.newer ? null : 'Install')}
+    </div>
   )
 }
 

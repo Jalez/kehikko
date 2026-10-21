@@ -114,6 +114,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
   },
   {
+    id: 'my-modules',
+    match: /my-modules\.json|KEHIKOT_MY_MODULES/,
+    reason: 'my-modules.json (Application Support/Kehikot) is the person\'s own list of modules added from a repository: this machine\'s alone, never published (host server/machineDirs.ts `myModulesFile`)',
+  },
+  {
     id: 'keys',
     match: /KEHIKOT_KEYS_DIR|review-factory\.key/,
     reason: 'Application Support/Kehikot/keys holds per-install secrets one module presents to another — Review\'s Factory key, readable only by the user (host server/machineDirs.ts `keysDir`)',

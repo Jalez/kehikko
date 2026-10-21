@@ -47,12 +47,12 @@
   bookmark is not followed into one, and "Locate…"/Add relink past it.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key) and `factory/` (Factory's per-author re-review rules) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
+  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, `my-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key) and `factory/` (Factory's per-author re-review rules) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
-  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_MY_MODULES`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
@@ -120,6 +120,31 @@
   request. After that it is an ordinary registered module.
 - A registered module not on the list can be proposed for it
   (`server/proposals.ts`), which files an issue here through the person's `gh`.
+
+## My modules (installing from a repository)
+
+- A module on no official list — a private repository, one still being
+  written — is installed from its repository: "Install from repository…" at
+  the foot of the modules list. The list of them is `my-modules.json` in the
+  machine directory (`myModulesFile`), this machine's alone: never published,
+  proposed, or read by anything but `server/myModules.ts` and its wiring.
+- The person adds one and nobody else: every write (`/host/mine/check`, `add`,
+  `install`, `remove`, `adopt`) is in `PAGE_ONLY`, and no MCP tool may reach
+  any of it — an agent that could add a repository could run any code here.
+- Nothing is written before the repository is read with the person's own
+  `gh`/`glab` and found to hold a module: `manifest.ts` and `package.json` are
+  read AS TEXT (`describeModule`), never run. `add` checks it all again. A
+  repository on the official list is installed as the official module; an id
+  the official list uses is refused.
+- One install path: `begin` in `server/installs.ts`, for both lists. The
+  repository comes from the list entry, never a request. The same protocol
+  check (`meetsProtocol`); ports from 9000 up and never an official first port
+  (`minePort`, `portForMine`). Installed under `installed/<id>/`, so the host
+  levels it before starting like any other.
+- Remove (person-confirmed) stops it and deletes only what the host installed:
+  `installed/<id>/` and a registration naming it. A checkout put under
+  `installed/` by hand from a repository on no list is OFFERED as "Keep it as
+  one of my modules" and adopted only on that press.
 
 ## A module's header menus, and an agent's press
 

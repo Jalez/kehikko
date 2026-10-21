@@ -41,6 +41,7 @@ import {
   keysDir,
   logsDir,
   modulesDir,
+  myModulesFile,
   officialListFile,
   versionsDir,
 } from '../server/machineDirs.ts'
@@ -62,6 +63,7 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_VERSIONS_DIR', scratch: join(SCRATCH, 'versions'), resolved: () => versionsDir() },
   { variable: 'KEHIKOT_INSTALLS_DIR', scratch: join(SCRATCH, 'installed'), resolved: () => installsDir() },
   { variable: 'KEHIKOT_OFFICIAL_CACHE', scratch: join(SCRATCH, 'official-modules.json'), resolved: () => officialListFile() },
+  { variable: 'KEHIKOT_MY_MODULES', scratch: join(SCRATCH, 'my-modules.json'), resolved: () => myModulesFile() },
   { variable: 'KEHIKOT_LOGS_DIR', scratch: join(SCRATCH, 'logs'), resolved: () => logsDir() },
   { variable: 'KEHIKOT_BROWSER_PROFILE', scratch: join(SCRATCH, 'browser-profile'), resolved: () => browserProfileDir() },
   { variable: 'KEHIKOT_KEYS_DIR', scratch: join(SCRATCH, 'keys'), resolved: () => keysDir() },

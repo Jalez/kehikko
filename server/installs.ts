@@ -3,13 +3,20 @@ import { join } from 'node:path'
 
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 
-import { githubRepo } from './feedback.ts'
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
+import { splitRemote } from './trackers/sources.ts'
 import type { Runner } from './versions.ts'
 
 /**
- * Installing an official module: clone it, install it, register it.
+ * Installing a module from a list: clone it, install it, register it.
+ *
+ * Two lists feed it, and both go through the one path below (`begin`): the
+ * official list, and the person's own "My modules" (`myModules.ts`). An entry
+ * from either is cloned, installed, registered, brought level with its branch
+ * before it starts and removed the same way; the only differences are where
+ * its repository may be (a personal one may be on a GitLab) and the port it is
+ * first given (a personal one never takes a port the official list names).
  *
  * ## What "installed" means here
  *
@@ -55,8 +62,20 @@ export type Step = 'cloning' | 'installing' | 'registering'
 
 export type Installing = { state: 'installing'; step: Step } | { state: 'failed'; why: string }
 
+/**
+ * What can be installed: an entry on the official list, or one of the
+ * person's own. The repository, the directory and the port all come from
+ * here — from a list on this side — and never from a request.
+ */
+export interface Installable extends Official {
+  /** The host the repository is on: `github.com` when not given, which is every official entry. */
+  host?: string
+  /** One of the person's own (`myModules.ts`): vouched for by them alone. */
+  mine?: boolean
+}
+
 /** One line of the list as the page receives it. */
-export interface Listed extends Official {
+export interface Listed extends Installable {
   installed: boolean
   install?: Installing
   /** Set when the entry asks for a newer protocol package than this host has: what it asks for, and what this host has. */
@@ -92,6 +111,14 @@ const REFRESH_WAIT_MS = 1500
 const PORT_STEP = 10
 const PORT_FLOOR = 7960
 
+/**
+ * Where the person's own modules are put: from here up, on the same grid. Every
+ * official first port is below it, and the official list grows upward from
+ * 7820 ten at a time, so a personal module is never registered where an
+ * official one would be (and `minePort` skips an official port even so).
+ */
+export const MINE_PORT_FLOOR = 9000
+
 /** The listed port, or the next free place on the grid when a registered module already has it. */
 export function portFor(entry: Official, taken: readonly number[]): number {
   if (!taken.includes(entry.port)) return entry.port
@@ -100,39 +127,70 @@ export function portFor(entry: Official, taken: readonly number[]): number {
   return port
 }
 
+/** The first place on the grid from `MINE_PORT_FLOOR` up that is in none of `avoid`: registered ports, official first ports, the person's other modules. */
+export function minePort(avoid: readonly number[]): number {
+  let port = MINE_PORT_FLOOR
+  while (avoid.includes(port)) port += PORT_STEP
+  return port
+}
+
+/** Where a personal module is registered: its own port unless something has it or the official list names it. */
+export function portForMine(entry: Official, taken: readonly number[], official: readonly number[]): number {
+  if (!taken.includes(entry.port) && !official.includes(entry.port) && entry.port >= MINE_PORT_FLOOR) return entry.port
+  return minePort([...taken, ...official])
+}
+
+/** The host an entry's repository is on. */
+export const hostOf = (entry: Pick<Installable, 'host'>): string => entry.host ?? 'github.com'
+
+/** How a repository is named to a person: `owner/repo` on GitHub, `host/group/repo` anywhere else. */
+export function repoSaid(entry: Pick<Installable, 'host' | 'repo'>): string {
+  const host = hostOf(entry)
+  return host === 'github.com' ? entry.repo : `${host}/${entry.repo}`
+}
+
+/** The repository a remote URL names, said as `repoSaid` says one; null for what is not a repository. */
+export function remoteSaid(remote: string): string | null {
+  const found = splitRemote(remote)
+  return found ? repoSaid({ host: found.host.replace(/:\d+$/, ''), repo: found.repo }) : null
+}
+
 export function installDesk(deps: Deps) {
   const jobs = new Map<string, Installing>()
 
   const entries = () => (typeof deps.list === 'function' ? deps.list() : deps.list)
   const unmet = (entry: Official) => (meetsProtocol(entry.protocol, deps.protocol) ? null : { protocol: entry.protocol!, has: deps.protocol ?? PACKAGE_VERSION })
 
-  /* The GitHub repository a checkout is of, asked once per directory: it is
-     read to SAY something, never to decide where anything is fetched from. */
+  /* The repository a checkout is of, asked once per directory: it is read to
+     SAY something, never to decide where anything is fetched from. */
   const origins = new Map<string, string | null>()
   async function originOf(dir: string): Promise<string | null> {
     if (!origins.has(dir)) {
       const remote = await deps.run(['git', '-C', dir, 'remote', 'get-url', 'origin']).catch(() => null)
-      origins.set(dir, remote?.ok ? githubRepo(remote.out) : null)
+      origins.set(dir, remote?.ok ? remoteSaid(remote.out) : null)
     }
     return origins.get(dir) ?? null
   }
 
-  async function list(): Promise<Listed[]> {
+  /** Each entry as the page reads it: installed or not, how an install is going, what it needs. */
+  async function listOf(these: readonly Installable[]): Promise<Listed[]> {
     const here = new Map((await deps.registered()).map((one) => [one.id, one]))
     return Promise.all(
-      entries().map(async (entry) => {
+      these.map(async (entry) => {
         const registered = here.get(entry.id)
         const installed = registered !== undefined
         const install = installed ? undefined : jobs.get(entry.id)
         const newer = installed ? null : unmet(entry)
         const origin = registered?.dir ? await originOf(registered.dir) : null
-        const from = origin && origin.toLowerCase() !== entry.repo.toLowerCase() ? origin : null
+        const from = origin && origin.toLowerCase() !== repoSaid(entry).toLowerCase() ? origin : null
         return { ...entry, installed, ...(install ? { install } : {}), ...(newer ? { newer } : {}), ...(from ? { from } : {}) }
       }),
     )
   }
 
-  async function work(entry: Official): Promise<void> {
+  const list = (): Promise<Listed[]> => listOf(entries())
+
+  async function work(entry: Installable): Promise<void> {
     const dir = join(deps.root, entry.id)
     const step = (now: Step) => jobs.set(entry.id, { state: 'installing', step: now })
 
@@ -144,8 +202,8 @@ export function installDesk(deps: Deps) {
          own repository — what an earlier attempt left after cloning and then
          failing to install — and never cloned over or cleared away. */
       const remote = await deps.run(['git', '-C', dir, 'remote', 'get-url', 'origin'])
-      if (!remote.ok || githubRepo(remote.out)?.toLowerCase() !== entry.repo.toLowerCase()) {
-        throw new Error(`${dir} already exists and is not a checkout of ${entry.repo}. Move it away and install again.`)
+      if (!remote.ok || remoteSaid(remote.out)?.toLowerCase() !== repoSaid(entry).toLowerCase()) {
+        throw new Error(`${dir} already exists and is not a checkout of ${repoSaid(entry)}. Move it away and install again.`)
       }
       /* And brought level with its repository first. The usual reason an
          earlier attempt cloned and then failed is something IN the
@@ -159,12 +217,14 @@ export function installDesk(deps: Deps) {
       if (!pulled.ok) stale = pulled.why
     } else {
       mkdirSync(deps.root, { recursive: true })
-      /* Over https first, which needs no account for a public repository, and
-         then over ssh for a person whose git is set up that way. */
-      const https = await deps.run(['git', 'clone', '--quiet', `https://github.com/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
+      /* Over https first, which needs no account for a public repository (and
+         uses gh's or glab's credential helper for a private one), and then
+         over ssh for a person whose git is set up that way. */
+      const host = hostOf(entry)
+      const https = await deps.run(['git', 'clone', '--quiet', `https://${host}/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
       if (!https.ok) {
-        const ssh = await deps.run(['git', 'clone', '--quiet', `git@github.com:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
-        if (!ssh.ok) throw new Error(`${entry.repo} could not be cloned: ${https.why}`)
+        const ssh = await deps.run(['git', 'clone', '--quiet', `git@${host}:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
+        if (!ssh.ok) throw new Error(`${repoSaid(entry)} could not be cloned: ${https.why}`)
       }
     }
 
@@ -179,7 +239,9 @@ export function installDesk(deps: Deps) {
     const registered = await deps.registered()
     /* Registered by somebody else while this ran: theirs stands. */
     if (registered.some((one) => one.id === entry.id)) return
-    const port = portFor(entry, registered.flatMap((one) => (one.port === null ? [] : [one.port])))
+    const taken = registered.flatMap((one) => (one.port === null ? [] : [one.port]))
+    /* A personal module never takes a port the official list names, installed or not. */
+    const port = entry.mine ? portForMine(entry, taken, entries().map((one) => one.port)) : portFor(entry, taken)
     mkdirSync(deps.registry, { recursive: true })
     const file = join(deps.registry, `${entry.id}.json`)
     /* Written beside the target and renamed into place, so a sweep never reads
@@ -192,9 +254,18 @@ export function installDesk(deps: Deps) {
   }
 
   /** Start installing one official module. Returns at once; `list` says how it is going. */
-  async function install(id: string): Promise<{ ok: true; install: Installing | null } | { ok: false; why: string; status: number }> {
+  async function install(id: string): Promise<Begun> {
     const entry = officialOf(id, entries())
     if (!entry) return { ok: false, why: `${id} is not on the official module list, so there is nothing to install.`, status: 404 }
+    return begin(entry)
+  }
+
+  /**
+   * Start installing an entry from either list — the one path both take.
+   * Returns at once; `listOf` says how it is going. The entry is the caller's,
+   * read from its own list by id, never a request's.
+   */
+  async function begin(entry: Installable): Promise<Begun> {
     if ((await deps.registered()).some((one) => one.id === entry.id)) {
       return { ok: false, why: `${entry.name} is already registered on this computer.`, status: 409 }
     }
@@ -218,6 +289,14 @@ export function installDesk(deps: Deps) {
     return { ok: true, install: jobs.get(entry.id) ?? null }
   }
 
+  /** Whether an install of this id is running now. */
+  const busy = (id: string): boolean => jobs.get(id)?.state === 'installing'
+
+  /** Forget a failed install's sentence: the entry it was for is gone. */
+  function forget(id: string): void {
+    if (!busy(id)) jobs.delete(id)
+  }
+
   /** `/host/official` (the list) and `/host/official/install`; null for any other request. */
   async function route(request: Request, url: URL): Promise<Response | null> {
     if (url.pathname === '/host/official' && request.method === 'GET') {
@@ -238,8 +317,12 @@ export function installDesk(deps: Deps) {
     return null
   }
 
-  return { list, install, route }
+  return { list, listOf, install, begin, busy, forget, route }
 }
+
+export type InstallDesk = ReturnType<typeof installDesk>
+
+export type Begun = { ok: true; install: Installing | null } | { ok: false; why: string; status: number }
 
 function reply(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
