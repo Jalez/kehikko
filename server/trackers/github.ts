@@ -30,6 +30,7 @@ import {
   str,
   trouble,
   who,
+  withPeople,
   type Adapter,
   type BoardsRead,
   type Me,
@@ -203,6 +204,25 @@ export function activityOf(timeline: unknown, author: unknown, createdAt: unknow
   return by && at ? { login: by, at, kind } : undefined
 }
 
+/**
+ * Every person object an issue or pull request answer carries, for its row's
+ * `people` (protocol 2.10.0): the author, the assignees, the review requests,
+ * the latest reviews and whoever did the newest timeline item. `withPeople`
+ * keeps the ones the row names.
+ */
+export function peopleRead(r: Record<string, unknown>): unknown[] {
+  const last = obj(nodes(r.timelineItems).at(-1))
+  return [
+    r.author,
+    ...nodes(r.assignees),
+    ...nodes(r.reviewRequests).map((one) => obj(one).requestedReviewer),
+    ...nodes(r.latestReviews).map((one) => obj(one).author),
+    last.author,
+    last.actor,
+    obj(obj(obj(last.commit).author).user),
+  ]
+}
+
 const has = (r: Record<string, unknown>, field: string) => Object.prototype.hasOwnProperty.call(r, field)
 
 const branchOf = (v: unknown): string | undefined => {
@@ -225,7 +245,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     .filter((one): one is string => one !== null)
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closed-by' as const }))
-  return row({
+  return row(withPeople({
     ref,
     tracker: 'github',
     host: source.host,
@@ -251,7 +271,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     lastActivity: has(r, 'timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
     ...placed(r.projectItems),
     readAt: now,
-  })
+  }, peopleRead(r), source.host))
 }
 
 /** One pull request, from `gh pr list --json` or GraphQL. */
@@ -274,7 +294,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
   const head = obj(obj(nodes(obj(r.commits))[0]).commit)
   const rollup = r.statusCheckRollup ?? head.statusCheckRollup
   const read = (field: string) => has(r, field)
-  return row({
+  return row(withPeople({
     ref,
     tracker: 'github',
     host: source.host,
@@ -306,7 +326,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     lastActivity: read('timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
     ...placed(r.projectItems),
     readAt: now,
-  })
+  }, peopleRead(r), source.host))
 }
 
 /**
@@ -405,27 +425,41 @@ export function boardsSeen(items: readonly unknown[]): TrackerBoard[] {
   return [...out.values()].slice(0, LIMITS.TRACKER_BOARDS)
 }
 
+/**
+ * A person's picture, at 48 pixels: three times the 16 a module draws it at.
+ * `avatarUrl` is on GitHub's `Actor` interface, so it is asked of any author or
+ * actor, as of users, bots and mannequins. (protocol 2.10.0)
+ */
+const AVATAR = 'avatarUrl(size: 48)'
+/** An actor's login and picture. */
+const ACTOR = `{ login ${AVATAR} }`
+/**
+ * An author's login, picture and, when a user, name — as `fullName`, so that
+ * `author` (the row's `who`) stays the login it has always been.
+ */
+const AUTHOR = `{ login ${AVATAR} ... on User { fullName: name } }`
+
 /** Who did it and when, for every timeline item `ACTED` names. An issue's timeline holds no reviews or commits. */
-const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author { login } }
-      ... on ClosedEvent { createdAt actor { login } } ... on ReopenedEvent { createdAt actor { login } }`
+const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author ${ACTOR} }
+      ... on ClosedEvent { createdAt actor ${ACTOR} } ... on ReopenedEvent { createdAt actor ${ACTOR} }`
 const PULL_ACTS = `${ISSUE_ACTS}
-      ... on PullRequestReview { submittedAt createdAt author { login } }
-      ... on PullRequestCommit { commit { committedDate author { user { login } } } }
-      ... on HeadRefForcePushedEvent { createdAt actor { login } } ... on MergedEvent { createdAt actor { login } }`
+      ... on PullRequestReview { submittedAt createdAt author ${ACTOR} }
+      ... on PullRequestCommit { commit { committedDate author { user ${ACTOR} } } }
+      ... on HeadRefForcePushedEvent { createdAt actor ${ACTOR} } ... on MergedEvent { createdAt actor ${ACTOR} }`
 const ISSUE_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT, REOPENED_EVENT]) { nodes { ${ISSUE_ACTS} } }`
 const PULL_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT]) { nodes { ${PULL_ACTS} } }`
 
 const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
-    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
+    author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
     closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }
     ${ISSUE_ACTIVITY}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
-const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name } ... on Bot { login } ... on Mannequin { login } } } }
-    latestReviews(first: 32) { nodes { state author { login ... on User { name } } } }
+const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }
+    latestReviews(first: 32) { nodes { state author { login ${AVATAR} ... on User { name } } } }
     reviewThreads(first: 100) { totalCount nodes { isResolved } }`
 const PULL_GRAPH = (boards: boolean) => `number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
     baseRefName headRefName isCrossRepository ${PULL_ACTIVITY}
-    author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
+    author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
     closingIssuesReferences(first: 10) { nodes { number } }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
     ${PEOPLE}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`

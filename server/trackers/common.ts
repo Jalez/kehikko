@@ -1,9 +1,11 @@
 import {
   LIMITS,
+  avatarUrlSchema,
   spellTrackerRef,
   trackerRowSchema,
   type TrackerBoard,
   type TrackerDetailFacts,
+  type TrackerPerson,
   type TrackerRow,
 } from 'kehikot-module-protocol'
 
@@ -132,6 +134,76 @@ export const logins = (v: unknown): string[] =>
 
 export const people = (v: unknown): string[] =>
   nodes(v).map(who).filter(Boolean).slice(0, LIMITS.TRACKER_PEOPLE)
+
+/*
+ * Faces (protocol 2.10.0).
+ *
+ * A row's `people` is one map, by login, of the display name and the picture of
+ * every person the row names by login: its author, assignees, reviewers and
+ * whoever acted last. The adapters ask for each person's picture in the
+ * queries they already make (GitHub `avatarUrl(size: 48)`, GitLab `avatarUrl`
+ * or REST `avatar_url`) and hand every person object they read to `withPeople`,
+ * which keeps only the logins the row names.
+ *
+ * A picture is sent only as an absolute `https:` URL. GitLab gives a relative
+ * path (`/uploads/-/system/user/avatar/…`) for a picture it stores itself; that
+ * is made absolute against the source's host. Anything else — `http:`, a
+ * `data:` URL, something too long — is left out, never the row.
+ */
+
+/** A person's picture as an absolute `https:` URL, or undefined. A relative path is the tracker host's. */
+export function avatarOf(v: unknown, host: string): string | undefined {
+  const p = obj(v)
+  const raw = (str(p.avatarUrl) || str(p.avatar_url)).trim()
+  if (!raw) return undefined
+  let url: string
+  try {
+    url = new URL(raw, `https://${host}/`).href
+  } catch {
+    return undefined
+  }
+  return avatarUrlSchema.safeParse(url).success ? url : undefined
+}
+
+/** The display name a person object carries, under `name` or the `fullName` alias GitHub's queries use. */
+const nameOf = (p: Record<string, unknown>): string => clip((str(p.fullName) || str(p.name)).trim(), LIMITS.TRACKER_PERSON)
+
+/**
+ * `people` for a row, out of every person object read for it, keyed by the
+ * logins the row names and nothing else. Undefined when nothing is known of any
+ * of them. Two objects for one login fill each other in; the first wins.
+ */
+export function peopleOf(
+  named: Pick<TrackerRow, 'authorLogin' | 'assigneeLogins' | 'reviewers' | 'lastActivity'>,
+  read: readonly unknown[],
+  host: string,
+): Record<string, TrackerPerson> | undefined {
+  const logins = [
+    ...(named.authorLogin ? [named.authorLogin] : []),
+    ...(named.assigneeLogins ?? []),
+    ...(named.reviewers ?? []).map((r) => r.login),
+    ...(named.lastActivity ? [named.lastActivity.login] : []),
+  ]
+  const wanted = new Map(logins.map((l) => [l.toLowerCase(), l]))
+  const out: Record<string, TrackerPerson> = {}
+  for (const raw of read) {
+    const p = obj(raw)
+    const key = wanted.get(login(p).toLowerCase())
+    if (!key) continue
+    const was = out[key] ?? {}
+    const name = was.name ?? (nameOf(p) || undefined)
+    const avatarUrl = was.avatarUrl ?? avatarOf(p, host)
+    if (name === undefined && avatarUrl === undefined) continue
+    out[key] = { ...(name !== undefined ? { name } : {}), ...(avatarUrl !== undefined ? { avatarUrl } : {}) }
+  }
+  const entries = Object.entries(out).slice(0, LIMITS.ROW_PEOPLE)
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+/** A row's fields with `people` worked out from them and the person objects read for it. */
+export function withPeople(fields: Record<string, unknown>, read: readonly unknown[], host: string): Record<string, unknown> {
+  return { ...fields, people: peopleOf(fields as Parameters<typeof peopleOf>[0], read, host) }
+}
 
 export const labelsOf = (v: unknown): string[] =>
   nodes(v)
