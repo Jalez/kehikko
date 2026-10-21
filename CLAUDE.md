@@ -177,6 +177,13 @@
 - The host names no module and no vendor: the by-line is the module's registered
   name, the label is its claim. Never colour alone; no standing rows.
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
+- Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
+  `server/trackerNotices.ts` compares each landed tracker reading with the facts
+  it last saw (`tracker_seen` in `frame.sqlite`, per project; the first reading
+  is silent) and reports ONE item per ref through `Inbox.report`. The rules and
+  words are `src/host/trackerNotices.ts`; the setting is `tracker-notices` in
+  `settings`, changed only through `POST /host/settings` (`{ notices }`). Whether
+  the person put an item away is read from the Inbox's record, never kept twice.
 - The Notifications module still receives the lines (`noticeFor`), and its own
   `.kehikot/notifications/notifications.json` is imported once and never written.
 

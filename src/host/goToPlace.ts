@@ -1,4 +1,5 @@
 import type { Place } from './inbox.ts'
+import { TRACKER_NOTICES_MODULE } from './trackerNotices.ts'
 
 /**
  * Where pressing an Inbox item takes the person: the steps from where they are
@@ -57,6 +58,7 @@ export interface GoPlan {
 }
 
 const NO_PLACE = 'This notice did not say where it came from, so its module is shown where it is.'
+const NO_EPIC = 'No epic of this project names it.'
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((one) => b.includes(one))
 
@@ -71,6 +73,9 @@ export function planGo(item: { module: string; name?: string; place?: Place }, h
   const at: Here = elsewhere ? { project: target.project, epic: null, parts: [], kehikko: null } : here
 
   const named = place?.kehikko !== undefined || place?.epic !== undefined
+  /* The host's own tracker notices are on no kehikko: they go to the epic naming the ref, and light nothing. */
+  const own = item.module === TRACKER_NOTICES_MODULE
+  if (!named && own) return { steps, note: NO_EPIC }
   if (!named) {
     /* Today's behaviour: the module where it is, this kehikko first. */
     const on = target.kehikot.find((one) => one.key === at.kehikko && one.modules.includes(item.module))
@@ -102,7 +107,7 @@ export function planGo(item: { module: string; name?: string; place?: Place }, h
       if (kehikko.modules.includes(item.module)) lit = kehikko
       else notes.push(`${who} is not on ${kehikko.name} any more, so nothing is lit.`)
     }
-  } else {
+  } else if (!own) {
     /* A place of an epic alone: the module where it is, this kehikko first. */
     const on = target.kehikot.find((one) => one.key === at.kehikko && one.modules.includes(item.module))
       ?? target.kehikot.find((one) => one.modules.includes(item.module))

@@ -4,7 +4,7 @@ import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL,
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
-import { Trackers } from './trackers/reading.ts'
+import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { forgetFormerName } from './formerName.ts'
@@ -90,6 +90,7 @@ import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
+import { TrackerNotices } from './trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
@@ -187,6 +188,8 @@ if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id
 ensureKnown(db)
 /* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
 const inbox = new Inbox(db)
+/* What happened on the person's issues and changes, told in the Inbox as the host's own items. `trackerNotices.ts`. */
+const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
 
@@ -231,6 +234,15 @@ const trackers = new Trackers({
   told: (root, signal) => {
     for (const project of listProjects(db)) {
       if (project.path === root) wakes.trackerChanged(project.id, signal)
+    }
+  },
+  landed: (root, rows, me) => {
+    const here = listProjects(db).filter((project) => project.path === root)
+    if (!here.length) return
+    const epics = epicsByRef(root)
+    for (const project of here) {
+      const out = trackerNotices.landed(project.id, { rows, me, epics })
+      wakes.inboxChanged(project.id, out.rev)
     }
   },
 })
@@ -1881,6 +1893,9 @@ const settingsDesk = settingsRoute({
   db,
   status: () => agentSync.status(),
   changed: () => agentSync.poke(),
+  noticesChanged: () => {
+    for (const one of trackerNotices.restate(listProjects(db).map((project) => project.id))) wakes.inboxChanged(one.project, one.rev)
+  },
   skillsAt: () => claudeSkillsDir(),
 })
 

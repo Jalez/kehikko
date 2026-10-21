@@ -19,6 +19,7 @@ import {
   type SettingsAnswer,
 } from '@/host/agentSettings.ts'
 import { notAnswering } from '@/host/reachable.ts'
+import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 
 /**
  * Settings: how Kehikot works with the person's coding agents, chosen once for
@@ -32,14 +33,18 @@ import { notAnswering } from '@/host/reachable.ts'
  *    `openSettings()` — the projects menu, a module's Tools or Skills window,
  *    the sync's line in the Inbox.
  *  - `SettingsDialog` and its body: the providers, the two kinds of thing kept
- *    set up with their exceptions and status, and the start hook, read only.
+ *    set up with their exceptions and status, the tracker notices in the
+ *    Inbox, and the start hook, read only.
  *  - `KeptBySettings`: the line a module's Tools or Skills window shows.
  *
  * Every state is a word, never a colour alone; every control is a native
  * checkbox or button with its own label, so the keyboard and a reader know it.
  */
 
-type Change = { settings: Partial<Record<keyof AgentSettings, unknown>> } | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
+type Change =
+  | { settings: Partial<Record<keyof AgentSettings, unknown>> }
+  | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
+  | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
 
 export async function fetchSettings(signal?: AbortSignal): Promise<SettingsAnswer> {
   const response = await fetch('/host/settings', { cache: 'no-store', signal })
@@ -228,7 +233,7 @@ export function SettingsDialog({
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            How Kehikot works with your coding agents, for every module and every project on this computer.
+            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer.
           </DialogDescription>
         </DialogHeader>
         {trouble ? (
@@ -338,6 +343,8 @@ export function SettingsBody({ answer, busy, onChange }: { answer: SettingsAnswe
         </Section>
       ) : null}
 
+      {answer.notices ? <TrackerNotices notices={answer.notices} busy={busy} onChange={(notices) => onChange({ notices })} /> : null}
+
       <Section title="Conversations started outside Kehikot" id="hook">
         <p className="text-xs leading-relaxed" data-hook={hook.on === null ? 'unknown' : hook.on ? 'on' : 'off'}>
           {hook.on === true
@@ -350,6 +357,57 @@ export function SettingsBody({ answer, busy, onChange }: { answer: SettingsAnswe
         <p className="text-muted-foreground mt-1 font-mono text-[11px] break-all">{hook.file}</p>
       </Section>
     </div>
+  )
+}
+
+/** Tracker notices: on or off, how wide, and which events. Every choice a native control with its label. */
+function TrackerNotices({
+  notices,
+  busy,
+  onChange,
+}: {
+  notices: NoticeSettings
+  busy: boolean
+  onChange(change: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> }): void
+}) {
+  const name = useId()
+  const off = busy || !notices.on
+  return (
+    <Section title={NOTICE_WORDS.title} id="notices">
+      <p className="text-muted-foreground mb-1.5 text-xs leading-relaxed">{NOTICE_WORDS.lead}</p>
+      <Box checked={notices.on} disabled={busy} onChange={(on) => onChange({ on })}>
+        {NOTICE_WORDS.on}
+      </Box>
+      <fieldset className="mt-2 min-w-0 rounded-md border px-2 py-1.5" data-notices-scope={notices.scope}>
+        <legend className="px-1 text-[11px]">Which items</legend>
+        {(['roles', 'epics'] as const).map((scope) => (
+          <label key={scope} className="flex min-w-0 items-start gap-2 text-xs leading-snug">
+            <input
+              type="radio"
+              name={name}
+              className="mt-0.5 size-3.5 shrink-0"
+              checked={notices.scope === scope}
+              disabled={off}
+              onChange={() => onChange({ scope })}
+            />
+            <span className="min-w-0">{NOTICE_WORDS.scopes[scope]}</span>
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="mt-2 min-w-0 rounded-md border px-2 py-1.5">
+        <legend className="px-1 text-[11px]">Tell me when</legend>
+        <ul className="grid gap-1 sm:grid-cols-2">
+          {NOTICE_EVENTS.map((event) => (
+            <li key={event} className="min-w-0 text-xs" data-notice-event={event}>
+              <Box checked={notices.events[event]} disabled={off} onChange={(on) => onChange({ events: { [event]: on } })}>
+                {NOTICE_WORDS.events[event]}
+              </Box>
+            </li>
+          ))}
+        </ul>
+      </fieldset>
+      <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{NOTICE_WORDS.needs}</p>
+    </Section>
   )
 }
 
