@@ -73,9 +73,14 @@ export interface Registered extends Line {
    * where it was installed from — it is only said.
    */
   elsewhere?: { listed: string; from: string }
+  /**
+   * Set for one of the person's own modules ("My modules"): the repository it
+   * was added from. Kehikot does not vouch for it, and the row says so.
+   */
+  mine?: { repo: string }
 }
 
-/** An official module that is not on this machine yet. */
+/** A module on the official list, or one of the person's own, that is not on this machine yet. */
 export interface Available extends Line {
   kind: 'available'
   placed: false
@@ -98,11 +103,15 @@ export function rowsOf(
   presences: readonly Presence[],
   placed: ReadonlySet<string>,
   official: readonly OfficialModule[] | null = null,
+  mine: readonly OfficialModule[] | null = null,
 ): Row[] {
   const listed = new Map((official ?? []).map((entry) => [entry.id, entry]))
+  /* An id on both lists is the official module: the list vouches for it. */
+  const ours = new Map((mine ?? []).filter((entry) => !listed.has(entry.id)).map((entry) => [entry.id, entry]))
   const here = new Set(presences.map((presence) => presence.id))
   const registered: Row[] = presences.map((presence) => {
-    const entry = listed.get(presence.id)
+    const own = ours.get(presence.id)
+    const entry = listed.get(presence.id) ?? own
     const tags = presence.tags ?? presence.module?.tags ?? []
     return {
       kind: 'registered',
@@ -112,15 +121,19 @@ export function rowsOf(
       tags: tags.length ? tags : (entry?.tags ?? []),
       placed: placed.has(presence.id),
       presence,
-      official: official ? entry !== undefined : null,
-      ...(entry?.from ? { elsewhere: { listed: entry.repo, from: entry.from } } : {}),
+      official: official ? listed.has(presence.id) : null,
+      ...(entry?.from ? { elsewhere: { listed: said(entry), from: entry.from } } : {}),
+      ...(own ? { mine: { repo: said(own) } } : {}),
     }
   })
-  const available: Row[] = (official ?? [])
+  const available: Row[] = [...(official ?? []), ...ours.values()]
     .filter((entry) => !entry.installed && !here.has(entry.id))
     .map((entry) => ({ kind: 'available', id: entry.id, name: entry.name, summary: entry.summary, tags: entry.tags, placed: false, entry }))
   return [...registered, ...available]
 }
+
+/** A repository as a person reads it: `owner/repo` on GitHub, `host/group/repo` anywhere else. */
+const said = (entry: Pick<OfficialModule, 'repo' | 'host'>) => (!entry.host || entry.host === 'github.com' ? entry.repo : `${entry.host}/${entry.repo}`)
 
 /**
  * Whether a row is what somebody typed.

@@ -89,6 +89,34 @@ describe('what the official list adds', () => {
   })
 })
 
+describe('what My modules add', () => {
+  const own = (over: { id: string; name: string; installed: boolean; host?: string }) => ({
+    repo: `someone/${over.name.toLowerCase()}`,
+    summary: `${over.name}, added by me.`,
+    tags: ['music-theory'],
+    mine: true,
+    ...over,
+  })
+  const official = [{ id: 'kehikot.paper', name: 'Paper', repo: 'Jalez/kehikko-paper', summary: '', tags: ['writing'], installed: true }]
+
+  test('a registered one of the person’s own is marked with where it is from, and is not official', () => {
+    const [scores] = rowsOf([mine], new Set(), official, [own({ id: 'me.scores', name: 'Scores', installed: true, host: 'gitlab.com' })])
+    expect(scores).toMatchObject({ kind: 'registered', official: false, mine: { repo: 'gitlab.com/someone/scores' } })
+  })
+
+  test('one not installed is on its shelf, beside the official ones that are not', () => {
+    const rows = rowsOf([paper], new Set(), official, [own({ id: 'me.tunes', name: 'Tunes', installed: false })])
+    expect(rows.map((row) => [row.id, row.kind])).toEqual([['kehikot.paper', 'registered'], ['me.tunes', 'available']])
+    expect(arrange(rows).map((section) => section.heading)).toEqual(['Reading and writing', 'Music theory'])
+  })
+
+  test('an id on both lists is the official module', () => {
+    const [row] = rowsOf([paper], new Set(), official, [own({ id: 'kehikot.paper', name: 'Paper', installed: true })])
+    expect(row).toMatchObject({ official: true })
+    expect(row!.kind === 'registered' && row!.mine).toBeUndefined()
+  })
+})
+
 describe('what a search finds', () => {
   const [row] = rowsOf([diff], new Set())
 

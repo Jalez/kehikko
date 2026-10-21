@@ -93,6 +93,11 @@ export interface Refusal {
  *  - `/host/trackers` — a person's edit of the project's tracker sources, which
  *    writes a file that travels with the repository, and the "Check" before
  *    it, which spends their login's rate limit.
+ *  - `/host/mine/check`, `/host/mine/add`, `/host/mine/install`,
+ *    `/host/mine/remove`, `/host/mine/adopt` — the person's own modules
+ *    (`myModules.ts`): a repository read with their login, cloned and run on
+ *    this machine, or deleted from it. A program that could add one could run
+ *    any code it liked, so only a press in the page does it.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -103,6 +108,11 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/act',
   '/host/inbox/migrate',
   '/host/trackers',
+  '/host/mine/check',
+  '/host/mine/add',
+  '/host/mine/install',
+  '/host/mine/remove',
+  '/host/mine/adopt',
   '/host/projects/locate',
   '/host/projects/followed',
   '/host/place/answer',

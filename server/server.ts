@@ -97,13 +97,14 @@ import { hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type 
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { installDesk } from './installs.ts'
+import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installsDir, officialListFile, versionsDir } from './machineDirs.ts'
+import { installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
@@ -468,6 +469,33 @@ const installs = installDesk({
     (await readRegistrations()).registrations.map((r) => ({ id: r.id, port: portOfUrl(r.url), dir: r.dir })),
   installed: () => wakes.registryChanged(),
 })
+
+/* "My modules": what the person installs from a repository that is on no
+   official list — through the same install path as the official list, from a
+   list kept on this machine only. Every write is the page's alone (`PAGE_ONLY`)
+   and no MCP tool reaches it. See `myModules.ts`. */
+const mine = myModulesDesk({
+  file: myModulesFile(),
+  official: official.current,
+  desk: installs,
+  run: spawnRunner,
+  git: runQuietly,
+  root: installsDir(),
+  registry: registryDir(),
+  registered: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, url: r.url, dir: r.dir })),
+  stop: (id) => halt(id),
+  changed: () => wakes.registryChanged(),
+})
+/* A checkout somebody put under `installed/` by hand, from a repository on no
+   list, is said once at the start; the modules list offers to keep it. */
+void mine
+  .adoptable()
+  .then((found) => {
+    for (const one of found) {
+      console.log(`kehikko: ${one.id} is installed from ${one.from}, which is on no list; the modules list offers to keep it as one of your modules`)
+    }
+  })
+  .catch(() => {})
 
 /* Proposing a registered module for that list, as an issue in this host's
    repository. See `proposals.ts`. */
@@ -2896,7 +2924,7 @@ const server = Bun.serve({
     if (notesAnswer) return notesAnswer
 
     /* The official module list, installing from it, and proposing for it. */
-    const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url))
+    const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))
     if (officialAnswer) return officialAnswer
 
     /*

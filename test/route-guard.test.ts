@@ -134,6 +134,7 @@ beforeAll(async () => {
       KEHIKOT_VERSIONS_DIR: at('versions'),
       KEHIKOT_INSTALLS_DIR: at('installed'),
       KEHIKOT_OFFICIAL_CACHE: at('official-modules.json'),
+      KEHIKOT_MY_MODULES: at('my-modules.json'),
       KEHIKOT_LOGS_DIR: at('logs'),
       KEHIKOT_SEED_PROJECT: at('project'),
       KEHIKOT_OFFICIAL_LIST: 'off',
@@ -211,6 +212,11 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/official/propose', body: { module: 'kehikot.nothing' } },
+      { method: 'POST', path: '/host/mine/check', body: { repo: '' } },
+      { method: 'POST', path: '/host/mine/add', body: { repo: '' } },
+      { method: 'POST', path: '/host/mine/install', body: { module: 'kehikot.nothing' } },
+      { method: 'POST', path: '/host/mine/remove', body: { module: 'kehikot.nothing' } },
+      { method: 'POST', path: '/host/mine/adopt', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/no-such-route', body: {} },
       { method: 'POST', path: '/mcp', body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_epic', arguments: { project, title: 'From elsewhere' } } } },
       { method: 'PUT', path: '/', body: {} },
@@ -302,6 +308,13 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/feedback', {})).status).toBe(400)
     expect((await pressed('POST', '/host/official/install', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)
     expect((await pressed('POST', '/host/official/propose', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)
+    /* My modules: each write reaches its route, which refuses these by itself before running anything. */
+    expect((await pressed('POST', '/host/mine/check', { repo: '' })).status).toBe(400)
+    expect((await pressed('POST', '/host/mine/add', { repo: '' })).status).toBe(400)
+    expect((await pressed('POST', '/host/mine/install', { module: 'kehikot.nothing' })).status).toBe(404)
+    expect((await pressed('POST', '/host/mine/remove', { module: 'kehikot.nothing' })).status).toBe(404)
+    expect((await pressed('POST', '/host/mine/adopt', { module: 'kehikot.nothing' })).status).toBe(404)
+    expect(existsSync(at('my-modules.json'))).toBe(false)
     expect((await pressed('POST', '/host/no-such-route', {})).status).toBe(404)
 
     /* The restart, last: the one press with no body, and it writes the file the shell watches. */
