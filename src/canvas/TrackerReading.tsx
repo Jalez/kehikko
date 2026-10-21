@@ -189,6 +189,7 @@ function Sources({
         </ul>
       ) : null}
       {listing.boardsNote && !listing.broken ? <p className="text-muted-foreground">{listing.boardsNote}</p> : null}
+      {listing.peopleNote && !listing.broken ? <p className="text-muted-foreground">{listing.peopleNote}</p> : null}
       {listing.broken ? null : <AddRow busy={busy} send={send} startOpen={startOpen} setSaid={setSaid} />}
       {said ? (
         <p role="status" className={said.tone === 'bad' ? 'text-destructive' : said.tone === 'ok' ? 'text-foreground' : 'text-muted-foreground'}>

@@ -55,6 +55,12 @@ describe('what the scanner flags', () => {
     expect(rules("const LOGS = join(homedir(), 'Library', 'Logs', 'Kehikot')")).toEqual([])
     expect(rules("const dir = mkdtempSync(join(tmpdir(), 'x-'))")).toEqual([])
     expect(rules("const db = new Database(':memory:')")).toEqual([])
+    /* Review's Factory key and Factory's per-author rules, wherever their variable moves them. */
+    expect(rules("const dir = process.env.KEHIKOT_KEYS_DIR || join(homedir(), 'Library', 'Application Support', 'Kehikot', 'keys')")).toEqual([])
+    expect(rules("const dir = process.env.KEHIKOT_KEYS_DIR ?? `${process.env.HOME}/.config/kehikot/keys`")).toEqual([])
+    expect(rules("const dir = process.env.KEHIKOT_FACTORY_DIR || join(homedir(), 'Library', 'Application Support', 'Kehikot', 'factory')")).toEqual([])
+    /* A key or a rule file anywhere else is still flagged. */
+    expect(rules("const key = join(homedir(), '.review-factory', 'key')")).toEqual(['home-path'])
     /* File-scoped entries only hold in their file. */
     expect(scanText('const db = new Database(file, { create: true })', 'server/canvases.ts')).toEqual([])
     expect(rules('const db = new Database(file, { create: true })', 'server/other.ts')).toEqual(['database'])

@@ -89,6 +89,27 @@ export function officialListFile(env: Env = process.env): string {
 }
 
 /**
+ * Per-install secrets one module presents to another, one file each, readable
+ * only by the user: today Review's Factory key, `keys/review-factory.key`
+ * (kehikko-review, created on its first start). Machine-level because it
+ * belongs to this install, not to any project, and must never be committed.
+ * `KEHIKOT_KEYS_DIR` overrides it (tests, scratch hosts).
+ */
+export function keysDir(env: Env = process.env, platform: string = process.platform): string {
+  return env.KEHIKOT_KEYS_DIR || join(machineDir(env, platform), 'keys')
+}
+
+/**
+ * Factory's per-author re-review rules (`factory/author-rules.json`,
+ * kehikko-factory): a person's rule for when an author's work is ready for
+ * another look holds in every project, so it is the machine's, not one
+ * project's. `KEHIKOT_FACTORY_DIR` overrides it (tests, scratch hosts).
+ */
+export function factoryDir(env: Env = process.env, platform: string = process.platform): string {
+  return env.KEHIKOT_FACTORY_DIR || join(machineDir(env, platform), 'factory')
+}
+
+/**
  * Where the Browser module keeps its Chromium profile, so its logins survive a
  * restart (kehikko-browser `browser/engine.ts`, `profileDir`). Not this host's
  * to write: the host only measures it for the storage overview

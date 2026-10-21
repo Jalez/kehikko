@@ -100,7 +100,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'machine-dir',
     match: /Application Support['"`]?\s*,\s*['"`]Kehikot|Application Support\/Kehikot|['"`]\.local['"`]\s*,\s*['"`]share|XDG_DATA_HOME/,
-    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions and the official modules installed from the app (host server/machineDirs.ts)',
+    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions, the official modules installed from the app, keys/ and factory/ (host server/machineDirs.ts)',
   },
   {
     id: 'browser-profile',
@@ -112,6 +112,16 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     id: 'official-list-cache',
     match: /official-modules\.json/,
     reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
+  },
+  {
+    id: 'keys',
+    match: /KEHIKOT_KEYS_DIR|review-factory\.key/,
+    reason: 'Application Support/Kehikot/keys holds per-install secrets one module presents to another — Review\'s Factory key, readable only by the user (host server/machineDirs.ts `keysDir`)',
+  },
+  {
+    id: 'factory-rules',
+    match: /KEHIKOT_FACTORY_DIR|author-rules\.json/,
+    reason: 'Application Support/Kehikot/factory holds Factory\'s per-author re-review rules, shared across projects (host server/machineDirs.ts `factoryDir`)',
   },
   {
     id: 'frame-db',

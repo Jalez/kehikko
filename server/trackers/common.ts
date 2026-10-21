@@ -58,6 +58,12 @@ export type Read =
       notFound: Array<{ number: number; kind: 'issue' | 'change' | null }>
       /** Numbers the tracker refused to answer (not "does not exist"); the rows above are the rest. */
       unread?: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> }
+      /**
+       * Set when the tracker would not say who reviews a change (an older
+       * GitLab without the fields): the rows came without `reviewers`, and
+       * this is the sentence a person is told, once.
+       */
+      people?: { unreadable: string }
     }
   | { ok: false; why: string }
 
@@ -80,7 +86,15 @@ export interface Adapter {
    * Null when they could not be read; the boards held before stay.
    */
   boards?(source: Source): Promise<BoardsRead | null>
+  /**
+   * Who the person is on this tracker host — `gh api user`, `glab api user` —
+   * or why that could not be read, in a sentence. For `myRoles`. (2.7.0)
+   */
+  me?(host: string): Promise<Me>
 }
+
+/** Who the person is on one tracker host, or why it is not known. */
+export type Me = { login: string } | { why: string }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 export const obj = (v: unknown): Record<string, unknown> => (isObject(v) ? v : {})
@@ -105,6 +119,16 @@ export function who(v: unknown): string {
   const p = obj(v)
   return clip(str(p.name) || str(p.login) || str(p.username), LIMITS.TRACKER_PERSON)
 }
+
+/** A person's login (GitHub `login`, GitLab `username`), clipped, or ''. */
+export function login(v: unknown): string {
+  const p = obj(v)
+  return clip(str(p.login) || str(p.username), LIMITS.TRACKER_PERSON)
+}
+
+/** The logins of a list of people, the ones without a login left out. */
+export const logins = (v: unknown): string[] =>
+  nodes(v).map(login).filter(Boolean).slice(0, LIMITS.TRACKER_PEOPLE)
 
 export const people = (v: unknown): string[] =>
   nodes(v).map(who).filter(Boolean).slice(0, LIMITS.TRACKER_PEOPLE)

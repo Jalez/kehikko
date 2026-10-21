@@ -20,10 +20,11 @@ import { z } from 'zod'
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import type { Adapter, BoardsRead, HeldBoard, Read, Wanted } from './common.ts'
+import type { Adapter, BoardsRead, HeldBoard, Me, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
+import { withRoles } from './roles.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
@@ -65,6 +66,16 @@ import { hostPath } from '../hostData.ts'
  * so and no boards, and the rows have no `column` — the reading itself is not
  * failed by it.
  *
+ * ## Who I am, and my roles
+ *
+ * Each row carries `myRoles` (protocol 2.7.0): the person's roles on it,
+ * worked out from who they are on its tracker host — asked of the adapter
+ * (`gh api user`, `glab api user`), once per host, kept `ME_KNOWN_MS` when
+ * known and `ME_UNKNOWN_MS` when not — over the whole reading on every read.
+ * When who they are is not known the rows have no `myRoles` (never guessed),
+ * and the tracker sources panel says why in one sentence (`peopleNote`), as it
+ * does when a tracker would not say who reviews (an older GitLab).
+ *
  * ## A failure blanks nothing
  *
  * A source that fails keeps the rows it gave last time, each with its own
@@ -78,6 +89,10 @@ const VERSION = 1
 export const LIST_LIMIT = 400
 /** How long a project counts as looked at after its last question, for the schedule. */
 const LOOKED_AT_MS = 30 * 60_000
+/** How long who the person is on a tracker host is believed. */
+const ME_KNOWN_MS = 12 * 60 * 60_000
+/** How long a failure to say who they are is believed before asking again. */
+const ME_UNKNOWN_MS = 30 * 60_000
 
 const storedSource = trackerSourceSchema.omit({ refreshing: true })
 const heldBoardSchema = trackerBoardSchema.extend({
@@ -219,6 +234,9 @@ function backLinked(rows: TrackerRow[]): TrackerRow[] {
   })
 }
 
+/** A sentence cut to what a reason may be. */
+const clip = (text: string) => (text.length > LIMITS.REASON ? `${text.slice(0, LIMITS.REASON - 1)}…` : text)
+
 /** A board's identity across sources: one GitHub project may hold several repositories' items. */
 const boardKey = (b: Pick<HeldBoard, 'board' | 'boardUrl'>) => `${b.board}|${b.boardUrl ?? ''}`
 
@@ -301,6 +319,8 @@ interface Held {
   detailTried: Set<string>
   kick: ReturnType<typeof setTimeout> | null
   lookedAt: number
+  /** Per source key: why the person's roles there are not whole, in the sentence they are told. */
+  peopleNotes: Map<string, { about: 'me' | 'reviewers'; said: string }>
 }
 
 export interface TrackersOptions {
@@ -319,6 +339,8 @@ export class Trackers {
   #adapters: Record<Source['tracker'], Adapter>
   #now: () => Date
   #listLimit: number
+  /** Who the person is per tracker host (`tracker|host`), and until when that is believed. */
+  #me = new Map<string, { me: Me; until: number }>()
 
   constructor(options: TrackersOptions) {
     this.#run = options.run
@@ -344,6 +366,7 @@ export class Trackers {
         detailTried: new Set(),
         kick: null,
         lookedAt: 0,
+        peopleNotes: new Map(),
       }
       this.#held.set(root, held)
     }
@@ -403,6 +426,7 @@ export class Trackers {
         }
       }),
       boardsNote: held.stored.boards.find((b) => b.unreadable && stored.has(b.source))?.unreadable ?? null,
+      peopleNote: [...held.peopleNotes].find(([key]) => stored.has(key))?.[1].said ?? null,
       remotes: config.config.remotes,
       every: config.config.every,
       broken: null,
@@ -454,6 +478,19 @@ export class Trackers {
     const issues = read.rows.filter((r) => r.kind === 'issue').length
     const changes = read.rows.filter((r) => r.kind === 'change').length
     return { ok: true, issues, changes, capped: issues >= limit || changes >= limit }
+  }
+
+  /** Who the person is on a tracker host, asked of its adapter at most once per `ME_KNOWN_MS`. */
+  async #whoAmI(source: Source): Promise<Me | null> {
+    const ask = this.#adapters[source.tracker].me
+    if (!ask) return null
+    const key = `${source.tracker}|${source.host}`
+    const was = this.#me.get(key)
+    const now = this.#now().getTime()
+    if (was && now < was.until) return was.me
+    const me = await ask(source.host).catch((e: unknown) => ({ why: e instanceof Error ? e.message : String(e) }))
+    this.#me.set(key, { me, until: now + ('login' in me ? ME_KNOWN_MS : ME_UNKNOWN_MS) })
+    return me
   }
 
   /** The sources as last known, for sentences and for `get`. */
@@ -746,6 +783,8 @@ export class Trackers {
 
     const errors = new Map<string, string | null>()
     const boardsRead = new Map<string, BoardsRead>()
+    /** Per source read: the sentence when it would not say who reviews, or null when it did. */
+    const peopleRead = new Map<string, string | null>()
     const fresh: TrackerRow[] = []
     const gone = new Set<string>()
     const listedNow = new Set<string>()
@@ -761,6 +800,7 @@ export class Trackers {
           got = read.rows
           listedNow.add(key)
           if (read.boards) boardsRead.set(key, read.boards)
+          peopleRead.set(key, read.people?.unreadable ?? null)
         }
         const have = new Set(got.map(rowIdentity))
         let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
@@ -770,6 +810,7 @@ export class Trackers {
           if (!read.ok) return errors.set(key, read.why)
           got = [...got, ...read.rows]
           unread = read.unread
+          if (read.people || !peopleRead.has(key)) peopleRead.set(key, read.people?.unreadable ?? null)
           const joined = joinBoards(boardsRead.get(key), read.boards)
           if (joined) boardsRead.set(key, joined)
         }
@@ -876,6 +917,28 @@ export class Trackers {
       boards.push({ source: key, boards: whole ? got.boards.slice(0, LIMITS.TRACKER_BOARDS) : unionBoards(was?.boards ?? [], got.boards), unreadable: null })
     }
 
+    /* Who the person is on each host read, and their roles over the whole reading. */
+    const meBy = new Map<string, string>()
+    for (const source of sources) {
+      const key = sourceKey(source)
+      /* A source not read, or whose read failed, has its own sentence already. */
+      if ((!plan.get(key)?.list && !plan.get(key)?.wanted.size) || errors.get(key)) continue
+      const me = await this.#whoAmI(source)
+      if (!me) continue
+      if ('login' in me) {
+        meBy.set(`${source.tracker}|${source.host}`, me.login)
+        const note = peopleRead.get(key)
+        if (note) held.peopleNotes.set(key, { about: 'reviewers', said: note })
+        else if (note === null || held.peopleNotes.get(key)?.about === 'me') held.peopleNotes.delete(key)
+      } else {
+        held.peopleNotes.set(key, { about: 'me', said: clip(`My role needs to know who you are on ${source.host}: ${me.why}`) })
+      }
+    }
+    const roled = [...byId.values()].map((row) => {
+      const me = meBy.get(`${row.tracker}|${row.host}`)
+      return me ? withRoles(row, me) : row
+    })
+
     held.stored = {
       version: VERSION,
       at: now,
@@ -894,7 +957,7 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: placedOnBoards(backLinked([...byId.values()]), boards).slice(0, LIMITS.TRACKER_ROWS),
+      rows: placedOnBoards(backLinked(roled), boards).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),

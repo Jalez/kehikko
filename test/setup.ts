@@ -33,7 +33,17 @@ import { join, sep } from 'node:path'
 
 import { agentConfigFile } from '../server/agents.ts'
 import { claudeSkillsDir } from '../server/skills.ts'
-import { browserProfileDir, frameDbFile, installsDir, logsDir, modulesDir, officialListFile, versionsDir } from '../server/machineDirs.ts'
+import {
+  browserProfileDir,
+  factoryDir,
+  frameDbFile,
+  installsDir,
+  keysDir,
+  logsDir,
+  modulesDir,
+  officialListFile,
+  versionsDir,
+} from '../server/machineDirs.ts'
 
 /* Read once, before any test can set `HOME` to something else. */
 const REAL_HOME = realpathSync(homedir())
@@ -54,6 +64,8 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_OFFICIAL_CACHE', scratch: join(SCRATCH, 'official-modules.json'), resolved: () => officialListFile() },
   { variable: 'KEHIKOT_LOGS_DIR', scratch: join(SCRATCH, 'logs'), resolved: () => logsDir() },
   { variable: 'KEHIKOT_BROWSER_PROFILE', scratch: join(SCRATCH, 'browser-profile'), resolved: () => browserProfileDir() },
+  { variable: 'KEHIKOT_KEYS_DIR', scratch: join(SCRATCH, 'keys'), resolved: () => keysDir() },
+  { variable: 'KEHIKOT_FACTORY_DIR', scratch: join(SCRATCH, 'factory'), resolved: () => factoryDir() },
   { variable: 'CLAUDE_CONFIG', scratch: join(SCRATCH, 'claude.json'), resolved: () => agentConfigFile() },
   /* Claude Code's personal skills, beside its config: the same variable moves both. */
   { variable: 'CLAUDE_CONFIG', scratch: join(SCRATCH, 'claude.json'), resolved: () => claudeSkillsDir() },
