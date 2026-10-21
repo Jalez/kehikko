@@ -25,6 +25,7 @@ import { githubAdapter } from './github.ts'
 import { columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { withRoles } from './roles.ts'
+import { withStacks } from './stacks.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
@@ -74,7 +75,14 @@ import { hostPath } from '../hostData.ts'
  * known and `ME_UNKNOWN_MS` when not — over the whole reading on every read.
  * When who they are is not known the rows have no `myRoles` (never guessed),
  * and the tracker sources panel says why in one sentence (`peopleNote`), as it
- * does when a tracker would not say who reviews (an older GitLab).
+ * does when a tracker would not say who reviews (an older GitLab). The same
+ * login says whether a row's last activity was theirs (`lastActivity.mine`,
+ * 2.8.0); unknown, `mine` is absent.
+ *
+ * ## Stacks
+ *
+ * A change's `stack` (2.8.0) is worked out over the whole reading on every
+ * read, open changes only (`withStacks` in `stacks.ts`).
  *
  * ## A failure blanks nothing
  *
@@ -957,7 +965,7 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: placedOnBoards(backLinked(roled), boards).slice(0, LIMITS.TRACKER_ROWS),
+      rows: placedOnBoards(withStacks(backLinked(roled)), boards).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),

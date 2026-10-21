@@ -1874,8 +1874,9 @@ function markAt(
 
 /**
  * One row of the tracker reading as `read_tracker` says it: state, pipeline,
- * review, board column, and (protocol 2.7.0) the reviewers, the person's roles,
- * the review threads and the last push, each only when the row has it.
+ * review, board column, (protocol 2.7.0) the reviewers, the person's roles,
+ * the review threads and the last push, and (2.8.0) the branches, the stack
+ * and the last activity, each only when the row has it.
  */
 export function trackerLine(row: TrackerRow): string {
   return `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
@@ -1885,6 +1886,9 @@ export function trackerLine(row: TrackerRow): string {
     + `${row.myRoles?.length ? ` my roles:${row.myRoles.join(',')}` : ''}`
     + `${row.discussions ? ` threads:${row.discussions.unresolved} unresolved,${row.discussions.resolved} resolved` : ''}`
     + `${row.lastPushAt ? ` pushed:${row.lastPushAt}` : ''}`
+    + `${row.baseBranch ? ` base:${row.baseBranch}` : ''}${row.headBranch ? ` head:${row.headBranch}` : ''}`
+    + `${row.stack ? ` stack:${row.stack.below ? `on ${row.stack.below}` : 'bottom'}${row.stack.above.length ? `,under ${row.stack.above.join('+')}` : ''}` : ''}`
+    + `${row.lastActivity ? ` last:${row.lastActivity.kind} by ${row.lastActivity.login}${row.lastActivity.mine === true ? ' (me)' : row.lastActivity.mine === false ? ' (not me)' : ''} at ${row.lastActivity.at}` : ''}`
     + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
 }
 

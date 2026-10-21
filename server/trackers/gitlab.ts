@@ -1,6 +1,8 @@
 import {
   LIMITS,
+  type LastActivityKind,
   type PipelineState,
+  type TrackerActivity,
   type TrackerColumn,
   type TrackerDetailFacts,
   type TrackerDiscussions,
@@ -101,9 +103,9 @@ const numberOf = (v: unknown): number | null => {
  * refusal is believed for `PEOPLE_RECHECK_MS`, and the read says so once.
  */
 
-/** What a person is told when their GitLab will not say who reviews a merge request. */
+/** What a person is told when their GitLab will not say who reviews a merge request, or who acted last. */
 export const OLD_GITLAB_PEOPLE = (host: string) =>
-  `${host} does not say who reviews a merge request (an older GitLab), so My role there shows author and assignee only.`
+  `${host} does not say who reviews a merge request or who acted last (an older GitLab), so My role there shows author and assignee only and no last activity.`
 
 /** How long a host's refusal of the people fields is believed. */
 export const PEOPLE_RECHECK_MS = 30 * 60_000
@@ -149,6 +151,59 @@ export function lastPushOf(commits: unknown, pipeline: unknown): string | undefi
   return times.sort().at(-1)
 }
 
+/*
+ * Branches and last activity (protocol 2.8.0).
+ *
+ * A merge request's target branch is its `baseBranch` and its source branch
+ * its `headBranch` — only when the source project is the target project: a
+ * merge request from a fork comes from a branch nothing here can target. Both
+ * REST and GraphQL give them.
+ *
+ * The last activity is read from the newest `NOTES` notes, asked with the
+ * people (GraphQL, in the same batch): a comment, or a system note GitLab
+ * writes for an approval or requested changes (`review`), pushed commits
+ * (`commit`), or a close, reopen or merge (`state`). Every other system note —
+ * labels, assignments, mentions, a bot's session — is not somebody acting on
+ * the item, and is passed over. When all of the newest `NOTES` are such, the
+ * last activity is not known and is left out; when the item has fewer notes
+ * than that and none counts, it was last touched when its author opened it.
+ */
+
+/** How many of the newest notes are looked through for the last activity. */
+export const NOTES = 10
+
+/** What one note says was done, or null for a note that is not somebody acting on the item. */
+export function noteKind(note: Record<string, unknown>): LastActivityKind | null {
+  if (note.system !== true) return 'comment'
+  const body = str(note.body).trim().toLowerCase()
+  if (/^(approved this merge request|requested changes)/.test(body)) return 'review'
+  if (/^added \d+ (new )?commits?\b/.test(body)) return 'commit'
+  if (/^(closed|reopened|merged)\b/.test(body)) return 'state'
+  return null
+}
+
+/** The last activity from the newest notes, oldest first as GitLab gives them. Undefined when not asked. */
+export function activityOf(notes: unknown, author: unknown, createdAt: unknown): TrackerActivity | undefined {
+  if (!connection(notes)) return undefined
+  const all = nodes(notes).map(obj)
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    const kind = noteKind(all[i]!)
+    if (!kind) continue
+    const by = login(all[i]!.author)
+    const at = instant(all[i]!.createdAt)
+    return by && at ? { login: by, at, kind } : undefined
+  }
+  if (all.length >= NOTES) return undefined
+  const by = login(author)
+  const at = instant(createdAt)
+  return by && at ? { login: by, at, kind: 'state' } : undefined
+}
+
+const branchOf = (v: unknown): string | undefined => {
+  const b = str(v)
+  return b && b.length <= LIMITS.BRANCH ? b : undefined
+}
+
 /** One issue, from REST or GraphQL; the two spell most of these differently and both are read. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -178,6 +233,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     updatedAt: instant(r.updated_at ?? r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closed_at ?? r.closedAt) ?? undefined),
     links: [],
+    lastActivity: activityOf(r.notes, r.author, r.created_at ?? r.createdAt),
     readAt: now,
   })
 }
@@ -205,6 +261,9 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
   const pipeline = pipelineOf(obj(r.headPipeline ?? r.head_pipeline).status)
   const approved = typeof r.approved === 'boolean' ? r.approved : undefined
   const draft = typeof r.draft === 'boolean' ? r.draft : typeof r.work_in_progress === 'boolean' ? r.work_in_progress : undefined
+  const from = r.sourceProjectId ?? r.source_project_id
+  const into = r.targetProjectId ?? r.target_project_id
+  const ownBranch = from !== undefined && from !== null && String(from) === String(into)
   return row({
     ref,
     tracker: 'gitlab',
@@ -231,6 +290,9 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy) : undefined,
     discussions: discussionsOf(r.resolvableDiscussionsCount, r.resolvedDiscussionsCount),
     lastPushAt: lastPushOf(r.commits, r.headPipeline),
+    baseBranch: branchOf(r.targetBranch ?? r.target_branch),
+    headBranch: ownBranch ? branchOf(r.sourceBranch ?? r.source_branch) : undefined,
+    lastActivity: activityOf(r.notes, r.author, r.created_at ?? r.createdAt),
     /* Only while open, as prior art does: an approval on a merged request is
        history, not a state of review. */
     review: state === 'open' && approved !== undefined ? (approved ? 'approved' : 'required') : undefined,
@@ -270,11 +332,15 @@ export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
 
 const GRAPH_PEOPLE = 'labels { nodes { title } } assignees { nodes { name username } } author { name username }'
 
-/** A merge request's reviewers, approvers, discussions and newest commit: see "People" above. */
+/** The newest notes, for the last activity: see "Branches and last activity" above. */
+const NOTES_GRAPH = `notes(last: ${NOTES}) { nodes { system body createdAt author { username } } }`
+
+/** A merge request's reviewers, approvers, discussions, newest commit and notes: see "People" above. */
 const MERGE_PEOPLE = `reviewers(first: 32) { nodes { username name mergeRequestInteraction { approved reviewState } } }
       approvedBy(first: 32) { nodes { username name } }
       resolvableDiscussionsCount resolvedDiscussionsCount
-      commits(first: 1) { nodes { committedDate } }`
+      commits(first: 1) { nodes { committedDate } }
+      ${NOTES_GRAPH}`
 
 /**
  * GraphQL for issues and merge requests by iid. The path passed `NAME` in `sources.ts`.
@@ -288,11 +354,12 @@ export function refsQuery(source: Source, issues: readonly number[], merges: rea
   const parts: string[] = []
   if (issues.length) {
     parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes {
-      iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE} } }`)
+      iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE}${people ? ` ${NOTES_GRAPH}` : ''} } }`)
   }
   if (merges.length) {
     parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid state title webUrl draft createdAt updatedAt closedAt mergedAt description approved
+      sourceBranch targetBranch sourceProjectId targetProjectId
       headPipeline { status${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
@@ -375,7 +442,10 @@ export function columnsOn(row: TrackerRow, boards: readonly HeldBoard[]): Tracke
 }
 
 /** How many pages of a hundred a listing of `limit` takes. */
-/** References per GraphQL query: GitLab's complexity grows with it (148 at 25 + 25, against a limit of 250). */
+/**
+ * References per GraphQL query: GitLab's complexity grows with it (242 at 25 + 25 with the people and
+ * the notes, measured on gitlab.com, against a limit of 250 for a logged-in user). Over it, a batch is halved.
+ */
 const BATCH = 25
 
 /** GitLab's refusal of a query it costs too high. */
@@ -448,8 +518,8 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
 
     /** One batch; on a complexity refusal, its two halves. */
     async function batch(i: number[], m: number[]): Promise<void> {
-      const people = m.length > 0 && peopleAsked(source.host)
-      if (m.length && !people) withoutPeople = true
+      const people = peopleAsked(source.host)
+      if (!people) withoutPeople = true
       const ran = await graph(refsQuery(source, i, m, people), source)
       const answer = obj(parsed(ran))
       const data = obj(obj(answer.data).project)
@@ -512,19 +582,23 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
         ...issues.map((one) => issueRow(source, one, now)),
         ...merges.map((one) => mergeRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
-      /* The REST list has no pipeline and no approval; the open merge requests
-         are read again, batched, for both. A failure here keeps the rows and
-         loses only those two fields — absent, not guessed. */
+      /* The REST list has no pipeline, no approval and no notes; the open
+         merge requests are read again, batched, for all three, and the open
+         issues beside them in the same queries for their notes (the last
+         activity). A failure here keeps the rows and loses only those
+         fields — absent, not guessed. */
       const open = rows.filter((one) => one.kind === 'change' && one.state === 'open').map((one) => one.number)
+      const openIssues = rows.filter((one) => one.kind === 'issue' && one.state === 'open').map((one) => one.number)
       let people: { unreadable: string } | undefined
-      if (open.length) {
-        const again = await byIids(source, [], open, now)
+      if (open.length || openIssues.length) {
+        const again = await byIids(source, openIssues, open, now)
         if (again.ok && again.people) people = again.people
         if (again.ok) {
-          const fresh = new Map(again.rows.map((one) => [one.number, one]))
+          const fresh = new Map(again.rows.map((one) => [`${one.kind}:${one.number}`, one]))
           for (let i = 0; i < rows.length; i += 1) {
             const one = rows[i]!
-            if (one.kind === 'change' && fresh.has(one.number)) rows[i] = fresh.get(one.number)!
+            const got = fresh.get(`${one.kind}:${one.number}`)
+            if (got) rows[i] = got
           }
         }
       }

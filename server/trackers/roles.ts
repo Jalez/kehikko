@@ -22,7 +22,11 @@ export function rolesFor(row: Pick<TrackerRow, 'reviewers' | 'authorLogin' | 'as
   return out
 }
 
-/** The row with `myRoles` set for `me`: `[]` when they have none. */
+/**
+ * The row with `myRoles` set for `me` (`[]` when they have none), and its last
+ * activity said to be theirs or not (protocol 2.8.0 `lastActivity.mine`).
+ */
 export function withRoles(row: TrackerRow, me: string): TrackerRow {
-  return { ...row, myRoles: rolesFor(row, me) }
+  const lastActivity = row.lastActivity ? { ...row.lastActivity, mine: sameLogin(row.lastActivity.login, me) } : undefined
+  return { ...row, myRoles: rolesFor(row, me), ...(lastActivity ? { lastActivity } : {}) }
 }
