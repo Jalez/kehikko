@@ -229,6 +229,8 @@ interface AskedMany {
   repo: string
   name: string
   tags: string[]
+  /** Which Kehikot each release works with, by tag: "Works with Kehikot 0.1.39 and later". */
+  works?: Record<string, string>
   opener: HTMLElement | null
 }
 
@@ -252,6 +254,7 @@ export function useModuleNotes(): { show(asked: AskedMany): void; open: boolean;
       repo={asked.repo}
       name={asked.name}
       tags={asked.tags}
+      works={asked.works}
       open={open}
       onOpenChange={setOpen}
       opener={asked.opener}
@@ -264,6 +267,7 @@ export function ModuleNotesDialog({
   repo,
   name,
   tags,
+  works = {},
   open,
   onOpenChange,
   opener = null,
@@ -273,6 +277,8 @@ export function ModuleNotesDialog({
   name: string
   /** Newest first. */
   tags: string[]
+  /** Which Kehikot each release works with, by tag; said under its heading. Plain text. */
+  works?: Record<string, string>
   open: boolean
   onOpenChange(open: boolean): void
   opener?: HTMLElement | null
@@ -329,6 +335,11 @@ export function ModuleNotesDialog({
                     {name} {releaseVersion(tag)}
                     {published ? <span className="text-muted-foreground pl-2 text-xs font-normal">{published}</span> : null}
                   </h3>
+                ) : null}
+                {Object.hasOwn(works, tag) ? (
+                  <p className="text-muted-foreground pt-2 text-xs" data-testid="release-notes-works">
+                    {works[tag]}
+                  </p>
                 ) : null}
                 {reading.kind === 'reading' ? (
                   <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>

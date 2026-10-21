@@ -10,6 +10,7 @@ import {
   releasesNewestFirst,
   type ModuleRelease,
 } from '../src/host/moduleReleases.ts'
+import { higherNeed, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
 
 /**
  * Installed modules run their RELEASES, not `main`.
@@ -61,6 +62,12 @@ export interface FollowerDeps {
   have?: string
   /** The `protocol` of the list entry a module was installed from (official, or one of "My modules"), when it names one. */
   entryProtocol(id: string): string | undefined
+  /**
+   * Which protocol each Kehikot app shipped (`appProtocols.ts`), or null when
+   * it is not known. Absent: releases say nothing about which Kehikot they
+   * work with.
+   */
+  apps?(): readonly AppProtocol[] | null
   now?(): number
 }
 
@@ -118,6 +125,26 @@ export function pickNewest(
     return { newest: tag, needsNewer }
   }
   return { newest: null, needsNewer }
+}
+
+/**
+ * Which Kehikot each of `tags` works with: its need is the higher of its own
+ * `package.json` pin and the list entry's `protocol`. A release with neither
+ * has no entry.
+ */
+export function worksOf(
+  tags: readonly (string | null | undefined)[],
+  needOf: (tag: string) => string | null,
+  entry: string | undefined,
+  apps: readonly AppProtocol[] | null,
+): Record<string, WorksWith> {
+  const works: Record<string, WorksWith> = {}
+  for (const tag of tags) {
+    if (!tag || Object.hasOwn(works, tag)) continue
+    const need = higherNeed(needOf(tag), entry)
+    if (need) works[tag] = worksWith(need, apps)
+  }
+  return works
 }
 
 /** The releases whose notes an update shows: after `from` (exclusive) up to `to`, newest first. */
@@ -223,12 +250,23 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
     let target: string | null = null
     let from = installed
 
+    const entry = deps.entryProtocol(place.id)
+    /* Which Kehikot the releases named here work with, when the apps are known to this host at all. */
+    const say = async (release: ModuleRelease): Promise<ModuleRelease> => {
+      if (!deps.apps) return release
+      const named = [release.installed, release.newest, release.target, ...release.notes, release.needsNewer?.tag]
+      const missing = named.filter((tag): tag is string => !!tag && !needs.has(tag))
+      if (missing.length) for (const [tag, need] of await needOfAll(dir, missing)) needs.set(tag, need)
+      const works = worksOf(named, (tag) => needs.get(tag) ?? null, entry, deps.apps())
+      return Object.keys(works).length ? { ...release, works } : release
+    }
+
     if (installed) {
       if (newest && compareReleases(newest, installed) > 0) target = newest
     } else if (!newest) {
       /* It has releases, and this host can run none of them: it stays as it
          is, on main, and says what it would need. */
-      return { ...checkout, release: { ...base, needsNewer: picked.needsNewer } }
+      return { ...checkout, release: await say({ ...base, needsNewer: picked.needsNewer }) }
     } else {
       const tagCommit = await out(dir, ['rev-parse', '--verify', '--quiet', `refs/tags/${newest}^{commit}`])
       const ancestor = async (a: string, b: string) => (await git(dir, ['merge-base', '--is-ancestor', a, b])).ok
@@ -244,7 +282,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       }
     }
 
-    const release: ModuleRelease = {
+    const release: ModuleRelease = await say({
       ...base,
       follows,
       newest,
@@ -259,7 +297,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
           ? [installed]
           : [],
       needsNewer: picked.needsNewer,
-    }
+    })
 
     if (!target) {
       return {

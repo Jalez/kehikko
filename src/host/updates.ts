@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { ModuleRelease } from './moduleReleases.ts'
+import type { WorksWith } from './worksWith.ts'
 
 /**
  * Whether the host and its modules are behind GitHub — the page's side of
@@ -21,6 +22,21 @@ export function openUpdates(): void {
 
 const incomingSchema = z.object({ hash: z.string(), subject: z.string() })
 
+const appSchema = z.object({ app: z.string(), protocol: z.string() })
+
+/** Which Kehikot a release works with. Mirrors `WorksWith` in `worksWith.ts`. */
+const worksSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('from'),
+    need: z.string(),
+    from: z.string(),
+    until: z.object({ last: z.string(), next: z.string(), major: z.number() }).nullable(),
+  }),
+  z.object({ kind: z.literal('unreleased'), need: z.string(), newest: appSchema }),
+  z.object({ kind: z.literal('none'), need: z.string() }),
+  z.object({ kind: z.literal('unknown'), need: z.string() }),
+]) satisfies z.ZodType<WorksWith, z.ZodTypeDef, unknown>
+
 /** An installed module's releases. Mirrors `ModuleRelease` in `moduleReleases.ts`. */
 const releaseSchema = z.object({
   follows: z.enum(['release', 'main', 'ahead']),
@@ -31,6 +47,8 @@ const releaseSchema = z.object({
   needsNewer: z.object({ tag: z.string(), protocol: z.string() }).nullable().default(null),
   repo: z.string().nullable().default(null),
   error: z.string().nullable().default(null),
+  /* Absent from an older host; one a later host words differently is dropped, not refused. */
+  works: z.record(z.string(), worksSchema).optional().catch(undefined),
 }) satisfies z.ZodType<ModuleRelease, z.ZodTypeDef, unknown>
 
 const checkoutSchema = z.object({
@@ -81,6 +99,8 @@ export interface Check {
   previews: Record<string, Preview>
   /** Running modules whose registration says to keep them: an ordinary restart of one is refused. Empty from an older host. */
   kept: string[]
+  /** The protocol package this host has; null from an older host. What "you have" says outside the desktop app. */
+  protocol: string | null
 }
 
 export type Preview = 'page' | 'restart' | 'self' | 'kept'
@@ -109,6 +129,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
       older: z.record(z.string(), z.string()).default({}),
       previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
       kept: z.array(z.string()).default([]),
+      protocol: z.string().nullable().default(null),
     })
     .parse(await response.json())
   return {
@@ -121,7 +142,22 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
     older: body.older,
     previews: body.previews,
     kept: body.kept,
+    protocol: body.protocol,
   }
+}
+
+/**
+ * One installed module's releases, for its details in the modules list: the
+ * one it runs, the newest, and which Kehikot each works with. Null for a
+ * module that is not an installed copy, and from a host older than this.
+ */
+export async function fetchModuleRelease(id: string, signal?: AbortSignal): Promise<{ release: ModuleRelease | null; protocol: string | null }> {
+  const response = await globalThis.fetch(`/host/module-release?id=${encodeURIComponent(id)}`, { signal })
+  if (response.status === 404) return { release: null, protocol: null }
+  if (!response.ok) throw new Error(await reason(response))
+  return z
+    .object({ release: releaseSchema.nullable().default(null), protocol: z.string().nullable().default(null) })
+    .parse(await response.json())
 }
 
 /** What the update came to for the module itself — `ModuleOutcome` in `server/server.ts`. */

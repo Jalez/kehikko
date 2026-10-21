@@ -114,6 +114,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'official-modules.json (Application Support/Kehikot) is the last official module list the host read from GitHub, kept so an offline start still knows the modules it saw (host server/machineDirs.ts `officialListFile`)',
   },
   {
+    id: 'app-protocols-cache',
+    match: /app-protocols\.json|KEHIKOT_APP_PROTOCOLS_CACHE/,
+    reason: 'app-protocols.json (Application Support/Kehikot) is the last mapping of Kehikot app versions to the protocol each shipped, read from the host repository\'s app tags, kept so an offline start can still say which Kehikot a module release works with (host server/machineDirs.ts `appProtocolsFile`)',
+  },
+  {
     id: 'my-modules',
     match: /my-modules\.json|KEHIKOT_MY_MODULES/,
     reason: 'my-modules.json (Application Support/Kehikot) is the person\'s own list of modules added from a repository: this machine\'s alone, never published (host server/machineDirs.ts `myModulesFile`)',

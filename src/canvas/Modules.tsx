@@ -4,7 +4,10 @@ import { ArrowDownLeft, ArrowUpRight, Compass, Eye, MousePointerClick } from 'lu
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { appEngine } from '@/host/appUpdate.ts'
 import type { Canvas } from '@/host/canvases.ts'
+import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { fetchModuleRelease } from '@/host/updates.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
 import {
@@ -466,8 +469,9 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
   /* The sentence is left out when the row already says it: as the summary of a
      module that is answering, or inside the line about what to do. */
   const line = presence.line && presence.line !== row.summary && !shown?.startsWith(presence.line) ? presence.line : null
+  const [opened, setOpened] = useState(false)
   return (
-    <details className="text-muted-foreground mt-1 text-[11px]">
+    <details className="text-muted-foreground mt-1 text-[11px]" onToggle={(event) => event.currentTarget.open && setOpened(true)}>
       <summary className="hover:text-foreground w-fit cursor-pointer select-none">details</summary>
       <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
         <dt>id</dt>
@@ -502,6 +506,7 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
           </>
         ) : null}
       </dl>
+      {opened ? <ReleaseDetails id={row.id} /> : null}
       {line ? <p className="mt-1 leading-relaxed">{line}</p> : null}
       {row.mine ? (
         <p className="mt-1 leading-relaxed">
@@ -512,6 +517,57 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
       {row.official === false ? <Propose id={row.id} name={row.name} /> : null}
       {onRemove ? <RemoveMine name={row.name} installed onRemove={onRemove} /> : null}
     </details>
+  )
+}
+
+/**
+ * An installed module's releases, read when its details are first opened: the
+ * one it runs and the newest, each with which Kehikot it works with ("Works
+ * with Kehikot 0.1.39 and later"). Nothing for a module registered from
+ * somebody's own checkout, which runs its branch.
+ */
+function ReleaseDetails({ id }: { id: string }) {
+  const [read, setRead] = useState<{ release: ModuleRelease | null; protocol: string | null; app: string | null } | null>(null)
+  useEffect(() => {
+    const abort = new AbortController()
+    void (async () => {
+      try {
+        const [got, status] = await Promise.all([
+          fetchModuleRelease(id, abort.signal),
+          appEngine()?.status().catch(() => null) ?? Promise.resolve(null),
+        ])
+        if (!abort.signal.aborted) setRead({ ...got, app: status?.current ?? null })
+      } catch {
+        /* Said nothing: the rest of the details stand on their own. */
+      }
+    })()
+    return () => abort.abort()
+  }, [id])
+  const release = read?.release
+  if (!release) return null
+  const rows = [
+    release.installed ? { label: 'release', tag: release.installed } : null,
+    release.newest && release.newest !== release.installed ? { label: 'newest', tag: release.newest } : null,
+  ].filter((one): one is { label: string; tag: string } => one !== null)
+  const newer = needsNewerSaid(release, { app: read.app, protocol: read.protocol })
+  if (!rows.length && !newer) return null
+  return (
+    <div data-testid="module-release-details">
+      {rows.length ? (
+        <dl className="mt-0.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+          {rows.map((one) => (
+            <div key={one.label} className="contents">
+              <dt>{one.label}</dt>
+              <dd className="break-words">
+                <span className="font-mono">{releaseVersion(one.tag)}</span>
+                {worksSaid(release, one.tag) ? ` · ${worksSaid(release, one.tag)}` : ''}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {newer ? <p className="mt-1 leading-relaxed">{newer}</p> : null}
+    </div>
   )
 }
 

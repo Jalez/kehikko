@@ -29,6 +29,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'installs.ts: mkdirSync(deps.registry, { recursive: true })': 'the module registry',
   "canvases.ts: if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })": 'frame.sqlite',
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',
+  'appProtocols.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the app version → protocol cache',
   'myModules.ts: mkdirSync(dirname(file), { recursive: true })': 'the My modules list, in the machine directory',
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
   'skills.ts: mkdirSync(root, { recursive: true })': "Claude Code's skills directory (~/.claude/skills)",

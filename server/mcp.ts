@@ -1,7 +1,7 @@
 import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, PACKAGE_VERSION, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -1136,7 +1136,8 @@ function tools() {
       description:
         'The versions a module on a kehikko can run: "latest" — the module’s own checkout, which is what every '
         + 'container runs unless pinned; for a module the app installed that is its newest release (or main, when '
-        + 'its repository has no release yet), and this says which release it runs and the newest it can — and '
+        + 'its repository has no release yet), and this says which release it runs and the newest it can, and which '
+        + 'Kehikot app versions each works with (or the protocol it needs, when the app versions cannot be read) — and '
         + 'the semver tags on its repository, newest first. Each tag says '
         + 'whether this host can speak to it (known once it has been prepared once), whether the data guard '
         + 'refuses it for this kehikko’s project (a version whose data format is older than the one the project’s '
@@ -1228,7 +1229,7 @@ function versionsText(listing: VersionListing, canvas: Canvas, how: string): str
       listing.latest.commit ? ` at ${listing.latest.commit}` : ''
     }${listing.latest.dataVersion !== null ? `, data format ${listing.latest.dataVersion}` : ''}.`,
   ]
-  if (listing.release) lines.push(releaseForAgents(listing.release))
+  if (listing.release) lines.push(releaseForAgents(listing.release, { protocol: PACKAGE_VERSION }))
   if (listing.recorded !== null) lines.push(`This project's data is in format ${listing.recorded}.`)
   if (listing.error) lines.push(listing.error)
   if (listing.hint) lines.push(listing.hint)

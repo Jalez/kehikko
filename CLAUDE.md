@@ -47,12 +47,13 @@
   bookmark is not followed into one, and "Locate…"/Add relink past it.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, `my-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key) and `factory/` (Factory's per-author re-review rules) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
+  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, `app-protocols.json`, `my-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key) and `factory/` (Factory's per-author re-review rules) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
-  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_MY_MODULES`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_APP_PROTOCOLS_CACHE`,
+  `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
@@ -123,6 +124,18 @@
   the worktree on a spare port (`PORT=… ./run.sh`) — protocol 2.0.0's `serves()`
   will not take over the app's registration from another folder — and stops it
   by pid when done.
+- Which Kehikot a release works with: `server/appProtocols.ts` reads the
+  `app-v*` tags of this repository (`git ls-remote`, read-only) and each tag's
+  `package.json` pin (raw.githubusercontent at the tag's commit, `gh api` when
+  refused) into app version → protocol, at most daily, the last good mapping
+  kept in `app-protocols.json` (`appProtocolsFile`). The release's need is the
+  higher of its pin and the list entry's `protocol`; the first app on the same
+  major that meets it is "Works with Kehikot 0.1.39 and later", with an upper
+  bound only once an app on a higher major exists. Without the mapping it says
+  "Needs protocol 2.6 or later", never a guessed app. Words and rules:
+  `src/host/worksWith.ts`; per release on `ModuleRelease.works`. Shown in the
+  Updates row, "What's new", a module's details (`/host/module-release`) and
+  `module_versions`.
 - What reaches the app is what is RELEASED (what is merged to main, for a
   module with no release yet); the host itself reaches people only through a
   desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
