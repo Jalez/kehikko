@@ -247,9 +247,12 @@ export function Bar({
         <Epics
           marks={activity?.epics}
           epic={subject.epic}
+          allEpics={subject.scope === 'project'}
           held={held}
           hasProject={project !== null}
-          onPick={(epic) => onSubject({ ...subject, epic })}
+          /* Any epic, or none, is one epic's scope; "All epics" is the project's. */
+          onPick={(epic) => onSubject({ ...subject, epic, scope: 'epic' })}
+          onPickAll={() => onSubject({ ...subject, epic: null, scope: 'project' })}
           /* Retitling does NOT touch the subject. The epic is the same epic; it
              is called something else. A control that moved the canvas onto what
              you had just renamed would be treating a label as an identity,
@@ -268,14 +271,17 @@ export function Bar({
          * kehikko is a layout and carries no focus. It is also where the
          * parts are made, renamed, moved and removed. See `Parts.tsx`.
          */}
-        <Parts
-          parts={parts}
-          picked={pickedParts}
-          onPick={onParts}
-          epic={subject.epic}
-          onEdit={onEditParts}
-          marks={activity?.parts}
-        />
+        {/* Not on "All epics": parts divide ONE epic, and there is none. */}
+        {subject.scope === 'project' ? null : (
+          <Parts
+            parts={parts}
+            picked={pickedParts}
+            onPick={onParts}
+            epic={subject.epic}
+            onEdit={onEditParts}
+            marks={activity?.parts}
+          />
+        )}
 
         <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
 

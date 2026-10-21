@@ -292,6 +292,25 @@ its refs, its documents and whether it is picked. Keys are absent when empty,
 so a part nobody holds anything for is the same four fields it always was. See
 `src/host/parts.ts`, and `docs/parts.md` in the protocol.
 
+## All epics at once
+
+The epic picker has **All epics** at the top. Choosing it puts the project on
+every epic at once: modules are told `context.scope: 'project'` with `epic`
+null and no parts (protocol 2.9.0), which is **not** "no epic". The parts
+picker is not drawn — parts divide one epic. The choice is held where the epic
+is, per project (`projects.scope`, and a top-level `"scope": "project"` in
+`kehikot.json`, written only while it is chosen); picking an epic, or "no
+epic", leaves it.
+
+A module says it can show a whole project with `declares.scopes: ['epic',
+'project']`, and then shows every epic, each item labelled with its epic. A
+module that does not is still sent the context, and the host covers its
+container with one sentence — "This module works on one epic at a time. Pick an
+epic to use it." — while its page stays mounted and hidden underneath, as a
+folded container's does, so its state is there when an epic is picked again. A
+pinned container is not covered: it is still on the epic it was pinned on.
+`read_canvas` and `my_place` say the scope. See `src/host/scope.ts`.
+
 ## An epic can be retitled here, and cannot be re-slugged
 
 "Rename this epic" names two operations, and the picker offers one of them. The

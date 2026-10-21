@@ -2409,7 +2409,7 @@ const server = Bun.serve({
      * Its own flat path rather than a field on the projects PATCH, because the
      * two are different kinds of write: sharing is a write to a `.gitignore`,
      * and this is a write to the database and the project's `kehikot.json`.
-     * Only `epic`, `parts` and `selection` are read off the body, one at a
+     * Only `scope`, `epic`, `parts` and `selection` are read off the body, one at a
      * time, for the reason the canvas PATCH gives. The rule that a new epic
      * clears the parts and the selection is in `setSubject`, not here. There
      * is no kehikko in this body and there must not be: what a project is
@@ -2417,12 +2417,14 @@ const server = Bun.serve({
      */
     if (url.pathname === '/host/subject' && request.method === 'PATCH') {
       const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; epic?: unknown; parts?: unknown; selection?: unknown }
+        | { project?: unknown; scope?: unknown; epic?: unknown; parts?: unknown; selection?: unknown }
         | null
       if (!body || typeof body.project !== 'number') {
         return json({ error: 'A change to what a project is about names the project.' }, 400)
       }
       const said = setSubject(db, body.project, {
+        /* "All epics", or back to one epic. Any other word is not a scope and is not read. */
+        ...(body.scope === 'project' || body.scope === 'epic' ? { scope: body.scope } : {}),
         ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
         ...(Array.isArray(body.parts) ? { parts: body.parts as string[] } : {}),
         ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
@@ -3393,6 +3395,8 @@ const server = Bun.serve({
               condition: presence.condition,
               summary: presence.module?.summary || undefined,
               guidance: presence.module?.guidance || undefined,
+              /* Whether it can show "All epics" (protocol 2.9.0); absent is one epic at a time. */
+              scopes: presence.module?.declares?.scopes,
             })),
         },
         { name: HOST_ID, version: HOST_VERSION },

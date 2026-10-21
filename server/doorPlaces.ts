@@ -267,6 +267,8 @@ export interface Looking {
   canvas: Canvas
   project: Project | null
   epic: string | null
+  /** `'project'` when the person has "All epics" open: then `epic` is null and that is not "no epic". */
+  scope: 'epic' | 'project'
   parts: string[]
 }
 
@@ -276,19 +278,26 @@ export function lookingAt(db: Database, open: number | null): Looking | null {
   if (!canvas) return null
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const subject = canvas.project === null ? null : readSubject(db, canvas.project)
-  return { canvas, project, epic: subject?.epic ?? null, parts: subject?.parts ?? [] }
+  return { canvas, project, epic: subject?.epic ?? null, scope: subject?.scope ?? 'epic', parts: subject?.parts ?? [] }
 }
 
 /** Whether the person is looking at exactly this place. */
 export function sameAsLooking(here: Here, looking: Looking | null): boolean {
   if (!looking || looking.project?.id !== here.project.id) return false
   if (looking.epic !== here.epic) return false
+  /* "All epics" is not a place a conversation can belong to, so it is never the same as one. */
+  if (looking.scope === 'project') return false
   if (here.canvas && looking.canvas.id !== here.canvas.id) return false
   return [...looking.parts].sort().join('+') === [...here.parts].sort().join('+')
 }
 
-const placeWords = (epic: string | null, parts: readonly string[], kehikko: { name: string } | null): string =>
-  `${epic ? `epic ${epic}` : 'no epic'}${parts.length ? ` (parts ${parts.join(', ')})` : ''}${kehikko ? ` on kehikko "${kehikko.name}"` : ''}`
+const placeWords = (
+  epic: string | null,
+  parts: readonly string[],
+  kehikko: { name: string } | null,
+  scope: 'epic' | 'project' = 'epic',
+): string =>
+  `${scope === 'project' ? 'all epics (scope: project)' : epic ? `epic ${epic}` : 'no epic'}${parts.length ? ` (parts ${parts.join(', ')})` : ''}${kehikko ? ` on kehikko "${kehikko.name}"` : ''}`
 
 /** "This conversation belongs to …" — the protocol's `DOOR_PLACE_SAYS.belongs`, in the host's words for a project. */
 export function belongsWords(here: Here): string {
@@ -300,7 +309,7 @@ export function belongsWords(here: Here): string {
 /** Whether the person is looking at it, and what they are on if not. */
 export function lookingWords(here: Here | null, looking: Looking | null): string {
   if (!looking) return 'No page of Kehikot has a kehikko open, so the person is not looking at anything there now.'
-  const where = `${looking.project && looking.project.id !== here?.project.id ? `${looking.project.name}, ` : ''}${placeWords(looking.epic, looking.parts, looking.canvas)}`
+  const where = `${looking.project && looking.project.id !== here?.project.id ? `${looking.project.name}, ` : ''}${placeWords(looking.epic, looking.parts, looking.canvas, looking.scope)}`
   if (!here) return `The person is looking at ${where}.`
   if (sameAsLooking(here, looking)) return 'The person is looking at this place now.'
   return `The person is looking at something else now (${where}); this conversation's place has not changed.`

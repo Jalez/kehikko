@@ -195,6 +195,8 @@ export interface Sighting {
   summary?: string
   /** What the module says its presence obliges an agent to do, when it says. */
   guidance?: string
+  /** Which scopes it can show (protocol 2.9.0): `project` is "All epics". Absent is one epic at a time. */
+  scopes?: readonly ('epic' | 'project')[]
 }
 
 /**
@@ -478,12 +480,16 @@ function canvasText(
   const subject = canvas.project === null ? null : readSubject(db, canvas.project)
   const here = placed?.here && placed.here.project.id === canvas.project ? placed.here : null
   const about = here && subject ? { ...subject, epic: here.epic, parts: here.parts } : subject
+  /* "All epics" is the person's view, and the project's; a conversation's place is always one epic or none. */
+  const openEpic = subject?.scope === 'project' ? 'all epics' : (subject?.epic ?? 'none')
   if (here) {
     lines.push(
       here.epic
-        ? `epic: ${here.epic} — this conversation's epic. ${placed?.looking && sameAsLooking(here, placed.looking) ? 'The person is looking at it too.' : `The project's open epic (what the person picks for every kehikko) is ${subject?.epic ?? 'none'}.`}`
-        : `epic: none — this conversation belongs to no epic of the project. The project's open epic is ${subject?.epic ?? 'none'}.`,
+        ? `epic: ${here.epic} — this conversation's epic. ${placed?.looking && sameAsLooking(here, placed.looking) ? 'The person is looking at it too.' : `The project's open epic (what the person picks for every kehikko) is ${openEpic}.`}`
+        : `epic: none — this conversation belongs to no epic of the project. The project's open epic is ${openEpic}.`,
     )
+  } else if (subject?.scope === 'project') {
+    lines.push(ALL_EPICS_LINE)
   } else {
     lines.push(
       about?.epic
@@ -491,6 +497,7 @@ function canvasText(
         : 'epic: none picked. Every epic-scoped module on this kehikko is told there is no epic.',
     )
   }
+  lines.push(`scope: ${subject?.scope === 'project' ? 'project — all epics at once' : 'epic — one epic at a time (or none)'}.`)
   /* The parts of the epic, each with its id — which is what `set_parts`
      takes and what a module files its own material under — and its name.
      Ids of the stored picks are marked; one that names no part of the epic
@@ -545,6 +552,10 @@ function canvasText(
         p.pinned ? 'pinned' : null,
         p.version ? `runs version ${p.version}, not latest` : null,
         p.collapsed ? 'folded to its header' : null,
+        /* "All epics", and a module that works on one epic at a time: the page covers it with a sentence. */
+        subject?.scope === 'project' && !p.pinned && sighting && sighting.condition === 'ready' && !sighting.scopes?.includes('project')
+          ? 'works on one epic at a time, so it is covered while all epics are shown'
+          : null,
         /* What the host last saw of the program, which is not the same question
            as what is arranged. A container for a module that is not running is a
            perfectly ordinary thing to have on a canvas, and an agent asked to
@@ -621,6 +632,12 @@ function canvasText(
   )
   return lines.join('\n')
 }
+
+/** What `read_canvas` says when the project is on "All epics". */
+const ALL_EPICS_LINE =
+  'epic: all epics — the person chose "All epics", so the project is on every epic at once (context.scope '
+  + '"project", with no epic and no parts). A module that can show a whole project shows every epic, each item '
+  + 'labelled with its epic; one that works on one epic at a time is covered by a sentence until an epic is picked.'
 
 /** What an answer says to a conversation with no place of its own. */
 const UNPLACED_LINE =
@@ -2106,7 +2123,7 @@ function setPartsAt(
     return {
       text: here
         ? 'This conversation belongs to no epic, so set_parts needs epic: the slug of one of the project’s epics.'
-        : `${project.name} is on no epic, so set_parts needs epic: the slug of one of its epics.`,
+        : `${project.name} is on ${readSubject(door.db, project.id)?.scope === 'project' ? 'all epics, not one' : 'no epic'}, so set_parts needs epic: the slug of one of its epics.`,
       failed: true,
     }
   }

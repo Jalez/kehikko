@@ -26,10 +26,18 @@ import { z } from 'zod'
  * project like the rest, for the reason the epic is — and `subjectOf` still
  * cannot be handed a kehikko, so a layout cannot come to carry a focus by
  * accident. It is cleared with the selection when the epic changes.
+ *
+ * And "All epics" (`scope: 'project'`): the project about every epic at once,
+ * with no one epic and so no parts. Absent for one epic or none — the server's
+ * `Subject.scope`, and the protocol's `context.scope` (2.9.0). It is kept
+ * where the epic is kept, per project, for the epic's reason: switching kehikko
+ * must not switch it.
  */
 
 export interface ProjectSubject {
   epic: string | null
+  /** `'project'` for "All epics"; absent for one epic, or none. */
+  scope?: 'project'
   /** Part ids picked out of the epic. Empty is the whole epic. */
   parts: string[]
   selection: string[]
@@ -49,6 +57,8 @@ export const subjectsSchema = z
     z.object({
       project: z.number().int(),
       epic: z.string().nullable(),
+      /* Absent from a server before "All epics", and for one epic. */
+      scope: z.enum(['epic', 'project']).optional(),
       /* Defaulted, so a server from before parts answers "the whole epic". */
       parts: z.array(z.string()).max(64).default([]),
       selection: z.array(z.string()).max(64).default([]),
@@ -57,9 +67,21 @@ export const subjectsSchema = z
   .default([])
   .transform((rows) => {
     const out: Subjects = {}
-    for (const row of rows) out[row.project] = { epic: row.epic, parts: row.parts, selection: row.selection }
+    for (const row of rows) out[row.project] = subjectFrom(row)
     return out
   })
+
+/** One subject as the server spells it, with "All epics" holding no epic and no parts. */
+function subjectFrom(row: { epic: string | null; scope?: 'epic' | 'project'; parts: string[]; selection: string[] }): ProjectSubject {
+  return row.scope === 'project'
+    ? { epic: null, scope: 'project', parts: [], selection: row.selection }
+    : { epic: row.epic, parts: row.parts, selection: row.selection }
+}
+
+/** Whether a project is on "All epics". */
+export function allEpics(subject: Pick<ProjectSubject, 'scope'>): boolean {
+  return subject.scope === 'project'
+}
 
 /** What a project is about. A project nobody has picked for is about nothing. */
 export function subjectOf(subjects: Subjects, project: number | null): ProjectSubject {
@@ -68,6 +90,8 @@ export function subjectOf(subjects: Subjects, project: number | null): ProjectSu
 }
 
 export interface SubjectEdit {
+  /** `'project'` is "All epics" and clears the epic; naming an epic, or none, without one is `'epic'`. */
+  scope?: 'epic' | 'project'
   epic?: string | null
   parts?: string[]
   selection?: string[]
@@ -80,11 +104,23 @@ export interface SubjectEdit {
  * epic has no parts.
  */
 export function edited(was: ProjectSubject, edit: SubjectEdit): ProjectSubject {
-  const epic = edit.epic !== undefined ? edit.epic : was.epic
-  const moved = epic !== was.epic
+  const scope = scopeAfter(was, edit)
+  const epic = scope === 'project' ? null : edit.epic !== undefined ? edit.epic : was.epic
+  const moved = epic !== was.epic || scope !== (was.scope ?? 'epic')
   const selection = edit.selection !== undefined ? [...edit.selection] : moved ? [] : was.selection
   const parts = epic === null ? [] : edit.parts !== undefined ? [...edit.parts] : moved ? [] : was.parts
-  return { epic, parts, selection }
+  return scope === 'project' ? { epic, scope, parts, selection } : { epic, parts, selection }
+}
+
+/**
+ * The scope after an edit, by the server's rule (`scopeAfter` in
+ * `server/canvases.ts`): what the edit says; else one epic when it names an
+ * epic or none; else what it was.
+ */
+export function scopeAfter(was: Pick<ProjectSubject, 'scope'>, edit: SubjectEdit): 'epic' | 'project' {
+  if (edit.scope === 'project' || edit.scope === 'epic') return edit.scope
+  if (edit.epic !== undefined) return 'epic'
+  return was.scope ?? 'epic'
 }
 
 /** The record with one project's subject edited, and the others untouched. */
@@ -107,10 +143,11 @@ export async function editSubject(project: number, edit: SubjectEdit): Promise<P
     .object({
       subject: z.object({
         epic: z.string().nullable(),
+        scope: z.enum(['epic', 'project']).optional(),
         parts: z.array(z.string()).default([]),
         selection: z.array(z.string()),
       }),
     })
     .parse(await response.json())
-  return parsed.subject
+  return subjectFrom(parsed.subject)
 }

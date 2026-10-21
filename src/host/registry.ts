@@ -48,6 +48,12 @@ export interface FramedModule {
     storage: boolean
     prompt?: boolean
     skills?: { name: string; summary: string; version: string }[]
+    /**
+     * Which scopes the module can show (protocol 2.9.0): `project` is "All
+     * epics". Absent means one epic at a time — from an older module, and from
+     * an older server. Read through `showsProject`; see `host/scope.ts`.
+     */
+    scopes?: ('epic' | 'project')[]
   }
   /**
    * What the server answering now is built from: version, commit, when its

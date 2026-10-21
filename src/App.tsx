@@ -73,6 +73,7 @@ import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Sai
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
+import { coveredForScope } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
@@ -1189,7 +1190,10 @@ export function App() {
    * below it, so that a re-render for any other reason does not look like a
    * context change and re-point every frame.
    */
-  const subject = useMemo<Subject>(() => ({ epic: about.epic, project }), [about.epic, project])
+  const subject = useMemo<Subject>(
+    () => ({ epic: about.epic, ...(about.scope === 'project' ? { scope: 'project' as const } : {}), project }),
+    [about.epic, about.scope, project],
+  )
 
   /**
    * The parts the open epic is divided into, read off the project's own list
@@ -1249,7 +1253,12 @@ export function App() {
      here — it is changed by opening a project, and changing it from this
      direction would mean the epic picker could move a kehikko between
      projects. */
-  const setSubject = useCallback((next: Subject) => changeSubject({ epic: next.epic }), [changeSubject])
+  const setSubject = useCallback(
+    /* "All epics" is a scope and not an epic: it clears the epic. Any epic, or
+       none, is one epic's scope again — see `scopeAfter` in `host/subject.ts`. */
+    (next: Subject) => changeSubject(next.scope === 'project' ? { scope: 'project' } : { epic: next.epic }),
+    [changeSubject],
+  )
 
   /* What every module on the canvas is told. One object, memoised, so that a
      re-render caused by anything else does not look like a context change and
@@ -3426,7 +3435,12 @@ export function App() {
             !placements.find((p) => p.i === id)?.collapsed &&
             /* The same decision the container's body draws from, so a page
                and a cover are never both up, or neither. */
-            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId).kind === 'page',
+            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId).kind === 'page' &&
+            /* "All epics", and a module that works on one epic at a time: its
+               container draws the sentence and the page is hidden under it —
+               kept, as a folded page is, so it is all still there when an epic
+               is picked again. See `host/scope.ts`. */
+            !coveredForScope(about.scope, module, placements.find((p) => p.i === id)?.pinned ?? false),
           state: byId.get(id)?.state ?? null,
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
           /* Composed here rather than in the module, because only the host
@@ -3447,7 +3461,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope])
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -3944,6 +3958,7 @@ export function App() {
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
                   epic={about.epic}
+                  oneEpic={!waiting && coveredForScope(about.scope, presence.module, placement.pinned)}
                   canvas={open?.id ?? null}
                   version={placement.version ?? null}
                   current={waiting ? null : (presence.module?.version ?? null)}

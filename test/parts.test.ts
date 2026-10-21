@@ -326,7 +326,7 @@ describe('a kehikko is a layout, and carries no focus', () => {
       expect(Object.keys(canvas)).not.toContain('epic')
     }
     expect(PORTABLE_CANVAS_FIELDS as readonly string[]).not.toContain('parts')
-    expect(PORTABLE_SUBJECT_FIELDS).toEqual(['epic', 'parts', 'selection'])
+    expect(PORTABLE_SUBJECT_FIELDS).toEqual(['epic', 'scope', 'parts', 'selection'])
     const raw = JSON.parse(readFileSync(kehikotFile(dir)!, 'utf8'))
     expect(raw.parts).toEqual(['a', 'b'])
     for (const kehikko of raw.kehikot) expect(Object.keys(kehikko).sort()).toEqual(['containers', 'key', 'name'])
