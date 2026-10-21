@@ -14,6 +14,7 @@ import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
 import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
+import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
 import { RefreshButton } from './Refreshing.tsx'
@@ -91,6 +92,7 @@ export function Container({
   onRemove,
   kehikko,
   epic,
+  oneEpic = false,
   canvas = null,
   version = null,
   current = null,
@@ -99,6 +101,13 @@ export function Container({
   onActivitySeen,
 }: {
   presence: Presence
+  /**
+   * The project is on "All epics" and this module works on one epic at a
+   * time: the body says so over the page, which is kept hidden underneath.
+   * Decided by `coveredForScope` in `host/scope.ts`, for this body and the
+   * frames layer alike.
+   */
+  oneEpic?: boolean
   /**
    * What this container shows — the page, the cover, or a notice — decided
    * once, in `host/standing.ts`, for this body and the frames layer alike.
@@ -771,6 +780,16 @@ export function Container({
         {showing.kind === 'cover' ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
             <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} />
+          </div>
+        ) : null}
+
+        {/* "All epics", and a module that cannot show them: one quiet sentence
+            in place of a page that would be blank or on the last epic. Opaque
+            and taking the pointer, like a notice; the page is hidden beneath
+            it, not unloaded. See `host/scope.ts`. */}
+        {showing.kind === 'page' && oneEpic ? (
+          <div className="bg-card pointer-events-auto absolute inset-0 flex items-center justify-center p-4">
+            <p className="text-muted-foreground max-w-64 text-center text-xs text-balance">{ONE_EPIC_AT_A_TIME}</p>
           </div>
         ) : null}
 

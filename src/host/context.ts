@@ -7,6 +7,7 @@ import {
   passageSchema,
   type CanvasContainer,
   type ContentChange,
+  type ContextScope,
   type Disposition,
   type EpicPart,
   type ModuleContext,
@@ -109,6 +110,14 @@ import type { Project } from './projects.ts'
 
 export interface Subject {
   epic: string | null
+  /**
+   * `'project'` when the person chose "All epics": every epic of the project at
+   * once, which goes out as `context.scope: 'project'` with `epic` null and no
+   * parts (protocol 2.9.0). Absent, or `'epic'`, is one epic or none. NOT the
+   * same as no epic: a module that can show a whole project shows all of it,
+   * and one that cannot is covered by the host (`host/scope.ts`).
+   */
+  scope?: ContextScope
   /**
    * The project that is open, whole, or null when there is none.
    *
@@ -305,8 +314,12 @@ export function toWireContext(
      not spelled as a key is left out, and the context keeps everything else. */
   const wire = kehikkoOnWire(kehikko)
 
+  /* "All epics" names no one epic and so divides nothing, whatever was handed in. */
+  const whole = subject.scope === 'project'
   const parsed = contextSchema.safeParse({
-    epic: subject.epic,
+    epic: whole ? null : subject.epic,
+    /* Said always, `'epic'` included: a module reading it needs no default. */
+    scope: whole ? 'project' : 'epic',
     /* Name and path, filled in from one project in one expression. Two nullable
        fields on the wire that can disagree — see `projectPath` in the
        protocol's `wire.ts` — and the way a host stops them disagreeing is to
@@ -325,7 +338,7 @@ export function toWireContext(
     dispositions,
     tracker,
     content,
-    parts: divided,
+    parts: whole ? [] : divided,
   })
   if (parsed.success) return parsed.data
 
@@ -368,6 +381,8 @@ export function toWireContext(
      make one bad row in a table close somebody's document. */
   const bare = contextSchema.safeParse({
     epic: null,
+    /* "All epics" has no slug to fail, so this branch is one epic's: none. */
+    scope: 'epic',
     project: subject.project?.name ?? null,
     projectPath: subject.project?.path ?? null,
     projectId: idOf(subject.project),

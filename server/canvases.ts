@@ -11,6 +11,8 @@ import {
 } from 'kehikot-module-protocol'
 import { STORED_GROUPS } from '../src/host/filters.ts'
 import { partIdsIn } from '../src/host/parts.ts'
+/* The one rule for when a write leaves "All epics", shared with the page. */
+import { scopeAfter } from '../src/host/subject.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
 
@@ -470,12 +472,27 @@ export interface CanvasEdit {
  */
 export interface Subject {
   epic: string | null
+  /**
+   * `'project'` when the person chose "All epics": the project is about every
+   * epic at once, `epic` is null and `parts` empty. ABSENT for one epic or
+   * none, which is what every project was before it — so a subject from
+   * before reads and compares exactly as it did, and the file is written as
+   * it was. Not "no epic": see `context.scope` in the protocol (2.9.0).
+   */
+  scope?: 'project'
   parts: string[]
   selection: string[]
 }
 
 /** What a project's subject may be changed to. Absent means unchanged; `null` means cleared. */
 export interface SubjectEdit {
+  /**
+   * `'project'` is "All epics", and clears the epic. `'epic'` leaves it for
+   * one epic (the one in `epic`, or none). Naming an epic, or `epic: null`,
+   * without a scope is `'epic'` too: picking one epic, or "no epic", is
+   * leaving "All epics".
+   */
+  scope?: 'epic' | 'project'
   epic?: string | null
   /** The part ids picked out. `[]` is the whole epic. */
   parts?: string[]
@@ -665,6 +682,9 @@ export function open(file = databaseFile()): Database {
      which is "the whole epic": a database from before parts existed reads as
      every project on all of its epic, which is what it was. */
   add(db, 'projects', 'parts', "text not null default '[]'")
+  /* "All epics" — see `Subject.scope`. `'epic'` by default, which is what every
+     project was before the column: one epic, or none. */
+  add(db, 'projects', 'scope', "text not null default 'epic'")
   /*
    * A project's permanent id (protocol 2.1.0), the one in its own
    * `.kehikot/project.json` — see `projectIdentity.ts`. The path is where the
@@ -734,7 +754,8 @@ export function open(file = databaseFile()): Database {
  */
 export function epicFromKehikot(db: Database, project: number): void {
   const now = readSubject(db, project)
-  if (!now || now.epic !== null) return
+  /* "All epics" is a choice, not an absence: nothing remembered overrules it. */
+  if (!now || now.epic !== null || now.scope === 'project') return
   const first = db
     .query<{ epic: string; selection: string | null }, [number]>(
       `select epic, selection from canvases
@@ -1091,26 +1112,31 @@ export function ensureCanvases(db: Database, project: number | null = null): Can
  */
 export function readSubject(db: Database, project: number): Subject | null {
   const row = db
-    .query<{ epic: string | null; parts: string | null; selection: string | null }, [number]>(
-      'select epic, parts, selection from projects where id = ?',
+    .query<{ epic: string | null; scope: string | null; parts: string | null; selection: string | null }, [number]>(
+      'select epic, scope, parts, selection from projects where id = ?',
     )
     .get(project)
-  return row ? { epic: subject(row.epic), parts: partsFrom(row.parts), selection: refsFrom(row.selection) } : null
+  return row ? subjectFrom(row) : null
+}
+
+/**
+ * One row's subject. "All epics" holds no epic and no parts whatever the
+ * columns say — the rule `setSubject` writes by, applied again on the way out
+ * to a database somebody may have edited.
+ */
+function subjectFrom(row: { epic: string | null; scope: string | null; parts: string | null; selection: string | null }): Subject {
+  if (row.scope === 'project') return { epic: null, scope: 'project', parts: [], selection: refsFrom(row.selection) }
+  return { epic: subject(row.epic), parts: partsFrom(row.parts), selection: refsFrom(row.selection) }
 }
 
 /** Every project's subject, by project id. For the page, which holds them all. */
 export function listSubjects(db: Database): ({ project: number } & Subject)[] {
   return db
-    .query<{ id: number; epic: string | null; parts: string | null; selection: string | null }, []>(
-      'select id, epic, parts, selection from projects order by rank, id',
+    .query<{ id: number; epic: string | null; scope: string | null; parts: string | null; selection: string | null }, []>(
+      'select id, epic, scope, parts, selection from projects order by rank, id',
     )
     .all()
-    .map((row) => ({
-      project: row.id,
-      epic: subject(row.epic),
-      parts: partsFrom(row.parts),
-      selection: refsFrom(row.selection),
-    }))
+    .map((row) => ({ project: row.id, ...subjectFrom(row) }))
 }
 
 /**
@@ -1133,19 +1159,22 @@ export function listSubjects(db: Database): ({ project: number } & Subject)[] {
 export function setSubject(db: Database, project: number, edit: SubjectEdit): Subject | null {
   const before = readSubject(db, project)
   if (!before) return null
-  const epic = edit.epic !== undefined ? subject(edit.epic) : before.epic
-  const moved = epic !== before.epic
+  const scope = scopeAfter(before, edit)
+  /* "All epics" holds no one epic. */
+  const epic = scope === 'project' ? null : edit.epic !== undefined ? subject(edit.epic) : before.epic
+  const moved = epic !== before.epic || scope !== (before.scope ?? 'epic')
   const selection = edit.selection !== undefined ? refsIn(edit.selection) : moved ? [] : before.selection
   /* No epic has no parts, whatever the edit says: there is nothing for an id
-     to be a part of. */
+     to be a part of. "All epics" is no ONE epic, and has none either. */
   const parts = epic === null ? [] : edit.parts !== undefined ? partIdsIn(edit.parts) : moved ? [] : before.parts
-  db.query('update projects set epic = ?, parts = ?, selection = ?, subject_pending = 0 where id = ?').run(
+  db.query('update projects set epic = ?, scope = ?, parts = ?, selection = ?, subject_pending = 0 where id = ?').run(
     epic,
+    scope,
     JSON.stringify(parts),
     JSON.stringify(selection),
     project,
   )
-  return { epic, parts, selection }
+  return scope === 'project' ? { epic, scope, parts, selection } : { epic, parts, selection }
 }
 
 /**
@@ -1185,7 +1214,7 @@ export function hintSubject(db: Database, canvas: number): number | null {
   if (!row || row.project === null || row.pending !== 1 || subject(row.epic) === null) return null
   /* The epic moves, so what was picked out of the old one goes — `setSubject`'s
      rule, restated because this write does not go through it. */
-  db.query("update projects set epic = ?, parts = '[]', selection = ? where id = ?").run(
+  db.query("update projects set epic = ?, scope = 'epic', parts = '[]', selection = ? where id = ?").run(
     subject(row.epic),
     JSON.stringify(refsFrom(row.selection)),
     row.project,

@@ -1,4 +1,4 @@
-import { ChevronDown, Circle, CircleSlash } from 'lucide-react'
+import { ChevronDown, Circle, CircleSlash, Layers } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
+import { ALL_EPICS } from '@/host/scope.ts'
 import { sizeWords, type Epic, type Epics as Held } from '@/host/projects.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
@@ -125,12 +126,26 @@ import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './
  * they differ in exactly one thing afterwards, which `onCreateEpic` in
  * `App.tsx` argues: a person who pressed `+` and typed a title has chosen this
  * epic; an agent has not chosen it for them.
+ *
+ * ## "All epics" is at the top, and it is not "no epic"
+ *
+ * Choosing it puts the project on every epic at once (`context.scope:
+ * 'project'`, protocol 2.9.0): a module that can show a whole project shows
+ * every epic, each item labelled with its own, and the host covers one that
+ * cannot with a sentence (`host/scope.ts`). It is at the TOP because it is the
+ * widest of the choices and the list below it is the narrower ones; "no epic"
+ * stays at the bottom, apart, because it is the absence of a subject and this
+ * is the largest one. Only offered when there are epics: "every epic" of a
+ * project with none is no epic, said twice. It is held where the epic is held,
+ * per project, and picking any epic leaves it.
  */
 /* A map that is never written to, so a render without marks reads the same one. */
 const NO_MARKS: ReadonlyMap<string, ActivityState> = new Map()
 
 export function Epics({
   epic,
+  allEpics = false,
+  onPickAll,
   held,
   hasProject,
   onPick,
@@ -141,6 +156,10 @@ export function Epics({
 }: {
   /** What the kehikko is on now, straight from the canvas's subject. */
   epic: string | null
+  /** Whether the project is on "All epics" — then `epic` is null and this, not "no epic", is what is shown. */
+  allEpics?: boolean
+  /** Put the project on "All epics". Absent: the choice is not offered. */
+  onPickAll?: () => void
   /** What this project holds, or null while it is still being read. */
   held: Held | null
   hasProject: boolean
@@ -202,9 +221,11 @@ export function Epics({
         ? 'this project has no .kehikot/host/epics, so there is no epic to pick — which is not a fault: not every project has any'
         : epics.length === 0
           ? 'this project’s .kehikot/host/epics is empty'
-          : picked
-            ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/host/epics`
-            : 'the epic every module on this kehikko is shown'
+          : allEpics
+            ? 'every epic of this project at once — a module that works on one epic at a time says so'
+            : picked
+              ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/host/epics`
+              : 'the epic every module on this kehikko is shown'
 
   return (
     <DropdownMenu>
@@ -222,13 +243,15 @@ export function Epics({
               disabled={shut}
               className="h-6 max-w-72 min-w-6 shrink gap-1 max-[400px]:min-w-5 px-1.5 text-xs disabled:pointer-events-none max-[640px]:has-[>svg]:px-1"
             >
-              {epic ? (
+              {allEpics ? (
+                <Layers className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
+              ) : epic ? (
                 <Circle className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
               ) : (
                 <CircleSlash className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
               )}
-              <span className={epic ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
-                {picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
+              <span className={epic || allEpics ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
+                {allEpics ? ALL_EPICS : picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
               </span>
               {/* Another epic holds something: said on the closed control, so
                   it is not found only by opening the list. */}
@@ -289,6 +312,17 @@ export function Epics({
             {nothingToPick ? (
               <p className="text-muted-foreground px-2 pb-1.5 text-xs">{sentenceFor(hasProject, held)}</p>
             ) : null}
+            {/* The widest choice first; see "All epics" in the essay above. */}
+            {!nothingToPick && onPickAll ? (
+              <>
+                <DropdownMenuItem onSelect={onPickAll}>
+                  <DropdownMenuCheck checked={allEpics} />
+                  <span className="min-w-0 flex-1 truncate">{ALL_EPICS}</span>
+                  <Layers className="text-muted-foreground size-3 shrink-0" />
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
             {epics.map((one) => (
               <DropdownMenuItem
                 key={one.slug}
@@ -320,7 +354,7 @@ export function Epics({
                 />
               </DropdownMenuItem>
             ))}
-            {epic ? (
+            {epic || allEpics ? (
               <>
                 <DropdownMenuSeparator />
                 {/* "No epic" is a state a kehikko is allowed to be in, and every

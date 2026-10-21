@@ -195,6 +195,13 @@ import { hostPath } from './hostData.ts'
  * version, and for the same reason — it would otherwise drop the focus on its
  * next write.
  *
+ * `scope` — `"project"` when the person chose "All epics" — is a fourth key at
+ * the top, after `epic`, written ONLY when it is `"project"`, for the reasons
+ * `parts` is written only when it is not empty: absent is one epic (or none),
+ * a project nobody has put on "All epics" keeps the file it had, and the
+ * version stays 2. A host from before it refuses a file that has it, with a
+ * sentence, rather than dropping the choice on its next write.
+ *
  * Indented JSON with a fixed key order and a trailing newline, and every
  * container on ONE line, so that a moved container is one changed line in a
  * diff and a person can read the arrangement down the page. Containers are in
@@ -250,7 +257,7 @@ void everyPlacementFieldTravels
 export const PORTABLE_CANVAS_FIELDS = ['key', 'name'] as const satisfies readonly (keyof Canvas)[]
 
 /** What the file says once, about the project rather than about any kehikko. */
-export const PORTABLE_SUBJECT_FIELDS = ['epic', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
+export const PORTABLE_SUBJECT_FIELDS = ['epic', 'scope', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
 
 type UntaughtSubjectField = Exclude<keyof Subject, (typeof PORTABLE_SUBJECT_FIELDS)[number]>
 /* The same device as the placements': a field added to `Subject` and not to
@@ -400,6 +407,8 @@ const fileSchema = z
   .object({
     version: z.literal(VERSION),
     epic: epicSchema,
+    /* Optional in the file: absent is one epic. See "The shape of the file". */
+    scope: z.enum(['epic', 'project']).default('epic'),
     parts: partsSchema,
     selection: selectionSchema,
     kehikot: z.array(kehikkoSchema).max(500),
@@ -500,6 +509,8 @@ export function serialize(canvases: readonly Canvas[], subject: Subject = NO_SUB
     '{',
     `  "version": ${VERSION},`,
     `  "epic": ${JSON.stringify(subject.epic)},`,
+    /* Only for "All epics" — see "The shape of the file". */
+    ...(subject.scope === 'project' ? ['  "scope": "project",'] : []),
     /* Only when some are picked — see "The shape of the file". */
     ...(subject.parts.length ? [`  "parts": ${JSON.stringify(subject.parts)},`] : []),
     `  "selection": ${JSON.stringify(subject.selection)},`,
@@ -580,11 +591,15 @@ export function parse(text: string): Parsed {
       ok: true,
       /* No epic has no parts — `setSubject`'s rule, applied to a file somebody
          may have edited by hand. */
-      subject: {
-        epic: read.data.epic,
-        parts: read.data.epic === null ? [] : partIdsIn(read.data.parts),
-        selection: read.data.selection,
-      },
+      subject:
+        /* "All epics" holds no one epic and no parts, whatever else the file says. */
+        read.data.scope === 'project'
+          ? { epic: null, scope: 'project', parts: [], selection: read.data.selection }
+          : {
+              epic: read.data.epic,
+              parts: read.data.epic === null ? [] : partIdsIn(read.data.parts),
+              selection: read.data.selection,
+            },
       kehikot: read.data.kehikot,
       older: false,
     }
@@ -744,6 +759,7 @@ export function syncProject(db: Database, project: { id: number; path: string })
     const before = readSubject(db, project.id) ?? NO_SUBJECT
     if (serialize([], before) !== serialize([], read.subject)) {
       setSubject(db, project.id, {
+        scope: read.subject.scope ?? 'epic',
         epic: read.subject.epic,
         parts: read.subject.parts,
         selection: read.subject.selection,
