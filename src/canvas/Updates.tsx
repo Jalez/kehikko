@@ -53,7 +53,7 @@ import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
-import { needsNewerSaid, releaseSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -216,7 +216,15 @@ export function Updates({
   const moduleNotes = useModuleNotes()
   const notesOpen = notes.open || moduleNotes.open
   const showModuleNotes = (name: string, release: ModuleRelease, opener: HTMLElement) => {
-    if (release.repo && release.notes.length) moduleNotes.show({ repo: release.repo, name, tags: release.notes, opener })
+    if (release.repo && release.notes.length) {
+      const works = Object.fromEntries(
+        release.notes.flatMap((tag) => {
+          const said = worksSaid(release, tag)
+          return said ? [[tag, said]] : []
+        }),
+      )
+      moduleNotes.show({ repo: release.repo, name, tags: release.notes, works, opener })
+    }
   }
 
   /* Listen to the shell's push, and ask once now — which is also what tells
@@ -655,6 +663,7 @@ export function Updates({
                       offersAppRestart(outcome, check?.restartable ?? false) ? () => void restartApp() : null
                     }
                     onNotes={(release, opener) => showModuleNotes(one.name, release, opener)}
+                    have={{ app: app?.current ?? null, protocol: check?.protocol ?? null }}
                   />
                 )
               })}
@@ -817,6 +826,7 @@ function Row({
   onAnyway,
   onRestartApp,
   onNotes,
+  have,
 }: {
   /** The same state the app row and the header indicator read. */
   row: UpdateRow
@@ -840,6 +850,8 @@ function Row({
   onRestartApp: (() => void) | null
   /** "What's new" on a module that runs releases: the notes of `release.notes`, newest first. */
   onNotes?(release: ModuleRelease, opener: HTMLElement): void
+  /** What this Kehikot is: the app's version inside the desktop app, and the host's protocol. For "you have …". */
+  have?: { app: string | null; protocol: string | null }
 }) {
   if (!isCheckout(reading)) {
     return (
@@ -869,7 +881,12 @@ function Row({
           <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
         ) : null}
       </div>
-      {release && needsNewerSaid(release) ? <p className="text-muted-foreground pt-1">{needsNewerSaid(release)}</p> : null}
+      {release && worksSaid(release, releaseInView(release)) ? (
+        <p className="text-muted-foreground pt-1" data-testid="updates-works">
+          {worksSaid(release, releaseInView(release))}
+        </p>
+      ) : null}
+      {release && needsNewerSaid(release, have) ? <p className="text-muted-foreground pt-1">{needsNewerSaid(release, have)}</p> : null}
       {row.state === 'pinned' ? (
         <p className="pt-1 text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
           {row.reason}

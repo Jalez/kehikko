@@ -11,12 +11,15 @@ import {
   isRelease,
   needsNewerSaid,
   releaseForAgents,
+  releaseInView,
   releaseLine,
   releaseNotesTitle,
   releaseSaid,
   releasesNewestFirst,
+  worksSaid,
   type ModuleRelease,
 } from '../src/host/moduleReleases.ts'
+import type { AppProtocol } from '../src/host/worksWith.ts'
 import { moduleRow, stateText } from '../src/host/updateModel.ts'
 import { waiting } from '../src/host/updates.ts'
 
@@ -78,7 +81,7 @@ function module() {
 }
 
 /** The follower, with the remote's tags read from the bare origin as `git ls-remote` would — stubbed, and counted. */
-function followerOf(origin: string, options: { entry?: string; have?: string; fail?: string } = {}) {
+function followerOf(origin: string, options: { entry?: string; have?: string; fail?: string; apps?: () => AppProtocol[] | null } = {}) {
   let asked = 0
   let fresh = 0
   let clock = 1_000_000
@@ -95,6 +98,7 @@ function followerOf(origin: string, options: { entry?: string; have?: string; fa
     tags,
     have: options.have ?? '2.5.0',
     entryProtocol: () => options.entry,
+    ...(options.apps ? { apps: options.apps } : {}),
     now: () => clock,
   })
   return {
@@ -241,7 +245,60 @@ describe('an installed copy', () => {
     m.release('1.2.0', '3.0.0')
     const reading = await read(m.place(f))
     expect(reading.release).toMatchObject({ newest: 'v1.1.0', target: 'v1.1.0', needsNewer: { tag: 'v1.2.0', protocol: '3.0.0' } })
-    expect(needsNewerSaid(reading.release!)).toBe('1.2.0 needs a newer Kehikot (protocol 3.0.0).')
+    expect(needsNewerSaid(reading.release!)).toBe('1.2.0 needs a newer Kehikot (protocol 3.0 or later).')
+  })
+
+  test('each release named says which Kehikot it works with, from the app mapping', async () => {
+    const m = module()
+    m.release('1.0.0', '2.0.0')
+    m.clone()
+    const apps = [
+      { app: '0.1.21', protocol: '1.7.0' },
+      { app: '0.1.22', protocol: '2.0.0' },
+      { app: '0.1.37', protocol: '2.6.0' },
+      { app: '0.1.39', protocol: '2.10.0' },
+    ]
+    const f = followerOf(m.origin, { have: '2.10.0', apps: () => apps })
+    await f.follower.settle(m.place(f))
+    m.release('1.1.0', '2.6.0')
+    m.release('1.2.0', '2.11.0')
+    const reading = await read(m.place(f))
+    const release = reading.release!
+    expect(release).toMatchObject({ installed: 'v1.0.0', target: 'v1.1.0', needsNewer: { tag: 'v1.2.0', protocol: '2.11.0' } })
+    expect(worksSaid(release, 'v1.0.0')).toBe('Works with Kehikot 0.1.22 and later')
+    expect(worksSaid(release, releaseInView(release))).toBe('Works with Kehikot 0.1.37 and later')
+    expect(needsNewerSaid(release, { app: '0.1.40' })).toBe('1.2.0 needs a Kehikot newer than 0.1.39 (protocol 2.11 or later); you have 0.1.40.')
+    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('v1.1.0: Works with Kehikot 0.1.37 and later.')
+  })
+
+  test('an entry protocol higher than the pin is the need it is said with', async () => {
+    const m = module()
+    m.release('1.0.0', '2.0.0')
+    m.clone()
+    const f = followerOf(m.origin, { have: '2.10.0', entry: '2.6.0', apps: () => [{ app: '0.1.37', protocol: '2.6.0' }] })
+    await f.follower.settle(m.place(f))
+    const reading = await read(m.place(f))
+    expect(reading.release?.works?.['v1.0.0']).toMatchObject({ kind: 'from', need: '2.6.0', from: '0.1.37' })
+  })
+
+  test('without the app mapping the words fall back to the protocol', async () => {
+    const m = module()
+    m.release('1.0.0', '2.6.0')
+    m.clone()
+    const f = followerOf(m.origin, { have: '2.10.0', apps: () => null })
+    await f.follower.settle(m.place(f))
+    const reading = await read(m.place(f))
+    expect(worksSaid(reading.release!, 'v1.0.0')).toBe('Needs protocol 2.6 or later')
+  })
+
+  test('a host that reads no apps says nothing about them', async () => {
+    const m = module()
+    m.release('1.0.0', '2.0.0')
+    m.clone()
+    const f = followerOf(m.origin)
+    await f.follower.settle(m.place(f))
+    const reading = await read(m.place(f))
+    expect(reading.release?.works).toBeUndefined()
   })
 
   test('a copy on main moves to a release that contains its commit', async () => {

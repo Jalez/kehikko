@@ -90,6 +90,17 @@ export function officialListFile(env: Env = process.env): string {
 }
 
 /**
+ * Which protocol package each Kehikot app release shipped, as last read from
+ * the app tags of the host's repository — see `server/appProtocols.ts`. One
+ * small file beside the official list's cache, so a host started offline can
+ * still say which Kehikot a module release works with.
+ * `KEHIKOT_APP_PROTOCOLS_CACHE` overrides it (tests, scratch hosts).
+ */
+export function appProtocolsFile(env: Env = process.env): string {
+  return env.KEHIKOT_APP_PROTOCOLS_CACHE || join(machineDir(env), 'app-protocols.json')
+}
+
+/**
  * "My modules": the modules this person added from a repository, private or
  * not, that are on no official list — see `server/myModules.ts`. One small
  * file beside the official list's cache. It is this machine's alone: never

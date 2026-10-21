@@ -19,7 +19,14 @@
  *   what a copy installed before releases existed can be. It is held where it
  *   is, never moved back to an older release, and moves to the first release
  *   that contains it.
+ *
+ * ## Which Kehikot a release works with
+ *
+ * `works` says it per release (`src/host/worksWith.ts`): the first app whose
+ * protocol meets the release's need, "Works with Kehikot 0.1.39 and later".
  */
+
+import { needsKehikotSaid, protocolSaid, worksWithSaid, type WorksWith } from './worksWith.ts'
 
 export type Follows = 'release' | 'main' | 'ahead'
 
@@ -43,6 +50,13 @@ export interface ModuleRelease {
   repo: string | null
   /** Why the releases could not be read just now, when they could not. */
   error: string | null
+  /**
+   * Which Kehikot each release named above works with — installed, newest,
+   * target, every one in `notes`, and `needsNewer` — by tag. A release that
+   * states no protocol need has no entry. Absent from a host that does not
+   * read the app tags.
+   */
+  works?: Record<string, WorksWith>
 }
 
 const RELEASE = /^v(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/
@@ -96,10 +110,28 @@ export function releaseLine(name: string, release: ModuleRelease): string {
   return `${name} ${releaseSaid(release)}`
 }
 
-/** Said under the line when a newer release needs a newer app, or null. */
-export function needsNewerSaid(release: ModuleRelease): string | null {
+/** "Works with Kehikot 0.1.39 and later" for one release, or null when it is not known. */
+export function worksSaid(release: ModuleRelease, tag: string | null): string | null {
+  if (!tag || !release.works || !Object.hasOwn(release.works, tag)) return null
+  return worksWithSaid(release.works[tag]!)
+}
+
+/** The release a row speaks of: the one an update moves to, else the one it runs, else the newest. */
+export function releaseInView(release: ModuleRelease): string | null {
+  return release.target ?? release.installed ?? release.newest
+}
+
+/**
+ * Said under the line when a newer release needs a newer app, or null:
+ * "1.7.0 needs Kehikot 0.1.41 or later; you have 0.1.40." `have.app` is the
+ * running app's version, inside the desktop app; elsewhere the host's protocol.
+ */
+export function needsNewerSaid(release: ModuleRelease, have: { app?: string | null; protocol?: string | null } = {}): string | null {
   if (!release.needsNewer) return null
-  return `${releaseVersion(release.needsNewer.tag)} needs a newer Kehikot (protocol ${release.needsNewer.protocol}).`
+  const version = releaseVersion(release.needsNewer.tag)
+  const works = release.works && Object.hasOwn(release.works, release.needsNewer.tag) ? release.works[release.needsNewer.tag]! : null
+  if (works) return needsKehikotSaid(version, works, have)
+  return `${version} needs a newer Kehikot (protocol ${protocolSaid(release.needsNewer.protocol)} or later).`
 }
 
 /** The title of the notes dialog: "What's new in Journeys 1.6.0", or "…1.5.0 → 1.6.0" over several. */
@@ -110,7 +142,11 @@ export function releaseNotesTitle(name: string, tags: readonly string[]): string
 }
 
 /** What `module_versions` tells an agent about the installed copy's releases. */
-export function releaseForAgents(release: ModuleRelease): string {
+export function releaseForAgents(release: ModuleRelease, have: { protocol?: string | null } = {}): string {
+  return [releaseStanding(release), ...worksForAgents(release, have)].join(' ')
+}
+
+function releaseStanding(release: ModuleRelease): string {
   const newer = release.needsNewer ? ` ${release.needsNewer.tag} exists but needs protocol ${release.needsNewer.protocol}, newer than this host has.` : ''
   const unread = release.error ? ` (its releases could not be read just now: ${release.error})` : ''
   if (release.follows === 'main') return `The installed copy follows main: it has no releases yet${unread}.${newer}`
@@ -120,4 +156,19 @@ export function releaseForAgents(release: ModuleRelease): string {
   const on = release.installed ? `release ${release.installed}` : 'main'
   if (release.target) return `The installed copy runs ${on}; the newest release this host can run is ${release.target}, which it moves to at its next start${unread}.${newer}`
   return `The installed copy runs ${on}, the newest release this host can run${unread}.${newer}`
+}
+
+/** One sentence per release an agent is told about: installed, the newest it can run, and the one it cannot. */
+function worksForAgents(release: ModuleRelease, have: { protocol?: string | null }): string[] {
+  const lines: string[] = []
+  const seen = new Set<string>()
+  for (const tag of [release.installed, release.target ?? release.newest]) {
+    if (!tag || seen.has(tag)) continue
+    seen.add(tag)
+    const said = worksSaid(release, tag)
+    if (said) lines.push(`${tag}: ${said}.`)
+  }
+  const newer = needsNewerSaid(release, { protocol: have.protocol ?? null })
+  if (newer && release.works && release.needsNewer && Object.hasOwn(release.works, release.needsNewer.tag)) lines.push(newer)
+  return lines
 }

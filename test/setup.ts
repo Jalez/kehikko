@@ -34,6 +34,7 @@ import { join, sep } from 'node:path'
 import { agentConfigFile } from '../server/agents.ts'
 import { claudeSkillsDir } from '../server/skills.ts'
 import {
+  appProtocolsFile,
   browserProfileDir,
   factoryDir,
   frameDbFile,
@@ -63,6 +64,7 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_VERSIONS_DIR', scratch: join(SCRATCH, 'versions'), resolved: () => versionsDir() },
   { variable: 'KEHIKOT_INSTALLS_DIR', scratch: join(SCRATCH, 'installed'), resolved: () => installsDir() },
   { variable: 'KEHIKOT_OFFICIAL_CACHE', scratch: join(SCRATCH, 'official-modules.json'), resolved: () => officialListFile() },
+  { variable: 'KEHIKOT_APP_PROTOCOLS_CACHE', scratch: join(SCRATCH, 'app-protocols.json'), resolved: () => appProtocolsFile() },
   { variable: 'KEHIKOT_MY_MODULES', scratch: join(SCRATCH, 'my-modules.json'), resolved: () => myModulesFile() },
   { variable: 'KEHIKOT_LOGS_DIR', scratch: join(SCRATCH, 'logs'), resolved: () => logsDir() },
   { variable: 'KEHIKOT_BROWSER_PROFILE', scratch: join(SCRATCH, 'browser-profile'), resolved: () => browserProfileDir() },
@@ -77,6 +79,8 @@ function pointAtScratch(): void {
   for (const { variable, scratch } of LOCATIONS) process.env[variable] = scratch
   /* And no test asks GitHub for the official module list (`officialSource.ts`). */
   process.env.KEHIKOT_OFFICIAL_LIST = 'off'
+  /* Nor for the app tags that say which protocol each Kehikot shipped (`appProtocols.ts`). */
+  process.env.KEHIKOT_APP_PROTOCOLS = 'off'
 }
 
 const under = (path: string, dir: string) => path === dir || path.startsWith(dir + sep)

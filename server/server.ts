@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
@@ -106,7 +106,8 @@ import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
+import { appProtocolsFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
+import { appProtocolSource, appProtocolsOn } from './appProtocols.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
@@ -423,7 +424,30 @@ const follower = releaseFollower({
   tags: { tags: (url, fresh) => tagLister.tags(url, fresh) },
   entryProtocol: (id) =>
     official.current().find((one) => one.id === id)?.protocol ?? readMine(myModulesFile()).modules.find((one) => one.id === id)?.protocol,
+  /* Which Kehikot each release works with ("Works with Kehikot 0.1.39 and later"). */
+  apps: () => appProtocols.apps(),
 })
+
+/* Which protocol each Kehikot app release shipped: the `app-v*` tags of this
+   host's repository and each one's `package.json`, read at most daily, the last
+   good mapping kept on disk. Asked here and when somebody checks for updates —
+   never on a timer. See `appProtocols.ts`. */
+const appProtocols = appProtocolSource({
+  run: runQuietly,
+  cache: appProtocolsFile(),
+  on: appProtocolsOn(),
+  gh: async (path) => {
+    const ran = await spawnRunner(['gh', 'api', path])
+    if (ran.code !== 0) return null
+    try {
+      return JSON.parse(ran.out) as unknown
+    } catch {
+      return null
+    }
+  },
+  log: (line) => console.log(line),
+})
+void appProtocols.refresh()
 
 
 /* Feedback on a module, filed as an issue in its repository. The repository is
@@ -2873,6 +2897,9 @@ const server = Bun.serve({
       /* Somebody asked what is new: that includes which modules exist. Not
          waited for — the answer here is about checkouts. */
       if (fetch) void official.refresh()
+      /* And which Kehikot each release works with: read at most daily, so
+         this is nearly always instant; never waited for long. */
+      if (fetch) await appProtocols.settled(4_000)
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
       await judgeStaleness()
       return json({
@@ -2896,7 +2923,26 @@ const server = Bun.serve({
         /* Which running modules are kept: the ones whose row offers "Restart
            anyway" where an ordinary restart would only be refused. */
         kept: await keptAndRunning(),
+        /* The protocol package this host has: what "you have" is compared
+           with when the page does not know the app's version. */
+        protocol: PACKAGE_VERSION,
       })
+    }
+
+    /*
+     * One installed module's releases, for its details in the modules list:
+     * the one it runs, the newest, and which Kehikot each works with. Read
+     * from the copy's own tags — nothing is asked of the remote. The id names
+     * a registration; the directory is the registration's, never the request's.
+     */
+    if (url.pathname === '/host/module-release' && request.method === 'GET') {
+      const id = moduleIn(url.searchParams.get('id'))
+      if (!id) return json({ error: 'Name a module: /host/module-release?id=…' }, 400)
+      const registration = await registrationOf(id)
+      if (!registration?.dir || !isInstalled(registration.dir)) return json({ release: null, protocol: PACKAGE_VERSION })
+      await appProtocols.settled(2_000)
+      const reading = await readCheckout(placeOf(id, registration.dir), false, request.signal)
+      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION })
     }
 
     /*
