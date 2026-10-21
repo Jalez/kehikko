@@ -1,8 +1,10 @@
 import {
   LIMITS,
+  type LastActivityKind,
   type PipelineState,
   type ReviewState,
   type TrackerBoard,
+  type TrackerActivity,
   type TrackerColumn,
   type TrackerDetailFacts,
   type TrackerDiscussions,
@@ -38,7 +40,7 @@ import type { Source } from './sources.ts'
 /**
  * GitHub, through `gh api graphql`.
  *
- * A listing is one GraphQL query per page of a hundred issues AND a hundred
+ * A listing is one GraphQL query per page of `PAGE` issues AND `PAGE`
  * pull requests, newest created first (the order `gh issue list` uses); named
  * refs are one query per fifty, by `issueOrPullRequest`, because GitHub numbers
  * issues and pull requests from one sequence and `gh#41` cannot say which it
@@ -158,6 +160,56 @@ export function discussionsOf(threads: unknown): TrackerDiscussions | undefined 
   return { resolved, unresolved: all.length - resolved }
 }
 
+/*
+ * Branches and last activity (protocol 2.8.0).
+ *
+ * A pull request's `baseRefName` is the branch it merges into and its
+ * `headRefName` the branch it comes from; a pull request from a fork
+ * (`isCrossRepository`) has no head branch here, since no pull request in
+ * this repository can be based on a fork's branch. The reading works out the
+ * stacks from them (`stacks.ts`).
+ *
+ * The last activity is the newest item of the timeline among comments,
+ * reviews, commits, force-pushes and closes, reopens and merges (`last: 1`,
+ * one node per item, in the same query). An item with none of them was last
+ * touched when it was opened, by its author. A commit whose author is no
+ * GitHub user cannot be put to a login, so there is no last activity then
+ * rather than an older one.
+ */
+
+const ACTED: Record<string, LastActivityKind> = {
+  IssueComment: 'comment',
+  PullRequestReview: 'review',
+  PullRequestCommit: 'commit',
+  HeadRefForcePushedEvent: 'commit',
+  ClosedEvent: 'state',
+  ReopenedEvent: 'state',
+  MergedEvent: 'state',
+}
+
+/** The newest timeline item as the protocol's last activity, or the opening when there is none. */
+export function activityOf(timeline: unknown, author: unknown, createdAt: unknown): TrackerActivity | undefined {
+  const last = nodes(timeline).map(obj).at(-1)
+  if (!last) {
+    const by = login(author)
+    const at = instant(createdAt)
+    return by && at ? { login: by, at, kind: 'state' } : undefined
+  }
+  const kind = ACTED[str(last.__typename)]
+  if (!kind) return undefined
+  const commit = obj(last.commit)
+  const by = login(last.author) || login(last.actor) || login(obj(obj(commit.author).user))
+  const at = instant(last.submittedAt ?? last.createdAt ?? commit.committedDate)
+  return by && at ? { login: by, at, kind } : undefined
+}
+
+const has = (r: Record<string, unknown>, field: string) => Object.prototype.hasOwnProperty.call(r, field)
+
+const branchOf = (v: unknown): string | undefined => {
+  const b = str(v)
+  return b && b.length <= LIMITS.BRANCH ? b : undefined
+}
+
 /** One issue, from `gh issue list --json` or GraphQL — the two spell these fields the same. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -196,6 +248,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     updatedAt: instant(r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
     links,
+    lastActivity: has(r, 'timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
     ...placed(r.projectItems),
     readAt: now,
   })
@@ -220,7 +273,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
   /* GraphQL hangs the rollup off the last commit; the list hands it over flat. */
   const head = obj(obj(nodes(obj(r.commits))[0]).commit)
   const rollup = r.statusCheckRollup ?? head.statusCheckRollup
-  const read = (field: string) => Object.prototype.hasOwnProperty.call(r, field)
+  const read = (field: string) => has(r, field)
   return row({
     ref,
     tracker: 'github',
@@ -248,6 +301,9 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     reviewers: read('reviewRequests') || read('latestReviews') ? reviewersOf(r.reviewRequests, r.latestReviews) : undefined,
     discussions: read('reviewThreads') ? discussionsOf(r.reviewThreads) : undefined,
     lastPushAt: instant(head.committedDate) ?? undefined,
+    baseBranch: branchOf(r.baseRefName),
+    headBranch: r.isCrossRepository === false ? branchOf(r.headRefName) : undefined,
+    lastActivity: read('timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
     ...placed(r.projectItems),
     readAt: now,
   })
@@ -349,14 +405,26 @@ export function boardsSeen(items: readonly unknown[]): TrackerBoard[] {
   return [...out.values()].slice(0, LIMITS.TRACKER_BOARDS)
 }
 
+/** Who did it and when, for every timeline item `ACTED` names. An issue's timeline holds no reviews or commits. */
+const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author { login } }
+      ... on ClosedEvent { createdAt actor { login } } ... on ReopenedEvent { createdAt actor { login } }`
+const PULL_ACTS = `${ISSUE_ACTS}
+      ... on PullRequestReview { submittedAt createdAt author { login } }
+      ... on PullRequestCommit { commit { committedDate author { user { login } } } }
+      ... on HeadRefForcePushedEvent { createdAt actor { login } } ... on MergedEvent { createdAt actor { login } }`
+const ISSUE_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT, REOPENED_EVENT]) { nodes { ${ISSUE_ACTS} } }`
+const PULL_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT]) { nodes { ${PULL_ACTS} } }`
+
 const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
     author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
-    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }
+    ${ISSUE_ACTIVITY}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name } ... on Bot { login } ... on Mannequin { login } } } }
     latestReviews(first: 32) { nodes { state author { login ... on User { name } } } }
     reviewThreads(first: 100) { totalCount nodes { isResolved } }`
 const PULL_GRAPH = (boards: boolean) => `number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
+    baseRefName headRefName isCrossRepository ${PULL_ACTIVITY}
     author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
     closingIssuesReferences(first: 10) { nodes { number } }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
@@ -385,7 +453,15 @@ export function refsQuery(source: Source, numbers: readonly number[], boards = t
 const CURSOR = /^[A-Za-z0-9+/=:_-]{1,200}$/
 
 /**
- * One page of a listing: up to a hundred issues and a hundred pull requests,
+ * Items per half of a listing page. Fifty, not GitHub's hundred: with the
+ * people, boards and timeline asked of each item, a page of a hundred and a
+ * hundred takes GitHub ten seconds or more on a busy repository (cli/cli) and
+ * is cut off with a 502; fifty and fifty answers in about six.
+ */
+export const PAGE = 50
+
+/**
+ * One page of a listing: up to `PAGE` issues and `PAGE` pull requests,
  * newest created first, after the cursors given. `null` asks for the first
  * page; `false` leaves that half out (it has run out or is not wanted).
  */
@@ -393,7 +469,7 @@ export function listQuery(
   source: Source,
   after: { issues: string | null | false; pulls: string | null | false },
   boards = true,
-  size = 100,
+  size = PAGE,
 ): string {
   const page = (cursor: string | null) =>
     `first: ${size}${cursor ? `, after: "${cursor}"` : ''}, orderBy: { field: CREATED_AT, direction: DESC }`
