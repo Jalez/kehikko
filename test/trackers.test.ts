@@ -9,7 +9,7 @@ import { answer, answerCall } from '../server/answers.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
 import { githubAdapter } from '../server/trackers/github.ts'
-import { declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
+import { BATCH, declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
 import { readingFile, refsInEpic, Trackers } from '../server/trackers/reading.ts'
 import { readConfig, sourceFor, sourceOfRemote, sourcesOf, type Source } from '../server/trackers/sources.ts'
 import { toWireContext } from '../src/host/context.ts'
@@ -203,17 +203,18 @@ describe('GitLab through glab', () => {
     expect(sizes).toEqual([20, 10, 5, 5, 10, 5, 5])
   })
 
-  test('batches are twenty-five iids, and one permanently refused batch costs only its refs', async () => {
+  test('batches are BATCH (22) iids, and one permanently refused batch costs only its refs', async () => {
     const run = graphql((issues) => (issues.includes(30) || issues.length === 1 && issues[0] === 30 ? refusal : ok(nodesOf(issues))))
     const wanted: Wanted[] = Array.from({ length: 30 }, (_, i) => ({ number: i + 1, kind: 'issue' as const }))
     const read = await gitlabAdapter(run).refs(gl, wanted, NOW.toISOString())
     if (!read.ok) throw new Error(read.why)
-    /* 1..25 in one batch; 26..30 refused, halved down to the lone 30. */
+    /* 1..22 in one batch; 23..30 refused, halved down to the lone 30. */
     expect(read.rows.map((r) => r.number)).toHaveLength(29)
     expect(read.unread?.refs).toEqual([{ number: 30, kind: 'issue' }])
     expect(read.unread?.why).toContain('Query has complexity of 397')
     expect(read.notFound).toEqual([])
-    expect(Math.max(...run.asked.map((a) => (a.find((x) => x.startsWith('query='))?.match(/"\d+"/g) ?? []).length))).toBeLessThanOrEqual(25)
+    expect(Math.max(...run.asked.map((a) => (a.find((x) => x.startsWith('query='))?.match(/"\d+"/g) ?? []).length))).toBeLessThanOrEqual(BATCH)
+    expect(BATCH).toBe(22)
   })
 
   test('a failing batch marks only its refs failed in the shared reading, keeping the other rows', async () => {
@@ -223,8 +224,8 @@ describe('GitLab through glab', () => {
     const wanted: Wanted[] = Array.from({ length: 30 }, (_, i) => ({ number: i + 1, kind: 'issue' as const }))
     const read = await adapter.refs(gl, wanted, NOW.toISOString())
     if (!read.ok) throw new Error(read.why)
-    expect(read.rows).toHaveLength(25)
-    expect(read.unread?.refs.map((r) => r.number)).toEqual([26, 27, 28, 29, 30])
+    expect(read.rows).toHaveLength(BATCH)
+    expect(read.unread?.refs.map((r) => r.number)).toEqual([23, 24, 25, 26, 27, 28, 29, 30])
     expect(read.unread?.why).toContain('boom')
     expect(read.notFound).toEqual([])
   })

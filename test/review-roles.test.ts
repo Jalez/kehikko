@@ -233,14 +233,15 @@ const merge = (over: Record<string, unknown> = {}) => ({
 describe('GitLab: the people of a merge request', () => {
   test('the by-iid query asks for reviewers, approvers, discussions and times, each connection with first:', () => {
     const q = glRefsQuery(gl, [1], [8, 9])
-    expect(q).toContain('reviewers(first: 32) { nodes { username name mergeRequestInteraction { approved reviewState } } }')
-    expect(q).toContain('approvedBy(first: 32) { nodes { username name } }')
+    expect(q).toContain('reviewers(first: 32) { nodes { username name avatarUrl mergeRequestInteraction { approved reviewState } } }')
+    expect(q).toContain('approvedBy(first: 32) { nodes { username name avatarUrl } }')
     expect(q).toContain('resolvableDiscussionsCount resolvedDiscussionsCount')
     expect(q).toContain('commits(first: 1) { nodes { committedDate } }')
     expect(q).toContain('headPipeline { status createdAt }')
     const without = glRefsQuery(gl, [1], [8], false)
     expect(without).not.toContain('reviewers')
     expect(without).not.toContain('resolvableDiscussionsCount')
+    expect(without).not.toContain('avatarUrl')
   })
 
   test('a merge request carries its reviewers, approvers, discussions and last push', async () => {

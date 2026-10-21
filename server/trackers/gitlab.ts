@@ -28,6 +28,7 @@ import {
   str,
   trouble,
   who,
+  withPeople,
   type Adapter,
   type BoardsRead,
   type HeldBoard,
@@ -199,6 +200,23 @@ export function activityOf(notes: unknown, author: unknown, createdAt: unknown):
   return by && at ? { login: by, at, kind: 'state' } : undefined
 }
 
+/**
+ * Every person object an issue or merge request answer carries, REST or
+ * GraphQL, for its row's `people` (protocol 2.10.0): author, assignees,
+ * reviewers, approvers and the authors of the newest notes. `withPeople` keeps
+ * the ones the row names, and makes a relative `avatarUrl` (a picture GitLab
+ * stores itself) absolute against the source's host.
+ */
+export function peopleRead(r: Record<string, unknown>): unknown[] {
+  return [
+    r.author,
+    ...nodes(r.assignees),
+    ...nodes(r.reviewers),
+    ...nodes(r.approvedBy),
+    ...nodes(r.notes).map((note) => obj(note).author),
+  ]
+}
+
 const branchOf = (v: unknown): string | undefined => {
   const b = str(v)
   return b && b.length <= LIMITS.BRANCH ? b : undefined
@@ -214,7 +232,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
   const word = str(r.state).toLowerCase()
   const state = word === 'opened' ? 'open' : word === 'closed' ? 'closed' : null
   if (!state) return null
-  return row({
+  return row(withPeople({
     ref,
     tracker: 'gitlab',
     host: source.host,
@@ -235,7 +253,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     links: [],
     lastActivity: activityOf(r.notes, r.author, r.created_at ?? r.createdAt),
     readAt: now,
-  })
+  }, peopleRead(r), source.host))
 }
 
 /** A GraphQL connection (`{ nodes }`), as against REST's plain array. */
@@ -264,7 +282,7 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
   const from = r.sourceProjectId ?? r.source_project_id
   const into = r.targetProjectId ?? r.target_project_id
   const ownBranch = from !== undefined && from !== null && String(from) === String(into)
-  return row({
+  return row(withPeople({
     ref,
     tracker: 'gitlab',
     host: source.host,
@@ -297,7 +315,7 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
        history, not a state of review. */
     review: state === 'open' && approved !== undefined ? (approved ? 'approved' : 'required') : undefined,
     readAt: now,
-  })
+  }, peopleRead(r), source.host))
 }
 
 /**
@@ -330,14 +348,22 @@ export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
   })
 }
 
-const GRAPH_PEOPLE = 'labels { nodes { title } } assignees { nodes { name username } } author { name username }'
+/**
+ * Labels, assignees and author; with the people, each person's picture too
+ * (protocol 2.10.0). Asked without pictures of a GitLab too old for the people
+ * fields, so that its query is the one it always was.
+ */
+const GRAPH_PEOPLE = (people: boolean) => {
+  const face = people ? ' avatarUrl' : ''
+  return `labels { nodes { title } } assignees { nodes { name username${face} } } author { name username${face} }`
+}
 
 /** The newest notes, for the last activity: see "Branches and last activity" above. */
-const NOTES_GRAPH = `notes(last: ${NOTES}) { nodes { system body createdAt author { username } } }`
+const NOTES_GRAPH = `notes(last: ${NOTES}) { nodes { system body createdAt author { username avatarUrl } } }`
 
 /** A merge request's reviewers, approvers, discussions, newest commit and notes: see "People" above. */
-const MERGE_PEOPLE = `reviewers(first: 32) { nodes { username name mergeRequestInteraction { approved reviewState } } }
-      approvedBy(first: 32) { nodes { username name } }
+const MERGE_PEOPLE = `reviewers(first: 32) { nodes { username name avatarUrl mergeRequestInteraction { approved reviewState } } }
+      approvedBy(first: 32) { nodes { username name avatarUrl } }
       resolvableDiscussionsCount resolvedDiscussionsCount
       commits(first: 1) { nodes { committedDate } }
       ${NOTES_GRAPH}`
@@ -354,13 +380,13 @@ export function refsQuery(source: Source, issues: readonly number[], merges: rea
   const parts: string[] = []
   if (issues.length) {
     parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes {
-      iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE}${people ? ` ${NOTES_GRAPH}` : ''} } }`)
+      iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE(people)}${people ? ` ${NOTES_GRAPH}` : ''} } }`)
   }
   if (merges.length) {
     parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid state title webUrl draft createdAt updatedAt closedAt mergedAt description approved
       sourceBranch targetBranch sourceProjectId targetProjectId
-      headPipeline { status${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
+      headPipeline { status${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE(people)}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
@@ -443,10 +469,12 @@ export function columnsOn(row: TrackerRow, boards: readonly HeldBoard[]): Tracke
 
 /** How many pages of a hundred a listing of `limit` takes. */
 /**
- * References per GraphQL query: GitLab's complexity grows with it (242 at 25 + 25 with the people and
- * the notes, measured on gitlab.com, against a limit of 250 for a logged-in user). Over it, a batch is halved.
+ * References per GraphQL query: GitLab's complexity grows with it, against a limit of 250 for a
+ * logged-in user. Measured on gitlab.com (`queryComplexity { score }`): 242 at 25 + 25 with the
+ * people and the notes; the pictures (2.10.0) make that 260, so a batch is 22 + 22, which scores
+ * 243 (20 + 20: 232). Over the limit, a batch is halved.
  */
-const BATCH = 25
+export const BATCH = 22
 
 /** GitLab's refusal of a query it costs too high. */
 const COMPLEXITY = /Query has complexity of \d+, which exceeds max complexity of \d+/
