@@ -5,6 +5,8 @@ import {
   type TrackerBoard,
   type TrackerColumn,
   type TrackerDetailFacts,
+  type TrackerDiscussions,
+  type TrackerReviewer,
   type TrackerRow,
 } from 'kehikot-module-protocol'
 
@@ -15,6 +17,8 @@ import {
   instant,
   labelsOf,
   list,
+  login,
+  logins,
   nodes,
   obj,
   parsed,
@@ -26,6 +30,7 @@ import {
   who,
   type Adapter,
   type BoardsRead,
+  type Me,
   type Read,
 } from './common.ts'
 import type { Source } from './sources.ts'
@@ -94,6 +99,65 @@ export function reviewOf(decision: unknown): ReviewState | undefined {
   return undefined
 }
 
+/*
+ * People (protocol 2.7.0).
+ *
+ * A pull request's reviewers are its review requests and its latest review by
+ * each person, by login. A login both asked and reviewed has been asked again,
+ * so it is `requested`. Only users, bots and mannequins are asked for: a team
+ * reviewer needs `read:org`, which a token may not have, and a team is nobody's
+ * own role. A pending review is the reviewer's unsent draft and is left out.
+ *
+ * The review threads are counted only when every one was read (`totalCount`
+ * equals what came back): a count of the first hundred would be wrong.
+ *
+ * The last push is the head commit's `committedDate`; GitHub's `pushedDate` is
+ * always null now. A rebase or an amend moves it, which is the push that
+ * matters for "ready for another look".
+ */
+
+const REVIEW_STATE: Record<string, TrackerReviewer['state']> = {
+  APPROVED: 'approved',
+  CHANGES_REQUESTED: 'changes',
+  COMMENTED: 'commented',
+  DISMISSED: 'commented',
+}
+
+/** The reviewers of a pull request: its latest reviews, then its open requests, which win. */
+export function reviewersOf(requests: unknown, reviews: unknown): TrackerReviewer[] {
+  const out = new Map<string, TrackerReviewer>()
+  const put = (person: Record<string, unknown>, state: TrackerReviewer['state']) => {
+    const who = login(person)
+    if (!who) return
+    const name = clip(str(person.name).trim(), LIMITS.TRACKER_PERSON)
+    out.set(who.toLowerCase(), { login: who, ...(name ? { name } : {}), state })
+  }
+  for (const review of nodes(reviews).map(obj)) {
+    const state = REVIEW_STATE[str(review.state).toUpperCase()]
+    if (state) put(obj(review.author), state)
+  }
+  const asked = nodes(requests).map((one) => obj(obj(one).requestedReviewer))
+  for (const person of asked) {
+    const key = login(person).toLowerCase()
+    /* Asked again after reviewing: asked, and first, since that is the news. */
+    if (key) out.delete(key)
+  }
+  const reviewed = [...out.values()]
+  out.clear()
+  for (const person of asked) put(person, 'requested')
+  return [...out.values(), ...reviewed].slice(0, LIMITS.REVIEWERS)
+}
+
+/** Resolved and unresolved review threads, or nothing when not all of them were read. */
+export function discussionsOf(threads: unknown): TrackerDiscussions | undefined {
+  const t = obj(threads)
+  if (!Array.isArray(t.nodes) && !Array.isArray(threads)) return undefined
+  const all = nodes(threads).map(obj)
+  if (typeof t.totalCount === 'number' && t.totalCount !== all.length) return undefined
+  const resolved = all.filter((one) => one.isResolved === true).length
+  return { resolved, unresolved: all.length - resolved }
+}
+
 /** One issue, from `gh issue list --json` or GraphQL — the two spell these fields the same. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -126,6 +190,8 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
     author: who(r.author) || undefined,
+    authorLogin: login(r.author) || undefined,
+    assigneeLogins: logins(r.assignees),
     createdAt: instant(r.createdAt) ?? undefined,
     updatedAt: instant(r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
@@ -152,7 +218,9 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closes' as const }))
   /* GraphQL hangs the rollup off the last commit; the list hands it over flat. */
-  const rollup = r.statusCheckRollup ?? obj(obj(nodes(obj(r.commits))[0]).commit).statusCheckRollup
+  const head = obj(obj(nodes(obj(r.commits))[0]).commit)
+  const rollup = r.statusCheckRollup ?? head.statusCheckRollup
+  const read = (field: string) => Object.prototype.hasOwnProperty.call(r, field)
   return row({
     ref,
     tracker: 'github',
@@ -167,6 +235,8 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
     author: who(r.author) || undefined,
+    authorLogin: login(r.author) || undefined,
+    assigneeLogins: logins(r.assignees),
     createdAt: instant(r.createdAt) ?? undefined,
     updatedAt: instant(r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
@@ -174,6 +244,10 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     links,
     pipeline: rollup === undefined || rollup === null ? undefined : pipelineOf(rollup),
     review: reviewOf(r.reviewDecision),
+    /* Absent when the answer did not carry them, which is not the same as nobody. */
+    reviewers: read('reviewRequests') || read('latestReviews') ? reviewersOf(r.reviewRequests, r.latestReviews) : undefined,
+    discussions: read('reviewThreads') ? discussionsOf(r.reviewThreads) : undefined,
+    lastPushAt: instant(head.committedDate) ?? undefined,
     ...placed(r.projectItems),
     readAt: now,
   })
@@ -278,10 +352,15 @@ export function boardsSeen(items: readonly unknown[]): TrackerBoard[] {
 const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
     author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
     closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+/** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
+const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name } ... on Bot { login } ... on Mannequin { login } } } }
+    latestReviews(first: 32) { nodes { state author { login ... on User { name } } } }
+    reviewThreads(first: 100) { totalCount nodes { isResolved } }`
 const PULL_GRAPH = (boards: boolean) => `number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
     author { login } labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name } }
     closingIssuesReferences(first: 10) { nodes { number } }
-    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+    commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+    ${PEOPLE}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 
 const repository = (source: Source) => {
   const [owner, name] = source.repo.split('/')
@@ -367,6 +446,15 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
     boards ? { boards: boardsSeen(items) } : { unreadable: NEEDS_PROJECT_SCOPE }
 
   return {
+    async me(host): Promise<Me> {
+      const args = ['gh', 'api', 'user']
+      if (host !== 'github.com') args.push('--hostname', host)
+      const ran = await run(args, { timeout: 30_000 })
+      const who = ran.code === 0 ? login(parsed(ran)) : ''
+      if (who) return { login: who }
+      return { why: ran.code === 0 ? `gh did not say who is logged in to ${host}.` : trouble(ran, 'gh', host) }
+    },
+
     async list(source, limit, now): Promise<Read> {
       if (source.repo.split('/').length !== 2) {
         return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }

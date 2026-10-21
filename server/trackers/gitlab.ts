@@ -1,4 +1,12 @@
-import { LIMITS, type PipelineState, type TrackerColumn, type TrackerDetailFacts, type TrackerRow } from 'kehikot-module-protocol'
+import {
+  LIMITS,
+  type PipelineState,
+  type TrackerColumn,
+  type TrackerDetailFacts,
+  type TrackerDiscussions,
+  type TrackerReviewer,
+  type TrackerRow,
+} from 'kehikot-module-protocol'
 
 import type { Runner } from '../feedback.ts'
 import {
@@ -7,6 +15,8 @@ import {
   instant,
   labelsOf,
   list,
+  login,
+  logins,
   nodes,
   obj,
   parsed,
@@ -19,6 +29,7 @@ import {
   type Adapter,
   type BoardsRead,
   type HeldBoard,
+  type Me,
   type Read,
 } from './common.ts'
 import type { Source } from './sources.ts'
@@ -72,6 +83,72 @@ const numberOf = (v: unknown): number | null => {
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
+/*
+ * People (protocol 2.7.0).
+ *
+ * A merge request's reviewers come with their own interaction with it:
+ * approved, or GitLab's `reviewState` (requested changes, reviewed, not yet).
+ * Somebody who approved without being asked to review is listed as approved
+ * too. Discussions are GitLab's own resolvable and resolved counts. The last
+ * push is the later of the newest commit's time and the head pipeline's
+ * creation — a pipeline is made by a push, and a commit made yesterday and
+ * pushed today says yesterday.
+ *
+ * These are asked by GraphQL, so the REST listing's closed and merged merge
+ * requests carry logins only; the open ones are read again by GraphQL anyway.
+ * A GitLab too old to have these fields refuses the whole query ("Field …
+ * doesn't exist on type …"): the batch is asked again without them, the
+ * refusal is believed for `PEOPLE_RECHECK_MS`, and the read says so once.
+ */
+
+/** What a person is told when their GitLab will not say who reviews a merge request. */
+export const OLD_GITLAB_PEOPLE = (host: string) =>
+  `${host} does not say who reviews a merge request (an older GitLab), so My role there shows author and assignee only.`
+
+/** How long a host's refusal of the people fields is believed. */
+export const PEOPLE_RECHECK_MS = 30 * 60_000
+
+/** GitLab refusing a field it does not have. */
+const NO_FIELD = /Field '[^']+' doesn't exist on type/
+
+const REVIEW_STATE: Record<string, TrackerReviewer['state']> = {
+  APPROVED: 'approved',
+  REQUESTED_CHANGES: 'changes',
+  REVIEWED: 'commented',
+}
+
+/** The reviewers of a merge request, and those who approved it without being asked. */
+export function reviewersOf(reviewers: unknown, approvedBy: unknown): TrackerReviewer[] {
+  const out = new Map<string, TrackerReviewer>()
+  const put = (person: Record<string, unknown>, state: TrackerReviewer['state']) => {
+    const who = login(person)
+    if (!who || out.has(who.toLowerCase())) return
+    const name = clip(str(person.name).trim(), LIMITS.TRACKER_PERSON)
+    out.set(who.toLowerCase(), { login: who, ...(name ? { name } : {}), state })
+  }
+  for (const person of nodes(reviewers).map(obj)) {
+    const with_ = obj(person.mergeRequestInteraction)
+    put(person, with_.approved === true ? 'approved' : (REVIEW_STATE[str(with_.reviewState).toUpperCase()] ?? 'requested'))
+  }
+  for (const person of nodes(approvedBy).map(obj)) put(person, 'approved')
+  return [...out.values()].slice(0, LIMITS.REVIEWERS)
+}
+
+/** GitLab's resolvable and resolved discussion counts, or nothing when it did not give both. */
+export function discussionsOf(resolvable: unknown, resolved: unknown): TrackerDiscussions | undefined {
+  if (typeof resolvable !== 'number' || typeof resolved !== 'number') return undefined
+  if (!Number.isInteger(resolvable) || !Number.isInteger(resolved) || resolved < 0 || resolvable < resolved) return undefined
+  return { resolved, unresolved: resolvable - resolved }
+}
+
+/** The later of the newest commit's time and the head pipeline's creation. */
+export function lastPushOf(commits: unknown, pipeline: unknown): string | undefined {
+  const times = [instant(obj(nodes(commits)[0]).committedDate), instant(obj(pipeline).createdAt)].filter(
+    (t): t is string => t !== null,
+  )
+  return times.sort().at(-1)
+}
+
 /** One issue, from REST or GraphQL; the two spell most of these differently and both are read. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -95,6 +172,8 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
     author: who(r.author) || undefined,
+    authorLogin: login(r.author) || undefined,
+    assigneeLogins: logins(r.assignees),
     createdAt: instant(r.created_at ?? r.createdAt) ?? undefined,
     updatedAt: instant(r.updated_at ?? r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closed_at ?? r.closedAt) ?? undefined),
@@ -102,6 +181,9 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     readAt: now,
   })
 }
+
+/** A GraphQL connection (`{ nodes }`), as against REST's plain array. */
+const connection = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** One merge request, from REST or GraphQL. */
 export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow | null {
@@ -137,12 +219,18 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
     author: who(r.author) || undefined,
+    authorLogin: login(r.author) || undefined,
+    assigneeLogins: logins(r.assignees),
     createdAt: instant(r.created_at ?? r.createdAt) ?? undefined,
     updatedAt: instant(r.updated_at ?? r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closed_at ?? r.closedAt) ?? undefined),
     mergedAt: state === 'merged' ? (instant(r.merged_at ?? r.mergedAt) ?? undefined) : null,
     links,
     pipeline,
+    /* GraphQL only (see "People" above): the REST list's `reviewers` say nobody's state. */
+    reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy) : undefined,
+    discussions: discussionsOf(r.resolvableDiscussionsCount, r.resolvedDiscussionsCount),
+    lastPushAt: lastPushOf(r.commits, r.headPipeline),
     /* Only while open, as prior art does: an approval on a merged request is
        history, not a state of review. */
     review: state === 'open' && approved !== undefined ? (approved ? 'approved' : 'required') : undefined,
@@ -182,6 +270,12 @@ export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
 
 const GRAPH_PEOPLE = 'labels { nodes { title } } assignees { nodes { name username } } author { name username }'
 
+/** A merge request's reviewers, approvers, discussions and newest commit: see "People" above. */
+const MERGE_PEOPLE = `reviewers(first: 32) { nodes { username name mergeRequestInteraction { approved reviewState } } }
+      approvedBy(first: 32) { nodes { username name } }
+      resolvableDiscussionsCount resolvedDiscussionsCount
+      commits(first: 1) { nodes { committedDate } }`
+
 /**
  * GraphQL for issues and merge requests by iid. The path passed `NAME` in `sources.ts`.
  *
@@ -190,7 +284,7 @@ const GRAPH_PEOPLE = 'labels { nodes { title } } assignees { nodes { name userna
  * multiplies the nested fields by it — 397 for even one issue and one merge
  * request, against a limit of 250 (Jalez/kehikko#28).
  */
-export function refsQuery(source: Source, issues: readonly number[], merges: readonly number[]): string {
+export function refsQuery(source: Source, issues: readonly number[], merges: readonly number[], people = true): string {
   const parts: string[] = []
   if (issues.length) {
     parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes {
@@ -199,7 +293,7 @@ export function refsQuery(source: Source, issues: readonly number[], merges: rea
   if (merges.length) {
     parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid state title webUrl draft createdAt updatedAt closedAt mergedAt description approved
-      headPipeline { status } ${GRAPH_PEOPLE} } }`)
+      headPipeline { status${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
@@ -289,11 +383,17 @@ const COMPLEXITY = /Query has complexity of \d+, which exceeds max complexity of
 
 const pagesFor = (limit: number) => Math.max(1, Math.ceil(limit / 100))
 
-export function gitlabAdapter(run: Runner): Adapter {
+export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adapter {
   const glab = (args: string[], source: Source) =>
     run(['glab', 'api', '--hostname', source.host, ...args], { timeout: 30_000 })
   const graph = (query: string, source: Source) => glab(['graphql', '-f', `query=${query}`], source)
   const project = (source: Source) => `projects/${encodeURIComponent(source.repo)}`
+  /** Hosts that refused the people fields, until when that is believed. */
+  const noPeople = new Map<string, number>()
+  const peopleAsked = (host: string) => {
+    const until = noPeople.get(host)
+    return until === undefined || clock() >= until
+  }
 
   /** One REST collection, newest first, page by page until it runs out or reaches `limit`. */
   async function pages(source: Source, what: 'issues' | 'merge_requests', limit: number): Promise<unknown[] | string> {
@@ -327,6 +427,7 @@ export function gitlabAdapter(run: Runner): Adapter {
     const seenMerges = new Set<number>()
     const unread: Array<{ number: number; kind: 'issue' | 'change' }> = []
     let why = ''
+    let withoutPeople = false
 
     const take = (data: Record<string, unknown>) => {
       for (const node of nodes(data.issues)) {
@@ -347,11 +448,18 @@ export function gitlabAdapter(run: Runner): Adapter {
 
     /** One batch; on a complexity refusal, its two halves. */
     async function batch(i: number[], m: number[]): Promise<void> {
-      const ran = await graph(refsQuery(source, i, m), source)
+      const people = m.length > 0 && peopleAsked(source.host)
+      if (m.length && !people) withoutPeople = true
+      const ran = await graph(refsQuery(source, i, m, people), source)
       const answer = obj(parsed(ran))
       const data = obj(obj(answer.data).project)
       if (Object.keys(data).length) return take(data)
       const first = list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
+      if (people && NO_FIELD.test(`${first} ${ran.err} ${ran.out}`)) {
+        /* An older GitLab: the same batch without the people fields. */
+        noPeople.set(source.host, clock() + PEOPLE_RECHECK_MS)
+        return batch(i, m)
+      }
       const refusal = COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
       const size = i.length + m.length
       if (refusal && size > 1) {
@@ -375,9 +483,11 @@ export function gitlabAdapter(run: Runner): Adapter {
     }
     const cannot = (n: number, kind: 'issue' | 'change') => unread.some((u) => u.number === n && u.kind === kind)
     if (unread.length && !rows.length) return { ok: false, why }
+    if (merges.length && !withoutPeople && peopleAsked(source.host)) noPeople.delete(source.host)
     return {
       ok: true,
       rows,
+      ...(withoutPeople ? { people: { unreadable: OLD_GITLAB_PEOPLE(source.host) } } : {}),
       notFound: [
         ...issues.filter((n) => !seenIssues.has(n) && !cannot(n, 'issue')).map((number) => ({ number, kind: 'issue' as const })),
         ...merges.filter((n) => !seenMerges.has(n) && !cannot(n, 'change')).map((number) => ({ number, kind: 'change' as const })),
@@ -387,6 +497,13 @@ export function gitlabAdapter(run: Runner): Adapter {
   }
 
   return {
+    async me(host): Promise<Me> {
+      const ran = await run(['glab', 'api', '--hostname', host, 'user'], { timeout: 30_000 })
+      const who = ran.code === 0 ? login(parsed(ran)) : ''
+      if (who) return { login: who }
+      return { why: ran.code === 0 ? `glab did not say who is logged in to ${host}.` : trouble(ran, 'glab', host) }
+    },
+
     async list(source, limit, now): Promise<Read> {
       const [issues, merges] = await Promise.all([pages(source, 'issues', limit), pages(source, 'merge_requests', limit)])
       if (typeof issues === 'string') return { ok: false, why: issues }
@@ -399,8 +516,10 @@ export function gitlabAdapter(run: Runner): Adapter {
          are read again, batched, for both. A failure here keeps the rows and
          loses only those two fields — absent, not guessed. */
       const open = rows.filter((one) => one.kind === 'change' && one.state === 'open').map((one) => one.number)
+      let people: { unreadable: string } | undefined
       if (open.length) {
         const again = await byIids(source, [], open, now)
+        if (again.ok && again.people) people = again.people
         if (again.ok) {
           const fresh = new Map(again.rows.map((one) => [one.number, one]))
           for (let i = 0; i < rows.length; i += 1) {
@@ -409,7 +528,7 @@ export function gitlabAdapter(run: Runner): Adapter {
           }
         }
       }
-      return { ok: true, rows: linkDeclarers(rows), notFound: [] }
+      return { ok: true, rows: linkDeclarers(rows), notFound: [], ...(people ? { people } : {}) }
     },
 
     async boards(source): Promise<BoardsRead | null> {

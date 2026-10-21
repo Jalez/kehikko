@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { frameDbFile, machineDir, modulesDir } from '../server/machineDirs.ts'
+import { factoryDir, frameDbFile, keysDir, machineDir, modulesDir } from '../server/machineDirs.ts'
 import { readRegistrations } from '../server/registrations.ts'
 
 const made: string[] = []
@@ -23,6 +23,13 @@ describe('where machine state lives', () => {
     expect(frameDbFile({ KEHIKOT_FRAME_DB: '/a' })).toBe('/a')
     expect(modulesDir({ KEHIKOT_MODULES_DIR: '/m' })).toBe('/m')
     expect(modulesDir({ HOME: '/Users/x' })).toBe(join(machineDir({ HOME: '/Users/x' }), 'modules'))
+  })
+
+  test('keys/ (Review’s Factory key) and factory/ (Factory’s per-author rules) beside the rest, each overridable', () => {
+    expect(keysDir({ HOME: '/Users/x' }, 'darwin')).toBe('/Users/x/Library/Application Support/Kehikot/keys')
+    expect(keysDir({ KEHIKOT_KEYS_DIR: '/k' })).toBe('/k')
+    expect(factoryDir({ HOME: '/Users/x' }, 'darwin')).toBe('/Users/x/Library/Application Support/Kehikot/factory')
+    expect(factoryDir({ KEHIKOT_FACTORY_DIR: '/f' })).toBe('/f')
   })
 })
 

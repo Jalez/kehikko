@@ -1873,6 +1873,22 @@ function markAt(
 }
 
 /**
+ * One row of the tracker reading as `read_tracker` says it: state, pipeline,
+ * review, board column, and (protocol 2.7.0) the reviewers, the person's roles,
+ * the review threads and the last push, each only when the row has it.
+ */
+export function trackerLine(row: TrackerRow): string {
+  return `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
+    + `${row.draft ? ' draft' : ''}${row.pipeline ? ` pipeline:${row.pipeline}` : ''}${row.review ? ` review:${row.review}` : ''}`
+    + `${(row.columns ?? (row.column ? [row.column] : [])).map((c) => ` column:"${c.name}" on "${c.board}"`).join('')}`
+    + `${row.reviewers?.length ? ` reviewers:${row.reviewers.map((r) => `${r.login}(${r.state})`).join(',')}` : ''}`
+    + `${row.myRoles?.length ? ` my roles:${row.myRoles.join(',')}` : ''}`
+    + `${row.discussions ? ` threads:${row.discussions.unresolved} unresolved,${row.discussions.resolved} resolved` : ''}`
+    + `${row.lastPushAt ? ` pushed:${row.lastPushAt}` : ''}`
+    + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
+}
+
+/**
  * The shared tracker reading, for an agent: the same rows a module gets from
  * `tracker.get`, as lines. A read of the host's material, plus — with
  * `refresh` — the same read a person's "Refresh all" starts.
@@ -1910,11 +1926,6 @@ async function readTrackerAt(
   }
   const reading = door.trackers.get(project.path, scope, 'summary')
   if ('refused' in reading) return { text: reading.refused, failed: true }
-  const line = (row: TrackerRow) =>
-    `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
-    + `${row.draft ? ' draft' : ''}${row.pipeline ? ` pipeline:${row.pipeline}` : ''}${row.review ? ` review:${row.review}` : ''}`
-    + `${(row.columns ?? (row.column ? [row.column] : [])).map((c) => ` column:"${c.name}" on "${c.board}"`).join('')}`
-    + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
   const sources = reading.sources
     .map((s) => `${s.tracker} ${s.host}/${s.repo}${s.default ? ' (default)' : ''}: ${s.error ? `FAILED — ${s.error}` : s.at ? `read ${s.at}` : 'never read'}`)
     .join('\n')
@@ -1924,7 +1935,7 @@ async function readTrackerAt(
     text:
       `${ownEpic ? `This conversation's epic, ${ownEpic}: the refs it names. whole: true reads the whole project.\n` : ''}${refreshed}${listing ? `${listingText(listing, Date.now())}\n\n` : ''}Tracker reading for ${project.name}, ${reading.at ? `last changed ${reading.at}` : 'never read'}`
       + `${reading.refreshing ? ' (a read is running now)' : ''}.\n${sources || 'No sources.'}\n\n`
-      + (shown.length ? shown.map(line).join('\n') : 'No rows.')
+      + (shown.length ? shown.map(trackerLine).join('\n') : 'No rows.')
       + (reading.rows.length > shown.length ? `\n…and ${reading.rows.length - shown.length} more.` : '')
       + (reading.missing.length ? `\n\nNot in the reading: ${reading.missing.map((m) => `${m.ref} (${m.reason})`).join(', ')}.` : ''),
     failed: false,

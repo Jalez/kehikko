@@ -41,6 +41,12 @@ export const trackerListingSchema = z.object({
    * only GitHub without `read:project`. Null or absent when nothing stops them.
    */
   boardsNote: z.string().nullable().optional(),
+  /**
+   * Why the person's roles on issues and changes are not whole, said once —
+   * who they are could not be read (`gh api user`), or a tracker would not say
+   * who reviews (an older GitLab). Null or absent when nothing stops them.
+   */
+  peopleNote: z.string().nullable().optional(),
 })
 export type TrackerListing = z.infer<typeof trackerListingSchema>
 
@@ -115,6 +121,7 @@ export function listingText(listing: TrackerListing, now: number): string {
     TRACKERS_ARE_FOR,
     listing.sources.length ? lines.join('\n') : 'No sources: this project has no GitHub or GitLab remote and nobody has added one.',
     ...(listing.boardsNote ? [listing.boardsNote] : []),
+    ...(listing.peopleNote ? [listing.peopleNote] : []),
     `The project's git remotes are ${listing.remotes ? 'read' : 'not read'}, and the host ${schedule}.`,
   ].join('\n')
 }
