@@ -16,7 +16,8 @@ import {
 } from '../server/canvases.ts'
 import { epicsDir } from '../server/hostData.ts'
 import { listEpics } from '../server/holdings.ts'
-import { PORTABLE_CANVAS_FIELDS, PORTABLE_SUBJECT_FIELDS, keep, kehikotFile, parse, serialize, syncProject } from '../server/kehikot.ts'
+import { PORTABLE_CANVAS_FIELDS, PERSONAL_SUBJECT_FIELDS, keep, kehikotFile, parse, syncProject } from '../server/kehikot.ts'
+import { parseView, serializeView, viewFile } from '../server/view.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { toWireContext, whileFrozen } from '../src/host/context.ts'
 import { epicSchema } from '../src/host/projects.ts'
@@ -326,9 +327,10 @@ describe('a kehikko is a layout, and carries no focus', () => {
       expect(Object.keys(canvas)).not.toContain('epic')
     }
     expect(PORTABLE_CANVAS_FIELDS as readonly string[]).not.toContain('parts')
-    expect(PORTABLE_SUBJECT_FIELDS).toEqual(['epic', 'scope', 'parts', 'selection'])
+    expect(PERSONAL_SUBJECT_FIELDS).toEqual(['epic', 'scope', 'parts', 'selection'])
     const raw = JSON.parse(readFileSync(kehikotFile(dir)!, 'utf8'))
-    expect(raw.parts).toEqual(['a', 'b'])
+    expect('parts' in raw).toBe(false)
+    expect(JSON.parse(readFileSync(viewFile(dir)!, 'utf8')).parts).toEqual(['a', 'b'])
     for (const kehikko of raw.kehikot) expect(Object.keys(kehikko).sort()).toEqual(['containers', 'key', 'name'])
     /* And the canvases table has no column for it. */
     const columns = store.query<{ name: string }, []>('pragma table_info(canvases)').all().map((c) => c.name)
@@ -358,25 +360,27 @@ describe('a kehikko is a layout, and carries no focus', () => {
   })
 })
 
-describe('the focus travels in the project’s kehikot.json', () => {
-  test('a project nobody has focused keeps the bytes it had: the key is written only when some are picked', () => {
-    const whole = serialize([], { epic: 'one', parts: [], selection: ['gh#1'] })
-    expect(whole).toBe('{\n  "version": 2,\n  "epic": "one",\n  "selection": ["gh#1"],\n  "kehikot": [\n  ]\n}\n')
-    const narrowed = serialize([], { epic: 'one', parts: ['a', 'b'], selection: ['gh#1'] })
+describe('the focus is kept in the person’s view.json', () => {
+  const view = (subject: { epic: string | null; parts: string[]; selection: string[] }) =>
+    serializeView({ subject, kehikot: new Map() })
+
+  test('the key is written only when some are picked', () => {
+    const whole = view({ epic: 'one', parts: [], selection: ['gh#1'] })
+    expect(whole).toBe('{\n  "version": 1,\n  "epic": "one",\n  "selection": ["gh#1"],\n  "kehikot": {}\n}\n')
+    const narrowed = view({ epic: 'one', parts: ['a', 'b'], selection: ['gh#1'] })
     expect(narrowed).toContain('  "epic": "one",\n  "parts": ["a","b"],\n  "selection": ["gh#1"],')
   })
 
   test('a file with no parts reads as the whole epic, and one with them reads them', () => {
-    const none = parse(serialize([], { epic: 'one', parts: [], selection: [] }))
-    expect(none.ok && none.subject).toEqual({ epic: 'one', parts: [], selection: [] })
-    const some = parse(serialize([], { epic: 'one', parts: ['a', 'b'], selection: [] }))
-    expect(some.ok && some.subject.parts).toEqual(['a', 'b'])
+    expect(parseView(view({ epic: 'one', parts: [], selection: [] }))?.subject).toEqual({ epic: 'one', parts: [], selection: [] })
+    expect(parseView(view({ epic: 'one', parts: ['a', 'b'], selection: [] }))?.subject.parts).toEqual(['a', 'b'])
   })
 
   test('parts with no epic are parts of nothing, and a part id is held to its shape', () => {
     const orphan = parse('{"version":2,"epic":null,"parts":["a"],"selection":[],"kehikot":[]}')
-    expect(orphan.ok && orphan.subject.parts).toEqual([])
+    expect(orphan.ok && orphan.legacy?.subject.parts).toEqual([])
     expect(parse('{"version":2,"epic":"one","parts":["Not An Id"],"selection":[],"kehikot":[]}').ok).toBe(false)
+    expect(parseView('{"version":1,"epic":null,"parts":["a"],"selection":[],"kehikot":{}}')?.subject.parts).toEqual([])
   })
 
   test('it goes to the other computer with the epic', () => {
@@ -392,14 +396,14 @@ describe('the focus travels in the project’s kehikot.json', () => {
     expect(readSubject(there, q.id)).toEqual({ epic: 'one', parts: ['a'], selection: ['gh#9'] })
   })
 
-  test('the file wins for the focus as it does for the epic', () => {
+  test('the view file wins for the focus as it does for the epic', () => {
     const dir = folder()
     const store = openDb(':memory:')
     const p = project(store, dir)
     createCanvas(store, 'writing', p.id, 'writing')
     setSubject(store, p.id, { epic: 'one', parts: ['a'] })
     keep(store, p.id)
-    const file = kehikotFile(dir)!
+    const file = viewFile(dir)!
     writeFileSync(file, readFileSync(file, 'utf8').replace('"parts": ["a"]', '"parts": ["b","c"]'))
     syncProject(store, p)
     expect(readSubject(store, p.id)?.parts).toEqual(['b', 'c'])
