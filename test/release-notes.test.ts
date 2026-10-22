@@ -183,3 +183,144 @@ describe('the routes', () => {
     expect(got.ok && got.value.url).toBe(releasePage(APP_REPO, 'v0.1.24'))
   })
 })
+
+describe('Kehikot’s release list never claims there are none when it could not read them', () => {
+  const app = (...tags: string[]) => tags.map((tag) => release(tag))
+  const trouble = (why: string) => `Couldn't read Kehikot's releases from GitHub (${why}); try again in a moment.`
+
+  test('only an empty 200 is "none published"', async () => {
+    const w = world(() => json([]))
+    expect(await w.desk.releases(APP_REPO)).toEqual({ ok: true, value: [] })
+  })
+
+  test('a 404 for the app is a failure in one sentence, status 502, not an empty list', async () => {
+    const w = world(() => json({ message: 'Not Found' }, 404))
+    expect(await w.desk.releases(APP_REPO)).toMatchObject({ ok: false, status: 502, why: trouble('GitHub answered 404 (not found)') })
+    const answered = await get(w.desk, `/host/releases?repo=${APP_REPO}`)
+    expect(answered?.status).toBe(502)
+    expect(await answered!.json()).toMatchObject({ error: trouble('GitHub answered 404 (not found)') })
+  })
+
+  test('an error, a non-list and an unreachable GitHub each say what went wrong', async () => {
+    expect(await world(() => json({}, 500)).desk.releases(APP_REPO)).toMatchObject({ ok: false, why: trouble('GitHub answered 500') })
+    expect(await world(() => json({ message: 'Not Found' })).desk.releases(APP_REPO)).toMatchObject({
+      ok: false,
+      why: trouble('GitHub answered with something other than expected'),
+    })
+    const offline = world(() => {
+      throw new TypeError('fetch failed')
+    })
+    expect(await offline.desk.releases(APP_REPO)).toMatchObject({ ok: false, why: trouble('GitHub could not be reached — this computer may be offline') })
+  })
+
+  test('the rate limit says so', async () => {
+    const w = world(() => json({}, 403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(2_000_000 / 1000)) }))
+    const got = await w.desk.releases(APP_REPO)
+    expect(got).toMatchObject({ ok: false, status: 503 })
+    expect(!got.ok && got.why).toContain('GitHub’s limit'.replace('’', "'"))
+  })
+
+  test('short of budget the app’s list says it will be read in a moment, marked waiting', async () => {
+    let clock = 1_000_000
+    const desk = releaseNotesDesk({
+      allowed: () => false,
+      now: () => clock,
+      fetch: (async () => json([])) as unknown as typeof fetch,
+      gateway: {
+        api: async () => ({ ok: false, waiting: true, why: 'GitHub is being asked less often to stay within its limit; this will be read in a moment.', status: 503, retryAt: clock + 20_000 }),
+        last: () => null,
+      } as never,
+    })
+    const got = await desk.releases(APP_REPO)
+    expect(got).toMatchObject({ ok: false, waiting: true, status: 503 })
+    expect(!got.ok && got.why).toMatch(/^Kehikot's releases will be read in a moment/)
+  })
+
+  test('the last good list is kept and shown, marked old, when a later reading fails', async () => {
+    let fail = false
+    const w = world(() => (fail ? json({}, 500) : json(app('v0.1.2', 'v0.1.1'))))
+    expect(await w.desk.releases(APP_REPO)).toMatchObject({ ok: true, value: [{ tag: 'v0.1.2' }, { tag: 'v0.1.1' }] })
+    fail = true
+    w.tick(FRESH_MS + 1)
+    const got = await w.desk.releases(APP_REPO)
+    expect(got).toMatchObject({ ok: true, value: [{ tag: 'v0.1.2' }, { tag: 'v0.1.1' }], old: trouble('GitHub answered 500') })
+    const answered = await (await get(w.desk, `/host/releases?repo=${APP_REPO}`))!.json()
+    expect(answered).toMatchObject({ old: trouble('GitHub answered 500') })
+  })
+
+  test('failed and empty answers are held for about a minute, a good one for much longer', async () => {
+    expect(FAILED_MS).toBeLessThanOrEqual(60_000)
+    expect(MISSING_MS).toBeLessThanOrEqual(60_000)
+    const failing = world(() => json({}, 500))
+    await failing.desk.releases(APP_REPO)
+    await failing.desk.releases(APP_REPO)
+    expect(failing.asked).toHaveLength(1)
+    failing.tick(FAILED_MS + 1)
+    await failing.desk.releases(APP_REPO)
+    expect(failing.asked).toHaveLength(2)
+
+    const empty = world(() => json({}, 404))
+    await empty.desk.releases(APP_REPO)
+    empty.tick(MISSING_MS + 1)
+    await empty.desk.releases(APP_REPO)
+    expect(empty.asked).toHaveLength(2)
+
+    const good = world(() => json(app('v0.1.2')))
+    await good.desk.releases(APP_REPO)
+    good.tick(FRESH_MS - 1000)
+    await good.desk.releases(APP_REPO)
+    expect(good.asked).toHaveLength(1)
+    good.tick(2000)
+    await good.desk.releases(APP_REPO)
+    expect(good.asked).toHaveLength(2)
+  })
+
+  test('a failed list is read again by itself after the minute, and then the list is back', async () => {
+    let fail = true
+    const w = world(() => (fail ? json({ message: 'Not Found' }, 404) : json(app('v0.1.2'))))
+    expect((await w.desk.releases(APP_REPO)).ok).toBe(false)
+    fail = false
+    w.tick(FAILED_MS + 1)
+    expect(await w.desk.releases(APP_REPO)).toMatchObject({ ok: true, value: [{ tag: 'v0.1.2' }] })
+  })
+
+  test('the gh fallback: a list is used, an error object or a non-list from gh is not taken as a list', async () => {
+    const withGh = (value: unknown, github: Response) =>
+      releaseNotesDesk({ allowed: () => false, gh: async () => value, fetch: (async () => github) as unknown as typeof fetch })
+    expect(await withGh(app('v0.1.5'), json({}, 404)).releases(APP_REPO)).toMatchObject({ ok: true, value: [{ tag: 'v0.1.5' }] })
+    expect(await withGh({ message: 'Not Found' }, json({}, 404)).releases(APP_REPO)).toMatchObject({ ok: false, status: 502 })
+    expect(await withGh({ message: 'Not Found' }, json(app('v0.1.6'))).releases(APP_REPO)).toMatchObject({ ok: true, value: [{ tag: 'v0.1.6' }] })
+  })
+
+  test('a module whose repository GitHub does not show keeps its quiet empty list', async () => {
+    const w = world(() => json({}, 404), (repo) => repo === 'Jalez/kehikko-notes')
+    expect(await w.desk.releases('Jalez/kehikko-notes')).toEqual({ ok: true, value: [] })
+  })
+
+  test('nothing is asked until something is: a desk is lazy, and a list is asked once for all its notes', async () => {
+    const w = world(() => json(app('v0.1.2', 'v0.1.1')))
+    expect(w.asked).toHaveLength(0)
+    await w.desk.releases(APP_REPO)
+    await w.desk.release(APP_REPO, 'v0.1.2')
+    await w.desk.release(APP_REPO, 'v0.1.1')
+    expect(w.asked).toHaveLength(1)
+  })
+
+  test('after the hold the list is asked with its ETag, and a 304 keeps it without spending the budget', async () => {
+    let clock = 1_000_000
+    const seen: (string | undefined)[] = []
+    const desk = releaseNotesDesk({
+      allowed: () => false,
+      now: () => clock,
+      fetch: (async (_url: string, init: RequestInit) => {
+        const tag = (init.headers as Record<string, string>)['if-none-match']
+        seen.push(tag)
+        return tag ? new Response(null, { status: 304 }) : json(app('v0.1.2'), 200, { etag: '"abc"' })
+      }) as unknown as typeof fetch,
+    })
+    await desk.releases(APP_REPO)
+    clock += FRESH_MS + 1
+    expect(await desk.releases(APP_REPO)).toMatchObject({ ok: true, value: [{ tag: 'v0.1.2' }] })
+    expect(seen).toEqual([undefined, '"abc"'])
+  })
+})

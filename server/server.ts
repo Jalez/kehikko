@@ -102,6 +102,7 @@ import { releaseFollower } from './moduleReleases.ts'
 import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
+import { githubGateway } from './github.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL } from './official.ts'
@@ -110,7 +111,7 @@ import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { appProtocolsFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
+import { appProtocolsFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
 import { appProtocolSource, appProtocolsOn } from './appProtocols.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
@@ -443,6 +444,27 @@ async function installedCopies(signal?: AbortSignal): Promise<{ place: Place; re
   return out
 }
 
+/* Every read of GitHub's API goes through this one door: the person's `gh`
+   when it is logged in, otherwise anonymously within an hourly budget, with
+   conditional requests and the last good answers kept. See `github.ts`. */
+const github = githubGateway({
+  file: githubCacheFile(),
+  log: (line) => console.log(line),
+  gh: async (path) => {
+    const ran = await spawnRunner(['gh', 'api', path])
+    if (ran.code === 0) {
+      try {
+        return { ok: true, value: JSON.parse(ran.out) as unknown }
+      } catch {
+        return { ok: false, status: null, usable: true }
+      }
+    }
+    const status = /HTTP (\d{3})/.exec(ran.err)?.[1]
+    /* Not installed, not logged in, or no network: gh is left alone for a while. */
+    return { ok: false, status: status ? Number(status) : null, usable: ran.missing !== true && status !== undefined }
+  },
+})
+
 /**
  * Which release each installed module runs. The tags come through the
  * person's own git (and so their credentials, for a private repository), cached
@@ -466,15 +488,8 @@ const appProtocols = appProtocolSource({
   run: runQuietly,
   cache: appProtocolsFile(),
   on: appProtocolsOn(),
-  gh: async (path) => {
-    const ran = await spawnRunner(['gh', 'api', path])
-    if (ran.code !== 0) return null
-    try {
-      return JSON.parse(ran.out) as unknown
-    } catch {
-      return null
-    }
-  },
+  gh: (path) => github.ghValue(path),
+  fetch: (url, init) => github.raw(url, init),
   log: (line) => console.log(line),
 })
 void appProtocols.refresh()
@@ -969,16 +984,7 @@ const versionRuns = new VersionRuns({
    each registered module's own remote. See `releaseNotes.ts`. */
 const remotesByDir = new Map<string, { at: number; repo: string | null }>()
 const releaseNotes = releaseNotesDesk({
-  /* A private module's notes, read with the login that installed it. */
-  gh: async (path) => {
-    const ran = await spawnRunner(['gh', 'api', path])
-    if (ran.code !== 0) return null
-    try {
-      return JSON.parse(ran.out) as unknown
-    } catch {
-      return null
-    }
-  },
+  gateway: github,
   allowed: async (repo) => {
     const asked = repo.toLowerCase()
     if (official.current().some((one) => one.repo.toLowerCase() === asked)) return true

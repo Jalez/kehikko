@@ -21,7 +21,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b6 pass/)
+    expect(out).toMatch(/\b9 pass/)
   }, 60_000)
 }
 
@@ -269,5 +269,47 @@ describe.skipIf(!inChild)('the version beside Kehikot', () => {
     const label = document.querySelector('[data-testid="app-version"]')!
     expect(label.textContent).toBe('host 0.1.0')
     expect(label.getAttribute('data-kind')).toBe('host')
+  })
+  const sentence = "Couldn't read Kehikot's releases from GitHub (GitHub answered 404 (not found)); try again in a moment."
+  const open = async () => {
+    await render(<AppVersion />)
+    await click(document.querySelector('[data-testid="app-version"]')!)
+  }
+
+  test('a list that could not be read says so with a Retry, never "No releases are published yet", and Retry reads it again', async () => {
+    let fails = true
+    answer = (url) => {
+      if (url === '/host/health') return json({ ok: true, version: '0.1.0' })
+      if (fails) return json({ error: sentence, url: 'https://github.com/Jalez/kehikko-desktop/releases' }, 502)
+      return json({ repo: 'Jalez/kehikko-desktop', releases: [{ repo: 'Jalez/kehikko-desktop', tag: 'v0.1.2', name: null, url: 'https://github.com/x', publishedAt: null, prerelease: false }] })
+    }
+    await open()
+    const trouble = document.querySelector('[data-testid="app-releases-trouble"]')!
+    expect(trouble.textContent).toContain(sentence)
+    expect(document.body.textContent).not.toContain('No releases are published yet')
+    fails = false
+    await click([...trouble.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!)
+    expect(document.querySelector('[data-release="v0.1.2"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="app-releases-trouble"]')).toBeNull()
+  })
+
+  test('the last good list is shown with why it is old, and a Retry', async () => {
+    answer = (url) =>
+      url === '/host/health'
+        ? json({ ok: true, version: '0.1.0' })
+        : json({
+            repo: 'Jalez/kehikko-desktop',
+            old: sentence,
+            releases: [{ repo: 'Jalez/kehikko-desktop', tag: 'v0.1.2', name: null, url: 'https://github.com/x', publishedAt: null, prerelease: false }],
+          })
+    await open()
+    expect(document.querySelector('[data-testid="app-releases-old"]')!.textContent).toContain(sentence)
+    expect(document.querySelector('[data-release="v0.1.2"]')).not.toBeNull()
+  })
+
+  test('only an empty 200 says none are published', async () => {
+    answer = (url) => (url === '/host/health' ? json({ ok: true, version: '0.1.0' }) : json({ repo: 'Jalez/kehikko-desktop', releases: [] }))
+    await open()
+    expect(document.body.textContent).toContain('No releases are published yet.')
   })
 })

@@ -30,6 +30,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   "canvases.ts: if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })": 'frame.sqlite',
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',
   'appProtocols.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the app version → protocol cache',
+  'github.ts: mkdirSync(dirname(deps.file), { recursive: true })': 'the GitHub answers cache, in the machine directory (githubCacheFile)',
   'myModules.ts: mkdirSync(dirname(file), { recursive: true })': 'the My modules list, in the machine directory',
   'layouts.ts: mkdirSync(dir, { recursive: true })': "the person's own layouts, in the machine directory (layoutsDir)",
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
