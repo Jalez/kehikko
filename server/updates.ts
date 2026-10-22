@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
+import type { WorksWith } from '../src/host/worksWith.ts'
 
 /**
  * Whether the programs this host runs are behind what is on GitHub, and
@@ -97,6 +98,10 @@ export interface ReleaseFollower {
   overlay(place: Place, checkout: Checkout, fetch: boolean): Promise<Checkout>
   /** A copy just cloned: checked out at its newest release, when it has one. */
   settle(place: Place): Promise<{ ok: true; tag: string | null } | { ok: false; why: string }>
+  /** The copy's own release tags, newest first: nothing asked of the remote. */
+  local?(place: Place): Promise<string[]>
+  /** Which Kehikot each of these releases works with, by tag. */
+  worksFor?(place: Place, tags: readonly string[]): Promise<Record<string, WorksWith>>
 }
 
 /** A place as it is said: without the follower, which is not data. */

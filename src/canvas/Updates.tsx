@@ -54,6 +54,7 @@ import { KehikkoMark } from './Mark.tsx'
 import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { openWhatsNew, pokeWhatsNew, readInUpdates, updatesRunning } from '@/host/whatsNew.ts'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -215,8 +216,10 @@ export function Updates({
   /* A module's "What's new": every release since the one it runs. */
   const moduleNotes = useModuleNotes()
   const notesOpen = notes.open || moduleNotes.open
-  const showModuleNotes = (name: string, release: ModuleRelease, opener: HTMLElement) => {
+  const showModuleNotes = (id: string, name: string, release: ModuleRelease, opener: HTMLElement) => {
     if (release.repo && release.notes.length) {
+      /* Read here, they need not be told again after the update: "What's new" leaves them out. */
+      readInUpdates(id, release.installed, release.notes[0]!)
       const works = Object.fromEntries(
         release.notes.flatMap((tag) => {
           const said = worksSaid(release, tag)
@@ -377,6 +380,8 @@ export function Updates({
   const updateAll = async (ids: string[]) => {
     if (busy.current) return
     busy.current = true
+    /* "What's new" waits for the whole batch, and then tells of it once. */
+    updatesRunning(true)
     const abort = new AbortController()
     controller.current = abort
     setNotice(null)
@@ -388,21 +393,26 @@ export function Updates({
         const done = await applyUpdate(id, abort.signal, (reached) => setPhase({ kind: 'updating', ids, at, reached }))
         await drawn(since, abort.signal, markMs)
         replace(done.checkout)
-        setOutcomes((was) => ({ ...was, [id]: outcomeOf(id, done) }))
+        const outcome = outcomeOf(id, done)
+        setOutcomes((was) => ({ ...was, [id]: outcome }))
+        if (id !== 'host') pokeWhatsNew(outcome.kind === 'updated' && !outcome.installFailed ? { updated: id } : { failed: id })
         if (done.module?.ran !== 'stale') setCheck((was) => (was ? { ...was, stale: without(was.stale, id), older: without(was.older, id) } : was))
       } catch (error) {
         if (error instanceof LeftRunning) {
           /* Closed after the checkout had moved: the server finishes it, and
              what is true is read back from there. */
           void reread()
+          if (id !== 'host') pokeWhatsNew({ updated: id })
           continue
         }
         await drawn(since, abort.signal, markMs)
         const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
         setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
+        if (id !== 'host') pokeWhatsNew({ failed: id })
       }
     }
     if (abort.signal.aborted) setNotice('Update cancelled. Anything not marked as updated was left as it was.')
+    updatesRunning(false)
     busy.current = false
     controller.current = null
     setPhase({ kind: 'idle' })
@@ -663,7 +673,7 @@ export function Updates({
                     onRestartApp={
                       offersAppRestart(outcome, check?.restartable ?? false) ? () => void restartApp() : null
                     }
-                    onNotes={(release, opener) => showModuleNotes(one.name, release, opener)}
+                    onNotes={(release, opener) => showModuleNotes(one.id, one.name, release, opener)}
                     have={{ app: app?.current ?? null, protocol: check?.protocol ?? null }}
                   />
                 )
@@ -704,7 +714,7 @@ export function Updates({
                             </span>
                           )}
                           {one.release?.repo && one.release.notes.length ? (
-                            <WhatsNew release={one.release} onShow={(opener) => showModuleNotes(one.name, one.release!, opener)} />
+                            <WhatsNew release={one.release} onShow={(opener) => showModuleNotes(one.id, one.name, one.release!, opener)} />
                           ) : null}
                         </li>
                       ))}
@@ -727,6 +737,19 @@ export function Updates({
                   onClick={checkAll}
                 >
                   Check now
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground mr-auto h-7 text-xs"
+                  data-testid="updates-whats-new"
+                  disabled={updating !== null}
+                  onClick={() => {
+                    onOpenChange(false)
+                    setTimeout(openWhatsNew, 0)
+                  }}
+                >
+                  What’s new
                 </Button>
                 {ready.length > 1 && !updating ? (
                   <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id))}>

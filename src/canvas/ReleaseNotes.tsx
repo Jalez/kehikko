@@ -284,26 +284,6 @@ export function ModuleNotesDialog({
   opener?: HTMLElement | null
   load?: typeof fetchNotes
 }) {
-  const [readings, setReadings] = useState<Record<string, Reading>>({})
-  useEffect(() => {
-    if (!open) return
-    const abort = new AbortController()
-    for (const tag of tags) {
-      load(repo, tag, abort.signal).then(
-        (release) => setReadings((was) => ({ ...was, [tag]: { kind: 'read', release } })),
-        (error: unknown) => {
-          if (abort.signal.aborted) return
-          const trouble = error instanceof NotesTrouble ? error : null
-          setReadings((was) => ({
-            ...was,
-            [tag]: { kind: 'failed', why: (error as Error)?.message ?? 'no reason given', url: trouble?.url ?? releasePage(repo, tag), missing: trouble?.missing ?? false },
-          }))
-        },
-      )
-    }
-    return () => abort.abort()
-  }, [open, repo, tags, load])
-
   const page = tags.length === 1 ? releasePage(repo, tags[0]) : releasePage(repo)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -325,36 +305,7 @@ export function ModuleNotesDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
-          {tags.map((tag) => {
-            const reading = readings[tag] ?? { kind: 'reading' }
-            const published = reading.kind === 'read' ? releaseDate(reading.release.publishedAt) : null
-            return (
-              <section key={tag} data-testid="release-notes-release" data-tag={tag} className="pb-2">
-                {tags.length > 1 ? (
-                  <h3 className="pt-2 text-sm font-semibold">
-                    {name} {releaseVersion(tag)}
-                    {published ? <span className="text-muted-foreground pl-2 text-xs font-normal">{published}</span> : null}
-                  </h3>
-                ) : null}
-                {Object.hasOwn(works, tag) ? (
-                  <p className="text-muted-foreground pt-2 text-xs" data-testid="release-notes-works">
-                    {works[tag]}
-                  </p>
-                ) : null}
-                {reading.kind === 'reading' ? (
-                  <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>
-                ) : reading.kind === 'failed' ? (
-                  <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">
-                    {reading.missing ? `No release notes were published for ${tag}.` : `Couldn't load the notes for ${tag}: ${reading.why}`}
-                  </p>
-                ) : whatsNew(reading.release.body) ? (
-                  <Markdown source={whatsNew(reading.release.body)} />
-                ) : (
-                  <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
-                )}
-              </section>
-            )
-          })}
+          <ReleaseSections repo={repo} name={name} tags={tags} works={works} open={open} load={load} />
         </div>
         <div className="flex justify-end border-t px-5 py-3">
           <Button
@@ -371,6 +322,100 @@ export function ModuleNotesDialog({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Several releases' notes, one section each, newest first — read when `open`.
+ * What a module's "What's new" and the combined "What's new" after an update
+ * both show. With `oneTrouble`, a failure that befell every release (offline,
+ * GitHub's limit) is said once instead of under each heading.
+ */
+export function ReleaseSections({
+  repo,
+  name,
+  tags,
+  works = {},
+  open = true,
+  load = fetchNotes,
+  oneTrouble = false,
+  headings = tags.length > 1,
+}: {
+  repo: string
+  name: string
+  /** Newest first. */
+  tags: readonly string[]
+  /** Which Kehikot each release works with, by tag; said under its heading. Plain text. */
+  works?: Record<string, string>
+  open?: boolean
+  load?: typeof fetchNotes
+  oneTrouble?: boolean
+  /** A heading with the version and date over each release. */
+  headings?: boolean
+}) {
+  const [readings, setReadings] = useState<Record<string, Reading>>({})
+  const key = tags.join(',')
+  useEffect(() => {
+    if (!open) return
+    const abort = new AbortController()
+    for (const tag of key.split(',').filter(Boolean)) {
+      load(repo, tag, abort.signal).then(
+        (release) => setReadings((was) => ({ ...was, [tag]: { kind: 'read', release } })),
+        (error: unknown) => {
+          if (abort.signal.aborted) return
+          const trouble = error instanceof NotesTrouble ? error : null
+          setReadings((was) => ({
+            ...was,
+            [tag]: { kind: 'failed', why: (error as Error)?.message ?? 'no reason given', url: trouble?.url ?? releasePage(repo, tag), missing: trouble?.missing ?? false },
+          }))
+        },
+      )
+    }
+    return () => abort.abort()
+  }, [open, repo, key, load])
+
+  const failures = tags.map((tag) => readings[tag]).filter((one): one is Extract<Reading, { kind: 'failed' }> => one?.kind === 'failed' && !one.missing)
+  const allFailed = oneTrouble && tags.length > 0 && failures.length === tags.length
+  return (
+    <>
+      {allFailed ? (
+        <p className="bg-muted/60 text-muted-foreground mt-2 rounded-md px-3 py-2 text-xs leading-relaxed" data-testid="release-notes-offline" role="status">
+          The release notes could not be read just now — {failures[0]!.why.replace(/^GitHub could not be reached — /, '').replace(/\.$/, '')}. They come back here once GitHub can be reached.
+        </p>
+      ) : null}
+      {tags.map((tag) => {
+        const reading = readings[tag] ?? { kind: 'reading' }
+        const published = reading.kind === 'read' ? releaseDate(reading.release.publishedAt) : null
+        return (
+          <section key={tag} data-testid="release-notes-release" data-tag={tag} className="pb-2">
+            {headings ? (
+              <h3 className="pt-2 text-sm font-semibold">
+                {name} {releaseVersion(tag)}
+                {published ? <span className="text-muted-foreground pl-2 text-xs font-normal">{published}</span> : null}
+              </h3>
+            ) : null}
+            {Object.hasOwn(works, tag) ? (
+              <p className="text-muted-foreground pt-1 pb-1.5 text-xs" data-testid="release-notes-works">
+                {works[tag]}
+              </p>
+            ) : null}
+            {reading.kind === 'reading' ? (
+              <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>
+            ) : reading.kind === 'failed' ? (
+              allFailed ? null : (
+                <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">
+                  {reading.missing ? `No release notes were published for ${tag}.` : `Couldn't load the notes for ${tag}: ${reading.why}`}
+                </p>
+              )
+            ) : whatsNew(reading.release.body) ? (
+              <Markdown source={whatsNew(reading.release.body)} />
+            ) : (
+              <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
+            )}
+          </section>
+        )
+      })}
+    </>
   )
 }
 

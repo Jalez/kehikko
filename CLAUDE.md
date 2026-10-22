@@ -336,6 +336,31 @@
   `https:` only and open through `openExternal` (the desktop shell hands a
   new-window request to the default browser).
 
+## What's new after an update
+
+- One dialog for Kehikot and every module that moved (`src/canvas/WhatsNew.tsx`,
+  rules in `src/host/whatsNew.ts`). What was last ACKNOWLEDGED — the app
+  version, each installed copy's release (or commit, on `main`) and the "Show
+  What's new after updates" setting — is one `settings` row in `frame.sqlite`
+  (`server/whatsNew.ts`), never browser storage. `GET /host/whats-new` reads it
+  beside each copy (no network; `?only=record` for the setting alone); the
+  POST (`baseline`, `acknowledge`, `read`, `show`) is in `PAGE_ONLY`.
+- No record is the first run: what is here is recorded and nothing is shown.
+  A module the record does not name yet is recorded the same way. Nothing is
+  ever acknowledged backwards.
+- It never stacks: it waits for Settings' one-time question and the
+  introduction (`firstRunSettled`), then for a quiet moment (`whenQuiet` /
+  `notQuiet`: no `role=dialog|alertdialog|menu|listbox` or tour standing, no
+  focus in a field or a module's iframe, no Updates batch, `QUIET_MS` of it).
+  A new first-run window is covered as long as it is a Radix dialog.
+- The Updates menu tells it what landed (`pokeWhatsNew`), marks a batch
+  (`updatesRunning`) and reports notes read there (`readInUpdates`), which
+  count as acknowledged. One dialog per quiet moment: what lands while it
+  stands is merged in (`mergeItems`); a module the server is still updating,
+  or whose update failed, is left out.
+- Notes are drawn by `ReleaseSections` (`ReleaseNotes.tsx`), the same
+  Markdown-only drawing; a failure that hit every release is said once.
+
 ## A conversation's place (protocol 2.4.0)
 
 - A conversation's place is what a RECORD says, never what is on screen and
