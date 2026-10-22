@@ -1,5 +1,6 @@
 import {
   LIMITS,
+  WORK_ITEM_TYPES,
   type LastActivityKind,
   type PipelineState,
   type TrackerActivity,
@@ -8,6 +9,7 @@ import {
   type TrackerDiscussions,
   type TrackerReviewer,
   type TrackerRow,
+  type WorkItemType,
 } from 'kehikot-module-protocol'
 
 import type { Runner } from '../feedback.ts'
@@ -104,9 +106,12 @@ const numberOf = (v: unknown): number | null => {
  * refusal is believed for `PEOPLE_RECHECK_MS`, and the read says so once.
  */
 
-/** What a person is told when their GitLab will not say who reviews a merge request, or who acted last. */
+/**
+ * What a person is told when their GitLab will not say who reviews a merge request, or who acted
+ * last. An issue's work item type (protocol 2.11.0) is asked with the people and goes with them.
+ */
 export const OLD_GITLAB_PEOPLE = (host: string) =>
-  `${host} does not say who reviews a merge request or who acted last (an older GitLab), so My role there shows author and assignee only and no last activity.`
+  `${host} does not say who reviews a merge request or who acted last (an older GitLab), so My role there shows author and assignee only and no last activity, and a task there reads as an issue.`
 
 /** How long a host's refusal of the people fields is believed. */
 export const PEOPLE_RECHECK_MS = 30 * 60_000
@@ -217,6 +222,24 @@ export function peopleRead(r: Record<string, unknown>): unknown[] {
   ]
 }
 
+/*
+ * Work item types (protocol 2.11.0).
+ *
+ * A GitLab issue can be a task, an incident or another work item type. GraphQL
+ * says so in `Issue.type` (`TASK`), REST in `issue_type` (`task`) and `type`
+ * (`TASK`); `issues(iids:)` and the REST list both return tasks beside plain
+ * issues. The type is asked by GraphQL with the people, so a GitLab too old for
+ * those is asked without it and its rows have none (`OLD_GITLAB_PEOPLE` says
+ * so). A plain issue, and a type outside `WORK_ITEM_TYPES` (a namespace's own),
+ * have no `workItem`.
+ */
+
+/** An issue's work item type, from GraphQL or REST, or undefined for a plain issue or one not said. */
+export function workItemOf(r: Record<string, unknown>): WorkItemType | undefined {
+  const word = (str(r.type) || str(r.issue_type)).toLowerCase()
+  return (WORK_ITEM_TYPES as readonly string[]).includes(word) ? (word as WorkItemType) : undefined
+}
+
 const branchOf = (v: unknown): string | undefined => {
   const b = str(v)
   return b && b.length <= LIMITS.BRANCH ? b : undefined
@@ -239,6 +262,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     repo: source.repo,
     number,
     kind: 'issue',
+    workItem: workItemOf(r),
     state,
     title: clip(str(r.title), LIMITS.TITLE),
     url: clip(str(r.web_url) || str(r.webUrl), LIMITS.URL),
@@ -380,7 +404,7 @@ export function refsQuery(source: Source, issues: readonly number[], merges: rea
   const parts: string[] = []
   if (issues.length) {
     parts.push(`issues(iids: [${issues.map((n) => `"${n}"`).join(',')}], first: ${issues.length}) { nodes {
-      iid state title webUrl createdAt updatedAt closedAt ${GRAPH_PEOPLE(people)}${people ? ` ${NOTES_GRAPH}` : ''} } }`)
+      iid state title webUrl${people ? ' type' : ''} createdAt updatedAt closedAt ${GRAPH_PEOPLE(people)}${people ? ` ${NOTES_GRAPH}` : ''} } }`)
   }
   if (merges.length) {
     parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
@@ -472,7 +496,8 @@ export function columnsOn(row: TrackerRow, boards: readonly HeldBoard[]): Tracke
  * References per GraphQL query: GitLab's complexity grows with it, against a limit of 250 for a
  * logged-in user. Measured on gitlab.com (`queryComplexity { score }`): 242 at 25 + 25 with the
  * people and the notes; the pictures (2.10.0) make that 260, so a batch is 22 + 22, which scores
- * 243 (20 + 20: 232). Over the limit, a batch is halved.
+ * 243 (20 + 20: 232). An issue's `type` (2.11.0) adds 2 whatever the batch: 22 + 22 scores 245.
+ * Over the limit, a batch is halved.
  */
 export const BATCH = 22
 

@@ -1897,11 +1897,12 @@ function markAt(
 /**
  * One row of the tracker reading as `read_tracker` says it: state, pipeline,
  * review, board column, (protocol 2.7.0) the reviewers, the person's roles,
- * the review threads and the last push, and (2.8.0) the branches, the stack
- * and the last activity, each only when the row has it.
+ * the review threads and the last push, (2.8.0) the branches, the stack
+ * and the last activity, and (2.11.0) a GitLab issue's work item type —
+ * `#12 issue (task) open` — each only when the row has it.
  */
 export function trackerLine(row: TrackerRow): string {
-  return `${row.ref} ${row.kind} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
+  return `${row.ref} ${row.kind}${row.workItem ? ` (${row.workItem.replace(/_/g, ' ')})` : ''} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
     + `${row.draft ? ' draft' : ''}${row.pipeline ? ` pipeline:${row.pipeline}` : ''}${row.review ? ` review:${row.review}` : ''}`
     + `${(row.columns ?? (row.column ? [row.column] : [])).map((c) => ` column:"${c.name}" on "${c.board}"`).join('')}`
     + `${row.reviewers?.length ? ` reviewers:${row.reviewers.map((r) => `${r.login}(${r.state})`).join(',')}` : ''}`
