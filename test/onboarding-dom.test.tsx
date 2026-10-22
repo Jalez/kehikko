@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 17
+const TESTS = 24
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -336,7 +336,9 @@ function add(html: string): HTMLElement {
 }
 
 const CONTAINER =
-  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span></header></div></div>'
+  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
+  ['nw', 'ne', 'sw', 'se'].map((c) => `<span class="react-resizable-handle react-resizable-handle-${c} corner-handle"></span>`).join('') +
+  '</div>'
 
 function guide(facts: Facts) {
   const rec = recorder()
@@ -711,6 +713,10 @@ describe('the tour in the app', () => {
     )
     await settle()
     /* The controls themselves: each waiting step's last frame, and every explanation. */
+    /* The corner handles belong to the grid, not the container: stand one in. */
+    const example = tour.pickExample(document, false)!
+    example.setAttribute(tour.EXAMPLE_ATTR, '')
+    example.insertAdjacentHTML('beforeend', '<span class="react-resizable-handle react-resizable-handle-se corner-handle"></span>')
     for (const step of tour.TOUR_STEPS) {
       const frame = step.frames.at(-1)!
       expect([step.id, tour.resolveFrame(frame, document, false) !== null]).toEqual([step.id, true])
@@ -811,5 +817,167 @@ describe('the layout picker', () => {
     expect(used.at(-1)).toEqual({ id: 'start-simple', install: [] })
     /* A host never asked to install anything by itself. */
     expect(asked.filter((one) => one.url.includes('/install'))).toEqual([])
+  })
+})
+
+const ALL_DONE: Facts = { project: true, projects: 1, epic: true, parts: false, kehikko: true }
+const HIDDEN = () => document.documentElement.classList.contains('focus-mode')
+const stepOf = (rec: ReturnType<typeof recorder>) => rec.last?.key.split(':')[0]
+
+describe('the tour and container headers', () => {
+  if (!inChild) return
+
+  /* A cookie jar that records every write (a blank page has none of its own). */
+  const writes: string[] = []
+  let jar = ''
+  beforeAll(() => {
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => jar,
+      set: (value: string) => {
+        writes.push(value)
+        jar = value.split(';')[0]!
+      },
+    })
+  })
+  const hide = () => {
+    document.documentElement.classList.add('focus-mode')
+    jar = 'kehikko.focus=on'
+    writes.length = 0
+  }
+  afterEach(() => {
+    document.documentElement.classList.remove('focus-mode')
+    jar = ''
+    writes.length = 0
+  })
+
+  test('hidden headers are shown for the header stops, put back on leaving, pausing and finishing — and never written down', async () => {
+    page(CONTAINER)
+    hide()
+    {
+      const { one, rec } = guide(ALL_DONE)
+      one.start(null)
+      expect(stepOf(rec)).toBe('header')
+      expect(HIDDEN()).toBe(false)
+      expect(rec.last?.note).toBe(tour.HEADERS_NOTE)
+      rec.last!.onNext()
+      expect(stepOf(rec)).toBe('frame')
+      expect(HIDDEN()).toBe(false)
+      expect(rec.last?.note).toBeUndefined()
+      rec.last!.onNext()
+      rec.last!.onNext()
+      expect(stepOf(rec)).toBe('corners')
+      expect(HIDDEN()).toBe(true)
+      rec.last!.onBack()
+      expect(stepOf(rec)).toBe('menus')
+      expect(HIDDEN()).toBe(false)
+      /* Pausing. */
+      one.pause()
+      expect(HIDDEN()).toBe(true)
+      /* Finishing. */
+      one.start('header')
+      expect(HIDDEN()).toBe(false)
+      for (let i = 0; i < 7; i++) rec.last!.onNext()
+      expect(HIDDEN()).toBe(true)
+      rec.last!.onNext()
+      expect(one.running).toBe('idle')
+      expect(HIDDEN()).toBe(true)
+      /* Stopping (the page going), and the page unloading. */
+      one.start('header')
+      expect(HIDDEN()).toBe(false)
+      one.stop()
+      expect(HIDDEN()).toBe(true)
+      one.start('header')
+      window.dispatchEvent(new Event('pagehide'))
+      expect(HIDDEN()).toBe(true)
+      one.stop()
+      expect(writes).toEqual([])
+      expect(document.cookie).toBe('kehikko.focus=on')
+    }
+  })
+
+  test('headers that were already shown are left alone and the stop says nothing about them', () => {
+    page(CONTAINER)
+    const { one, rec } = guide(ALL_DONE)
+    one.start(null)
+    expect(HIDDEN()).toBe(false)
+    expect(rec.last?.note).toBeUndefined()
+    one.stop()
+    expect(HIDDEN()).toBe(false)
+  })
+
+  test('a person who turned headers off themselves while the tour ran keeps them off', () => {
+    page(CONTAINER)
+    hide()
+    const { one } = guide(ALL_DONE)
+    one.start(null)
+    jar = 'kehikko.focus=off'
+    one.pause()
+    expect(HIDDEN()).toBe(false)
+  })
+
+  test('a container off screen is scrolled into view, and the one with menus is the example', () => {
+    page(
+      '<div class="react-grid-item" id="bare"><div data-module="a"><header class="container-grip">a<button data-menu="frame">f</button></header></div></div>',
+      '<div class="react-grid-item" id="menus"><div data-module="b"><header class="container-grip">b<button data-menu="frame">f</button><span data-header-menus>m</span></header></div></div>',
+      '<div class="react-grid-item" id="folded"><div data-module="c"><div class="container-reveal" data-collapsed="true"><header class="container-grip" data-dense="true">c<button data-menu="frame">f</button><span data-header-menus>m</span></header></div></div></div>',
+    )
+    const menus = document.getElementById('menus')!
+    let scrolled = 0
+    let top = 5000
+    menus.getBoundingClientRect = () => ({ top, bottom: top + 200, left: 10, right: 300, width: 290, height: 200, x: 10, y: top, toJSON() {} }) as DOMRect
+    menus.scrollIntoView = () => {
+      scrolled += 1
+      top = 20
+    }
+    const { one, rec } = guide(ALL_DONE)
+    one.start(null)
+    expect(menus.hasAttribute('data-tour-example')).toBe(true)
+    expect(document.getElementById('bare')!.hasAttribute('data-tour-example')).toBe(false)
+    expect(document.getElementById('folded')!.hasAttribute('data-tour-example')).toBe(false)
+    expect(scrolled).toBe(1)
+    expect(rec.last?.element.closest('.react-grid-item')).toBe(menus)
+    one.stop()
+    expect(menus.hasAttribute('data-tour-example')).toBe(false)
+  })
+
+  test('with no unfolded container the header, Frame, menus and corner stops are left out, and the headers stay as they were', () => {
+    page('<div class="react-grid-item"><div data-module="c"><div class="container-reveal" data-collapsed="true"><header class="container-grip" data-dense="true">c<button data-menu="frame">f</button></header></div></div></div>')
+    hide()
+    const { one, rec } = guide(ALL_DONE)
+    one.start(null)
+    expect(rec.views.map((view) => view.key.split(':')[0])[0]).toBe('inbox')
+    expect(HIDDEN()).toBe(true)
+    expect(tour.pickExample(document, false)).toBeNull()
+  })
+
+  test('the corner stop anchors on one corner and lights all four of the example only while it stands', async () => {
+    page(CONTAINER)
+    const drawn = new Tour.Guide({ facts: () => ALL_DONE, onStep: nothing, onPause: nothing, onFinish: nothing, layout: false, settle: 5 })
+    guides.push(drawn)
+    drawn.start('corners')
+    await tick(50)
+    expect(document.documentElement.hasAttribute('data-tour-corners')).toBe(true)
+    const item = document.querySelector('.react-grid-item')!
+    expect(item.hasAttribute('data-tour-example')).toBe(true)
+    expect(item.querySelectorAll(':scope > .corner-handle')).toHaveLength(4)
+    expect(document.querySelector('.driver-active-element')?.classList.contains('react-resizable-handle-se')).toBe(true)
+    drawn.pause()
+    await tick(50)
+    expect(document.documentElement.hasAttribute('data-tour-corners')).toBe(false)
+    drawn.stop()
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    expect(css).toContain("html[data-tour-corners] [data-tour-example] > .corner-handle::after")
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*html\[data-tour-corners\][^}]*animation: none/)
+  })
+
+  test('the layout name pills of the carousel keep a gap and fit the picture', () => {
+    const names = ['Design', 'Research', 'Development', 'Review', 'Learning']
+    const row = Intro.pillRow(names)
+    for (let i = 1; i < row.length; i++) expect(row[i]!.x - (row[i - 1]!.x + row[i - 1]!.width)).toBeGreaterThanOrEqual(8)
+    expect(row[0]!.x).toBeGreaterThanOrEqual(8)
+    expect(row.at(-1)!.x + row.at(-1)!.width).toBeLessThanOrEqual(312)
+    /* Development, the longest, has the widest pill. */
+    expect(Math.max(...row.map((one) => one.width))).toBe(row[2]!.width)
   })
 })

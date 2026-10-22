@@ -694,6 +694,44 @@ html[data-tour-mode='wait'] .driver-active-element {
   html[data-tour-mode='wait'] .driver-active-element { animation: none; }
 }
 
+/* The headers shown for the tour, said once under the first header stop. */
+.kehikot-tour .tour-note {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/*
+ * "Resize from any corner": the example container's four corner arcs are lit
+ * (the hovered strength, `index.css` above) and breathe, and the page is not
+ * dimmed or cut out — the popover is anchored to the bottom-right handle only.
+ */
+html[data-tour-corners] .driver-overlay {
+  display: none;
+}
+html[data-tour-corners] .driver-active-element {
+  outline: none;
+}
+html[data-tour-corners] [data-tour-example] > .corner-handle::after {
+  width: calc(var(--radius) + 10px);
+  height: calc(var(--radius) + 10px);
+  opacity: 1;
+  --corner-tint: color-mix(in oklab, var(--foreground) 70%, transparent);
+  filter: drop-shadow(0 0 4px var(--ring));
+  animation: tour-corner 1.8s ease-in-out infinite;
+}
+html[data-tour-corners] [data-tour-example] > .react-resizable-handle-nw::after { border-width: 3px 0 0 3px; }
+html[data-tour-corners] [data-tour-example] > .react-resizable-handle-ne::after { border-width: 3px 3px 0 0; }
+html[data-tour-corners] [data-tour-example] > .react-resizable-handle-sw::after { border-width: 0 0 3px 3px; }
+html[data-tour-corners] [data-tour-example] > .react-resizable-handle-se::after { border-width: 0 3px 3px 0; }
+@keyframes tour-corner {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-tour-corners] [data-tour-example] > .corner-handle::after { animation: none; }
+}
+
 /*
  * The introduction's pictures (`Intro.tsx`). Every animated element's own
  * style is its FINAL frame, so a picture that does not move — reduced motion,

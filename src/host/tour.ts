@@ -71,6 +71,12 @@ export interface TourStep {
   done?(facts: Facts): boolean
   /** A waiting step the person may move past without doing it: the button's words. */
   pass?: string
+  /**
+   * Points into the one example container the tour uses (`pickExample`).
+   * `header`: at its header, which the tour makes visible first; `corners`:
+   * at its four corner handles.
+   */
+  example?: 'header' | 'corners'
   frames: readonly TourFrame[]
 }
 
@@ -201,9 +207,10 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'header',
     kind: 'show',
+    example: 'header',
     frames: [
       {
-        selectors: ['[data-module] header.container-grip'],
+        selectors: ['[data-tour-example] header.container-grip'],
         title: 'A container’s header',
         body: 'Drag a container by its header. Tick the box to point an agent at it; fold it down to its header with the chevron.',
         side: 'bottom',
@@ -214,9 +221,10 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'frame',
     kind: 'show',
+    example: 'header',
     frames: [
       {
-        selectors: ['[data-module] [data-menu="frame"]'],
+        selectors: ['[data-tour-example] [data-menu="frame"]'],
         title: 'The Frame menu',
         body: 'Everything about the container itself: its version, its tools for agents, its skills, refreshing, feedback.',
         side: 'bottom',
@@ -227,9 +235,10 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'menus',
     kind: 'show',
+    example: 'header',
     frames: [
       {
-        selectors: ['[data-module] [data-header-menus]'],
+        selectors: ['[data-tour-example] [data-header-menus]'],
         title: 'The module’s own menus',
         body: 'View, Run and the rest are the module’s: switch what it shows, run what it offers.',
         side: 'bottom',
@@ -240,13 +249,16 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'corners',
     kind: 'show',
+    example: 'corners',
     frames: [
       {
-        selectors: ['.react-grid-item:has([data-module])'],
+        /* One corner anchors the popover; all four are lit (`data-tour-corners`
+           in `index.css`), so the container's whole outline is not. */
+        selectors: ['[data-tour-example] > .react-resizable-handle-se'],
         title: 'Resize from any corner',
         body: 'Every corner of a container is a handle. Neighbours make room, and get it back when you fold or shrink it.',
-        side: 'right',
-        align: 'start',
+        side: 'top',
+        align: 'end',
       },
     ],
   },
@@ -418,3 +430,41 @@ export function tourStanding(root: Document = document): boolean {
 
 /** The class every tour popover carries, which `index.css` themes with the app's own tokens. */
 export const TOUR_CLASS = 'kehikot-tour'
+
+/** What the first header stop adds when the tour has switched the headers on. */
+export const HEADERS_NOTE = 'Headers are shown for the tour; they’ll hide again afterwards.'
+
+/** The attribute that marks the grid item the tour uses as its example. */
+export const EXAMPLE_ATTR = 'data-tour-example'
+
+/** Is all of this element in the window? Unmeasured (all zero) counts as in. */
+export function inView(element: Element, view: Window | null = element.ownerDocument.defaultView): boolean {
+  const rect = element.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return true
+  const height = view?.innerHeight || 0
+  const width = view?.innerWidth || 0
+  if (!height || !width) return true
+  return rect.top >= 0 && rect.left >= 0 && rect.bottom <= height && rect.right <= width
+}
+
+/**
+ * The container the header, Frame, menus and corner stops all point at: an
+ * unfolded one that is drawn, whose header has menus (and a Frame menu), the
+ * one in the window before one that is not. Null when no container is
+ * unfolded: those stops are then left out.
+ */
+export function pickExample(root: ParentNode = document, layout = true): HTMLElement | null {
+  let best: { item: HTMLElement; score: number } | null = null
+  for (const item of root.querySelectorAll<HTMLElement>('.react-grid-item')) {
+    const module = item.querySelector('[data-module]')
+    const header = module?.querySelector<HTMLElement>('header.container-grip')
+    if (!module || !header) continue
+    if (header.dataset.dense === 'true' || item.querySelector('[data-collapsed]')) continue
+    if (!onScreen(item, layout)) continue
+    const menus = module.querySelector('[data-header-menus]') ? 1 : 0
+    const frame = module.querySelector('[data-menu="frame"]') ? 1 : 0
+    const score = menus * 8 + frame * 4 + (inView(item) ? 1 : 0)
+    if (!best || score > best.score) best = { item, score }
+  }
+  return best?.item ?? null
+}
