@@ -149,7 +149,9 @@ export function Canvases({
                 />
               </DropdownMenuItem>
             ))}
-            <AddItem onAdd={onCreate}>new kehikko…</AddItem>
+            <AddItem onAdd={onCreate} tour="new-kehikko">
+              new kehikko…
+            </AddItem>
             {/* The open one as a suggested layout — the project's, to travel
                 with it, or the person's own. See `Layouts.tsx`. */}
             <DropdownMenuItem onSelect={() => openSaveLayout()} disabled={!open || open.placements.length === 0} data-save-layout-item="">

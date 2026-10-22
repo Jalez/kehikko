@@ -274,7 +274,12 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
             <ScrollArea className="max-h-[56vh] pr-2">
               <div className="flex flex-col gap-4">
                 {sections.map((section) => (
-                  <section key={section.title} aria-label={section.title} className="flex flex-col gap-2">
+                  <section
+                    key={section.title}
+                    aria-label={section.title}
+                    className="flex flex-col gap-2"
+                    data-tour={section.title === 'Suggested' ? 'layouts-suggested' : undefined}
+                  >
                     <h3 className="text-muted-foreground text-xs font-medium">
                       {section.title}
                       {section.note ? <span className="font-normal"> — {section.note}</span> : null}

@@ -26,7 +26,7 @@ export function ensureOnboarding(db: Database): void {
 }
 
 export function readOnboarding(db: Database, env: Record<string, string | undefined> = process.env): Onboarding {
-  if (env.KEHIKOT_ONBOARDING === 'off') return { intro: INTRO_VERSION, tour: { at: null, finished: true } }
+  if (env.KEHIKOT_ONBOARDING === 'off') return { intro: INTRO_VERSION, tour: { step: null, paused: false, finished: true } }
   try {
     const row = db.query<{ value: string }, [string]>('select value from settings where key = ?').get(KEY)
     return row ? onboardingSchema.parse(JSON.parse(row.value)) : NOT_STARTED

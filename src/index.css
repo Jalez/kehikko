@@ -642,3 +642,224 @@
   .driver-fade .driver-overlay,
   .driver-fade .driver-popover { animation: none; }
 }
+
+/*
+ * The tour while it waits for the person: no dimming and nothing switched
+ * off, because what it points at is what they are about to press — and the
+ * menu or window that press opens has to work. `Tour.ts` sets the mode on
+ * <html> and takes driver.js's page-wide `driver-active` off the body; the
+ * control it points at gets a ring that breathes instead.
+ */
+html[data-tour-mode='wait'] .driver-overlay {
+  display: none;
+}
+html[data-tour-mode='wait'] .driver-active-element {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: calc(var(--radius) - 2px);
+  animation: tour-breathe 1.8s ease-in-out infinite;
+}
+@keyframes tour-breathe {
+  0%, 100% { outline-color: var(--ring); outline-offset: 2px; }
+  50% { outline-color: color-mix(in oklch, var(--ring) 35%, transparent); outline-offset: 4px; }
+}
+/* The popover answers presses even under a modal window, which turns pointer
+   events off on everything behind it. */
+.driver-popover.kehikot-tour {
+  pointer-events: auto;
+}
+.kehikot-tour .tour-got-this {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  user-select: none;
+}
+.kehikot-tour .tour-got-this input {
+  accent-color: var(--primary);
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+}
+.kehikot-tour .tour-got-this:hover {
+  color: var(--foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-tour-mode='wait'] .driver-active-element { animation: none; }
+}
+
+/*
+ * The introduction's pictures (`Intro.tsx`). Every animated element's own
+ * style is its FINAL frame, so a picture that does not move — reduced motion,
+ * or `data-motion="still"` — still says what it is about. Entrances play
+ * once; loops are slow and small.
+ */
+.intro-art * {
+  transform-box: fill-box;
+}
+.intro-art .ia-draw {
+  stroke-dasharray: 1000;
+  animation: ia-draw 1.2s ease-out backwards;
+}
+@keyframes ia-draw {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+.intro-art .ia-pop {
+  transform-origin: center;
+  animation: ia-pop 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.15) backwards;
+}
+@keyframes ia-pop {
+  from { opacity: 0; transform: scale(0.86); }
+}
+.intro-art .ia-rise {
+  animation: ia-rise 0.55s ease-out backwards;
+}
+@keyframes ia-rise {
+  from { opacity: 0; transform: translateY(8px); }
+}
+.intro-art .ia-pulse {
+  transform-origin: center;
+  animation: ia-pulse 2.2s ease-in-out infinite backwards;
+}
+@keyframes ia-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.55; }
+}
+.intro-art .ia-spin {
+  transform-origin: 0 100%;
+  animation: ia-spin 1.4s linear infinite;
+}
+@keyframes ia-spin {
+  to { transform: rotate(360deg); }
+}
+.intro-art .ia-turn {
+  transform-origin: center;
+  animation: ia-spin 5s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+}
+.intro-art .ia-fill {
+  transform-origin: left center;
+  animation: ia-fill 3.6s ease-in-out infinite;
+}
+@keyframes ia-fill {
+  0% { transform: scaleX(0.08); }
+  85%, 100% { transform: scaleX(1); }
+}
+.intro-art .ia-ping {
+  transform-origin: center;
+  animation: ia-ping 5s ease-out infinite;
+}
+@keyframes ia-ping {
+  0%, 55% { transform: scale(0); opacity: 0; }
+  62% { transform: scale(1.35); opacity: 1; }
+  70%, 100% { transform: scale(1); opacity: 1; }
+}
+/* "Pick a part and everything narrows": the part lit, the rows it leaves out dimmed. */
+.intro-art .ia-chip {
+  animation: ia-chip 4.5s ease-in-out infinite;
+}
+@keyframes ia-chip {
+  0%, 25% { opacity: 0; }
+  40%, 80% { opacity: 1; }
+  95%, 100% { opacity: 0; }
+}
+.intro-art .ia-narrow {
+  opacity: 0.25;
+  animation: ia-narrow 4.5s ease-in-out infinite;
+}
+@keyframes ia-narrow {
+  0%, 28% { opacity: 1; }
+  45%, 80% { opacity: 0.25; }
+  95%, 100% { opacity: 1; }
+}
+/* The five ways in turn; the first stands for them all when still. */
+.intro-art .ia-cycle {
+  opacity: 0;
+  animation: ia-cycle 10s linear infinite backwards;
+}
+.intro-art .ia-cycle.ia-first {
+  opacity: 1;
+}
+@keyframes ia-cycle {
+  0% { opacity: 0; }
+  4%, 18% { opacity: 1; }
+  22%, 100% { opacity: 0; }
+}
+.intro-art .ia-uncover {
+  transform-origin: right center;
+  transform: scaleX(0);
+  animation: ia-uncover 5s steps(13, end) infinite;
+}
+@keyframes ia-uncover {
+  0% { transform: scaleX(1); }
+  30%, 100% { transform: scaleX(0); }
+}
+.intro-art .ia-dot {
+  animation: ia-dot 1.2s ease-in-out infinite;
+}
+@keyframes ia-dot {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.intro-art .ia-flow {
+  stroke-dasharray: 4 4;
+  animation: ia-flow 0.9s linear infinite;
+}
+@keyframes ia-flow {
+  to { stroke-dashoffset: -8; }
+}
+.intro-art .ia-blink {
+  animation: ia-dot 1.5s ease-in-out infinite;
+}
+.intro-art .ia-drop {
+  animation: ia-drop 7s ease-out infinite backwards;
+}
+@keyframes ia-drop {
+  0% { opacity: 0; transform: translateY(-10px); }
+  7%, 86% { opacity: 1; transform: none; }
+  94%, 100% { opacity: 0; transform: none; }
+}
+.intro-art .ia-swap-old {
+  opacity: 0;
+  animation: ia-swap-old 5s ease-in-out infinite;
+}
+.intro-art .ia-swap-new {
+  animation: ia-swap-new 5s ease-in-out infinite;
+}
+@keyframes ia-swap-old {
+  0%, 40% { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes ia-swap-new {
+  0%, 40% { opacity: 0; }
+  50%, 92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.intro-art .ia-carry {
+  transform: translate(var(--dx), var(--dy));
+  animation: ia-carry 5s ease-in-out infinite;
+}
+@keyframes ia-carry {
+  0%, 12% { transform: translate(0, 0); opacity: 0; }
+  20% { transform: translate(0, 0); opacity: 1; }
+  70% { transform: translate(var(--dx), var(--dy)); opacity: 1; }
+  88%, 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+}
+/* Still: every picture at its final frame. */
+[data-motion='still'] .intro-art,
+[data-motion='still'] .intro-art * {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-art,
+  .intro-art * {
+    animation: none !important;
+  }
+}

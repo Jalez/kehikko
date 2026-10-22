@@ -36,11 +36,27 @@ function DialogOverlay({ className, ...props }: React.ComponentProps<typeof Dial
   )
 }
 
+/**
+ * A press on the guided tour's popover (`.driver-popover`, drawn over every
+ * window) is not a press outside this dialog: the tour points INTO dialogs —
+ * the folder chooser, the layout picker — and its "I've got this" must not
+ * close the window it is pointing at.
+ */
+function fromTheTour(event: { target: EventTarget | null }): boolean {
+  const target = event.target as Element | null
+  return typeof target?.closest === 'function' && target.closest('.driver-popover') !== null
+}
+
 function DialogContent({
   className,
   children,
+  showClose = true,
+  onInteractOutside,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  /** False when the dialog draws its own close in a corner of its own (the introduction). */
+  showClose?: boolean
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogOverlay />
@@ -49,13 +65,19 @@ function DialogContent({
           'bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-5 shadow-lg',
           className,
         )}
+        onInteractOutside={(event) => {
+          if (fromTheTour(event)) event.preventDefault()
+          else onInteractOutside?.(event)
+        }}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent text-muted-foreground hover:text-foreground absolute top-4 right-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {showClose ? (
+          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent text-muted-foreground hover:text-foreground absolute top-4 right-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+            <XIcon className="size-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        ) : null}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   )
@@ -81,8 +103,11 @@ function DialogDescription({
   )
 }
 
+const DialogClose = DialogPrimitive.Close
+
 export {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,

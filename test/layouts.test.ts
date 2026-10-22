@@ -19,7 +19,7 @@ import {
   toInstall,
   type Layout,
 } from '../src/host/layouts.ts'
-import { INTRO_VERSION, introDue, NOT_STARTED, edited } from '../src/host/onboarding.ts'
+import { continuable, edited, INTRO_VERSION, introDue, NOT_STARTED, underway } from '../src/host/onboarding.ts'
 import { COLUMNS } from '../src/host/canvases.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
@@ -34,8 +34,26 @@ function folder(): string {
 
 
 describe('the built-in layouts', () => {
-  test('there are four, each named, and every module is on the official list or optional', () => {
-    expect(BUILT_IN_LAYOUTS.map((one) => one.name)).toEqual(['Build software', 'Write a paper', 'Plan an epic', 'Start simple'])
+  test('the five ways of working first, then the rest; every module is on the official list or optional', () => {
+    expect(BUILT_IN_LAYOUTS.map((one) => one.name)).toEqual([
+      'Design',
+      'Research',
+      'Development',
+      'Review',
+      'Learning',
+      'Write a paper',
+      'Plan an epic',
+      'Start simple',
+    ])
+    /* "Build software" became "Development": one layout, not two names for it. */
+    expect(BUILT_IN_LAYOUTS.some((one) => one.name === 'Build software')).toBe(false)
+    const modulesOf = (id: string) => BUILT_IN_LAYOUTS.find((one) => one.id === id)!.containers.map((c) => c.module.replace('kehikot.', ''))
+    expect(modulesOf('design')).toEqual(['browser', 'flows', 'claude', 'notes', 'references'])
+    expect(modulesOf('research')).toEqual(['paper', 'browser', 'notes', 'citations', 'references', 'claude'])
+    expect(modulesOf('development')).toEqual(['journeys', 'references', 'checklist', 'claude', 'review', 'factory'])
+    expect(modulesOf('review')).toEqual(['references', 'checklist', 'diff', 'review', 'browser', 'claude'])
+    expect(modulesOf('learning')).toEqual(['paper', 'learning', 'notes', 'slides', 'claude'])
+    for (const layout of BUILT_IN_LAYOUTS) expect(layout.summary.length).toBeGreaterThan(20)
     const listed = new Set(OFFICIAL.map((one) => one.id))
     for (const layout of BUILT_IN_LAYOUTS) {
       for (const c of layout.containers) expect(listed.has(c.module) || c.optional === true).toBe(true)
@@ -196,10 +214,28 @@ describe('the introduction is shown once', () => {
     ensureOnboarding(store)
     expect(readOnboarding(store, {})).toEqual(NOT_STARTED)
     writeOnboarding(store, { intro: 'seen' }, {})
-    writeOnboarding(store, { tour: { at: 4 } }, {})
-    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { at: 4, finished: false } })
-    writeOnboarding(store, { tour: { at: null, finished: true } }, {})
-    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { at: null, finished: true } })
+    writeOnboarding(store, { tour: { step: 'epic' } }, {})
+    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { step: 'epic', paused: false, finished: false } })
+    /* Paused: the step is kept, for Continue tour. */
+    writeOnboarding(store, { tour: { step: 'epic', paused: true } }, {})
+    expect(readOnboarding(store, {}).tour).toEqual({ step: 'epic', paused: true, finished: false })
+    expect(continuable(readOnboarding(store, {}))).toBe(true)
+    expect(underway(readOnboarding(store, {}))).toBe(false)
+    /* Moving on is not paused. */
+    writeOnboarding(store, { tour: { step: 'parts' } }, {})
+    expect(underway(readOnboarding(store, {}))).toBe(true)
+    writeOnboarding(store, { tour: { step: null, finished: true } }, {})
+    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { step: null, paused: false, finished: true } })
+    expect(continuable(readOnboarding(store, {}))).toBe(false)
+  })
+
+  test('a row from the first tour (numbered stops) reads as not started; a newer introduction is due again', () => {
+    const store = openDb(':memory:')
+    ensureOnboarding(store)
+    store.query("insert into settings (key, value) values ('onboarding', ?)").run(JSON.stringify({ intro: 1, tour: { at: 3, finished: false } }))
+    const read = readOnboarding(store, {})
+    expect(read.tour).toEqual({ step: null, paused: false, finished: false })
+    expect(introDue(read)).toBe(true)
   })
 
   test('KEHIKOT_ONBOARDING=off answers as if both were done', () => {

@@ -29,7 +29,7 @@ import { COLUMNS, type Placement } from './canvases.ts'
  * host knows, so it cannot be had from here. The picker says "will install
  * Review" for the second and "not available" for the last, and installs only
  * on the person's press, through the same `/host/official/install` the
- * modules list uses. A container marked `optional` (Flows in "Plan an epic")
+ * modules list uses. A container marked `optional` (Flows in "Design" and "Plan an epic")
  * is used when it is here and left out without a word when it is not.
  */
 
@@ -59,12 +59,45 @@ export interface Layout {
   containers: LayoutContainer[]
 }
 
+/**
+ * Ours. The first five are the five ways of working the introduction names —
+ * Design, Research, Development, Review, Learning — in that order; then the
+ * rest. "Development" was "Build software" (same modules): one layout for the
+ * one way of working, not two names for it.
+ */
 export const BUILT_IN_LAYOUTS: readonly Layout[] = [
   {
-    id: 'build-software',
+    id: 'design',
     from: 'builtin',
-    name: 'Build software',
-    summary: 'Plan the work, talk to Claude about it, and review and ship the changes.',
+    name: 'Design',
+    summary: 'The thing you are shaping, live in a browser, with your notes, its issues and Claude beside it.',
+    containers: [
+      { module: 'kehikot.browser', x: 0, y: 0, w: 7, h: 18 },
+      { module: 'kehikot.flows', x: 0, y: 18, w: 7, h: 10, optional: true },
+      { module: 'kehikot.claude', x: 7, y: 0, w: 5, h: 14 },
+      { module: 'kehikot.notes', x: 7, y: 14, w: 5, h: 7 },
+      { module: 'kehikot.references', x: 7, y: 21, w: 5, h: 7 },
+    ],
+  },
+  {
+    id: 'research',
+    from: 'builtin',
+    name: 'Research',
+    summary: 'Read and write with your sources at hand: the paper, what it cites, your notes, the web and Claude.',
+    containers: [
+      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 28 },
+      { module: 'kehikot.browser', x: 5, y: 0, w: 4, h: 16 },
+      { module: 'kehikot.notes', x: 5, y: 16, w: 4, h: 12 },
+      { module: 'kehikot.citations', x: 9, y: 0, w: 3, h: 9 },
+      { module: 'kehikot.references', x: 9, y: 9, w: 3, h: 9 },
+      { module: 'kehikot.claude', x: 9, y: 18, w: 3, h: 10 },
+    ],
+  },
+  {
+    id: 'development',
+    from: 'builtin',
+    name: 'Development',
+    summary: 'Plan the work, build it with Claude, and review and ship the changes.',
     containers: [
       { module: 'kehikot.journeys', x: 0, y: 0, w: 4, h: 10 },
       { module: 'kehikot.references', x: 0, y: 10, w: 4, h: 9 },
@@ -72,6 +105,33 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
       { module: 'kehikot.claude', x: 4, y: 0, w: 5, h: 28 },
       { module: 'kehikot.review', x: 9, y: 0, w: 3, h: 14 },
       { module: 'kehikot.factory', x: 9, y: 14, w: 3, h: 14 },
+    ],
+  },
+  {
+    id: 'review',
+    from: 'builtin',
+    name: 'Review',
+    summary: 'Go through a change line by line, hold it to its checklist, and try it in a real browser.',
+    containers: [
+      { module: 'kehikot.references', x: 0, y: 0, w: 3, h: 14 },
+      { module: 'kehikot.checklist', x: 0, y: 14, w: 3, h: 14 },
+      { module: 'kehikot.diff', x: 3, y: 0, w: 5, h: 16 },
+      { module: 'kehikot.review', x: 3, y: 16, w: 5, h: 12 },
+      { module: 'kehikot.browser', x: 8, y: 0, w: 4, h: 16 },
+      { module: 'kehikot.claude', x: 8, y: 16, w: 4, h: 12 },
+    ],
+  },
+  {
+    id: 'learning',
+    from: 'builtin',
+    name: 'Learning',
+    summary: 'Read a paper with questions on what you read, your notes and slides, and Claude to explain.',
+    containers: [
+      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 28 },
+      { module: 'kehikot.learning', x: 5, y: 0, w: 4, h: 15 },
+      { module: 'kehikot.notes', x: 5, y: 15, w: 4, h: 13 },
+      { module: 'kehikot.slides', x: 9, y: 0, w: 3, h: 12 },
+      { module: 'kehikot.claude', x: 9, y: 12, w: 3, h: 16 },
     ],
   },
   {

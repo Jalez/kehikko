@@ -104,6 +104,12 @@ export interface Project {
    * a page has said so to the person once. Null otherwise.
    */
   followed: string | null
+  /**
+   * The person's home folder: what a fresh host opens when nobody has picked
+   * a project yet (see `adopt`). Only present when true. The tour reads it as
+   * "no project picked yet" (`src/host/tour.ts`).
+   */
+  home?: true
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -284,6 +290,7 @@ function described({ followed_from, ...row }: Row & { followed_from?: string | n
     shared: missing ? false : sharesKehikot(row.path),
     missing,
     uid: row.uid,
+    ...(isHome(row.path) ? { home: true as const } : {}),
   }
 }
 

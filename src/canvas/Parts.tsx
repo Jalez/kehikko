@@ -209,6 +209,7 @@ export function Parts({
         <DropdownMenuContent
           align="start"
           className="max-h-[60vh] w-80 overflow-auto"
+          data-tour="parts-menu"
           /* Shut and opened again, it is the list: a name left half typed, or
              a remove left armed, is not what the next opening is for. */
           onCloseAutoFocus={() => {

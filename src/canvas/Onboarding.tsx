@@ -9,24 +9,31 @@ import {
   onOpenLayouts,
   onOpenSaveLayout,
   onOpenTour,
-  openLayouts,
   openTour,
   postOnboarding,
+  underway,
   type LayoutsMode,
   type Onboarding,
+  type OnboardingEdit,
   type TourStart,
 } from '@/host/onboarding.ts'
 import { installOfficial } from '@/host/official.ts'
+import { EXPLORING, NO_FACTS, type Facts } from '@/host/tour.ts'
 import { IntroDialog } from './Intro.tsx'
 import { LayoutPicker, SaveLayoutDialog } from './Layouts.tsx'
-import { runTour } from './Tour.ts'
+import { Guide, type Drawer } from './Tour.ts'
 
 /**
  * Everything a person meets on their way in: the introduction (shown by
  * itself once), the tour, the layout picker and "save as a layout". Each is
  * opened from anywhere by an event (`src/host/onboarding.ts`) — the "?" menu,
- * the kehikko menu, the empty canvas, the introduction's last step — and
+ * the kehikko menu, the empty canvas, the introduction's last slide — and
  * held here, once, beside the rest of the app's windows.
+ *
+ * The tour is a `Guide` (`Tour.ts`) held for the page's life, told the app's
+ * facts whenever they change, and recording where it is through
+ * `/host/onboarding`. A tour left running (the page reloaded part way) picks
+ * up by itself; a paused one waits for Help → Continue tour.
  */
 
 const INSTALL_POLL_MS = 1500
@@ -71,7 +78,8 @@ export function whenAppeared(selector: string, then: () => void, wait = 3000, ro
  * the cancel.
  */
 export function whenNoDialog(then: () => void, root: Document = document): () => void {
-  const open = () => root.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  /* The tour's popover is a dialog to driver.js and not a window to wait for. */
+  const open = () => root.querySelector('[role="dialog"]:not(.driver-popover), [role="alertdialog"]') !== null
   if (!open()) {
     then()
     return () => {}
@@ -100,7 +108,16 @@ export function OnboardingHost({
   onMade,
   onFill,
   onInstalled,
+  facts = NO_FACTS,
+  drawer,
+  layout = true,
 }: {
+  /** What the tour's waiting steps wait for: a project open, an epic chosen, a kehikko made. */
+  facts?: Facts
+  /** How the tour is drawn; driver.js unless a test says otherwise. */
+  drawer?: Drawer
+  /** False where nothing is measured (a test). */
+  layout?: boolean
   /** The open project, for its own layouts and for the new kehikko. */
   project: number | null
   /** The open kehikko: filled from the empty canvas, and the one saved as a layout. */
@@ -122,22 +139,62 @@ export function OnboardingHost({
   const stateRef = useRef(state)
   stateRef.current = state
 
+  const factsRef = useRef(facts)
+  factsRef.current = facts
+  const remember = useCallback((edit: OnboardingEdit) => {
+    void postOnboarding(edit).then((got) => got && setState(got))
+  }, [])
+  const guide = useRef<Guide | null>(null)
+  const guideOf = useCallback((): Guide => {
+    guide.current ??= new Guide({
+      facts: () => factsRef.current,
+      onStep: (step) => remember({ tour: { step } }),
+      onPause: (step) => remember({ tour: { step, paused: true } }),
+      onFinish: () => remember({ tour: { step: null, finished: true } }),
+      drawer,
+      layout,
+    })
+    return guide.current
+  }, [drawer, layout, remember])
+  useEffect(
+    () => () => {
+      guide.current?.stop()
+      guide.current = null
+    },
+    [],
+  )
+  /* The facts moved — a project opened, an epic made: the tour looks again. */
+  useEffect(() => {
+    guide.current?.refresh()
+  }, [facts.project, facts.projects, facts.epic, facts.parts, facts.kehikko])
+
+  const tour = useCallback(
+    (from: TourStart) => {
+      const at = from === 'resume' ? (stateRef.current?.tour.step ?? null) : null
+      guideOf().start(at)
+    },
+    [guideOf],
+  )
+
   /* Once, at start: the introduction opens by itself when this one has not
      been seen — after any window already standing (Settings' one-time
-     question) has been answered, never on top of it. */
+     question) has been answered, never on top of it. A tour left running
+     picks up the same way. */
   useEffect(() => {
     let alive = true
     let stop = () => {}
     void fetchOnboarding().then((got) => {
       if (!alive) return
       setState(got)
-      if (!introDue(got)) return
+      stateRef.current = got
+      const then = introDue(got) ? () => alive && setIntro(true) : underway(got) ? () => alive && tour('resume') : null
+      if (!then) return
       void settingsAsked().then((asked) => {
         if (!alive) return
         /* Settings' one-time question is about to stand: wait for it to
            appear (a moment at most) and then to be answered or closed. */
-        stop = asked ? whenNoDialog(() => alive && setIntro(true)) : whenAppeared('[data-first-question]', () => {
-          if (alive) stop = whenNoDialog(() => alive && setIntro(true))
+        stop = asked ? whenNoDialog(then) : whenAppeared('[data-first-question]', () => {
+          if (alive) stop = whenNoDialog(then)
         })
       })
     })
@@ -145,21 +202,14 @@ export function OnboardingHost({
       alive = false
       stop()
     }
-  }, [])
-
-  const tour = useCallback((from: TourStart) => {
-    const leftAt = from === 'resume' ? (stateRef.current?.tour.at ?? null) : null
-    runTour({
-      leftAt,
-      onAt: (at) => void postOnboarding({ tour: { at } }).then((got) => got && setState(got)),
-      onEnd: (finished, at) =>
-        void postOnboarding({ tour: finished ? { at: null, finished: true } : { at } }).then((got) => got && setState(got)),
-    })
-  }, [])
+  }, [tour])
 
   useEffect(() => {
     const off = [
-      onOpenIntro(() => setIntro(true)),
+      onOpenIntro(() => {
+        guide.current?.stop()
+        setIntro(true)
+      }),
       /* After whatever menu opened it has closed and given focus back. */
       onOpenTour((from) => setTimeout(() => tour(from), 0)),
       onOpenLayouts((mode) => setPicker(mode)),
@@ -230,7 +280,7 @@ export function OnboardingHost({
           if (!isOpen && (state === null || introDue(state))) void postOnboarding({ intro: 'seen' }).then((got) => got && setState(got))
         }}
         onTour={() => openTour('over')}
-        onLayouts={() => openLayouts(open && open.placements.length === 0 ? 'fill' : 'new')}
+        onExplore={() => setTimeout(() => guideOf().point(EXPLORING), 0)}
       />
       <LayoutPicker
         open={picker !== null}
