@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -75,6 +75,7 @@ import {
 } from './host/projects.ts'
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
+import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
@@ -1389,6 +1390,19 @@ export function App() {
    */
   const [said, setSaid] = useState<Said>(NOTHING_SAID)
   const [selectedBy, setSelectedBy] = useState<Record<number, string | null>>({})
+  /**
+   * Where in a change's code somebody is pointing, per kehikko (protocol
+   * 2.13.0) — see `host/location.ts`. In memory and in this tab's
+   * `sessionStorage`, so a reload keeps it; never in `kehikot.json`.
+   */
+  const [locations, setLocations] = useState<Locations>(() =>
+    typeof window === 'undefined' ? NO_LOCATIONS : readLocations(window.sessionStorage),
+  )
+  const locationsRef = useRef(locations)
+  locationsRef.current = locations
+  useEffect(() => {
+    if (typeof window !== 'undefined') writeLocations(window.sessionStorage, locations)
+  }, [locations])
 
   /**
    * Moving to a different PROJECT clears every passage. Moving to a different
@@ -1424,6 +1438,17 @@ export function App() {
     setSelectedBy((was) => (Object.keys(was).length === 0 ? was : {}))
   }, [projectId])
 
+  /* A code location lives while its change is picked out. Only once the
+     project's selection has been read: before that it is empty for want of
+     reading, and a location restored from this tab would be cleared by a
+     selection nobody made. Moving to another project prunes every one whose
+     change that project has not picked — which is all of them, as a rule. */
+  const selectionKnown = projectId !== null && subjects[projectId] !== undefined
+  useEffect(() => {
+    if (!selectionKnown) return
+    setLocations((was) => stillStanding(was, picked ? picked.split('\n') : []))
+  }, [picked, selectionKnown])
+
   /* The latest pointing among the modules placed on the open kehikko — see
      `passageOn`. Switching kehikko changes who is placed, not what was said. */
   const placedIds = (open?.placements ?? []).map((p) => p.i).join('\n')
@@ -1445,6 +1470,10 @@ export function App() {
    * was, because a highlight changes on every pointer move during a drag.
    */
   const pointing = passage === null ? '' : JSON.stringify(passage)
+
+  /* The code location on the open kehikko, by value (`codeAt`) for `pointing`'s reason. */
+  const codeLocation = locationOn(locations, openId, picked ? picked.split('\n') : [])
+  const codeAt = codeLocation === null ? '' : JSON.stringify(codeLocation)
 
   /**
    * Every container on the open kehikko, whether it is picked out, and what it
@@ -1479,13 +1508,13 @@ export function App() {
       toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
         at: trackerAt,
         refreshing: trackerBusy,
-      }, rewritten, JSON.parse(narrowedTo) as EpicPart[]),
+      }, rewritten, JSON.parse(narrowedTo) as EpicPart[], codeLocation),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten, narrowedTo],
+    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten, narrowedTo, codeAt],
   )
 
   /**
@@ -1679,6 +1708,32 @@ export function App() {
     ask.settle({ outcome: 'cancelled', project: null, why: '' })
   }, [])
 
+  /* `location.set`, answered against this render's open kehikko and selection;
+     through a ref for the reason `filterRef` is one. */
+  const locateRef = useRef<CanvasControls['locate']>(() => ({
+    outcome: 'declined',
+    why: 'This host is not ready to hold a code location yet.',
+  }))
+  locateRef.current = (from, next, intent) => {
+    if (openId === null || !open) return { outcome: 'declined', why: 'No kehikko is open, so there is nobody to show a code location to.' }
+    if (!open.placements.some((p) => p.i === from)) {
+      return { outcome: 'declined', why: `${from} is not on the kehikko that is open, so it is not pointing at anything anybody can see.` }
+    }
+    const out = located(locationsRef.current, {
+      kehikko: openId,
+      location: next,
+      ...(intent === undefined ? {} : { intent }),
+      by: from,
+      at: new Date().toISOString(),
+      selection: picked ? picked.split('\n') : [],
+    })
+    if (out.next !== locationsRef.current) {
+      locationsRef.current = out.next
+      setLocations(out.next)
+    }
+    return out.answer
+  }
+
   const filterRef = useRef<(from: string, choice: FilterChoice) => Filtered>(() => ({
     ok: false,
     error: 'this host is not ready to hold a filter yet',
@@ -1824,6 +1879,8 @@ export function App() {
          there — see `passageOn`. A null is a document closed: this
          container's row stops showing it, and only this container's. */
       point: (from, next) => setSaidRef.current((was) => pointed(was, from, next)),
+      /* Through a ref: the open kehikko and the selection are this render's. */
+      locate: (from, next, intent) => locateRef.current(from, next, intent),
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
@@ -3333,8 +3390,12 @@ export function App() {
   }, [open, headers])
   const postDeclared = useCallback(() => {
     if (openId === null || declaredHere === null) return
-    void postHeaders(openId, Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]))
-  }, [openId, declaredHere])
+    void postHeaders(
+      openId,
+      Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
+      codeAt ? (JSON.parse(codeAt) as SharedLocation) : null,
+    )
+  }, [openId, declaredHere, codeAt])
   useEffect(() => postDeclared(), [postDeclared])
   repostRef.current = postDeclared
 

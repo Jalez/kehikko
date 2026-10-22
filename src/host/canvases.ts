@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MODULE_ID, contentSignalSchema, type ContentChange, type HeaderItem } from 'kehikot-module-protocol'
+import { MODULE_ID, contentSignalSchema, type ContentChange, type HeaderItem, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -619,12 +619,16 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
 export function postHeaders(
   kehikko: number,
   headers: Readonly<Record<string, readonly HeaderItem[]>>,
+  /* Where in a change's code somebody is pointing on it (protocol 2.13.0), so
+     `read_canvas` can say it. The same posting, because it is the same kind of
+     fact: about this page's screen, held per page, gone with the process. */
+  location: SharedLocation | null = null,
 ): Promise<void> {
   return fetch('/host/headers', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     /* `at`, so a posting that arrives after a later one does not replace it. */
-    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers }),
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, location }),
   })
     .then(() => undefined)
     .catch(() => {

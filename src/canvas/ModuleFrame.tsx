@@ -199,6 +199,7 @@ export function ModuleFrame({
         showEpic: (epic) => canvasRef.current.showEpic(epic),
         select: (from, refs) => canvasRef.current.select(from, refs),
         point: (from, passage) => canvasRef.current.point(from, passage),
+        locate: (from, location, intent) => canvasRef.current.locate(from, location, intent),
         show: (from, showing) => canvasRef.current.show(from, showing),
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),

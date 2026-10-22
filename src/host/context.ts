@@ -5,6 +5,8 @@ import {
   partsSchema,
   PROJECT_ID,
   passageSchema,
+  locationStands,
+  sharedLocationSchema,
   type CanvasContainer,
   type ContentChange,
   type ContextScope,
@@ -12,6 +14,7 @@ import {
   type EpicPart,
   type ModuleContext,
   type Passage,
+  type SharedLocation,
   type TrackerSignal,
 } from 'kehikot-module-protocol'
 
@@ -285,6 +288,14 @@ export function toWireContext(
    * `server/canvases.ts`.
    */
   parts: readonly EpicPart[] = [],
+  /**
+   * Where in a change's code somebody is pointing on this kehikko, or null
+   * (protocol 2.13.0); see `host/location.ts`. Checked on its own for the
+   * passage's reason, and sent only while its change is in the selection this
+   * context carries — so the fallback below, which drops the selection, drops
+   * it too.
+   */
+  location: SharedLocation | null = null,
 ): ModuleContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -303,6 +314,11 @@ export function toWireContext(
    * pointed at.
    */
   const pointing = passage === null || passageSchema.safeParse(passage).success ? passage : null
+
+  /* The code location, failed separately for the passage's reason, and only
+     while its change is picked out. */
+  const placed =
+    location !== null && locationStands(location, selection) && sharedLocationSchema.safeParse(location).success ? location : null
 
   /* The parts, failed separately for the passage's reason. A list that will
      not parse becomes no parts — nothing narrowed, the state every module
@@ -342,6 +358,7 @@ export function toWireContext(
     selection,
     kehikko: wire,
     passage: pointing,
+    location: placed,
     containers,
     dispositions,
     tracker,

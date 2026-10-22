@@ -311,6 +311,7 @@ describe('view.fold on the wire', () => {
       goto: () => ({ outcome: 'declined', epic: null, why: '' }),
       select: () => {},
       point: () => {},
+      locate: () => ({ outcome: 'declined' as const, why: '' }),
       show: () => {},
       emit: () => ({ ok: true, delivered: 0 }),
       project: () => null,

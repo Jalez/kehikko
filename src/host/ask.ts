@@ -1,6 +1,9 @@
 import {
   methodParams,
   type ActivityItem,
+  type CodeLocation,
+  type LocationIntent,
+  type LocationSetResult,
   type FilterChoice,
   type FoldResult,
   type Passage,
@@ -140,6 +143,16 @@ export interface CanvasControls {
    * says so.
    */
   point(from: string, passage: Passage | null): void
+  /**
+   * Say where in a change's code somebody is pointing on the open kehikko, and
+   * tell every module (protocol 2.13.0). See `host/location.ts`.
+   *
+   * Unlike `point`, it CAN come back without being taken: a place in a change
+   * nobody picked out is `not-selected`, and a kehikko-less canvas declines.
+   * `from` is supplied out of the registration, as it is for `point`, and
+   * becomes the location's `by` — never anything the frame wrote.
+   */
+  locate(from: string, location: CodeLocation | null, intent: LocationIntent | undefined): LocationSetResult
   /**
    * Hold what one container says it is showing, and tell every module.
    *
@@ -377,6 +390,19 @@ function answerInTheView(
     const { passage } = parsed.data as { passage: Passage | null }
     canvas.point(moduleId, passage)
     return succeeded(method, { passage })
+  }
+
+  /*
+   * A place in a change's code: the passage's act on a commit instead of a
+   * file. `parsed.data` and never `rawParams`, for the passage's reason — the
+   * schema is what refuses a path that climbs out of a checkout and a range
+   * that ends before it starts. The answer is the canvas's outcome, which is
+   * `ok: true` whether or not it was taken: `not-selected` is an answer, not a
+   * fault in the call.
+   */
+  if (method === 'location.set') {
+    const { location, intent } = parsed.data as { location: CodeLocation | null; intent?: LocationIntent }
+    return succeeded(method, canvas.locate(moduleId, location, intent))
   }
 
   /*
