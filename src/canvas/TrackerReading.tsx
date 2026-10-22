@@ -46,7 +46,7 @@ export { ago }
  * A person is never sent to a file: what a source is for is said in words
  * (`rolesOf`), and add, switch and remove are controls here, written by the
  * host (`POST /host/trackers`). With no source at all the strip says
- * "+ add a tracker" and the popover opens on the add row.
+ * "add a tracker" (after its plus icon) and the popover opens on the add row.
  */
 export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; onRefresh(): void }) {
   const now = useNow(30_000)
@@ -64,7 +64,7 @@ export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; 
     : broken
       ? 'tracker file will not read'
       : empty
-        ? '+ add a tracker'
+        ? 'add a tracker'
         : failed.length
           ? `${failed.length === tracker.sources.length ? 'trackers' : `${failed.length} tracker${failed.length === 1 ? '' : 's'}`} not read`
           : age
