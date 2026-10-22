@@ -1,7 +1,7 @@
 import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, PACKAGE_VERSION, type HeaderItem, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, PACKAGE_VERSION, type HeaderItem, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -22,6 +22,7 @@ import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
 import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, pinnedOf, type Pressed, type Pressing } from '../src/host/header.ts'
+import { locationWords } from '../src/host/location.ts'
 import { releaseForAgents } from '../src/host/moduleReleases.ts'
 
 /**
@@ -244,6 +245,12 @@ export interface Door {
   headers?: {
     on(kehikko: number): ReadonlyMap<string, readonly HeaderItem[]> | null
     press(kehikko: number, module: string, press: Pressing): Promise<Pressed | null>
+    /**
+     * Where in a change's code somebody is pointing on a kehikko (protocol
+     * 2.13.0), as the page that has it open last said: `null` for nobody,
+     * `undefined` when no listening page has it open.
+     */
+    location?(kehikko: number): SharedLocation | null | undefined
   }
   /**
    * The Inbox: what the modules said they are doing, and what happened while
@@ -459,6 +466,12 @@ function canvasText(
    * what the person has on screen is said beside them.
    */
   placed?: { here: Here | null; looking: Looking | null; unrecorded?: Unrecorded | null },
+  /**
+   * Where in a change's code somebody is pointing on this kehikko, as the page
+   * says (`null` for nobody), or `undefined` to leave it out — no page has the
+   * kehikko open, or the caller is not listing it.
+   */
+  location?: SharedLocation | null,
 ): string {
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const known = new Map(seen.map((sighting) => [sighting.id, sighting]))
@@ -529,6 +542,7 @@ function canvasText(
       ? `refs picked out in this project: ${about.selection.join(', ')}`
       : 'refs picked out in this project: none.',
   )
+  if (location !== undefined) lines.push(locationWords(location))
   lines.push('')
 
   if (!canvas.placements.length) {
@@ -1328,6 +1342,7 @@ export async function call(
         door.inbox && canvas.project !== null ? activityRowsFor(door.inbox, door.db, canvas.project) : undefined,
         door.inbox && canvas.project !== null ? earlierLines(door.inbox, door.db, canvas.project, 5, Date.now()) : undefined,
         placed,
+        door.headers?.location?.(canvas.id),
       ),
       failed: false,
     }

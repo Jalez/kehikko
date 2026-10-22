@@ -124,6 +124,7 @@ describe('view.goto with parts and kehikko', () => {
       goto: (call) => (seen.push({ goto: call }), out),
       select() {},
       point() {},
+      locate: () => ({ outcome: 'declined', why: '' }),
       show() {},
       emit: () => ({ ok: true, delivered: 0 }),
       filter: () => ({ ok: true, filters: {} }),

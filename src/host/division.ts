@@ -108,6 +108,10 @@ export const ANSWERED_BY_THE_VIEW = [
   'view.goto',
   'selection.set',
   'passage.set',
+  /* A place in a change's code (protocol 2.13.0), held per kehikko and put in
+     the context — the passage's reason, with the selection beside it to say
+     whether it still stands. See `host/location.ts`. */
+  'location.set',
   /* A container's own filters live in the canvas's placements, which only the
      page has. The server holds no opinion about what is narrowed. */
   'filters.set',

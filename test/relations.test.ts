@@ -512,3 +512,23 @@ describe('the ten modules on this machine', () => {
     expect(found.has('kehikot.citations')).toBe(false)
   })
 })
+
+describe('a place in a change’s code (protocol 2.13.0)', () => {
+  const REVIEW = presence('kehikot.review', 'Review', {
+    declares: { protocol: '>=2', uses: ['location:set'], storage: false },
+    reacts: ['location'],
+  })
+  const SOURCE = presence('kehikot.source', 'Source', { reacts: ['location'] })
+
+  test('a module that sets it and one that follows it are a pair, in the same words as the passage', () => {
+    const found = relate([REVIEW, SOURCE], { onCanvas: new Set(['kehikot.review', 'kehikot.source']), elsewhere: new Map() })
+    const sets = found.get('kehikot.review')?.find((one) => one.role === 'sets')
+    expect(sets?.kind).toBe('location')
+    expect(sets?.with.map((one) => one.name)).toEqual(['Source'])
+    expect(labelFor(sets!)).toBe('points at a line of a change')
+    expect(sentenceFor('Review', sets!)).toContain('which line of a change somebody is pointing at')
+    const follows = found.get('kehikot.source')?.[0]
+    expect(follows?.kind).toBe('location')
+    expect(labelFor(follows!)).toBe('follows a line of a change')
+  })
+})

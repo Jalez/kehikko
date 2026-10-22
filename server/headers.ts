@@ -1,4 +1,4 @@
-import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
+import { headerItemsSchema, sharedLocationSchema, type HeaderItem, type SharedLocation } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
 import type { PressOrder } from './wake.ts'
@@ -16,6 +16,11 @@ import type { PressOrder } from './wake.ts'
  * `POST /host/headers`, the whole map for the kehikko it has open, every time
  * it changes. `read_canvas` lists a container's items from that, and
  * `press_item` judges a press against it before anything is sent anywhere.
+ *
+ * The same posting carries where in a change's code somebody is pointing on
+ * that kehikko (`location`, protocol 2.13.0; see `src/host/location.ts`), so
+ * `read_canvas` can say it. The same kind of fact, the same trust: a page's
+ * word, parsed with the protocol's schema, dropped when it does not parse.
  *
  * Held in memory, per page, and never written down. It is a fact about a
  * screen — which is why `kehikot.json` and the canvases database know
@@ -78,6 +83,8 @@ interface Posting {
   /** When it was posted, by the page's own clock: an older one that arrives late does not replace a newer. */
   at: number
   headers: Map<string, HeaderItem[]>
+  /** Where in a change's code somebody is pointing on this kehikko, or null. */
+  location: SharedLocation | null
 }
 
 interface Waiting {
@@ -90,6 +97,7 @@ interface Waiting {
 export interface Declared {
   page: string
   headers: ReadonlyMap<string, readonly HeaderItem[]>
+  location: SharedLocation | null
 }
 
 export class Headers {
@@ -102,7 +110,7 @@ export class Headers {
    * The whole map, replacing what that page said before. Answers `null`, or
    * the sentence saying what was wrong with it.
    */
-  posted(page: string, kehikko: number, at: number, raw: unknown): string | null {
+  posted(page: string, kehikko: number, at: number, raw: unknown, rawLocation: unknown = null): string | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'headers is an object of module id to its items.'
     const entries = Object.entries(raw as Record<string, unknown>)
     if (entries.length > MODULES_MAX) return `No kehikko holds more than ${MODULES_MAX} containers.`
@@ -114,13 +122,16 @@ export class Headers {
       const parsed = headerItemsSchema.safeParse(items)
       if (parsed.success) headers.set(id, parsed.data)
     }
+    /* A location that does not parse is none: the headers still stand. */
+    const read = rawLocation === null || rawLocation === undefined ? null : sharedLocationSchema.safeParse(rawLocation)
+    const location = read?.success ? read.data : null
     const held = this.#pages.get(page)
     if (held && held.at > at) return null
     if (!held && this.#pages.size >= PAGES_MAX) {
       const oldest = [...this.#pages.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) this.#pages.delete(oldest[0])
     }
-    this.#pages.set(page, { kehikko, at, headers })
+    this.#pages.set(page, { kehikko, at, headers, location })
     return null
   }
 
@@ -144,7 +155,7 @@ export class Headers {
       if (posting.kehikko !== kehikko || !hears(page)) continue
       if (!found || posting.at > found.posting.at) found = { page, posting }
     }
-    return found ? { page: found.page, headers: found.posting.headers } : null
+    return found ? { page: found.page, headers: found.posting.headers, location: found.posting.location } : null
   }
 
   /**
@@ -214,7 +225,7 @@ export interface HeadersDeps {
 /**
  * The two routes the page reaches, and the two things the MCP door is given.
  *
- * `POST /host/headers` `{ page, kehikko, at?, headers }` and
+ * `POST /host/headers` `{ page, kehikko, at?, headers, location? }` and
  * `POST /host/pressed` `{ page, id, ok, why }`. Anything that is not this
  * host's own page was refused before it got here (`guard.ts`).
  */
@@ -241,7 +252,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         return reply({ ok: false, why: 'A posting of headers names the kehikko the page has open.' }, 400)
       }
       const at = typeof body.at === 'number' && Number.isFinite(body.at) ? body.at : Date.now()
-      const wrong = held.posted(body.page, kehikko, at, body.headers)
+      const wrong = held.posted(body.page, kehikko, at, body.headers, body.location)
       return wrong ? reply({ ok: false, why: wrong }, 400) : reply({ ok: true })
     }
 
@@ -259,6 +270,11 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
     door: {
       on: (kehikko: number): ReadonlyMap<string, readonly HeaderItem[]> | null =>
         held.on(kehikko, deps.hears)?.headers ?? null,
+      /* `undefined` when no listening page has the kehikko open: nobody can say. */
+      location: (kehikko: number): SharedLocation | null | undefined => {
+        const found = held.on(kehikko, deps.hears)
+        return found ? found.location : undefined
+      },
       press: (kehikko: number, module: string, press: Pressing): Promise<Pressed | null> => {
         const found = held.on(kehikko, deps.hears)
         if (!found) return Promise.resolve(null)
