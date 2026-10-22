@@ -544,6 +544,34 @@ answered to programs on this machine and to this host's page; a module's page
 cannot ask it, and has no need to. A module started by hand has no host to ask
 and keeps whatever rule it had.
 
+## A project's base branch
+
+A project has a base branch: the branch agents start their work from and
+updates are pulled from — `development` for one project, `main` for most. It is
+set under Settings › Project, kept in `<project>/.kehikot/host/settings.json`
+(`{ "version": 1, "baseBranch": "development" }`), which travels with the
+repository, and checked against origin before it is taken (`git ls-remote`
+with the person's own credentials; origin's last fetch when origin cannot be
+reached). Nothing set is origin's own default branch, `origin/HEAD`, read from
+the project's git and never written down. `server/baseBranch.ts` is the one
+reader and writer.
+
+Modules are told it three ways:
+
+- **The context.** `kehikot.context` carries `baseBranch` — the one in force —
+  while the host can say one, and leaves it out otherwise. The protocol's
+  `contextSchema` does not name it yet, so a module that parses the context
+  with that schema does not see it until it does.
+- **A module's server**, which has the `projectPath` its page was told:
+
+  ```
+  GET <host>/host/base-branch?path=<absolute folder>   →   { "ok": true, "set": "development" | null, "origin": "main" | null, "branch": "development" | null }
+  ```
+
+  Answered only for a folder that is a project here, as `/host/is-project` is;
+  a 404 otherwise. Setting it (`POST`) is the page's alone.
+- **An agent**: `my_place` says the base branch of the conversation's project.
+
 ## Picking a module out, and the host's own door for an agent
 
 Every container header has a checkbox. Ticking it picks that container out as a

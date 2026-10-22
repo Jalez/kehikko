@@ -8,7 +8,9 @@
   never `homedir()` for storage.
 - The host's own folder is `<project>/.kehikot/host/` (protocol 2.2.0:
   `HOST_FOLDER`, `hostDir`, `hostFile`): epics/state, `kehikot.json`,
-  `trackers.json`, the tracker reading, dispositions, `data-versions.json`.
+  `trackers.json`, the tracker reading, dispositions, `data-versions.json`,
+  `settings.json` (the project's base branch; `server/baseBranch.ts` is its
+  one writer, `POST /host/base-branch` in `PAGE_ONLY`, and it travels).
   Reach it only through `hostRoot`/`hostPath`/`epicsDir`/`stateDir` in
   `server/hostData.ts`; never `moduleFile(…, HOST_ID, …)`. `HOST_ID` stays
   `kehikko` — the host's name on the wire and its MCP door — only the folder
