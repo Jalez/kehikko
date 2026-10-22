@@ -20,7 +20,8 @@ export { HOST_FOLDER, LEGACY_HOST_FOLDER }
  * door. Its epics are `<project>/.kehikot/host/epics/<slug>.json` — what a
  * person wrote — and its tracker state is `.kehikot/host/state/<slug>.json` —
  * what a refresh last read; beside them `kehikot.json`, `trackers.json`, the
- * tracker reading, the dispositions and `data-versions.json`. Papers are
+ * tracker reading, the dispositions, `data-versions.json` and `settings.json`
+ * (the project's base branch, `baseBranch.ts`). Papers are
  * `<project>/.kehikot/paper/<epic>/`.
  *
  * Every path in this host that reads or writes the host's folder goes through

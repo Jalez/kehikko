@@ -208,6 +208,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
       { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
       { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
+      { method: 'POST', path: '/host/base-branch', body: { project, branch: null } },
       { method: 'POST', path: '/host/storage', body: {} },
       { method: 'POST', path: '/host/feedback', body: {} },
       { method: 'POST', path: '/host/official/install', body: { module: 'kehikot.nothing' } },
@@ -282,6 +283,8 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('DELETE', '/host/epics', { project, slug: 'two' })).body.deleted).toBe('two')
 
     expect((await pressed('POST', '/host/tracker/refresh', { project: 999999 })).status).toBe(404)
+    expect((await pressed('POST', '/host/base-branch', { project, branch: null })).body.outcome).toBe('unchanged')
+    expect((await pressed('POST', '/host/base-branch', { project: 999999, branch: null })).status).toBe(404)
     expect((await pressed('POST', '/host/versions', { module: 'kehikot.nothing', kehikko, version: null })).status).not.toBe(500)
     expect((await pressed('POST', '/host/call', { module: 'kehikot.nothing', method: 'state.set', params: {} })).body.ok).toBe(false)
     expect((await pressed('POST', '/host/updates', { id: 'nothing' })).status).toBe(404)

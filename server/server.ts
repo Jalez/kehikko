@@ -29,7 +29,8 @@ import {
   type CanvasEdit,
   type PlacementInput,
 } from './canvases.ts'
-import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectById, shareKehikot } from './projects.ts'
+import { baseBranchOf, setBaseBranch } from './baseBranch.ts'
+import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectAt, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
@@ -2683,6 +2684,34 @@ const server = Bun.serve({
     if (url.pathname === '/host/is-project' && request.method === 'GET') {
       const asked = url.searchParams.get('path')
       return json(isProjectAnswer(db, asked))
+    }
+
+    /*
+     * One project's base branch (`baseBranch.ts`): what its settings name,
+     * origin's default, and the one in force. Asked by the page with
+     * `project=<id>`, and by a module's server with the `path=` its page was
+     * told, answered only for a folder that is a project here, as
+     * `/host/is-project` is. Setting it is the page's alone (`PAGE_ONLY`): it
+     * writes a file that travels with the repository.
+     */
+    if (url.pathname === '/host/base-branch' && request.method === 'GET') {
+      const id = Number(url.searchParams.get('project') ?? '')
+      const root = url.searchParams.has('project')
+        ? (Number.isInteger(id) ? projectById(db, id) : null)?.path
+        : projectAt(db, url.searchParams.get('path'))?.path
+      if (!root) return json({ error: 'There is no project there.' }, 404)
+      return json({ ok: true, ...baseBranchOf(root) })
+    }
+
+    if (url.pathname === '/host/base-branch' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown; branch?: unknown } | null
+      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      if (body?.branch !== null && typeof body?.branch !== 'string') return json({ error: 'branch is a branch name, or null for origin’s default.' }, 400)
+      const edited = await setBaseBranch(project.path, body.branch)
+      if (edited.outcome === 'declined') return json({ ok: false, why: edited.why })
+      if (edited.outcome === 'changed') wakes.projectsChanged()
+      return json({ ok: true, outcome: edited.outcome, said: edited.said, ...edited.base })
     }
 
     /*

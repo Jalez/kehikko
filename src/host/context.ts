@@ -136,6 +136,21 @@ export interface Subject {
 
 export const NO_SUBJECT: Subject = { epic: null, project: null }
 
+/**
+ * A context as this host sends it: the protocol's, and `baseBranch`, the open
+ * project's base branch (`server/baseBranch.ts`) — the branch agents start
+ * their work from and updates are pulled from. Absent when the host cannot say
+ * one. The protocol's `contextSchema` does not name it yet, so it is added
+ * after the parse, and a module that parses the context with that schema does
+ * not see it.
+ */
+export type WireContext = ModuleContext & { baseBranch?: string }
+
+function withBaseBranch(context: ModuleContext, project: Project | null): WireContext {
+  const branch = project?.baseBranch
+  return typeof branch === 'string' && branch ? { ...context, baseBranch: branch } : context
+}
+
 /** A project's id as the wire takes it (`PROJECT_ID`), or null: none yet, or one the protocol would refuse. */
 function idOf(project: Project | null): string | null {
   const id = project?.uid
@@ -296,7 +311,7 @@ export function toWireContext(
    * it too.
    */
   location: SharedLocation | null = null,
-): ModuleContext {
+): WireContext {
   /**
    * The passage, checked on its own before anything else is composed.
    *
@@ -365,7 +380,7 @@ export function toWireContext(
     content,
     parts: whole ? [] : divided,
   })
-  if (parsed.success) return parsed.data
+  if (parsed.success) return withBaseBranch(parsed.data, told.project)
 
   /* An epic slug the schema will not take.
    *
@@ -431,7 +446,7 @@ export function toWireContext(
   /* The parts go with the epic they are parts of, for the selection's reason:
      this context names no epic, so there is nothing for them to divide. The
      schema's own default says so: `[]`. */
-  if (bare.success) return bare.data
+  if (bare.success) return withBaseBranch(bare.data, told.project)
   /* Belt and braces: this function must not throw. It is called during render,
      and a host that white-screens because somebody named a canvas something the
      schema dislikes would be a host taking every module down with it. */
@@ -514,9 +529,9 @@ export function whileAway(held: ModuleContext | null, told: ModuleContext): Modu
  * context — every field the pin froze must stay frozen.
  */
 export function whileFrozen(
-  held: ModuleContext | null,
-  told: ModuleContext,
-): ModuleContext | null {
+  held: WireContext | null,
+  told: WireContext,
+): WireContext | null {
   /* Nothing has gone out yet, so there is no frozen subject to preserve and
      nothing this could be substituted into. */
   if (!held) return null
@@ -553,18 +568,29 @@ export function whileFrozen(
      frozen in the one way a pin does not mean. The pin holds WHICH epic; it
      never held that the epic stopped changing. */
   const rewritten = sameProject && JSON.stringify(held.content) !== JSON.stringify(told.content)
+  /* The base branch is the project's, like the marks: a pinned container is
+     still in that project, and is told the branch its work starts from now. */
+  const rebased = sameProject && held.baseBranch !== told.baseBranch
   /* The parts picked out of the epic do NOT pass a pin, and are not listed
      here on purpose. They are what the container is about — the epic, one
      step narrower — and a container pinned on "the posting seam" that widened
      when somebody cleared the bar would not have been held at all. `...held`
      below keeps the parts it was pinned with. */
-  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten) return null
+  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten && !rebased) return null
+  const { baseBranch: _held, ...frozen } = held
   return {
-    ...held,
+    ...(sameProject ? frozen : held),
     theme: told.theme,
     filters: told.filters,
     ...(sameProject
-      ? { project: told.project, projectPath: told.projectPath, dispositions: told.dispositions, tracker: told.tracker, content: told.content }
+      ? {
+          project: told.project,
+          projectPath: told.projectPath,
+          dispositions: told.dispositions,
+          tracker: told.tracker,
+          content: told.content,
+          ...(told.baseBranch ? { baseBranch: told.baseBranch } : {}),
+        }
       : {}),
   }
 }
