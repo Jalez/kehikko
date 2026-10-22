@@ -319,9 +319,31 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   },
 ]
 
+const PILL_FONT = 8
+/** Width of the picture the pills sit in (the `viewBox` of `Art`), the room kept at each end, and between pills. */
+const PILL_ROW = { width: 320, edge: 14, gap: 10, perChar: 4.6, padding: 7 }
+
+/**
+ * The layout name pills: each as wide as its name needs plus padding, a fixed
+ * gap between, the row centred. Sized to the text (not five equal boxes), so
+ * "Development" has the room it needs; the whole picture scales down as one at
+ * narrow widths, so nothing can overlap there either.
+ */
+export function pillRow(names: readonly string[]): { x: number; width: number }[] {
+  const widths = names.map((name) => Math.round((name.length * PILL_ROW.perChar + PILL_ROW.padding * 2) * 10) / 10)
+  const total = widths.reduce((sum, one) => sum + one, 0) + PILL_ROW.gap * (names.length - 1)
+  let x = Math.max(PILL_ROW.edge, (PILL_ROW.width - total) / 2)
+  return widths.map((width) => {
+    const at = { x, width }
+    x += width + PILL_ROW.gap
+    return at
+  })
+}
+
 /** "A kehikko for every way you work": the five layouts in turn, each name lit while its picture shows. */
 function WaysArt() {
   const layouts = WAYS.map((id) => BUILT_IN_LAYOUTS.find((one) => one.id === id)!)
+  const pills = pillRow(layouts.map((one) => one.name)).map((pill, i) => ({ ...pill, layout: layouts[i]! }))
   /* The canvas the schematics are drawn on: 12 columns by 28 rows into 190 by 100. */
   const X = 65
   const Y = 12
@@ -349,27 +371,24 @@ function WaysArt() {
           ))}
         </g>
       ))}
-      {layouts.map((layout, i) => {
-        const x = 12 + i * 60
-        return (
-          <g key={layout.id}>
-            <rect x={x} y="124" width="56" height="17" rx="8.5" className="fill-muted-foreground/10" />
-            <rect
-              x={x}
-              y="124"
-              width="56"
-              height="17"
-              rx="8.5"
-              className={`${i === 0 ? 'ia-cycle ia-first' : 'ia-cycle'} fill-primary/20 stroke-primary`}
-              strokeWidth="1"
-              style={after(i * 2)}
-            />
-            <text x={x + 28} y="135.5" textAnchor="middle" className="fill-foreground" fontSize="8.5" fontWeight="500">
-              {layout.name}
-            </text>
-          </g>
-        )
-      })}
+      {pills.map(({ layout, x, width }, i) => (
+        <g key={layout.id} data-way-pill={layout.id}>
+          <rect x={x} y="124" width={width} height="17" rx="8.5" className="fill-muted-foreground/10" />
+          <rect
+            x={x}
+            y="124"
+            width={width}
+            height="17"
+            rx="8.5"
+            className={`${i === 0 ? 'ia-cycle ia-first' : 'ia-cycle'} fill-primary/20 stroke-primary`}
+            strokeWidth="1"
+            style={after(i * 2)}
+          />
+          <text x={x + width / 2} y="135" textAnchor="middle" className="fill-foreground" fontSize={PILL_FONT} fontWeight="500">
+            {layout.name}
+          </text>
+        </g>
+      ))}
     </Art>
   )
 }

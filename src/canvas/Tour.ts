@@ -1,10 +1,15 @@
 import { driver, type AllowedButtons, type Driver } from 'driver.js'
 
+import { FOCUS_CLASS, FOCUS_COOKIE } from '@/host/focus.ts'
 import {
   bodyOf,
   firstUndone,
   frameOf,
+  EXAMPLE_ATTR,
   GOT_THIS,
+  HEADERS_NOTE,
+  inView,
+  pickExample,
   PAUSED,
   resolveFrame,
   shownExplanations,
@@ -54,6 +59,10 @@ export interface TourView {
   /** `wait`: no dimming, the page usable; `show`: dimmed, the element inert. */
   mode: 'wait' | 'show'
   progress: string | null
+  /** One more line under the words (the headers shown for the tour). */
+  note?: string
+  /** The stop lights the example's four corners instead of cutting it out. */
+  corners?: boolean
   /** The forward button's words, when there is one. */
   next?: string
   back?: boolean
@@ -100,6 +109,11 @@ export class Guide {
   private patientUntil = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private watch: MutationObserver | null = null
+  /** The headers were switched on by the tour (focus mode taken off the page, not the setting). */
+  private headersShown = false
+  /** The step that says the headers are shown for the tour: the first header stop after they were switched on. */
+  private noteStep: string | null = null
+  private example: HTMLElement | null = null
   private readonly root: Document
   private readonly layout: boolean
   private readonly drawer: Drawer
@@ -138,6 +152,7 @@ export class Guide {
 
   /** Point at Help with a note — after a pause, or "I'll explore myself" — until Got it, or Help is opened. */
   point(frame: TourFrame): void {
+    this.restoreHeaders()
     this.mode = 'note'
     this.note = frame
     this.listen()
@@ -166,7 +181,11 @@ export class Guide {
     this.watch?.disconnect()
     this.watch = null
     this.root.defaultView?.removeEventListener('keydown', this.onKey, true)
+    this.root.defaultView?.removeEventListener('pagehide', this.onLeave)
     this.root.documentElement.removeAttribute('data-tour-running')
+    this.restoreHeaders()
+    this.example?.removeAttribute(EXAMPLE_ATTR)
+    this.example = null
     this.drawer.hide()
   }
 
@@ -229,6 +248,66 @@ export class Guide {
         })
       }
       this.root.defaultView?.addEventListener('keydown', this.onKey, true)
+      this.root.defaultView?.addEventListener('pagehide', this.onLeave)
+    }
+  }
+
+  private noteOf(id: string, header: boolean): string | undefined {
+    if (!this.headersShown || !header) return undefined
+    this.noteStep ??= id
+    return this.noteStep === id ? HEADERS_NOTE : undefined
+  }
+
+  private readonly onLeave = () => this.restoreHeaders()
+
+  /**
+   * Headers hidden (focus mode) come back for the stops that point at one.
+   * Only the class on <html> is touched — never `applyFocus`, which writes the
+   * cookie — so the person's own setting is never changed, only not shown.
+   */
+  private showHeaders(): void {
+    const html = this.root.documentElement
+    if (this.headersShown || !html.classList.contains(FOCUS_CLASS)) return
+    html.classList.remove(FOCUS_CLASS)
+    this.headersShown = true
+  }
+
+  /** Put the person's own setting back exactly (the cookie is what it is). */
+  private restoreHeaders(): void {
+    this.noteStep = null
+    if (!this.headersShown) return
+    this.headersShown = false
+    let off = false
+    try {
+      off = new RegExp(`(?:^|;\\s*)${FOCUS_COOKIE.replace('.', '\\.')}=off(?:;|$)`).test(this.root.cookie)
+    } catch {
+      /* Cookies refused: put it back. */
+    }
+    if (!off) this.root.documentElement.classList.add(FOCUS_CLASS)
+  }
+
+  /** The example container for the explanations: marked, scrolled to, its header shown when the step points at it. */
+  private prepare(step: (typeof TOUR_STEPS)[number]): void {
+    const wanted = step.kind === 'show' && step.example !== undefined
+    if (!wanted) {
+      this.restoreHeaders()
+      return
+    }
+    const kept = this.example && this.example.isConnected && pickExample(this.root, this.layout) === this.example
+    const pick = kept ? this.example : pickExample(this.root, this.layout)
+    if (pick !== this.example) {
+      this.example?.removeAttribute(EXAMPLE_ATTR)
+      this.example = pick
+      pick?.setAttribute(EXAMPLE_ATTR, '')
+    }
+    if (!pick) {
+      this.restoreHeaders()
+      return
+    }
+    if (step.example === 'header') this.showHeaders()
+    else this.restoreHeaders()
+    if (!inView(pick, this.root.defaultView) && typeof pick.scrollIntoView === 'function') {
+      pick.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     }
   }
 
@@ -283,6 +362,7 @@ export class Guide {
     const facts = this.options.facts()
     const step = TOUR_STEPS[this.at]
     if (!step) return this.finish()
+    this.prepare(step)
 
     if (step.kind === 'wait') {
       const want = firstUndone(facts, facts.project ? this.at : 0)
@@ -338,6 +418,8 @@ export class Guide {
       key: `${step.id}:${found.index}`,
       element: found.element,
       title: found.frame.title,
+      note: this.noteOf(step.id, step.example === 'header'),
+      corners: step.example === 'corners',
       body: bodyOf(found.frame, facts),
       side: found.frame.side,
       align: found.frame.align,
@@ -427,6 +509,8 @@ export function driverDrawer(root: Document = document): Drawer {
         showProgress: false,
       })
       root.documentElement.dataset.tourMode = view.mode
+      if (view.corners) root.documentElement.dataset.tourCorners = ''
+      else delete root.documentElement.dataset.tourCorners
       const buttons: AllowedButtons[] = [...(view.next ? (['next'] as const) : []), ...(view.back ? (['previous'] as const) : []), 'close']
       tour.highlight({
         element: view.element,
@@ -461,6 +545,12 @@ export function driverDrawer(root: Document = document): Drawer {
               popover.nextButton.style.display = view.next ? 'block' : 'none'
               popover.previousButton.style.display = view.back ? 'block' : 'none'
             }
+            if (view.note) {
+              const note = root.createElement('p')
+              note.className = 'tour-note'
+              note.textContent = view.note
+              popover.description.append(note)
+            }
             if (view.gotThis) {
               const label = root.createElement('label')
               label.className = 'tour-got-this'
@@ -491,6 +581,7 @@ export function driverDrawer(root: Document = document): Drawer {
       tour?.destroy()
       tour = null
       delete root.documentElement.dataset.tourMode
+      delete root.documentElement.dataset.tourCorners
     },
   }
 }
