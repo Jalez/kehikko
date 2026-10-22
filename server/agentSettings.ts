@@ -56,7 +56,32 @@ export function ensureSettings(db: Database): void {
       module text not null,
       at     integer not null
     );
+    create table if not exists skill_bound_left (
+      name   text primary key,
+      module text not null,
+      at     integer not null
+    );
   `)
+}
+
+/**
+ * Kehikko-bound skills (protocol 2.12.0) left in the person's skills folder
+ * because they changed them, by name: said once (`agentSync.ts`), forgotten
+ * when the folder is no longer an edited install of that module's.
+ */
+export function boundLeft(db: Database): Map<string, string> {
+  const rows = db.query<{ name: string; module: string }, []>('select name, module from skill_bound_left').all()
+  return new Map(rows.map((row) => [row.name, row.module]))
+}
+
+export function recordBoundLeft(db: Database, name: string, module: string, now = Date.now()): void {
+  db.query(
+    'insert into skill_bound_left (name, module, at) values (?, ?, ?) on conflict (name) do update set module = excluded.module, at = excluded.at',
+  ).run(name, module, now)
+}
+
+export function forgetBoundLeft(db: Database, name: string): void {
+  db.query('delete from skill_bound_left where name = ?').run(name)
 }
 
 /**

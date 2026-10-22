@@ -276,6 +276,77 @@ describe('skills, kept installed and up to date', () => {
   })
 })
 
+describe('kehikko-bound skills (protocol 2.12.0)', () => {
+  const bound = (name: string): ModuleSkill => ({ ...skill(name), needs: ['kehikot.review'] })
+  const factory = (skills: ModuleSkill[]) => mod('kehikot.factory', 7840, { door: null, skills })
+  const where = 'Available in conversations on a kehikko that also has Review and Factory'
+
+  test('is never installed for every conversation, whatever the settings', async () => {
+    const table = { 'review-factory': skillText('review-factory'), factory: skillText('factory') }
+    const at = setup([factory([skill('factory'), bound('review-factory')])], ON, fakeClaude(), table)
+    const ran = await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'review-factory'))).toBe(false)
+    expect(existsSync(join(at.root, 'factory', 'SKILL.md'))).toBe(true)
+    expect(at.told).toEqual(['Installed the /factory skill (Claude)'])
+    expect(ran.status.modules[0]!.skills).toEqual([
+      { name: 'factory', state: 'installed' },
+      { name: 'review-factory', state: 'bound', bound: where },
+    ])
+    expect(skillsSaid(ran.status)).toBe('1 installed, 1 only on a kehikko')
+  })
+
+  test('names a needed module the sweep saw by its own name', async () => {
+    const at = setup([mod('kehikot.review', 7850, { door: null, name: 'Code Review' }), factory([bound('review-factory')])])
+    const ran = await syncOnce(at.deps)
+    expect(ran.status.modules[1]!.skills[0]!.bound).toBe('Available in conversations on a kehikko that also has Code Review and Factory')
+  })
+
+  test('one Kehikot installed earlier is removed with one Inbox line, settings off or on', async () => {
+    const table = { 'review-factory': skillText('review-factory') }
+    const at = setup([factory([skill('review-factory')])], ON, fakeClaude(), table)
+    await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'review-factory', 'SKILL.md'))).toBe(true)
+    at.told.length = 0
+    writeSettings(at.db, { ...ON, skills: { auto: false, except: [] } })
+    at.state.seen = [factory([bound('review-factory')])]
+    const ran = await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'review-factory'))).toBe(false)
+    expect(at.told).toEqual([`Removed the /review-factory skill from every conversation. ${where}, where the Claude module loads it`])
+    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'review-factory', state: 'bound', bound: where }])
+    at.told.length = 0
+    await syncOnce(at.deps)
+    expect(at.told).toEqual([])
+  })
+
+  test('an edited one is left, said once, and said again only after it stopped being edited', async () => {
+    const table = { 'review-factory': skillText('review-factory') }
+    const at = setup([factory([skill('review-factory')])], ON, fakeClaude(), table)
+    await syncOnce(at.deps)
+    writeFileSync(join(at.root, 'review-factory', 'SKILL.md'), 'my own words\n')
+    at.told.length = 0
+    at.state.seen = [factory([bound('review-factory')])]
+    const ran = await syncOnce(at.deps)
+    expect(readFileSync(join(at.root, 'review-factory', 'SKILL.md'), 'utf8')).toBe('my own words\n')
+    expect(at.told).toEqual([
+      `Left the /review-factory skill (${at.root}/review-factory) in every conversation because you changed it. ${where}; delete that folder to have it only there`,
+    ])
+    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'review-factory', state: 'edited', bound: where }])
+    at.told.length = 0
+    await syncOnce(at.deps)
+    expect(at.told).toEqual([])
+  })
+
+  test('a folder of that name Kehikot did not install is left alone and not counted as a problem', async () => {
+    const at = setup([factory([bound('review-factory')])])
+    mkdirSync(join(at.root, 'review-factory'))
+    writeFileSync(join(at.root, 'review-factory', 'SKILL.md'), 'theirs\n')
+    const ran = await syncOnce(at.deps)
+    expect(readFileSync(join(at.root, 'review-factory', 'SKILL.md'), 'utf8')).toBe('theirs\n')
+    expect(ran.status.modules[0]!.skills[0]!.state).toBe('bound')
+    expect(ran.status.problems).toEqual([])
+  })
+})
+
 describe('a module that is not running', () => {
   test('is connected from the door it had when it last ran, and says so', async () => {
     const at = setup([mod('kehikot.notes', 7802, { answering: false, version: null })])

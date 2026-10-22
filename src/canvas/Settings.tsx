@@ -591,7 +591,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
               id: own.id,
               name: 'Kehikot',
               out: settings.skills.except.includes(own.id),
-              chips: own.skills.map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
+              ...skillChips(own.skills),
             }}
             disabled={!active(settings, 'skills')}
             onOut={(module, out) => onChange({ except: { kind: 'skills', module, out } })}
@@ -604,7 +604,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
               id: one.id,
               name: one.name,
               out: settings.skills.except.includes(one.id),
-              chips: one.skills.map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
+              ...skillChips(one.skills),
             }))}
             keep="keep installed"
             disabled={!active(settings, 'skills')}
@@ -815,7 +815,7 @@ function OwnSkills({
   disabled,
   onOut,
 }: {
-  row: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }
+  row: RowData
   disabled: boolean
   onOut(module: string, out: boolean): void
 }) {
@@ -967,6 +967,30 @@ const SKILL_TONE: Record<SkillState, Tone> = {
   edited: 'warn',
   taken: 'warn',
   failed: 'bad',
+  bound: 'quiet',
+}
+
+/** One module's row in a "Which modules" list: its statuses as chips, and any longer sentences under them. */
+interface RowData {
+  id: string
+  name: string
+  out: boolean
+  chips: { text: string; tone: Tone }[]
+  notes?: string[]
+}
+
+/**
+ * A module's skills as chips. A kehikko-bound skill (protocol 2.12.0) is said in
+ * a sentence of its own instead — where it works — since it is never installed
+ * for every conversation; one the person changed keeps its chip too.
+ */
+function skillChips(skills: readonly { name: string; state: SkillState; bound?: string }[]): Pick<RowData, 'chips' | 'notes'> {
+  return {
+    chips: skills
+      .filter((skill) => skill.state !== 'bound')
+      .map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
+    notes: skills.flatMap((skill) => (skill.bound ? [`/${skill.name} · ${skill.bound}`] : [])),
+  }
 }
 
 /** Which modules: a searchable list, each with its status in chips and a switch to keep it or leave it out. */
@@ -978,7 +1002,7 @@ function ModuleExceptions({
   onOut,
 }: {
   kind: 'tools' | 'skills'
-  rows: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }[]
+  rows: RowData[]
   keep: string
   disabled: boolean
   onOut(module: string, out: boolean): void
@@ -1025,7 +1049,7 @@ function ModuleRow({
   disabled,
   onOut,
 }: {
-  row: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }
+  row: RowData
   keep: string
   disabled: boolean
   onOut(module: string, out: boolean): void
@@ -1040,6 +1064,11 @@ function ModuleRow({
         <div className="mt-1 flex flex-wrap gap-1">
           {row.out ? <Chip tone="quiet">Left to you</Chip> : row.chips.map((chip) => <Chip key={chip.text} tone={chip.tone}>{chip.text}</Chip>)}
         </div>
+        {row.notes?.map((note) => (
+          <p key={note} className="text-muted-foreground mt-1 min-w-0 text-[11px] leading-snug break-words" data-note>
+            {note}
+          </p>
+        ))}
       </div>
       {/* Named with what it does, "Browser: keep connected": the visible name alone would not say. */}
       <Switch id={id} aria-label={`${row.name}: ${keep}`} checked={!row.out} disabled={disabled} onCheckedChange={(on) => onOut(row.id, !on)} />

@@ -175,7 +175,7 @@ export const TOOL_STATE_SAYS: Record<ToolState, string> = {
 }
 
 /** Where one skill stands; the Skills window's statuses plus the two the sync adds. */
-export type SkillState = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'excepted' | 'failed'
+export type SkillState = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'excepted' | 'failed' | 'bound'
 
 export const SKILL_STATE_SAYS: Record<SkillState, string> = {
   absent: 'Not installed',
@@ -185,6 +185,7 @@ export const SKILL_STATE_SAYS: Record<SkillState, string> = {
   taken: 'Name taken',
   excepted: 'Left to you',
   failed: 'Failed, trying again',
+  bound: 'On a kehikko only',
 }
 
 export interface ModuleSync {
@@ -192,7 +193,11 @@ export interface ModuleSync {
   name: string
   /** Null for a module with no MCP door. */
   tools: ToolState | null
-  skills: { name: string; state: SkillState }[]
+  /**
+   * `bound`, for a kehikko-bound skill (protocol 2.12.0): where it works, in words (`boundSays`),
+   * whatever its state. Such a skill is never installed for every conversation.
+   */
+  skills: { name: string; state: SkillState; bound?: string }[]
   /** Whether it was answering, so its door and skills could be read. */
   answering: boolean
 }
@@ -244,6 +249,7 @@ export function skillsSaid(status: SyncStatus): string {
   if (by('edited')) parts.push(`${by('edited')} changed by you`)
   if (by('taken')) parts.push(`${by('taken')} name taken`)
   if (by('failed')) parts.push(`${by('failed')} failed`)
+  if (by('bound')) parts.push(`${by('bound')} only on a kehikko`)
   return parts.join(', ')
 }
 

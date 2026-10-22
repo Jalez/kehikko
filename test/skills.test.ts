@@ -190,6 +190,68 @@ describe('the rows the dialog draws', () => {
   })
 })
 
+describe('kehikko-bound skills (protocol 2.12.0)', () => {
+  const FACTORY = 'kehikot.factory'
+  const bound: ModuleSkill = { ...skill('review-factory'), needs: ['kehikot.review'] }
+  const where = 'Available in conversations on a kehikko that also has Review and Factory'
+
+  test('syncSkill never installs or updates one, and removes an untouched install', () => {
+    const root = freshRoot()
+    const refused = syncSkill(root, FACTORY, bound, 'install', text('review-factory'))
+    expect(refused).toMatchObject({ ok: false, status: 409 })
+    expect(!refused.ok && refused.why).toBe(`${where}, where the Claude module loads it, so Kehikot does not install /review-factory for every conversation.`)
+    expect(existsSync(join(root, 'review-factory'))).toBe(false)
+    /* Installed before it was bound: not updated, but removable. */
+    syncSkill(root, FACTORY, skill('review-factory'), 'install', text('review-factory'))
+    expect(syncSkill(root, FACTORY, bound, 'update', text('review-factory', 'New.')).ok).toBe(false)
+    expect(readFileSync(join(root, 'review-factory', 'SKILL.md'), 'utf8')).toBe(text('review-factory'))
+    expect(syncSkill(root, FACTORY, bound, 'remove').ok).toBe(true)
+    expect(existsSync(join(root, 'review-factory'))).toBe(false)
+  })
+
+  test('the row says where it works, and offers no Install or Update', async () => {
+    const root = freshRoot()
+    const found: Extract<SkillsOf, { ok: true }> = { ok: true, module: FACTORY, name: 'Factory', origin: ORIGIN, skills: [bound, { ...bound, name: 'was-here' }] }
+    syncSkill(root, FACTORY, skill('was-here'), 'install', text('was-here', 'Old.'))
+    const { fetcher } = serving({ 'review-factory': text('review-factory'), 'was-here': text('was-here') })
+    const rows = await skillRows(found, root, fetcher)
+    expect(rows.map((row) => [row.name, row.status, row.says, row.bound])).toEqual([
+      ['review-factory', 'bound', 'On a kehikko only', where],
+      ['was-here', 'outdated', 'Outdated', where],
+    ])
+    expect(rows.map(pressFor)).toEqual([null, null])
+    expect(rows.map(removable)).toEqual([false, true])
+    expect(whyNot(rows[0]!)).toBe(`${where}: the Claude module loads it into such a conversation, so it is not installed for every one.`)
+    expect(whyNot(rows[1]!)).toMatch(/so Kehikot removes it from there/)
+    /* Still readable. */
+    expect(rows[0]!.text).toBe(text('review-factory'))
+  })
+
+  test('the route refuses Install, names modules as the host knows them, and still removes', async () => {
+    const root = freshRoot()
+    const { fetcher } = serving({ 'review-factory': text('review-factory') })
+    const lookup = async (): Promise<SkillsOf> => ({ ok: true, module: FACTORY, name: 'Factory', origin: ORIGIN, skills: [bound] })
+    const nameOf = (id: string) => (id === 'kehikot.review' ? 'Code Review' : 'Factory')
+    const route = skillsRoute({ lookup, fetcher, root: () => root, nameOf })
+    const url = new URL(`http://127.0.0.1:4180/host/skills?module=${FACTORY}`)
+    const got = (await (await route(new Request(url), url))!.json()) as { skills: { bound: string }[] }
+    expect(got.skills[0]!.bound).toBe('Available in conversations on a kehikko that also has Code Review and Factory')
+    const post = (press: string) =>
+      new Request('http://127.0.0.1:4180/host/skills', {
+        method: 'POST',
+        body: JSON.stringify({ module: FACTORY, name: 'review-factory', press, sha256: sha256(text('review-factory')) }),
+      })
+    const at = new URL('http://127.0.0.1:4180/host/skills')
+    const refused = await route(post('install'), at)
+    expect(refused!.status).toBe(409)
+    expect(((await refused!.json()) as { why: string }).why).toMatch(/^Available in conversations on a kehikko that also has Code Review and Factory/)
+    expect(existsSync(join(root, 'review-factory'))).toBe(false)
+    syncSkill(root, FACTORY, skill('review-factory'), 'install', text('review-factory'))
+    expect((await route(post('remove'), at))!.status).toBe(200)
+    expect(existsSync(join(root, 'review-factory'))).toBe(false)
+  })
+})
+
 describe('the routes', () => {
   const offered = [skill('cite', '1')]
   const lookup = async (id: string): Promise<SkillsOf> =>

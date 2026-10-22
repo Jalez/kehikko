@@ -7,6 +7,7 @@ import { answerCall } from './answers.ts'
 import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
+import { nameFromId } from '../src/host/skills.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
 import {
@@ -417,9 +418,14 @@ function updatePlaces(): Place[] {
   return places
 }
 
+/** A module's name as it calls itself, else as the official list does; null when neither knows it. */
+function knownName(id: string): string | null {
+  return lastPresences.get(id)?.name ?? lastPresences.get(id)?.module?.name ?? official.current().find((one) => one.id === id)?.name ?? null
+}
+
 /** One module's place: named as it calls itself when that is known, with its releases when it is installed. */
 function placeOf(id: string, dir: string): Place {
-  const name = lastPresences.get(id)?.name ?? lastPresences.get(id)?.module?.name ?? official.current().find((one) => one.id === id)?.name ?? id
+  const name = knownName(id) ?? id
   return { id, name, dir, ...(isInstalled(dir) ? { releases: follower } : {}) }
 }
 
@@ -1936,6 +1942,7 @@ async function keptAndRunning(): Promise<string[]> {
  * what its manifest says now; nothing about either comes from the request.
  */
 const skillDesk = skillsRoute({
+  nameOf: (id) => knownName(id) ?? nameFromId(id),
   lookup: async (id) => {
     /* Kehikot's own skills: the host's, read from this host's own origin, never from the registry. */
     if (id === HOST_ID) return { ok: true, module: HOST_ID, name: 'Kehikot', origin: ownOrigin, skills: ownSkillDeclarations() }
@@ -2017,6 +2024,7 @@ const agentSync = new AgentSync({
   modules: async () => seenOf((await sweep()).presences),
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
+  nameOf: knownName,
   /* The host is never "no longer registered": its own skills are never tidied away. */
   registry: () => withHost(lastRegistry),
   ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),

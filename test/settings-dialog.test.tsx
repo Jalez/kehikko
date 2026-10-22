@@ -11,7 +11,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 11
+const TESTS = 12
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -213,6 +213,19 @@ test('Skills: Kehikot’s own skills apart from the modules’, kept by the same
   /* Not listed again among the modules. */
   expect(document.querySelector('[data-exceptions="skills"] [data-module="kehikko"]')).toBeNull()
   expect(document.querySelector('[data-exceptions="skills"] [data-module="kehikot.claude"]')).not.toBeNull()
+})
+
+test('Skills: a kehikko-bound skill is said where it works, not as a chip to install', async () => {
+  if (!inChild) return
+  const where = 'Available in conversations on a kehikko that also has Review and Factory'
+  const given = answer()
+  given.status.modules.push({ id: 'kehikot.factory', name: 'Factory', tools: null, answering: true, skills: [{ name: 'factory', state: 'installed' }, { name: 'review-factory', state: 'bound', bound: where }] })
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => given} section="skills" />)
+  const row = document.querySelector('[data-exceptions="skills"] [data-module="kehikot.factory"]')!
+  expect([...row.querySelectorAll('[data-tone]')].map((one) => one.textContent)).toEqual(['/factory · Installed'])
+  expect(row.querySelector('[data-note]')!.textContent).toBe(`/review-factory · ${where}`)
+  expect(row.textContent).not.toContain('Install ')
+  expect(document.querySelector('[data-status="skills"]')!.textContent).toBe('2 installed, 1 changed by you, 1 only on a kehikko')
 })
 
 test('the module list is searched by name or id', async () => {
