@@ -4,6 +4,7 @@ import {
   Bot,
   Check,
   ExternalLink,
+  FolderGit2,
   Hammer,
   HardDrive,
   MessagesSquare,
@@ -44,9 +45,11 @@ import {
   type AgentSettings,
   type SettingsAnswer,
   type SettingsSection,
+  SETTINGS_SECTIONS,
   type SkillState,
   type ToolState,
 } from '@/host/agentSettings.ts'
+import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
 import { SkillsDialog } from './Skills.tsx'
@@ -71,7 +74,7 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
  *    projects menu, a module's Tools or Skills window, the sync's line in the
  *    Inbox, and the desktop shell's own event.
  *  - `SettingsDialog` and its body: a section nav on the left (Agents, Module
- *    tools, Skills, Tracker notices, Conversations, About) and one section at a
+ *    tools, Skills, Tracker notices, Conversations, Project, About) and one section at a
  *    time on the right — a summary card, then each setting as a row with its
  *    switch. A change is sent as it is made and said "Saved"; there is no Save
  *    button for a switch.
@@ -161,8 +164,23 @@ export function useAgentSettings(open: boolean, load = fetchSettings, save = pos
   return { answer, trouble, busy, saved, read, change }
 }
 
+/** The open project, as the Project section needs it. */
+export type SettingsProject = Pick<Project, 'id' | 'name' | 'git' | 'home' | 'missing'>
+
+/** How the Project section reads and sets the base branch; injectable for tests. */
+export interface BaseBranchDoor {
+  load: typeof fetchBaseBranch
+  save: typeof setBaseBranch
+}
+
+const BASE_BRANCH_DOOR: BaseBranchDoor = { load: fetchBaseBranch, save: setBaseBranch }
+
 /** Mounted once by the page: the one-time question, ⌘, and the dialog wherever it is asked for. */
-export function AgentSettingsHost({ load = fetchSettings, save = postSettings }: { load?: typeof fetchSettings; save?: typeof postSettings } = {}) {
+export function AgentSettingsHost({
+  load = fetchSettings,
+  save = postSettings,
+  project = null,
+}: { load?: typeof fetchSettings; save?: typeof postSettings; project?: SettingsProject | null } = {}) {
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState<SettingsSection>('agents')
   const [question, setQuestion] = useState(false)
@@ -209,7 +227,7 @@ export function AgentSettingsHost({ load = fetchSettings, save = postSettings }:
           setQuestion(false)
         }}
       />
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} />
+      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} />
     </>
   )
 }
@@ -298,6 +316,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   skills: { title: 'Skills', icon: Sparkles },
   notices: { title: 'Tracker notices', icon: Bell },
   hook: { title: 'Conversations', icon: MessagesSquare },
+  project: { title: 'Project', icon: FolderGit2 },
   about: { title: 'About', icon: KehikotMark },
 }
 
@@ -308,6 +327,8 @@ export function SettingsDialog({
   save = postSettings,
   section: given,
   onSection: setGiven,
+  project = null,
+  baseBranch = BASE_BRANCH_DOOR,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -316,6 +337,9 @@ export function SettingsDialog({
   /** Which section is shown; the dialog keeps its own when not given. */
   section?: SettingsSection
   onSection?(section: SettingsSection): void
+  /** The open project; the Project section is shown only with one. */
+  project?: SettingsProject | null
+  baseBranch?: BaseBranchDoor
 }) {
   const { answer, trouble, busy, saved, read, change } = useAgentSettings(open, load, save)
   const [own, setOwn] = useState<SettingsSection>('agents')
@@ -344,6 +368,8 @@ export function SettingsDialog({
           onSection={setSection}
           onChange={(what) => void change(what)}
           onClose={() => onOpenChange(false)}
+          project={project}
+          baseBranch={baseBranch}
         />
       </DialogContent>
     </Dialog>
@@ -360,6 +386,8 @@ export function SettingsBody({
   onSection,
   onChange,
   onClose = () => {},
+  project = null,
+  baseBranch = BASE_BRANCH_DOOR,
 }: {
   answer: SettingsAnswer | null
   trouble?: string | null
@@ -370,8 +398,10 @@ export function SettingsBody({
   onSection(section: SettingsSection): void
   onChange(what: Change): void
   onClose?(): void
+  project?: SettingsProject | null
+  baseBranch?: BaseBranchDoor
 }) {
-  const sections = (['agents', 'tools', 'skills', 'notices', 'hook', 'about'] as const).filter((one) => one !== 'notices' || answer?.notices)
+  const sections = SETTINGS_SECTIONS.filter((one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project))
   const shown = sections.includes(section) ? section : 'agents'
   const problems = answer?.status.problems.length ?? 0
 
@@ -389,7 +419,7 @@ export function SettingsBody({
             Settings
           </DialogTitle>
           <DialogDescription className="text-xs leading-snug max-sm:sr-only">
-            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer.
+            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer; and the open project’s own.
           </DialogDescription>
         </DialogHeader>
         <TabsList
@@ -436,6 +466,8 @@ export function SettingsBody({
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
                 {key === 'about' ? (
                   <About onClose={onClose} />
+                ) : key === 'project' ? (
+                  project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : answer ? (
                   <Section which={key} answer={answer} onChange={onChange} />
                 ) : !trouble ? (
@@ -479,7 +511,7 @@ function SavedNote({ saved }: { saved: number }) {
   )
 }
 
-function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about'>; answer: SettingsAnswer; onChange(what: Change): void }) {
+function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project'>; answer: SettingsAnswer; onChange(what: Change): void }) {
   const { settings, status, hook } = answer
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
@@ -746,6 +778,137 @@ function TrackerNotices({
   )
 }
 
+/**
+ * Project: the open project's own settings, kept in its `.kehikot/host/settings.json`
+ * so everyone working on it shares them. Its base branch is a field and a
+ * Save, since the host checks the branch on origin before it takes it.
+ */
+function ProjectSettings({ project, door }: { project: SettingsProject; door: BaseBranchDoor }) {
+  const field = useId()
+  const [base, setBase] = useState<BaseBranch | null>(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [trouble, setTrouble] = useState<string | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  const unavailable = project.home
+    ? 'No project is picked yet. Pick one to set its base branch.'
+    : project.missing
+      ? `${project.name} is not where it was, so its settings cannot be read.`
+      : !project.git
+        ? `${project.name} is not a git repository, so it has no base branch.`
+        : null
+
+  useEffect(() => {
+    setBase(null)
+    setTrouble(null)
+    setSaid(null)
+    if (unavailable) return
+    const stop = new AbortController()
+    door
+      .load(project.id, stop.signal)
+      .then((read) => {
+        if (stop.signal.aborted) return
+        setBase(read)
+        setTyped(read.set ?? '')
+      })
+      .catch((error) => !stop.signal.aborted && setTrouble(notAnswering(error)))
+    return () => stop.abort()
+  }, [project.id, door, unavailable])
+
+  const submit = async (branch: string | null) => {
+    setBusy(true)
+    setTrouble(null)
+    setSaid(null)
+    try {
+      const done = await door.save(project.id, branch)
+      if (!done.ok) {
+        setTrouble(done.why)
+        return
+      }
+      setBase(done.base)
+      setTyped(done.base.set ?? '')
+      setSaid(done.said)
+    } catch (error) {
+      setTrouble(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const wanted = typed.trim()
+  const unchanged = base !== null && wanted === (base.set ?? '')
+  const inForce = base === null
+    ? 'Reading…'
+    : base.set
+      ? `${base.set} is set for this project.${base.origin && base.origin !== base.set ? ` Origin’s default is ${base.origin}.` : ''}`
+      : base.origin
+        ? `Nothing is set, so origin’s default is used: ${base.origin}.`
+        : 'Nothing is set, and origin does not say its default branch. Name one.'
+
+  return (
+    <>
+      <Heading id="project" lead={`Settings for ${project.name}, kept in the project’s own .kehikot/host/settings.json so everyone working on it shares them.`}>
+        Project
+      </Heading>
+      {unavailable ? (
+        <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-3 text-xs" data-base-branch="unavailable">
+          {unavailable}
+        </p>
+      ) : (
+        <form
+          className="min-w-0 space-y-2 rounded-lg border px-4 py-3.5"
+          data-base-branch={base === null ? 'reading' : base.set ? 'set' : 'default'}
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (wanted) void submit(wanted)
+            else if (base?.set) void submit(null)
+          }}
+        >
+          <div className="space-y-1">
+            <Label htmlFor={field} className="text-sm">
+              Base branch
+            </Label>
+            <p id={`${field}-about`} className="text-muted-foreground text-xs leading-relaxed">
+              {BASE_BRANCH_SAID}
+            </p>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Input
+              id={field}
+              value={typed}
+              onChange={(event) => setTyped(event.currentTarget.value)}
+              placeholder={base?.origin ?? 'main'}
+              aria-describedby={`${field}-about ${field}-now`}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              disabled={busy || base === null}
+              className="h-8 w-full font-mono text-xs sm:w-64"
+            />
+            <Button type="submit" size="sm" className="h-8" disabled={busy || base === null || unchanged}>
+              {busy ? 'Checking origin…' : 'Save'}
+            </Button>
+            {base?.set ? (
+              <Button type="button" variant="ghost" size="sm" className="h-8" disabled={busy} onClick={() => void submit(null)}>
+                Use origin’s default
+              </Button>
+            ) : null}
+          </div>
+          <p id={`${field}-now`} className="text-muted-foreground text-xs" data-base-branch-now>
+            {inForce}
+          </p>
+          {said ? (
+            <p role="status" className="text-xs" data-base-branch-said>
+              {said}
+            </p>
+          ) : null}
+          {trouble ? <Trouble>{trouble}</Trouble> : null}
+        </form>
+      )}
+    </>
+  )
+}
+
 /** About: which Kehikot this is, the protocol it speaks, and where its notes and its data are. */
 function About({ onClose }: { onClose(): void }) {
   const { shown } = useShownVersion()
@@ -766,7 +929,7 @@ function About({ onClose }: { onClose(): void }) {
             kehikot-module-protocol {PACKAGE_VERSION}
           </dd>
           <dt className="text-muted-foreground">Settings kept</dt>
-          <dd>On this computer, for every project — never inside a project.</dd>
+          <dd>On this computer, for every project; the Project section’s in the project itself.</dd>
         </dl>
       </Summary>
       <div data-whats-new-setting className="divide-y rounded-lg border px-4">

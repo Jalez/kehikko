@@ -427,3 +427,85 @@ test('About: the version, the protocol, and the release notes and storage overvi
   expect(closed).toBe(1)
   expect(storage).toBe(1)
 })
+
+test('Project: the open project’s base branch, origin’s default until set, checked before it is taken', async () => {
+  if (!inChild) return
+  const saved: (string | null)[] = []
+  const door = {
+    load: async () => ({ set: null, origin: 'main', branch: 'main' }),
+    save: async (_project: number, branch: string | null) => {
+      saved.push(branch)
+      if (branch === 'nope') return { ok: false as const, why: 'origin has no branch called nope. Push it first, or name a branch origin has. The base branch was not changed.' }
+      const base = { set: branch, origin: 'main', branch: branch ?? 'main' }
+      return { ok: true as const, said: branch ? `The base branch is ${branch}.` : "The base branch is origin's default, main.", base }
+    },
+  }
+  await render(
+    <Settings.SettingsDialog
+      open
+      onOpenChange={() => {}}
+      load={async () => answer()}
+      section="project"
+      project={{ id: 4, name: 'kollekti', git: true }}
+      baseBranch={door}
+    />,
+  )
+  const body = document.querySelector('[data-settings]')!
+  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Project', 'About'])
+  const form = body.querySelector('[data-base-branch]')!
+  expect(form.getAttribute('data-base-branch')).toBe('default')
+  expect(form.textContent).toContain('The branch agents start their work from and updates are pulled from.')
+  expect(form.querySelector('[data-base-branch-now]')!.textContent).toBe('Nothing is set, so origin’s default is used: main.')
+  const field = form.querySelector<HTMLInputElement>('input')!
+  expect(document.querySelector(`label[for="${field.id}"]`)!.textContent).toBe('Base branch')
+  expect(field.placeholder).toBe('main')
+  expect(button('Save').disabled).toBe(true)
+  expect(button('Use origin’s default')).toBeUndefined()
+
+  const type = async (text: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(field, text)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  await type('nope')
+  await act(async () => button('Save').click())
+  expect(saved).toEqual(['nope'])
+  expect(form.querySelector('[role="alert"]')!.textContent).toContain('origin has no branch called nope')
+  expect(form.getAttribute('data-base-branch')).toBe('default')
+
+  await type('development')
+  await act(async () => button('Save').click())
+  expect(saved).toEqual(['nope', 'development'])
+  expect(form.querySelector('[role="alert"]')).toBeNull()
+  expect(form.getAttribute('data-base-branch')).toBe('set')
+  expect(form.querySelector('[data-base-branch-now]')!.textContent).toBe('development is set for this project. Origin’s default is main.')
+  expect(form.querySelector('[data-base-branch-said]')!.textContent).toBe('The base branch is development.')
+
+  await act(async () => button('Use origin’s default').click())
+  expect(saved).toEqual(['nope', 'development', null])
+  expect(form.getAttribute('data-base-branch')).toBe('default')
+  expect(field.value).toBe('')
+})
+
+test('Project: no section without an open project, and a sentence for one that cannot have a base branch', async () => {
+  if (!inChild) return
+  let loads = 0
+  const door = {
+    load: async () => {
+      loads += 1
+      return { set: null, origin: 'main', branch: 'main' }
+    },
+    save: async () => ({ ok: false as const, why: 'unused' }),
+  }
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} baseBranch={door} />)
+  expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).not.toContain('Project')
+  act(() => unmount?.())
+  document.body.innerHTML = ''
+  await render(
+    <Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} section="project" project={{ id: 2, name: 'thesis', git: false }} baseBranch={door} />,
+  )
+  expect(document.querySelector('[data-base-branch="unavailable"]')!.textContent).toBe('thesis is not a git repository, so it has no base branch.')
+  expect(loads).toBe(0)
+})
