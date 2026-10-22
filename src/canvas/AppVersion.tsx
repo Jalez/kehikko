@@ -7,7 +7,8 @@ import {
   APP_REPO,
   appReleaseRows,
   fetchHostVersion,
-  fetchReleases,
+  fetchReleaseList,
+  NotesTrouble,
   openExternal,
   releaseDate,
   releasePage,
@@ -90,19 +91,39 @@ export function AppVersion() {
   )
 }
 
+const WAITING_RETRY_MS = 5000
+
 /** The popover's content: Kehikot's releases, read when it opens. */
 function AppReleases({ app, host }: { app: AppUpdateStatus | null; host: string | null }) {
   const [releases, setReleases] = useState<ReleaseSummary[] | null>(null)
+  const [old, setOld] = useState<string | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
+  /** Bumped by Retry. */
+  const [attempt, setAttempt] = useState(0)
   const notes = useReleaseNotes()
 
   useEffect(() => {
     const abort = new AbortController()
-    fetchReleases(APP_REPO, abort.signal).then(setReleases, (error: Error) => {
-      if (!abort.signal.aborted) setTrouble(error.message)
-    })
-    return () => abort.abort()
-  }, [])
+    let retry: ReturnType<typeof setTimeout> | null = null
+    setTrouble(null)
+    fetchReleaseList(APP_REPO, abort.signal).then(
+      (got) => {
+        if (abort.signal.aborted) return
+        setReleases(got.releases)
+        setOld(got.old)
+      },
+      (error: Error) => {
+        if (abort.signal.aborted) return
+        setTrouble(error.message)
+        /* Short of GitHub budget, not failed: it is asked again by itself. */
+        if (error instanceof NotesTrouble && error.waiting) retry = setTimeout(() => setAttempt((n) => n + 1), WAITING_RETRY_MS)
+      },
+    )
+    return () => {
+      abort.abort()
+      if (retry) clearTimeout(retry)
+    }
+  }, [attempt])
 
   return (
     <PopoverContent
@@ -125,20 +146,39 @@ function AppReleases({ app, host }: { app: AppUpdateStatus | null; host: string 
         </p>
       </div>
       {releases ? (
-        <AppReleaseList
-          rows={appReleaseRows(releases, app)}
-          onNotes={(row, opener) => notes.show({ repo: APP_REPO, tag: row.tag, name: APP_NAME, version: row.version, opener })}
-        />
+        <>
+          {old ? (
+            <p className="text-muted-foreground px-2 py-1 text-[11px] leading-snug" data-testid="app-releases-old">
+              {old} Showing the last list that was read.{' '}
+              <button type="button" className="underline-offset-2 hover:underline" onClick={() => setAttempt((n) => n + 1)}>
+                Retry
+              </button>
+            </p>
+          ) : null}
+          <AppReleaseList
+            rows={appReleaseRows(releases, app)}
+            onNotes={(row, opener) => notes.show({ repo: APP_REPO, tag: row.tag, name: APP_NAME, version: row.version, opener })}
+          />
+        </>
       ) : trouble ? (
-        <div className="px-2 py-1.5 text-xs">
+        <div className="px-2 py-1.5 text-xs" data-testid="app-releases-trouble">
           <p className="text-destructive">{trouble}</p>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground pt-1 text-[11px] underline-offset-2 hover:underline"
-            onClick={() => openExternal(releasePage(APP_REPO))}
-          >
-            Open the releases on GitHub
-          </button>
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground text-[11px] underline-offset-2 hover:underline"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground text-[11px] underline-offset-2 hover:underline"
+              onClick={() => openExternal(releasePage(APP_REPO))}
+            >
+              Open the releases on GitHub
+            </button>
+          </div>
         </div>
       ) : (
         <p className="text-muted-foreground px-2 py-1.5 text-xs">Reading {APP_NAME}'s releases…</p>

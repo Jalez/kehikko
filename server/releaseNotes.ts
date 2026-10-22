@@ -1,3 +1,4 @@
+import { githubGateway, PRIORITY, type GitHubGateway, type Priority } from './github.ts'
 import { isVersionTag } from './versions.ts'
 
 /**
@@ -6,30 +7,26 @@ import { isVersionTag } from './versions.ts'
  * ## What is asked, and of whom
  *
  * `GET https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>` for one
- * release, and `…/releases?per_page=…` for a repository's list. Unauthenticated
- * first: release notes are public, a public repository needs no token, and
- * this host holds none. Only when GitHub will not answer a stranger — a
- * private repository, which it calls missing, or the anonymous limit used up
- * — is the same path asked through the person's own `gh` (`gh api`), so the
- * notes of one of "My modules" are read with the login that installed it.
+ * release, and `…/releases?per_page=…` for a repository's list. Every request
+ * goes through the gateway (`github.ts`): the person's own `gh` when it is
+ * logged in, otherwise anonymously within a budget, with conditional requests
+ * (a 304 costs nothing) and the last good answer kept. This file is what is
+ * asked and what the answers mean.
  *
  * ## Which repositories
  *
  * Only ones this host already knows: the desktop app's own (`APP_REPO`), and
  * the repositories of official and registered modules (`allowed`, given by the
  * server). The page names a repository, and one that is not on that list is
- * refused before anything is asked — a page that could name any repository
- * could make this host fetch whatever it liked.
+ * refused before anything is asked.
  *
- * ## Cached, and failing gently
+ * ## An empty list is a claim
  *
- * Answers are kept in memory: a release for `FRESH_MS`, "there is no such
- * release" for `MISSING_MS`, a failure for `FAILED_MS` — so a person who comes
- * back online is not told "unreachable" for long. GitHub allows sixty
- * unauthenticated requests an hour per address; when it says they are used up
- * (403 or 429 with `x-ratelimit-remaining: 0`), that is said, and nothing is
- * asked again until the reset it names. Every failure carries the release
- * page's address, so "Open on GitHub" always works.
+ * "No releases are published yet" is said only when GitHub answered 200 with
+ * an empty list. A 404, an error, a limit, a wait for budget or a non-list
+ * is a failure and says so — and when there is a last good list it is shown,
+ * marked old (`old`). Failures and empty answers are cached for a minute
+ * (`FAILED_MS`, `MISSING_MS`), a good one for `FRESH_MS`.
  *
  * The notes are returned as GitHub has them — markdown, untrusted. The page
  * renders them as text through `src/host/markdown.ts` and never as markup.
@@ -39,11 +36,9 @@ import { isVersionTag } from './versions.ts'
 export const APP_REPO = 'Jalez/kehikko-desktop'
 
 export const FRESH_MS = 30 * 60_000
-export const MISSING_MS = 10 * 60_000
+export const MISSING_MS = 60_000
 export const FAILED_MS = 60_000
 /** The longest a rate limit holds the cache, whatever reset GitHub names. */
-export const LIMITED_MAX_MS = 60 * 60_000
-export const TIMEOUT_MS = 10_000
 /** How many releases a list reads: one page, enough history to pick from. */
 export const LIST_SIZE = 30
 /** The most of one release's notes that is passed on. */
@@ -64,16 +59,21 @@ export interface Release {
 /** One row of a repository's releases: everything but the notes. */
 export type ReleaseSummary = Omit<Release, 'body'>
 
-export type Got<T> = { ok: true; value: T } | { ok: false; why: string; status: number; url: string }
+export type Got<T> =
+  | {
+      ok: true
+      value: T
+      /** Why this is the last good answer and not a new one; absent for a fresh one. */
+      old?: string
+    }
+  | { ok: false; why: string; status: number; url: string; waiting?: boolean }
 
 export interface Deps {
   /** Whether `owner/repo` is one this host knows. `APP_REPO` is always known. */
   allowed(repo: string): boolean | Promise<boolean>
-  /**
-   * The same API path (`repos/…/releases/…`) asked through the person's `gh`:
-   * the JSON, or null when gh is not there, not logged in, or says no. Used
-   * only when the anonymous request was refused as missing or rate-limited.
-   */
+  /** Where every GitHub request goes (`github.ts`). Made from `fetch` and `gh` when not given. */
+  gateway?: GitHubGateway
+  /** For a test or a caller with no gateway: `gh api <path>`'s JSON, or null when gh is not there, not logged in, or says no. */
   gh?(path: string): Promise<unknown | null>
   fetch?: typeof fetch
   now?(): number
@@ -89,22 +89,34 @@ export function isRepo(repo: unknown): repo is string {
   return typeof repo === 'string' && REPO.test(repo) && !repo.includes('..')
 }
 
+type Asked = { ok: true; value: unknown; until: number } | { ok: false; why: string; status: number; url: string; until: number; waiting?: boolean }
+
 type Kept<T> = { at: number; until: number; got: Got<T> }
 
 export function releaseNotesDesk(deps: Deps) {
   const now = deps.now ?? Date.now
-  const get = deps.fetch ?? fetch
+  const gateway =
+    deps.gateway ??
+    githubGateway({
+      fetch: deps.fetch,
+      now: deps.now,
+      gh: deps.gh
+        ? async (path) => {
+            const value = await deps.gh!(path)
+            return value === null ? { ok: false, status: null, usable: false } : { ok: true, value }
+          }
+        : undefined,
+    })
   const notes = new Map<string, Kept<Release>>()
   const lists = new Map<string, Kept<ReleaseSummary[]>>()
-  /** Until when GitHub said not to ask (its limit is per address, not per repository). */
-  let limitedUntil = 0
-  let limitedWhy = ''
 
   const key = (repo: string, tag = '') => `${repo.toLowerCase()}@${tag}`
+  const isApp = (repo: string) => repo.toLowerCase() === APP_REPO.toLowerCase()
+  const priorityOf = (repo: string): Priority => (isApp(repo) ? PRIORITY.app : PRIORITY.notes)
 
   async function known(repo: string): Promise<boolean> {
     if (!isRepo(repo)) return false
-    if (repo.toLowerCase() === APP_REPO.toLowerCase()) return true
+    if (isApp(repo)) return true
     try {
       return await deps.allowed(repo)
     } catch {
@@ -112,55 +124,20 @@ export function releaseNotesDesk(deps: Deps) {
     }
   }
 
-  /** Ask GitHub; anonymously, then through the person's `gh` when that was refused as missing or limited. */
-  async function ask(path: string, page: string, missing: string): Promise<Got<unknown> & { until: number }> {
-    const asked = await askAnonymously(path, page, missing)
-    if (asked.ok || !deps.gh || (asked.status !== 404 && asked.status !== 503)) return asked
-    const viaGh = await deps.gh(path.replace(/^\//, '')).catch(() => null)
-    return viaGh === null ? asked : { ok: true, value: viaGh, until: now() + FRESH_MS }
-  }
+  const isRecord = (value: unknown) => !!value && typeof value === 'object' && !Array.isArray(value)
 
-  /** Ask GitHub without an account; a JSON value, or a failure in words. */
-  async function askAnonymously(path: string, page: string, missing: string): Promise<Got<unknown> & { until: number }> {
+  /** Ask through the gateway: a JSON value of the wanted shape, or a failure in words and how long it holds. */
+  async function ask(
+    path: string,
+    page: string,
+    priority: Priority,
+    accept: (value: unknown) => boolean,
+  ): Promise<Asked> {
     const at = now()
-    if (at < limitedUntil) return { ok: false, why: limitedWhy, status: 503, url: page, until: limitedUntil }
-    let response: Response
-    try {
-      response = await get(`https://api.github.com${path}`, {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28',
-          'user-agent': 'kehikot-host',
-        },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      })
-    } catch (error) {
-      const timedOut = (error as Error)?.name === 'TimeoutError'
-      return {
-        ok: false,
-        why: timedOut ? `GitHub did not answer within ${TIMEOUT_MS / 1000}s.` : 'GitHub could not be reached — this computer may be offline.',
-        status: 502,
-        url: page,
-        until: at + FAILED_MS,
-      }
-    }
-    if ((response.status === 403 || response.status === 429) && response.headers.get('x-ratelimit-remaining') === '0') {
-      const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000
-      const until = Number.isFinite(reset) && reset > at ? Math.min(reset, at + LIMITED_MAX_MS) : at + FAILED_MS
-      const when = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      limitedUntil = until
-      limitedWhy = `GitHub's limit for reading without an account is used up until ${when}.`
-      return { ok: false, why: limitedWhy, status: 503, url: page, until }
-    }
-    if (response.status === 404) return { ok: false, why: missing, status: 404, url: page, until: at + MISSING_MS }
-    if (!response.ok) {
-      return { ok: false, why: `GitHub answered ${response.status}.`, status: 502, url: page, until: at + FAILED_MS }
-    }
-    try {
-      return { ok: true, value: await response.json(), until: at + FRESH_MS }
-    } catch {
-      return { ok: false, why: 'GitHub answered with something that is not JSON.', status: 502, url: page, until: at + FAILED_MS }
-    }
+    const got = await gateway.api(path, priority, accept)
+    if (got.ok) return { ok: true, value: got.value, until: at + FRESH_MS }
+    const hold = got.waiting ? Math.max(1000, Math.min(got.retryAt - at, FAILED_MS)) : got.status === 404 ? MISSING_MS : Math.max(1000, got.retryAt - at)
+    return { ok: false, why: got.why, status: got.status, url: page, until: at + hold, waiting: got.waiting }
   }
 
   function readRelease(repo: string, raw: unknown): Release | null {
@@ -194,48 +171,66 @@ export function releaseNotesDesk(deps: Deps) {
     if (!isVersionTag(tag)) return { ok: false, why: 'A release is named by a version tag such as v1.2.0.', status: 400, url: page }
     const kept = fresh(notes, key(repo, tag))
     if (kept) return kept
-    const asked = await ask(
-      `/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`,
-      page,
-      `No release notes were published for ${tag}.`,
-    )
+    const asked = await ask(`/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, page, priorityOf(repo), isRecord)
+    const missing = `No release notes were published for ${tag}.`
     let got: Got<Release>
     if (asked.ok) {
       const read = readRelease(repo, asked.value)
-      got = read ? { ok: true, value: read } : { ok: false, why: `No release notes were published for ${tag}.`, status: 404, url: page }
+      got = read ? { ok: true, value: read } : { ok: false, why: missing, status: 404, url: page }
     } else {
-      got = { ok: false, why: asked.why, status: asked.status, url: asked.url }
+      got = { ok: false, why: asked.status === 404 ? missing : asked.why, status: asked.status, url: asked.url, ...(asked.waiting ? { waiting: true } : {}) }
     }
     notes.set(key(repo, tag), { at: now(), until: asked.until, got })
     return got
   }
 
+  /** What a failed read of a repository's releases is told as. Kehikot's own are never "none". */
+  function troubleWith(repo: string, asked: Extract<Asked, { ok: false }>): string {
+    const reason = asked.why.replace(/[.\s]+$/, '')
+    if (!isApp(repo)) return asked.waiting ? `${repo}'s releases will be read in a moment.` : asked.why
+    return asked.waiting
+      ? `Kehikot's releases will be read in a moment (${reason.replace(/;.*$/, '')}).`
+      : `Couldn't read Kehikot's releases from GitHub (${reason}); try again in a moment.`
+  }
+
   /** A repository's releases, newest first. Each one's notes are kept as well, so opening one asks nothing more. */
-  async function releases(repo: string): Promise<Got<ReleaseSummary[]>> {
+  async function releases(repo: string, priority: Priority = priorityOf(repo)): Promise<Got<ReleaseSummary[]>> {
     const page = releasePage(repo)
     if (!(await known(repo))) return { ok: false, why: `${repo} is not a repository this host knows.`, status: 403, url: page }
     const kept = fresh(lists, key(repo))
     if (kept) return kept
-    const asked = await ask(`/repos/${repo}/releases?per_page=${LIST_SIZE}`, page, `${repo} has no releases.`)
-    let got: Got<ReleaseSummary[]>
-    if (asked.ok && Array.isArray(asked.value)) {
-      const read = asked.value.map((one) => readRelease(repo, one)).filter((one): one is Release => one !== null)
-      for (const one of read) notes.set(key(repo, one.tag), { at: now(), until: asked.until, got: { ok: true, value: one } })
-      got = { ok: true, value: read.map(({ body: _body, ...summary }) => summary) }
-    } else if (asked.ok) {
-      got = { ok: false, why: 'GitHub answered with something that is not a list of releases.', status: 502, url: page }
-    } else if (asked.status === 404) {
-      got = { ok: true, value: [] }
-    } else {
-      got = { ok: false, why: asked.why, status: asked.status, url: asked.url }
+    const path = `/repos/${repo}/releases?per_page=${LIST_SIZE}`
+    const asked = await ask(path, page, priority, Array.isArray)
+    const summaries = (list: unknown[], until: number | null) => {
+      const read = list.map((one) => readRelease(repo, one)).filter((one): one is Release => one !== null)
+      if (until !== null) for (const one of read) notes.set(key(repo, one.tag), { at: now(), until, got: { ok: true, value: one } })
+      return read.map(({ body: _body, ...summary }) => summary)
     }
-    lists.set(key(repo), { at: now(), until: asked.until, got })
+    let got: Got<ReleaseSummary[]>
+    let until = asked.until
+    if (asked.ok) {
+      /* Only here, a 200, can the list be empty and mean "none". */
+      got = { ok: true, value: summaries(asked.value as unknown[], asked.until) }
+    } else {
+      const last = gateway.last(path)
+      const old = last && Array.isArray(last.value) ? summaries(last.value, null) : []
+      if (old.length > 0) {
+        got = { ok: true, value: old, old: troubleWith(repo, asked) }
+      } else if (asked.status === 404 && !isApp(repo)) {
+        /* A module's repository GitHub does not show: it has no releases that can be read. */
+        got = { ok: true, value: [] }
+      } else {
+        got = { ok: false, why: troubleWith(repo, asked), status: asked.status === 404 ? 502 : asked.status, url: asked.url, ...(asked.waiting ? { waiting: true } : {}) }
+      }
+      until = Math.min(until, now() + FAILED_MS)
+    }
+    lists.set(key(repo), { at: now(), until, got })
     return got
   }
 
   /** The tags of a repository that have a release, or null when that could not be read. Never throws. */
   async function released(repo: string): Promise<ReadonlySet<string> | null> {
-    const got = await releases(repo).catch(() => null)
+    const got = await releases(repo, isApp(repo) ? PRIORITY.app : PRIORITY.other).catch(() => null)
     return got?.ok ? new Set(got.value.map((one) => one.tag)) : null
   }
 
@@ -250,13 +245,15 @@ export function releaseNotesDesk(deps: Deps) {
       const tag = url.searchParams.get('tag') ?? ''
       if (!isRepo(repo)) return reply({ error: 'Name a repository as owner/name.' }, 400)
       const got = await release(repo, tag)
-      return got.ok ? reply(got.value) : reply({ error: got.why, url: got.url }, got.status)
+      return got.ok ? reply(got.value) : reply({ error: got.why, url: got.url, ...(got.waiting ? { waiting: true } : {}) }, got.status)
     }
     if (url.pathname === '/host/releases') {
       const repo = url.searchParams.get('repo') ?? ''
       if (!isRepo(repo)) return reply({ error: 'Name a repository as owner/name.' }, 400)
       const got = await releases(repo)
-      return got.ok ? reply({ repo, url: releasePage(repo), releases: got.value }) : reply({ error: got.why, url: got.url }, got.status)
+      return got.ok
+        ? reply({ repo, url: releasePage(repo), releases: got.value, ...(got.old ? { old: got.old } : {}) })
+        : reply({ error: got.why, url: got.url, ...(got.waiting ? { waiting: true } : {}) }, got.status)
     }
     return null
   }

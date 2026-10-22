@@ -129,6 +129,8 @@ export class NotesTrouble extends Error {
     message: string,
     readonly url: string,
     readonly missing: boolean,
+    /** Short of GitHub budget: it will be read in a moment, asking again then works. */
+    readonly waiting = false,
   ) {
     super(message)
   }
@@ -144,13 +146,30 @@ export async function fetchNotes(repo: string, tag: string, signal?: AbortSignal
   return body
 }
 
-export async function fetchReleases(repo: string, signal?: AbortSignal): Promise<ReleaseSummary[]> {
+/** Kehikot's or a module's releases; `old` says why the list is the last good one and not a new reading. */
+export interface ReleaseList {
+  releases: ReleaseSummary[]
+  old: string | null
+}
+
+export async function fetchReleaseList(repo: string, signal?: AbortSignal): Promise<ReleaseList> {
   const response = await fetch(`/host/releases?${new URLSearchParams({ repo })}`, { signal })
-  const body = (await response.json().catch(() => null)) as { releases?: ReleaseSummary[]; error?: string; url?: string } | null
+  const body = (await response.json().catch(() => null)) as
+    | { releases?: ReleaseSummary[]; error?: string; url?: string; old?: string; waiting?: boolean }
+    | null
   if (!response.ok || !body || !Array.isArray(body.releases)) {
-    throw new NotesTrouble(body?.error ?? `the host answered ${response.status}`, body?.url ?? releasePage(repo), false)
+    throw new NotesTrouble(
+      body?.error ?? `Couldn't read ${repo === APP_REPO ? `${APP_NAME}'s releases` : `the releases of ${repo}`} (the host answered ${response.status}); try again in a moment.`,
+      body?.url ?? releasePage(repo),
+      false,
+      body?.waiting === true,
+    )
   }
-  return body.releases
+  return { releases: body.releases, old: typeof body.old === 'string' ? body.old : null }
+}
+
+export async function fetchReleases(repo: string, signal?: AbortSignal): Promise<ReleaseSummary[]> {
+  return (await fetchReleaseList(repo, signal)).releases
 }
 
 /** The host's own version, from `/host/health`; null when it does not say. */

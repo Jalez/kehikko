@@ -384,11 +384,27 @@
   the desktop app and "host <version>" anywhere else (`versionShown` in
   `src/host/releaseNotes.ts`). It is the first thing the strip hides.
 - Notes are read by `server/releaseNotes.ts` (`/host/release-notes`,
-  `/host/releases`), unauthenticated first and through the person's `gh api`
-  only when GitHub refuses a stranger (a private module's repository, or the
-  anonymous limit), cached in memory, and only for repositories the host
-  knows: the app's, the official list's, and registered modules' own remotes.
-  Never widen that to a repository the page names.
+  `/host/releases`), only for repositories the host knows: the app's, the
+  official list's, and registered modules' own remotes. Never widen that to a
+  repository the page names.
+- EVERY read of GitHub's API goes through the one gateway, `server/github.ts`:
+  the person's `gh` first whenever it is logged in (5000 an hour), otherwise
+  anonymously within a budget of 30 calls an hour (kept on disk, so a restart
+  does not forget it), with `If-None-Match` (a 304 is free and given back) and
+  the last good answers kept in `github-cache.json` (`githubCacheFile`). Short
+  of budget the less important wait (`PRIORITY`: the app's releases, installed
+  modules' notes, works-with, the rest; each keeps `RESERVE` calls for those
+  above) and answer `waiting`: "will be read in a moment", never dropped. A new
+  caller of api.github.com uses the gateway; `raw.githubusercontent.com` goes
+  through `raw` (counted, outside the API's allowance). Reads are lazy: nothing
+  asks at start but the daily app-tag mapping; a list is read when a picker,
+  the app's releases or What's new opens.
+- An empty list is a claim: "No releases are published yet" only when GitHub
+  answered 200 with `[]`. For the app's own repository a 404, an error, a
+  limit, a wait or a non-list says "Couldn't read Kehikot's releases from
+  GitHub (…); try again in a moment." with a Retry, and the last good list is
+  shown marked `old`. Empty and failed answers are held ~1 minute
+  (`MISSING_MS`, `FAILED_MS`), a good one `FRESH_MS`.
 - Notes are untrusted text: drawn only through `src/host/markdown.ts` and
   `Markdown` in `src/canvas/ReleaseNotes.tsx`, never as HTML; links are
   `https:` only and open through `openExternal` (the desktop shell hands a

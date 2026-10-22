@@ -197,3 +197,14 @@ export function factoryDir(env: Env = process.env, platform: string = process.pl
 export function browserProfileDir(env: Env = process.env): string {
   return env.KEHIKOT_BROWSER_PROFILE || join(machineDir(env), 'browser-profile') // kehikot-storage: allow the Browser module's profile, measured read-only for the storage overview
 }
+
+/**
+ * What the host last read of GitHub's API (release lists, notes), with each
+ * answer's ETag and the times of the calls made anonymously this hour: so a
+ * restart asks with `If-None-Match` (a 304 is free), keeps within the hourly
+ * budget, and can still show the last good release list when GitHub cannot be
+ * read — see `server/github.ts`. `KEHIKOT_GITHUB_CACHE` overrides it.
+ */
+export function githubCacheFile(env: Env = process.env): string {
+  return env.KEHIKOT_GITHUB_CACHE || join(machineDir(env), 'github-cache.json')
+}
