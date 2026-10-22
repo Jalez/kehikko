@@ -16,6 +16,7 @@ import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { openLayouts } from './host/onboarding.ts'
+import { projectPicked } from './host/tour.ts'
 import { Button } from './components/ui/button.tsx'
 import { LayoutTemplate } from 'lucide-react'
 import { openSettings, SETTINGS_INBOX_MODULE } from './host/agentSettings.ts'
@@ -2942,8 +2943,8 @@ export function App() {
   const tourFacts = useMemo(
     () => ({
       /* The home folder a fresh host opens by itself is not a project
-         anybody picked — unless it is one of several, chosen from the menu. */
-      project: projectId !== null && !(project?.home && projects.length === 1),
+         anybody picked, and nothing is written under it. */
+      project: projectPicked(projectId, project),
       projects: projects.filter((one) => !one.home).length,
       epic: about.epic !== null || about.scope === 'project',
       parts: about.parts.length > 0,

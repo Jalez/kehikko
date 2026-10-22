@@ -48,6 +48,16 @@ export interface Facts {
   kehikko: boolean
 }
 
+/**
+ * Whether a project somebody picked is open. The home folder a fresh host opens
+ * by itself is flagged `home` and is not one — the host writes nothing under
+ * it, so the tour's project step waits until the person picks a folder (the
+ * picker clears the flag, even when the folder picked is their home).
+ */
+export function projectPicked(projectId: number | null, project: { home?: boolean } | null | undefined): boolean {
+  return projectId !== null && !project?.home
+}
+
 export const NO_FACTS: Facts = { project: false, projects: 0, epic: false, parts: false, kehikko: false }
 
 export type Side = 'top' | 'right' | 'bottom' | 'left'

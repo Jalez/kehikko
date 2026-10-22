@@ -194,6 +194,22 @@
   module with no release yet); the host itself reaches people only through a
   desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
 
+## A folder nobody picked is never written
+
+- With no project and no `KEHIKOT_SEED_PROJECT`, `adopt` opens the person's home
+  folder so there is a canvas. That row is the fallback (`home: true`, `picked`
+  null) and `isReadOnlyRoot` (`server/projectRoot.ts`) is true for it: `makeUnderRoot`,
+  `projectWritable` and the write guards in `holdings`, `trackers/edit`,
+  `dispositions`, `hostData` and `shareKehikot` refuse, once per start in the log.
+  Keep state in memory or the machine directory. A module is told of no project
+  while the fallback is open (`context.ts`), so it writes nowhere either.
+- Adding a folder through the picker (`addProject` with its default `chosen`) sets
+  `picked`, home included, and lifts the rule. A new write under a project goes
+  through `makeUnderRoot` or `projectWritable`, never `projectRootExists` alone.
+- A scratch host (`KEHIKOT_SCRATCH=1`, or any machine-dir override under a temp
+  folder: `scratchHost`, `server/machineDirs.ts`) with no `KEHIKOT_SEED_PROJECT`
+  opens no project at all. Start test hosts with a scratch `HOME` and a seed.
+
 ## The official module list
 
 - `modules.json` is the list of modules this host vouches for

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, renameSync, rmdirSync, statSync } from 'node:f
 import { join } from 'node:path'
 
 import { moveHostFolder } from './hostFolderMove.ts'
-import { makeUnderRoot, projectRootExists } from './projectRoot.ts'
+import { isReadOnlyRoot, makeUnderRoot, projectRootExists } from './projectRoot.ts'
 
 import { HOST_FOLDER, KEHIKOT_DIR, LEGACY_HOST_FOLDER, hostDir as hostFolder, hostFile, legacyHostFile } from 'kehikot-module-protocol'
 
@@ -124,6 +124,8 @@ export function migrateHostData(root: string, log: (line: string) => void = (lin
   const said: Migrated = { moved: [], conflicts: [], removedData: false }
   /* A folder that is gone, or a ghost an older host left at a project's path (`projectRoot.ts`), is not migrated into. */
   if (!projectRootExists(root)) return said
+  /* A folder nobody picked is read, never moved things in (`projectRoot.ts`). */
+  if (isReadOnlyRoot(root)) return said
 
   /* `.kehikot/kehikko/` → `.kehikot/host/` first, so what follows lands in the folder that stays. */
   moveHostFolder(root, log)

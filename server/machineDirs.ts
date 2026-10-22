@@ -1,5 +1,6 @@
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 
 /**
  * Where this machine's own Kehikot state lives — spelled once, here.
@@ -23,6 +24,49 @@ import { join } from 'node:path'
  */
 
 type Env = Record<string, string | undefined>
+
+/** The overrides that move a machine-level location: the places a test or scratch host points elsewhere. */
+const OVERRIDES = [
+  'KEHIKOT_FRAME_DB',
+  'KEHIKOT_MODULES_DIR',
+  'KEHIKOT_VERSIONS_DIR',
+  'KEHIKOT_INSTALLS_DIR',
+  'KEHIKOT_OFFICIAL_CACHE',
+  'KEHIKOT_LOGS_DIR',
+] as const
+
+/** A path with its deepest existing folder resolved through symlinks (`/var` is `/private/var` on macOS), so a folder not made yet still compares. */
+function realOrResolved(path: string): string {
+  let at = resolve(path)
+  const rest: string[] = []
+  for (;;) {
+    try {
+      return join(realpathSync(at), ...rest.slice().reverse())
+    } catch {
+      const up = dirname(at)
+      if (up === at) return resolve(path)
+      rest.push(basename(at))
+      at = up
+    }
+  }
+}
+
+/**
+ * Whether this is a scratch host — one a test or an agent started to look at,
+ * not the person's own: `KEHIKOT_SCRATCH=1`, or any machine-directory override
+ * pointing under a temp directory. Such a host must be told its project
+ * (`KEHIKOT_SEED_PROJECT`); it never falls back to a real folder (`adopt`).
+ */
+export function scratchHost(env: Env = process.env): boolean {
+  if (env.KEHIKOT_SCRATCH === '1') return true
+  const temps = [...new Set([tmpdir(), '/tmp', '/var/tmp', '/private/tmp', '/private/var/folders', '/var/folders'].map(realOrResolved))]
+  return OVERRIDES.some((name) => {
+    const value = env[name]
+    if (!value) return false
+    const at = realOrResolved(value)
+    return temps.some((temp) => at === temp || at.startsWith(temp + sep))
+  })
+}
 
 function home(env: Env): string {
   return env.HOME || homedir()

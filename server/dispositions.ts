@@ -7,7 +7,7 @@ import {
   type DispositionValue,
 } from 'kehikot-module-protocol'
 
-import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
+import { isReadOnlyRoot, makeUnderRoot, MISSING_SAID, projectRootExists, READ_ONLY_SAID, sayMissing, sayReadOnly } from './projectRoot.ts'
 import { z } from 'zod'
 
 import { hostPath } from './hostData.ts'
@@ -143,6 +143,10 @@ export function setDisposition(
   if (!projectRootExists(projectPath)) {
     sayMissing(projectPath!)
     return { ok: false, why: `${MISSING_SAID} Nothing was written.` }
+  }
+  if (isReadOnlyRoot(projectPath)) {
+    sayReadOnly(projectPath!)
+    return { ok: false, why: `${READ_ONLY_SAID} Nothing was written.` }
   }
   const read = readDispositions(projectPath)
   if (!read.ok) {

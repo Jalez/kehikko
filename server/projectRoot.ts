@@ -140,7 +140,64 @@ export function isGhost(root: string): boolean {
   return bornWithKehikot(at)
 }
 
+/**
+ * ## A folder nobody picked is read, never written
+ *
+ * A fresh host with no project opens the person's home folder so that there is
+ * a canvas at all (`adopt`, `projects.ts`). Nobody chose that folder, so
+ * nothing is written under it: no `.kehikot/host/` files, no `.gitignore`
+ * edit, no tracker cache. The projects table answers (`setReadOnlyRoots`), a
+ * folder is read-only while its row is the unpicked home fallback, and the
+ * moment the person picks a project (or picks home from the picker, which
+ * records it as chosen) the answer changes.
+ */
+export type ReadOnlyRoot = (root: string) => boolean
+
+let readOnly: ReadOnlyRoot = () => false
+
+/** Where "is this folder only a fallback?" is read from. The server passes the projects table's; `undefined` puts back none. */
+export function setReadOnlyRoots(next: ReadOnlyRoot | undefined): void {
+  readOnly = next ?? (() => false)
+}
+
+/** Whether the host may not write under this folder because nobody picked it. */
+export function isReadOnlyRoot(root: string | null | undefined): boolean {
+  if (typeof root !== 'string' || !root) return false
+  try {
+    return readOnly(resolve(root))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a write under a project's folder may go ahead: the folder is there,
+ * is not a ghost, and is not the home fallback nobody picked. Says why once
+ * when it is not. Use this where `projectRootExists` guarded a write.
+ */
+export function projectWritable(root: string | null | undefined): boolean {
+  if (typeof root !== 'string' || !root) return false
+  if (!projectRootExists(root)) {
+    sayMissing(root)
+    return false
+  }
+  if (isReadOnlyRoot(root)) {
+    sayReadOnly(root)
+    return false
+  }
+  return true
+}
+
+/** The sentence a person or an agent is told when a write was refused for that reason. */
+export const READ_ONLY_SAID = 'No project has been picked yet, so nothing is written to this folder. Pick a project first.'
+
+/** Why a write under `root` was refused: the sentence for a folder nobody picked, else the one for a folder that is gone. */
+export function refusedSaid(root: string | null | undefined): string {
+  return isReadOnlyRoot(root) ? READ_ONLY_SAID : MISSING_SAID
+}
+
 const said = new Set<string>()
+const saidReadOnly = new Set<string>()
 let log: (line: string) => void = (line) => console.warn(line)
 
 /** Where the one line per missing root goes. Tests pass a collector; the server leaves the default. */
@@ -151,6 +208,7 @@ export function setMissingLog(next: (line: string) => void): void {
 /** Forget which roots were already reported, so the next start (or test) says them again. */
 export function resetMissingSaid(): void {
   said.clear()
+  saidReadOnly.clear()
 }
 
 /** Say once per root per start that a write under it was skipped. */
@@ -170,12 +228,20 @@ export function sayMissing(root: string): void {
   )
 }
 
+/** Say once per root per start that a write under it was refused because nobody picked it. */
+export function sayReadOnly(root: string): void {
+  if (saidReadOnly.has(root)) return
+  saidReadOnly.add(root)
+  log(`kehikko: ${root} is the folder this host opened because no project was picked; nothing is written under it. Pick a project to start.`)
+}
+
 /**
  * Make `dir` — a folder under `root` — when `root` is the project's folder;
  * never make `root`.
  *
- * Returns whether the write may go ahead. A missing root (or a ghost) is
- * reported once and answers false, and the caller skips its write.
+ * Returns whether the write may go ahead. A missing root (or a ghost), and
+ * the home fallback nobody picked, is reported once and answers false, and
+ * the caller skips its write.
  *
  * Made one level at a time from the root down, never `recursive` from the
  * top: a folder deleted between the check and the write makes the first
@@ -183,10 +249,7 @@ export function sayMissing(root: string): void {
  * `mkdirSync` throws for anything else (a read-only folder), as before.
  */
 export function makeUnderRoot(root: string, dir: string): boolean {
-  if (!projectRootExists(root)) {
-    sayMissing(root)
-    return false
-  }
+  if (!projectWritable(root)) return false
   const base = resolve(root)
   const target = resolve(dir)
   const below = relative(base, target)

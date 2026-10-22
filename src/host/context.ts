@@ -314,6 +314,14 @@ export function toWireContext(
      not spelled as a key is left out, and the context keeps everything else. */
   const wire = kehikkoOnWire(kehikko)
 
+  /* The home folder a fresh host opened by itself is not a project anybody
+     picked, and the host writes nothing under it. A module writes its own
+     data under the project it is told of, so it is told of none: it sees what
+     it sees with no project open, and writes nowhere. */
+  const told = subject.project?.home
+    ? { name: null, path: null, project: null }
+    : { name: subject.project?.name, path: subject.project?.path, project: subject.project }
+
   /* "All epics" names no one epic and so divides nothing, whatever was handed in. */
   const whole = subject.scope === 'project'
   const parsed = contextSchema.safeParse({
@@ -324,12 +332,12 @@ export function toWireContext(
        fields on the wire that can disagree — see `projectPath` in the
        protocol's `wire.ts` — and the way a host stops them disagreeing is to
        have exactly one place that writes them. */
-    project: subject.project?.name ?? null,
-    projectPath: subject.project?.path ?? null,
+    project: told.name ?? null,
+    projectPath: told.path ?? null,
     /* Its permanent id (2.1.0), from the same object for the same reason:
        what a module keys machine-level state by, so a renamed folder is not
        a stranger. Null when the host has none for it yet. */
-    projectId: idOf(subject.project),
+    projectId: idOf(told.project),
     theme,
     selection,
     kehikko: wire,
@@ -383,9 +391,9 @@ export function toWireContext(
     epic: null,
     /* "All epics" has no slug to fail, so this branch is one epic's: none. */
     scope: 'epic',
-    project: subject.project?.name ?? null,
-    projectPath: subject.project?.path ?? null,
-    projectId: idOf(subject.project),
+    project: told.name ?? null,
+    projectPath: told.path ?? null,
+    projectId: idOf(told.project),
     theme,
     selection: [],
     kehikko: wire,
