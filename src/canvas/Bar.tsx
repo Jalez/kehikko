@@ -20,6 +20,7 @@ import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
+import { HelpMenu } from './Help.tsx'
 import { AppVersion } from './AppVersion.tsx'
 import { FeedbackButton } from './Feedback.tsx'
 import { Projects } from './Projects.tsx'
@@ -402,6 +403,10 @@ export function Bar({
             "settings…" in the projects menu. See `Settings.tsx`. */}
         <SettingsGear />
 
+        {/* Help: the introduction, the tour and the suggested layouts, again.
+            Its own control, beside the gear and apart from it. See `Help.tsx`. */}
+        <HelpMenu />
+
         <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
 
         {/* Feedback on Kehikot itself, beside its plug — the same control every
@@ -482,6 +487,7 @@ export function SettingsGear() {
         aria-label="Settings"
         aria-keyshortcuts={mac ? 'Meta+,' : 'Control+,'}
         data-testid="settings-gear"
+        data-tour="settings"
         className="text-muted-foreground hover:text-foreground size-6"
         onClick={() => openSettings()}
       >

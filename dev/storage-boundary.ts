@@ -100,7 +100,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'machine-dir',
     match: /Application Support['"`]?\s*,\s*['"`]Kehikot|Application Support\/Kehikot|['"`]\.local['"`]\s*,\s*['"`]share|XDG_DATA_HOME/,
-    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions, the official modules installed from the app, keys/ and factory/ (host server/machineDirs.ts)',
+    reason: '~/Library/Application Support/Kehikot (XDG data dir elsewhere) is this machine\'s Kehikot state: the module registry, the canvases cache, the materialised module versions, the official modules installed from the app, keys/, factory/ and layouts/ (host server/machineDirs.ts)',
   },
   {
     id: 'browser-profile',
@@ -122,6 +122,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     id: 'my-modules',
     match: /my-modules\.json|KEHIKOT_MY_MODULES/,
     reason: 'my-modules.json (Application Support/Kehikot) is the person\'s own list of modules added from a repository: this machine\'s alone, never published (host server/machineDirs.ts `myModulesFile`)',
+  },
+  {
+    id: 'my-layouts',
+    match: /KEHIKOT_LAYOUTS_DIR/,
+    reason: 'Application Support/Kehikot/layouts holds the person\'s own suggested layouts, for every project on this machine; a project\'s own layouts are in its .kehikot/host/layouts/ (host server/machineDirs.ts `layoutsDir`)',
   },
   {
     id: 'keys',

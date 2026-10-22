@@ -255,11 +255,12 @@ export async function fetchCanvases(
     .parse(body)
 }
 
-export async function createCanvas(name?: string, project?: number | null): Promise<Canvas> {
+export async function createCanvas(name?: string, project?: number | null, placements?: Placement[]): Promise<Canvas> {
   const response = await fetch('/host/canvases', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, project }),
+    /* `placements`: made from a suggested layout (`src/host/layouts.ts`). */
+    body: JSON.stringify({ name, project, ...(placements ? { placements } : {}) }),
   })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   return z.object({ canvas: canvasSchema }).parse(await response.json()).canvas

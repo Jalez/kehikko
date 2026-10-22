@@ -1,4 +1,4 @@
-import { ChevronDown, LayoutGrid } from 'lucide-react'
+import { ChevronDown, LayoutGrid, LayoutTemplate } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -13,6 +13,7 @@ import {
 import type { Canvas } from '@/host/canvases.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
+import { openSaveLayout } from '@/host/onboarding.ts'
 import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
@@ -67,6 +68,7 @@ export function Canvases({
             variant="ghost"
             size="sm"
             aria-label="switch kehikko"
+            data-tour="kehikko"
             className="text-foreground h-6 max-w-52 min-w-6 shrink-[0.01] gap-1 max-[400px]:min-w-5 px-1.5 text-xs font-medium max-[640px]:has-[>svg]:px-1"
           >
             <LayoutGrid className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
@@ -147,7 +149,13 @@ export function Canvases({
                 />
               </DropdownMenuItem>
             ))}
-            <AddItem onAdd={onCreate}>new kehikko</AddItem>
+            <AddItem onAdd={onCreate}>new kehikko…</AddItem>
+            {/* The open one as a suggested layout — the project's, to travel
+                with it, or the person's own. See `Layouts.tsx`. */}
+            <DropdownMenuItem onSelect={() => openSaveLayout()} disabled={!open || open.placements.length === 0} data-save-layout-item="">
+              <LayoutTemplate className="text-muted-foreground size-3 shrink-0" />
+              save this kehikko as a layout…
+            </DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>

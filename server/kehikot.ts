@@ -23,6 +23,8 @@ import { listProjects, projectById } from './projects.ts'
 import { makeUnderRoot, projectRootExists, sayMissing } from './projectRoot.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 import { hostPath } from './hostData.ts'
+import { laid, redrawn } from '../src/host/columns.ts'
+import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView, type View } from './view.ts'
 
 /**
  * A project's kehikot, as a file in the project — the copy that travels.
@@ -80,23 +82,31 @@ import { hostPath } from './hostData.ts'
  *
  * PORTABLE — in the file, because it is a fact about the arrangement:
  *
- *   - What the project is about: its `epic` and `selection`, once, at the top
- *     of the file — see `Subject` in `canvases.ts`. Refs are names for things
- *     in the project's trackers, which are the same trackers on the other
- *     machine. They are the PROJECT's, not any kehikko's: a kehikko is a
- *     layout, and every layout works with every epic.
- *   - The `parts` of that epic the project is focused on, beside them and for
- *     their reason — a part id is read off the epic's own file, which travels
- *     with the project. Written only when some are picked; see "The shape of
- *     the file".
  *   - A kehikko's `key` (its identity — see `Canvas.key`) and `name`.
- *   - Every placement, whole: `module` (stored as `i` — the grid library's
+ *   - Every placement's LAYOUT: `module` (stored as `i` — the grid library's
  *     word — and written here under a name a person can read), `x`, `y`, `w`,
- *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `collapsed`, `wish`,
- *     `selected`, `filters`, `refreshEvery`. A module id is the one thing about
- *     a module that IS the same on every machine, so a container keyed by it
- *     means the same thing there as here.
+ *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `wish`, `refreshEvery`
+ *     and `version`. A module id is the one thing about a module that IS the
+ *     same on every machine, so a container keyed by it means the same thing
+ *     there as here.
  *   - The order of the kehikot within the project, as the order of the list.
+ *
+ * PERSONAL — in `view.json` beside it (`server/view.ts`), which the host
+ * folder's `.gitignore` keeps out of git, because it is what ONE person is
+ * looking at rather than how the project is arranged:
+ *
+ *   - What the project is about for them: its `epic`, `scope` ("All epics"),
+ *     `parts` and `selection` — see `Subject` in `canvases.ts`. Two people on
+ *     one project are on two epics, and a pull must not move either.
+ *   - Per container: `collapsed`, `selected` and `filters`. A fold, a tick or
+ *     a filter is a gesture, not an arrangement; shared, it was a line in a
+ *     diff and one person's afternoon written over another's.
+ *
+ * Folding is the one personal fact that moves the layout's numbers: a folded
+ * container is drawn one row tall and everything under it moves up. So the
+ * file is written as if nothing were folded (`shared`, below) — a fold
+ * changes `view.json` and nothing here — and read back through the person's
+ * own folds (`drawn`).
  *
  * LOCAL — in the database only, because it names something on this machine:
  *
@@ -173,34 +183,27 @@ import { hostPath } from './hostData.ts'
  * changing that file behind somebody's back is a bug this workspace has had
  * once already.
  *
- * ## The shape of the file, and the one it replaced
+ * ## The shape of the file, and the ones it replaced
  *
- * Version 2 has `epic` and `selection` at the top and none inside a kehikko.
- * Version 1 had them on every kehikko, which is how switching kehikko used to
- * switch the epic. A version-1 file still reads: the project's epic is taken
- * from its first kehikko that had one, the per-kehikko fields are not read
- * again, and the file is written back as version 2 straight away — so the old
- * shape is read once and never written. A host from before version 2 refuses
- * the new file with a sentence (an unknown version), which is the honest
- * thing for it to do; it would otherwise drop the project's epic on its next
- * write.
+ * Version 2, and it stays version 2. Version 1 had an epic and a selection on
+ * every kehikko, which is how switching kehikko used to switch the epic; a
+ * version-1 file still reads, and is written back as version 2 straight away.
  *
- * `parts` — the part ids picked out of the epic — is a third key at the top,
- * between `epic` and `selection`, and it is written ONLY when it is not empty.
- * Absent means the whole epic. That is deliberate twice over: a project nobody
- * has focused keeps byte-for-byte the file it had, so adopting this host
- * changes no file and makes no diff; and the version stays 2, because a host
- * from before parts still reads every file that does not use them. One that
- * meets the key refuses the file with a sentence, as it would an unknown
- * version, and for the same reason — it would otherwise drop the focus on its
- * next write.
+ * Until the split into `view.json`, version 2 also carried the project's
+ * `epic`, `scope`, `parts` and `selection` at the top and `collapsed`,
+ * `selected` and `filters` on every container. They are no longer written —
+ * and the version is NOT bumped, deliberately. Every host before the split
+ * reads with `version: z.literal(2)` and a strict schema in which each of
+ * those fields has a default; a file without them is one it reads, as the
+ * whole epic with nothing folded. A version 3 would have been refused by
+ * every one of them with a sentence, and the layout would have stopped
+ * travelling to anybody who had not updated.
  *
- * `scope` — `"project"` when the person chose "All epics" — is a fourth key at
- * the top, after `epic`, written ONLY when it is `"project"`, for the reasons
- * `parts` is written only when it is not empty: absent is one epic (or none),
- * a project nobody has put on "All epics" keeps the file it had, and the
- * version stays 2. A host from before it refuses a file that has it, with a
- * sentence, rather than dropping the choice on its next write.
+ * Read, they are still accepted — a file written before the split, or by an
+ * older host on a teammate's machine — as LEGACY personal fields
+ * (`Parsed.legacy`). They are used only when there is no `view.json` yet: that
+ * is the migration, and on the first write after it the shared file is
+ * written without them. With a `view.json`, they are ignored.
  *
  * Indented JSON with a fixed key order and a trailing newline, and every
  * container on ONE line, so that a moved container is one changed line in a
@@ -220,13 +223,13 @@ const FILE_NAME = 'kehikot'
 const VERSION = 2
 
 /**
- * Every field of a placement that goes in the file — which is every field.
+ * Every field of a placement that goes in the shared file — the layout.
  *
  * Listed by hand rather than taken from `Object.keys`, because the point of the
  * list is to be something a person adding a column has to edit. The type below
- * it is what makes forgetting impossible: a `Placement` field not in this list
- * makes `everyPlacementFieldTravels` fail to typecheck, with the field's name
- * in the error.
+ * it is what makes forgetting impossible: a `Placement` field on neither this
+ * list nor `PERSONAL_PLACEMENT_FIELDS` makes `everyPlacementFieldIsPlaced`
+ * fail to typecheck, with the field's name in the error.
  */
 export const PORTABLE_PLACEMENT_FIELDS = [
   'i',
@@ -238,33 +241,40 @@ export const PORTABLE_PLACEMENT_FIELDS = [
   'pinned',
   'prompt',
   'promptFor',
-  'collapsed',
   'wish',
-  'selected',
-  'filters',
   'refreshEvery',
   'version',
 ] as const satisfies readonly (keyof Placement)[]
 
-type UntaughtPlacementField = Exclude<keyof Placement, (typeof PORTABLE_PLACEMENT_FIELDS)[number]>
-/* If this line stops compiling, a field was added to `Placement` and not to the
-   list above. Decide whether it travels — it almost certainly does — and add it
-   to the list, the schema, `toContainer` and `fromContainer`. */
-const everyPlacementFieldTravels: [UntaughtPlacementField] extends [never] ? true : UntaughtPlacementField = true
-void everyPlacementFieldTravels
+/** And the ones that are one person's, written to `view.json` (`server/view.ts`). */
+export const PERSONAL_PLACEMENT_FIELDS = ['collapsed', 'selected', 'filters'] as const satisfies readonly (keyof Placement)[] &
+  readonly (keyof ContainerView)[]
+
+type UnplacedPlacementField = Exclude<
+  keyof Placement,
+  (typeof PORTABLE_PLACEMENT_FIELDS)[number] | (typeof PERSONAL_PLACEMENT_FIELDS)[number]
+>
+/* If this line stops compiling, a field was added to `Placement` and to
+   neither list above. Decide whether it is the layout everybody shares or one
+   person's view of it, and add it to that list, its schema and the two
+   conversions. */
+const everyPlacementFieldIsPlaced: [UnplacedPlacementField] extends [never] ? true : UnplacedPlacementField = true
+void everyPlacementFieldIsPlaced
 
 /** The fields of a canvas that go in the file, in the order they are written. */
 export const PORTABLE_CANVAS_FIELDS = ['key', 'name'] as const satisfies readonly (keyof Canvas)[]
 
-/** What the file says once, about the project rather than about any kehikko. */
-export const PORTABLE_SUBJECT_FIELDS = ['epic', 'scope', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
+/**
+ * What a project is about — every field of it is personal since the split: it
+ * is in `view.json`, and the shared file says nothing about it.
+ */
+export const PERSONAL_SUBJECT_FIELDS = ['epic', 'scope', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
 
-type UntaughtSubjectField = Exclude<keyof Subject, (typeof PORTABLE_SUBJECT_FIELDS)[number]>
+type UntaughtSubjectField = Exclude<keyof Subject, (typeof PERSONAL_SUBJECT_FIELDS)[number]>
 /* The same device as the placements': a field added to `Subject` and not to
-   the list above stops this line compiling. What a project is about is the
-   project's and travels with it; a field that should not would be the first. */
-const everySubjectFieldTravels: [UntaughtSubjectField] extends [never] ? true : UntaughtSubjectField = true
-void everySubjectFieldTravels
+   the list above stops this line compiling. */
+const everySubjectFieldIsPlaced: [UntaughtSubjectField] extends [never] ? true : UntaughtSubjectField = true
+void everySubjectFieldIsPlaced
 
 /** And the ones that do not, each named so the split is complete rather than implied. */
 export const LOCAL_CANVAS_FIELDS = ['id', 'project'] as const satisfies readonly (keyof Canvas)[]
@@ -311,7 +321,9 @@ const containerSchema = z
     pinned: z.boolean().default(false),
     prompt: z.string().max(LIMITS.PROMPT).default(''),
     promptFor: z.string().regex(MODULE_ID, 'is not a module id').nullable().default(null),
-    collapsed: z.boolean().default(false),
+    /* Legacy personal: see "The shape of the file". Absent in a file this
+       host writes; read only to move it into `view.json`. */
+    collapsed: z.boolean().optional(),
     /* `null` means "the height it has" — a hand-written container, or one
        from a file written before wishes existed. Resolved in `fromContainer`;
        the file this host writes always has a number here. */
@@ -323,8 +335,9 @@ const containerSchema = z
        `wish` — and absent rather than defaulted, so the strict schema still
        refuses a file that carries a field this version has never heard of. */
     openH: z.number().int().nullable().optional(),
-    selected: z.boolean().default(false),
-    /* The bounds are the wire's, half by half: a group id is a `FILTER_ID`, a
+    /* Legacy personal, like `collapsed`. */
+    selected: z.boolean().optional(),
+    /* Legacy personal, like `collapsed`. The bounds are the wire's, half by half: a group id is a `FILTER_ID`, a
        string value may be a typed query and so is a `FILTER_TEXT`, and a list
        is a `toggles` group's set of option ids. An empty list is read rather
        than refused — it is a hand-written "nothing switched on", and the
@@ -337,7 +350,7 @@ const containerSchema = z
           z.array(z.string().min(1).max(LIMITS.FILTER_ID)).max(LIMITS.FILTER_OPTIONS),
         ]),
       )
-      .default({}),
+      .optional(),
     refreshEvery: z.number().max(REFRESH_EVERY_MAX).nullable().default(null),
     /* Which version the container runs — a semver tag — or absent for latest.
        Written only when the container is pinned, so a file with no pins is
@@ -406,11 +419,12 @@ function keysOnce(file: { kehikot: { key: string }[] }, ctx: z.RefinementCtx): v
 const fileSchema = z
   .object({
     version: z.literal(VERSION),
-    epic: epicSchema,
-    /* Optional in the file: absent is one epic. See "The shape of the file". */
-    scope: z.enum(['epic', 'project']).default('epic'),
-    parts: partsSchema,
-    selection: selectionSchema,
+    /* The four legacy personal fields — read, never written. See "The shape
+       of the file". Absent is "this file says nothing about it". */
+    epic: epicSchema.optional(),
+    scope: z.enum(['epic', 'project']).optional(),
+    parts: partsSchema.optional(),
+    selection: selectionSchema.optional(),
     kehikot: z.array(kehikkoSchema).max(500),
   })
   .strict()
@@ -432,7 +446,7 @@ export function kehikotFile(projectPath: string | null | undefined): string | nu
   return hostPath(projectPath, `${FILE_NAME}.json`)
 }
 
-/** A placement, in the order and under the names the file uses. */
+/** A placement's layout, in the order and under the names the file uses. Nothing personal. */
 function toContainer(p: Placement): FileContainer {
   return {
     module: p.i,
@@ -444,24 +458,22 @@ function toContainer(p: Placement): FileContainer {
     pinned: p.pinned,
     prompt: p.prompt,
     promptFor: p.promptFor,
-    collapsed: p.collapsed,
     wish: p.wish,
-    selected: p.selected,
-    filters: p.filters,
     refreshEvery: p.refreshEvery,
     ...(p.version ? { version: p.version } : {}),
   }
 }
 
 /**
- * A container as it arrives from the file, made into what `editCanvas` takes.
+ * A container as it arrives from the file, with how this person looks at it,
+ * made into what `editCanvas` takes.
  *
  * Bounds are NOT applied here. `editCanvas` runs everything through `cleaned`,
  * which is the one place a placement is bounded on the way into the database —
  * a file that says `h: 9000` gets the same treatment a page that says it would,
  * and there is no second, weaker copy of that rule here to drift.
  */
-function fromContainer(c: FileContainer): PlacementInput {
+function fromContainer(c: FileContainer, view: ContainerView = AT_REST): PlacementInput {
   return {
     i: c.module,
     x: c.x,
@@ -472,31 +484,50 @@ function fromContainer(c: FileContainer): PlacementInput {
     pinned: c.pinned,
     prompt: c.prompt,
     promptFor: c.promptFor,
-    collapsed: c.collapsed,
+    collapsed: view.collapsed,
     /* A file from before `wish` said `openH` for a folded container and
        nothing for an open one; either way the fallback is the height it has,
        which `cleaned` supplies for a `null`. */
-    wish: c.wish ?? c.openH ?? null,
-    selected: c.selected,
-    filters: c.filters,
+    wish: c.wish ?? c.openH ?? c.h,
+    selected: view.selected,
+    filters: view.filters,
     refreshEvery: c.refreshEvery,
     version: c.version ?? null,
   }
 }
 
-function toKehikko(canvas: Canvas): FileKehikko {
-  return {
-    key: canvas.key,
-    name: canvas.name,
-    containers: canvas.placements.map(toContainer),
-  }
+/**
+ * The placements as the shared file has them: as if nothing were folded.
+ *
+ * A fold is personal, but it moves numbers that are not — the folded
+ * container's `h`, and the `y` of everything under it. Written as drawn, one
+ * person's fold would be several changed lines in everybody's diff and their
+ * teammates would open a container squashed to one row and not folded. So the
+ * layout is written unfolded: every height the column grants the wishes
+ * (`redrawn`) and every top edge where the grid would put it (`laid`), the
+ * same rule a fold at the host's door uses. An arrangement with nothing
+ * folded is written exactly as it is.
+ */
+export function shared<T extends Placement>(placements: readonly T[]): T[] {
+  if (!placements.some((p) => p.collapsed)) return [...placements]
+  return laid(redrawn(placements.map((p) => (p.collapsed ? { ...p, collapsed: false } : p))))
+}
+
+/**
+ * And back: the layout drawn through this person's folds — the folded ones at
+ * one row, their column-mates at what their wishes are now granted.
+ */
+function drawn(placements: Placement[]): Placement[] {
+  if (!placements.some((p) => p.collapsed)) return placements
+  return laid(redrawn(placements))
 }
 
 const NO_SUBJECT: Subject = { epic: null, parts: [], selection: [] }
 
 /**
- * The text of the file for these kehikot — the same bytes for the same input,
- * every time.
+ * The text of the shared file for these kehikot — the same bytes for the same
+ * layout, every time, and the same bytes whatever anybody has folded, ticked,
+ * filtered or opened.
  *
  * Not `JSON.stringify(_, null, 2)` on the whole thing, because that puts every
  * container across fifteen lines and a drag becomes a fifteen-line hunk in
@@ -504,29 +535,19 @@ const NO_SUBJECT: Subject = { epic: null, parts: [], selection: [] }
  * is indented normally. Both halves are still `JSON.stringify`, so the result
  * is JSON and nothing here escapes a string by hand.
  */
-export function serialize(canvases: readonly Canvas[], subject: Subject = NO_SUBJECT): string {
-  const lines: string[] = [
-    '{',
-    `  "version": ${VERSION},`,
-    `  "epic": ${JSON.stringify(subject.epic)},`,
-    /* Only for "All epics" — see "The shape of the file". */
-    ...(subject.scope === 'project' ? ['  "scope": "project",'] : []),
-    /* Only when some are picked — see "The shape of the file". */
-    ...(subject.parts.length ? [`  "parts": ${JSON.stringify(subject.parts)},`] : []),
-    `  "selection": ${JSON.stringify(subject.selection)},`,
-    '  "kehikot": [',
-  ]
+export function serialize(canvases: readonly Canvas[]): string {
+  const lines: string[] = ['{', `  "version": ${VERSION},`, '  "kehikot": [']
   canvases.forEach((canvas, index) => {
-    const k = toKehikko(canvas)
+    const containers = shared(canvas.placements).map(toContainer)
     lines.push('    {')
-    lines.push(`      "key": ${JSON.stringify(k.key)},`)
-    lines.push(`      "name": ${JSON.stringify(k.name)},`)
-    if (k.containers.length === 0) {
+    lines.push(`      "key": ${JSON.stringify(canvas.key)},`)
+    lines.push(`      "name": ${JSON.stringify(canvas.name)},`)
+    if (containers.length === 0) {
       lines.push('      "containers": []')
     } else {
       lines.push('      "containers": [')
-      k.containers.forEach((container, i) => {
-        lines.push(`        ${JSON.stringify(container)}${i < k.containers.length - 1 ? ',' : ''}`)
+      containers.forEach((container, i) => {
+        lines.push(`        ${JSON.stringify(container)}${i < containers.length - 1 ? ',' : ''}`)
       })
       lines.push('      ]')
     }
@@ -539,12 +560,59 @@ export function serialize(canvases: readonly Canvas[], subject: Subject = NO_SUB
 export type Parsed =
   | {
       ok: true
-      subject: Subject
+      /** The layout. Every container's personal fields are at rest here; they are in `legacy` or `view.json`. */
       kehikot: FileKehikko[]
+      /**
+       * The personal fields the file still carries — written before the split,
+       * or by an older host — or null when it carries none. Used only when
+       * the project has no `view.json` yet.
+       */
+      legacy: View | null
       /** The file is version 1 and should be written again as the current shape. */
       older: boolean
     }
   | { ok: false; why: string }
+
+/** The legacy subject, from the top of a version 2 file, as the file said it before the split. */
+function subjectFrom(d: { epic?: string | null; scope?: 'epic' | 'project'; parts?: string[]; selection?: string[] }): Subject {
+  /* "All epics" holds no one epic and no parts, whatever else the file says;
+     no epic has no parts — `setSubject`'s rule, applied to a file somebody
+     may have edited by hand. */
+  if (d.scope === 'project') return { epic: null, scope: 'project', parts: [], selection: d.selection ?? [] }
+  const epic = d.epic ?? null
+  return { epic, parts: epic === null ? [] : partIdsIn(d.parts ?? []), selection: d.selection ?? [] }
+}
+
+/** The legacy per-container fields of a file's kehikot, by key and module. */
+function containersFrom(kehikot: { key: string; containers: FileContainer[] }[]): View['kehikot'] {
+  return new Map(
+    kehikot.map((k) => [
+      k.key,
+      new Map(
+        k.containers.map((c) => [
+          c.module,
+          { collapsed: c.collapsed ?? false, selected: c.selected ?? false, filters: c.filters ?? {} },
+        ]),
+      ),
+    ]),
+  )
+}
+
+/** Does this file say anything personal at all? A file this host wrote since the split does not. */
+function carriesPersonal(d: z.infer<typeof fileSchema>): boolean {
+  if (d.epic !== undefined || d.scope !== undefined || d.parts !== undefined || d.selection !== undefined) return true
+  return d.kehikot.some((k) =>
+    k.containers.some((c) => c.collapsed !== undefined || c.selected !== undefined || c.filters !== undefined),
+  )
+}
+
+/** A file kehikko with its legacy personal fields taken off. */
+function layoutOf<K extends { containers: FileContainer[] }>(kehikko: K): K {
+  return {
+    ...kehikko,
+    containers: kehikko.containers.map(({ collapsed: _c, selected: _s, filters: _f, ...layout }) => layout),
+  }
+}
 
 /**
  * The file's text, read into kehikot — or one sentence about why it could not
@@ -574,11 +642,15 @@ export function parse(text: string): Parsed {
     const old = fileV1Schema.safeParse(raw)
     if (old.success) {
       const first = old.data.kehikot.find((k) => k.epic !== null)
+      const kehikot = old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko)
       return {
         ok: true,
-        /* Version 1 is from before parts: the whole epic. */
-        subject: first ? { epic: first.epic, parts: [], selection: first.selection } : NO_SUBJECT,
-        kehikot: old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko),
+        kehikot: kehikot.map(layoutOf),
+        legacy: {
+          /* Version 1 is from before parts: the whole epic. */
+          subject: first ? { epic: first.epic, parts: [], selection: first.selection } : NO_SUBJECT,
+          kehikot: containersFrom(kehikot),
+        },
         older: true,
       }
     }
@@ -589,18 +661,10 @@ export function parse(text: string): Parsed {
   if (read.success) {
     return {
       ok: true,
-      /* No epic has no parts — `setSubject`'s rule, applied to a file somebody
-         may have edited by hand. */
-      subject:
-        /* "All epics" holds no one epic and no parts, whatever else the file says. */
-        read.data.scope === 'project'
-          ? { epic: null, scope: 'project', parts: [], selection: read.data.selection }
-          : {
-              epic: read.data.epic,
-              parts: read.data.epic === null ? [] : partIdsIn(read.data.parts),
-              selection: read.data.selection,
-            },
-      kehikot: read.data.kehikot,
+      kehikot: read.data.kehikot.map(layoutOf),
+      legacy: carriesPersonal(read.data)
+        ? { subject: subjectFrom(read.data), kehikot: containersFrom(read.data.kehikot) }
+        : null,
       older: false,
     }
   }
@@ -634,14 +698,17 @@ export function refusal(projectPath: string): string | null {
 }
 
 /**
- * Write a project's kehikot to its file, after something changed.
+ * Write a project's kehikot to its two files, after something changed: the
+ * layout to `kehikot.json`, the person's view of it to `view.json`.
  *
  * Called by whatever changed them; the database was already written and this
- * makes the file agree. Nothing is written when nothing would change, so a
- * drag that ends where it started does not touch a file git is watching. And
- * nothing is written while the file is refused — see the essay.
+ * makes the files agree. Nothing is written when nothing would change, so a
+ * drag that ends where it started does not touch a file git is watching — and
+ * a fold, a tick, a filter or another epic changes only `view.json`, which git
+ * is not watching. Nothing is written to `kehikot.json` while it is refused —
+ * see the essay; the view is still kept.
  *
- * The write is a rename over the old file, so a crash mid-write leaves the
+ * Each write is a rename over the old file, so a crash mid-write leaves the
  * previous file whole rather than a truncated one that will not parse.
  */
 export function keep(db: Database, projectId: number | null): void {
@@ -649,10 +716,16 @@ export function keep(db: Database, projectId: number | null): void {
   const project = projectById(db, projectId)
   if (!project) return
   const file = kehikotFile(project.path)
-  if (file === null || refused.has(file)) return
+  if (file === null) return
 
   const mine = listCanvases(db).filter((canvas) => canvas.project === projectId)
-  const text = serialize(mine, readSubject(db, projectId) ?? NO_SUBJECT)
+  const subject = readSubject(db, projectId) ?? NO_SUBJECT
+  /* The view first: a refused layout file is no reason to lose a fold. Never
+     into a project folder that is not there. */
+  if (projectRootExists(project.path)) writeView(project.path, viewOf(mine, subject))
+  if (refused.has(file)) return
+
+  const text = serialize(mine)
   let before: string | null = null
   try {
     before = readFileSync(file, 'utf8')
@@ -674,13 +747,18 @@ export type Synced =
   | { file: string; outcome: 'missing' }
 
 /**
- * Make this machine's database agree with a project's file.
+ * Make this machine's database agree with a project's files.
  *
  * The three outcomes are the three paragraphs in the essay: the file was read
  * and won; there was no file and one was written from the database; the file
  * would not read and nothing was touched. `nothing` is the fourth, for a
  * project with neither a file nor any kehikot — the state a project is in for
  * the instant between being added and `ensureCanvases` giving it one.
+ *
+ * The personal half comes from `view.json` when there is one. When there is
+ * not, it is the legacy fields the shared file still carries (the migration),
+ * or else what this machine's database already holds — and `view.json` is
+ * written from what was used, so the next read has one.
  */
 export function syncProject(db: Database, project: { id: number; path: string }): Synced {
   const file = kehikotFile(project.path)
@@ -714,13 +792,22 @@ export function syncProject(db: Database, project: { id: number; path: string })
   }
   refused.delete(file)
 
+  const kept = readView(project.path)
+  const view: View =
+    kept ??
+    read.legacy ??
+    viewOf(
+      listCanvases(db).filter((canvas) => canvas.project === project.id),
+      readSubject(db, project.id) ?? NO_SUBJECT,
+    )
+
   /*
    * The file wins. Rows are matched to the file's kehikot by key; a key the
    * file has and the database does not becomes a row, a key the database has
    * and the file does not stops being one, and every matched row is rewritten
-   * to say what the file says. Done in one transaction, because a sync that
-   * stopped between deleting and creating would leave the database agreeing
-   * with neither the file nor itself.
+   * to say what the file — and the view — say. Done in one transaction,
+   * because a sync that stopped between deleting and creating would leave the
+   * database agreeing with neither the file nor itself.
    */
   const apply = db.transaction((): boolean => {
     const rows = listCanvases(db).filter((canvas) => canvas.project === project.id)
@@ -738,11 +825,10 @@ export function syncProject(db: Database, project: { id: number; path: string })
         changed = true
       }
       ids.push(row.id)
-      if (serialize([row]) === serialize([{ ...row, ...asCanvasFields(kehikko) }])) continue
-      editCanvas(db, row.id, {
-        name: kehikko.name,
-        placements: kehikko.containers.map(fromContainer),
-      })
+      const placements = asPlacements(kehikko, view)
+      const wanted = { ...row, name: kehikko.name, placements }
+      if (same(row, wanted)) continue
+      editCanvas(db, row.id, { name: kehikko.name, placements })
       changed = true
     }
     for (const gone of byKey.values()) {
@@ -753,16 +839,16 @@ export function syncProject(db: Database, project: { id: number; path: string })
       orderCanvases(db, ids)
       changed = true
     }
-    /* What the project is about, which the file says once. The file wins here
-       as everywhere, and is compared through `serialize` for the reason the
-       kehikot are: bounding on the way in is a difference worth writing. */
+    /* What the project is about for this person, which the view says. Compared
+       through `serializeView` for the reason the kehikot are compared through
+       `serialize`: bounding on the way in is a difference worth writing. */
     const before = readSubject(db, project.id) ?? NO_SUBJECT
-    if (serialize([], before) !== serialize([], read.subject)) {
+    if (subjectText(before) !== subjectText(view.subject)) {
       setSubject(db, project.id, {
-        scope: read.subject.scope ?? 'epic',
-        epic: read.subject.epic,
-        parts: read.subject.parts,
-        selection: read.subject.selection,
+        scope: view.subject.scope ?? 'epic',
+        epic: view.subject.epic,
+        parts: view.subject.parts,
+        selection: view.subject.selection,
       })
       changed = true
     }
@@ -773,22 +859,43 @@ export function syncProject(db: Database, project: { id: number; path: string })
   /* Read once, and written back as the current shape at once, so the
      per-kehikko epics of version 1 are never written again. */
   if (read.older) keep(db, project.id)
+  /* No view yet: write the one just used, so the personal half has its own
+     file from now on. The shared file loses its legacy fields on the next
+     write — the first change anybody makes — and not before: opening a
+     project does not make a diff in it. */
+  else if (kept === null) {
+    const mine = listCanvases(db).filter((canvas) => canvas.project === project.id)
+    writeView(project.path, viewOf(mine, readSubject(db, project.id) ?? NO_SUBJECT))
+  }
   return { file, outcome: 'read', changed }
 }
 
 /**
- * A file kehikko projected onto the canvas fields it sets, for the comparison
- * above. The comparison goes through `serialize` so that it is exactly "would
- * the file be different", which is the only question that matters here — and
- * so that bounding on the way in (a file's `h: 9000` becoming 400) shows up as
- * a difference and gets written, rather than the two sides silently agreeing
- * to disagree.
+ * A file kehikko as placements, with the view's personal half on each and
+ * drawn through its folds.
  */
-function asCanvasFields(kehikko: FileKehikko): Pick<Canvas, 'name' | 'placements'> {
-  return {
-    name: kehikko.name,
-    placements: kehikko.containers.map((c) => ({ ...fromContainer(c) }) as Placement),
-  }
+function asPlacements(kehikko: FileKehikko, view: View): Placement[] {
+  return drawn(
+    kehikko.containers.map((c) => fromContainer(c, containerView(view, kehikko.key, c.module)) as Placement),
+  )
+}
+
+/**
+ * Would the files say anything different? The comparison goes through
+ * `serialize` and the view's own text so that it is exactly that question —
+ * and so that bounding on the way in (a file's `h: 9000` becoming 400) shows
+ * up as a difference and gets written, rather than the two sides silently
+ * agreeing to disagree.
+ */
+function same(row: Canvas, wanted: Canvas): boolean {
+  if (serialize([row]) !== serialize([wanted])) return false
+  const personal = (canvas: Canvas) =>
+    JSON.stringify(canvas.placements.map((p) => [p.i, p.collapsed, p.selected, p.filters]))
+  return personal(row) === personal(wanted)
+}
+
+function subjectText(subject: Subject): string {
+  return JSON.stringify([subject.scope ?? 'epic', subject.epic, subject.parts, subject.selection])
 }
 
 /**

@@ -216,18 +216,20 @@ describe('the door at /mcp', () => {
 describe('the routes that are the page’s alone', () => {
   const body = { ...JSON_TYPE, 'content-length': '2' }
 
-  test('are the restart of a kept module, the two header postings, the four inbox writes, the tracker edit, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, and the agent settings', () => {
+  test('are the restart of a kept module, the two header postings, the four inbox writes, the tracker edit, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, the agent settings, a layout saved and the introduction or tour marked', () => {
     expect([...PAGE_ONLY].sort()).toEqual([
       '/host/headers',
       '/host/inbox/act',
       '/host/inbox/migrate',
       '/host/inbox/notice',
       '/host/inbox/report',
+      '/host/layouts',
       '/host/mine/add',
       '/host/mine/adopt',
       '/host/mine/check',
       '/host/mine/install',
       '/host/mine/remove',
+      '/host/onboarding',
       '/host/place/answer',
       '/host/pressed',
       '/host/projects/followed',

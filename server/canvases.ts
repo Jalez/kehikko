@@ -435,9 +435,10 @@ export interface CanvasEdit {
  * ## Where it lives
  *
  * Two columns on `projects`, as the cache, and a top-level `"epic"` and
- * `"selection"` in the project's own `.kehikot/host/kehikot.json`, as the
- * record — the same arrangement every other portable fact has; see
- * `server/kehikot.ts`. The selection is one JSON column rather than rows for
+ * `"selection"` in the project's `.kehikot/host/view.json`, as the record —
+ * the person's own file beside the shared `kehikot.json`, kept out of git,
+ * because two people on one project are on two epics; see `server/view.ts`
+ * and `server/kehikot.ts`. The selection is one JSON column rather than rows for
  * the reason it always was: it is read whole, written whole, and never queried
  * across.
  *

@@ -179,6 +179,7 @@ export function Parts({
               variant={said.narrowed ? 'default' : 'ghost'}
               size="sm"
               data-parts={parts.length}
+              data-tour="parts"
               aria-label={
                 none
                   ? 'the parts of this epic — it has none yet'

@@ -18,6 +18,7 @@
         "@radix-ui/react-tooltip": "^1.2.16",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "driver.js": "1.9.0",
         "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.10.0",
         "lucide-react": "^0.544.0",
         "react": "^19.2.8",
@@ -360,6 +361,8 @@
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
     "detect-node-es": ["detect-node-es@1.1.0", "", {}, "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ=="],
+
+    "driver.js": ["driver.js@1.9.0", "", {}, "sha512-+YWVdNVUrY1/2spszQshohWYY4soIjNBnMFS6lfmousT8igos2lmswhlqyuuNMhr+qbV0EjJ+L6i2FECPr6Ygg=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.416", "", {}, "sha512-K6bvB2BjnNrugtIih6ewlbBI9DXa976jIdiIlRLHhBoEI9a4JaQjjHyF+A1IQI543aQYR4LnmOrT/K5fZj0aPA=="],
 

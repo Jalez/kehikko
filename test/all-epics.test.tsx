@@ -7,7 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { scopeOf } from 'kehikot-module-protocol'
 
 import { createCanvas, editCanvas, listSubjects, open as openDb, readSubject, setSubject } from '../server/canvases.ts'
-import { keep, kehikotFile, parse, serialize, syncProject } from '../server/kehikot.ts'
+import { keep, kehikotFile, parse, syncProject } from '../server/kehikot.ts'
+import { parseView, serializeView, viewFile } from '../server/view.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { call, type Door, type Sighting } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
@@ -92,7 +93,7 @@ describe('the subject: "All epics" is held where the epic is, and is not "no epi
   })
 })
 
-describe('the project’s kehikot.json', () => {
+describe('the person’s view.json', () => {
   test('says "scope": "project" only while it is chosen, and reads it back', () => {
     const dir = folder()
     const store = openDb(':memory:')
@@ -100,13 +101,14 @@ describe('the project’s kehikot.json', () => {
     createCanvas(store, 'writing', p.id, 'writing')
     setSubject(store, p.id, { epic: 'one' })
     keep(store, p.id)
-    expect(readFileSync(kehikotFile(dir)!, 'utf8')).not.toContain('"scope"')
+    expect(readFileSync(viewFile(dir)!, 'utf8')).not.toContain('"scope"')
     setSubject(store, p.id, { scope: 'project' })
     keep(store, p.id)
-    const text = readFileSync(kehikotFile(dir)!, 'utf8')
+    const text = readFileSync(viewFile(dir)!, 'utf8')
     expect(JSON.parse(text).scope).toBe('project')
-    const read = parse(text)
-    expect(read.ok && read.subject).toEqual({ epic: null, scope: 'project', parts: [], selection: [] })
+    expect(parseView(text)?.subject).toEqual({ epic: null, scope: 'project', parts: [], selection: [] })
+    /* And the shared file says nothing about it. */
+    expect(readFileSync(kehikotFile(dir)!, 'utf8')).not.toContain('"scope"')
   })
 
   test('a file that says it is applied to the project; one that does not leaves "All epics"', () => {
@@ -122,12 +124,14 @@ describe('the project’s kehikot.json', () => {
     syncProject(there, q)
     expect(readSubject(there, q.id)?.scope).toBe('project')
     /* And a hand-edited file naming one epic takes it off again. */
-    expect(serialize([], { epic: 'one', parts: [], selection: [] })).not.toContain('scope')
+    expect(serializeView({ subject: { epic: 'one', parts: [], selection: [] }, kehikot: new Map() })).not.toContain('scope')
   })
 
   test('"All epics" in a file holds no epic and no parts, whatever else it says', () => {
     const read = parse(JSON.stringify({ version: 2, epic: 'one', scope: 'project', parts: ['a'], selection: [], kehikot: [] }))
-    expect(read.ok && read.subject).toEqual({ epic: null, scope: 'project', parts: [], selection: [] })
+    expect(read.ok && read.legacy?.subject).toEqual({ epic: null, scope: 'project', parts: [], selection: [] })
+    const view = parseView(JSON.stringify({ version: 1, epic: 'one', scope: 'project', parts: ['a'], selection: [], kehikot: {} }))
+    expect(view?.subject).toEqual({ epic: null, scope: 'project', parts: [], selection: [] })
   })
 })
 

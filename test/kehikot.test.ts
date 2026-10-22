@@ -18,6 +18,7 @@ import {
 import {
   LOCAL_CANVAS_FIELDS,
   PORTABLE_CANVAS_FIELDS,
+  PERSONAL_PLACEMENT_FIELDS,
   PORTABLE_PLACEMENT_FIELDS,
   keep,
   kehikotFile,
@@ -28,6 +29,7 @@ import {
   syncProject,
 } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
+import { viewFile } from '../server/view.ts'
 
 /*
  * A project's kehikot in the project's own folder — the copy that travels.
@@ -72,15 +74,16 @@ function project(store: Database, dir: string): Project {
 const everything: Placement = {
   i: 'kehikot.paper',
   x: 3,
-  y: 7,
+  y: 0,
   w: 5,
-  h: 21,
+  /* Folded, so drawn one row tall — as the page would have drawn it. */
+  h: 1,
   grow: true,
   pinned: true,
   prompt: 'read chapter two and say what is missing',
   promptFor: 'kehikot.notes',
   collapsed: true,
-  wish: 30,
+  wish: 20,
   selected: true,
   filters: { scope: 'chapter', kind: 'todo' },
   refreshEvery: 15,
@@ -121,13 +124,15 @@ describe('every field is on one side of the line', () => {
    * `listCanvases` but not on the list is caught here even if the type were
    * edited to match.
    */
-  test('a placement out of the database has exactly the portable fields', () => {
+  test('a placement out of the database has exactly the portable and the personal fields', () => {
     const store = db()
     const p = project(store, folder())
     const made = createCanvas(store, 'one', p.id)
     editCanvas(store, made.id, { placements: [everything] })
     const [read] = listCanvases(store)[0]!.placements
-    expect(Object.keys(read!).sort()).toEqual([...PORTABLE_PLACEMENT_FIELDS].sort())
+    expect(Object.keys(read!).sort()).toEqual([...PORTABLE_PLACEMENT_FIELDS, ...PERSONAL_PLACEMENT_FIELDS].sort())
+    /* And no field is on both sides. */
+    expect(PORTABLE_PLACEMENT_FIELDS.filter((f) => (PERSONAL_PLACEMENT_FIELDS as readonly string[]).includes(f))).toEqual([])
   })
 
   test('a canvas out of the database has exactly the portable fields, the local ones, and its placements', () => {
@@ -187,17 +192,17 @@ describe('the round trip: this computer, the file, another computer', () => {
     keep(store, p.id)
 
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
+    /* The layout only — no epic, and no fold, tick or filter. The folded
+       container is written as it would be drawn open: at its wish. */
     expect(text).toBe(`{
   "version": 2,
-  "epic": "modes-are-modules",
-  "selection": [],
   "kehikot": [
     {
       "key": "writing",
       "name": "writing",
       "containers": [
-        {"module":"kehikot.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"collapsed":false,"wish":12,"selected":false,"filters":{},"refreshEvery":null},
-        {"module":"kehikot.paper","x":3,"y":7,"w":5,"h":21,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"kehikot.notes","collapsed":true,"wish":30,"selected":true,"filters":{"scope":"chapter","kind":"todo"},"refreshEvery":15,"version":"v1.2.0"}
+        {"module":"kehikot.notes","x":0,"y":0,"w":3,"h":12,"grow":false,"pinned":false,"prompt":"","promptFor":null,"wish":12,"refreshEvery":null},
+        {"module":"kehikot.paper","x":3,"y":0,"w":5,"h":20,"grow":true,"pinned":true,"prompt":"read chapter two and say what is missing","promptFor":"kehikot.notes","wish":20,"refreshEvery":15,"version":"v1.2.0"}
       ]
     }
   ]
@@ -211,6 +216,12 @@ describe('the round trip: this computer, the file, another computer', () => {
     const differing = text.split('\n').filter((line, i) => moved.split('\n')[i] !== line)
     expect(differing).toHaveLength(1)
     expect(differing[0]).toContain('"module":"kehikot.paper","x":3')
+
+    /* And a fold, a tick, a filter or another epic is no line at all. */
+    editCanvas(store, made.id, { placements: [{ ...everything, x: 4, collapsed: false, h: 20, selected: false, filters: {} }, { ...another, selected: true }] })
+    setSubject(store, p.id, { epic: 'another-epic', selection: ['gh#3'] })
+    keep(store, p.id)
+    expect(readFileSync(kehikotFile(dir)!, 'utf8')).toBe(moved)
   })
 
   test('the same kehikot serialise to the same bytes, whatever order the database answered in', () => {
@@ -338,11 +349,15 @@ describe('a file that will not read', () => {
     expect(trouble[0]).toContain('the file wins')
 
     /* Fixed by hand: the file reads, the file wins, the change made meanwhile
-       is gone — which is what the sentence said would happen. */
+       is gone — which is what the sentence said would happen. The layout
+       comes back; how the person looked at the container went with it when
+       it was taken off, because the view was still being kept. */
     writeFileSync(file, good)
     expect(syncProject(store, p)).toEqual({ file, outcome: 'read', changed: true })
     expect(refusal(dir)).toBeNull()
-    expect(listCanvases(store)[0]!.placements).toEqual([everything])
+    expect(listCanvases(store)[0]!.placements).toEqual([
+      { ...everything, h: 20, collapsed: false, selected: false, filters: {} },
+    ])
   })
 
   test('each kind of fault is named in a sentence rather than thrown', () => {
@@ -398,16 +413,13 @@ describe('a file that will not read', () => {
       pinned: false,
       prompt: '',
       promptFor: null,
-      collapsed: false,
       /* Not yet the height: a `null` here is "the height it has", and it is
          `cleaned` in `server/canvases.ts` that says so, once, on the way into
          the database — see `fromContainer`. */
       wish: null,
-      selected: false,
-      filters: {},
       refreshEvery: null,
     })
-    expect(read.ok && read.subject).toEqual({ epic: null, parts: [], selection: [] })
+    expect(read.ok && read.legacy?.subject).toEqual({ epic: null, parts: [], selection: [] })
   })
 
   /*
@@ -519,7 +531,7 @@ describe('the file is the record', () => {
 })
 
 describe('the epic is the project’s, and the kehikko is only a layout', () => {
-  test('the file says the epic once, at the top, and no kehikko carries one', () => {
+  test('the shared file says no epic at all, and no kehikko carries one: the epic is in view.json', () => {
     const dir = folder()
     const store = db()
     const p = project(store, dir)
@@ -529,8 +541,11 @@ describe('the epic is the project’s, and the kehikko is only a layout', () => 
     keep(store, p.id)
     const raw = JSON.parse(readFileSync(kehikotFile(dir)!, 'utf8'))
     expect(raw.version).toBe(2)
-    expect(raw.epic).toBe('modes-are-modules')
-    expect(raw.selection).toEqual(['gh#1'])
+    expect('epic' in raw).toBe(false)
+    expect('selection' in raw).toBe(false)
+    const view = JSON.parse(readFileSync(viewFile(dir)!, 'utf8'))
+    expect(view.epic).toBe('modes-are-modules')
+    expect(view.selection).toEqual(['gh#1'])
     for (const kehikko of raw.kehikot) {
       expect(Object.keys(kehikko).sort()).toEqual(['containers', 'key', 'name'])
     }
@@ -570,7 +585,7 @@ describe('the epic is the project’s, and the kehikko is only a layout', () => 
     expect(readSubject(store, b.id)?.epic).toBe('second')
   })
 
-  test('the file wins for the epic as it does for the layout', () => {
+  test('the view file wins for the epic as the shared file does for the layout', () => {
     const dir = folder()
     const here = db()
     const p = project(here, dir)
@@ -607,11 +622,13 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
     expect(readSubject(store, p.id)).toEqual({ epic: 'modes-are-modules', parts: [], selection: ['gh#105'] })
     expect(listCanvases(store).map((c) => c.key)).toEqual(['blank', 'writing', 'review'])
 
-    /* Read once: the old per-kehikko fields are not written back. */
+    /* Read once: the old per-kehikko fields are not written back, and the
+       project's epic went to the view. */
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
     const raw = JSON.parse(text)
     expect(raw.version).toBe(2)
-    expect(raw.epic).toBe('modes-are-modules')
+    expect('epic' in raw).toBe(false)
+    expect(JSON.parse(readFileSync(viewFile(dir)!, 'utf8')).epic).toBe('modes-are-modules')
     expect(text).not.toContain('something-else')
     expect(raw.kehikot.every((k: Record<string, unknown>) => !('epic' in k) && !('selection' in k))).toBe(true)
   })

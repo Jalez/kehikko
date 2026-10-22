@@ -13,6 +13,10 @@ import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
 import { AgentSettingsHost } from './canvas/Settings.tsx'
+import { OnboardingHost } from './canvas/Onboarding.tsx'
+import { openLayouts } from './host/onboarding.ts'
+import { Button } from './components/ui/button.tsx'
+import { LayoutTemplate } from 'lucide-react'
 import { openSettings, SETTINGS_INBOX_MODULE } from './host/agentSettings.ts'
 import { Container } from './canvas/Container.tsx'
 import { Missing } from './canvas/Missing.tsx'
@@ -26,7 +30,6 @@ import { Presses } from './host/presses.ts'
 import {
   chooseOpen,
   COLUMNS,
-  createCanvas,
   editCanvas,
   everyPlaced,
   fetchCanvases,
@@ -2503,17 +2506,13 @@ export function App() {
     [change, open?.placements],
   )
 
-  const onCreate = useCallback(async () => {
-    try {
-      /* In the project that is open. A kehikko in no project is one no
-         dropdown lists, which is work nobody can get back to. */
-      const made = await createCanvas(undefined, projectId)
-      setCanvases((was) => [...was, made])
-      setOpenId(made.id)
-    } catch (error) {
-      setTrouble(`A canvas could not be made: ${(error as Error).message}.`)
-    }
-  }, [projectId])
+  /* "new kehikko…" opens the layout picker (`Layouts.tsx`), whose first card
+     is Blank; the picker makes the kehikko — in the project that is open, since
+     a kehikko in no project is one no dropdown lists — and hands it here. */
+  const onMade = useCallback((made: Canvas) => {
+    setCanvases((was) => [...was, made])
+    setOpenId(made.id)
+  }, [])
 
   /**
    * Open another project.
@@ -2828,6 +2827,13 @@ export function App() {
   const byId = useMemo(() => {
     const map = new Map<string, Presence>()
     for (const presence of registry?.presences ?? []) map.set(presence.id, presence)
+    return map
+  }, [registry])
+
+  /* What is registered, id → name, for the layout picker's "will install". */
+  const registeredNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const presence of registry?.presences ?? []) map.set(presence.id, presence.name ?? presence.id)
     return map
   }, [registry])
 
@@ -3609,7 +3615,7 @@ export function App() {
         storageViews={storageViews}
         onOpen={setOpenId}
         onRename={onRename}
-        onCreate={() => void onCreate()}
+        onCreate={() => openLayouts('new')}
         onDelete={(id) => void onDelete(id)}
         onSubject={setSubject}
         parts={epicParts}
@@ -3684,7 +3690,7 @@ export function App() {
           <MissingProject project={project} onLocate={() => setLocating(project.id)} />
         ) : (
           <>
-        {containers.length === 0 ? <Nothing registry={registry} looking={looking} /> : null}
+        {containers.length === 0 ? <Nothing registry={registry} looking={looking} empty={open !== null && open.placements.length === 0} /> : null}
 
         {/*
          * Every module's page, loaded once and positioned to line up with the
@@ -4085,6 +4091,17 @@ export function App() {
           module's Tools or Skills window, and the sync's lines in the Inbox. */}
       <AgentSettingsHost />
 
+      {/* The introduction (once, by itself), the tour, the layout picker and
+          "save as a layout". See `Onboarding.tsx`. */}
+      <OnboardingHost
+        project={projectId}
+        open={open}
+        registered={registeredNames}
+        onMade={onMade}
+        onFill={(placements) => change({ placements })}
+        onInstalled={() => void look()}
+      />
+
     </div>
   )
 }
@@ -4096,10 +4113,10 @@ export function App() {
  * there is nothing else on screen. A black rectangle with no modules on it and
  * no words is indistinguishable from a program that failed to start.
  */
-function Nothing({ registry, looking }: { registry: RegistryView | null; looking: boolean }) {
+function Nothing({ registry, looking, empty }: { registry: RegistryView | null; looking: boolean; empty: boolean }) {
   const registered = registry?.presences.length ?? 0
   return (
-    <div className="text-muted-foreground pointer-events-none absolute inset-x-0 top-1/3 text-center text-sm">
+    <div className="text-muted-foreground pointer-events-none absolute inset-x-0 top-1/3 flex flex-col items-center gap-3 text-center text-sm">
       {looking && !registry ? (
         <p>Asking every registered program what it is…</p>
       ) : registered ? (
@@ -4113,6 +4130,14 @@ function Nothing({ registry, looking }: { registry: RegistryView | null; looking
           answers.
         </p>
       )}
+      {/* An empty kehikko is where a suggested layout helps most: one press
+          fills it, installing nothing without asking. */}
+      {empty && !(looking && !registry) ? (
+        <Button variant="outline" size="sm" className="pointer-events-auto" onClick={() => openLayouts('fill')} data-start-layout="">
+          <LayoutTemplate className="size-3.5" />
+          Start from a suggested layout
+        </Button>
+      ) : null}
     </div>
   )
 }

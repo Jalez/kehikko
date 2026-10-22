@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+/* The tour's own layout; dressed in this app's tokens at `.kehikot-tour` below. */
+@import 'driver.js/dist/driver.css';
 
 /*
  * The dark canvas, and nothing beyond it.
@@ -543,4 +545,100 @@
   [data-activity-flash] {
     transition: outline-color 1.2s ease-out;
   }
+}
+
+/*
+ * The guided tour (`src/canvas/Tour.ts`), in this app's clothes.
+ *
+ * driver.js draws its popover with its own fixed palette; every colour, the
+ * radius, the border and the font are replaced here by the shadcn tokens the
+ * rest of the page uses, so it is a popover like every other in light and in
+ * dark. Two classes, so these win over the library's one.
+ */
+.driver-popover.kehikot-tour {
+  font-family: inherit;
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 10px 30px -10px oklch(0 0 0 / 0.35);
+  padding: 14px 16px 12px;
+  min-width: 260px;
+  max-width: 320px;
+}
+.kehikot-tour .driver-popover-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.kehikot-tour .driver-popover-description {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.kehikot-tour .driver-popover-progress-text {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.kehikot-tour .driver-popover-footer {
+  margin-top: 12px;
+  gap: 8px;
+}
+.kehikot-tour .driver-popover-footer-btn {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--border);
+  background-color: transparent;
+  color: var(--foreground);
+  text-shadow: none;
+}
+.kehikot-tour .driver-popover-footer-btn:hover {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+.kehikot-tour .driver-popover-footer-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+.kehikot-tour .driver-popover-next-btn {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.kehikot-tour .driver-popover-next-btn:hover {
+  background-color: color-mix(in oklch, var(--primary) 90%, transparent);
+  color: var(--primary-foreground);
+}
+.kehikot-tour .driver-popover-close-btn {
+  color: var(--muted-foreground);
+  width: 28px;
+  height: 28px;
+  border-radius: calc(var(--radius) - 2px);
+}
+.kehikot-tour .driver-popover-close-btn:hover,
+.kehikot-tour .driver-popover-close-btn:focus-visible {
+  color: var(--foreground);
+}
+/* The control being shown, ringed: on the black canvas the dimmed overlay
+   alone would not tell it from its neighbours. */
+.driver-active .driver-active-element {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: calc(var(--radius) - 2px);
+}
+.kehikot-tour .driver-popover-arrow-side-left { border-left-color: var(--popover); }
+.kehikot-tour .driver-popover-arrow-side-right { border-right-color: var(--popover); }
+.kehikot-tour .driver-popover-arrow-side-top { border-top-color: var(--popover); }
+.kehikot-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--popover); }
+@media (prefers-reduced-motion: reduce) {
+  .driver-fade .driver-overlay,
+  .driver-fade .driver-popover { animation: none; }
 }

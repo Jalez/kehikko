@@ -25,6 +25,7 @@ import {
   readSubject,
   setSubject,
   type CanvasEdit,
+  type PlacementInput,
 } from './canvases.ts'
 import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
@@ -115,6 +116,9 @@ import { within } from './takeover.ts'
 import { resolve } from 'node:path'
 import { embeddedPage, servePage } from './page.ts'
 import { storageDesk } from './storage.ts'
+import { readShelves, saveLayout } from './layouts.ts'
+import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
+import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import pkg from '../package.json' with { type: 'json' }
 
 /**
@@ -196,6 +200,7 @@ const inbox = new Inbox(db)
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
+ensureOnboarding(db)
 
 /* Leftovers from before the app was called Kehikot — registrations, project
    files and database rows under the old module ids — migrated once, before any
@@ -2427,7 +2432,7 @@ const server = Bun.serve({
     }
 
     if (url.pathname === '/host/canvases' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { name?: unknown; project?: unknown } | null
+      const body = (await request.json().catch(() => null)) as { name?: unknown; project?: unknown; placements?: unknown } | null
       const name = typeof body?.name === 'string' ? body.name : undefined
       /* Which project it goes in. A new kehikko belongs where the person was
          standing when they pressed new; a kehikko in no project is one no
@@ -2437,9 +2442,49 @@ const server = Bun.serve({
       if (project !== null && !projectById(db, project)) {
         return json({ error: 'There is no project with that id.' }, 404)
       }
-      const canvas = createCanvas(db, name, project)
+      const made = createCanvas(db, name, project)
+      /* Made from a suggested layout: its containers, checked by `editCanvas`
+         exactly as a page's rearrangement is. */
+      const canvas = Array.isArray(body?.placements)
+        ? (editCanvas(db, made.id, { placements: body.placements as PlacementInput[] }) ?? made)
+        : made
       keep(db, project)
       return json({ canvas }, 201)
+    }
+
+    /* Suggested layouts: ours, the open project's and the person's own — see
+       `src/host/layouts.ts`. Read on every ask, so a layout a teammate
+       committed is there after a pull. */
+    if (url.pathname === '/host/layouts' && request.method === 'GET') {
+      const id = Number(url.searchParams.get('project'))
+      const project = Number.isInteger(id) && id > 0 ? projectById(db, id) : null
+      return json(readShelves(project?.path ?? null))
+    }
+
+    /* "Save this kehikko as a layout…": the project's shelf or the person's.
+       The page's alone (`PAGE_ONLY`): it writes into the project and the
+       machine directory. */
+    if (url.pathname === '/host/layouts' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as
+        | { kehikko?: unknown; name?: unknown; summary?: unknown; where?: unknown }
+        | null
+      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
+      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
+      const project = canvas.project === null ? null : projectById(db, canvas.project)
+      const saved = saveLayout(canvas, project?.path ?? null, body)
+      if (!saved.ok) return json({ error: saved.why }, saved.status)
+      return json({ layout: saved.layout }, 201)
+    }
+
+    /* Whether the introduction was seen and where the tour was left
+       (`server/onboarding.ts`). The POST is in `PAGE_ONLY`. */
+    if (url.pathname === '/host/onboarding' && request.method === 'GET') {
+      return json(readOnboarding(db))
+    }
+    if (url.pathname === '/host/onboarding' && request.method === 'POST') {
+      const edit = onboardingEditSchema.safeParse(await request.json().catch(() => null))
+      if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { at } }.' }, 400)
+      return json(writeOnboarding(db, edit.data))
     }
 
     /* The projects: what is open, and one more.

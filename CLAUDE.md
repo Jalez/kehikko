@@ -47,13 +47,13 @@
   bookmark is not followed into one, and "Locate…"/Add relink past it.
 - Machine-level state only where the allowlist in `dev/storage-boundary.ts`
   says so (`~/Library/Application Support/Kehikot/` — `modules/` registry,
-  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, `app-protocols.json`, `my-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key) and `factory/` (Factory's per-author re-review rules) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
+  `frame.sqlite`, `versions/`, `installed/`, `official-modules.json`, `app-protocols.json`, `my-modules.json`, the Browser module's `browser-profile/`, `keys/` (Review's Factory key), `factory/` (Factory's per-author re-review rules) and `layouts/` (the person's own suggested layouts) — `~/.claude*`, `~/Library/Logs/Kehikot`, temp dirs), each with a one-line reason. A one-off exception needs
   `// kehikot-storage: allow <reason>` on the line.
 - The machine directory is spelled once, in `server/machineDirs.ts`; use its
   helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
   `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_APP_PROTOCOLS_CACHE`,
-  `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LAYOUTS_DIR`, `KEHIKOT_ONBOARDING` (`off`: the introduction counts as seen), `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
@@ -65,6 +65,42 @@
   directory and fails a test that leaves one resolving under the real home. A
   test that moves one of those variables restores what it found — never
   `delete`. A new machine-level location goes in that file's `LOCATIONS`.
+
+## The shared layout and the person's view
+
+- `<project>/.kehikot/host/kehikot.json` is the LAYOUT and travels with the
+  project: kehikot, names, and every container's module, rectangle, wish,
+  grow, pin, prompt, interval and version (`PORTABLE_PLACEMENT_FIELDS`).
+  `view.json` beside it is the person's VIEW: the epic, "All epics", picked
+  parts and refs, and each container's `collapsed`, `selected` and `filters`
+  (`PERSONAL_PLACEMENT_FIELDS`, `PERSONAL_SUBJECT_FIELDS`; `server/view.ts`).
+  The host folder's `.gitignore` names `view.json`. A new `Placement` field
+  goes on one list or the build fails.
+- `kehikot.json` stays `"version": 2` on purpose: every older host reads it
+  with a strict schema in which the personal fields default, so it still
+  reads the file (`test/fixtures/pre-split/reader.ts` is that reader, frozen —
+  never edit it to pass a test). Legacy personal fields in it are read into
+  `view.json` only when there is none, and dropped on the next write. Folds
+  are written unfolded (`shared`), so a fold is no diff.
+
+## Suggested layouts, the introduction and the tour
+
+- Layouts: built in (`BUILT_IN_LAYOUTS`, `src/host/layouts.ts`), the project's
+  (`.kehikot/host/layouts/<slug>.json`, travels) and the person's own
+  (`layoutsDir()`, `KEHIKOT_LAYOUTS_DIR`). Read and saved by
+  `server/layouts.ts`; `POST /host/layouts` is in `PAGE_ONLY`. A layout naming
+  an official module that is not here says "will install X" and installs only
+  on the press in the picker's confirm step, through `/host/official/install`;
+  one on no list is "not available" and left out. Never install from a card.
+- The introduction is shown once per `INTRO_VERSION` (`src/host/onboarding.ts`,
+  stored in `frame.sqlite` by `server/onboarding.ts`, `POST /host/onboarding`
+  in `PAGE_ONLY`), after Settings' one-time question, and again from the "?"
+  menu (`src/canvas/Help.tsx`). `KEHIKOT_ONBOARDING=off` answers it seen — set
+  it on a scratch host you screenshot.
+- The tour is driver.js (pinned exactly), its stops in `src/host/tour.ts` by
+  `data-tour` attributes and existing ones; a stop not on screen is skipped.
+  Its look is `.kehikot-tour` in `index.css`, from the app's tokens only. A new
+  control the tour should show gets a `data-tour` and a stop.
 
 ## Manifests
 
