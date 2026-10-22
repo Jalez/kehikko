@@ -4,6 +4,24 @@
  */
 
 /**
+ * Kehikot's own skills: offered by the host itself, not a module
+ * (`server/ownSkills.ts` serves them). Filed under the host's id, which is
+ * `HOST_ID` in `server/kehikot.ts`, so the Settings sync, the Skills window and
+ * the markers treat them as the host's like any module's are the module's.
+ */
+export const OWN_SKILLS_MODULE = 'kehikko'
+
+export const OWN_SKILLS = [
+  {
+    name: 'kehikot-module',
+    summary: 'Type /kehikot-module: build a module of your own, from the first question to its first release, step by step.',
+  },
+] as const
+
+/** Where to read how a module is built: the guide in the protocol's repository. */
+export const BUILD_A_MODULE_GUIDE = 'https://github.com/Jalez/kehikko-protocol/blob/main/docs/building-a-module.md'
+
+/**
  * Where one offered skill stands on this machine.
  *
  * - `absent`: not installed.

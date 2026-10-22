@@ -423,6 +423,23 @@
   without one (written before) is tidied only by a host on the machine's own
   registry (`isMachineRegistry`), so a scratch or dev host never removes them.
 
+## Kehikot's own skills
+
+- The host offers skills of its own, beside the modules': each is
+  `skills/<name>/SKILL.md` in this repository, imported as text, listed in
+  `OWN_SKILLS` (`src/host/skills.ts`) and served at `skillPath(name)` on this
+  host's origin (`server/ownSkills.ts`). The first is `/kehikot-module`, which
+  builds a module with the person from the guide in the protocol repository
+  (`docs/building-a-module.md`) and `Jalez/kehikko-module-template`.
+- They are the host's row in the Settings sync (`seenOf`, under `HOST_ID`) and
+  in the Skills window (`skillDesk`'s lookup), so they install, update and stay
+  untouched when edited through `syncSkill`, like any module's. Settings ›
+  Skills shows them as "Kehikot's own skills". `withHost` keeps the host in the
+  registry the sync tidies against: never removed as a gone module's.
+- Their text names no origin, so a development host and the app keep one
+  install between them. A new one is a folder under `skills/` and an entry in
+  `OWN_SKILLS`; `test/own-skills.test.ts` holds what each must say.
+
 ## Settings: a module that is not running
 
 - The sync connects a stopped module from the door it had when it last ran:

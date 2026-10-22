@@ -84,6 +84,7 @@ import {
 } from './register.ts'
 import { toolsAt } from './tools.ts'
 import { claudeSkillsDir, skillsRoute } from './skills.ts'
+import { ownSkillAt, ownSkillDeclarations, withHost } from './ownSkills.ts'
 import { ensureSettings, forgetMade, recordMade, settingsRoute } from './agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
 import { mcp } from './mcp.ts'
@@ -743,6 +744,8 @@ type Swept = Awaited<ReturnType<typeof survey>>
  * exactly that. If they ever differed the host would have failed to start.
  */
 const own: Door = hostDoor(PORT)
+/** This host's own origin: where its door is, and where its own skills are served. */
+const ownOrigin = `http://127.0.0.1:${PORT}`
 
 /**
  * Which door an id names: the host's own, or one found in the registry.
@@ -1934,6 +1937,8 @@ async function keptAndRunning(): Promise<string[]> {
  */
 const skillDesk = skillsRoute({
   lookup: async (id) => {
+    /* Kehikot's own skills: the host's, read from this host's own origin, never from the registry. */
+    if (id === HOST_ID) return { ok: true, module: HOST_ID, name: 'Kehikot', origin: ownOrigin, skills: ownSkillDeclarations() }
     const registration = (await readRegistrations()).registrations.find((r) => r.id === id)
     if (!registration) return { ok: false, status: 404, why: `Nothing is registered as "${id}".` }
     const presence = await look(registration)
@@ -1972,7 +1977,8 @@ function seenOf(presences: readonly Presence[]): ModuleSeen[] {
     const asleep = remembered(presence)
     held.set(presence.id, asleep ? doorName(presence.id, asleep.as) : heldName(presence, presence.id))
   }
-  const host: ModuleSeen = { id: own.module, name: 'Kehikot', answering: true, version: HOST_VERSION, door: own, refusal: null, origin: '', skills: [] }
+  /* The host offers skills of its own (`ownSkills.ts`), fetched from its own origin like a module's. */
+  const host: ModuleSeen = { id: own.module, name: 'Kehikot', answering: true, version: HOST_VERSION, door: own, refusal: null, origin: ownOrigin, skills: ownSkillDeclarations() }
   return [
     host,
     ...presences.map((presence): ModuleSeen => {
@@ -2011,7 +2017,8 @@ const agentSync = new AgentSync({
   modules: async () => seenOf((await sweep()).presences),
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
-  registry: () => lastRegistry,
+  /* The host is never "no longer registered": its own skills are never tidied away. */
+  registry: () => withHost(lastRegistry),
   ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),
 })
 
@@ -3216,6 +3223,9 @@ const server = Bun.serve({
     /* A module's Claude Code skills: read, and installed, updated or removed on a press. `skills.ts`. */
     const skillsAnswer = await skillDesk(request, url)
     if (skillsAnswer) return skillsAnswer
+    /* Kehikot's own skills, served where a module serves its: `skillPath(name)` on this origin. `ownSkills.ts`. */
+    const ownSkill = request.method === 'GET' ? ownSkillAt(url.pathname) : null
+    if (ownSkill !== null) return new Response(ownSkill, { headers: { 'content-type': 'text/markdown; charset=utf-8' } })
     /* The app-wide agent settings. `agentSettings.ts`; the POST is PAGE_ONLY. */
     const settingsAnswer = await settingsDesk(request, url)
     if (settingsAnswer) return settingsAnswer
