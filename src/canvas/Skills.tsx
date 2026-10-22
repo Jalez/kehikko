@@ -125,7 +125,7 @@ export function SkillsDialog({
           answer={kept.answer}
           busy={kept.busy}
           onExcept={(out) => void kept.change({ except: { kind: 'skills', module, out } })}
-          onSettings={() => toSettings(() => onOpenChange(false))}
+          onSettings={() => toSettings(() => onOpenChange(false), 'skills')}
         />
 
         {refused ? <p className="text-sm leading-relaxed break-words">{refused}</p> : null}

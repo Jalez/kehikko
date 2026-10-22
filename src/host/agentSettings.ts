@@ -256,18 +256,56 @@ export const SYNC_TROUBLE_ID = 'agent-setup'
 
 /* ---- reaching Settings from anywhere on the page ---- */
 
-const OPEN_EVENT = 'kehikot:settings'
+/**
+ * The window event that opens Settings. Also the desktop shell's way in: an app
+ * menu "Settings…" item can `eval` `window.dispatchEvent(new Event('kehikot:settings'))`
+ * into the page, and nothing else is needed from the host.
+ */
+export const OPEN_EVENT = 'kehikot:settings'
 
-/** Open the Settings dialog, wherever it is mounted. */
-export function openSettings(): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_EVENT))
+/**
+ * ⌘, on a Mac and Ctrl+, elsewhere: the shortcut every Mac program uses for its
+ * settings. By `key`, with no Shift or Alt, so it never meets Alt+Shift+N
+ * (`App.tsx`). Keys pressed inside a module's page stay in its frame and never
+ * reach here; that is the frame's boundary, not a choice.
+ */
+export function isSettingsChord(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, mac: boolean): boolean {
+  if (event.key !== ',' || event.altKey || event.shiftKey) return false
+  return mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
 }
 
-/** Listen for `openSettings`. Returns the unlisten. */
-export function onOpenSettings(then: () => void): () => void {
+/** Whether this page runs on a Mac, for the chord and how it is written. */
+export function onMac(): boolean {
+  if (typeof navigator === 'undefined') return true
+  const platform = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? ''
+  return /mac/i.test(platform) || (!platform && /Mac OS X/.test(navigator.userAgent ?? ''))
+}
+
+/** "⌘," or "Ctrl+,", as a tooltip writes it. */
+export function chordSaid(mac: boolean): string {
+  return mac ? '⌘,' : 'Ctrl+,'
+}
+
+/** The sections of the Settings dialog, in the order its nav lists them. */
+export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'about'] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
+
+/** Open the Settings dialog, wherever it is mounted; at one section when named. */
+export function openSettings(section?: SettingsSection): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: section ?? null }))
+}
+
+/** Listen for `openSettings` (and the shell's bare event, which names no section). Returns the unlisten. */
+export function onOpenSettings(then: (section: SettingsSection | null) => void): () => void {
   if (typeof window === 'undefined') return () => {}
-  window.addEventListener(OPEN_EVENT, then)
-  return () => window.removeEventListener(OPEN_EVENT, then)
+  const heard = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail
+    then(isSection(detail) ? detail : null)
+  }
+  window.addEventListener(OPEN_EVENT, heard)
+  return () => window.removeEventListener(OPEN_EVENT, heard)
 }
 
 /* ---- the start hook, read only ---- */

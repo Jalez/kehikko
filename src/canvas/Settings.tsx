@@ -1,12 +1,39 @@
-import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import {
+  AlertTriangle,
+  Bell,
+  Bot,
+  Check,
+  ExternalLink,
+  HardDrive,
+  Info,
+  MessagesSquare,
+  Plug,
+  Search,
+  Settings2,
+  Sparkles,
+  type LucideIcon,
+} from 'lucide-react'
+import { PACKAGE_VERSION } from 'kehikot-module-protocol'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
+import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { Card } from '@/components/ui/card.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { ScrollArea } from '@/components/ui/scroll-area.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
+import { cn } from '@/lib/utils'
 import {
   active,
   automatic,
+  chordSaid,
   FIRST_QUESTION,
+  isSettingsChord,
   MORE_AGENTS,
+  onMac,
   onOpenSettings,
   openSettings,
   PROVIDERS,
@@ -17,9 +44,16 @@ import {
   toolsSaid,
   type AgentSettings,
   type SettingsAnswer,
+  type SettingsSection,
+  type SkillState,
+  type ToolState,
 } from '@/host/agentSettings.ts'
 import { notAnswering } from '@/host/reachable.ts'
+import { APP_NAME, APP_REPO, openExternal, releasePage, tagFor } from '@/host/releaseNotes.ts'
+import { openStorage } from '@/host/storage.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
+import { useShownVersion } from './AppVersion.tsx'
+import { useReleaseNotes } from './ReleaseNotes.tsx'
 
 /**
  * Settings: how Kehikot works with the person's coding agents, chosen once for
@@ -30,15 +64,18 @@ import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type N
  *
  *  - `AgentSettingsHost`, mounted once by the page: asks the one-time question
  *    while it is unanswered, and opens the dialog when anything calls
- *    `openSettings()` — the projects menu, a module's Tools or Skills window,
- *    the sync's line in the Inbox.
- *  - `SettingsDialog` and its body: the providers, the two kinds of thing kept
- *    set up with their exceptions and status, the tracker notices in the
- *    Inbox, and the start hook, read only.
+ *    `openSettings()` — the gear in the strip, ⌘, (Ctrl+, off a Mac), the
+ *    projects menu, a module's Tools or Skills window, the sync's line in the
+ *    Inbox, and the desktop shell's own event.
+ *  - `SettingsDialog` and its body: a section nav on the left (Agents, Module
+ *    tools, Skills, Tracker notices, Conversations, About) and one section at a
+ *    time on the right — a summary card, then each setting as a row with its
+ *    switch. A change is sent as it is made and said "Saved"; there is no Save
+ *    button for a switch.
  *  - `KeptBySettings`: the line a module's Tools or Skills window shows.
  *
- * Every state is a word, never a colour alone; every control is a native
- * checkbox or button with its own label, so the keyboard and a reader know it.
+ * Every state is a word, never a colour alone; every switch has its label, the
+ * nav is a tab list a keyboard walks with the arrows, and focus is always ringed.
  */
 
 type Change =
@@ -64,11 +101,17 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   return body
 }
 
-/** The settings as the server has them, read when `open`, and the way to change them. */
+/**
+ * The settings as the server has them, read when `open`, and the way to change
+ * them. Changes go one after another, in the order they were made, so a quick
+ * second press is never lost to the first; `saved` counts the ones taken.
+ */
 export function useAgentSettings(open: boolean, load = fetchSettings, save = postSettings) {
   const [answer, setAnswer] = useState<SettingsAnswer | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(0)
+  const queue = useRef<Promise<void>>(Promise.resolve())
 
   const read = useCallback(async () => {
     try {
@@ -84,29 +127,54 @@ export function useAgentSettings(open: boolean, load = fetchSettings, save = pos
   }, [open, read])
 
   const change = useCallback(
-    async (what: Change) => {
-      setBusy(true)
-      try {
-        setAnswer(await save(what))
-        setTrouble(null)
-      } catch (error) {
-        setTrouble(error instanceof Error ? error.message : String(error))
-      } finally {
-        setBusy(false)
-      }
+    (what: Change) => {
+      const next = queue.current.then(async () => {
+        setBusy(true)
+        try {
+          setAnswer(await save(what))
+          setTrouble(null)
+          setSaved((n) => n + 1)
+        } catch (error) {
+          setTrouble(error instanceof Error ? error.message : String(error))
+        } finally {
+          setBusy(false)
+        }
+      })
+      queue.current = next
+      return next
     },
     [save],
   )
 
-  return { answer, trouble, busy, read, change }
+  return { answer, trouble, busy, saved, read, change }
 }
 
-/** Mounted once by the page: the one-time question, and the dialog wherever it is asked for. */
+/** Mounted once by the page: the one-time question, ⌘, and the dialog wherever it is asked for. */
 export function AgentSettingsHost({ load = fetchSettings, save = postSettings }: { load?: typeof fetchSettings; save?: typeof postSettings } = {}) {
   const [open, setOpen] = useState(false)
+  const [section, setSection] = useState<SettingsSection>('agents')
   const [question, setQuestion] = useState(false)
 
-  useEffect(() => onOpenSettings(() => setOpen(true)), [])
+  useEffect(
+    () =>
+      onOpenSettings((at) => {
+        if (at) setSection(at)
+        setOpen(true)
+      }),
+    [],
+  )
+
+  /* ⌘, on a Mac, Ctrl+, elsewhere — in a text field too, where it types nothing. */
+  useEffect(() => {
+    const mac = onMac()
+    const onKey = (event: KeyboardEvent) => {
+      if (!isSettingsChord(event, mac)) return
+      event.preventDefault()
+      setOpen(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   /* Asked once per page load while unanswered. Closing it without answering asks again next time. */
   useEffect(() => {
@@ -129,14 +197,14 @@ export function AgentSettingsHost({ load = fetchSettings, save = postSettings }:
           setQuestion(false)
         }}
       />
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} />
+      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} />
     </>
   )
 }
 
 /**
- * The one-time question. Both boxes checked to start; "Save" takes
- * what is checked, "I'll do it myself" turns both off. Either answer is kept.
+ * The one-time question. Both switches on to start; "Save" takes what is on,
+ * "I'll do it myself" turns both off. Either answer is kept.
  */
 export function FirstQuestion({
   open,
@@ -167,32 +235,26 @@ export function FirstQuestion({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg" data-first-question>
-        <DialogHeader>
+      <DialogContent className="max-h-[85vh] max-w-[calc(100%-2rem)] gap-5 overflow-y-auto sm:max-w-lg" data-first-question>
+        <DialogHeader className="pr-6">
           <DialogTitle>{FIRST_QUESTION.title}</DialogTitle>
           <DialogDescription>{FIRST_QUESTION.lead}</DialogDescription>
         </DialogHeader>
-        <div className="min-w-0 space-y-3 text-sm">
-          <Box checked={tools} onChange={setTools} disabled={busy}>
-            {FIRST_QUESTION.toolsBox}
-          </Box>
-          <Box checked={skills} onChange={setSkills} disabled={busy}>
-            {FIRST_QUESTION.skillsBox}
-          </Box>
-          <div>
-            <p className="text-xs font-semibold">What Kehikot will write</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-relaxed">
+        <div className="flex min-w-0 flex-col gap-4 text-sm">
+          <Rows>
+            <SettingRow label={FIRST_QUESTION.toolsBox} checked={tools} onChange={setTools} disabled={busy} />
+            <SettingRow label={FIRST_QUESTION.skillsBox} checked={skills} onChange={setSkills} disabled={busy} />
+          </Rows>
+          <div className="bg-muted/50 rounded-lg px-4 py-3">
+            <p className="text-xs font-medium">What Kehikot will write</p>
+            <ul className="text-muted-foreground mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed">
               {FIRST_QUESTION.writes.map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
           </div>
           <p className="text-muted-foreground text-xs leading-relaxed">{FIRST_QUESTION.after}</p>
-          {trouble ? (
-            <p role="alert" className="text-xs">
-              {trouble}
-            </p>
-          ) : null}
+          {trouble ? <Trouble>{trouble}</Trouble> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" size="sm" disabled={busy} data-answer="self" onClick={() => void answer(null)}>
               {FIRST_QUESTION.self}
@@ -207,18 +269,35 @@ export function FirstQuestion({
   )
 }
 
+const SECTION_SAID: Record<SettingsSection, { title: string; icon: LucideIcon }> = {
+  agents: { title: 'Agents', icon: Bot },
+  tools: { title: 'Module tools', icon: Plug },
+  skills: { title: 'Skills', icon: Sparkles },
+  notices: { title: 'Tracker notices', icon: Bell },
+  hook: { title: 'Conversations', icon: MessagesSquare },
+  about: { title: 'About', icon: Info },
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
   load = fetchSettings,
   save = postSettings,
+  section: given,
+  onSection: setGiven,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
   load?: typeof fetchSettings
   save?: typeof postSettings
+  /** Which section is shown; the dialog keeps its own when not given. */
+  section?: SettingsSection
+  onSection?(section: SettingsSection): void
 }) {
-  const { answer, trouble, busy, read, change } = useAgentSettings(open, load, save)
+  const { answer, trouble, busy, saved, read, change } = useAgentSettings(open, load, save)
+  const [own, setOwn] = useState<SettingsSection>('agents')
+  const section = given ?? own
+  const setSection = setGiven ?? setOwn
 
   /* What the sync finds lands a moment after a change; read again while the window is open. */
   useEffect(() => {
@@ -229,200 +308,666 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl" data-settings>
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer.
-          </DialogDescription>
-        </DialogHeader>
-        {trouble ? (
-          <p role="alert" className="text-sm">
-            {trouble}
-          </p>
-        ) : null}
-        {answer ? (
-          <SettingsBody answer={answer} busy={busy} onChange={(what) => void change(what)} />
-        ) : !trouble ? (
-          <p className="text-muted-foreground text-sm">Reading the settings…</p>
-        ) : null}
+      <DialogContent
+        className="flex h-[min(720px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        data-settings
+      >
+        <SettingsBody
+          answer={answer}
+          trouble={trouble}
+          busy={busy}
+          saved={saved}
+          section={section}
+          onSection={setSection}
+          onChange={(what) => void change(what)}
+          onClose={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   )
 }
 
-/** The dialog's body, drawn from one answer. Exported for tests. */
-export function SettingsBody({ answer, busy, onChange }: { answer: SettingsAnswer; busy: boolean; onChange(what: Change): void }) {
+/** The dialog's inside: the section nav and the sections, drawn from one answer. Exported for tests. */
+export function SettingsBody({
+  answer,
+  trouble = null,
+  busy,
+  saved = 0,
+  section,
+  onSection,
+  onChange,
+  onClose = () => {},
+}: {
+  answer: SettingsAnswer | null
+  trouble?: string | null
+  busy: boolean
+  /** How many changes were taken; each new one says "Saved" for a moment. */
+  saved?: number
+  section: SettingsSection
+  onSection(section: SettingsSection): void
+  onChange(what: Change): void
+  onClose?(): void
+}) {
+  const sections = (['agents', 'tools', 'skills', 'notices', 'hook', 'about'] as const).filter((one) => one !== 'notices' || answer?.notices)
+  const shown = sections.includes(section) ? section : 'agents'
+  const problems = answer?.status.problems.length ?? 0
+
+  return (
+    <Tabs
+      value={shown}
+      onValueChange={(value) => onSection(value as SettingsSection)}
+      orientation="vertical"
+      className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
+    >
+      <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:w-56 sm:border-r sm:border-b-0">
+        <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <Settings2 className="text-muted-foreground size-4" aria-hidden />
+            Settings
+          </DialogTitle>
+          <DialogDescription className="text-xs leading-snug max-sm:sr-only">
+            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer.
+          </DialogDescription>
+        </DialogHeader>
+        <TabsList
+          aria-label="Settings sections"
+          className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent px-2 pb-2 sm:flex-col sm:items-stretch sm:overflow-visible"
+        >
+          {sections.map((key) => {
+            const { title, icon: Icon } = SECTION_SAID[key]
+            return (
+              <TabsTrigger
+                key={key}
+                value={key}
+                data-section={key}
+                className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
+              >
+                <Icon className="size-4" aria-hidden />
+                {title}
+                {key === 'agents' && problems > 0 ? (
+                  <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
+                    {problems}
+                    <span className="sr-only"> left alone</span>
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+        <p className="text-muted-foreground mt-auto hidden px-4 pb-4 text-[11px] sm:block">
+          Open Settings with <kbd className="bg-background rounded border px-1 font-sans">{chordSaid(onMac())}</kbd>
+        </p>
+      </aside>
+
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-busy={busy}>
+        <SavedNote saved={saved} />
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
+            {trouble ? <Trouble>{trouble}</Trouble> : null}
+            {answer && !answer.settings.asked && shown !== 'about' ? (
+              <p className="bg-muted/60 rounded-lg px-3 py-2 text-xs leading-relaxed" data-unasked>
+                You have not chosen yet, so nothing is done for you automatically. Any choice here counts as your answer.
+              </p>
+            ) : null}
+            {sections.map((key) => (
+              <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
+                {key === 'about' ? (
+                  <About onClose={onClose} />
+                ) : answer ? (
+                  <Section which={key} answer={answer} onChange={onChange} />
+                ) : !trouble ? (
+                  <p className="text-muted-foreground text-sm">Reading the settings…</p>
+                ) : null}
+              </TabsContent>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
+    </Tabs>
+  )
+}
+
+/** "Saved", for a moment after each change the host took. Said politely to a reader. */
+function SavedNote({ saved }: { saved: number }) {
+  const [showing, setShowing] = useState(false)
+  useEffect(() => {
+    if (saved === 0) return
+    setShowing(true)
+    const hide = setTimeout(() => setShowing(false), 1800)
+    return () => clearTimeout(hide)
+  }, [saved])
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      data-saved={showing ? 'shown' : 'hidden'}
+      className={cn(
+        'text-muted-foreground pointer-events-none absolute top-4 right-12 z-10 flex items-center gap-1 text-xs transition-opacity duration-300',
+        showing ? 'opacity-100' : 'opacity-0',
+      )}
+    >
+      {showing ? (
+        <>
+          <Check className="size-3.5" aria-hidden />
+          Saved
+        </>
+      ) : null}
+    </p>
+  )
+}
+
+function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about'>; answer: SettingsAnswer; onChange(what: Change): void }) {
   const { settings, status, hook } = answer
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
-  const doors = status.modules.filter((one) => one.tools !== null)
-  const offering = status.modules.filter((one) => one.skills.length > 0)
   const claude = settings.providers.claudeCode.enabled
+  const needsClaude = claude ? null : 'Turn on Claude Code under Agents first.'
 
-  return (
-    <div className="flex min-w-0 flex-col gap-5 text-sm">
-      {!settings.asked ? (
-        <p className="rounded-md border p-2 text-xs leading-relaxed" data-unasked>
-          You have not chosen yet, so nothing is done for you automatically. Any choice below counts as your answer.
-        </p>
-      ) : null}
-
-      <Section title="Agents" id="agents">
-        <ul className="flex flex-col gap-2">
+  if (which === 'agents') {
+    return (
+      <>
+        <Heading id="agents" lead="Which coding agents Kehikot sets up for you. Everything else here acts through them.">
+          Agents
+        </Heading>
+        <Summary icon={Bot} title="Status">
+          <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+            <dt className="text-muted-foreground">Claude Code</dt>
+            <dd>{claude ? 'Set up by Kehikot' : 'Off — Kehikot sets nothing up'}</dd>
+            <dt className="text-muted-foreground">Module tools</dt>
+            <dd>{toolsSaid(status)}</dd>
+            <dt className="text-muted-foreground">Skills</dt>
+            <dd>{skillsSaid(status)}</dd>
+            <dt className="text-muted-foreground">Last looked</dt>
+            <dd>{status.running ? 'Looking now…' : status.at === null ? 'Not yet' : new Date(status.at).toLocaleTimeString()}</dd>
+          </dl>
+        </Summary>
+        <Rows>
           {PROVIDERS.map((provider) => (
-            <li key={provider.key} className="min-w-0">
-              <Box checked={settings.providers[provider.key].enabled} disabled={busy} onChange={(on) => set({ providers: { [provider.key]: { enabled: on } } })}>
-                Set up {provider.name}
-              </Box>
-              <p className="text-muted-foreground mt-0.5 pl-6 text-xs leading-relaxed">{provider.says}</p>
-            </li>
+            <SettingRow
+              key={provider.key}
+              label={`Set up ${provider.name}`}
+              description={provider.says}
+              checked={settings.providers[provider.key].enabled}
+              onChange={(on) => set({ providers: { [provider.key]: { enabled: on } } })}
+            />
           ))}
-        </ul>
-        <p className="text-muted-foreground mt-2 text-xs">{MORE_AGENTS}</p>
-      </Section>
+        </Rows>
+        <p className="text-muted-foreground text-xs">{MORE_AGENTS}</p>
+        {status.problems.length ? (
+          <section aria-labelledby="settings-problems" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+            <h4 id="settings-problems" className="flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+              Left alone
+            </h4>
+            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {status.problems.map((line) => (
+                <li key={line} className="break-words">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </>
+    )
+  }
 
-      <Section title="Module tools" id="tools">
-        <Box checked={settings.tools.auto} disabled={busy || !claude} onChange={(on) => set({ tools: { auto: on } })}>
-          Connect every module’s tools to Claude Code, and keep them connected
-        </Box>
-        <p className="mt-1 text-xs" data-status="tools">
-          {toolsSaid(status)}
-          {!active(settings, 'tools') ? ' Nothing is connected for you while this is off.' : ''}
-        </p>
-        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-          Written to Claude Code’s user-wide MCP list. Only entries Kehikot added are re-pointed or removed; a server you added is never touched.
-        </p>
+  if (which === 'tools') {
+    const doors = status.modules.filter((one) => one.tools !== null)
+    return (
+      <>
+        <Heading id="tools" lead="Each module’s MCP tools, in Claude Code’s user-wide server list.">
+          Module tools
+        </Heading>
+        <Summary icon={Plug} title="Status">
+          <p className="text-sm" data-status="tools">
+            {toolsSaid(status)}
+            {!active(settings, 'tools') ? ' Nothing is connected for you while this is off.' : ''}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+            Only entries Kehikot added are re-pointed or removed; a server you added is never touched.
+          </p>
+        </Summary>
+        <Rows>
+          <SettingRow
+            label="Connect every module’s tools to Claude Code, and keep them connected"
+            description={needsClaude ?? 'A new module is connected when it first runs, and re-pointed when it moves.'}
+            checked={settings.tools.auto}
+            disabled={!claude}
+            onChange={(on) => set({ tools: { auto: on } })}
+          />
+        </Rows>
         {doors.length ? (
-          <Exceptions
-            label="Which modules"
-            rows={doors.map((one) => ({ id: one.id, name: one.name, says: toolSays(one), out: settings.tools.except.includes(one.id) }))}
+          <ModuleExceptions
+            kind="tools"
+            rows={doors.map((one) => ({
+              id: one.id,
+              name: one.name,
+              out: settings.tools.except.includes(one.id),
+              chips: [{ text: toolSays(one), tone: toolTone(one.tools!, one.answering) }],
+            }))}
             keep="keep connected"
-            disabled={busy || !active(settings, 'tools')}
+            disabled={!active(settings, 'tools')}
             onOut={(module, out) => onChange({ except: { kind: 'tools', module, out } })}
           />
         ) : null}
-      </Section>
+      </>
+    )
+  }
 
-      <Section title="Skills" id="skills">
-        <Box checked={settings.skills.auto} disabled={busy || !claude} onChange={(on) => set({ skills: { auto: on } })}>
-          Install every module’s skills, and keep them up to date
-        </Box>
-        <p className="mt-1 text-xs" data-status="skills">
-          {skillsSaid(status)}
-          {!active(settings, 'skills') ? ' Nothing is installed for you while this is off.' : ''}
-        </p>
-        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-          Written to <span className="font-mono break-all">{answer.skillsAt}</span>. A skill you changed, or a name another skill already has, is left alone.
-        </p>
+  if (which === 'skills') {
+    const offering = status.modules.filter((one) => one.skills.length > 0)
+    return (
+      <>
+        <Heading id="skills" lead="Each module’s Claude Code skills, in your personal skills folder.">
+          Skills
+        </Heading>
+        <Summary icon={Sparkles} title="Status">
+          <p className="text-sm" data-status="skills">
+            {skillsSaid(status)}
+            {!active(settings, 'skills') ? ' Nothing is installed for you while this is off.' : ''}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+            Written to <span className="font-mono break-all">{answer.skillsAt}</span>. A skill you changed, or a name another skill already has, is left alone.
+          </p>
+        </Summary>
+        <Rows>
+          <SettingRow
+            label="Install every module’s skills, and keep them up to date"
+            description={needsClaude ?? 'A module’s new skill is installed, and a changed one updated, as soon as it is seen.'}
+            checked={settings.skills.auto}
+            disabled={!claude}
+            onChange={(on) => set({ skills: { auto: on } })}
+          />
+        </Rows>
         {offering.length ? (
-          <Exceptions
-            label="Which modules"
+          <ModuleExceptions
+            kind="skills"
             rows={offering.map((one) => ({
               id: one.id,
               name: one.name,
-              says: one.skills.map((skill) => `/${skill.name}: ${SKILL_STATE_SAYS[skill.state]}`).join(', '),
               out: settings.skills.except.includes(one.id),
+              chips: one.skills.map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
             }))}
             keep="keep installed"
-            disabled={busy || !active(settings, 'skills')}
+            disabled={!active(settings, 'skills')}
             onOut={(module, out) => onChange({ except: { kind: 'skills', module, out } })}
           />
         ) : null}
-      </Section>
+      </>
+    )
+  }
 
-      {status.problems.length ? (
-        <Section title="Left alone" id="problems">
-          <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed">
-            {status.problems.map((line) => (
-              <li key={line} className="break-words">
-                {line}
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
+  if (which === 'notices') {
+    return answer.notices ? <TrackerNotices notices={answer.notices} onChange={(notices) => onChange({ notices })} /> : null
+  }
 
-      {answer.notices ? <TrackerNotices notices={answer.notices} busy={busy} onChange={(notices) => onChange({ notices })} /> : null}
-
-      <Section title="Conversations started outside Kehikot" id="hook">
-        <p className="text-xs leading-relaxed" data-hook={hook.on === null ? 'unknown' : hook.on ? 'on' : 'off'}>
+  return (
+    <>
+      <Heading id="hook" lead="Whether Claude Code tells Kehikot about a session started somewhere else. Kehikot only reads this; it never writes the file.">
+        Conversations started outside Kehikot
+      </Heading>
+      <Summary icon={MessagesSquare} title="Status">
+        <div className="mb-1.5">
+          <Chip tone={hook.on === true ? 'ok' : hook.on === false ? 'quiet' : 'warn'}>
+            {hook.on === true ? 'Reported' : hook.on === false ? 'Not reported' : 'Cannot say'}
+          </Chip>
+        </div>
+        <p className="text-sm leading-relaxed" data-hook={hook.on === null ? 'unknown' : hook.on ? 'on' : 'off'}>
           {hook.on === true
             ? 'Reported: when a Claude Code session starts anywhere — a terminal, an editor — the Claude module hears of it.'
             : hook.on === false
               ? 'Not reported: a session started in a terminal or an editor is not known to Kehikot until you attach it.'
               : `Kehikot could not read ${hook.file}, so it cannot say.`}
         </p>
-        {hook.on !== true ? <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{START_HOOK_WHERE}</p> : null}
-        <p className="text-muted-foreground mt-1 font-mono text-[11px] break-all">{hook.file}</p>
-      </Section>
+      </Summary>
+      {hook.on !== true ? (
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-sm font-medium">How to turn it on</p>
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{START_HOOK_WHERE}</p>
+        </div>
+      ) : null}
+      <p className="text-muted-foreground font-mono text-[11px] break-all">{hook.file}</p>
+    </>
+  )
+}
+
+/** Tracker notices: on or off, how wide, and which events. Every choice a labelled control. */
+function TrackerNotices({
+  notices,
+  onChange,
+}: {
+  notices: NoticeSettings
+  onChange(change: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> }): void
+}) {
+  const name = useId()
+  const off = !notices.on
+  const told = NOTICE_EVENTS.filter((event) => notices.events[event]).length
+  return (
+    <>
+      <Heading id="notices" lead={NOTICE_WORDS.lead}>
+        {NOTICE_WORDS.title}
+      </Heading>
+      <Summary icon={Bell} title="Status">
+        <p className="text-sm" data-status="notices">
+          {notices.on
+            ? `On · ${notices.scope === 'roles' ? 'only where you have a role' : 'also everything your epics name'} · ${told} of ${NOTICE_EVENTS.length} events`
+            : 'Off · nothing from the trackers is told in the Inbox'}
+        </p>
+      </Summary>
+      <Rows>
+        <SettingRow label={NOTICE_WORDS.on} checked={notices.on} onChange={(on) => onChange({ on })} />
+      </Rows>
+      <fieldset className="min-w-0" data-notices-scope={notices.scope} disabled={off}>
+        <legend className="mb-2 text-sm font-medium">Which items</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(['roles', 'epics'] as const).map((scope) => (
+            <label
+              key={scope}
+              className={cn(
+                'hover:bg-accent/50 has-[:checked]:border-primary has-[:checked]:bg-accent/60 has-[:focus-visible]:ring-ring/50 flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs leading-snug has-[:focus-visible]:ring-[3px]',
+                off && 'cursor-not-allowed opacity-50',
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                className="accent-primary mt-0.5 size-3.5 shrink-0 outline-none"
+                checked={notices.scope === scope}
+                disabled={off}
+                onChange={() => onChange({ scope })}
+              />
+              <span className="min-w-0">{NOTICE_WORDS.scopes[scope]}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <section aria-labelledby="settings-notice-events" className="min-w-0">
+        <h4 id="settings-notice-events" className="mb-2 text-sm font-medium">
+          Tell me when
+        </h4>
+        <ul className="grid overflow-hidden rounded-lg border sm:grid-cols-2">
+          {NOTICE_EVENTS.map((event) => (
+            <li key={event} className="min-w-0 border-b px-4 last:border-b-0 sm:[&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:odd:border-r" data-notice-event={event}>
+              <SettingRow label={NOTICE_WORDS.events[event]} checked={notices.events[event]} disabled={off} onChange={(on) => onChange({ events: { [event]: on } })} compact />
+            </li>
+          ))}
+        </ul>
+        <p className="text-muted-foreground mt-2 text-xs leading-relaxed">{NOTICE_WORDS.needs}</p>
+      </section>
+    </>
+  )
+}
+
+/** About: which Kehikot this is, the protocol it speaks, and where its notes and its data are. */
+function About({ onClose }: { onClose(): void }) {
+  const { shown } = useShownVersion()
+  const notes = useReleaseNotes()
+  return (
+    <>
+      <Heading id="about" lead="Which Kehikot this is, and where to read more.">
+        About
+      </Heading>
+      <Summary icon={Info} title={APP_NAME}>
+        <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]" data-about>
+          <dt className="text-muted-foreground">Version</dt>
+          <dd className="font-mono" data-version={shown?.kind ?? 'unknown'}>
+            {shown ? (shown.kind === 'app' ? shown.version : `${shown.text} (a development host, not an app release)`) : 'Not known yet'}
+          </dd>
+          <dt className="text-muted-foreground">Protocol</dt>
+          <dd className="font-mono" data-protocol>
+            kehikot-module-protocol {PACKAGE_VERSION}
+          </dd>
+          <dt className="text-muted-foreground">Settings kept</dt>
+          <dd>On this computer, for every project — never inside a project.</dd>
+        </dl>
+      </Summary>
+      <Rows>
+        {shown?.kind === 'app' ? (
+          <LinkRow
+            icon={Sparkles}
+            label={`What’s new in ${shown.version}`}
+            description="The release notes of the version you have."
+            onPress={(opener) => notes.show({ repo: APP_REPO, tag: tagFor(shown.version), name: APP_NAME, version: shown.version, opener })}
+          />
+        ) : null}
+        <LinkRow
+          icon={ExternalLink}
+          label="All release notes"
+          description={`${APP_NAME}’s releases on GitHub, newest first.`}
+          onPress={() => openExternal(releasePage(APP_REPO))}
+        />
+        <LinkRow
+          icon={HardDrive}
+          label="Storage overview"
+          description="What every module’s data takes in every project, and Kehikot’s own."
+          onPress={() => {
+            onClose()
+            setTimeout(openStorage, 0)
+          }}
+        />
+      </Rows>
+      {notes.dialog}
+    </>
+  )
+}
+
+/* ---- the pieces every section is made of ---- */
+
+function Heading({ id, lead, children }: { id: string; lead: string; children: ReactNode }) {
+  return (
+    <header className="min-w-0 space-y-1 pr-16">
+      <h3 id={`settings-${id}`} className="text-base font-semibold">
+        {children}
+      </h3>
+      <p className="text-muted-foreground text-xs leading-relaxed">{lead}</p>
+    </header>
+  )
+}
+
+/** The small card at the top of a section: what is so now. */
+function Summary({ icon: Icon, title, children }: { icon: LucideIcon; title: string; children: ReactNode }) {
+  return (
+    <Card className="gap-0 rounded-lg px-4 py-3 shadow-none">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md" aria-hidden>
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-muted-foreground mb-0.5 text-[11px] font-medium tracking-wide uppercase">{title}</p>
+          {children}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+/** A group of rows in one bordered box, a hairline between each. */
+function Rows({ children }: { children: ReactNode }) {
+  return <div className="divide-y rounded-lg border px-4">{children}</div>
+}
+
+/** One setting: its label and one line about it on the left, its switch on the right. */
+function SettingRow({
+  label,
+  description,
+  checked,
+  onChange,
+  disabled,
+  compact = false,
+}: {
+  label: ReactNode
+  description?: ReactNode
+  checked: boolean
+  onChange(on: boolean): void
+  disabled?: boolean
+  compact?: boolean
+}) {
+  const id = useId()
+  return (
+    <div className={cn('flex min-w-0 items-start justify-between gap-4', compact ? 'py-2.5' : 'py-3.5')} data-disabled={disabled ? 'true' : undefined}>
+      <div className={cn('min-w-0 space-y-1', disabled && 'opacity-60')}>
+        <Label htmlFor={id} className={cn('leading-snug', compact ? 'text-xs font-normal' : 'text-sm')}>
+          {label}
+        </Label>
+        {description ? (
+          <p id={`${id}-about`} className="text-muted-foreground text-xs leading-relaxed">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        aria-describedby={description ? `${id}-about` : undefined}
+        className="mt-0.5"
+      />
     </div>
   )
 }
 
-/** Tracker notices: on or off, how wide, and which events. Every choice a native control with its label. */
-function TrackerNotices({
-  notices,
-  busy,
-  onChange,
-}: {
-  notices: NoticeSettings
-  busy: boolean
-  onChange(change: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> }): void
-}) {
-  const name = useId()
-  const off = busy || !notices.on
+/** A row that opens something: the About section's links. */
+function LinkRow({ icon: Icon, label, description, onPress }: { icon: LucideIcon; label: string; description: string; onPress(opener: HTMLElement): void }) {
   return (
-    <Section title={NOTICE_WORDS.title} id="notices">
-      <p className="text-muted-foreground mb-1.5 text-xs leading-relaxed">{NOTICE_WORDS.lead}</p>
-      <Box checked={notices.on} disabled={busy} onChange={(on) => onChange({ on })}>
-        {NOTICE_WORDS.on}
-      </Box>
-      <fieldset className="mt-2 min-w-0 rounded-md border px-2 py-1.5" data-notices-scope={notices.scope}>
-        <legend className="px-1 text-[11px]">Which items</legend>
-        {(['roles', 'epics'] as const).map((scope) => (
-          <label key={scope} className="flex min-w-0 items-start gap-2 text-xs leading-snug">
-            <input
-              type="radio"
-              name={name}
-              className="mt-0.5 size-3.5 shrink-0"
-              checked={notices.scope === scope}
-              disabled={off}
-              onChange={() => onChange({ scope })}
-            />
-            <span className="min-w-0">{NOTICE_WORDS.scopes[scope]}</span>
-          </label>
-        ))}
-      </fieldset>
-      <fieldset className="mt-2 min-w-0 rounded-md border px-2 py-1.5">
-        <legend className="px-1 text-[11px]">Tell me when</legend>
-        <ul className="grid gap-1 sm:grid-cols-2">
-          {NOTICE_EVENTS.map((event) => (
-            <li key={event} className="min-w-0 text-xs" data-notice-event={event}>
-              <Box checked={notices.events[event]} disabled={off} onChange={(on) => onChange({ events: { [event]: on } })}>
-                {NOTICE_WORDS.events[event]}
-              </Box>
-            </li>
-          ))}
-        </ul>
-      </fieldset>
-      <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{NOTICE_WORDS.needs}</p>
-    </Section>
+    <button
+      type="button"
+      onClick={(event) => onPress(event.currentTarget)}
+      className="hover:bg-accent/50 focus-visible:ring-ring/50 -mx-4 flex w-[calc(100%+2rem)] min-w-0 items-center gap-3 px-4 py-3 text-left outline-none first:rounded-t-lg last:rounded-b-lg focus-visible:ring-[3px]"
+    >
+      <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="text-muted-foreground block text-xs">{description}</span>
+      </span>
+    </button>
   )
 }
 
-function Section({ title, id, children }: { title: string; id: string; children: ReactNode }) {
+type Tone = 'ok' | 'quiet' | 'warn' | 'bad'
+
+const TONE_CLASS: Record<Tone, string> = {
+  ok: 'border-emerald-600/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
+  quiet: 'text-muted-foreground',
+  warn: 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+  bad: 'border-destructive/40 bg-destructive/10 text-destructive',
+}
+
+/** A status in words, tinted; the words alone say it. */
+function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
-    <section aria-labelledby={`settings-${id}`} className="min-w-0">
-      <h3 id={`settings-${id}`} className="mb-1.5 text-xs font-semibold">
-        {title}
-      </h3>
+    <Badge variant="outline" className={cn('h-5 rounded-full px-2 text-[11px] font-normal', TONE_CLASS[tone])} data-tone={tone}>
       {children}
+    </Badge>
+  )
+}
+
+function toolTone(state: ToolState, answering: boolean): Tone {
+  if (state === 'connected') return answering ? 'ok' : 'quiet'
+  if (state === 'failed') return 'bad'
+  if (state === 'conflict' || state === 'refused') return 'warn'
+  return 'quiet'
+}
+
+const SKILL_TONE: Record<SkillState, Tone> = {
+  installed: 'ok',
+  absent: 'quiet',
+  excepted: 'quiet',
+  outdated: 'warn',
+  edited: 'warn',
+  taken: 'warn',
+  failed: 'bad',
+}
+
+/** Which modules: a searchable list, each with its status in chips and a switch to keep it or leave it out. */
+function ModuleExceptions({
+  kind,
+  rows,
+  keep,
+  disabled,
+  onOut,
+}: {
+  kind: 'tools' | 'skills'
+  rows: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }[]
+  keep: string
+  disabled: boolean
+  onOut(module: string, out: boolean): void
+}) {
+  const [query, setQuery] = useState('')
+  const heading = useId()
+  const wanted = query.trim().toLowerCase()
+  const shown = wanted ? rows.filter((row) => row.name.toLowerCase().includes(wanted) || row.id.toLowerCase().includes(wanted)) : rows
+  const out = rows.filter((row) => row.out).length
+  return (
+    <section aria-labelledby={heading} className="min-w-0 space-y-2" data-exceptions={kind}>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="min-w-0">
+          <h4 id={heading} className="text-sm font-medium">
+            Which modules
+          </h4>
+          <p className="text-muted-foreground text-xs">
+            {disabled
+              ? 'Turn on the setting above to choose modules.'
+              : `Turn one off to leave it to you.${out ? ` ${out} of ${rows.length} left to you.` : ''}`}
+          </p>
+        </div>
+        <div className="relative w-full sm:w-56">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" aria-hidden />
+          <Input type="search" value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search modules" aria-label="Search modules" className="h-8 pl-8 text-xs" />
+        </div>
+      </div>
+      {shown.length ? (
+        <ul className="divide-y rounded-lg border" aria-labelledby={heading}>
+          {shown.map((row) => (
+            <ModuleRow key={row.id} row={row} keep={keep} disabled={disabled} onOut={onOut} />
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-3 text-xs">No module matches “{query.trim()}”.</p>
+      )}
     </section>
   )
 }
 
-/** A native checkbox and its label, as one target. */
+function ModuleRow({
+  row,
+  keep,
+  disabled,
+  onOut,
+}: {
+  row: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }
+  keep: string
+  disabled: boolean
+  onOut(module: string, out: boolean): void
+}) {
+  const id = useId()
+  return (
+    <li className="flex min-w-0 items-center gap-3 px-4 py-2.5" data-module={row.id}>
+      <div className="min-w-0 flex-1">
+        <Label htmlFor={id} className="text-sm">
+          {row.name}
+        </Label>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {row.out ? <Chip tone="quiet">Left to you</Chip> : row.chips.map((chip) => <Chip key={chip.text} tone={chip.tone}>{chip.text}</Chip>)}
+        </div>
+      </div>
+      {/* Named with what it does, "Browser: keep connected": the visible name alone would not say. */}
+      <Switch id={id} aria-label={`${row.name}: ${keep}`} checked={!row.out} disabled={disabled} onCheckedChange={(on) => onOut(row.id, !on)} />
+    </li>
+  )
+}
+
+function Trouble({ children }: { children: ReactNode }) {
+  return (
+    <p role="alert" className="border-destructive/40 bg-destructive/5 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0">{children}</span>
+    </p>
+  )
+}
+
+/** A native checkbox and its label, as one target. Used by a module's Tools and Skills windows. */
 function Box({ checked, onChange, disabled, children }: { checked: boolean; onChange(on: boolean): void; disabled?: boolean; children: ReactNode }) {
   const id = useId()
   return (
@@ -439,37 +984,6 @@ function Box({ checked, onChange, disabled, children }: { checked: boolean; onCh
         {children}
       </label>
     </div>
-  )
-}
-
-function Exceptions({
-  label,
-  rows,
-  keep,
-  disabled,
-  onOut,
-}: {
-  label: string
-  rows: { id: string; name: string; says: string; out: boolean }[]
-  keep: string
-  disabled: boolean
-  onOut(module: string, out: boolean): void
-}) {
-  return (
-    <fieldset className="mt-2 min-w-0 rounded-md border px-2 py-1.5">
-      <legend className="px-1 text-[11px]">{label} — uncheck one to leave it to you</legend>
-      <ul className="flex flex-col gap-1">
-        {rows.map((row) => (
-          <li key={row.id} className="flex min-w-0 flex-wrap items-baseline gap-x-2" data-module={row.id}>
-            <Box checked={!row.out} disabled={disabled} onChange={(on) => onOut(row.id, !on)}>
-              <span className="font-medium">{row.name}</span>
-              <span className="sr-only">: {keep}</span>
-            </Box>
-            <span className="text-muted-foreground min-w-0 text-[11px] break-words">{row.out ? 'Left to you' : row.says}</span>
-          </li>
-        ))}
-      </ul>
-    </fieldset>
   )
 }
 
@@ -526,8 +1040,8 @@ export function KeptBySettings({
   )
 }
 
-/** Close a window, then open Settings over where it was. */
-export function toSettings(close: () => void): void {
+/** Close a window, then open Settings over where it was; at one section when named. */
+export function toSettings(close: () => void, section?: SettingsSection): void {
   close()
-  setTimeout(openSettings, 0)
+  setTimeout(() => openSettings(section), 0)
 }

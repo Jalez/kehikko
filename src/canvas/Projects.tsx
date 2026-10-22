@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { openSettings } from '@/host/agentSettings.ts'
+import { onOpenStorage } from '@/host/storage.ts'
 import { fetchFolders, type Entry, type Listing, type Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
 import { MISSING_SAID, MissingMark } from './MissingProject.tsx'
@@ -86,6 +87,8 @@ export function Projects({
   const [arming, setArming] = useState<number | null>(null)
   const [browsing, setBrowsing] = useState(false)
   const [measuring, setMeasuring] = useState(false)
+  /* Settings' About links here too. */
+  useEffect(() => onOpenStorage(() => setMeasuring(true)), [])
 
   return (
     <div className="flex min-w-6 shrink-[0.01] items-center max-[400px]:min-w-5">
