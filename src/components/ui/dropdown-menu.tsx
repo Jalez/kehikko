@@ -38,10 +38,23 @@ function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownM
   return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
+/**
+ * A menu the guided tour shut (`shutMenu` in `src/canvas/Tour.ts`, after a
+ * step was done inside it) gives focus back to nobody: on its trigger the
+ * focus would raise the trigger's tooltip under the tour's next step.
+ */
+function shutByTheTour(): boolean {
+  const html = typeof document === 'undefined' ? null : document.documentElement
+  if (!html?.hasAttribute('data-tour-shut')) return false
+  html.removeAttribute('data-tour-shut')
+  return true
+}
+
 function DropdownMenuContent({
   className,
   sideOffset = 4,
   collisionPadding = EDGE_GAP,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -54,6 +67,10 @@ function DropdownMenuContent({
           'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md',
           className,
         )}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event)
+          if (shutByTheTour()) event.preventDefault()
+        }}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

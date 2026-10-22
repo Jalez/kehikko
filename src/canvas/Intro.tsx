@@ -110,7 +110,10 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
         <g className="ia-rise" style={after(1.4)}>
           <Rows x={156} y={42} widths={[96, 74, 84]} />
         </g>
-        <circle cx="266" cy="40" r="4.5" className="ia-pulse fill-emerald-500" style={after(1.8)} />
+        {/* An agent at work, arriving last. */}
+        <g className="ia-pop" style={after(1.6)}>
+          <circle cx="266" cy="40" r="4.5" className="ia-pulse fill-emerald-500" style={after(2.1)} />
+        </g>
       </Art>
     ),
   },

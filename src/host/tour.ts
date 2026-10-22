@@ -36,9 +36,9 @@
 
 /** What the app knows that decides whether a waiting step is done. */
 export interface Facts {
-  /** A project is open. */
+  /** A project somebody picked is open — not the home folder a fresh host opens by itself. */
   project: boolean
-  /** How many projects there are, open or not: the menu's words differ when there are some to pick. */
+  /** How many projects there are besides that home folder: the menu's words differ when there are some to pick. */
   projects: number
   /** An epic is chosen (or "All epics"). */
   epic: boolean
@@ -173,11 +173,14 @@ export const TOUR_STEPS: readonly TourStep[] = [
         align: 'end',
       },
       {
-        selectors: ['[data-tour="layouts-suggested"]'],
+        /* The button the step ends on, from above: the first row of cards —
+           Blank, Design, Research — stays clear, and a window this tall
+           leaves no room beside it. */
+        selectors: ['[data-layout-create]'],
         title: 'Create your first kehikko',
         body: 'Pick the way you want to work — Design, Research, Development, Review or Learning — then press Create kehikko. You can change everything afterwards.',
-        side: 'left',
-        align: 'start',
+        side: 'top',
+        align: 'end',
       },
       {
         selectors: ['[data-tour="new-kehikko"]'],
@@ -400,6 +403,17 @@ export function frameOf(
 /** The explanations on screen now, as indexes into `TOUR_STEPS`. */
 export function shownExplanations(root: ParentNode = document, layout = true): number[] {
   return TOUR_STEPS.flatMap((step, index) => (step.kind === 'show' && frameOf(step, root, layout) ? [index] : []))
+}
+
+/**
+ * Is the tour running: a step drawn, a step waiting for the person between
+ * one window and the next (nothing drawn for a moment), or the note at Help?
+ * `Tour.ts` marks <html> with `data-tour-running` for as long as it is, so
+ * anything that would open by itself (What's new, `src/host/whatsNew.ts`)
+ * waits — driver.js's own `driver-active` is taken off while a step waits.
+ */
+export function tourStanding(root: Document = document): boolean {
+  return root.documentElement?.hasAttribute('data-tour-running') ?? false
 }
 
 /** The class every tour popover carries, which `index.css` themes with the app's own tokens. */

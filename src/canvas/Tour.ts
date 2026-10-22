@@ -166,6 +166,7 @@ export class Guide {
     this.watch?.disconnect()
     this.watch = null
     this.root.defaultView?.removeEventListener('keydown', this.onKey, true)
+    this.root.documentElement.removeAttribute('data-tour-running')
     this.drawer.hide()
   }
 
@@ -214,6 +215,8 @@ export class Guide {
   }
 
   private listen(): void {
+    /* What would open by itself waits while this stands (`tourStanding`). */
+    this.root.documentElement.setAttribute('data-tour-running', '')
     if (!this.watch) {
       const View = this.root.defaultView
       if (View && 'MutationObserver' in View) {
@@ -255,10 +258,16 @@ export class Guide {
     if (event.key === 'ArrowLeft') this.back()
   }
 
+  /* As a press outside it, not Escape: Escape gives focus back to the
+     menu's trigger, which raises its tooltip under the next step. */
   private shutMenu(): void {
     if (!this.root.querySelector('[role="menu"]')) return
-    const at = (this.root.activeElement as HTMLElement | null) ?? this.root.body
-    at.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    const View = this.root.defaultView
+    if (!View) return
+    /* Read, and taken off, by the menu as it closes (`dropdown-menu.tsx`). */
+    this.root.documentElement.setAttribute('data-tour-shut', '')
+    setTimeout(() => this.root.documentElement.removeAttribute('data-tour-shut'), 1000)
+    this.root.body.dispatchEvent(new View.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }))
   }
 
   private hide(): void {

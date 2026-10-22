@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 16
+const TESTS = 17
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -407,7 +407,7 @@ describe('the tour waits for the person', () => {
     await tick()
     expect(rec.last?.title).toBe('Create your first kehikko')
     menu.remove()
-    const picker = add('<div role="dialog"><section data-tour="layouts-suggested">Suggested</section></div>')
+    const picker = add('<div role="dialog"><button data-layout-create>Create kehikko</button></div>')
     await tick()
     expect(rec.last?.body).toContain('Design, Research, Development, Review or Learning')
     /* An empty kehikko made is not a kehikko made: still waiting. */
@@ -524,6 +524,39 @@ describe('the tour waits for the person', () => {
 
 describe('the tour in the app', () => {
   if (!inChild) return
+
+  test('What’s new stays closed while the tour waits on a step — drawn, between windows, or pointing at Help', async () => {
+    const whatsNew = await import('../src/host/whatsNew.ts')
+    page()
+    const facts = { ...tour.NO_FACTS }
+    const one = new Tour.Guide({ facts: () => facts, onStep: nothing, onPause: nothing, onFinish: nothing, layout: false, settle: 5 })
+    guides.push(one)
+    expect(whatsNew.notQuiet(document)).toBeNull()
+    let opened = 0
+    const stop = whatsNew.whenQuiet(() => (opened += 1), { idleMs: 30, everyMs: 10 })
+    one.start(null)
+    await tick(60)
+    /* Waiting on the project: no overlay, no `driver-active` — and still the tour. */
+    expect(document.body.classList.contains('driver-active')).toBe(false)
+    expect(tour.tourStanding(document)).toBe(true)
+    expect(whatsNew.notQuiet(document)).toBe('tour')
+    /* Between one window and the next nothing is drawn; it is still the tour. */
+    document.querySelector('[data-tour="project"]')!.remove()
+    await tick(60)
+    expect(document.querySelector('.driver-popover')).toBeNull()
+    expect(whatsNew.notQuiet(document)).toBe('tour')
+    /* Paused: the note at Help stands too. */
+    one.pause()
+    await tick(60)
+    expect(whatsNew.notQuiet(document)).toBe('tour')
+    expect(opened).toBe(0)
+    /* Gone: What's new may have the floor. */
+    one.stop()
+    expect(whatsNew.notQuiet(document)).toBeNull()
+    await tick(120)
+    expect(opened).toBe(1)
+    stop()
+  })
 
   function controls(facts: Facts, drawer: ReturnType<typeof recorder>['drawer']) {
     return (
