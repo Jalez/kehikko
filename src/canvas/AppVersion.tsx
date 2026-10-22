@@ -15,9 +15,39 @@ import {
   versionShown,
   type AppReleaseRow,
   type ReleaseSummary,
+  type VersionShown,
 } from '@/host/releaseNotes.ts'
 import { Hint } from './Hint.tsx'
 import { NotesButton, useReleaseNotes } from './ReleaseNotes.tsx'
+
+/**
+ * The version as the strip shows it, and the app's updater status: the one
+ * reading both the strip and Settings' About say.
+ */
+export function useShownVersion(): { app: AppUpdateStatus | null; shown: VersionShown | null } {
+  const [app, setApp] = useState<AppUpdateStatus | null>(null)
+  const [engine] = useState(() => appEngine() !== null)
+  const [settled, setSettled] = useState(!engine)
+  const [host, setHost] = useState<string | null>(null)
+
+  useEffect(() => {
+    const link = watchApp((status) => {
+      setApp(status)
+      setSettled(true)
+    })
+    /* An app that does not answer (a refused command) leaves the host's version. */
+    void link.engine?.status().then(() => setSettled(true))
+    return () => link.stop()
+  }, [])
+
+  useEffect(() => {
+    const abort = new AbortController()
+    fetchHostVersion(abort.signal).then(setHost, () => {})
+    return () => abort.abort()
+  }, [])
+
+  return { app, shown: versionShown({ app, engine, settled, host }) }
+}
 
 /**
  * The version beside "Kehikot" in the strip, as a module's version sits
@@ -36,29 +66,9 @@ import { NotesButton, useReleaseNotes } from './ReleaseNotes.tsx'
  * the app updates itself.
  */
 export function AppVersion() {
-  const [app, setApp] = useState<AppUpdateStatus | null>(null)
-  const [engine] = useState(() => appEngine() !== null)
-  const [settled, setSettled] = useState(!engine)
-  const [host, setHost] = useState<string | null>(null)
+  const { app, shown } = useShownVersion()
   const [open, setOpen] = useState(false)
 
-  useEffect(() => {
-    const link = watchApp((status) => {
-      setApp(status)
-      setSettled(true)
-    })
-    /* An app that does not answer (a refused command) leaves the host's version. */
-    void link.engine?.status().then(() => setSettled(true))
-    return () => link.stop()
-  }, [])
-
-  useEffect(() => {
-    const abort = new AbortController()
-    fetchHostVersion(abort.signal).then(setHost, () => {})
-    return () => abort.abort()
-  }, [])
-
-  const shown = versionShown({ app, engine, settled, host })
   if (!shown) return null
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -331,7 +331,7 @@ export function ToolsDialog({
           answer={kept.answer}
           busy={kept.busy}
           onExcept={(out) => void kept.change({ except: { kind: 'tools', module, out } })}
-          onSettings={() => toSettings(() => onOpenChange(false))}
+          onSettings={() => toSettings(() => onOpenChange(false), 'tools')}
         />
 
         {refused ? <p className="text-sm leading-relaxed break-words">{refused}</p> : null}

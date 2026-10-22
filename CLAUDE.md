@@ -352,3 +352,12 @@
   now (`rememberedMcp`). A module never seen running has none and stays "Not
   running". When it starts somewhere else, Kehikot's own entry is re-pointed.
   Its row says "Connected (not running now)" (`toolSays`).
+
+## Settings: how it is reached
+
+- The gear in the strip (`SettingsGear`, `src/canvas/Bar.tsx`), `⌘,` / `Ctrl+,`
+  (`isSettingsChord`, listened for in `AgentSettingsHost`), "settings…" in the
+  projects menu, a module's Tools or Skills window, and the sync's Inbox line.
+  Do not take that chord. All of them go through `openSettings(section?)`; the
+  window event `kehikot:settings` (`OPEN_EVENT`) is also the desktop shell's way
+  in for an app-menu "Settings…".

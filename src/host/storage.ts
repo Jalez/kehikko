@@ -217,3 +217,19 @@ export function storageViewOf(
   }
   return null
 }
+
+/* ---- reaching the storage overview from anywhere on the page ---- */
+
+const OPEN_STORAGE_EVENT = 'kehikot:storage'
+
+/** Open the storage overview (the projects menu's "storage…"), wherever it is mounted. */
+export function openStorage(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_STORAGE_EVENT))
+}
+
+/** Listen for `openStorage`. Returns the unlisten. */
+export function onOpenStorage(then: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener(OPEN_STORAGE_EVENT, then)
+  return () => window.removeEventListener(OPEN_STORAGE_EVENT, then)
+}

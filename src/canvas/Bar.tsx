@@ -1,8 +1,9 @@
-import { LayoutGrid, Moon, PanelTop, PanelTopClose, Sun } from 'lucide-react'
+import { LayoutGrid, Moon, PanelTop, PanelTopClose, Settings as Gear, Sun } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
+import { chordSaid, onMac, openSettings } from '@/host/agentSettings.ts'
 import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
@@ -395,6 +396,12 @@ export function Bar({
             says when that was last asked; a press asks now. See `Updates.tsx`. */}
         <Updates />
 
+        {/* Settings, always here: how Kehikot works with the person's agents
+            and what the Inbox tells them, for every project at once. Icon-only
+            like its neighbours; ⌘, (Ctrl+, off a Mac) opens it too, and so does
+            "settings…" in the projects menu. See `Settings.tsx`. */}
+        <SettingsGear />
+
         <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
 
         {/* Feedback on Kehikot itself, beside its plug — the same control every
@@ -464,3 +471,22 @@ export function Bar({
   )
 }
 
+/** The gear in the strip that opens Settings. Its tooltip says the shortcut. */
+export function SettingsGear() {
+  const mac = onMac()
+  return (
+    <Hint label={`Settings (${chordSaid(mac)})`}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Settings"
+        aria-keyshortcuts={mac ? 'Meta+,' : 'Control+,'}
+        data-testid="settings-gear"
+        className="text-muted-foreground hover:text-foreground size-6"
+        onClick={() => openSettings()}
+      >
+        <Gear className="size-3" />
+      </Button>
+    </Hint>
+  )
+}
