@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { readdirSync } from 'node:fs'
 
-import type { ModuleSkill } from 'kehikot-module-protocol'
+import { isKehikkoBound, type ModuleSkill } from 'kehikot-module-protocol'
 
 import {
   active,
@@ -11,12 +11,24 @@ import {
   SYNC_TROUBLE_ID,
   type AgentSettings,
   type ModuleSync,
-  type SkillState,
   type SyncStatus,
   type ToolState,
 } from '../src/host/agentSettings.ts'
 import type { Inbox } from './inbox.ts'
-import { forgetLeft, forgetMade, leftSkills, madeEntries, readSettings, recordLeft, recordMade, type Made } from './agentSettings.ts'
+import {
+  boundLeft,
+  forgetBoundLeft,
+  forgetLeft,
+  forgetMade,
+  leftSkills,
+  madeEntries,
+  readSettings,
+  recordBoundLeft,
+  recordLeft,
+  recordMade,
+  type Made,
+} from './agentSettings.ts'
+import { boundSays, nameFromId } from '../src/host/skills.ts'
 import { awarenessAt, connect, disconnect, repoint, runClaude, type Door, type Ran, type Runner } from './register.ts'
 import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSkill, thisRegistry } from './skills.ts'
 
@@ -53,6 +65,13 @@ import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSki
  * through `syncSkill`, which holds every safety rule: a skill the person edited
  * and a name Kehikot did not install are never written over. Those are said,
  * and left.
+ *
+ * A kehikko-bound skill (protocol 2.12.0, `needs`) is never installed: it
+ * belongs only in a conversation on a kehikko that has the modules it needs,
+ * where the Claude module's session plugin loads it. One Kehikot installed
+ * earlier and the person has not touched is removed — whatever the settings
+ * say, as with `tidySkills` — with one Inbox line. One they changed is left,
+ * and said once (`skill_bound_left`).
  *
  * A module that is not running is connected from the door it had when it last
  * ran (`knownDoors` in `known.ts`), at the address its registration gives now;
@@ -94,6 +113,12 @@ export interface SyncDeps {
   /** Where skills are installed (`claudeSkillsDir`). */
   skillsRoot(): string
   fetcher?: typeof fetch
+  /**
+   * A module's name for the words about a kehikko-bound skill, for one that is
+   * not registered here. Registered modules are named as the sweep saw them;
+   * otherwise `nameFromId`.
+   */
+  nameOf?(id: string): string | null
   /** One change made: one line in the Inbox. */
   tell(line: string): void
   /** What could not be done, as the one quiet item; empty clears it. */
@@ -150,6 +175,9 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
   const known = deps.known()
   const made = new Map(madeEntries(deps.db).map((one) => [one.module, one]))
   const rows: ModuleSync[] = []
+  const names = new Map(seen.map((one) => [one.id, one.name]))
+  const nameOf = (id: string) => names.get(id) ?? deps.nameOf?.(id) ?? nameFromId(id)
+  const leftBound = boundLeft(deps.db)
 
   for (const one of seen) {
     const row: ModuleSync = { id: one.id, name: one.name, tools: null, skills: [], answering: one.answering }
@@ -240,14 +268,18 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
     return null
   }
 
-  async function skillsFor(one: ModuleSeen): Promise<{ name: string; state: SkillState }[]> {
+  async function skillsFor(one: ModuleSeen): Promise<ModuleSync['skills']> {
     const root = deps.skillsRoot()
     const auto = automatic(settings, 'skills', one.id)
     const excepted = active(settings, 'skills') && !auto
-    const out: { name: string; state: SkillState }[] = []
+    const out: ModuleSync['skills'] = []
     for (const skill of one.skills) {
       const local = readLocal(root, skill.name, one.id)
       const where = `${root}/${skill.name}`
+      if (isKehikkoBound(skill)) {
+        out.push(boundFor(one, skill, local, where))
+        continue
+      }
       if (excepted) {
         out.push({ name: skill.name, state: 'excepted' })
         continue
@@ -289,6 +321,33 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
       }
     }
     return out
+  }
+
+  /**
+   * A kehikko-bound skill: never installed for every conversation. An untouched
+   * install of this module's is removed through `syncSkill`; an edited one is
+   * left and said once; anything else under that name is not Kehikot's.
+   */
+  function boundFor(one: ModuleSeen, skill: ModuleSkill, local: ReturnType<typeof readLocal>, where: string): ModuleSync['skills'][number] {
+    const bound = boundSays(one.id, skill.needs ?? [], nameOf)
+    if (local.kind === 'edited') {
+      if (leftBound.get(skill.name) !== one.id) {
+        recordBoundLeft(deps.db, skill.name, one.id)
+        tell(`Left the /${skill.name} skill (${where}) in every conversation because you changed it. ${bound}; delete that folder to have it only there`)
+      }
+      return { name: skill.name, state: 'edited', bound }
+    }
+    if (leftBound.has(skill.name)) forgetBoundLeft(deps.db, skill.name)
+    if (local.kind === 'ours') {
+      const done = syncSkill(deps.skillsRoot(), one.id, skill, 'remove')
+      if (!done.ok) {
+        transient = true
+        problems.push(`The /${skill.name} skill from ${one.name} is in every conversation and could not be removed: ${done.why}`)
+        return { name: skill.name, state: 'failed', bound }
+      }
+      tell(`Removed the /${skill.name} skill from every conversation. ${bound}, where the Claude module loads it`)
+    }
+    return { name: skill.name, state: 'bound', bound }
   }
 
   const registry = deps.registry?.() ?? null

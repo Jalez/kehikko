@@ -11,7 +11,7 @@ import type { SkillRow } from '../src/host/skills.ts'
  */
 
 const inChild = process.env.SKILLS_DIALOG_DOM === '1'
-const TESTS = 3
+const TESTS = 4
 
 if (!inChild) {
   test('the skills window, rendered in a process of its own', () => {
@@ -135,4 +135,21 @@ test('Update shows the diff first, and the whole text a press away', async () =>
   await act(async () => press('mine', 'read')!.click())
   expect(item('mine').querySelector('[data-diff]')).not.toBeNull()
   expect(press('mine', 'update')).toBeNull()
+})
+
+test('a kehikko-bound skill says where it works, and offers no Install even inside its text', async () => {
+  if (!inChild) return
+  const where = 'Available in conversations on a kehikko that also has Review and Factory'
+  ROWS.push(row({ name: 'review-factory', status: 'bound', says: 'On a kehikko only', bound: where }))
+  try {
+    await mount()
+    expect(item('review-factory').querySelector('[data-says]')!.textContent).toBe('On a kehikko only')
+    expect(item('review-factory').textContent).toContain(where)
+    expect(press('review-factory', 'remove')).toBeNull()
+    await act(async () => press('review-factory', 'read')!.click())
+    expect(item('review-factory').querySelector('[data-text]')).not.toBeNull()
+    expect(press('review-factory', 'install')).toBeNull()
+  } finally {
+    ROWS.pop()
+  }
 })

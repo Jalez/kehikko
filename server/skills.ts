@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { isSkillName, LIMITS, skillPath, skillTextIssue, type ModuleSkill } from 'kehikot-module-protocol'
+import { isKehikkoBound, isSkillName, LIMITS, skillPath, skillTextIssue, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { machineDir, modulesDir } from './machineDirs.ts'
-import { SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
+import { boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
 
 /**
  * Claude Code skills a module offers, installed by the PERSON (protocol 2.5.0).
@@ -32,6 +32,13 @@ import { SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/
  * Page-only POSTs (`PAGE_ONLY` in `guard.ts`), and no MCP tool installs or
  * removes: an agent putting instructions into its own future sessions is the
  * thing this is built not to allow.
+ *
+ * A kehikko-bound skill (protocol 2.12.0: one whose declaration lists `needs`,
+ * other modules it cannot work without) is never installed or updated here:
+ * `~/.claude/skills` is every conversation, on any kehikko or none. The Claude
+ * module's per-session plugin loads such a skill into a conversation whose
+ * kehikko has the modules it needs. Removing an untouched install of one is
+ * allowed as for any skill, and the Settings sync does it (`agentSync.ts`).
  */
 
 type Env = Record<string, string | undefined>
@@ -235,8 +242,18 @@ function refusedFor(local: LocalSkill, name: string, root: string): Done | null 
   return null
 }
 
+/** The refusal for installing or updating a kehikko-bound skill for every conversation. */
+export function boundRefusal(module: string, skill: ModuleSkill, nameOf: (id: string) => string = nameFromId): Done {
+  return {
+    ok: false,
+    status: 409,
+    why: `${boundSays(module, skill.needs ?? [], nameOf)}, where the Claude module loads it, so Kehikot does not install /${skill.name} for every conversation.`,
+  }
+}
+
 /** Install a skill that is not there yet. `text` is what the module served and the person was shown. */
 export function installSkill(root: string, module: string, skill: ModuleSkill, text: string): Done {
+  if (isKehikkoBound(skill)) return boundRefusal(module, skill)
   const local = readLocal(root, skill.name, module)
   const refused = refusedFor(local, skill.name, root)
   if (refused) return refused
@@ -258,6 +275,7 @@ export function installSkill(root: string, module: string, skill: ModuleSkill, t
 
 /** Replace an untouched install with the module's current text. */
 export function updateSkill(root: string, module: string, skill: ModuleSkill, text: string): Done {
+  if (isKehikkoBound(skill)) return boundRefusal(module, skill)
   const local = readLocal(root, skill.name, module)
   const refused = refusedFor(local, skill.name, root)
   if (refused) return refused
@@ -296,8 +314,8 @@ export function removeSkill(root: string, module: string, name: string): Done {
  * press (an app-wide "keep every module's skills installed" setting). Every
  * safety rule lives in the three functions it calls, not in the caller: an
  * edited skill is never overwritten or removed, a name that is not this
- * module's is never taken, and only an untouched install of this module's is
- * removed. `text` is the module's SKILL.md as fetched (`fetchSkillText`) and
+ * module's is never taken, only an untouched install of this module's is
+ * removed, and a kehikko-bound skill is never installed or updated. `text` is the module's SKILL.md as fetched (`fetchSkillText`) and
  * is required for install and update.
  */
 export type SkillMode = 'install' | 'update' | 'remove'
@@ -324,6 +342,8 @@ export interface SkillDeps {
   fetcher?: typeof fetch
   /** Where skills are installed; `claudeSkillsDir()` by default. */
   root?(): string
+  /** A module's name, for the words about a kehikko-bound skill; `nameFromId` by default. */
+  nameOf?(id: string): string
 }
 
 const json = (body: unknown, status = 200) =>
@@ -333,12 +353,19 @@ const moduleOf = (value: unknown): string | null =>
   typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
 
 /** The module's skills with what is installed, for the dialog. */
-export async function skillRows(found: Extract<SkillsOf, { ok: true }>, root: string, fetcher: typeof fetch = fetch): Promise<SkillRow[]> {
+export async function skillRows(
+  found: Extract<SkillsOf, { ok: true }>,
+  root: string,
+  fetcher: typeof fetch = fetch,
+  nameOf: (id: string) => string = nameFromId,
+): Promise<SkillRow[]> {
   return Promise.all(
     found.skills.map(async (skill): Promise<SkillRow> => {
       const fetched = await fetchSkillText(found.origin, skill.name, fetcher)
       const local = readLocal(root, skill.name, found.module)
-      const status = statusOf(local, fetched.ok ? fetched.text : null)
+      const bound = isKehikkoBound(skill) ? boundSays(found.module, skill.needs ?? [], nameOf) : null
+      /* A kehikko-bound skill that is not Kehikot's install here is where it belongs: not installed for every conversation. */
+      const status: SkillStatus = bound && (local.kind === 'absent' || local.kind === 'taken') ? 'bound' : statusOf(local, fetched.ok ? fetched.text : null)
       return {
         name: skill.name,
         summary: skill.summary,
@@ -351,7 +378,8 @@ export async function skillRows(found: Extract<SkillsOf, { ok: true }>, root: st
         unreadable: fetched.ok ? null : fetched.why,
         installedText: status === 'outdated' || status === 'edited' || status === 'taken' ? local.text : null,
         path: join(root, skill.name),
-        ...(local.who ? { who: local.who } : {}),
+        ...(local.who && status !== 'bound' ? { who: local.who } : {}),
+        ...(bound ? { bound } : {}),
       }
     }),
   )
@@ -365,6 +393,7 @@ export async function skillRows(found: Extract<SkillsOf, { ok: true }>, root: st
 export function skillsRoute(deps: SkillDeps) {
   const fetcher = deps.fetcher ?? fetch
   const root = deps.root ?? (() => claudeSkillsDir())
+  const nameOf = deps.nameOf ?? nameFromId
 
   return async (request: Request, url: URL): Promise<Response | null> => {
     if (url.pathname !== '/host/skills') return null
@@ -375,7 +404,7 @@ export function skillsRoute(deps: SkillDeps) {
       const found = await deps.lookup(module)
       if (!found.ok) return json({ ok: false, why: found.why }, found.status)
       const at = root()
-      return json({ ok: true, module, name: found.name, writesTo: at, skills: await skillRows(found, at, fetcher) })
+      return json({ ok: true, module, name: found.name, writesTo: at, skills: await skillRows(found, at, fetcher, nameOf) })
     }
 
     if (request.method !== 'POST') return json({ ok: false, why: 'GET or POST.' }, 405)
@@ -407,6 +436,10 @@ export function skillsRoute(deps: SkillDeps) {
 
     const skill = found.skills.find((one) => one.name === name)
     if (!skill) return json({ ok: false, why: `${found.name} does not offer a skill called ${name}.` }, 404)
+    if (isKehikkoBound(skill)) {
+      const refused = boundRefusal(module, skill, nameOf) as Extract<Done, { ok: false }>
+      return json(refused, refused.status)
+    }
     const fetched = await fetchSkillText(found.origin, name, fetcher)
     if (!fetched.ok) return json({ ok: false, why: fetched.why }, 502)
     /* What is written is what the person read: a text that changed since is shown again first. */

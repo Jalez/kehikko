@@ -29,8 +29,11 @@ export const BUILD_A_MODULE_GUIDE = 'https://github.com/Jalez/kehikko-protocol/b
  * - `outdated`: installed and untouched, and the module now serves a different text.
  * - `edited`: installed by Kehikot from this module, and changed since by hand. Never overwritten.
  * - `taken`: a skill of that name is there and is not this module's. Never overwritten.
+ * - `bound`: kehikko-bound (protocol 2.12.0, `needs`) and not installed for every conversation,
+ *   which is where it stays: the Claude module loads it into a conversation whose kehikko has
+ *   the modules it needs. Never installed user-wide.
  */
-export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken'
+export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'bound'
 
 export const SKILL_STATUS_SAYS: Record<SkillStatus, string> = {
   absent: 'Not installed',
@@ -38,6 +41,28 @@ export const SKILL_STATUS_SAYS: Record<SkillStatus, string> = {
   outdated: 'Outdated',
   edited: 'Changed by you',
   taken: 'Name taken',
+  bound: 'On a kehikko only',
+}
+
+/** "Review", "Review and Factory", "Browser, Review and Factory". */
+export function namesSaid(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** A module's name when nothing better is known: `kehikot.review` → "Review". */
+export function nameFromId(id: string): string {
+  const last = id.split('.').pop() || id
+  return last.charAt(0).toUpperCase() + last.slice(1)
+}
+
+/**
+ * Where a kehikko-bound skill works, in the words the Skills window and Settings › Skills show:
+ * the modules it needs, then the one offering it. `nameOf` names a module id.
+ */
+export function boundSays(own: string, needs: readonly string[], nameOf: (id: string) => string): string {
+  const names = [...new Set([...needs.filter((id) => id !== own).map(nameOf), nameOf(own)])]
+  return `Available in conversations on a kehikko that also has ${namesSaid(names)}`
 }
 
 /** One row of `GET /host/skills`. */
@@ -60,10 +85,17 @@ export interface SkillRow {
   path: string
   /** For `taken`: whose it is. */
   who?: string
+  /**
+   * For a kehikko-bound skill (`needs`, protocol 2.12.0): where it works, in words
+   * (`boundSays`). Such a skill is never installed for every conversation, so a row with
+   * this offers no Install and no Update.
+   */
+  bound?: string
 }
 
 /** The one press a row offers, if any. */
-export function pressFor(row: Pick<SkillRow, 'status' | 'text'>): 'install' | 'update' | null {
+export function pressFor(row: Pick<SkillRow, 'status' | 'text' | 'bound'>): 'install' | 'update' | null {
+  if (row.bound) return null
   if (row.status === 'absent' && row.text !== null) return 'install'
   if (row.status === 'outdated' && row.text !== null) return 'update'
   return null
@@ -74,6 +106,15 @@ export const removable = (row: Pick<SkillRow, 'status'>) => row.status === 'inst
 
 /** What the row says under the name when nothing can be pressed for it. */
 export function whyNot(row: SkillRow): string | null {
+  if (row.bound) {
+    if (row.status === 'edited') {
+      return `${row.path} is in every conversation, and you changed it, so Kehikot leaves it there. ${row.bound}; to have it only there, move or delete that folder yourself.`
+    }
+    if (row.status === 'installed' || row.status === 'outdated') {
+      return `${row.path} puts it in every conversation. ${row.bound}, so Kehikot removes it from there.`
+    }
+    return `${row.bound}: the Claude module loads it into such a conversation, so it is not installed for every one.`
+  }
   if (row.status === 'edited') {
     return `${row.path} has been changed since it was installed. Kehikot leaves your changes alone: to take the module’s text, move or delete that folder yourself.`
   }
