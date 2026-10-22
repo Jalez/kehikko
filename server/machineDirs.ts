@@ -112,6 +112,18 @@ export function myModulesFile(env: Env = process.env): string {
 }
 
 /**
+ * The person's own suggested layouts ("Save this kehikko as a layout…" → just
+ * me), one `<slug>.json` each — see `src/host/layouts.ts` and
+ * `server/layouts.ts`. Machine-level because they are this person's for every
+ * project; a layout for one project goes in that project's
+ * `.kehikot/host/layouts/` instead. `KEHIKOT_LAYOUTS_DIR` overrides it (tests,
+ * scratch hosts).
+ */
+export function layoutsDir(env: Env = process.env, platform: string = process.platform): string {
+  return env.KEHIKOT_LAYOUTS_DIR || join(machineDir(env, platform), 'layouts')
+}
+
+/**
  * Per-install secrets one module presents to another, one file each, readable
  * only by the user: today Review's Factory key, `keys/review-factory.key`
  * (kehikko-review, created on its first start). Machine-level because it

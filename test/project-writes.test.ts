@@ -31,6 +31,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',
   'appProtocols.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the app version → protocol cache',
   'myModules.ts: mkdirSync(dirname(file), { recursive: true })': 'the My modules list, in the machine directory',
+  'layouts.ts: mkdirSync(dir, { recursive: true })': "the person's own layouts, in the machine directory (layoutsDir)",
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
   'skills.ts: mkdirSync(root, { recursive: true })': "Claude Code's skills directory (~/.claude/skills)",
   'skills.ts: mkdirSync(tmp)': "a temporary folder inside Claude Code's skills directory",
