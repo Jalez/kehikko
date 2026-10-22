@@ -114,7 +114,7 @@ export function WhatsNewDialog({
           orientation="vertical"
           className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
         >
-          <aside className="bg-muted/40 flex min-w-0 shrink-0 flex-col border-b sm:w-60 sm:border-r sm:border-b-0">
+          <aside className="bg-muted/40 flex min-w-0 shrink-0 flex-col border-b sm:min-h-0 sm:w-60 sm:border-r sm:border-b-0">
             <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
               <DialogTitle className="flex items-center gap-2 text-sm">
                 <KehikkoMark working={false} className="text-muted-foreground size-4" />
@@ -126,7 +126,7 @@ export function WhatsNewDialog({
             </DialogHeader>
             <TabsList
               aria-label="What changed"
-              className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent px-2 pb-2 sm:flex-col sm:items-stretch sm:overflow-visible"
+              className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent px-2 pb-2 sm:min-h-0 sm:flex-1 sm:flex-col sm:items-stretch sm:overflow-x-hidden sm:overflow-y-auto sm:overscroll-contain"
             >
               {items.map((item) => (
                 <TabsTrigger

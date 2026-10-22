@@ -500,6 +500,10 @@ describe.skipIf(!inChild)('the dialog', () => {
     const list = document.querySelector('[data-whats-new] [role="tablist"]')!
     expect(list.getAttribute('aria-label')).toBe('What changed')
     expect(list.getAttribute('aria-orientation')).toBe('vertical')
+    /* A long list of updated modules scrolls inside the side column instead of running past the dialog. */
+    expect(list.className).toContain('sm:overflow-y-auto')
+    expect(list.className).toContain('sm:min-h-0')
+    expect(list.closest('aside')!.className).toContain('sm:min-h-0')
     const first = list.querySelector('[role="tab"]') as HTMLElement
     first.focus()
     await act(async () => {
