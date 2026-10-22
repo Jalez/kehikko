@@ -92,15 +92,33 @@
   an official module that is not here says "will install X" and installs only
   on the press in the picker's confirm step, through `/host/official/install`;
   one on no list is "not available" and left out. Never install from a card.
-- The introduction is shown once per `INTRO_VERSION` (`src/host/onboarding.ts`,
+- The introduction (`src/canvas/Intro.tsx`) is a welcome and a pitch, not a
+  manual: "Welcome to Kehikot" first, then what Kehikot brings; how controls
+  work is the tour's. Each slide's picture is inline SVG animated by CSS
+  (`.intro-art` in `index.css`), whose own styles are the FINAL frame, so
+  `prefers-reduced-motion` / `data-motion="still"` shows a still that still
+  says it. Its ✕ has a row of its own above the picture (`showClose={false}`
+  on `DialogContent`). Shown once per `INTRO_VERSION` (`src/host/onboarding.ts`,
   stored in `frame.sqlite` by `server/onboarding.ts`, `POST /host/onboarding`
-  in `PAGE_ONLY`), after Settings' one-time question, and again from the "?"
-  menu (`src/canvas/Help.tsx`). `KEHIKOT_ONBOARDING=off` answers it seen — set
-  it on a scratch host you screenshot.
-- The tour is driver.js (pinned exactly), its stops in `src/host/tour.ts` by
-  `data-tour` attributes and existing ones; a stop not on screen is skipped.
-  Its look is `.kehikot-tour` in `index.css`, from the app's tokens only. A new
-  control the tour should show gets a `data-tour` and a stop.
+  in `PAGE_ONLY`), after Settings' one-time question, and again from Help →
+  Introduction. `KEHIKOT_ONBOARDING=off` answers it seen and the tour finished
+  — set it on a scratch host you screenshot unless you are shooting these.
+- The tour (`src/host/tour.ts` rules, `src/canvas/Tour.ts` the `Guide` and its
+  driver.js drawer). WAIT steps (project, epic, parts, kehikko) point at a
+  control and move on only when the app's facts say it is done (`Facts`, from
+  `App.tsx`; the home folder a fresh host opens by itself is not a picked
+  project — `home` on a project); each has frames, most specific first, so it
+  follows the person into the menu and the window they open. SHOW steps are
+  the explanations after, skipped when not on screen. Waiting draws no overlay
+  and leaves the page usable (`data-tour-mode="wait"`, `driver-active` taken
+  off) and never takes focus. Every step has "I've got this"; it, Escape and ✕
+  pause at the step and point at Help; Help → Continue tour resumes there,
+  Restart tour starts from the first step not done. While the tour runs
+  `<html data-tour-running>` stands (`tourStanding`), and What's new waits on it.
+  A control the tour should find gets a `data-tour` and a frame.
+- Layouts are in the kehikko menu (new kehikko… opens the picker) and on the
+  empty canvas, never in Help. The built-ins start with Design, Research,
+  Development, Review, Learning.
 
 ## Manifests
 

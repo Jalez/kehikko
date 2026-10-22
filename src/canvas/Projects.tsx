@@ -188,7 +188,7 @@ export function Projects({
           ))}
           {/* At the end of the list of projects, which is where it was asked
               for and where the question it answers gets asked. */}
-          <AddItem icon={<FolderPlus className="text-muted-foreground size-3 shrink-0" />} onAdd={() => setBrowsing(true)}>
+          <AddItem icon={<FolderPlus className="text-muted-foreground size-3 shrink-0" />} onAdd={() => setBrowsing(true)} tour="add-project">
             add a project…
           </AddItem>
           {/*
@@ -466,7 +466,7 @@ export function Browser({
               A walk has an obvious current place and a selection would be a
               second piece of state saying the same thing — and disagreeing with
               it the moment somebody walks without re-picking. */}
-          <Button size="sm" disabled={!listing} onClick={() => listing && onPick(listing.path)}>
+          <Button size="sm" disabled={!listing} onClick={() => listing && onPick(listing.path)} data-tour="add-folder">
             {pick}
           </Button>
         </div>

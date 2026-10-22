@@ -74,6 +74,11 @@ export const projectSchema = z.object({
    * has said so once. Null otherwise; absent from an older host.
    */
   followed: z.string().nullable().optional(),
+  /**
+   * The person's home folder — what a fresh host opens before anybody has
+   * picked a project. Absent otherwise, and from an older host.
+   */
+  home: z.boolean().optional(),
 })
 export type Project = z.infer<typeof projectSchema>
 

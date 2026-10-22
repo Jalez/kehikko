@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { compareReleases, isRelease, releasesNewestFirst, releaseVersion, type Follows } from './moduleReleases.ts'
 import { compareVersions } from './worksWith.ts'
+import { tourStanding } from './tour.ts'
 
 /**
  * "What's new" after an update: Kehikot and every module, in one dialog.
@@ -412,8 +413,11 @@ const STANDING = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="l
 /** Why now is not a moment to open a dialog, or null when it is. */
 export function notQuiet(root: Document = document): string | null {
   if (updatesBusy()) return 'updating'
+  /* The tour: driver.js's own mark while a step is shown, and the tour's
+     own for as long as it runs — a step waiting for the person draws no
+     overlay and has no `driver-active`. */
+  if (root.body?.classList.contains('driver-active') || tourStanding(root)) return 'tour'
   if (root.querySelector(STANDING)) return 'open'
-  if (root.body?.classList.contains('driver-active')) return 'tour'
   const active = root.activeElement as HTMLElement | null
   const focused = typeof root.hasFocus === 'function' ? root.hasFocus() : true
   if (focused && active && active !== root.body) {

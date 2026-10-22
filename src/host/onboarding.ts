@@ -15,41 +15,67 @@ import { z } from 'zod'
  * the number and is shown once again.
  */
 
-export const INTRO_VERSION = 1
+export const INTRO_VERSION = 2
+
+/** A tour step's id, as `src/host/tour.ts` names them. Kept as a string so a step added later reads in an older row. */
+const stepId = z.string().regex(/^[a-z][a-z-]{0,39}$/)
+
+export const tourStateSchema = z
+  .object({
+    /** The step the person is at, or left the tour at; null when not started or finished. */
+    step: stepId.nullable().catch(null).default(null),
+    /** Paused by "I've got this" (or Escape, or ✕): "Continue tour" in the Help menu picks it up at `step`. */
+    paused: z.boolean().catch(false).default(false),
+    finished: z.boolean().catch(false).default(false),
+  })
+  .catch({ step: null, paused: false, finished: false })
+export type TourState = z.infer<typeof tourStateSchema>
 
 export const onboardingSchema = z.object({
   /** The introduction last seen (or skipped), 0 for none. */
   intro: z.number().int().min(0).catch(0).default(0),
-  tour: z
-    .object({
-      /** The stop the person left the tour at, to resume from; null when not started or finished. */
-      at: z.number().int().min(0).max(100).nullable().catch(null).default(null),
-      finished: z.boolean().catch(false).default(false),
-    })
-    .catch({ at: null, finished: false })
-    .default({ at: null, finished: false }),
+  /* A row from the first tour (`{ at, finished }`) reads as not started: its
+     stops were numbered, and the numbers mean nothing now. */
+  tour: tourStateSchema.default({ step: null, paused: false, finished: false }),
 })
 export type Onboarding = z.infer<typeof onboardingSchema>
 
-export const NOT_STARTED: Onboarding = { intro: 0, tour: { at: null, finished: false } }
+export const NOT_STARTED: Onboarding = { intro: 0, tour: { step: null, paused: false, finished: false } }
 
 /** What may be changed in one POST: the introduction seen, and where the tour is. */
 export const onboardingEditSchema = z
   .object({
     intro: z.literal('seen').optional(),
     tour: z
-      .object({ at: z.number().int().min(0).max(100).nullable(), finished: z.boolean().optional() })
+      .object({ step: stepId.nullable(), paused: z.boolean().optional(), finished: z.boolean().optional() })
       .strict()
       .optional(),
   })
   .strict()
 export type OnboardingEdit = z.infer<typeof onboardingEditSchema>
 
+/**
+ * One edit applied. A tour edit says where the tour is now; `paused` and
+ * `finished` are false unless it says otherwise — moving on is not paused,
+ * and a step is not finished.
+ */
 export function edited(was: Onboarding, edit: OnboardingEdit): Onboarding {
   return {
     intro: edit.intro === 'seen' ? Math.max(was.intro, INTRO_VERSION) : was.intro,
-    tour: edit.tour ? { at: edit.tour.at, finished: edit.tour.finished ?? (edit.tour.at === null ? was.tour.finished : false) } : was.tour,
+    tour: edit.tour
+      ? { step: edit.tour.step, paused: edit.tour.paused ?? false, finished: edit.tour.finished ?? false }
+      : was.tour,
   }
+}
+
+/** Can the tour be continued from where it was paused? */
+export function continuable(state: Onboarding | null): boolean {
+  return state !== null && state.tour.paused && state.tour.step !== null && !state.tour.finished
+}
+
+/** Was the tour left running (not paused, not finished) — a reload in the middle of it — so it picks up by itself? */
+export function underway(state: Onboarding | null): boolean {
+  return state !== null && state.tour.step !== null && !state.tour.paused && !state.tour.finished
 }
 
 /** Should the introduction open by itself? Only when this one has not been seen. */
@@ -92,6 +118,7 @@ const OPEN_INTRO = 'kehikot:open-intro'
 const OPEN_TOUR = 'kehikot:open-tour'
 const OPEN_LAYOUTS = 'kehikot:open-layouts'
 
+/** `resume`: from the step it was left at; `over`: from the first step not already done. */
 export type TourStart = 'resume' | 'over'
 
 export function openIntro(): void {

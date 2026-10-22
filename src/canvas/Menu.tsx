@@ -191,16 +191,20 @@ export function AddItem({
   children,
   keepOpen = false,
   onAdd,
+  tour,
 }: {
   icon?: ReactNode
   children: ReactNode
   keepOpen?: boolean
   onAdd(): void
+  /** What the guided tour finds it by (`data-tour`, `src/host/tour.ts`). */
+  tour?: string
 }) {
   return (
     <>
       <DropdownMenuSeparator />
       <DropdownMenuItem
+        data-tour={tour}
         onSelect={(event) => {
           if (keepOpen) event.preventDefault()
           onAdd()

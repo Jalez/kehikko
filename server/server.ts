@@ -2500,7 +2500,7 @@ const server = Bun.serve({
     }
     if (url.pathname === '/host/onboarding' && request.method === 'POST') {
       const edit = onboardingEditSchema.safeParse(await request.json().catch(() => null))
-      if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { at } }.' }, 400)
+      if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { step, paused?, finished? } }.' }, 400)
       return json(writeOnboarding(db, edit.data))
     }
 

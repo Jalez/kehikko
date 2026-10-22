@@ -2937,6 +2937,20 @@ export function App() {
 
   /** The kehikot of the open project, which is what the header lists. */
   const here = useMemo(() => inProject(canvases, projectId), [canvases, projectId])
+  /* What the tour's waiting steps wait for (`src/host/tour.ts`): a project
+     open, an epic chosen, parts picked, a kehikko here with something on it. */
+  const tourFacts = useMemo(
+    () => ({
+      /* The home folder a fresh host opens by itself is not a project
+         anybody picked — unless it is one of several, chosen from the menu. */
+      project: projectId !== null && !(project?.home && projects.length === 1),
+      projects: projects.filter((one) => !one.home).length,
+      epic: about.epic !== null || about.scope === 'project',
+      parts: about.parts.length > 0,
+      kehikko: here.some((canvas) => canvas.placements.length > 0),
+    }),
+    [projectId, project?.home, projects, about.epic, about.scope, about.parts.length, here],
+  )
   gotoRef.current = ({ epic, parts, kehikko: key }) => {
     const now = about.epic
     const row = held?.epics.find((one) => one.slug === epic)
@@ -4095,6 +4109,7 @@ export function App() {
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}
       <OnboardingHost
+        facts={tourFacts}
         project={projectId}
         open={open}
         registered={registeredNames}

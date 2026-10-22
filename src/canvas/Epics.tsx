@@ -368,7 +368,7 @@ export function Epics({
               </>
             ) : null}
             {offer.offered ? (
-              <AddItem keepOpen onAdd={() => setCreating(true)}>
+              <AddItem keepOpen onAdd={() => setCreating(true)} tour="new-epic">
                 new epic…
               </AddItem>
             ) : null}
@@ -439,6 +439,7 @@ function Create({
   return (
     <div
       className="px-2 py-1.5"
+      data-tour="epic-form"
       onKeyDown={(event) => {
         event.stopPropagation()
         if (event.key === 'Enter') void commit()
