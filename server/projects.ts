@@ -7,9 +7,10 @@ import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } fro
 
 import { createCanvas, listCanvases } from './canvases.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
+import { scratchHost } from './machineDirs.ts'
 import { bookmarks, type Bookmarks } from './bookmarks.ts'
 import { isHome, projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
-import { folderIdentity, looksMadeByAHost, MISSING_SAID, projectRootExists, setRecordedFolders } from './projectRoot.ts'
+import { folderIdentity, looksMadeByAHost, MISSING_SAID, projectRootExists, READ_ONLY_SAID, setReadOnlyRoots, setRecordedFolders } from './projectRoot.ts'
 
 export { MISSING_SAID, projectRootExists } from './projectRoot.ts'
 
@@ -106,8 +107,10 @@ export interface Project {
   followed: string | null
   /**
    * The person's home folder: what a fresh host opens when nobody has picked
-   * a project yet (see `adopt`). Only present when true. The tour reads it as
-   * "no project picked yet" (`src/host/tour.ts`).
+   * a project yet (see `adopt`). Only present when true, and gone once the
+   * person picks it themselves. The tour reads it as "no project picked yet"
+   * (`src/host/tour.ts`), and the host writes nothing under it
+   * (`isReadOnlyRoot`, `projectRoot.ts`).
    */
   home?: true
 }
@@ -129,7 +132,7 @@ const NAME_MAX = 60
 export function listProjects(db: Database): Project[] {
   return db
     .query<Row, []>(
-      'select id, name, path, uid, followed_from from projects order by rank, id',
+      'select id, name, path, uid, followed_from, picked from projects order by rank, id',
     )
     .all()
     .map((row) => described(row))
@@ -267,7 +270,7 @@ function throughParent(asked: string): string {
 export function projectById(db: Database, id: number): Project | null {
   const row = db
     .query<Row, [number]>(
-      'select id, name, path, uid, followed_from from projects where id = ?',
+      'select id, name, path, uid, followed_from, picked from projects where id = ?',
     )
     .get(id)
   return row ? described(row) : null
@@ -277,7 +280,7 @@ export function projectById(db: Database, id: number): Project | null {
 type Row = { id: number; name: string; path: string; uid: string | null }
 
 /** A row as the page and the agents see it, read off the disk now. */
-function described({ followed_from, ...row }: Row & { followed_from?: string | null }): Project {
+function described({ followed_from, picked, ...row }: Row & { followed_from?: string | null; picked?: number | null }): Project {
   const missing = !projectRootExists(row.path)
   return {
     ...row,
@@ -290,7 +293,8 @@ function described({ followed_from, ...row }: Row & { followed_from?: string | n
     shared: missing ? false : sharesKehikot(row.path),
     missing,
     uid: row.uid,
-    ...(isHome(row.path) ? { home: true as const } : {}),
+    /* The fallback only: a home folder the person picked is a project like any other. */
+    ...(isHome(row.path) && !picked ? { home: true as const } : {}),
   }
 }
 
@@ -488,6 +492,7 @@ export function shareKehikot(db: Database, id: number, shared: boolean): Shared 
   const project = projectById(db, id)
   if (!project) return { ok: false, why: 'There is no project by that id.', status: 404 }
   if (project.missing) return { ok: false, why: `${MISSING_SAID} Its .gitignore was not touched.`, status: 409 }
+  if (project.home) return { ok: false, why: `${READ_ONLY_SAID} Its .gitignore was not touched.`, status: 409 }
   if (!project.git) {
     return {
       ok: false,
@@ -571,6 +576,13 @@ export function addProject(
    * project to find a blank canvas in front of the work they had arranged.
    */
   alsoAKehikko = true,
+  /**
+   * Whether a person picked this folder. False in exactly one place: `adopt`
+   * falling back to the home folder on a host nobody has told anything. A
+   * folder nobody picked is read and never written; picking it later (this
+   * function again, with the default) lifts that.
+   */
+  chosen = true,
 ): Added {
   if (typeof asked !== 'string' || !asked || asked.length > LIMITS.PATH || asked.includes('\0')) {
     return { ok: false, why: 'A project is named by one absolute path.', status: 400 }
@@ -590,7 +602,7 @@ export function addProject(
   /* A legacy `data/epics` / `data/state` moves under `.kehikot/host/` the
      moment the folder becomes (or is re-added as) a project — see
      `hostData.ts`. Never overwrites; a folder with both keeps both. */
-  migrateHostData(real)
+  if (chosen) migrateHostData(real)
 
   /* Already open. Not an error and not a second row: the person picked the
      folder they are already in, most likely because they could not tell from
@@ -600,6 +612,10 @@ export function addProject(
     /* The person picked this very folder: it is the project, even holding
        nothing but `.kehikot/` (`projectRoot.ts`). */
     vouch(db, standing.id, real)
+    if (chosen) {
+      db.query('update projects set picked = 1 where id = ? and picked is null').run(standing.id)
+      migrateHostData(real)
+    }
     identify(db, standing.id)
     keepBookmark(db, standing.id)
     const project = projectById(db, standing.id)
@@ -638,10 +654,10 @@ export function addProject(
   const label = tidy(name) ?? named(real)
 
   const row = db
-    .query<{ id: number }, [string, string]>(
-      'insert into projects (name, path, rank) values (?, ?, (select coalesce(max(rank), 0) + 1 from projects)) returning id',
+    .query<{ id: number }, [string, string, number | null]>(
+      'insert into projects (name, path, rank, picked) values (?, ?, (select coalesce(max(rank), 0) + 1 from projects), ?) returning id',
     )
-    .get(label, real)
+    .get(label, real, chosen ? 1 : null)
   if (!row) return { ok: false, why: 'The project was not written.', status: 500 }
 
   /* Its id: adopted from the folder, or minted and written there. A copy of
@@ -691,11 +707,22 @@ export function adopt(
 
   if (!projects.length) {
     const named = env.KEHIKOT_SEED_PROJECT
-    const seed = named && existsSync(named) ? named : homedir()
-    /* A seed that cannot be added is not fatal. The host starts, the header
-       says there is no project, and "add a project" still works — a far better
-       state than refusing to serve a page. */
-    if (addProject(db, seed, undefined, orphans.length === 0).ok) projects = listProjects(db)
+    const chosen = !!named && existsSync(named)
+    if (chosen) {
+      /* A seed that cannot be added is not fatal. The host starts, the header
+         says there is no project, and "add a project" still works — a far better
+         state than refusing to serve a page. */
+      if (addProject(db, named, undefined, orphans.length === 0).ok) projects = listProjects(db)
+    } else if (scratchHost(env)) {
+      /* A test or scratch host with nothing told: no real folder is a project. */
+      console.warn(
+        'kehikko: a scratch host (machine directories under a temp folder, or KEHIKOT_SCRATCH=1) with no KEHIKOT_SEED_PROJECT opens no project. Pick one.',
+      )
+    } else if (addProject(db, env.HOME || homedir(), undefined, orphans.length === 0, false).ok) {
+      /* The home folder is opened so there is a canvas, but nobody picked it:
+         read, never written (`projectRoot.ts`). */
+      projects = listProjects(db)
+    }
   }
 
   /* A folder renamed or moved while this host was not running is found again
@@ -851,6 +878,15 @@ export function vouch(db: Database, id: number, path: string): void {
  */
 export function knowFolders(db: Database): void {
   const asked = db.query<{ folder: string | null }, [string]>('select folder from projects where path = ?')
+  const unpicked = db.query<{ picked: number | null }, [string]>('select picked from projects where path = ?')
+  setReadOnlyRoots((root) => {
+    try {
+      const row = unpicked.get(root)
+      return !!row && !row.picked && isHome(root)
+    } catch {
+      return false
+    }
+  })
   setRecordedFolders((root) => {
     try {
       const row = asked.get(root)

@@ -719,6 +719,14 @@ export function open(file = databaseFile()): Database {
    */
   add(db, 'projects', 'followed_from', 'text')
   /*
+   * 1 when a person picked this folder (the picker, an agent's add, the seed
+   * they named), null when the host opened it by itself: the home folder a
+   * fresh host falls back to. A folder nobody picked is read and never
+   * written (`isReadOnlyRoot`, `projectRoot.ts`). Rows from before the column
+   * are null, so an old home fallback becomes read-only until it is picked.
+   */
+  add(db, 'projects', 'picked', 'integer')
+  /*
    * The folder's identity on its disk (device and inode, `folderIdentity` in
    * `projectRoot.ts`), recorded whenever this host knows the folder at `path`
    * is the project. A folder at the path with another identity and nothing in

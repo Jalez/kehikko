@@ -17,7 +17,7 @@ import { slugFrom } from '../src/host/epics.ts'
 
 import { edited, listedIn, partsHeld, type Part, type PartsEdit } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
-import { makeUnderRoot, MISSING_SAID, projectRootExists, sayMissing } from './projectRoot.ts'
+import { isReadOnlyRoot, makeUnderRoot, MISSING_SAID, projectRootExists, READ_ONLY_SAID, refusedSaid, sayMissing, sayReadOnly } from './projectRoot.ts'
 
 /**
  * What this host actually holds, when it is pointed at something.
@@ -469,6 +469,10 @@ export function retitleEpic(root: string, slug: string, title: string): Retitled
     sayMissing(root)
     return { ok: false, why: `${MISSING_SAID} The epic was not retitled.`, status: 409 }
   }
+  if (isReadOnlyRoot(root)) {
+    sayReadOnly(root)
+    return { ok: false, why: `${READ_ONLY_SAID} The epic was not retitled.`, status: 409 }
+  }
 
   const path = join(epicsDir(root), `${slug}.json`)
   let raw: string
@@ -635,7 +639,7 @@ export function createEpic(
   if (madeDirectory) {
     /* Inside the project, never the project: a folder that was renamed away is not made again. */
     try {
-      if (!makeUnderRoot(root, dir)) return { ok: false, why: `${MISSING_SAID} No epic was made.`, status: 409 }
+      if (!makeUnderRoot(root, dir)) return { ok: false, why: `${refusedSaid(root)} No epic was made.`, status: 409 }
     } catch (error) {
       return { ok: false, why: `${EPICS_REL} could not be made in this project: ${(error as Error).message}`, status: 500 }
     }
@@ -782,6 +786,10 @@ export function editParts(root: string | null | undefined, slug: unknown, edit: 
   if (!projectRootExists(root)) {
     sayMissing(root)
     return declined(`${MISSING_SAID} The parts were not changed.`)
+  }
+  if (isReadOnlyRoot(root)) {
+    sayReadOnly(root)
+    return declined(`${READ_ONLY_SAID} The parts were not changed.`)
   }
   const path = join(epicsDir(root), `${slug}.json`)
   let raw: string
