@@ -4,6 +4,7 @@ import {
   Bot,
   Check,
   ExternalLink,
+  Hammer,
   HardDrive,
   Info,
   MessagesSquare,
@@ -49,6 +50,8 @@ import {
   type ToolState,
 } from '@/host/agentSettings.ts'
 import { notAnswering } from '@/host/reachable.ts'
+import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
+import { SkillsDialog } from './Skills.tsx'
 import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNotes.ts'
 import { openStorage } from '@/host/storage.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
@@ -556,10 +559,12 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
   }
 
   if (which === 'skills') {
-    const offering = status.modules.filter((one) => one.skills.length > 0)
+    /* Kehikot's own skills (the host's row) apart from the modules': `server/ownSkills.ts`. */
+    const own = status.modules.find((one) => one.id === OWN_SKILLS_MODULE && one.skills.length > 0)
+    const offering = status.modules.filter((one) => one.id !== OWN_SKILLS_MODULE && one.skills.length > 0)
     return (
       <>
-        <Heading id="skills" lead="Each module’s Claude Code skills, in your personal skills folder.">
+        <Heading id="skills" lead="Kehikot’s own and each module’s Claude Code skills, in your personal skills folder.">
           Skills
         </Heading>
         <Summary icon={Sparkles} title="Status">
@@ -580,6 +585,18 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
             onChange={(on) => set({ skills: { auto: on } })}
           />
         </Rows>
+        {own ? (
+          <OwnSkills
+            row={{
+              id: own.id,
+              name: 'Kehikot',
+              out: settings.skills.except.includes(own.id),
+              chips: own.skills.map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
+            }}
+            disabled={!active(settings, 'skills')}
+            onOut={(module, out) => onChange({ except: { kind: 'skills', module, out } })}
+          />
+        ) : null}
         {offering.length ? (
           <ModuleExceptions
             kind="skills"
@@ -748,6 +765,12 @@ function About({ onClose }: { onClose(): void }) {
           onPress={() => openExternal(releasePage(APP_REPO))}
         />
         <LinkRow
+          icon={Hammer}
+          label="Build your own module"
+          description="The guide to making a Kehikot module, from the first question to its first release. In Claude Code, /kehikot-module walks you through it."
+          onPress={() => openExternal(BUILD_A_MODULE_GUIDE)}
+        />
+        <LinkRow
           icon={HardDrive}
           label="Storage overview"
           description="What every module’s data takes in every project, and Kehikot’s own."
@@ -780,6 +803,42 @@ function useWhatsNewSetting(): { show: boolean | null; set(on: boolean): void } 
     })
   }, [])
   return { show, set }
+}
+
+/**
+ * Kehikot's own skills: offered by the host, kept installed by the same sync and
+ * the same rules as a module's. "Read and install…" opens the Skills window for
+ * them, where the person reads the text before anything is written.
+ */
+function OwnSkills({
+  row,
+  disabled,
+  onOut,
+}: {
+  row: { id: string; name: string; out: boolean; chips: { text: string; tone: Tone }[] }
+  disabled: boolean
+  onOut(module: string, out: boolean): void
+}) {
+  const [reading, setReading] = useState(false)
+  return (
+    <section aria-labelledby="settings-own-skills" className="min-w-0 space-y-2" data-own-skills>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="min-w-0">
+          <h4 id="settings-own-skills" className="text-sm font-medium">
+            Kehikot’s own skills
+          </h4>
+          <p className="text-muted-foreground text-xs">Skills Kehikot itself offers, such as /kehikot-module to build a module of your own.</p>
+        </div>
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setReading(true)}>
+          Read and install…
+        </Button>
+      </div>
+      <ul className="divide-y rounded-lg border">
+        <ModuleRow row={row} keep="keep installed" disabled={disabled} onOut={onOut} />
+      </ul>
+      {reading ? <SkillsDialog open onOpenChange={setReading} module={OWN_SKILLS_MODULE} name="Kehikot" /> : null}
+    </section>
+  )
 }
 
 /* ---- the pieces every section is made of ---- */

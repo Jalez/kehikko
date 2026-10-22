@@ -5,7 +5,7 @@ import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { notAnswering } from '@/host/reachable.ts'
-import { lineDiff, NEXT_SESSION_SKILLS, pressFor, removable, whyNot, type SkillRow } from '@/host/skills.ts'
+import { lineDiff, NEXT_SESSION_SKILLS, OWN_SKILLS_MODULE, pressFor, removable, whyNot, type SkillRow } from '@/host/skills.ts'
 
 /**
  * A module's Claude Code skills, and the person's presses on them (protocol 2.5.0).
@@ -107,7 +107,7 @@ export function SkillsDialog({
         <DialogHeader>
           <DialogTitle>Skills from {name}</DialogTitle>
           <DialogDescription>
-            Claude Code skills this module offers. Installed, a skill is in your own Claude Code for every project
+            Claude Code skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your own Claude Code for every project
             {answer ? (
               <>
                 {' '}

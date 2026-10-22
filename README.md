@@ -54,7 +54,10 @@ out the rest.
 | [Tests](https://github.com/Jalez/kehikko-tests) | what was actually run against a change |
 
 And more: citations, notifications, learning questions, an orchestrator that
-starts agent sessions. Or [write your own](https://github.com/Jalez/kehikko-protocol).
+starts agent sessions. Or build your own: read
+[Building a module](https://github.com/Jalez/kehikko-protocol/blob/main/docs/building-a-module.md), or type
+`/kehikot-module` in Claude Code and Kehikot walks you through it, from the
+first question to its first release.
 
 ## Getting started
 
@@ -80,7 +83,7 @@ download the app from
 <p align="center">
   <a href="docs/README.md">Technical guide</a> ·
   <a href="https://github.com/Jalez/kehikko-desktop">The macOS app</a> ·
-  <a href="https://github.com/Jalez/kehikko-protocol">Write your own tool</a>
+  <a href="https://github.com/Jalez/kehikko-protocol/blob/main/docs/building-a-module.md">Build your own module</a>
 </p>
 
 <p align="center"><sub><em>Kehikko</em> is Finnish for a frame. <em>Kehikot</em> are the frames.</sub></p>

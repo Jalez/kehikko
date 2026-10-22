@@ -11,7 +11,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 10
+const TESTS = 11
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -200,6 +200,21 @@ test('Settings: a section nav, agents, tools and skills with status in words and
   expect([...body.querySelectorAll('button')].some((one) => one.textContent === 'Save')).toBe(false)
 })
 
+test('Skills: Kehikot’s own skills apart from the modules’, kept by the same switch, with their text a press away', async () => {
+  if (!inChild) return
+  const given = answer()
+  given.status.modules[0] = { ...given.status.modules[0]!, skills: [{ name: 'kehikot-module', state: 'installed' }] }
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => given} section="skills" />)
+  const own = document.querySelector('[data-own-skills]')!
+  expect(own.querySelector('h4')!.textContent).toBe('Kehikot’s own skills')
+  expect(own.querySelector('[data-module="kehikko"]')!.textContent).toContain('/kehikot-module · Installed')
+  expect(named(own.querySelector('[role="switch"]')!)).toBe('Kehikot: keep installed')
+  expect(button('Read and install…')).toBeTruthy()
+  /* Not listed again among the modules. */
+  expect(document.querySelector('[data-exceptions="skills"] [data-module="kehikko"]')).toBeNull()
+  expect(document.querySelector('[data-exceptions="skills"] [data-module="kehikot.claude"]')).not.toBeNull()
+})
+
 test('the module list is searched by name or id', async () => {
   if (!inChild) return
   await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} section="tools" />)
@@ -361,6 +376,7 @@ test('About: the version, the protocol, and the release notes and storage overvi
   expect(about.querySelector('[data-protocol]')!.textContent).toMatch(/^kehikot-module-protocol \d+\.\d+\.\d+$/)
   expect(about.querySelector('[data-version="host"]')!.textContent).toContain('host 0.1.99')
   expect(button('All release notesKehikot’s releases on GitHub, newest first.')).toBeTruthy()
+  expect(button('Build your own moduleThe guide to making a Kehikot module, from the first question to its first release. In Claude Code, /kehikot-module walks you through it.')).toBeTruthy()
   await act(async () => button('Storage overviewWhat every module’s data takes in every project, and Kehikot’s own.').click())
   await act(async () => new Promise((done) => setTimeout(done, 5)))
   expect(closed).toBe(1)
