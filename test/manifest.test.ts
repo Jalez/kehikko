@@ -204,6 +204,16 @@ describe('a module may describe itself and not somebody else', () => {
     expect(presence.module?.icon).toBeNull()
   })
 
+  test('an icon is a key the host draws (protocol 2.14.0): a path on its own origin is not fetched either', async () => {
+    const keyed = await look(registration, serving({ ...good, icon: 'brand:latex' }))
+    expect(keyed.module?.icon).toBe('brand:latex')
+    expect(keyed.icon).toBe('brand:latex')
+    const path = await look(registration, serving({ ...good, icon: '/icon.svg' }))
+    expect(path.condition).toBe('ready')
+    expect(path.module?.icon).toBeNull()
+    expect(path.icon).toBeNull()
+  })
+
   test('resolveOnOrigin is the check, and it is the host\'s because only the host knows the origin', () => {
     expect(resolveOnOrigin('/app', AT)).toBe(`${AT}/app`)
     expect(resolveOnOrigin('http://127.0.0.1:9999/app', AT)).toBeNull()

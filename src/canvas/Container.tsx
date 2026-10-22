@@ -25,6 +25,7 @@ import { Start, Update } from './Start.tsx'
 import { BranchMark } from './Branch.tsx'
 import { releaseShown } from '@/host/source.ts'
 import { VersionPicker } from './Versions.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -501,6 +502,10 @@ export function Container({
          * sentence in full, always, next to its name. This is the convenience;
          * that is the place it is guaranteed to be readable.
          */}
+        {/* The module's icon, decorative beside its name (`ModuleIcon.tsx`). The
+            first thing to go after the gaps: under 240 pixels the name keeps
+            the room, and the folded row and the 200-pixel container hold. */}
+        <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5 @max-[240px]/container:hidden" />
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
             <span className="min-w-[2ch] shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>

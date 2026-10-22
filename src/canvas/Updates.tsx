@@ -51,6 +51,7 @@ import {
 } from '@/host/updateModel.ts'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
@@ -698,6 +699,7 @@ export function Updates({
                     <ul className="mt-1 space-y-0.5 px-1">
                       {level.map((one) => (
                         <li key={one.id} className="flex items-center gap-2">
+                          <ModuleIcon id={one.id} name={one.name} className="text-muted-foreground size-3" />
                           <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
                           {Object.hasOwn(pins, one.id) ? (
                             <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
@@ -791,6 +793,7 @@ export function AppRow({
   return (
     <div className="mb-2 rounded-md border px-3 py-2 text-xs" data-testid="updates-app" data-state={row.state}>
       <div className="flex items-center gap-2">
+        <KehikkoMark working={false} className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate font-medium">Kehikot app</span>
         <span className="text-muted-foreground shrink-0 font-mono text-[11px]">{row.current}</span>
         {running && onNotes ? <NotesButton version={running.version} onShow={(opener) => onNotes(running.version, opener)} /> : null}
@@ -880,7 +883,10 @@ function Row({
   if (!isCheckout(reading)) {
     return (
       <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
-        <p className="font-medium">{reading.name}</p>
+        <p className="flex items-center gap-2 font-medium">
+          <ModuleIcon id={reading.id} name={reading.name} />
+          {reading.name}
+        </p>
         <p className="text-muted-foreground">{reading.error}</p>
       </div>
     )
@@ -892,6 +898,7 @@ function Row({
   return (
     <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
       <div className="flex items-center gap-2">
+        <ModuleIcon id={one.id} name={one.name} />
         <span className="min-w-0 flex-1 truncate font-medium" data-testid="updates-row-title">
           {one.name}
           {release ? <span className="text-muted-foreground pl-1.5 font-normal">{releaseSaid(release)}</span> : null}

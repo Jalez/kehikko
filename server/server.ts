@@ -10,6 +10,7 @@ import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
+import { moduleIconFor } from '../src/host/moduleIcon.ts'
 import {
   createCanvas,
   databaseFile,
@@ -639,16 +640,22 @@ async function survey(): Promise<{
    * not answering. See `known.ts`.
    */
   const remembered = known(db)
+  const listed = official.current()
   for (const presence of presences) {
-    if (presence.name) remember(db, presence.id, presence.name, { summary: presence.summary, tags: presence.tags })
+    if (presence.name) remember(db, presence.id, presence.name, { summary: presence.summary, tags: presence.tags, icon: presence.icon ?? null })
     else {
       const was = remembered.get(presence.id)
       if (was) {
         presence.name = was.name
         presence.summary = was.summary
         presence.tags = was.tags
+        presence.icon = was.icon
       }
     }
+    /* The icon the page draws: the module's own (as it answered, or as it last
+       did), else the official list's. Resolved here, after remembering, so
+       what is remembered is only ever what the module itself declared. */
+    presence.icon = moduleIconFor(presence.icon, listed.find((one) => one.id === presence.id)?.icon)
   }
   /* Where each running module's door is, for keeping it connected while the
      module sleeps (`knownDoors`, `agentSync.ts`). A running module that

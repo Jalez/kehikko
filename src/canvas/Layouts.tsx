@@ -21,6 +21,7 @@ import {
   type Shelves,
 } from '@/host/layouts.ts'
 import type { LayoutsMode } from '@/host/onboarding.ts'
+import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 
 /**
  * Starting a kehikko from a suggested layout, and saving one as a layout.
@@ -121,11 +122,16 @@ function LayoutCard({
       </span>
       <span className="text-muted-foreground line-clamp-2 text-xs leading-snug">{layout.summary}</span>
       {layout.containers.length ? (
-        <span className="text-muted-foreground text-[11px] leading-snug">
+        <span className="text-muted-foreground text-[11px] leading-snug" data-layout-modules="">
           {layout.containers
             .filter((c) => !c.optional || available.find((one) => one.module === c.module)?.state === 'here')
-            .map((c) => shortName(c.module, available))
-            .join(' · ')}
+            .map((c, at) => (
+              <span key={c.module} className="whitespace-nowrap">
+                {at ? ' · ' : null}
+                <ModuleIcon id={c.module} name={shortName(c.module, available)} className="mr-0.5 inline size-3 align-[-2px]" />
+                {shortName(c.module, available)}
+              </span>
+            ))}
           {optional.length ? ` · ${optional.join(', ')} if installed` : ''}
         </span>
       ) : null}
@@ -187,7 +193,11 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
       .then((got) => alive && setShelves(got))
       .catch((error: unknown) => alive && setRefused((error as Error).message))
     void loadOfficial()
-      .then((got) => alive && setOfficial(got))
+      .then((got) => {
+        if (!alive) return
+        setOfficial(got)
+        setListedIcons(got)
+      })
       .catch(() => undefined)
     return () => {
       alive = false
@@ -246,7 +256,8 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
             </p>
             <ul className="flex flex-col gap-1 text-sm">
               {installs.map((one) => (
-                <li key={one.module} className="flex items-baseline gap-2">
+                <li key={one.module} className="flex items-center gap-2">
+                  <ModuleIcon id={one.module} name={one.name} className="text-muted-foreground size-3.5" />
                   <span className="font-medium">{one.name}</span>
                   <span className="text-muted-foreground font-mono text-xs">{one.module}</span>
                 </li>

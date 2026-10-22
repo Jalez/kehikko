@@ -95,6 +95,7 @@ import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
 import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { dragged, granted, mostFor, mostUp, pressed, redrawn, topEdge, wishing } from './host/columns.ts'
@@ -939,6 +940,7 @@ export function App() {
         })
       }
       setRegistry(view)
+      setRegisteredIcons(view.presences)
       setTrouble(null)
       /* A sweep replaces what the server knew; it does not replace what a frame
          has since found out. Live findings are kept for modules still present

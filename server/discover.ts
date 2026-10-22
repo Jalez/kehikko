@@ -13,6 +13,7 @@ import {
 import type { Lifecycle } from './lifecycle.ts'
 import type { Registration } from './registrations.ts'
 import { formerRegistration } from './formerName.ts'
+import { moduleIconFor } from '../src/host/moduleIcon.ts'
 
 /**
  * Ask each registered program what it is, and decide whether it can be
@@ -115,6 +116,14 @@ export interface Presence {
    */
   summary?: string
   tags?: string[]
+  /**
+   * The icon the module is drawn with (protocol 2.14.0): a key of
+   * `MODULE_ICONS`, or null for none. Read off the manifest here, and only a
+   * key — never a path or URL, never fetched. `server.ts` then fills it from
+   * what the host remembers and, failing that, from the official list
+   * (`moduleIconFor`), so the page draws what arrives.
+   */
+  icon?: string | null
   /** Present exactly when the condition is `ready`. URLs already resolved. */
   module?: FramedModule
   /**
@@ -154,6 +163,7 @@ export interface FramedModule {
   guidance: string
   /** Absolute, on the module's own origin, ready to be a frame's `src`. */
   entry: string
+  /** The manifest's icon when it is a key of `MODULE_ICONS` (protocol 2.14.0); null otherwise. Never a URL. */
   icon: string | null
   health: string | null
   /** `as` is the name the module asks its door to be registered under, when it says one. */
@@ -387,6 +397,7 @@ export async function look(
       name: manifest.name,
       summary: manifest.summary,
       tags,
+      icon: moduleIconFor(manifest.icon, null),
       line: `${manifest.name} was built against protocol ${manifest.protocol}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
     }
@@ -401,6 +412,7 @@ export async function look(
       name: manifest.name,
       summary: manifest.summary,
       tags,
+      icon: moduleIconFor(manifest.icon, null),
       line: `${manifest.name} speaks protocol ${range}. This host speaks protocol ${PROTOCOL}.`,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
     }
@@ -447,6 +459,7 @@ export async function look(
     name: manifest.name,
     summary: manifest.summary,
     tags,
+    icon: moduleIconFor(manifest.icon, null),
     line: manifest.summary || `${manifest.name} ${manifest.version}`,
     protocols: { host: PROTOCOL, module: manifest.protocol, range },
     module: {
@@ -483,7 +496,11 @@ export async function look(
          the argument for carrying it and it is right: the alternative is
          re-reading the raw JSON later, which is how a second, looser check gets
          written. */
-      icon: manifest.icon ? resolveOnOrigin(manifest.icon, at) : null,
+      /* A key of the protocol's `MODULE_ICONS` (2.14.0), or null. Not a URL:
+         the field once was read as one and resolved like `health`, and nothing
+         drew it; a module's icon is now a name the host draws from its own set,
+         so nothing a manifest says here is ever fetched. */
+      icon: moduleIconFor(manifest.icon, null),
       health: manifest.health ? resolveOnOrigin(manifest.health, at) : null,
       mcp: manifest.mcp
         ? (() => {

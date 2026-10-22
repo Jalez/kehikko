@@ -16,6 +16,7 @@ import {
   type StorageReport,
   type Tally,
 } from '@/host/storage.ts'
+import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
  * Where a module offers its own storage view (`storageViewOf` in
@@ -163,7 +164,8 @@ export function StorageBody({
         ) : (
           <ul className="flex flex-col gap-0.5">
             {report.modules.map((total) => (
-              <li key={total.id ?? `folder:${total.name}`} className="flex flex-wrap items-baseline gap-x-2">
+              <li key={total.id ?? `folder:${total.name}`} className="flex flex-wrap items-center gap-x-2">
+                {total.id ? <ModuleIcon id={total.id} name={total.name} className="text-muted-foreground size-3.5" /> : null}
                 <span className="min-w-0">{moduleTotalSaid(total)}</span>
                 <span className="text-muted-foreground text-xs">{filesSaid(total.files)}</span>
                 {total.id && views?.of(total.id) ? (
@@ -232,6 +234,7 @@ function Largest({ tally }: { tally: Tally }) {
 function ShareRow({ share }: { share: Share }) {
   return (
     <li>
+      {share.owner.id ? <ModuleIcon id={share.owner.id} name={share.owner.name} className="text-muted-foreground mr-1.5 inline size-3.5 align-[-2px]" /> : null}
       <span className="font-medium">{share.owner.name}</span>{' '}
       <span className="text-muted-foreground font-mono text-[11px]">.kehikot/{share.folder}/</span>
       {share.owner.id === null ? <span className="text-muted-foreground text-xs"> (no module this host knows claims it)</span> : null}

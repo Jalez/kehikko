@@ -14,6 +14,7 @@ import {
 import type { AgentAwareness } from '@/host/registry.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { Hint } from './Hint.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
  * A module's tools: what they are, and whether any agent has been told.
@@ -317,7 +318,10 @@ export function ToolsDialog({
           this workspace ended up with a 1187-pixel floor under it. */}
       <DialogContent className="max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tools from {name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
+            Tools from {name}
+          </DialogTitle>
           <DialogDescription>
             What {door?.about === 'host' ? 'this host' : 'this module'} offers an agent through its
             MCP door, and whether any agent has been told the door exists.

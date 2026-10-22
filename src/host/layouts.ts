@@ -257,6 +257,8 @@ export interface OfficialEntry {
   name: string
   installed: boolean
   newer?: unknown
+  /** The list's icon key for it (protocol 2.14.0); absent from an older host. */
+  icon?: string | null
 }
 
 export type ModuleState = 'here' | 'install' | 'newer' | 'missing'
