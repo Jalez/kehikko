@@ -235,9 +235,10 @@ export function availability(
   })
 }
 
-/** `kehikot.references` → "references", for a module nobody has a name for. */
-function nameOf(id: string): string {
-  return id.replace(/^(kehikot|roadmap)\./, '')
+/** `kehikot.references` → "References", for a module nobody has a name for; another vendor's id stays whole. */
+export function nameOf(id: string): string {
+  const short = id.replace(/^(kehikot|roadmap)\./, '')
+  return short === id ? id : short.charAt(0).toUpperCase() + short.slice(1)
 }
 
 /** The modules a press on this layout would install: on the list, not here, not optional. */

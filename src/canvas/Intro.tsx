@@ -150,7 +150,7 @@ export function IntroDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-md gap-4"
+        className="max-w-[calc(100%-2rem)] gap-4 sm:max-w-md [&>*]:min-w-0"
         data-intro={last ? 'last' : step!.id}
         onKeyDown={(event) => {
           if (event.key === 'ArrowRight' && !last) setAt((n) => n + 1)
@@ -186,8 +186,8 @@ export function IntroDialog({
           </>
         )}
 
-        <div className="flex items-center gap-2">
-          <div className="flex flex-1 items-center gap-1.5" role="group" aria-label={`step ${at + 1} of ${pages}`}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex min-w-20 flex-1 items-center gap-1.5" role="group" aria-label={`step ${at + 1} of ${pages}`}>
             {Array.from({ length: pages }, (_, i) => (
               <button
                 key={i}
@@ -202,6 +202,7 @@ export function IntroDialog({
           </div>
           {last ? (
             <>
+              <span className="basis-full" aria-hidden />
               <Button
                 variant="outline"
                 size="sm"

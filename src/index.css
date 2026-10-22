@@ -627,6 +627,13 @@
 .kehikot-tour .driver-popover-close-btn:focus-visible {
   color: var(--foreground);
 }
+/* The control being shown, ringed: on the black canvas the dimmed overlay
+   alone would not tell it from its neighbours. */
+.driver-active .driver-active-element {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: calc(var(--radius) - 2px);
+}
 .kehikot-tour .driver-popover-arrow-side-left { border-left-color: var(--popover); }
 .kehikot-tour .driver-popover-arrow-side-right { border-right-color: var(--popover); }
 .kehikot-tour .driver-popover-arrow-side-top { border-top-color: var(--popover); }

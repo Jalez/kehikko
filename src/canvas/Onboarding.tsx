@@ -31,6 +31,68 @@ import { runTour } from './Tour.ts'
 
 const INSTALL_POLL_MS = 1500
 
+/** Has Settings' one-time question been answered? True when it cannot be told (an older host). */
+async function settingsAsked(): Promise<boolean> {
+  try {
+    const response = await fetch('/host/settings', { cache: 'no-store' })
+    if (!response.ok) return true
+    const body = (await response.json()) as { settings?: { asked?: unknown } } | null
+    return body?.settings?.asked !== false
+  } catch {
+    return true
+  }
+}
+
+/** Call `then` once an element matching `selector` is in the page, or after `wait` ms whatever happens. */
+export function whenAppeared(selector: string, then: () => void, wait = 3000, root: Document = document): () => void {
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    watch.disconnect()
+    clearTimeout(timer)
+    then()
+  }
+  const watch = new MutationObserver(() => root.querySelector(selector) && finish())
+  const timer = setTimeout(finish, wait)
+  if (root.querySelector(selector)) {
+    queueMicrotask(finish)
+  } else watch.observe(root.body, { childList: true, subtree: true })
+  return () => {
+    done = true
+    watch.disconnect()
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Call `then` once no dialog is open — at once when none is, else once the
+ * last one has closed (and its closing animation has had a moment). Returns
+ * the cancel.
+ */
+export function whenNoDialog(then: () => void, root: Document = document): () => void {
+  const open = () => root.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  if (!open()) {
+    then()
+    return () => {}
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const watch = new MutationObserver(() => {
+    clearTimeout(timer)
+    if (open()) return
+    timer = setTimeout(() => {
+      if (open()) return
+      watch.disconnect()
+      then()
+    }, 250)
+  })
+  watch.observe(root.body, { childList: true, subtree: true })
+  return () => {
+    clearTimeout(timer)
+    watch.disconnect()
+  }
+}
+
 export function OnboardingHost({
   project,
   open,
@@ -60,16 +122,28 @@ export function OnboardingHost({
   const stateRef = useRef(state)
   stateRef.current = state
 
-  /* Once, at start: the introduction opens by itself when this one has not been seen. */
+  /* Once, at start: the introduction opens by itself when this one has not
+     been seen — after any window already standing (Settings' one-time
+     question) has been answered, never on top of it. */
   useEffect(() => {
     let alive = true
+    let stop = () => {}
     void fetchOnboarding().then((got) => {
       if (!alive) return
       setState(got)
-      if (introDue(got)) setIntro(true)
+      if (!introDue(got)) return
+      void settingsAsked().then((asked) => {
+        if (!alive) return
+        /* Settings' one-time question is about to stand: wait for it to
+           appear (a moment at most) and then to be answered or closed. */
+        stop = asked ? whenNoDialog(() => alive && setIntro(true)) : whenAppeared('[data-first-question]', () => {
+          if (alive) stop = whenNoDialog(() => alive && setIntro(true))
+        })
+      })
     })
     return () => {
       alive = false
+      stop()
     }
   }, [])
 

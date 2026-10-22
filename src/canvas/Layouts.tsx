@@ -213,7 +213,10 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
     const why = await onUse(chosen, available, install, name.trim() || (chosen === BLANK ? '' : chosen.name))
     setBusy(false)
     if (why) setRefused(why)
-    else onOpenChange(false)
+    else {
+      setAsking(false)
+      onOpenChange(false)
+    }
   }
 
   const sections: Array<{ title: string; note?: string; layouts: Layout[] }> = [
