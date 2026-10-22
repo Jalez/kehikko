@@ -116,6 +116,13 @@ export interface Presence {
   summary?: string
   tags?: string[]
   /**
+   * The icon the module is drawn with (protocol 2.14.0): a key of
+   * `MODULE_ICONS`, already resolved by the server — the module's own, else the
+   * official list's — or null. Absent from an older host. Drawn by
+   * `ModuleIcon`, which checks it again and never treats it as a URL.
+   */
+  icon?: string | null
+  /**
    * Whether anything at all answered at the address. A silent module that was
    * reached is an address held by something else; one that was not is simply
    * not running. See `attention` in `moduleMenu.ts`.

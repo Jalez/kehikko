@@ -55,6 +55,12 @@ const entrySchema = z.object({
      read must not fail the whole list — it is a requirement this host does not
      meet (`meetsProtocol`). */
   protocol: z.string().min(1).max(32).optional(),
+  /* The icon the module is drawn with before it has answered here (protocol
+     2.14.0): a key of `MODULE_ICONS`, which the module's own manifest should
+     declare too and which wins over this. Optional, and a value this host
+     cannot use is dropped rather than failing the list (`moduleIconFor` draws
+     only a key it knows). Held unique across the list by a test. */
+  icon: z.string().max(64).optional().catch(undefined),
 })
 /* `z.object` drops keys it does not know, so a field a later list adds is
    ignored by this host rather than refusing the list. Held by a test. */

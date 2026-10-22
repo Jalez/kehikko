@@ -73,9 +73,9 @@ describe('what a module is called', () => {
   test('the summary and the tags are kept with the name, and follow it', () => {
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper', { summary: 'The paper, as prose.', tags: ['writing', 'reading'] })
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'The paper, as prose.', tags: ['writing', 'reading'] })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'The paper, as prose.', tags: ['writing', 'reading'], icon: null })
     remember(db, 'kehikot.paper', 'Paper', { summary: 'Read as prose.', tags: [] })
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'Read as prose.', tags: [] })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'Read as prose.', tags: [], icon: null })
   })
 
   test('a table from before the summary and the tags gains them, empty, and keeps its names', () => {
@@ -83,7 +83,15 @@ describe('what a module is called', () => {
     db.exec('create table known_modules (id text primary key, name text not null, seen integer not null)')
     db.query('insert into known_modules (id, name, seen) values (?, ?, ?)').run('kehikot.paper', 'Paper', 1)
     ensureKnown(db)
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: '', tags: [] })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: '', tags: [], icon: null })
+  })
+
+  test('the icon a module declared is kept with its name (protocol 2.14.0), and follows it', () => {
+    const db = fresh()
+    remember(db, 'kehikot.paper', 'Paper', { icon: 'brand:latex' })
+    expect(known(db).get('kehikot.paper')?.icon).toBe('brand:latex')
+    remember(db, 'kehikot.paper', 'Paper', { icon: null })
+    expect(known(db).get('kehikot.paper')?.icon).toBeNull()
   })
 
   test('the table can be made twice without complaint', () => {

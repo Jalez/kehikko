@@ -214,9 +214,9 @@
 
 - `modules.json` is the list of modules this host vouches for
   (`server/official.ts`). Adding a module to the app's list is adding an
-  entry there: id, name, `owner/repo`, first port, summary, tags, and
-  optionally `protocol` — the oldest protocol package (`major.minor.patch`)
-  that can run it.
+  entry there: id, name, `owner/repo`, first port, an `icon` (see "A module's
+  icon"), summary, tags, and optionally `protocol` — the oldest protocol
+  package (`major.minor.patch`) that can run it.
 - The list is NOT fixed at build time. A host has the copy it was built with
   and, over it, `modules.json` as published on this repository's `main`
   (`server/officialSource.ts`): fetched entries win, built-in-only entries
@@ -291,6 +291,30 @@
 - An order to a page (`Wakes.press`) goes to that page's streams only. Every
   other kind of news on `/host/watch` goes to everyone and says only that there
   is something to re-read.
+
+## A module's icon, and Kehikot's own mark
+
+- A module is drawn with ONE component wherever it is listed: `ModuleIcon`
+  (`src/canvas/ModuleIcon.tsx`) — the modules menu, What's new, Updates,
+  Settings, the Skills and Tools windows, a container's header, the layout
+  picker, Storage. Never draw a module's icon another way.
+- The icon is a KEY of the protocol's `MODULE_ICONS` (2.14.0): `lucide:<name>`
+  (`LUCIDE_DRAWN`) or `brand:<slug>` (`BRAND_MARKS`, path data copied from
+  Simple Icons 16.33.0, CC0, `currentColor`). Never a path or URL; nothing is
+  fetched. A key the protocol adds needs its entry in one of those two, which
+  a test holds. A brand mark is only for a module that fronts that tool.
+- Which key: the module's manifest, then what it declared when it last
+  answered (`known_modules.icon`), then `icon` in its `modules.json` entry
+  (`moduleIconFor`, `src/host/moduleIcon.ts`, resolved per presence in the
+  sweep). Neither: the neutral frame with the name's initial. Each entry in
+  `modules.json` has an icon, the same one its manifest declares, unique
+  across the list (Flows, on My modules, is `lucide:workflow`).
+- Kehikot itself — its row in What's new, the app in Updates, About, Settings,
+  the introduction, and the id `kehikko` (its door, skills, data) — is drawn
+  with `KehikkoMark`, the bar's frame. Never Sparkles, never a module icon.
+- Beside its name the icon is decorative (`aria-hidden`); `alone` labels it
+  with the name and gives it a tooltip. In a container's header it goes first
+  under 240 pixels, so the row still fits at 200 and folded.
 
 ## What a module may ask
 

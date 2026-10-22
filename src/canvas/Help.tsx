@@ -1,4 +1,4 @@
-import { CircleHelp, Play, RotateCcw, Sparkles } from 'lucide-react'
+import { CircleHelp, Play, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -12,6 +12,7 @@ import {
 import { continuable, fetchOnboarding, openIntro, openTour, type Onboarding } from '@/host/onboarding.ts'
 import { TOUR_STEPS } from '@/host/tour.ts'
 import { Hint } from './Hint.tsx'
+import { KehikkoMark } from './Mark.tsx'
 
 /**
  * The "?" in the bar: the introduction and the tour, whenever they are wanted
@@ -44,7 +45,7 @@ export function HelpMenu({ read = fetchOnboarding }: { read?: () => Promise<Onbo
       <DropdownMenuContent align="end" className="w-56" data-help-menu="">
         <DropdownMenuLabel>Help</DropdownMenuLabel>
         <DropdownMenuItem onSelect={() => openIntro()} data-help="intro">
-          <Sparkles className="size-3.5" />
+          <KehikkoMark working={false} className="size-3.5" />
           Introduction
         </DropdownMenuItem>
         {paused ? (

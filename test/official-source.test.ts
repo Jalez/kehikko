@@ -94,7 +94,7 @@ describe('what a fetched list may be', () => {
   })
 
   test('fields this host does not know are ignored, on the entry and on the list', () => {
-    const read = readOfficial({ schema: 2, signedBy: 'somebody', modules: [{ ...slides, icon: 'deck', needs: { os: 'macos' } }] })
+    const read = readOfficial({ schema: 2, signedBy: 'somebody', modules: [{ ...slides, banner: 'deck', needs: { os: 'macos' } }] })
     expect(read).toEqual([slides])
   })
 

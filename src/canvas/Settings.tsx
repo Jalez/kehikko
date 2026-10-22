@@ -6,16 +6,14 @@ import {
   ExternalLink,
   Hammer,
   HardDrive,
-  Info,
   MessagesSquare,
   Plug,
   Search,
-  Settings2,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -56,6 +54,8 @@ import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNot
 import { openStorage } from '@/host/storage.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
+import { KehikkoMark } from './Mark.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
@@ -240,7 +240,10 @@ export function FirstQuestion({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-[calc(100%-2rem)] gap-5 overflow-y-auto sm:max-w-lg" data-first-question>
         <DialogHeader className="pr-6">
-          <DialogTitle>{FIRST_QUESTION.title}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <KehikkoMark working={false} className="text-muted-foreground size-4 shrink-0" />
+            {FIRST_QUESTION.title}
+          </DialogTitle>
           <DialogDescription>{FIRST_QUESTION.lead}</DialogDescription>
         </DialogHeader>
         <div className="flex min-w-0 flex-col gap-4 text-sm">
@@ -272,13 +275,21 @@ export function FirstQuestion({
   )
 }
 
-const SECTION_SAID: Record<SettingsSection, { title: string; icon: LucideIcon }> = {
+/** An icon slot: a Lucide icon, or Kehikot's own mark where Kehikot itself is meant. */
+type IconLike = LucideIcon | ComponentType<{ className?: string }>
+
+/** Kehikot's own mark, as an icon slot takes one: the same frame as the bar's, still. */
+function KehikotMark({ className }: { className?: string }) {
+  return <KehikkoMark working={false} className={className} />
+}
+
+const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> = {
   agents: { title: 'Agents', icon: Bot },
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
   notices: { title: 'Tracker notices', icon: Bell },
   hook: { title: 'Conversations', icon: MessagesSquare },
-  about: { title: 'About', icon: Info },
+  about: { title: 'About', icon: KehikotMark },
 }
 
 export function SettingsDialog({
@@ -365,7 +376,7 @@ export function SettingsBody({
       <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:w-56 sm:border-r sm:border-b-0">
         <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
           <DialogTitle className="flex items-center gap-2 text-sm">
-            <Settings2 className="text-muted-foreground size-4" aria-hidden />
+            <KehikkoMark working={false} className="text-muted-foreground size-4" />
             Settings
           </DialogTitle>
           <DialogDescription className="text-xs leading-snug max-sm:sr-only">
@@ -725,7 +736,7 @@ function About({ onClose }: { onClose(): void }) {
       <Heading id="about" lead="Which Kehikot this is, and where to read more.">
         About
       </Heading>
-      <Summary icon={Info} title={APP_NAME}>
+      <Summary icon={KehikotMark} title={APP_NAME}>
         <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]" data-about>
           <dt className="text-muted-foreground">Version</dt>
           <dd className="font-mono" data-version={shown?.kind ?? 'unknown'}>
@@ -750,7 +761,7 @@ function About({ onClose }: { onClose(): void }) {
       </div>
       <Rows>
         <LinkRow
-          icon={Sparkles}
+          icon={KehikotMark}
           label="What’s new"
           description="Kehikot and every module: the notes of what you have, and what changed since you last looked."
           onPress={() => {
@@ -824,7 +835,8 @@ function OwnSkills({
     <section aria-labelledby="settings-own-skills" className="min-w-0 space-y-2" data-own-skills>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
-          <h4 id="settings-own-skills" className="text-sm font-medium">
+          <h4 id="settings-own-skills" className="flex items-center gap-2 text-sm font-medium">
+            <KehikkoMark working={false} className="text-muted-foreground size-3.5 shrink-0" />
             Kehikot’s own skills
           </h4>
           <p className="text-muted-foreground text-xs">Skills Kehikot itself offers, such as /kehikot-module to build a module of your own.</p>
@@ -855,7 +867,7 @@ function Heading({ id, lead, children }: { id: string; lead: string; children: R
 }
 
 /** The small card at the top of a section: what is so now. */
-function Summary({ icon: Icon, title, children }: { icon: LucideIcon; title: string; children: ReactNode }) {
+function Summary({ icon: Icon, title, children }: { icon: IconLike; title: string; children: ReactNode }) {
   return (
     <Card className="gap-0 rounded-lg px-4 py-3 shadow-none">
       <div className="flex min-w-0 items-start gap-3">
@@ -918,14 +930,16 @@ function SettingRow({
 }
 
 /** A row that opens something: the About section's links. */
-function LinkRow({ icon: Icon, label, description, onPress }: { icon: LucideIcon; label: string; description: string; onPress(opener: HTMLElement): void }) {
+function LinkRow({ icon: Icon, label, description, onPress }: { icon: IconLike; label: string; description: string; onPress(opener: HTMLElement): void }) {
   return (
     <button
       type="button"
       onClick={(event) => onPress(event.currentTarget)}
       className="hover:bg-accent/50 focus-visible:ring-ring/50 -mx-4 flex w-[calc(100%+2rem)] min-w-0 items-center gap-3 px-4 py-3 text-left outline-none first:rounded-t-lg last:rounded-b-lg focus-visible:ring-[3px]"
     >
-      <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+      <span className="text-muted-foreground flex shrink-0" aria-hidden>
+        <Icon className="size-4" />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{label}</span>
         <span className="text-muted-foreground block text-xs">{description}</span>
@@ -1059,6 +1073,7 @@ function ModuleRow({
     <li className="flex min-w-0 items-center gap-3 px-4 py-2.5" data-module={row.id}>
       <div className="min-w-0 flex-1">
         <Label htmlFor={id} className="text-sm">
+          <ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />
           {row.name}
         </Label>
         <div className="mt-1 flex flex-wrap gap-1">

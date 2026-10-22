@@ -1,4 +1,4 @@
-import { Blocks, ExternalLink, GitBranch, Sparkles } from 'lucide-react'
+import { ExternalLink, GitBranch } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -34,6 +34,8 @@ import {
   type WhatsNewAnswer,
 } from '@/host/whatsNew.ts'
 import { useShownVersion } from './AppVersion.tsx'
+import { KehikkoMark } from './Mark.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 import { ReleaseSections } from './ReleaseNotes.tsx'
 import { compareVersions } from '@/host/worksWith.ts'
 
@@ -115,7 +117,7 @@ export function WhatsNewDialog({
           <aside className="bg-muted/40 flex min-w-0 shrink-0 flex-col border-b sm:w-60 sm:border-r sm:border-b-0">
             <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
               <DialogTitle className="flex items-center gap-2 text-sm">
-                <Sparkles className="text-muted-foreground size-4" aria-hidden />
+                <KehikkoMark working={false} className="text-muted-foreground size-4" />
                 What’s new in Kehikot
               </DialogTitle>
               <DialogDescription className="text-xs tabular-nums" data-testid="whats-new-range">
@@ -134,7 +136,11 @@ export function WhatsNewDialog({
                   className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-auto flex-none flex-col items-start gap-0.5 px-2.5 py-1.5 text-left text-[13px] font-normal data-[state=active]:font-medium"
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
-                    {item.kind === 'app' ? <Sparkles className="size-3.5" aria-hidden /> : <Blocks className="size-3.5" aria-hidden />}
+                    {item.kind === 'app' ? (
+                      <KehikkoMark working={false} className="size-3.5 shrink-0" />
+                    ) : (
+                      <ModuleIcon id={item.id} name={item.name} />
+                    )}
                     <span className="min-w-0 flex-1 truncate">{item.name}</span>
                     {item.news && item.tags.length > 1 ? (
                       <Badge variant="secondary" className="h-4 rounded-full px-1.5 text-[10px] font-normal tabular-nums max-sm:hidden" data-count>
@@ -193,7 +199,10 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
       {/* `sm:pr-8`: the dialog's ✕ sits in this corner from 640 pixels up. */}
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2 sm:pr-8">
         <div className="min-w-0 space-y-1">
-          <h3 className="text-base font-semibold">{item.name}</h3>
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            {item.kind === 'app' ? <KehikkoMark working={false} className="size-4 shrink-0" /> : <ModuleIcon id={item.id} name={item.name} className="size-4" />}
+            {item.name}
+          </h3>
           <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
             <span className="font-mono" data-testid="whats-new-versions">
               {onMain ? `main · ${rangeSaid(item)}` : rangeSaid(item)}

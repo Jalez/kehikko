@@ -33,6 +33,7 @@ import {
   type Standing,
 } from '@/host/relations.ts'
 import { ConditionDot } from './Conditions.tsx'
+import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -253,6 +254,7 @@ function useOfficial(onInstalled?: () => void) {
         if (before && ([...now].some((id) => !before.has(id)) || [...before].some((id) => !now.has(id)))) told.current?.()
         setList(got)
         setMine(ours)
+        setListedIcons(every)
         if (every.some((one) => one.install?.state === 'installing')) timer = setTimeout(() => setAsked((n) => n + 1), INSTALL_POLL_MS)
       })
       .catch(() => {
@@ -316,6 +318,7 @@ function AvailableRow({
       <span className="border-muted-foreground/50 mt-1.5 size-1.5 shrink-0 rounded-full border" aria-label="not installed" title="not installed" />
       <div className="min-w-0 flex-1 opacity-70">
         <div className="flex items-center gap-2">
+          <ModuleIcon id={row.id} icon={row.entry.icon} name={row.name} className="text-muted-foreground size-3.5" />
           <span className="truncate text-sm font-medium">{row.name}</span>
           <Badge variant="outline" className="text-muted-foreground shrink-0">
             not installed
@@ -375,6 +378,7 @@ function ModuleRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          <ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />
           <span className="truncate text-sm font-medium">{row.name}</span>
           {word ? (
             <Badge variant="outline" className="text-muted-foreground shrink-0">

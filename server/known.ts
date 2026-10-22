@@ -59,6 +59,8 @@ export function ensureKnown(db: Database): void {
   const has = new Set(db.query<{ name: string }, []>('pragma table_info(known_modules)').all().map((c) => c.name))
   if (!has.has('summary')) db.exec("alter table known_modules add column summary text not null default ''")
   if (!has.has('tags')) db.exec("alter table known_modules add column tags text not null default '[]'")
+  /* The icon a module declared (protocol 2.14.0): what it IS, like its name. */
+  if (!has.has('icon')) db.exec('alter table known_modules add column icon text')
   db.exec(`
     create table if not exists known_doors (
       id        text primary key,
@@ -76,6 +78,8 @@ export interface Known {
   summary: string
   /** Most fitting first, as the manifest gave them. */
   tags: string[]
+  /** The icon key its manifest declared, or null for none. */
+  icon: string | null
 }
 
 /**
@@ -89,22 +93,24 @@ export function remember(
   db: Database,
   id: string,
   name: string,
-  about: { summary?: string; tags?: readonly string[] } = {},
+  about: { summary?: string; tags?: readonly string[]; icon?: string | null } = {},
   now = Date.now(),
 ): void {
   if (!id || !name) return
   db.query(
-    `insert into known_modules (id, name, summary, tags, seen) values (?, ?, ?, ?, ?)
-     on conflict(id) do update set name = excluded.name, summary = excluded.summary, tags = excluded.tags, seen = excluded.seen`,
-  ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), now)
+    `insert into known_modules (id, name, summary, tags, icon, seen) values (?, ?, ?, ?, ?, ?)
+     on conflict(id) do update set name = excluded.name, summary = excluded.summary, tags = excluded.tags, icon = excluded.icon, seen = excluded.seen`,
+  ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), about.icon ?? null, now)
 }
 
 /** Everything the host has been told, by module id. */
 export function known(db: Database): Map<string, Known> {
   const rows = db
-    .query<{ id: string; name: string; summary: string; tags: string }, []>('select id, name, summary, tags from known_modules')
+    .query<{ id: string; name: string; summary: string; tags: string; icon: string | null }, []>(
+      'select id, name, summary, tags, icon from known_modules',
+    )
     .all()
-  return new Map(rows.map((row) => [row.id, { name: row.name, summary: row.summary, tags: tagsIn(row.tags) }]))
+  return new Map(rows.map((row) => [row.id, { name: row.name, summary: row.summary, tags: tagsIn(row.tags), icon: row.icon ?? null }]))
 }
 
 function tagsIn(text: string): string[] {

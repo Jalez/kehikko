@@ -16,7 +16,7 @@ import type { InstalledModule, Position, WhatsNewEdit, WhatsNewRecord } from '..
  */
 
 const inChild = process.env.WHATS_NEW_DOM === '1'
-const TESTS = 15
+const TESTS = 16
 
 if (!inChild) {
   test('"What\'s new", rendered in a process of its own', () => {
@@ -253,6 +253,26 @@ describe.skipIf(!inChild)('when it opens', () => {
     expect((window as { hacked?: unknown }).hacked).toBeUndefined()
     await click(pane.querySelector('[data-testid="whats-new-github"]')!)
     expect(opened).toEqual(['https://github.com/Jalez/kehikko-journeys/releases'])
+  })
+
+  test('Kehikot is drawn with its own mark, each module with its own icon, and nothing with sparkles', async () => {
+    const Icons = await import('../src/canvas/ModuleIcon.tsx')
+    Icons.setRegisteredIcons([{ id: 'kehikot.journeys', icon: 'lucide:route' }, { id: 'kehikot.notes', icon: null }])
+    start({ app: '0.1.41', modules: { 'kehikot.journeys': at('v1.5.0'), 'kehikot.notes': at('v1.0.0') }, show: true }, [
+      copy('kehikot.journeys', 'Journeys', 'v1.6.0', ['v1.5.0', 'v1.6.0']),
+      copy('kehikot.notes', 'Notes', 'v2.0.0', ['v1.0.0', 'v2.0.0']),
+    ])
+    await render(<Host />)
+    await until(() => dialog() !== null)
+    expect(dialog()!.querySelector('h2 .kehikko-mark, [data-slot="dialog-title"] .kehikko-mark')).not.toBeNull()
+    expect(document.querySelector('[data-item="kehikot"] .kehikko-mark')).not.toBeNull()
+    expect(document.querySelector('[data-item="kehikot.journeys"] [data-module-icon]')!.getAttribute('data-module-icon')).toBe('lucide:route')
+    /* Neither its own nor the list's: the neutral frame and its initial. */
+    const notes = document.querySelector('[data-item="kehikot.notes"] [data-module-icon]')!
+    expect(notes.getAttribute('data-module-icon')).toBe('fallback')
+    expect(notes.textContent).toBe('N')
+    expect(dialog()!.querySelector('.lucide-sparkles')).toBeNull()
+    Icons.setRegisteredIcons([])
   })
 
   test('"Got it" acknowledges everything shown, and it does not come back', async () => {

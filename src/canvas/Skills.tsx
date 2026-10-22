@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
+import { ModuleIcon } from './ModuleIcon.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
@@ -105,7 +106,10 @@ export function SkillsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Skills from {name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
+            Skills from {name}
+          </DialogTitle>
           <DialogDescription>
             Claude Code skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your own Claude Code for every project
             {answer ? (
