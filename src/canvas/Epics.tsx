@@ -240,6 +240,7 @@ export function Epics({
               variant="ghost"
               size="sm"
               aria-label="the epic this project is on"
+              data-tour="epic"
               disabled={shut}
               className="h-6 max-w-72 min-w-6 shrink gap-1 max-[400px]:min-w-5 px-1.5 text-xs disabled:pointer-events-none max-[640px]:has-[>svg]:px-1"
             >

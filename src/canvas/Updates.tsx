@@ -558,6 +558,7 @@ export function Updates({
             aria-label={shown ? `updates — ${shown.label}` : 'check for updates'}
             data-busy={checking || updating !== null || restarting || retryingIds.length > 0}
             data-testid="updates-indicator"
+            data-tour="updates"
             data-tone={shown?.tone ?? 'none'}
             className={
               shown

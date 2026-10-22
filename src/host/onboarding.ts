@@ -125,3 +125,15 @@ export function onOpenLayouts(then: (mode: LayoutsMode) => void): () => void {
   window.addEventListener(OPEN_LAYOUTS, listener)
   return () => window.removeEventListener(OPEN_LAYOUTS, listener)
 }
+
+const OPEN_SAVE_LAYOUT = 'kehikot:open-save-layout'
+
+/** "Save this kehikko as a layout…", for the kehikko that is open. */
+export function openSaveLayout(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_SAVE_LAYOUT))
+}
+
+export function onOpenSaveLayout(then: () => void): () => void {
+  window.addEventListener(OPEN_SAVE_LAYOUT, then)
+  return () => window.removeEventListener(OPEN_SAVE_LAYOUT, then)
+}

@@ -108,6 +108,7 @@ export function Projects({
               variant="ghost"
               size="sm"
               aria-label="switch project"
+              data-tour="project"
               className="text-foreground h-6 max-w-44 min-w-6 shrink gap-1 max-[400px]:min-w-5 px-1.5 text-xs font-medium max-[640px]:has-[>svg]:px-1"
             >
               <FolderOpen className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />

@@ -695,6 +695,7 @@ export function Container({
               + (foldedBy ? ` — ${collapsed ? 'folded' : 'unfolded'} by ${foldedBy}` : '')
             }
             aria-expanded={!collapsed}
+            data-tour="fold"
             data-folded-by={foldedBy ?? undefined}
             className={
               /* Filled when somebody other than the person left it this way:
