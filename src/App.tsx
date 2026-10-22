@@ -14,6 +14,7 @@ import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
+import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { openLayouts } from './host/onboarding.ts'
 import { Button } from './components/ui/button.tsx'
 import { LayoutTemplate } from 'lucide-react'
@@ -4101,6 +4102,10 @@ export function App() {
         onFill={(placements) => change({ placements })}
         onInstalled={() => void look()}
       />
+
+      {/* "What's new" after Kehikot or a module updates, once the first-run
+          windows are done and nothing else is open. See `WhatsNew.tsx`. */}
+      <WhatsNewHost />
 
     </div>
   )

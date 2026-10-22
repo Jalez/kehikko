@@ -353,5 +353,15 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
     return moved.ok ? { ok: true, tag: newest } : { ok: false, why: `could not check out ${newest}: ${moved.why}` }
   }
 
-  return { overlay, settle }
+  async function local(place: Place): Promise<string[]> {
+    return releasesNewestFirst(((await out(place.dir, ['tag', '--list', 'v*'])) ?? '').split('\n').filter(Boolean))
+  }
+
+  async function worksFor(place: Place, tags: readonly string[]): Promise<Record<string, WorksWith>> {
+    if (!deps.apps) return {}
+    const needs = await needOfAll(place.dir, tags)
+    return worksOf(tags, (tag) => needs.get(tag) ?? null, deps.entryProtocol(place.id), deps.apps())
+  }
+
+  return { overlay, settle, local, worksFor }
 }

@@ -49,11 +49,11 @@ import {
   type ToolState,
 } from '@/host/agentSettings.ts'
 import { notAnswering } from '@/host/reachable.ts'
-import { APP_NAME, APP_REPO, openExternal, releasePage, tagFor } from '@/host/releaseNotes.ts'
+import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNotes.ts'
 import { openStorage } from '@/host/storage.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
-import { useReleaseNotes } from './ReleaseNotes.tsx'
+import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
  * Settings: how Kehikot works with the person's coding agents, chosen once for
@@ -702,7 +702,7 @@ function TrackerNotices({
 /** About: which Kehikot this is, the protocol it speaks, and where its notes and its data are. */
 function About({ onClose }: { onClose(): void }) {
   const { shown } = useShownVersion()
-  const notes = useReleaseNotes()
+  const whatsNew = useWhatsNewSetting()
   return (
     <>
       <Heading id="about" lead="Which Kehikot this is, and where to read more.">
@@ -722,15 +722,25 @@ function About({ onClose }: { onClose(): void }) {
           <dd>On this computer, for every project — never inside a project.</dd>
         </dl>
       </Summary>
+      <div data-whats-new-setting className="divide-y rounded-lg border px-4">
+        <SettingRow
+          label="Show What’s new after updates"
+          description="After Kehikot or a module updates, say what changed — once, when nothing else is open."
+          checked={whatsNew.show ?? true}
+          disabled={whatsNew.show === null}
+          onChange={whatsNew.set}
+        />
+      </div>
       <Rows>
-        {shown?.kind === 'app' ? (
-          <LinkRow
-            icon={Sparkles}
-            label={`What’s new in ${shown.version}`}
-            description="The release notes of the version you have."
-            onPress={(opener) => notes.show({ repo: APP_REPO, tag: tagFor(shown.version), name: APP_NAME, version: shown.version, opener })}
-          />
-        ) : null}
+        <LinkRow
+          icon={Sparkles}
+          label="What’s new"
+          description="Kehikot and every module: the notes of what you have, and what changed since you last looked."
+          onPress={() => {
+            onClose()
+            setTimeout(openWhatsNew, 0)
+          }}
+        />
         <LinkRow
           icon={ExternalLink}
           label="All release notes"
@@ -747,9 +757,29 @@ function About({ onClose }: { onClose(): void }) {
           }}
         />
       </Rows>
-      {notes.dialog}
     </>
   )
+}
+
+/** "Show What's new after updates": read from the host, changed there, and told to whoever shows it. Null until read. */
+function useWhatsNewSetting(): { show: boolean | null; set(on: boolean): void } {
+  const [show, setShow] = useState<boolean | null>(null)
+  useEffect(() => {
+    const abort = new AbortController()
+    void fetchShowSetting(abort.signal).then((got) => !abort.signal.aborted && setShow(got ?? true))
+    const off = onShowChanged(setShow)
+    return () => {
+      abort.abort()
+      off()
+    }
+  }, [])
+  const set = useCallback((on: boolean) => {
+    setShow(on)
+    void postWhatsNew({ show: on }).then((record) => {
+      if (record) announceShow(record.show)
+    })
+  }, [])
+  return { show, set }
 }
 
 /* ---- the pieces every section is made of ---- */

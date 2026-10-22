@@ -119,6 +119,9 @@ import { storageDesk } from './storage.ts'
 import { readShelves, saveLayout } from './layouts.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
+import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
+import { editSchema as whatsNewEditSchema, type Position } from '../src/host/whatsNew.ts'
+import type { ModuleRelease } from '../src/host/moduleReleases.ts'
 import pkg from '../package.json' with { type: 'json' }
 
 /**
@@ -201,6 +204,7 @@ const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
 ensureOnboarding(db)
+ensureWhatsNew(db)
 
 /* Leftovers from before the app was called Kehikot — registrations, project
    files and database rows under the old module ids — migrated once, before any
@@ -416,6 +420,19 @@ function updatePlaces(): Place[] {
 function placeOf(id: string, dir: string): Place {
   const name = lastPresences.get(id)?.name ?? lastPresences.get(id)?.module?.name ?? official.current().find((one) => one.id === id)?.name ?? id
   return { id, name, dir, ...(isInstalled(dir) ? { releases: follower } : {}) }
+}
+
+/** Every installed module's copy as it is now: no fetch, and none that could not be read. */
+async function installedCopies(signal?: AbortSignal): Promise<{ place: Place; release: ModuleRelease | undefined; commit: string }[]> {
+  const out: { place: Place; release: ModuleRelease | undefined; commit: string }[] = []
+  for (const registration of registered.values()) {
+    if (!registration.dir || !isInstalled(registration.dir)) continue
+    const place = placeOf(registration.id, registration.dir)
+    const reading = await readCheckout(place, false, signal).catch(() => null)
+    if (!reading || 'error' in reading) continue
+    out.push({ place, release: reading.release, commit: reading.commit })
+  }
+  return out
 }
 
 /**
@@ -2485,6 +2502,40 @@ const server = Bun.serve({
       const edit = onboardingEditSchema.safeParse(await request.json().catch(() => null))
       if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { at } }.' }, 400)
       return json(writeOnboarding(db, edit.data))
+    }
+
+    /* "What's new" after an update (`server/whatsNew.ts`): what was last
+       acknowledged, beside where each installed copy is now — read from the
+       copies, nothing asked of the network. The POST is in `PAGE_ONLY`. */
+    if (url.pathname === '/host/whats-new' && request.method === 'GET') {
+      const record = readWhatsNew(db)
+      /* Settings' switch needs the setting alone, not every copy read. */
+      if (url.searchParams.get('only') === 'record') return json({ record })
+      const copies = await installedCopies(request.signal)
+      const modules = await Promise.all(
+        copies.map(({ place, release, commit }) =>
+          installedModule({
+            id: place.id,
+            name: place.name,
+            release,
+            commit,
+            record,
+            local: () => follower.local?.(place) ?? Promise.resolve([]),
+            works: (tags) => follower.worksFor?.(place, tags) ?? Promise.resolve({}),
+          }),
+        ),
+      )
+      return json({ record, modules, updating: [...progress.keys()] })
+    }
+    if (url.pathname === '/host/whats-new' && request.method === 'POST') {
+      const edit = whatsNewEditSchema.safeParse(await request.json().catch(() => null))
+      if (!edit.success) return json({ error: 'A change is { baseline }, { acknowledge }, { read } or { show }.' }, 400)
+      const record = await editWhatsNew(db, edit.data, async () => {
+        const here: Record<string, Position> = {}
+        for (const one of await installedCopies()) here[one.place.id] = positionOf(one.release, one.commit)
+        return here
+      })
+      return json({ record })
     }
 
     /* The projects: what is open, and one more.
