@@ -1,0 +1,137 @@
+{
+  "report": [
+    {
+      "label": "webkit-light",
+      "switch": "kehikko",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-light-kehikko.png",
+      "before": 0.982,
+      "lowest": 0.962,
+      "highest": 0.983,
+      "after": 0.983,
+      "flash": false
+    },
+    {
+      "label": "webkit-light",
+      "switch": "epic",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-light-epic.png",
+      "before": 0.984,
+      "lowest": 0.96,
+      "highest": 0.984,
+      "after": 0.981,
+      "flash": false
+    },
+    {
+      "label": "webkit-light",
+      "switch": "project",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-light-project.png",
+      "before": 0.983,
+      "lowest": 0.952,
+      "highest": 0.983,
+      "after": 0.973,
+      "flash": false
+    },
+    {
+      "label": "webkit-dark",
+      "switch": "kehikko",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-dark-kehikko.png",
+      "before": 0.044,
+      "lowest": 0.043,
+      "highest": 0.046,
+      "after": 0.044,
+      "flash": false
+    },
+    {
+      "label": "webkit-dark",
+      "switch": "epic",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-dark-epic.png",
+      "before": 0.042,
+      "lowest": 0.042,
+      "highest": 0.049,
+      "after": 0.046,
+      "flash": false
+    },
+    {
+      "label": "webkit-dark",
+      "switch": "project",
+      "sheet": "/tmp/wk-scratch/evidence/webkit-dark-project.png",
+      "before": 0.044,
+      "lowest": 0.044,
+      "highest": 0.055,
+      "after": 0.053,
+      "flash": false
+    },
+    {
+      "label": "webkit dpr2",
+      "devicePixelRatio": 2,
+      "differingPixels": 0,
+      "sheet": "/tmp/wk-scratch/evidence/webkit-dpr2.png"
+    },
+    {
+      "label": "chromium-light",
+      "switch": "kehikko",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-light-kehikko.png",
+      "before": 0.98,
+      "lowest": 0.962,
+      "highest": 0.981,
+      "after": 0.981,
+      "flash": false
+    },
+    {
+      "label": "chromium-light",
+      "switch": "epic",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-light-epic.png",
+      "before": 0.984,
+      "lowest": 0.96,
+      "highest": 0.984,
+      "after": 0.98,
+      "flash": false
+    },
+    {
+      "label": "chromium-light",
+      "switch": "project",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-light-project.png",
+      "before": 0.983,
+      "lowest": 0.952,
+      "highest": 0.983,
+      "after": 0.972,
+      "flash": false
+    },
+    {
+      "label": "chromium-dark",
+      "switch": "kehikko",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-dark-kehikko.png",
+      "before": 0.047,
+      "lowest": 0.042,
+      "highest": 0.048,
+      "after": 0.046,
+      "flash": false
+    },
+    {
+      "label": "chromium-dark",
+      "switch": "epic",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-dark-epic.png",
+      "before": 0.044,
+      "lowest": 0.044,
+      "highest": 0.049,
+      "after": 0.049,
+      "flash": false
+    },
+    {
+      "label": "chromium-dark",
+      "switch": "project",
+      "sheet": "/tmp/wk-scratch/evidence/chromium-dark-project.png",
+      "before": 0.046,
+      "lowest": 0.045,
+      "highest": 0.056,
+      "after": 0.055,
+      "flash": false
+    },
+    {
+      "label": "chromium dpr2",
+      "devicePixelRatio": 2,
+      "differingPixels": 0,
+      "sheet": "/tmp/wk-scratch/evidence/chromium-dpr2.png"
+    }
+  ],
+  "problems": []
+}
