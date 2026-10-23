@@ -2,6 +2,7 @@ import { CloudDownload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { isGitReason } from '@/host/gitSaid.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import {
   ago,
@@ -49,6 +50,7 @@ import {
   type Told,
   type UpdateRow,
 } from '@/host/updateModel.ts'
+import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
@@ -924,12 +926,17 @@ function Row({
         </p>
       ) : null}
       {releases ? (
-        one.fetchFailed ? <p className="text-muted-foreground pt-1">Its releases could not be read: {one.fetchFailed}</p> : null
+        one.fetchFailed ? <p className="text-muted-foreground pt-1">
+          {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `Its releases could not be read: ${one.fetchFailed}`}
+        </p> : null
       ) : (
         <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
           {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
           {one.fetchFailed ? (
-            <span className="text-muted-foreground"> — GitHub could not be reached: {one.fetchFailed}</span>
+            <span className="text-muted-foreground">
+              {' — '}
+              {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `GitHub could not be reached: ${one.fetchFailed}`}
+            </span>
           ) : null}
         </p>
       )}
@@ -971,7 +978,7 @@ function Row({
           {/* Armed, the row says what the second press stops and ends, in
               place of why the first restart was refused. */}
           <p className="text-destructive" data-testid={armed !== null && row.anyway ? 'updates-armed' : undefined}>
-            {armed !== null && row.anyway ? armed : outcome?.kind === 'failed' ? outcome.why : row.reason}
+            {armed !== null && row.anyway ? armed : <GitSaid said={outcome?.kind === 'failed' ? outcome.why : (row.reason ?? '')} />}
           </p>
           {outcome?.kind === 'failed' && outcome.detail?.length ? (
             <pre className="bg-muted text-muted-foreground mt-1 max-h-28 overflow-auto rounded px-2 py-1 font-mono text-[10px] leading-snug whitespace-pre-wrap">

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import { explainGitFailure } from './gitAuth.ts'
 import { spawnRunner, type Runner } from './feedback.ts'
 import { hostPath } from './hostData.ts'
 import { makeUnderRoot, projectRootExists, projectWritable, refusedSaid } from './projectRoot.ts'
@@ -143,9 +144,20 @@ export async function checkOnOrigin(root: string, branch: string, run: Runner = 
   if (asked.code === 0) return { ok: true, note: null }
   if (asked.code === 2) return { ok: false, why: `origin has no branch called ${branch}. Push it first, or name a branch origin has.` }
 
+  /* Why it failed, plainly: a locked key or a missing sign-in is not "could not be reached". */
+  const url = remote.out.trim()
+  const reason = explainGitFailure(asked.err, url)
+  const cause = reason ? reason.said : 'origin could not be reached.'
+
   const fetched = await run(['git', '-C', root, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { timeout: 5_000 })
-  if (fetched.code === 0) return { ok: true, note: `origin could not be reached, so this was checked against its last fetch, which has ${branch}.` }
-  return { ok: false, why: `origin could not be reached, and its last fetch has no branch called ${branch}.` }
+  if (fetched.code === 0) {
+    return reason
+      ? { ok: true, note: `${cause} This was checked against origin's last fetch instead, which has ${branch}.` }
+      : { ok: true, note: `origin could not be reached, so this was checked against its last fetch, which has ${branch}.` }
+  }
+  return reason
+    ? { ok: false, why: `${cause} Its last fetch has no branch called ${branch}.` }
+    : { ok: false, why: `origin could not be reached, and its last fetch has no branch called ${branch}.` }
 }
 
 function baseSaid(base: BaseBranch): string {

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { whyOfFailure } from './gitAuth.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -156,7 +157,8 @@ async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, sign
   if (code === 0) return { ok: true, out: out.trim() }
   if (signal?.aborted) return { ok: false, why: CANCELLED }
   if (child.signalCode) return { ok: false, why: `git ${args[0]} took longer than ${timeout / 1000}s and was stopped` }
-  return { ok: false, why: (err.trim() || out.trim() || `git ${args[0]} failed`).split('\n').slice(-3).join(' ') }
+  const plain = (err.trim() || out.trim() || `git ${args[0]} failed`).split('\n').slice(-3).join(' ')
+  return { ok: false, why: whyOfFailure(err, ['git', '-C', dir, ...args], plain) }
 }
 
 /** The newest release (`vX.Y.Z`) a checkout's HEAD is tagged with, or null. */

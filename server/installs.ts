@@ -237,7 +237,7 @@ export function installDesk(deps: Deps) {
       const https = await deps.run(['git', 'clone', '--quiet', `https://${host}/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
       if (!https.ok) {
         const ssh = await deps.run(['git', 'clone', '--quiet', `git@${host}:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
-        if (!ssh.ok) throw new Error(`${repoSaid(entry)} could not be cloned: ${https.why}`)
+        if (!ssh.ok) throw new Error(`${repoSaid(entry)} could not be cloned: ${https.why}${ssh.why === https.why ? '' : ` Over SSH: ${ssh.why}`}`)
       }
     }
 
