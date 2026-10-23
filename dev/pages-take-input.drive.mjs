@@ -295,6 +295,38 @@ async function headerMenu(page, label) {
   if (!ok) failures.push(`${label}: the header toggle did not reach Alpha`)
 }
 
+/**
+ * One click into a module's page both closes an open host menu and puts the
+ * keyboard in that page: typing straight after it arrives. A real pointer on
+ * the page's field, no second click, then the keyboard.
+ */
+async function clickOutIntoPage(page, label) {
+  doing = 'closing a menu with a click into a page'
+  const frame = (await shownPages(page)).find((one) => one.id === 'kehikot.alpha')?.frame
+  const problems = []
+  if (!frame) problems.push('Alpha is not shown')
+  else {
+    const field = frame.locator('#field')
+    await field.evaluate((input) => (input.value = ''))
+    await pressHost(page, page.locator('button[aria-label^="view of Alpha"]'))
+    await page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first().waitFor({ state: 'visible' })
+    const box = await field.boundingBox()
+    await page.mouse.click(box.x + 8, box.y + box.height / 2)
+    const word = `c${Math.random().toString(36).slice(2, 7)}`
+    await page.keyboard.type(word)
+    const typed = await field.inputValue()
+    const open = await page.locator('[data-menu-content]').count()
+    if (open) problems.push('the menu is still open after the click')
+    if (typed !== word) {
+      const hostFocus = await page.evaluate(() => `${document.hasFocus()} ${document.activeElement?.tagName} ${document.activeElement?.getAttribute('aria-label') ?? ''}`)
+      problems.push(`typed "${word}" straight after the click, the field holds "${typed}" (host focus: ${hostFocus})`)
+    }
+  }
+  say(`  ${label}`)
+  say(`    ${problems.length ? 'FAIL' : 'ok  '} ${problems.length ? problems.join('; ') : 'one click closed the menu and the page took the typing'}`)
+  for (const problem of problems) failures.push(`${label}: ${problem}`)
+}
+
 async function resize(page) {
   const item = page.locator('.react-grid-item', { has: page.locator('[data-module="kehikot.beta"]') }).first()
   /* Over its header, where the corners are revealed; `hover()` would refuse,
@@ -366,6 +398,7 @@ async function drive(kind, browserType) {
     if (scheme === 'light') {
       await headerMenu(page, name('a header menu press'))
       await everyPageTakesInput(page, name('after a header menu press'), 3)
+      await clickOutIntoPage(page, name('a click into a page closing a menu'))
       await choose(page, 'project', 'project-b', name('a project switch'))
       await everyPageTakesInput(page, name('after a project switch'), 3)
       await choose(page, 'project', 'project-a', name('a project switch back'))

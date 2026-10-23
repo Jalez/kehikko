@@ -881,14 +881,19 @@ function useOpen(onClosed: () => void, closing: MutableRefObject<Closing>): [boo
   }
   useEffect(() => {
     if (!open) return
-    const away = () => {
+    const away = (event: Event) => {
+      /* In the capture phase an element's blur passes here too: only the window's own. */
+      if (event.target !== window) return
       /* Focus is in a module's page now, and is not pulled back out of it. */
       closing.current = 'away'
       setOpen(false)
       closed.current()
     }
-    window.addEventListener('blur', away)
-    return () => window.removeEventListener('blur', away)
+    /* Capture, so this runs before Radix's own `blur` listener closes the menu as an
+       ordinary dismissal: that one would leave `closing` at `dismissed` and the
+       menu would hand focus back to its trigger, away from the page just clicked. */
+    window.addEventListener('blur', away, true)
+    return () => window.removeEventListener('blur', away, true)
   }, [open])
   return [open, set]
 }
