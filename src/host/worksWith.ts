@@ -37,7 +37,7 @@ export interface AppProtocol {
 
 export type WorksWith =
   /** The first app that meets `need`; `until` when an app on a later major exists. */
-  | { kind: 'from'; need: string; from: string; until: { last: string; next: string; major: number } | null }
+  | { kind: 'from'; need: string; from: string; until: { last: string; next: string; major: number } | null; /** No app on record meets it, but the RUNNING Kehikot does: `from` is its version, or '' when that is not known. */ runningOnly?: true }
   /** No app released yet has the protocol it needs; `newest` is the newest app there is. */
   | { kind: 'unreleased'; need: string; newest: AppProtocol }
   /** Built for a protocol major no app shipped (older than every app on record). */
@@ -89,6 +89,18 @@ export function appsInOrder(apps: readonly AppProtocol[]): AppProtocol[] {
   return [...seen.values()].sort((a, b) => compareVersions(a.app, b.app))
 }
 
+/**
+ * The running Kehikot is always part of the answer, whatever the app tags read
+ * so far say (they are read at most daily, so the newest releases may not be in
+ * them yet): when it meets `need`, the release works with it, and it is never
+ * said to need a newer one. `have` is its protocol pin and, where known, its
+ * app version. A reading that already names an app is left as it is.
+ */
+export function withRunningHost(works: WorksWith, have: { app?: string | null; protocol?: string | null } = {}): WorksWith {
+  if (works.kind === 'from' || !have.protocol || !satisfies(works.need, have.protocol)) return works
+  return { kind: 'from', need: works.need, from: have.app && triple(have.app) ? have.app : '', until: null, runningOnly: true }
+}
+
 /** Which apps a release that needs `need` works with. `apps` null or empty: not known. */
 export function worksWith(need: string, apps: readonly AppProtocol[] | null): WorksWith {
   const major = triple(need)?.[0]
@@ -118,7 +130,7 @@ export function worksWith(need: string, apps: readonly AppProtocol[] | null): Wo
 export function worksWithSaid(works: WorksWith): string {
   switch (works.kind) {
     case 'from':
-      if (!works.until) return `Works with Kehikot ${works.from} and later`
+      if (!works.until) return works.runningOnly && !works.from ? 'Works with this Kehikot and later' : `Works with Kehikot ${works.from} and later`
       return `Works with Kehikot ${works.from === works.until.last ? works.from : `${works.from} to ${works.until.last}`} (${works.until.next} moved to protocol ${works.until.major})`
     case 'unreleased':
       return `Needs a Kehikot newer than ${works.newest.app} (protocol ${protocolSaid(works.need)} or later)`

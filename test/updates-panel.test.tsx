@@ -446,7 +446,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await act(async () => now.click())
     await settle()
     expect(engine.calls).toContain('check_for_update')
-    expect(asked).toEqual(['/host/updates?fetch=1'])
+    expect(asked).toEqual(['/host/updates?fetch=1&app=0.1.1'])
   })
 
   test('module updates are counted in the one indicator, with blocked ones left out', async () => {
@@ -675,7 +675,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const { posts, button, click } = await keptRow()
     /* `notes` is kept too, and nothing is said about it: no row, no button. */
     expect(document.querySelectorAll('[data-testid="updates-row"]')).toHaveLength(1)
-    expect(buttons().filter((label) => label === 'Restart anyway')).toHaveLength(1)
+    expect(buttons().filter((label) => label === 'Restart now (ends its shells)')).toHaveLength(1)
     expect(button('Restart')).toBeDefined()
     /* The ordinary restart is refused, in the server's words, and the way on stays. */
     await click('Restart')
@@ -683,15 +683,15 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(KEPT)
     expect(text()).not.toContain('where you started it')
     expect(buttons()).toContain('Try again')
-    expect(buttons().filter((label) => label === 'Restart anyway')).toHaveLength(1)
+    expect(buttons().filter((label) => label === 'Restart now (ends its shells)')).toHaveLength(1)
   })
 
   test('two presses: the first says what will be lost and stops nothing, the second restarts and the row says so', async () => {
     const { posts, button, click } = await keptRow()
-    await click('Restart anyway')
+    await click('Restart now (ends its shells)')
     expect(posts.map((one) => one.body)).toEqual([{ module: 'kehikot.terminal', press: 'arm' }])
     expect(document.querySelector('[data-testid="updates-armed"]')?.textContent).toBe(WILL_END)
-    expect(button('Restart anyway')).toBeUndefined()
+    expect(button('Restart now (ends its shells)')).toBeUndefined()
     expect(button('Press again to restart')?.getAttribute('aria-pressed')).toBe('true')
     /* No dialog of any kind: the one panel, as before. */
     expect(panels()).toHaveLength(1)
@@ -709,15 +709,15 @@ describe.skipIf(!inChild)('the updates panel', () => {
 
   test('an arm left alone comes down by itself, and so does one the panel closes over; nothing was sent', async () => {
     const { posts, button, click } = await keptRow({ disarmMs: 40 })
-    await click('Restart anyway')
+    await click('Restart now (ends its shells)')
     expect(button('Press again to restart')).toBeDefined()
     await act(async () => await new Promise((resolve) => setTimeout(resolve, 80)))
     expect(button('Press again to restart')).toBeUndefined()
-    expect(button('Restart anyway')?.getAttribute('aria-pressed')).toBe('false')
+    expect(button('Restart now (ends its shells)')?.getAttribute('aria-pressed')).toBe('false')
     expect(document.querySelector('[data-testid="updates-armed"]')).toBeNull()
     expect(text()).toContain('Terminal is running older code than its checkout.')
     /* Pressing the other button takes the arm down too. */
-    await click('Restart anyway')
+    await click('Restart now (ends its shells)')
     expect(button('Press again to restart')).toBeDefined()
     await click('Restart')
     expect(button('Press again to restart')).toBeUndefined()
@@ -727,20 +727,20 @@ describe.skipIf(!inChild)('the updates panel', () => {
   test('a refusal on either press is the server’s sentence in the row, and the button is still there to begin again', async () => {
     const unshown = 'kehikot.terminal was not restarted: the program on port 7920 answers as kehikot.notes, not as kehikot.terminal. This host only stops a program it can show is kehikot.terminal, and nothing was stopped.'
     const first = await keptRow({ arm: { ok: false, kept: true, why: unshown } })
-    await first.click('Restart anyway')
+    await first.click('Restart now (ends its shells)')
     expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(unshown)
     expect(first.button('Press again to restart')).toBeUndefined()
-    expect(first.button('Restart anyway')).toBeDefined()
+    expect(first.button('Restart now (ends its shells)')).toBeDefined()
     act(() => unmount?.())
     unmount = null
     document.body.innerHTML = ''
 
     const late = 'kehikot.terminal was not restarted: this press has no first press behind it — one stands for 20 seconds, once. Nothing was stopped. Press Restart anyway to begin again.'
     const second = await keptRow({ confirm: { ok: false, kept: true, why: late } })
-    await second.click('Restart anyway')
+    await second.click('Restart now (ends its shells)')
     await second.click('Press again to restart')
     expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(late)
-    expect(second.button('Restart anyway')).toBeDefined()
+    expect(second.button('Restart now (ends its shells)')).toBeDefined()
   })
 
   async function hostUpdated(restartable: boolean) {

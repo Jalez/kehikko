@@ -32,6 +32,7 @@ const worksSchema = z.discriminatedUnion('kind', [
     need: z.string(),
     from: z.string(),
     until: z.object({ last: z.string(), next: z.string(), major: z.number() }).nullable(),
+    runningOnly: z.literal(true).optional(),
   }),
   z.object({ kind: z.literal('unreleased'), need: z.string(), newest: appSchema }),
   z.object({ kind: z.literal('none'), need: z.string() }),
@@ -118,8 +119,10 @@ export function isCheckout(reading: Reading): reading is Checkout {
 }
 
 /** Read every checkout; `fetch` asks GitHub first, which is the slow part. */
-export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promise<Check> {
-  const response = await globalThis.fetch(`/host/updates${fetch ? '?fetch=1' : ''}`, { signal })
+export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: string | null): Promise<Check> {
+  /* `app` is the running app's version: when it is newer than the newest app the host has read the tags of, the host reads them again. */
+  const query = fetch ? `?fetch=1${app ? `&app=${encodeURIComponent(app)}` : ''}` : ''
+  const response = await globalThis.fetch(`/host/updates${query}`, { signal })
   if (!response.ok) throw new Error(await reason(response))
   const body = z
     .object({

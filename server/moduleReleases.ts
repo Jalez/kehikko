@@ -10,7 +10,7 @@ import {
   releasesNewestFirst,
   type ModuleRelease,
 } from '../src/host/moduleReleases.ts'
-import { higherNeed, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
+import { higherNeed, withRunningHost, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
 
 /**
  * Installed modules run their RELEASES, not `main`.
@@ -137,12 +137,14 @@ export function worksOf(
   needOf: (tag: string) => string | null,
   entry: string | undefined,
   apps: readonly AppProtocol[] | null,
+  /** The protocol the running host pins: a release it meets never "needs a newer Kehikot", whatever the app tags say. */
+  host?: string,
 ): Record<string, WorksWith> {
   const works: Record<string, WorksWith> = {}
   for (const tag of tags) {
     if (!tag || Object.hasOwn(works, tag)) continue
     const need = higherNeed(needOf(tag), entry)
-    if (need) works[tag] = worksWith(need, apps)
+    if (need) works[tag] = withRunningHost(worksWith(need, apps), { protocol: host })
   }
   return works
 }
@@ -257,7 +259,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       const named = [release.installed, release.newest, release.target, ...release.notes, release.needsNewer?.tag]
       const missing = named.filter((tag): tag is string => !!tag && !needs.has(tag))
       if (missing.length) for (const [tag, need] of await needOfAll(dir, missing)) needs.set(tag, need)
-      const works = worksOf(named, (tag) => needs.get(tag) ?? null, entry, deps.apps())
+      const works = worksOf(named, (tag) => needs.get(tag) ?? null, entry, deps.apps(), have)
       return Object.keys(works).length ? { ...release, works } : release
     }
 
@@ -360,7 +362,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
   async function worksFor(place: Place, tags: readonly string[]): Promise<Record<string, WorksWith>> {
     if (!deps.apps) return {}
     const needs = await needOfAll(place.dir, tags)
-    return worksOf(tags, (tag) => needs.get(tag) ?? null, deps.entryProtocol(place.id), deps.apps())
+    return worksOf(tags, (tag) => needs.get(tag) ?? null, deps.entryProtocol(place.id), deps.apps(), have)
   }
 
   return { overlay, settle, local, worksFor }

@@ -8,9 +8,9 @@ import { STAMP_FILE } from 'kehikot-module-protocol/build'
 import { installDesk } from '../server/installs.ts'
 import { openRun, startOfRun } from '../server/moduleLog.ts'
 import {
+  adoptedReadyBuilt,
   buildBun,
   builtAt,
-  hasBuildScript,
   INSTALLED_MARKER,
   isUnder,
   markInstalled,
@@ -347,6 +347,7 @@ function moduleRepo() {
       `writeFileSync('dist/${STAMP_FILE}', head + '\\n')`,
     ].join('\n'),
   )
+  writeFileSync(join(work, 'run.sh'), `#!/usr/bin/env bash\nif [ -f dist/${STAMP_FILE} ]; then exec bun run serve.ts; fi\nexec vite\n`)
   writeFileSync(join(work, '.gitignore'), 'dist\nbuilds.txt\n')
   git(work, 'add', '.')
   git(work, 'commit', '--quiet', '-m', 'one')
@@ -365,7 +366,7 @@ function realBuilds(logs: string) {
     build: (copy, options) => runBuild(copy, { ...options, log: join(logs, `${copy.id}.log`) }),
     head: async (dir) => git(dir, 'rev-parse', 'HEAD'),
     stamp: (dir, commit) => builtAt(dir, commit),
-    hasScript: (dir) => hasBuildScript(dir),
+    hasScript: (dir) => adoptedReadyBuilt(dir),
     running: async () => false,
     log: () => {},
   })
@@ -683,5 +684,54 @@ describe('"Ready-built" is what is running', () => {
     expect(statSync(file).size).toBeGreaterThan(32 * 1024)
     expect(servedAs(startOfRun(file), true)).toBe('built')
     expect(startOfRun(file)).not.toContain('an older run served from source')
+  })
+})
+
+describe('only modules that adopted ready-built copies are built', () => {
+  const copy = (files: Record<string, string>) => {
+    const dir = join(root, `adopt-${(made += 1)}`)
+    mkdirSync(dir, { recursive: true })
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
+    return dir
+  }
+  const pkg = JSON.stringify({ scripts: { build: 'vite build' } })
+
+  test('a plain old build script is not adoption; a build plus a run.sh that checks the stamp is', () => {
+    expect(adoptedReadyBuilt(copy({ 'package.json': pkg }))).toBe(false)
+    expect(adoptedReadyBuilt(copy({ 'package.json': pkg, 'run.sh': 'exec vite\n' }))).toBe(false)
+    expect(adoptedReadyBuilt(copy({ 'run.sh': `[ -f dist/${STAMP_FILE} ]`, 'package.json': '{}' }))).toBe(false)
+    expect(adoptedReadyBuilt(copy({ 'package.json': pkg, 'run.sh': `[ -f dist/${STAMP_FILE} ] && exec bun run serve.ts` }))).toBe(true)
+  })
+
+  test('an old build script is never run and says nothing; an adopter is built; a stale failure is dropped', async () => {
+    const old = copy({ 'package.json': pkg, 'run.sh': 'exec vite\n' })
+    const adopter = copy({ 'package.json': pkg, 'run.sh': `[ -f dist/${STAMP_FILE} ]` })
+    const ran: string[] = []
+    let failing = true
+    const deps: BuildDeps = {
+      build: async (c) => {
+        ran.push(c.dir)
+        return failing ? { ok: false, why: 'exited with code 1', lines: [] } : { ok: true, lines: [] }
+      },
+      head: async () => 'a'.repeat(40),
+      stamp: () => false,
+      hasScript: (dir) => adoptedReadyBuilt(dir),
+      running: async () => false,
+      log: () => {},
+    }
+    const builds = new ModuleBuilds(deps)
+    const a: Copy = { id: 'kehikot.journeys', name: 'Journeys', dir: old }
+    const b: Copy = { id: 'kehikot.terminal', name: 'Terminal', dir: adopter }
+    /* 0.1.55 recorded a failure for the old one: the same id, now judged by what it adopted. */
+    await builds.build({ ...a, dir: adopter })
+    expect(builds.said()[a.id]).toEqual({ state: 'failed', why: 'exited with code 1' })
+    await builds.backfill([a, b])
+    expect(ran).toEqual([adopter, adopter])
+    expect(builds.said()[a.id]).toBeUndefined()
+    expect(builds.failure(a.id)).toBeNull()
+    expect(await builds.build(a)).toEqual({ kind: 'none' })
+    failing = false
+    expect((await builds.build(b)).kind).toBe('failed')
+    expect(ran.filter((dir) => dir === old)).toEqual([])
   })
 })

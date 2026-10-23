@@ -288,7 +288,8 @@ describe('an installed copy', () => {
     const f = followerOf(m.origin, { have: '2.10.0', apps: () => null })
     await f.follower.settle(m.place(f))
     const reading = await read(m.place(f))
-    expect(worksSaid(reading.release!, 'v1.0.0')).toBe('Needs protocol 2.6 or later')
+    /* The map is unknown, but this host (2.10) meets the need: it works with this Kehikot. */
+    expect(worksSaid(reading.release!, 'v1.0.0')).toBe('Works with this Kehikot and later')
   })
 
   test('a host that reads no apps says nothing about them', async () => {

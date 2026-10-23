@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, r
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 
-import { readiness } from 'kehikot-module-protocol/build'
+import { readiness, STAMP_FILE } from 'kehikot-module-protocol/build'
 
 
 /**
@@ -58,7 +58,7 @@ import { readiness } from 'kehikot-module-protocol/build'
  *
  * ## Failure is never fatal
  *
- * No build script, a build that fails or times out, a build that finishes
+ * Not adopted (`adoptedReadyBuilt`), a build that fails or times out, a build that finishes
  * without stamping the commit: the module runs from source, by its own
  * `run.sh`, exactly as every module did before this. The build's output goes
  * to the module's log (`logFile`), and the host says once that it runs from
@@ -99,7 +99,7 @@ export type Built =
   | { kind: 'built'; commit: string }
   /** Already built for the commit checked out: nothing ran. */
   | { kind: 'current'; commit: string }
-  /** No `build` script: it runs from source, as every module did. */
+  /** Has not adopted ready-built copies: it runs from source, as every module did. */
   | { kind: 'none' }
   /** Running, or wanted by an open kehikko (the background pass): built when it next stops. */
   | { kind: 'deferred' }
@@ -126,7 +126,7 @@ export interface BuildDeps {
   head(dir: string): Promise<string | null>
   /** Whether `dist/` is a servable build of `commit` (`index.html`, and a stamp naming it). See `builtAt`. */
   stamp(dir: string, commit: string): boolean
-  /** Whether the copy's `package.json` has a `build` script. */
+  /** Whether the copy has adopted ready-built copies (`adoptedReadyBuilt`): only those are built. */
   hasScript(dir: string): boolean
   /** Whether the module is running now. A build never runs under it. */
   running(id: string): Promise<boolean>
@@ -204,6 +204,9 @@ export class ModuleBuilds {
 
   /** The background pass: every copy given, low priority, nothing that is wanted or running, no failed commit again. */
   backfill(copies: readonly Copy[], skip?: (id: string) => boolean): Promise<Built[]> {
+    /* Copies that have not adopted ready-built ones are not built, and a failure an
+       older host recorded for one is not true: it is dropped. */
+    for (const copy of copies) if (!this.#deps.hasScript(copy.dir)) this.#failed.delete(copy.id)
     return Promise.all(copies.filter((copy) => this.#deps.hasScript(copy.dir)).map((copy) => this.build(copy, { low: true, retry: false, ...(skip ? { skip } : {}) })))
   }
 
@@ -406,6 +409,29 @@ export function hasBuildScript(dir: string): boolean {
   try {
     const json = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> } | null
     return typeof json?.scripts?.build === 'string' && json.scripts.build.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a copy has ADOPTED ready-built copies, which is the only kind this
+ * host builds. Two things, both read as data from the disk:
+ *
+ *  - a `build` script, and
+ *  - a `run.sh` that checks the stamp (`dist/.kehikot-built`, `STAMP_FILE`) and
+ *    serves the build when it names the commit: the protocol template's
+ *    `run.sh`, which Terminal and Claude have.
+ *
+ * A module with only a `build` script has an older, unrelated one (a plain
+ * `vite build`, its own production path); nothing would ever serve what it
+ * made, and running it only reports a failure that is not one. Such a module
+ * is not built, has no status line, and runs from source.
+ */
+export function adoptedReadyBuilt(dir: string): boolean {
+  if (!hasBuildScript(dir)) return false
+  try {
+    return readFileSync(join(dir, 'run.sh'), 'utf8').includes(STAMP_FILE)
   } catch {
     return false
   }

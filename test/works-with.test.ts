@@ -12,7 +12,7 @@ import {
   RETRY_AFTER_MS,
 } from '../server/appProtocols.ts'
 import type { Runner } from '../server/versions.ts'
-import { needsKehikotSaid, protocolSaid, satisfies, worksWith, worksWithSaid, type AppProtocol } from '../src/host/worksWith.ts'
+import { needsKehikotSaid, protocolSaid, satisfies, withRunningHost, worksWith, worksWithSaid, type AppProtocol } from '../src/host/worksWith.ts'
 
 /*
  * Which Kehikot a module release works with: the app tags of the host
@@ -267,5 +267,56 @@ describe('the source', () => {
     await source.refresh()
     expect(r.listed).toBe(0)
     expect(source.apps()).toBeNull()
+  })
+})
+
+describe('the running Kehikot is always part of the answer', () => {
+  /* The map as cached with 0.1.55 running: it stops at 0.1.50 (protocol 2.15). */
+  const STALE: AppProtocol[] = [...APPS, { app: '0.1.50', protocol: '2.15.0' }]
+
+  test('a stale map plus a running host that meets the need never says "needs a newer Kehikot"', () => {
+    const stale = worksWith('2.16.0', STALE)
+    expect(worksWithSaid(stale)).toBe('Needs a Kehikot newer than 0.1.50 (protocol 2.16 or later)')
+    const fixed = withRunningHost(stale, { app: '0.1.55', protocol: '2.17.0' })
+    expect(worksWithSaid(fixed)).toBe('Works with Kehikot 0.1.55 and later')
+    /* The server does not know the app version: "this Kehikot". */
+    expect(worksWithSaid(withRunningHost(stale, { protocol: '2.17.0' }))).toBe('Works with this Kehikot and later')
+    expect(worksWithSaid(withRunningHost(worksWith('2.17.0', STALE), { protocol: '2.17.0' }))).toBe('Works with this Kehikot and later')
+  })
+
+  test('a host that does not meet the need still needs a newer one; a map that knows the app keeps saying it', () => {
+    expect(worksWithSaid(withRunningHost(worksWith('2.18.0', STALE), { protocol: '2.17.0' }))).toBe('Needs a Kehikot newer than 0.1.50 (protocol 2.18 or later)')
+    const known = worksWith('2.15.0', STALE)
+    expect(withRunningHost(known, { app: '0.1.55', protocol: '2.17.0' })).toBe(known)
+  })
+
+  test('a running app newer than the newest tag read refreshes the map inside the day, once an hour at most', async () => {
+    let listed = 0
+    const run: Runner = async () => {
+      listed++
+      return { ok: true, out: '' }
+    }
+    let clock = 1_000_000
+    const cache = cacheFile()
+    writeFileSync(
+      cache,
+      JSON.stringify({ from: 'Jalez/kehikko', read: new Date(clock - 1000).toISOString(), tags: { 'app-v0.1.50': { commit: 'a'.repeat(40), protocol: '2.15.0' } } }),
+    )
+    const source = appProtocolSource({ run, cache, now: () => clock })
+    /* Nothing newer running, or the cached app is the running one: the day's rest stands. */
+    await source.refresh()
+    await source.refresh('0.1.50')
+    await source.refresh('0.1.12')
+    expect(listed).toBe(0)
+    /* Newer running: read now. */
+    await source.refresh('0.1.55')
+    expect(listed).toBe(1)
+    /* And not again within the hour, however often it is asked. */
+    clock += RETRY_AFTER_MS - 1
+    await source.refresh('0.1.55')
+    expect(listed).toBe(1)
+    clock += 2
+    await source.refresh('0.1.55')
+    expect(listed).toBe(2)
   })
 })
