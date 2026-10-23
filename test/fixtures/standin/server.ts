@@ -41,13 +41,17 @@ const json = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c')
 
 const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title>
 <style>
-  :root { color-scheme: light dark }
-  body { margin: 0; font: 13px system-ui; background: Canvas; color: CanvasText }
+  /* The module template's own colours (the protocol's template/src/index.css),
+     so a switch is measured against what a module looks like. */
+  :root { color-scheme: light } html.dark { color-scheme: dark }
+  body { margin: 0; font: 13px system-ui; background: oklch(1 0 0); color: oklch(0.145 0 0) }
+  html.dark body { background: oklch(0.145 0 0); color: oklch(0.985 0 0) }
   #list { height: 120px; overflow: auto; border: 1px solid GrayText; margin: 6px }
   #list div { height: 24px }
 </style></head><body>
 <div style="padding:6px"><input id="field" placeholder="type here" autocomplete="off"> <button id="press">press</button>
 <span id="pressed">0</span> <span id="greeted">not greeted</span></div>
+<div id="told" style="font:600 22px system-ui;padding:2px 6px">…</div>
 <div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
 <script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))} }</script>
 <script type="module">${script}</script></body></html>`

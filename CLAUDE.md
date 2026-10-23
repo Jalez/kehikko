@@ -647,8 +647,28 @@
   window event `kehikot:settings` (`OPEN_EVENT`) is also the desktop shell's way
   in for an app-menu "Settings…".
 
-## Switching kehikko or project
+## Switching kehikko, project or epic
 
+- Module pages must take a real click, typing and the wheel, in WebKit (the
+  app's engine) and Chromium. `dev/pages-take-input.drive.mjs` proves it with
+  `page.mouse`/`page.keyboard` at coordinates and `elementFromPoint`, and
+  `bun test` runs it (`test/pages-take-input.test.ts`; it needs Playwright's
+  browsers: `bunx playwright-core install webkit chromium-headless-shell`).
+  0.1.54–0.1.55 shipped a full-canvas wrapper over the pages that took every
+  click: any layer over the pages is `pointer-events: none`, and a test that
+  uses `locator.click()` or a dispatched event cannot see a layer in the way.
+- A switch ends by a hard deadline (`deadline`, `preparingMs`): the canvas
+  takes input and the pages are told their new context within `capMs`
+  (300 ms) of the press, whatever the layout readings do.
+- The look: what is left fades out with a light blur, the incoming chrome
+  comes into focus, the pages arriving fade in sharp. A filter only ever on a
+  layer that takes no input, and at rest NO `filter`, `will-change` or
+  transition on any layer (`layerStyle`). Reduced motion: a plain short
+  crossfade. The underlay (`canvas/Underlay.tsx`) keeps the moment between
+  two pages a panel, not the black canvas; `dev/switch-frames.drive.mjs`
+  records each switch and fails on a dark flash or a page left unsharp.
+- An epic switch (`changeSubject` with `movesEpic`) goes through the same
+  switch, and the pages being left keep their context while they fade.
 - A switch must not fidget: `host/switching.ts` holds the rule and the
   measurements, `canvas/useCalmSwitch.ts` drives it, and
   `dev/calm-switch.drive.mjs` measures it in a browser (visible moves per

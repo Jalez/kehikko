@@ -207,7 +207,9 @@ export function Frames({
              document rather than the old one pointed somewhere else. */
           key={`${module.id}|${module.entry}|${generation}`}
           data-frame={module.id}
-          {...hiddenFrame(visible)}
+          /* Held while a switch hands over (`still`): the page being left,
+             fading out where it was, is no more a target than a hidden one. */
+          {...hiddenFrame(visible && !still)}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{
             transform: `translate(${rect?.x ?? 0}px, ${rect?.y ?? 0}px)`,

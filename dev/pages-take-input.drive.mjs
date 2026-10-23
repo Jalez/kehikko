@@ -27,180 +27,33 @@
  *
  * ## What is checked, on every page shown
  *
- *   after the first load · after a header menu press · after a kehikko switch
- *   · after a project switch · after a resize · after a fold and an unfold,
- *   in light; and after the load and a kehikko switch in dark. Each in every
- *   browser in `BROWSERS` (default `webkit,chromium`).
+ *   after the first load · after a kehikko switch · after an epic switch ·
+ *   after a header menu press · after a project switch · after a resize ·
+ *   after a fold and an unfold, in light; and after the load, a kehikko and
+ *   an epic switch in dark. Each in every browser in `BROWSERS` (default
+ *   `webkit,chromium`).
+ *
+ * And during every switch, on every painted frame (`WATCH`): the pointer at
+ * the middle of a page never lands on the still copy of the chrome being
+ * left, it lands on the page itself once the pages are released, the copy is
+ * gone from the DOM once the switch is shown, and nothing on the canvas keeps
+ * a `filter` or a `will-change` at rest. An epic switch tells every page its
+ * new epic within the cap (300 ms, plus what a message takes).
  *
  * ## The scratch host
  *
- * Its own: the host's API and Vite on free ports, every `KEHIKOT_*` location
- * and `HOME` in a temporary directory, two projects with two kehikot each,
- * and three stand-in modules (`test/fixtures/standin/`). Nothing of the
- * person's machine is read or written, and every process it starts is
- * stopped by its pid when it ends.
+ * Its own, from `dev/scratch-host.mjs`: nothing of the person's machine is
+ * read or written, and every process it starts is stopped by its pid.
  *
  * Playwright is `playwright-core`, a dev dependency with no browsers in it.
  * The browsers are Playwright's own shared cache; if they are missing this
  * says the one command that installs them.
  */
-import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { bootHost, stop } from './scratch-host.mjs'
 
-const HOST = join(dirname(fileURLToPath(import.meta.url)), '..')
 const BROWSERS = (process.env.BROWSERS ?? 'webkit,chromium').split(',').filter(Boolean)
-const KEEP = process.env.KEEP === '1'
-const BUN = process.env.BUN ?? 'bun'
 
 const pw = await import('playwright-core')
-
-/* ------------------------------------------------------------ scratch host */
-
-/* Every port handed out, so the next one asked for is a different one: a port
-   is free until something listens on it, and nothing has yet. */
-const taken = new Set()
-const freePort = async () => {
-  for (;;) {
-    const port = await anyPort()
-    if (!taken.has(port) && !taken.has(port - 1)) return taken.add(port), port
-  }
-}
-const anyPort = () =>
-  new Promise((done, fail) => {
-    const server = createServer()
-    server.unref()
-    server.on('error', fail)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      server.close(() => done(port))
-    })
-  })
-const portFree = (port) =>
-  new Promise((done) => {
-    const server = createServer()
-    server.unref()
-    server.on('error', () => done(false))
-    server.listen(port, '127.0.0.1', () => server.close(() => done(true)))
-  })
-/* The page is the API's port plus one (`server.ts`), so both must be free. */
-async function pairOfPorts() {
-  for (let tries = 0; tries < 50; tries += 1) {
-    const api = await freePort()
-    if (!taken.has(api + 1) && (await portFree(api + 1))) return taken.add(api + 1), api
-  }
-  throw new Error('no two free ports in a row')
-}
-
-const ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-pages-take-input-')))
-const at = (path) => join(ROOT, path)
-const children = []
-function stop() {
-  for (const child of children) {
-    try {
-      process.kill(child.pid, 'SIGTERM')
-    } catch {}
-  }
-  children.length = 0
-  if (!KEEP) rmSync(ROOT, { recursive: true, force: true })
-}
-process.on('exit', stop)
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(130))
-
-async function bootHost() {
-  for (const dir of ['home', 'project-a', 'project-b', 'modules', 'versions', 'installed', 'logs', 'claude']) mkdirSync(at(dir), { recursive: true })
-  writeFileSync(at('project-a/README.md'), 'a\n')
-  writeFileSync(at('project-b/README.md'), 'b\n')
-  const api = await pairOfPorts()
-  const page = api + 1
-  const origins = [`http://127.0.0.1:${page}`, `http://localhost:${page}`, `http://127.0.0.1:${api}`, `http://localhost:${api}`]
-  const env = {
-    ...process.env,
-    HOME: at('home'),
-    PORT: String(api),
-    HOST_PORT: String(api),
-    CLAUDE_CONFIG: at('home/.claude.json'),
-    CLAUDE_CONFIG_DIR: at('claude'),
-    KEHIKOT_FRAME_DB: at('frame.sqlite'),
-    KEHIKOT_MODULES_DIR: at('modules'),
-    KEHIKOT_VERSIONS_DIR: at('versions'),
-    KEHIKOT_INSTALLS_DIR: at('installed'),
-    KEHIKOT_OFFICIAL_CACHE: at('official-modules.json'),
-    KEHIKOT_LOGS_DIR: at('logs'),
-    KEHIKOT_OFFICIAL_LIST: 'off',
-    KEHIKOT_SEED_PROJECT: at('project-a'),
-    KEHIKKO_RESTART_FILE: at('restart'),
-  }
-  const run = (cmd, args, log) => {
-    const out = openSync(at(log), 'a')
-    const child = spawn(cmd, args, { cwd: HOST, env, stdio: ['ignore', out, out] })
-    children.push(child)
-    return child
-  }
-  const modules = []
-  for (const [id, name] of [
-    ['kehikot.alpha', 'Alpha'],
-    ['kehikot.beta', 'Beta'],
-    ['kehikot.gamma', 'Gamma'],
-  ]) {
-    const port = await freePort()
-    modules.push({ id, name, port })
-    writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))
-    run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`)
-  }
-  run(BUN, ['run', 'server/server.ts'], 'api.log')
-  run(join(HOST, 'node_modules/.bin/vite'), ['--port', String(page), '--strictPort', '--host', '127.0.0.1'], 'vite.log')
-
-  const answers = async (url) => {
-    for (let tries = 0; tries < 300; tries += 1) {
-      try {
-        if ((await fetch(url)).ok) return
-      } catch {}
-      await new Promise((done) => setTimeout(done, 100))
-    }
-    throw new Error(`nothing answered at ${url}; logs in ${ROOT} (KEEP=1 keeps them)`)
-  }
-  await answers(`http://127.0.0.1:${api}/host/health`)
-  for (const { port } of modules) await answers(`http://127.0.0.1:${port}/healthz`)
-  await answers(`http://127.0.0.1:${page}/`)
-
-  const send = async (method, path, body) => {
-    const response = await fetch(`http://127.0.0.1:${api}${path}`, {
-      method,
-      headers: { 'content-type': 'application/json', origin: `http://127.0.0.1:${page}` },
-      body: JSON.stringify(body),
-    })
-    if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
-    return response.json()
-  }
-  const first = await (await fetch(`http://127.0.0.1:${api}/host/canvases`)).json()
-  const a = first.projects[0].id
-  const b = (await send('POST', '/host/projects', { path: at('project-b') })).project.id
-  const wide = [
-    { i: 'kehikot.alpha', x: 0, y: 0, w: 6, h: 14 },
-    { i: 'kehikot.beta', x: 6, y: 0, w: 6, h: 14 },
-    { i: 'kehikot.gamma', x: 0, y: 14, w: 12, h: 14 },
-  ]
-  const tall = [
-    { i: 'kehikot.alpha', x: 0, y: 0, w: 4, h: 28 },
-    { i: 'kehikot.beta', x: 4, y: 0, w: 4, h: 28 },
-    { i: 'kehikot.gamma', x: 8, y: 0, w: 4, h: 28 },
-  ]
-  /* The kehikko a fresh project opens on holds the three as well, so the
-     first load is a canvas of pages and not an empty one. */
-  for (const canvas of first.canvases.filter((one) => one.project === a)) await send('PATCH', `/host/canvases/${canvas.id}`, { placements: wide })
-  await send('POST', '/host/canvases', { name: 'Tall', project: a, placements: tall })
-  await send('POST', '/host/canvases', { name: 'Tall', project: b, placements: wide })
-  /* And the one project-b was given when it was added, if it was given one. */
-  const again = await (await fetch(`http://127.0.0.1:${api}/host/canvases`)).json()
-  const own = again.canvases.filter((one) => one.project === b && one.name !== 'Tall')
-  for (const canvas of own) await send('PATCH', `/host/canvases/${canvas.id}`, { name: 'Wide', placements: tall })
-  if (own.length === 0) await send('POST', '/host/canvases', { name: 'Wide', project: b, placements: tall })
-  return `http://127.0.0.1:${page}/`
-}
 
 /* ------------------------------------------------------------------ checks */
 
@@ -329,9 +182,95 @@ async function everyPageTakesInput(page, label, expected) {
   for (const line of lines) if (line.startsWith('FAIL')) failures.push(`${label}: ${line.slice(5)}`)
 }
 
-async function choose(page, kind, row) {
+/*
+ * The hand-over, watched on every painted frame from the press until the
+ * switch is shown: at the middle of every page drawn, what does the host have
+ * on top? Never anything inside the still copy of the chrome being left
+ * (`data-outgoing`); and once the incoming pages are released (`arriving`,
+ * `shown`), the page's own iframe. After `shown` the copy is gone from the
+ * DOM, and no layer of the canvas keeps a filter or a `will-change`.
+ */
+const WATCH = () => {
+  const seen = { frames: 0, intoCopy: [], notThePage: [], phases: [] }
+  window.__handover = seen
+  const tick = () => {
+    const surface = document.querySelector('[data-switch]')
+    const phase = surface?.getAttribute('data-switch') ?? 'shown'
+    if (seen.phases.at(-1) !== phase) seen.phases.push(phase)
+    seen.frames += 1
+    for (const holder of document.querySelectorAll('[data-frame]')) {
+      if (getComputedStyle(holder).visibility !== 'visible') continue
+      const box = holder.getBoundingClientRect()
+      if (box.width < 40 || box.height < 40) continue
+      const x = box.left + box.width / 2
+      const y = box.top + box.height / 2
+      const hit = document.elementFromPoint(x, y)
+      const id = holder.getAttribute('data-frame')
+      if (hit?.closest('[data-outgoing]')) seen.intoCopy.push(`${phase} ${id}`)
+      const released = phase === 'arriving' || phase === 'shown'
+      if (released && !holder.hasAttribute('inert') && hit !== holder.querySelector('iframe')) {
+        seen.notThePage.push(`${phase} ${id}: ${hit ? hit.tagName.toLowerCase() + '.' + String(hit.className).split(' ').slice(0, 4).join('.') : 'nothing'}`)
+      }
+    }
+    if (phase === 'shown' && seen.phases.length > 1) {
+      seen.copyLeft = document.querySelectorAll('[data-outgoing]').length
+      seen.filtered = [...document.querySelectorAll('main [data-switch], main [data-frame], main *')]
+        .filter((element) => {
+          const style = getComputedStyle(element)
+          return (style.filter !== 'none' || style.willChange !== 'auto') && !element.closest('[data-frame] iframe')
+        })
+        .slice(0, 5)
+        .map((element) => `${element.tagName.toLowerCase()}.${String(element.className).split(' ').slice(0, 3).join('.')}: ${getComputedStyle(element).filter} / ${getComputedStyle(element).willChange}`)
+      seen.done = true
+      return
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+async function watched(page, label, act) {
+  await page.evaluate(WATCH)
+  await act()
+  await page.waitForFunction(() => window.__handover?.done, null, { timeout: 5000 }).catch(() => {})
+  const seen = await page.evaluate(() => window.__handover)
+  const problems = []
+  if (!seen.done) problems.push(`never shown (phases ${seen.phases.join(' → ')})`)
+  if (seen.intoCopy.length) problems.push(`the still copy was on top of a page: ${[...new Set(seen.intoCopy)].slice(0, 3).join(', ')}`)
+  if (seen.notThePage.length) problems.push(`a released page was not what the pointer would hit: ${[...new Set(seen.notThePage)].slice(0, 3).join(', ')}`)
+  if (seen.copyLeft) problems.push(`the still copy was left in the DOM (${seen.copyLeft})`)
+  if (seen.filtered?.length) problems.push(`a filter or will-change left at rest: ${seen.filtered.join('; ')}`)
+  say(`  ${label}: the hand-over, ${seen.frames} frames, ${seen.phases.join(' → ')}`)
+  say(`    ${problems.length ? 'FAIL' : 'ok  '} ${problems.length ? problems.join('; ') : 'never the copy, the pages when released, nothing left at rest'}`)
+  for (const problem of problems) failures.push(`${label}, the hand-over: ${problem}`)
+}
+
+async function choose(page, kind, row, label) {
   await pressHost(page, page.locator(`button[aria-label="switch ${kind}"]`))
-  await pressHost(page, page.locator('[role="menuitem"]', { hasText: row }).first())
+  const item = page.locator('[role="menuitem"]', { hasText: row }).first()
+  await watched(page, label, () => pressHost(page, item))
+}
+
+/* The epic picker, and how long the pages wait to be told: never more than the cap. */
+async function chooseEpic(page, label) {
+  /* The other one: what a project is about is the host's to keep, so a second
+     browser finds the epic the first one left it on. */
+  const trigger = page.locator('button[aria-label="the epic this project is on"]')
+  const [title, slug] = (await trigger.innerText()).includes('Results') ? ['Methods', 'methods'] : ['Results', 'results']
+  await pressHost(page, trigger)
+  const item = page.locator('[role^="menuitem"]', { hasText: title }).first()
+  await item.waitFor({ state: 'visible' })
+  const frames = (await shownPages(page)).map((one) => one.frame)
+  const started = Date.now()
+  const told = Promise.all(
+    frames.map((frame) => frame.waitForFunction((slug) => document.getElementById('told')?.textContent === slug, slug, { timeout: 3000, polling: 10 }).then(() => Date.now() - started)),
+  )
+  await watched(page, label, () => pressHost(page, item))
+  const waited = await told.catch(() => null)
+  /* The cap, and what it costs to carry a message and to be polled for it. */
+  const ok = waited !== null && Math.max(...waited) <= 300 + 120
+  say(`    ${ok ? 'ok  ' : 'FAIL'} every page told "${slug}" ${waited ? `within ${Math.max(...waited)} ms` : 'never'}`)
+  if (!ok) failures.push(`${label}: the pages were told the new epic ${waited ? `only after ${Math.max(...waited)} ms` : 'never'}`)
 }
 
 async function headerMenu(page, label) {
@@ -396,6 +335,8 @@ async function drive(kind, browserType) {
       return
     }
     const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, colorScheme: scheme })
+    /* The host's own theme is its cookie (`host/theme.ts`), dark when unset. */
+    await context.addCookies([{ name: 'kehikko.theme', value: scheme, url: pageUrl }])
     const page = await context.newPage()
     page.on('pageerror', (error) => {
       failures.push(`${kind} ${scheme}: the page threw while ${doing}: ${error.message}`)
@@ -418,14 +359,16 @@ async function drive(kind, browserType) {
     const name = (label) => `${kind} ${scheme}, ${label}`
 
     await everyPageTakesInput(page, name('after the first load'), 3)
-    await choose(page, 'kehikko', 'Tall')
+    await choose(page, 'kehikko', 'Tall', name('a kehikko switch'))
     await everyPageTakesInput(page, name('after a kehikko switch'), 3)
+    await chooseEpic(page, name('an epic switch'))
+    await everyPageTakesInput(page, name('after an epic switch'), 3)
     if (scheme === 'light') {
       await headerMenu(page, name('a header menu press'))
       await everyPageTakesInput(page, name('after a header menu press'), 3)
-      await choose(page, 'project', 'project-b')
+      await choose(page, 'project', 'project-b', name('a project switch'))
       await everyPageTakesInput(page, name('after a project switch'), 3)
-      await choose(page, 'project', 'project-a')
+      await choose(page, 'project', 'project-a', name('a project switch back'))
       await everyPageTakesInput(page, name('after switching back'), 3)
       say(`  ${name('resizing Beta by its corner')}`)
       await resize(page)
@@ -443,7 +386,7 @@ async function drive(kind, browserType) {
 
 let PAGE
 try {
-  PAGE = process.env.PAGE ?? (await bootHost())
+  PAGE = process.env.PAGE ?? (await bootHost('kehikko-pages-take-input'))
   for (const kind of BROWSERS) {
     if (!pw[kind]) throw new Error(`no browser called ${kind}`)
     await drive(kind, pw[kind])
@@ -455,7 +398,6 @@ try {
 if (failures.length) {
   console.log(`\n${failures.length} failure(s):`)
   for (const failure of failures) console.log(`  - ${failure}`)
-  if (KEEP) console.log(`scratch host kept at ${ROOT}`)
 } else console.log('\nevery page took the pointer, the keyboard and the wheel')
 stop()
 process.exit(failures.length ? 1 : 0)

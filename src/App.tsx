@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
@@ -6,8 +6,9 @@ import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterG
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
+import { Underlay } from './canvas/Underlay.tsx'
 import { useCalmSwitch } from './canvas/useCalmSwitch.ts'
-import { foldsOnlyChanged, held as heldPages, type Look } from './host/switching.ts'
+import { foldsOnlyChanged, held as heldPages, layerStyle } from './host/switching.ts'
 import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
 import { Covers, registryBehind, Replacing, Runs, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
@@ -87,7 +88,7 @@ import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
-import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
+import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 import { coveredForScope } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -1294,10 +1295,16 @@ export function App() {
    * `withEdit`, and again by the server, which owns it. A failed write leaves
    * the screen as the person left it and says so, like the canvas writer.
    */
+  const aboutRef = useRef(about)
+  aboutRef.current = about
   const changeSubject = useCallback(
     (edit: SubjectEdit) => {
       const id = projectId
       if (id === null) return
+      /* A different epic — or "All epics" — redraws every module: switched
+         like a kehikko, with the pages being left fading out as they were
+         (`useCalmSwitch`). A pick of parts is not a switch. */
+      if (movesEpic(aboutRef.current, edit)) leavingRef.current()
       setSubjects((was) => withEdit(was, id, edit))
       editSubject(id, edit).catch((error: unknown) =>
         setTrouble(
@@ -3741,6 +3748,13 @@ export function App() {
   /* While a switch holds them, the pages that were seen stay where they were
      seen and the rest wait, hidden, at their new places. */
   const drawnFramings = useMemo(() => heldPages(framings, calm.seen), [framings, calm.seen])
+  /* And what the pages being left are told, held with them: while they are on
+     screen fading out, they go on showing what they showed. An epic switch is
+     the case that needs it — the same pages, told a new epic, would redraw
+     themselves in the middle of their own fade — and the new context is
+     theirs the moment they are released, as they fade in. */
+  const heldContext = useRef(context)
+  if (!calm.pagesStill) heldContext.current = context
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -4004,7 +4018,7 @@ export function App() {
           data-switch={calm.phase}
           inert={!calm.interactive}
           className="pointer-events-none relative z-[1] h-full"
-          style={fade(calm.incoming)}
+          style={layerStyle(calm.incoming)}
         >
         {width === null ? null : (
         <Grid
@@ -4305,9 +4319,16 @@ export function App() {
          * containers, and then what is inside them.
          */}
 
+        {calm.left ? (
+          <Underlay
+            from={[...calm.left.values()]}
+            to={framings.flatMap((one) => (one.shown && one.rect ? [one.rect] : []))}
+            look={calm.underlay}
+          />
+        ) : null}
         <Frames
           framings={drawnFramings}
-          context={context}
+          context={calm.pagesStill ? heldContext.current : context}
           canvas={controls}
           bus={bus}
           presses={presses}
@@ -4315,14 +4336,14 @@ export function App() {
           onDocument={onDocument}
           moving={moving}
           still={calm.pagesStill}
-          layer={fade(calm.pages)}
+          layer={layerStyle(calm.pages)}
         />
           </>
         )}
         {/* The still copy of the kehikko being left, while the next is
             prepared and as it fades. Filled and emptied by `useCalmSwitch`,
             never by React. */}
-        <div ref={calm.outgoingRef} aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-[1]" style={fade(calm.outgoing)} />
+        <div ref={calm.outgoingRef} aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-[1]" style={layerStyle(calm.outgoing)} />
         {calm.slow ? <Arranging /> : null}
       </main>
 
@@ -4462,10 +4483,6 @@ export function App() {
  * there is nothing else on screen. A black rectangle with no modules on it and
  * no words is indistinguishable from a program that failed to start.
  */
-/** A layer's opacity, and the fade to it. */
-function fade(look: Look): CSSProperties {
-  return { opacity: look.opacity, transition: look.ms ? `opacity ${look.ms}ms ${look.easing ?? 'ease'}` : 'none' }
-}
 
 /**
  * The quiet word for a switch that is taking longer than it should: said only

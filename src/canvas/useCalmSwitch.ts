@@ -59,6 +59,10 @@ export function useCalmSwitch({
   pages: Look
   /** Where the pages that were seen stay while they are held; `null` when they are not held. */
   seen: ReadonlyMap<string, Rect> | null
+  /** Where the pages being left were seen, for the whole hand-over (the underlay); `null` at rest. */
+  left: ReadonlyMap<string, Rect> | null
+  /** The underlay's two sets of panels: where pages were, and where they are going. */
+  underlay: { from: Look; to: Look }
   /** Give the element the incoming grid is drawn in. */
   incomingRef: (element: HTMLElement | null) => void
   /** Give the element the still copy of the outgoing grid is put in. */
@@ -186,7 +190,6 @@ export function useCalmSwitch({
 
   /* Shown: the copy goes, the pages are released, and whatever waited for it runs. */
   useLayoutEffect(() => {
-    if (phase === 'arriving' || phase === 'shown') seen.current = null
     if (phase !== 'shown') return
     clear()
     const queued = waiting.current
@@ -210,6 +213,8 @@ export function useCalmSwitch({
     outgoing: look.outgoing,
     pages: look.pages,
     seen: pagesHeld(phase) ? seen.current : null,
+    left: phase === 'shown' ? null : seen.current,
+    underlay: look.underlay,
     incomingRef,
     outgoingRef,
     leaving,

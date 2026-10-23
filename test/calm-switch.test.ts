@@ -10,9 +10,11 @@ import {
   deadline,
   due,
   finish,
+  preparingMs,
   foldsOnlyChanged,
   held,
   interactive,
+  layerStyle,
   layoutOf,
   looks,
   pagesHeld,
@@ -75,7 +77,7 @@ describe('the switch, phase by phase', () => {
     expect(step(state, state.since + 10_000, 'x')).toBe(state)
   })
 
-  test('a layout that keeps moving is shown at the cap, counted from the press', () => {
+  test('a layout that keeps moving is shown at the cap, counted from the press, its fade out inside the cap', () => {
     let state = ask(shown(0), 0, true)
     let at = 0
     for (let i = 0; state.phase === 'preparing' && i < 100; i += 1) {
@@ -83,8 +85,16 @@ describe('the switch, phase by phase', () => {
       state = step(state, at, `moving-${i}`)
     }
     expect(state.phase).toBe('leaving')
-    expect(at).toBeGreaterThanOrEqual(TIMING.capMs)
-    expect(at).toBeLessThan(TIMING.capMs + 16)
+    expect(preparingMs(state)).toBe(TIMING.capMs - TIMING.leaveMs)
+    expect(at).toBeGreaterThanOrEqual(preparingMs(state))
+    expect(at).toBeLessThan(preparingMs(state) + 16)
+    /* The pages are released — and an epic switch's new context sent — by the cap. */
+    const released = step(state, at + TIMING.leaveMs, 'x')
+    expect(released.phase).toBe('arriving')
+    expect(pagesHeld(released.phase)).toBe(false)
+    expect(at + TIMING.leaveMs).toBeLessThan(TIMING.capMs + 16)
+    /* With nothing to fade out, the whole cap is the wait. */
+    expect(preparingMs(ask(shown(0), 0, false))).toBe(TIMING.capMs)
   })
 
   /* The safety. 0.1.54 shipped a canvas no module page took input on; the
@@ -94,15 +104,19 @@ describe('the switch, phase by phase', () => {
     const run = frames(ask(shown(0), 0, true), 0, Array.from({ length: 30 }, () => null))
     const at = run.phases.indexOf('leaving')
     expect(at).toBeGreaterThan(-1)
-    expect(16 * (at + 1)).toBeGreaterThanOrEqual(TIMING.capMs)
-    expect(16 * (at + 1)).toBeLessThan(TIMING.capMs + 16)
+    expect(16 * (at + 1)).toBeGreaterThanOrEqual(preparingMs(run.state))
+    expect(16 * (at + 1)).toBeLessThan(preparingMs(run.state) + 16)
     expect(interactive(run.phases[at] as Switch['phase'])).toBe(true)
     /* No frames at all — a window the system stopped painting — and one late look. */
     const late = step(ask(shown(0), 0, false), TIMING.capMs, null)
     expect(interactive(late.phase)).toBe(true)
     for (const timing of [TIMING, STILL]) {
-      expect(interactive(step(ask(shown(0), 0, true), timing.capMs, null, timing).phase)).toBe(true)
-      expect(interactive(step(ask(shown(0), 0, true), timing.capMs - 1, null, timing).phase)).toBe(false)
+      for (const outgoing of [true, false]) {
+        const wait = preparingMs({ outgoing }, timing)
+        expect(wait).toBeLessThanOrEqual(timing.capMs)
+        expect(interactive(step(ask(shown(0), 0, outgoing), wait, null, timing).phase)).toBe(true)
+        expect(interactive(step(ask(shown(0), 0, outgoing), wait - 1, null, timing).phase)).toBe(false)
+      }
     }
   })
 
@@ -111,14 +125,17 @@ describe('the switch, phase by phase', () => {
     state = step(state, 200, 'a')
     state = ask(state, 250, false)
     expect(state.pressed).toBe(250)
-    expect(due(state, 250)).toBe(TIMING.capMs)
-    expect(step(state, 250 + TIMING.capMs - 1, null).phase).toBe('preparing')
-    expect(step(state, 250 + TIMING.capMs, null).phase).toBe('leaving')
+    const wait = preparingMs(state)
+    expect(due(state, 250)).toBe(wait)
+    expect(step(state, 250 + wait - 1, null).phase).toBe('preparing')
+    expect(step(state, 250 + wait, null).phase).toBe('leaving')
   })
 
   test('the hard deadline: past it the switch is finished, whatever phase it was left in', () => {
     const state = ask(shown(0), 100, true)
-    expect(deadline(state)).toBe(100 + TIMING.capMs + TIMING.leaveMs + TIMING.arriveMs)
+    expect(deadline(state)).toBe(100 + TIMING.capMs + TIMING.arriveMs)
+    /* Everything is over by then: preparing, the fade out and the fade in. */
+    expect(preparingMs(state) + TIMING.leaveMs + TIMING.arriveMs).toBeLessThanOrEqual(deadline(state) - 100)
     for (const phase of ['preparing', 'leaving', 'arriving'] as const) {
       const done = finish({ ...state, phase }, 900)
       expect(done.phase).toBe('shown')
@@ -173,11 +190,12 @@ describe('the switch, phase by phase', () => {
 
   test('a hidden tab paints no frames, and the switch still ends: `due` says when to look again', () => {
     let state = ask(shown(0), 0, true)
-    expect(due(state, 0)).toBe(TIMING.capMs)
+    const wait = preparingMs(state)
+    expect(due(state, 0)).toBe(wait)
     state = step(state, 10, 'a')
-    expect(due(state, 10)).toBe(TIMING.capMs - 10)
+    expect(due(state, 10)).toBe(wait - 10)
     /* One late look, with no frames between, is past the cap. */
-    state = step(state, TIMING.capMs, 'a')
+    state = step(state, wait, 'a')
     expect(state.phase).toBe('leaving')
     expect(due(state, state.since)).toBe(TIMING.leaveMs)
   })
@@ -195,43 +213,72 @@ describe('the switch, phase by phase', () => {
 describe('what each layer looks like', () => {
   test('preparing: the incoming kehikko is invisible, the outgoing one and its pages are fully there', () => {
     const look = looks(ask(shown(0), 0, true))
-    expect(look.incoming).toEqual({ opacity: 0, ms: 0 })
-    expect(look.outgoing).toEqual({ opacity: 1, ms: 0 })
-    expect(look.pages).toEqual({ opacity: 1, ms: 0 })
+    expect(look.incoming).toEqual({ opacity: 0, ms: 0, blur: TIMING.blurInPx })
+    expect(look.outgoing).toEqual({ opacity: 1, ms: 0, blur: 0 })
+    expect(look.pages).toEqual({ opacity: 1, ms: 0, blur: 0 })
   })
 
-  test('the chrome crosses in one movement of 150–200 ms; the pages fade through, gone before they move', () => {
+  test('the chrome crosses in one movement of 180–220 ms; the pages fade through, gone before they move', () => {
     const leaving: Switch = { ...ask(shown(0), 0, true), phase: 'leaving', since: 0 }
     const look = looks(leaving)
     const cross = TIMING.leaveMs + TIMING.arriveMs
-    expect(cross).toBeGreaterThanOrEqual(150)
-    expect(cross).toBeLessThanOrEqual(200)
-    expect(look.incoming).toMatchObject({ opacity: 1, ms: cross })
-    expect(look.outgoing).toMatchObject({ opacity: 0, ms: cross })
-    expect(look.pages.opacity).toBe(0)
+    expect(cross).toBeGreaterThanOrEqual(180)
+    expect(cross).toBeLessThanOrEqual(220)
+    /* What is left blurs a little as it goes; what arrives comes into focus. */
+    expect(look.incoming).toMatchObject({ opacity: 1, ms: cross, blur: 0 })
+    expect(look.outgoing).toMatchObject({ opacity: 0, ms: cross, blur: TIMING.blurOutPx })
+    expect(look.pages).toMatchObject({ opacity: 0, blur: TIMING.blurOutPx })
+    expect(TIMING.blurOutPx).toBeGreaterThan(0)
+    expect(TIMING.blurOutPx).toBeLessThanOrEqual(8)
     /* Their fade ends before the phase that moves them begins. */
     expect(look.pages.ms).toBeLessThan(TIMING.leaveMs)
     const arriving = looks({ ...leaving, phase: 'arriving' })
     expect(arriving.pages).toMatchObject({ opacity: 1, ms: TIMING.arriveMs })
-    expect(looks({ ...leaving, phase: 'shown' })).toEqual({
+    /* The pages arriving take input: never a filter on them, not even blur(0). */
+    expect(arriving.pages.blur).toBeUndefined()
+    expect(looks({ ...leaving, phase: 'shown' })).toMatchObject({
       incoming: { opacity: 1, ms: 0 },
       outgoing: { opacity: 0, ms: 0 },
       pages: { opacity: 1, ms: 0 },
     })
   })
 
-  test('reduced motion: the same waiting, then an instant swap', () => {
+  test('reduced motion: the same waiting, then a plain short crossfade with no blur', () => {
     expect(timingFor(true)).toBe(STILL)
     expect(timingFor(false)).toBe(TIMING)
     expect(STILL.capMs).toBe(TIMING.capMs)
     expect(STILL.settledFrames).toBe(TIMING.settledFrames)
     const run = frames(ask(shown(0), 0, true), 0, ['a', 'a', 'a'], STILL)
     /* Not shown before it has settled… */
-    expect(run.phases).toEqual(['preparing', 'preparing', 'shown'])
-    /* …and nothing fades on the way. */
+    expect(run.phases).toEqual(['preparing', 'preparing', 'leaving'])
+    /* …and then a short fade, opacity only. */
+    expect(STILL.leaveMs + STILL.arriveMs).toBeLessThanOrEqual(150)
     for (const phase of ['preparing', 'leaving', 'arriving', 'shown'] as const) {
       const look = looks({ ...run.state, phase }, STILL)
-      expect([look.incoming.ms, look.outgoing.ms, look.pages.ms]).toEqual([0, 0, 0])
+      expect([look.incoming.blur, look.outgoing.blur, look.pages.blur]).toEqual([undefined, undefined, undefined])
+    }
+  })
+
+  test('as a style: a blur is a filter animated with the opacity, and no blur is no filter at all', () => {
+    expect(layerStyle({ opacity: 0, ms: 200, easing: 'ease-in-out', blur: 6 })).toEqual({
+      opacity: 0,
+      filter: 'blur(6px)',
+      transition: 'opacity 200ms ease-in-out, filter 200ms ease-in-out',
+    })
+    const rest = layerStyle(looks(shown(0)).pages)
+    expect(rest).toEqual({ opacity: 1, transition: 'none' })
+    expect('filter' in rest || 'willChange' in rest).toBe(false)
+    const arriving = layerStyle(looks({ ...ask(shown(0), 0, true), phase: 'arriving', since: 0 }).pages)
+    expect('filter' in arriving).toBe(false)
+  })
+
+  test('at rest every layer is plain: no filter, no transition', () => {
+    for (const timing of [TIMING, STILL]) {
+      const look = looks(shown(0), timing)
+      for (const layer of [look.incoming, look.outgoing, look.pages]) {
+        expect(layer.blur).toBeUndefined()
+        expect(layer.ms).toBe(0)
+      }
     }
   })
 })
@@ -362,5 +409,56 @@ describe('the still copy of the kehikko being left', () => {
     window.document.body.innerHTML = '<div id="in"><div data-body="a"></div><div data-body="b"></div></div>'
     expect(layoutOf(window.document.getElementById('in') as unknown as ParentNode)).toBe('a:0,0,0,0 b:0,0,0,0')
     void window.happyDOM.close()
+  })
+})
+
+describe('an epic switch is a switch', () => {
+  test('a different epic, or "All epics", moves; picking parts in the same epic does not', async () => {
+    const { movesEpic } = await import('@/host/subject.ts')
+    const on = { epic: 'methods' }
+    expect(movesEpic(on, { epic: 'results' })).toBe(true)
+    expect(movesEpic(on, { scope: 'project' })).toBe(true)
+    expect(movesEpic({ epic: null, scope: 'project' as const }, { epic: 'methods' })).toBe(true)
+    expect(movesEpic(on, { epic: 'methods' })).toBe(false)
+    expect(movesEpic(on, { parts: ['a'] })).toBe(false)
+    expect(movesEpic(on, { selection: ['a', 'b'] })).toBe(false)
+  })
+
+  test('the page calls the switch before it changes the epic, and holds the pages’ context only while they are held', () => {
+    const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    expect(app).toMatch(/if \(movesEpic\(aboutRef\.current, edit\)\) leavingRef\.current\(\)\s*\n\s*setSubjects\(/)
+    expect(app).toContain('if (!calm.pagesStill) heldContext.current = context')
+    expect(app).toContain('context={calm.pagesStill ? heldContext.current : context}')
+  })
+})
+
+describe('the underlay: no moment of bare canvas where a page was or is going', () => {
+  test('the panels where pages were stay until the pages arriving are released; the panels where they go are up before then', () => {
+    const state = ask(shown(0), 0, true)
+    for (const timing of [TIMING, STILL]) {
+      const preparing = looks(state, timing).underlay
+      expect(preparing.from.opacity).toBe(1)
+      expect(preparing.to.opacity).toBe(0)
+      const leaving = looks({ ...state, phase: 'leaving' }, timing).underlay
+      expect(leaving.from).toMatchObject({ opacity: 1, ms: 0 })
+      /* Up by the end of the fade out, when the pages move. */
+      expect(leaving.to.opacity).toBe(1)
+      expect(leaving.to.ms).toBeLessThanOrEqual(timing.leaveMs)
+      const arriving = looks({ ...state, phase: 'arriving' }, timing).underlay
+      expect(arriving.to).toMatchObject({ opacity: 1, ms: 0 })
+      expect(arriving.from.opacity).toBe(0)
+      /* Never a filter on a panel. */
+      for (const one of [preparing, leaving, arriving]) expect([one.from.blur, one.to.blur]).toEqual([undefined, undefined])
+    }
+  })
+
+  test('the page draws it only during a hand-over, under the pages', () => {
+    const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    const underlay = app.indexOf('<Underlay')
+    expect(underlay).toBeGreaterThan(-1)
+    expect(app.slice(underlay - 40, underlay)).toContain('calm.left ? (')
+    expect(app.indexOf('<Frames', underlay)).toBeGreaterThan(underlay)
+    const hook = readFileSync(new URL('../src/canvas/useCalmSwitch.ts', import.meta.url), 'utf8')
+    expect(hook).toContain("left: phase === 'shown' ? null : seen.current")
   })
 })

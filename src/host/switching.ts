@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 import type { Framing, Rect } from '@/canvas/Frames.tsx'
 
 /**
@@ -89,21 +91,32 @@ export interface Timing {
   arriveMs: number
   /** After this long without being shown, a quiet word says the canvas is being arranged. */
   slowMs: number
+  /** How far what is being left is blurred as it fades out, in pixels. 0: no blur. */
+  blurOutPx: number
+  /** How blurred the incoming chrome starts as it fades in, in pixels. 0: no blur. */
+  blurInPx: number
 }
 
 /**
- * About 190 ms of fade, the chrome crossing in one movement over the whole
- * of it. Short enough that a switch feels like a switch and not like a page
- * loading; long enough that nothing is seen to jump.
+ * About 200 ms, the chrome crossing in one movement over the whole of it, the
+ * view being left blurring a little as it goes and the one arriving coming
+ * into focus. Short enough that a switch feels like a switch and not like a
+ * page loading; long enough that nothing is seen to jump.
+ *
+ * The blur is only ever on what takes no input: the still copy of the chrome
+ * being left, the pages being left while they are held (`pagesHeld`, the
+ * pointer off), and the incoming chrome before it is shown. The pages
+ * arriving are never blurred — they take input the moment they are shown,
+ * and a person about to click one sees it sharp.
  */
-export const TIMING: Timing = { settledFrames: 2, capMs: 300, leaveMs: 80, arriveMs: 110, slowMs: 400 }
+export const TIMING: Timing = { settledFrames: 2, capMs: 300, leaveMs: 90, arriveMs: 110, slowMs: 400, blurOutPx: 6, blurInPx: 4 }
 
 /**
  * `prefers-reduced-motion`: the same waiting — nothing is shown before it has
- * settled — and no fading. An instant swap from a still old kehikko to a still
- * new one.
+ * settled — and a plain, short crossfade: opacity only, no blur, nothing that
+ * moves or comes into focus.
  */
-export const STILL: Timing = { ...TIMING, leaveMs: 0, arriveMs: 0 }
+export const STILL: Timing = { ...TIMING, leaveMs: 50, arriveMs: 70, blurOutPx: 0, blurInPx: 0 }
 
 /** One painted frame, roughly, at 60 Hz. */
 const FRAME_MS = 20
@@ -161,7 +174,7 @@ export function step(state: Switch, now: number, layout: string | null, timing: 
       else if (state.drawn === null) next = { ...state, drawn: now, last: layout, still: 0 }
       else if (layout === state.last) next = { ...state, still: state.still + 1 }
       else next = { ...state, last: layout, still: 0 }
-      const settled = next.still >= timing.settledFrames || now - next.pressed >= timing.capMs
+      const settled = next.still >= timing.settledFrames || now - next.pressed >= preparingMs(next, timing)
       return settled ? after(next, 'preparing', now, timing) : next
     }
     case 'leaving':
@@ -193,7 +206,7 @@ export function due(state: Switch, now: number, timing: Timing = TIMING): number
     case 'shown':
       return null
     case 'preparing':
-      return Math.max(0, state.pressed + timing.capMs - now)
+      return Math.max(0, state.pressed + preparingMs(state, timing) - now)
     case 'leaving':
       return Math.max(0, state.since + timing.leaveMs - now)
     case 'arriving':
@@ -213,8 +226,8 @@ export function pagesHeld(phase: Phase): boolean {
 
 /**
  * Whether the incoming kehikko takes the pointer and the keyboard: from the
- * moment it starts being shown, which is at most `capMs` after the newest
- * press. Its pages wait for `pagesHeld` to end as well — until then the pages
+ * moment it starts being shown, which is at most `preparingMs` after the
+ * newest press. Its pages wait for `pagesHeld` to end as well — until then the pages
  * on screen are the ones being left.
  */
 export function interactive(phase: Phase): boolean {
@@ -229,7 +242,19 @@ export function interactive(phase: Phase): boolean {
  * leave the canvas inert either.
  */
 export function deadline(state: Switch, timing: Timing = TIMING): number {
-  return state.pressed + timing.capMs + timing.leaveMs + timing.arriveMs
+  return state.pressed + timing.capMs + timing.arriveMs
+}
+
+/**
+ * The longest a switch prepares, from the newest press: the cap, less the
+ * fade out when there is something to fade out. So the pages being left are
+ * released — to their new places, and to the context they are now told —
+ * by `capMs` after the press whatever happened, and the incoming chrome takes
+ * input before that. On an epic switch that is how long a module waits for
+ * its new epic, at most.
+ */
+export function preparingMs(state: Pick<Switch, 'outgoing'>, timing: Timing = TIMING): number {
+  return timing.capMs - (state.outgoing ? timing.leaveMs : 0)
 }
 
 /** The switch ended where it stands: shown, and taking input. */
@@ -248,6 +273,12 @@ export interface Look {
   opacity: number
   ms: number
   easing?: 'ease-in' | 'ease-out' | 'ease-in-out'
+  /**
+   * A blur in pixels, animated over the same `ms` as the opacity. Absent: no
+   * filter at all — not `blur(0)`, which still makes the layer a compositing
+   * group and a containing block for anything fixed inside it.
+   */
+  blur?: number
 }
 
 /**
@@ -259,28 +290,80 @@ export interface Look {
  * fade out where they were over `leaveMs` and in where they are over
  * `arriveMs`. With no outgoing kehikko (the first one drawn) the incoming
  * pages are not shown before the chrome is, so nothing appears in an empty box.
+ *
+ * Fading THROUGH leaves a moment with neither page on screen, and the
+ * containers' bodies are hollow: that moment showed the canvas through every
+ * body — in a dark theme a black frame in the middle of every switch,
+ * measured at a tenth of the brightness either side of it
+ * (`dev/switch-frames.drive.mjs`). So under the pages, for the hand-over
+ * only, the underlay draws a plain panel in the card colour at each place a
+ * page was (`from`) and is going (`to`): the page being left blurs out into
+ * a panel, and the page arriving fades in over one. Between the containers
+ * the canvas stays as it is.
  */
-export function looks(state: Switch, timing: Timing = TIMING): { incoming: Look; outgoing: Look; pages: Look } {
+export function looks(
+  state: Switch,
+  timing: Timing = TIMING,
+): { incoming: Look; outgoing: Look; pages: Look; underlay: { from: Look; to: Look } } {
   const cross = (state.outgoing ? timing.leaveMs : 0) + timing.arriveMs
+  /* A blur of 0 is said as no blur, so reduced motion carries no filter. */
+  const blur = (px: number) => (px > 0 ? { blur: px } : {})
+  const sharp = (px: number) => (px > 0 ? { blur: 0 } : {})
   switch (state.phase) {
     case 'preparing':
-      return { incoming: { opacity: 0, ms: 0 }, outgoing: { opacity: 1, ms: 0 }, pages: { opacity: state.outgoing ? 1 : 0, ms: 0 } }
+      return {
+        incoming: { opacity: 0, ms: 0, ...blur(timing.blurInPx) },
+        outgoing: { opacity: 1, ms: 0, ...sharp(timing.blurOutPx) },
+        pages: { opacity: state.outgoing ? 1 : 0, ms: 0, ...(state.outgoing ? sharp(timing.blurOutPx) : {}) },
+        underlay: { from: { opacity: 1, ms: 0 }, to: { opacity: 0, ms: 0 } },
+      }
     case 'leaving':
       /* The pages' fade ends a frame before the phase does, so they are gone
-         — not nearly gone — when they are moved. */
+         — not nearly gone — when they are moved. They are held, and take no
+         input, so they may blur as they go. */
       return {
-        incoming: { opacity: 1, ms: cross, easing: 'ease-in-out' },
-        outgoing: { opacity: 0, ms: cross, easing: 'ease-in-out' },
-        pages: { opacity: 0, ms: Math.max(0, timing.leaveMs - FRAME_MS), easing: 'ease-in' },
+        incoming: { opacity: 1, ms: cross, easing: 'ease-in-out', ...sharp(timing.blurInPx) },
+        outgoing: { opacity: 0, ms: cross, easing: 'ease-in-out', ...blur(timing.blurOutPx) },
+        pages: { opacity: 0, ms: Math.max(0, timing.leaveMs - FRAME_MS), easing: 'ease-in', ...blur(timing.blurOutPx) },
+        underlay: { from: { opacity: 1, ms: 0 }, to: { opacity: 1, ms: timing.leaveMs, easing: 'ease-out' } },
       }
     case 'arriving':
+      /* The pages are live from here: never a filter on them. */
       return {
-        incoming: { opacity: 1, ms: state.outgoing ? cross : timing.arriveMs, easing: 'ease-in-out' },
-        outgoing: { opacity: 0, ms: cross, easing: 'ease-in-out' },
+        incoming: { opacity: 1, ms: state.outgoing ? cross : timing.arriveMs, easing: 'ease-in-out', ...sharp(timing.blurInPx) },
+        outgoing: { opacity: 0, ms: cross, easing: 'ease-in-out', ...blur(timing.blurOutPx) },
         pages: { opacity: 1, ms: timing.arriveMs, easing: 'ease-out' },
+        underlay: { from: { opacity: 0, ms: timing.arriveMs, easing: 'ease-in' }, to: { opacity: 1, ms: 0 } },
       }
     case 'shown':
-      return { incoming: { opacity: 1, ms: 0 }, outgoing: { opacity: 0, ms: 0 }, pages: { opacity: 1, ms: 0 } }
+      return {
+        incoming: { opacity: 1, ms: 0 },
+        outgoing: { opacity: 0, ms: 0 },
+        pages: { opacity: 1, ms: 0 },
+        underlay: { from: { opacity: 0, ms: 0 }, to: { opacity: 0, ms: 0 } },
+      }
+  }
+}
+
+/**
+ * A layer's opacity and blur, and the fade to them, as a style.
+ *
+ * No blur is NO `filter` — not `blur(0)` — and there is never a
+ * `will-change`: a layer that keeps a filter, even an identity one, is drawn
+ * as a group of its own, and WebKit may go on showing it from a raster of
+ * lower resolution than the screen. At rest every layer is plain.
+ */
+export function layerStyle(look: Look): CSSProperties {
+  const easing = look.easing ?? 'ease'
+  const blurred = look.blur !== undefined
+  return {
+    opacity: look.opacity,
+    ...(blurred ? { filter: `blur(${look.blur}px)` } : {}),
+    transition: look.ms
+      ? blurred
+        ? `opacity ${look.ms}ms ${easing}, filter ${look.ms}ms ${easing}`
+        : `opacity ${look.ms}ms ${easing}`
+      : 'none',
   }
 }
 
