@@ -81,10 +81,19 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
  * nav is a tab list a keyboard walks with the arrows, and focus is always ringed.
  */
 
+/** The words of "Keep this project's modules running" (`server/keepRunning.ts`). */
+export const KEEP_RUNNING = {
+  label: 'Keep this project’s modules running',
+  description:
+    'Every module on any kehikko of the open project is started in the background and kept running, so switching kehikko shows it at once. ' +
+    'Each running module’s server takes roughly 100–300 MB of memory. Off, only the open kehikko’s modules run, and the others stop five minutes after you leave them.',
+} as const
+
 type Change =
   | { settings: Partial<Record<keyof AgentSettings, unknown>> }
   | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
+  | { modules: { keep: boolean } }
 
 export async function fetchSettings(signal?: AbortSignal): Promise<SettingsAnswer> {
   const response = await fetch('/host/settings', { cache: 'no-store', signal })
@@ -564,6 +573,16 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
             disabled={!active(settings, 'tools')}
             onOut={(module, out) => onChange({ except: { kind: 'tools', module, out } })}
           />
+        ) : null}
+        {answer.modules ? (
+          <Rows>
+            <SettingRow
+              label={KEEP_RUNNING.label}
+              description={KEEP_RUNNING.description}
+              checked={answer.modules.keep}
+              onChange={(keep) => onChange({ modules: { keep } })}
+            />
+          </Rows>
         ) : null}
       </>
     )
