@@ -1,5 +1,5 @@
 import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
-import { useLayoutEffect, type CSSProperties } from 'react'
+import { useLayoutEffect } from 'react'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
@@ -116,8 +116,6 @@ export function Frames({
   watcherFor,
   onDocument,
   moving,
-  still = false,
-  layer,
 }: {
   framings: readonly Framing[]
   context: ModuleContext
@@ -164,14 +162,6 @@ export function Frames({
    * frame of the gesture instead, and stays where it belongs.
    */
   moving: string | null
-  /**
-   * Whether a switch of kehikko is under way (`canvas/useCalmSwitch.ts`): the
-   * pages on screen are the ones being left, held where they were, and none
-   * of them takes the pointer.
-   */
-  still?: boolean
-  /** The layer's own opacity and fade, for the same switch. */
-  layer?: CSSProperties
 }) {
   /* A page that is hidden while it has the focus gives it back: `inert` makes
      it unfocusable, but a browser leaves the focus where it was, and a module
@@ -197,7 +187,7 @@ export function Frames({
     /* `pointer-events-none` on the layer and `auto` on each page, so that the
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
-    <div className="pointer-events-none absolute inset-0" aria-hidden={false} style={layer}>
+    <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
       {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters }) => {
         const visible = shown && !!rect
         return (
@@ -218,7 +208,7 @@ export function Frames({
                reflows to zero, reflows back, and hands the module two resize
                events it did nothing to deserve. */
             visibility: visible ? 'visible' : 'hidden',
-            pointerEvents: visible && moving === null && !still ? 'auto' : 'none',
+            pointerEvents: visible && moving === null ? 'auto' : 'none',
           }}
         >
           <ModuleFrame

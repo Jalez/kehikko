@@ -34,13 +34,6 @@ export function useRects(): {
    * arrangement fits its height the way it has always fitted its width.
    */
   room: number | null
-  /**
-   * The width the canvas has to draw in, or `null` before anything is
-   * measured. The grid is TOLD it, rather than measuring itself: a grid that
-   * measures itself is born at a default width and moves a frame later, on
-   * every switch. See `host/switching.ts`.
-   */
-  width: number | null
   /** Give the surface — the scrolling element the layer sits inside. */
   surface: (element: HTMLElement | null) => void
   /** Give one container's body, or `null` when that container goes away. */
@@ -85,7 +78,6 @@ export function useRects(): {
   const [rects, setRects] = useState<Record<string, Rect>>({})
   /** The height the canvas has to draw in. `null` until something is measured. */
   const [room, setRoom] = useState<number | null>(null)
-  const [width, setWidth] = useState<number | null>(null)
   const surfaceRef = useRef<HTMLElement | null>(null)
   const bodies = useRef(new Map<string, HTMLElement>())
   /* One observer for every container body and the surface itself. A container resized by
@@ -114,10 +106,6 @@ export function useRects(): {
      * overflowed, those are exactly the pixels in dispute.
      */
     setRoom((was) => (was === surface.clientHeight ? was : surface.clientHeight))
-    /* And the width, for the same reason and from the same box: `clientWidth`
-       is what is left beside a vertical scrollbar, which is what a column is a
-       twelfth of. */
-    setWidth((was) => (was === surface.clientWidth ? was : surface.clientWidth))
 
     const next: Record<string, Rect> = {}
     for (const [id, element] of bodies.current) {
@@ -221,7 +209,7 @@ export function useRects(): {
     [measure],
   )
 
-  return { rects, room, width, surface, body, measure, remeasure: soon, settle }
+  return { rects, room, surface, body, measure, remeasure: soon, settle }
 }
 
 function same(a: Record<string, Rect>, b: Record<string, Rect>): boolean {
