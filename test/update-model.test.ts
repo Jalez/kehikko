@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { appEngine, connect, readStatus, type AppUpdateStatus } from '../src/host/appUpdate.ts'
-import { appRow, indicator, ON_FOCUS_AFTER_MS, shouldCheckOnOpen, moduleNote, moduleRow, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
+import { appRow, indicator, ON_FOCUS_AFTER_MS, shouldCheckOnOpen, moduleNote, moduleRow, restartNowWord, previewAll, previewText, stateText, updateRows, type UpdateRow } from '../src/host/updateModel.ts'
 import type { Reading } from '../src/host/updates.ts'
 
 /* One update model: the desktop app's updater and the module checkouts, read
@@ -97,6 +97,14 @@ describe('a module row', () => {
     expect(moduleRow(checkout('a', 0), null, null, undefined, { kept: true }).anyway).toBeUndefined()
     /* While it is being restarted there is no button at all. */
     expect(moduleRow(checkout('a', 0), null, 'restarting', undefined, { stale: 'kept', kept: true }).anyway).toBeUndefined()
+  })
+
+  test('a kept module is told plainly, and its button says what restarting costs', () => {
+    const kept = moduleRow({ ...checkout('terminal', 0), name: 'Terminal' }, null, null, undefined, { stale: 'its registration says to keep it, and so on.', kept: true })
+    expect(kept.reason).toBe("Terminal was updated, but it's kept running so your open shells aren't cut off. Restart it when you're ready; restarting ends the shells running in it.")
+    expect(restartNowWord('kehikot.terminal')).toBe('Restart now (ends its shells)')
+    expect(restartNowWord('kehikot.claude')).toBe('Restart now (ends its shells)')
+    expect(restartNowWord('kehikot.notes')).toBe('Restart now')
   })
 
   test('what the server says is read when this page did nothing: an update still running, a module left on old code', () => {

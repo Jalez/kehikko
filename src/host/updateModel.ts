@@ -169,7 +169,7 @@ export function moduleRow(
      better thing to offer: an update restarts it, or says again why it cannot. */
   const anyway = told.kept === true ? { anyway: true } : {}
   if (told.older && !hasUpdate(reading)) return { ...row, state: 'failed', reason: told.older, retry: true, retryWord: 'Restart', ...anyway }
-  if (told.stale && !hasUpdate(reading)) return { ...row, state: 'failed', reason: staleNote(told.stale), retry: true, ...anyway }
+  if (told.stale && !hasUpdate(reading)) return { ...row, state: 'failed', reason: told.kept === true ? keptNote(reading.name) : staleNote(told.stale), retry: true, ...anyway }
   if (pins && pins.containers > 0) {
     return {
       ...row,
@@ -183,6 +183,15 @@ export function moduleRow(
   }
   if (reading.fetchFailed) return { ...row, state: 'failed', reason: `GitHub could not be reached: ${reading.fetchFailed}` }
   return row
+}
+
+/**
+ * The sentence for a module that was updated and is kept running on purpose
+ * (its registration says to keep it): plain, with no mention of registrations.
+ * Restarting it ends the shells (or sessions) running in it.
+ */
+export function keptNote(name: string): string {
+  return `${name} was updated, but it's kept running so your open shells aren't cut off. Restart it when you're ready; restarting ends the shells running in it.`
 }
 
 /**
@@ -230,8 +239,13 @@ export function appNotes(row: UpdateRow): { version: string; label: string; pend
   return out
 }
 
-/** What "Restart anyway" says on its two presses. The second is the one that stops the module. */
-export const RESTART_ANYWAY = 'Restart anyway'
+/** What the kept module's second restart button says on its two presses (it was "Restart anyway"). The second is the one that stops the module. */
+export const RESTART_ANYWAY = 'Restart now'
+/** The modules that hold a terminal: restarting one ends the shells in it, and the button says so. */
+const HOLDS_SHELLS = new Set(['terminal', 'claude'])
+export function restartNowWord(id: string): string {
+  return HOLDS_SHELLS.has(id.replace(/^(kehikot|roadmap)\./, '')) ? 'Restart now (ends its shells)' : RESTART_ANYWAY
+}
 export const RESTART_ANYWAY_ARMED = 'Press again to restart'
 
 /** Every row: the app first (when there is one), then the modules in the order given. */

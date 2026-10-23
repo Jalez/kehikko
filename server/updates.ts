@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
-import { hasBuildScript, markInstalled, type Built } from './moduleBuilds.ts'
+import { adoptedReadyBuilt, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -412,7 +412,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
      dependencies, while its module is stopped. Never a reason the update failed. */
   let built: Built['kind'] | undefined
   if (place.build) {
-    if (hasBuildScript(place.dir)) hooks.preparing?.()
+    if (adoptedReadyBuilt(place.dir)) hooks.preparing?.()
     built = (await place.build(place).catch((error: unknown): Built => ({ kind: 'failed', why: String(error) }))).kind
   }
 

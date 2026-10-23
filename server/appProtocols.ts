@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 import { protocolPin } from './moduleReleases.ts'
 import { HOST_REPO } from './official.ts'
 import type { Runner } from './versions.ts'
-import { appsInOrder, type AppProtocol } from '../src/host/worksWith.ts'
+import { appsInOrder, compareVersions, type AppProtocol } from '../src/host/worksWith.ts'
 
 /**
  * Which protocol package each Kehikot app release shipped — so a module
@@ -35,7 +35,8 @@ import { appsInOrder, type AppProtocol } from '../src/host/worksWith.ts'
  * only when somebody asks (start, a check for updates) — never on a timer.
  * The last good mapping is kept in memory and in the machine directory
  * (`appProtocolsFile`), so a start with no network still says app versions.
- * Nothing waits long for it and nothing fails with it: when it cannot be
+ * When the running app is newer than the newest tag read, the day's wait is
+ * skipped, at most once an hour (`catchUpAfter`). Nothing waits long for it and nothing fails with it: when it cannot be
  * built, the words fall back to the protocol ("Needs protocol 2.6 or later").
  *
  * ## Off
@@ -145,6 +146,8 @@ export function appProtocolSource(deps: AppProtocolDeps) {
   let stale = false
   let notBefore = 0
   let inFlight: Promise<void> | null = null
+  /* Catching up with a newer running app: at most once per RETRY_AFTER_MS, so a tag that is not published yet costs one ls-remote an hour. */
+  let catchUpAfter = 0
 
   /* The last good reading, re-checked: it is a file on a disk. */
   if (on && deps.cache) {
@@ -234,10 +237,14 @@ export function appProtocolSource(deps: AppProtocolDeps) {
   }
 
   /** Read the tags again, unless they were read today (or failed within the hour). Never rejects. */
-  function refresh(): Promise<void> {
+  function refresh(running?: string | null): Promise<void> {
     if (!on) return Promise.resolve()
     if (inFlight) return inFlight
-    if (now() < notBefore) return Promise.resolve()
+    if (now() < notBefore) {
+      /* The running app is newer than the newest app read: the day's rest does not apply. Within the budget above. */
+      if (!(running && now() >= catchUpAfter && behind(running))) return Promise.resolve()
+      catchUpAfter = now() + RETRY_AFTER_MS
+    }
     inFlight = once()
       .catch((error: unknown) => {
         stale = true
@@ -250,10 +257,16 @@ export function appProtocolSource(deps: AppProtocolDeps) {
     return inFlight
   }
 
+  /** Whether `running` is newer than every app the tags read so far name. */
+  function behind(running: string): boolean {
+    const newest = appProtocolsFrom(tags)?.at(-1)?.app
+    return !newest || compareVersions(running, newest) > 0
+  }
+
   /** `refresh`, waited for at most `ms`: what a reader that must answer soon uses. */
-  async function settled(ms: number): Promise<void> {
+  async function settled(ms: number, running?: string | null): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
-    await Promise.race([refresh(), new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))])
+    await Promise.race([refresh(running), new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))])
     clearTimeout(timer)
   }
 

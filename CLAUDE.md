@@ -200,6 +200,16 @@
   module with no release yet); the host itself reaches people only through a
   desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
 
+## Which Kehikot a release works with
+
+- The app→protocol map comes from `app-v*` tags, read at most daily
+  (`server/appProtocols.ts`), so the newest apps may be missing. The RUNNING
+  host is always part of the answer (`withRunningHost`): a release whose need
+  this host's protocol meets is "Works with Kehikot X and later" (X when the
+  map knows it, else "this Kehikot") and is never "Needs a newer Kehikot".
+- A check sends the running app's version (`?app=`); when it is newer than the
+  newest tag read, the map is read again inside the day, at most once an hour.
+
 ## Installed modules are built once, here
 
 - A module that adopted the protocol's `/build` and `/run` (2.17.0) has a
@@ -208,6 +218,14 @@
   the stamp is `HEAD`, and Vite otherwise. Modules are installed as SOURCE at
   their release tag and built on this machine — nothing is downloaded. All of
   it is `server/moduleBuilds.ts`; the words are `src/host/moduleBuilds.ts`.
+- ADOPTION decides whether a copy is built at all (`adoptedReadyBuilt`): it has
+  a `build` script AND a `run.sh` that checks the stamp (`dist/.kehikot-built`,
+  `STAMP_FILE`) — the protocol template's `run.sh`, which Terminal and Claude
+  have. A module with only an old, unrelated `build` (a plain `vite build`, its
+  own production path) is NOT built, has no status line and no failure record,
+  and its details say "Running from source". The record is in memory, so a
+  start drops what 0.1.55 said; `backfill` also drops it for non-adopters.
+  Never widen this to "has a `build` script".
 - Built after `bun install` at install (`installs.ts`, before the registration
   is written) and after every update (`Place.build`, called by `update()` — so
   the Update press, `ReleaseWaits.apply` and a restart that takes a release).

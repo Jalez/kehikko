@@ -38,12 +38,13 @@ import {
   moduleRow,
   previewAll,
   previewText,
-  RESTART_ANYWAY,
+  restartNowWord,
   RESTART_ANYWAY_ARMED,
   RESTART_THE_HOST,
   RESTART_TO_UPDATE,
   ON_FOCUS_AFTER_MS,
   shouldCheckOnOpen,
+  keptNote,
   staleNote,
   stateText,
   updateRows,
@@ -215,6 +216,8 @@ export function Updates({
   /** The desktop app's updater: its last status, and the commands. Null outside the app. */
   const [app, setApp] = useState<AppUpdateStatus | null>(null)
   const engine = useRef<AppEngine | null>(null)
+  const appVersion = useRef<string | null>(null)
+  appVersion.current = app?.current ?? null
   const notes = useReleaseNotes()
   /* A module's "What's new": every release since the one it runs. */
   const moduleNotes = useModuleNotes()
@@ -269,7 +272,7 @@ export function Updates({
       }
       const since = Date.now()
       try {
-        const found = await fetchUpdates(true, abort.signal)
+        const found = await fetchUpdates(true, abort.signal, appVersion.current)
         if (loud) await drawn(since, abort.signal, markMs)
         setCheck(found)
         setFailed(null)
@@ -1008,7 +1011,7 @@ function Row({
               className={`mt-1.5 ml-1.5 h-6 px-2 text-xs ${armed !== null ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : ''}`}
               onClick={onAnyway}
             >
-              {armed !== null ? RESTART_ANYWAY_ARMED : RESTART_ANYWAY}
+              {armed !== null ? RESTART_ANYWAY_ARMED : restartNowWord(reading.id)}
             </Button>
           ) : null}
         </div>
@@ -1081,7 +1084,7 @@ function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): O
     return { kind: 'failed', why: `Updated, but it did not start on the new code. ${done.module.why}`, detail: done.module.detail, retry: true }
   }
   if (done.module.ran === 'stale') {
-    return { kind: 'failed', why: staleNote(done.module.why), retry: true, ...(done.module.kept ? { kept: true } : {}) }
+    return { kind: 'failed', why: done.module.kept ? keptNote(done.checkout.name) : staleNote(done.module.why), retry: true, ...(done.module.kept ? { kept: true } : {}) }
   }
   /* Commits that cancel out: the checkout moved and no file is different. */
   if (done.module.ran === 'page' && done.changed.length === 0) {

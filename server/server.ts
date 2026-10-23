@@ -71,7 +71,7 @@ import {
 import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
-import { builtAt, hasBuildScript, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
+import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -1368,7 +1368,7 @@ const builds = new ModuleBuilds({
   build: (copy, options) => runBuild(copy, { ...options, log: buildLog(copy.id) }),
   head: (dir) => headOf(dir),
   stamp: (dir, commit) => builtAt(dir, commit),
-  hasScript: (dir) => hasBuildScript(dir),
+  hasScript: (dir) => adoptedReadyBuilt(dir),
   async running(id) {
     if (nursery.holds(id)) return true
     const registration = registered.get(id)
@@ -1434,7 +1434,7 @@ async function buildOf(id: string, dir: string, installed: boolean) {
 
 /** Whether a module's page is served ready-built once it is updated: an installed copy with a `build` script. */
 function readyBuilt(dir: string): boolean {
-  return isInstalled(dir) && hasBuildScript(dir)
+  return isInstalled(dir) && adoptedReadyBuilt(dir)
 }
 
 /**
@@ -3329,12 +3329,14 @@ const server = Bun.serve({
     if (url.pathname === '/host/updates' && request.method === 'GET') {
       const { places, unreadable } = await topLevels(updatePlaces())
       const fetch = url.searchParams.get('fetch') === '1'
+      const app = url.searchParams.get('app')
+      const runningApp = app && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(app) ? app : null
       /* Somebody asked what is new: that includes which modules exist. Not
          waited for — the answer here is about checkouts. */
       if (fetch) void official.refresh()
       /* And which Kehikot each release works with: read at most daily, so
          this is nearly always instant; never waited for long. */
-      if (fetch) await appProtocols.settled(4_000)
+      if (fetch) await appProtocols.settled(4_000, runningApp)
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
       await judgeStaleness()
       return json({
