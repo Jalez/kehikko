@@ -147,6 +147,7 @@ export function Epics({
   allEpics = false,
   onPickAll,
   held,
+  heldBefore = null,
   hasProject,
   onPick,
   onRetitle,
@@ -162,6 +163,14 @@ export function Epics({
   onPickAll?: () => void
   /** What this project holds, or null while it is still being read. */
   held: Held | null
+  /**
+   * What this project held when it was last read, for the closed control's
+   * label while `held` is being read again — a project switched back to. The
+   * label is what the bar is laid out around, and "reading epics…" for a
+   * moment is a different width: everything after it in the bar moved, and
+   * moved back. The list itself waits for the read.
+   */
+  heldBefore?: Held | null
   hasProject: boolean
   onPick(epic: string | null): void
   /**
@@ -202,6 +211,9 @@ export function Epics({
   /* The picked epic's entry, for its title. Null while the list is still being
      read, or when the slug names nothing in it — then the slug itself shows. */
   const picked = epic ? (epics.find((one) => one.slug === epic) ?? null) : null
+  /* The label's own reading: the list as read, or as it was last read. */
+  const labelled = held ?? heldBefore
+  const named = picked ?? (epic ? (labelled?.epics.find((one) => one.slug === epic) ?? null) : null)
   /* Three states and not two: no project, a project with no epics directory,
      and a directory that is there and empty. Only the first is the host not
      knowing yet; the other two are answers. */
@@ -252,7 +264,7 @@ export function Epics({
                 <CircleSlash className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" />
               )}
               <span className={epic || allEpics ? 'min-w-0 truncate' : 'text-muted-foreground min-w-0 truncate'}>
-                {allEpics ? ALL_EPICS : picked ? titleOf(picked) : (epic ?? sentenceFor(hasProject, held))}
+                {allEpics ? ALL_EPICS : named ? titleOf(named) : (epic ?? sentenceFor(hasProject, labelled))}
               </span>
               {/* Another epic holds something: said on the closed control, so
                   it is not found only by opening the list. */}

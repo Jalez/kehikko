@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { flushSync } from 'react-dom'
-import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
+import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
 import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
+import { useCalmSwitch } from './canvas/useCalmSwitch.ts'
+import { foldsOnlyChanged, held as heldPages, type Look } from './host/switching.ts'
 import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
 import { Covers, registryBehind, Replacing, Runs, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
@@ -105,7 +107,7 @@ import { fetchRegistry, type Presence, type RegistryView } from './host/registry
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { dragged, granted, mostFor, mostUp, pressed, redrawn, topEdge, wishing } from './host/columns.ts'
+import { arranged as settledOn, dragged, granted, mostFor, mostUp, pressed, redrawn, topEdge, wishing } from './host/columns.ts'
 import { cornerOf } from './host/corners.ts'
 import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
@@ -137,31 +139,26 @@ import { Writer } from './host/writer.ts'
  * where it was dropped would feel broken on a machine that is not busy at all.
  */
 
-const Grid = WidthProvider(Responsive)
-
 /**
- * `measureBeforeMount`, and why it is off.
+ * The grid, told its width rather than left to measure it.
  *
- * It is tempting, and it was on for an hour. `WidthProvider` renders once at a
- * hardcoded default of 1280 pixels, measures the element it rendered into, and
- * renders again with the real width — so the first paint of every load places
- * the containers with the wrong column width. `measureBeforeMount` is the library's
- * own answer: render nothing until the measurement exists.
+ * It used to be `WidthProvider(Responsive)`. `WidthProvider` renders once at a
+ * hardcoded 1280 pixels, measures the element it rendered into, and renders
+ * again at the real width — and the grid is keyed by kehikko, so that happened
+ * on EVERY switch, not once a load: every container drawn in the wrong column,
+ * then moved. Its own answer, `measureBeforeMount`, was a trap of a different
+ * kind: with it on, the measurement never arrived and the grid stayed at 1280
+ * for the life of the page.
  *
- * With it on, the measurement never arrives. The grid stays at 1280 for the
- * life of the page, on a canvas of any other width, and the damage is not a
- * subtle misalignment — column six lands at four pixels instead of seven
- * hundred, so a container placed beside another is drawn on top of it, and a container
- * cannot be dragged to a column that is not where it appears to be. Widths
- * computed from `1280` and positions from a container of some other size do not
- * merely look wrong, they make the grid unusable.
- *
- * The reposition-on-reload it was brought in to fix had a different cause
- * entirely — the height feedback loop described on `onHeight` — and fixing that
- * fixed the symptom. So this stays off, and the one frame at the default width
- * stays, which is a frame nobody has ever mentioned seeing.
+ * The canvas already measures its own surface (`useRects`, for `room`), so the
+ * width comes from there, and the grid is not drawn until there is one. A new
+ * grid is born at its real width. See `host/switching.ts` for what that and the
+ * rest of the switch cost before.
  */
-const MEASURE_FIRST = false
+const Grid = Responsive
+
+/** How long a fold, an unfold, or a container let go of glides: the grid's 200 ms, and a frame either side. */
+const GLIDE_MS = 260
 
 /*
  * Grid geometry. The gaps, and only the gaps.
@@ -323,7 +320,25 @@ export function App() {
    * `view.fold`. See `host/folds.ts`.
    */
   const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
-  const [openId, setOpenId] = useState<number | null>(null)
+  const [openId, setOpenIdNow] = useState<number | null>(null)
+  const openIdRef = useRef(openId)
+  openIdRef.current = openId
+  /*
+   * Which kehikko is open, changed — always through here, because the kehikko
+   * being left has to be looked at BEFORE it is gone: `leaving` keeps a still
+   * copy of it on screen and holds its pages where they are while the next one
+   * is drawn out of sight. See `canvas/useCalmSwitch.ts`. Through a ref because
+   * the switch is set up far below, beside the pages it holds.
+   */
+  const leavingRef = useRef<() => void>(() => undefined)
+  /* And what waits for the kehikko arrived at to be shown — the Inbox's light on a container. */
+  const whenShownRef = useRef<(then: () => void) => void>((then) => then())
+  const setOpenId = useCallback((next: number | null | ((was: number | null) => number | null)) => {
+    const value = typeof next === 'function' ? next(openIdRef.current) : next
+    if (value !== openIdRef.current) leavingRef.current()
+    openIdRef.current = value
+    setOpenIdNow(value)
+  }, [])
   /** The kehikko the server had been told about when it was last asked what is running. */
   const [askedFor, setAskedFor] = useState<number | null>(null)
   /** How many times the host has restarted each module under a mounted frame. See `Framing.generation`. */
@@ -368,6 +383,19 @@ export function App() {
    * project with none and a read that failed both look like.
    */
   const [held, setHeld] = useState<HeldEpics | null>(null)
+  /*
+   * Which project `held` was read for, and what each project held when it was
+   * last read. Only the epic control's LABEL uses these: on a project switch
+   * `held` is still the project left for a render, then null while the new
+   * one is read, and the label — what the bar is laid out around — said the
+   * left project's epic, then "reading epics…", then the right one, each a
+   * different width, and everything after it in the bar moved with it. With
+   * these it says what the project held when it was last here. See
+   * `host/switching.ts`.
+   */
+  const [heldProject, setHeldProject] = useState<number | null>(null)
+  const heldBefore = useRef(new Map<number, HeldEpics>())
+  if (held !== null && projectId !== null && heldProject === projectId) heldBefore.current.set(projectId, held)
   /**
    * The open project's dispositions — people's marks on why refs closed — for
    * `context.dispositions`. Empty while they are read and when nobody has said
@@ -444,10 +472,19 @@ export function App() {
      decided this before anything was painted, and a second implementation of
      that decision is a second thing that can be wrong. See `host/focus.ts`. */
   const [focus, setFocus] = useState<Focus>(() => focused())
-  /* Whether the grid is still finding its width. While it is, its own
-     transitions are off — see `.settling` in `index.css` for the slide that
-     otherwise happens on every load. */
-  const [settling, setSettling] = useState(true)
+  /*
+   * Whether the grid animates what changes in it. Only for what a person did
+   * to the arrangement — a drag, a resize, and the glide of a container let go
+   * of — and for a fold or an unfold; never for a switch, a load, a module
+   * asking to grow or a window resized. See `.in-motion` in `index.css`.
+   * `gliding` counts the glides asked for, so a second one restarts the timer.
+   */
+  const [gliding, setGliding] = useState(0)
+  useEffect(() => {
+    if (!gliding) return
+    const done = setTimeout(() => setGliding(0), GLIDE_MS)
+    return () => clearTimeout(done)
+  }, [gliding])
   /* Which container's prompts are being written, if any. The dialog belongs to the
      host rather than to a module — see `Prompts.tsx` for why a modal inside an
      iframe is not a modal. */
@@ -464,7 +501,7 @@ export function App() {
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
-  const { rects, room, surface, body, measure, remeasure, settle } = useRects()
+  const { rects, room, width, surface, body, measure, remeasure, settle } = useRects()
 
   /*
    * How tall a row is DRAWN: the room, divided into `CANVAS_ROWS` of them.
@@ -859,7 +896,10 @@ export function App() {
     void (async () => {
       try {
         const found = await fetchEpics(projectId, stop.signal)
-        if (!stop.signal.aborted) setHeld(found)
+        if (!stop.signal.aborted) {
+          setHeld(found)
+          setHeldProject(projectId)
+        }
       } catch {
         if (stop.signal.aborted) return
         /* The picker stays at "reading epics…", which is honest: nothing was
@@ -2971,7 +3011,9 @@ export function App() {
         await removeCanvas(id)
         setCanvases((was) => {
           const left = was.filter((canvas) => canvas.id !== id)
-          setOpenId((current) => (current === id ? (left[0]?.id ?? null) : current))
+          /* The raw setter: this runs inside an updater, which must not touch
+             the page. A kehikko that is being deleted is not faded out. */
+          setOpenIdNow((current) => (current === id ? (left[0]?.id ?? null) : current))
           return left
         })
       } catch (error) {
@@ -3167,6 +3209,22 @@ export function App() {
   const containers = placements
 
   /*
+   * A fold or an unfold glides, whoever asked for it — the person's press, an
+   * agent at the door, a module's `view.fold` — so it is noticed here, where
+   * all three arrive, rather than at each press. Worked out during the render
+   * (React's own pattern for state derived from a change) because the glide
+   * must be switched on in the SAME commit as the new heights: a transition
+   * turned on a commit later starts after the change it was meant to animate.
+   * Only the open kehikko's own folds: a switch changes them all, and is not
+   * a fold.
+   */
+  const [foldsSeen, setFoldsSeen] = useState<{ open: number | null; placements: readonly Placement[] }>({ open: openId, placements })
+  if (foldsSeen.open !== openId || foldsSeen.placements !== placements) {
+    setFoldsSeen({ open: openId, placements })
+    if (foldsSeen.open === openId && foldsOnlyChanged(foldsSeen.placements, placements)) setGliding((n) => n + 1)
+  }
+
+  /*
    * The arrangement as the grid is given it, with one thing added: how tall
    * each container is allowed to become.
    *
@@ -3187,10 +3245,14 @@ export function App() {
    * Recomputed whenever the arrangement changes, which is what it is a fact
    * about. It is never written down: `onLayoutChange` builds its placements
    * field by field, so nothing of this reaches the database.
+   *
+   * And the arrangement is the one the grid will SETTLE on — every height
+   * its stored wish is granted, at the top edge compaction gives it
+   * (`arranged` in `columns.ts`) — so a kehikko is drawn where it ends up, on its first frame.
    */
   const laid = useMemo(
     () =>
-      containers.map(
+      settledOn(containers).map(
         (one) =>
           ({
             ...one,
@@ -3302,8 +3364,11 @@ export function App() {
       element.setAttribute('data-activity-flash', '')
       window.setTimeout(() => element.removeAttribute('data-activity-flash'), 1600)
     }
-    if (later) window.setTimeout(flash, 300)
-    else flash()
+    /* Once the kehikko it is on is shown: lit while it is still being
+       prepared out of sight, the light would be spent before anybody saw it. */
+    const whenShown = () => whenShownRef.current(flash)
+    if (later) window.setTimeout(whenShown, 300)
+    else whenShown()
   }, [])
   /* Whether the Inbox's panel is open, held here so that the keyboard can open it. */
   const [inboxOpen, setInboxOpen] = useState(false)
@@ -3665,19 +3730,23 @@ export function App() {
       .filter((framing): framing is Framing => framing !== null)
   }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope])
 
+  /*
+   * A switch of kehikko or project, without the fidget: the kehikko being left
+   * stays on screen, still, while the next is drawn out of sight at its final
+   * size, and the two cross once it has settled. See `host/switching.ts` for
+   * what moved before, and `canvas/useCalmSwitch.ts` for how. Ready once the
+   * canvas has a width — before that there is nothing to draw a grid in.
+   */
+  const calm = useCalmSwitch({ ready: width !== null, framings })
+  leavingRef.current = calm.leaving
+  whenShownRef.current = calm.whenShown
+  /* While a switch holds them, the pages that were seen stay where they were
+     seen and the rest wait, hidden, at their new places. */
+  const drawnFramings = useMemo(() => heldPages(framings, calm.seen), [framings, calm.seen])
+
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
      canvas's container used to be — even for a single frame — is a visible jump. */
-  /* A load, and every switch between kehikot, gets a moment with no animation
-     while `WidthProvider` measures and the grid re-places everything at the
-     real width. Long enough to cover that correction, short enough that a drag
-     a person starts immediately still animates normally. */
-  useEffect(() => {
-    setSettling(true)
-    const done = setTimeout(() => setSettling(false), 250)
-    return () => clearTimeout(done)
-  }, [openId])
-
   useLayoutEffect(() => {
     measure()
     /* And again for a moment afterwards. Adding a container, removing one, or
@@ -3799,7 +3868,8 @@ export function App() {
         subject={subject}
         projects={projects}
         project={project}
-        held={held}
+        held={held !== null && heldProject === projectId ? held : null}
+        heldBefore={projectId === null ? null : (heldBefore.current.get(projectId) ?? null)}
         onRetitleEpic={onRetitleEpic}
         onCreateEpic={onCreateEpic}
         onDeleteEpic={(slug) => void onDeleteEpic(slug)}
@@ -3886,7 +3956,11 @@ export function App() {
           <MissingProject project={project} onLocate={() => setLocating(project.id)} />
         ) : (
           <>
-        {containers.length === 0 ? <Nothing registry={registry} looking={looking} empty={open !== null && open.placements.length === 0} /> : null}
+        {/* Not over the still copy of a kehikko being left: an empty kehikko
+            says so once it is the one shown. */}
+        {containers.length === 0 && !calm.holding ? (
+          <Nothing registry={registry} looking={looking} empty={open !== null && open.placements.length === 0} />
+        ) : null}
 
         {/*
          * Every module's page, loaded once and positioned to line up with the
@@ -3905,16 +3979,34 @@ export function App() {
          * through, and `index.css` for the grid item that does the same while
          * keeping its handle live.
          */}
+        {/*
+         * The kehikko arriving. Above the pages, so the container's own chrome
+         * — its header, its edge, and the resize handle in its corner — is never
+         * underneath one; the stacking is this element's, because while it
+         * fades its opacity makes it a stacking context of its own and the
+         * order has to hold through that.
+         *
+         * While a switch prepares it, it is drawn at its final size, invisible
+         * and `inert`: no click, no Tab, no screen reader reaches a kehikko
+         * that is not shown yet. See `canvas/useCalmSwitch.ts`.
+         */}
+        <div
+          ref={calm.incomingRef}
+          data-switch={calm.phase}
+          inert={!calm.interactive}
+          className="relative z-[1] h-full"
+          style={fade(calm.incoming)}
+        >
+        {width === null ? null : (
         <Grid
-          /* Above the pages, so the container's own chrome — its header, its edge,
-             and the resize handle in its corner — is never underneath one. */
-          style={{ position: 'relative', zIndex: 1 }}
+          style={{ position: 'relative' }}
           /* Keyed by the canvas, so switching them is a new grid rather than
-             the same grid being told every container moved at once — which it would
-             animate, one canvas melting into the next. */
+             the same grid being told every container moved at once. */
           key={openId ?? 'none'}
-          measureBeforeMount={MEASURE_FIRST}
-          className={settling ? 'min-h-full settling' : 'min-h-full'}
+          /* Told, not measured: see `Grid` above. */
+          width={width}
+          /* Animated only for a person's own drag or resize, and a fold. */
+          className={moving !== null || gliding ? 'min-h-full in-motion' : 'min-h-full'}
           layouts={{ lg: laid }}
           breakpoints={{ lg: 0 }}
           cols={{ lg: COLUMNS }}
@@ -3966,6 +4058,8 @@ export function App() {
              chose. */
           onDragStop={() => {
             setMoving(null)
+            /* The container let go of glides to where the grid puts it. */
+            setGliding((n) => n + 1)
             settle()
           }}
           onResizeStart={(_all, _old, item, _placeholder, event) => {
@@ -4063,6 +4157,7 @@ export function App() {
           onResizeStop={() => {
             setPulling(null)
             setMoving(null)
+            setGliding((n) => n + 1)
             settle()
           }}
           /* A container cannot be dropped into another container's space; the grid pushes
@@ -4177,6 +4272,8 @@ export function App() {
             )
           })}
         </Grid>
+        )}
+        </div>
 
         {/*
          * The frames layer comes AFTER the grid, and that is a tab order rather
@@ -4200,7 +4297,7 @@ export function App() {
          */}
 
         <Frames
-          framings={framings}
+          framings={drawnFramings}
           context={context}
           canvas={controls}
           bus={bus}
@@ -4208,9 +4305,16 @@ export function App() {
           watcherFor={watcherFor}
           onDocument={onDocument}
           moving={moving}
+          still={!calm.interactive}
+          layer={fade(calm.pages)}
         />
           </>
         )}
+        {/* The still copy of the kehikko being left, while the next is
+            prepared and as it fades. Filled and emptied by `useCalmSwitch`,
+            never by React. */}
+        <div ref={calm.outgoingRef} aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-[1]" style={fade(calm.outgoing)} />
+        {calm.slow ? <Arranging /> : null}
       </main>
 
       {/* A module asked to show a page and nothing here shows pages: the person
@@ -4349,6 +4453,24 @@ export function App() {
  * there is nothing else on screen. A black rectangle with no modules on it and
  * no words is indistinguishable from a program that failed to start.
  */
+/** A layer's opacity, and the fade to it. */
+function fade(look: Look): CSSProperties {
+  return { opacity: look.opacity, transition: look.ms ? `opacity ${look.ms}ms ${look.easing ?? 'ease'}` : 'none' }
+}
+
+/**
+ * The quiet word for a switch that is taking longer than it should: said only
+ * after `slowMs` (`host/switching.ts`), so a switch that is quick never flashes
+ * it. The kehikko being left is still on screen while it shows.
+ */
+function Arranging() {
+  return (
+    <div role="status" className="text-muted-foreground pointer-events-none absolute inset-x-0 top-3 z-[2] flex justify-center text-xs">
+      <span className="bg-background/80 rounded-full px-2 py-0.5">arranging…</span>
+    </div>
+  )
+}
+
 function Nothing({ registry, looking, empty }: { registry: RegistryView | null; looking: boolean; empty: boolean }) {
   const registered = registry?.presences.length ?? 0
   return (
