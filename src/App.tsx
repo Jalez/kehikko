@@ -34,6 +34,8 @@ import {
   COLUMNS,
   editCanvas,
   everyPlaced,
+  framesKept,
+  recentlyOpen,
   fetchCanvases,
   inProject,
   answerPress,
@@ -3405,11 +3407,11 @@ export function App() {
    * Every module page that currently has a document, and where each one goes.
    *
    * A page is loaded when its module first appears on the open canvas, and is
-   * kept for as long as the module is on ANY canvas — which is what makes
-   * switching canvases free for anything the two have in common. It is dropped
-   * only when the last canvas holding it lets go, or when its registration
-   * disappears; both of those are the module genuinely leaving rather than
-   * being looked away from.
+   * kept while the module is on the open kehikko or on one of the last
+   * `KEPT_KEHIKOT` left — which is what makes switching back free. It is
+   * dropped when none of those has it any more (the oldest kehikko left falls
+   * off the list), when the last canvas holding it lets go, or when its
+   * registration disappears.
    *
    * Held in a ref rather than in state because it is a record of what has been
    * loaded, not a description of what should be on screen. Deriving it every
@@ -3417,6 +3419,8 @@ export function App() {
    * it exists to do.
    */
   const loadedRef = useRef<Set<string>>(new Set())
+  /** The open kehikko and the ones left before it, most recent first. See `recentlyOpen`. */
+  const recentRef = useRef<number[]>([])
   /**
    * Which version each loaded page is of: the open kehikko's pin when the
    * module is on it, else whatever it was last loaded as. One page per module,
@@ -3473,8 +3477,12 @@ export function App() {
     const loaded = loadedRef.current
     const loadedVersion = loadedVersionRef.current
     const anywhere = new Set(everyPlaced(canvases))
+    /* The open kehikko and the last few left: a page on none of them is let
+       go (`framesKept`, `Frames.tsx`). */
+    recentRef.current = recentlyOpen(recentRef.current, open?.id ?? null)
+    const kept = framesKept(canvases, recentRef.current)
     for (const id of [...loaded]) {
-      if (!anywhere.has(id) || !byId.has(id)) loaded.delete(id)
+      if (!anywhere.has(id) || !byId.has(id) || !kept.has(id)) loaded.delete(id)
     }
     const onOpen = new Set<string>()
     /* The presence a page is framed from: the module's own, or its pinned
@@ -3510,6 +3518,7 @@ export function App() {
              checkout does not touch. */
           generation: loadedVersion.get(id) ? 0 : (generations[id] ?? 0),
           rect: rects[id] ?? null,
+          away: !onOpen.has(id),
           /* A folded container's page is HIDDEN, by the same path a page on another
              kehikko is hidden — kept at its size, kept running, and not shown.
              `Frames.tsx` has the argument: unmounting it would destroy the

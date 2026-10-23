@@ -221,10 +221,11 @@ export const OPEN_KEY = 'kehikot.frame.open.v1'
  * a project with no kehikot in it.
  *
  * ALL the kehikot, deliberately. The page shows one project's worth and keeps
- * the rest, because a module's page is loaded once and kept for as long as it is
- * on any kehikko — see `everyPlaced` and `Frames.tsx`. Filtering here would
- * shrink that union on every project switch and unmount every frame that is not
- * on the new project, which is the reload the user chose re-pointing over.
+ * the rest, because a module's page is loaded once and kept while it is on the
+ * open kehikko or one of the last few left, whichever project they are in —
+ * see `framesKept` and `Frames.tsx`. Filtering here would unmount every frame
+ * not on the new project at each project switch, which is the reload the user
+ * chose re-pointing over.
  */
 export async function fetchCanvases(
   signal?: AbortSignal,
@@ -792,12 +793,40 @@ export function unplace(placements: readonly Placement[], id: string): Placement
  */
 
 /**
+ * How many kehikot left are kept loaded, beside the open one. Two: the one
+ * just left, which is where people go back to, and the one before it, for the
+ * person working across a pair with a third open now and then.
+ */
+export const KEPT_KEHIKOT = 2
+
+/**
+ * The kehikot whose pages are kept, most recent first: the open one, then the
+ * ones left, at most `kept` of them, each once. `recent` is what this said
+ * last; the open kehikko moves to its front.
+ */
+export function recentlyOpen(recent: readonly number[], open: number | null, kept = KEPT_KEHIKOT): number[] {
+  const rest = recent.filter((id) => id !== open)
+  return (open === null ? rest : [open, ...rest]).slice(0, kept + 1)
+}
+
+/**
+ * The modules whose pages may stay loaded: every module on a kehikko in
+ * `recent`. A page outside it is let go — see `Frames.tsx`.
+ */
+export function framesKept(canvases: readonly Canvas[], recent: readonly number[]): Set<string> {
+  const ids = new Set<string>()
+  const keep = new Set(recent)
+  for (const canvas of canvases) if (keep.has(canvas.id)) for (const p of canvas.placements) ids.add(p.i)
+  return ids
+}
+
+/**
  * Every module placed on any canvas.
  *
  * The canvas layer loads a module's page ONCE and shows it on whichever canvas
  * asked for it, so it needs the union rather than the current canvas — see
  * `canvas/Frames.tsx` for why a page that is switched away from must not be
- * torn down.
+ * torn down (until its kehikko falls off `recentlyOpen`).
  */
 export function everyPlaced(canvases: readonly Canvas[]): string[] {
   const ids = new Set<string>()

@@ -1,4 +1,5 @@
 import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
+import { useLayoutEffect } from 'react'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
@@ -58,7 +59,15 @@ import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
  *
  *   - **A page that is switched away from is hidden, not removed.** It keeps
  *     its size, so it is not reflowed to nothing and back; it keeps running,
- *     which is the whole point; and it stops receiving the pointer.
+ *     which is the whole point; and it stops receiving the pointer. It is
+ *     `inert` too, so no Tab lands in a page nobody can see, and it is not
+ *     told the open kehikko's context (`away`, `whileAway`).
+ *
+ *   - **Kept, within a bound.** The pages of the open kehikko and of the last
+ *     `KEPT_KEHIKOT` kehikot left are kept (`framesKept`); a page on none of
+ *     those is let go, oldest kehikko first, and loads again when its kehikko
+ *     is opened. A dev server's page holds tens of megabytes, and a person who
+ *     has visited every kehikko of three projects is not looking at them.
  */
 
 export interface Rect {
@@ -80,6 +89,8 @@ export interface Framing {
   rect: Rect | null
   /** On the open canvas, greeted, and answering. Anything else is hidden. */
   shown: boolean
+  /** Its module is on no container of the open kehikko: kept, hidden, and not re-pointed. */
+  away: boolean
   /** Whatever the host keeps for this module, carried into its greeting. */
   state: string | null
   /** Whether this container is pinned, and stops hearing about the canvas. */
@@ -152,12 +163,32 @@ export function Frames({
    */
   moving: string | null
 }) {
+  /* A page that is hidden while it has the focus gives it back: `inert` makes
+     it unfocusable, but a browser leaves the focus where it was, and a module
+     that focused itself (a terminal does) would go on taking keystrokes on a
+     kehikko the person has left — typing into a shell nobody can see. */
+  const hiddenKey = framings
+    .filter((one) => !(one.shown && one.rect))
+    .map((one) => one.module.id)
+    .join('\n')
+  useLayoutEffect(() => {
+    const hidden = new Set(hiddenKey ? hiddenKey.split('\n') : [])
+    giveBackFocus(document, hidden)
+    /* And when a hidden page takes the focus itself, later: measured, the
+       Claude module's terminal focuses itself 0.7 s after its kehikko was
+       left, `inert` notwithstanding. The page sees only its own window lose
+       the focus, with the iframe left as the active element. */
+    const blurred = () => setTimeout(() => giveBackFocus(document, hidden), 0)
+    window.addEventListener('blur', blurred)
+    return () => window.removeEventListener('blur', blurred)
+  }, [hiddenKey])
+
   return (
     /* `pointer-events-none` on the layer and `auto` on each page, so that the
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-      {framings.map(({ module, generation, rect, shown, state, pinned, prompt, filters }) => {
+      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -166,6 +197,7 @@ export function Frames({
              document rather than the old one pointed somewhere else. */
           key={`${module.id}|${module.entry}|${generation}`}
           data-frame={module.id}
+          {...hiddenFrame(visible)}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{
             transform: `translate(${rect?.x ?? 0}px, ${rect?.y ?? 0}px)`,
@@ -191,10 +223,32 @@ export function Frames({
             pinned={pinned}
             prompt={prompt}
             filters={filters}
+            away={away}
           />
         </div>
         )
       })}
     </div>
   )
+}
+
+/**
+ * What a page that is not shown carries: `inert`, so it takes no focus and no
+ * pointer and is out of the accessibility tree, and `aria-hidden` for the
+ * readers that do not know `inert` yet. A shown page carries neither.
+ */
+export function hiddenFrame(visible: boolean): { inert?: boolean; 'aria-hidden'?: true } {
+  return visible ? {} : { inert: true, 'aria-hidden': true }
+}
+
+/**
+ * Take the focus out of a hidden page. True when it had to: the focused
+ * element was inside the frame of a module in `hidden`.
+ */
+export function giveBackFocus(doc: Pick<Document, 'activeElement'>, hidden: ReadonlySet<string>): boolean {
+  const active = doc.activeElement as (Element & { blur?(): void }) | null
+  const id = active?.closest?.('[data-frame]')?.getAttribute('data-frame')
+  if (!id || !hidden.has(id)) return false
+  active?.blur?.()
+  return true
 }

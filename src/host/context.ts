@@ -452,6 +452,27 @@ export function toWireContext(
 }
 
 /**
+ * What a frame on a kehikko that is NOT open may still be told.
+ *
+ * A module's page is loaded once and kept, hidden, while the person is on
+ * another kehikko (`Frames.tsx`), so that switching back shows it at once.
+ * The context the canvas builds is the OPEN kehikko's — its id and key, its
+ * containers, the prompt and filters of ITS container for this module — and a
+ * hidden page told that would believe it had moved to a kehikko it is not on.
+ * A Claude session there would record the wrong place. So a frame that is away
+ * keeps what it was last told on its own kehikko, and is sent nothing more
+ * until it is on the open kehikko again, when the whole current context goes.
+ *
+ * The one exception is the theme, for the reason a pin lets it through
+ * (`whileFrozen`): it is how the page is drawn, not where it is, and a page
+ * that came back in the old theme would flash. Null means send nothing.
+ */
+export function whileAway(held: ModuleContext | null, told: ModuleContext): ModuleContext | null {
+  if (!held || held.theme === told.theme) return null
+  return { ...held, theme: told.theme }
+}
+
+/**
  * What a PINNED container should be sent, if anything.
  *
  * A pin freezes the subject — the epic, the project, the passage, the
