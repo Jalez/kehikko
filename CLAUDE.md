@@ -340,6 +340,30 @@
   with the name and gives it a tooltip. In a container's header it goes first
   under 240 pixels, so the row still fits at 200 and folded.
 
+## A module's settings (protocol 2.15.0)
+
+- A module declares its settings (`declares.settings`) and is the ONLY writer
+  of its files. The host draws one form per module
+  (`src/canvas/ModuleSettings.tsx`; rules and words `src/host/moduleSettings.ts`)
+  and reads and changes values at the module's door (`settings.get` /
+  `settings.set`, `SETTINGS_PATH`) through `server/moduleSettings.ts`. Never
+  write into `.kehikot/<module>/`; "Open the file" only reads it (in the
+  Editor when one is on the kehikko — the host points the canvas at it as
+  `kehikko` — else in a read-only dialog), and only a file inside that
+  module's own folder.
+- Reached from the gear in a container's header (220 px and wider, folded or
+  not; under 220 it is "Settings…" in the module's "⋯", `settingsPlaceFor`),
+  the Frame menu's "Settings…" (every width) and Settings › Modules. A module
+  that declared none gets none of the three.
+- A change is the person's only through a PASS: minted by `Passes.issue` in
+  the desk's `set`, reached only by `POST /host/module-settings/set`
+  (`PAGE_ONLY`, with `/host/module-settings`, `/list` and `/file`), one
+  module, key and project, 30 s, spent by the one answer at
+  `GET /host/settings-pass`. Never mint one anywhere else.
+- `module_settings` (`server/mcp.ts`) only reads. No MCP tool or program route
+  of this host changes a setting: an agent changes a non-`personOnly` one at
+  the module's own door.
+
 ## What a module may ask
 
 - Every method is held to the capability the protocol files it under

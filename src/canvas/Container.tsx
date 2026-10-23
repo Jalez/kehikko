@@ -17,6 +17,8 @@ import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
+import { SettingsButton } from './ModuleSettings.tsx'
+import { settingsHint, settingsOf } from '@/host/moduleSettings.ts'
 import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
@@ -90,6 +92,7 @@ export function Container({
   onPrompts,
   onTools,
   onSkills,
+  onSettings,
   onStarted,
   onRemove,
   kehikko,
@@ -219,6 +222,12 @@ export function Container({
   onTools(): void
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
+  /**
+   * Open this module's settings (protocol 2.15.0). Drawn only for a module that declared some: a
+   * gear in the row at 220 px and wider, folded or not; "Settings…" in the module's "⋯" under that,
+   * and in the Frame menu always. See `ModuleSettings.tsx`.
+   */
+  onSettings?(): void
   /** Look again, after this module has been started. */
   onStarted(): void
   onRemove(): void
@@ -243,6 +252,7 @@ export function Container({
   onActivitySeen?(): void
 }) {
   const name = presence.name ?? presence.id
+  const hasSettings = onSettings !== undefined && settingsOf(presence.module).length > 0
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
@@ -551,7 +561,15 @@ export function Container({
          * one on the canvas. See `HeaderMenus.tsx`.
          */}
         {showing.kind === 'page' && !collapsed ? (
-          <HeaderMenus items={header} name={name} onPress={onPress} onKeyboard={onKeyboard} surface={surface} note={pressNote} />
+          <HeaderMenus
+            items={header}
+            name={name}
+            onPress={onPress}
+            onKeyboard={onKeyboard}
+            surface={surface}
+            note={pressNote}
+            onSettings={hasSettings ? onSettings : undefined}
+          />
         ) : null}
 
         {/*
@@ -665,9 +683,25 @@ export function Container({
          * icons stood, on every container, folded too. What each of the
          * three said at a glance, and where that went, is in `FrameMenu`.
          */}
+        {/* The module's settings (protocol 2.15.0): a gear for a module that declared some, on the
+            host's side of the line beside the Frame menu, so it never takes room from the module's
+            own menus — their mode is the width's. Under 220 px it is in "⋯" and the Frame menu. */}
+        {hasSettings ? (
+          <SettingsButton
+            name={name}
+            onOpen={onSettings!}
+            hint={(button) => (
+              <Hint label={settingsHint(name)} side="bottom">
+                {button}
+              </Hint>
+            )}
+          />
+        ) : null}
+
         <FrameMenu
           module={presence.id}
           name={name}
+          onSettings={hasSettings ? onSettings : undefined}
           agent={presence.agent}
           onTools={onTools}
           skills={presence.module?.declares.skills}

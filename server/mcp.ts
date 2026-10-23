@@ -1,5 +1,6 @@
 import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
+import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
 import type { Database } from 'bun:sqlite'
 import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, PACKAGE_VERSION, type HeaderItem, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
@@ -262,6 +263,14 @@ export interface Door {
    * and this machine's Kehikot data. Read-only. See `server/storage.ts`.
    */
   storage?(fresh: boolean): Promise<StorageReport>
+  /**
+   * Modules' settings (protocol 2.15.0), for `module_settings`: READ only. A change is the
+   * module's, at its own door; nothing here changes one. See `server/moduleSettings.ts`.
+   */
+  moduleSettings?: {
+    list(): Promise<readonly SettingsListed[]>
+    read(module: string, project: string | null): Promise<SettingsAnswer>
+  }
   /** The shared tracker reading, for `read_tracker`. Absent, the tool says so. */
   trackers?: TrackerDoor
   /** A module's versions and a container's pin, for `module_versions` and `pin_version`. See `pins.ts`. */
@@ -309,6 +318,7 @@ export const TOOL_NAMES = [
   'my_place',
   'set_my_place',
   'storage',
+  'module_settings',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -811,6 +821,25 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: { fresh: { type: 'boolean', description: 'Measure again rather than use a report from the last 30 seconds.' } },
+        required: [],
+      },
+    },
+    {
+      name: 'module_settings',
+      description:
+        'The settings of the modules in a kehikko’s project, as each module declares them (protocol 2.15.0): every '
+        + 'setting’s label, key, type, value now, whether it is kept in the project or on this machine, and who may '
+        + 'change it. Leave module out for every module that has settings; name one (its id, e.g. kehikot.factory) for '
+        + 'that one. Read-only: this host changes no setting. A setting marked "only the person" is changed by the '
+        + 'person in Kehikot’s Settings or on the module’s page; any other is changed at the module’s own door '
+        + '(POST /api/kehikot/settings on the module, { project, key, value }), never through this host.',
+      annotations: { title: 'Modules’ settings', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          module: { type: 'string', maxLength: MAX_ID, description: 'One module’s id. Left out: every module with settings.' },
+        },
         required: [],
       },
     },
@@ -1328,6 +1357,25 @@ export async function call(
   }
   const where = decide(door, args)
   if (!where.ok) return { text: where.why, failed: true }
+  if (name === 'module_settings') {
+    if (!door.moduleSettings) return { text: 'This host does not read modules’ settings.', failed: true }
+    if (args.module !== undefined && (typeof args.module !== 'string' || !args.module || args.module.length > MAX_ID)) {
+      return { text: 'module is one module’s id, e.g. kehikot.factory, or left out.', failed: true }
+    }
+    const project = where.canvas.project === null ? null : projectById(door.db, where.canvas.project)
+    const path = project?.path ?? null
+    const listed = await door.moduleSettings.list()
+    const asked = typeof args.module === 'string' ? listed.filter((one) => one.id === args.module) : listed.filter((one) => one.fields.length > 0)
+    if (typeof args.module === 'string' && !asked.length) return { text: `No module here is called ${args.module}. ${listed.length ? `The modules are ${listed.map((one) => one.id).join(', ')}.` : ''}`, failed: true }
+    if (!asked.length) return { text: 'No module here declares settings.', failed: false }
+    const said: string[] = []
+    for (const one of asked) {
+      if (!one.fields.length) said.push(`${one.name} (${one.id}) has no settings it shows.`)
+      else if (!one.ready) said.push(`${one.name} (${one.id}) is not running, so its settings cannot be read now.`)
+      else said.push(settingsText(await door.moduleSettings.read(one.id, path), path))
+    }
+    return { text: said.join('\n\n'), failed: false }
+  }
   const canvas = where.canvas
   const placed = door.here === undefined ? undefined : { here: door.here, looking: looking(door), unrecorded: door.unrecorded ?? null }
 

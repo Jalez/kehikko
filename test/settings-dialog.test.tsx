@@ -159,7 +159,7 @@ test('Settings: a section nav, agents, tools and skills with status in words and
   const body = document.querySelector('[data-settings]')!
   /* The nav: one tab per section, the first chosen; no Tracker notices from a host that says nothing of them. */
   const tabs = [...body.querySelectorAll('[role="tab"]')]
-  expect(tabs.map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'About'])
+  expect(tabs.map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Modules', 'About'])
   expect(body.querySelector('[role="tablist"]')!.getAttribute('aria-orientation')).toBe('vertical')
   expect(tabs[0]!.getAttribute('aria-selected')).toBe('true')
   for (const heading of ['Agents', 'Module tools', 'Skills', 'Conversations started outside Kehikot', 'About']) {
@@ -451,7 +451,7 @@ test('Project: the open project’s base branch, origin’s default until set, c
     />,
   )
   const body = document.querySelector('[data-settings]')!
-  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Project', 'About'])
+  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Project', 'Modules', 'About'])
   const form = body.querySelector('[data-base-branch]')!
   expect(form.getAttribute('data-base-branch')).toBe('default')
   expect(form.textContent).toContain('The branch agents start their work from and updates are pulled from.')

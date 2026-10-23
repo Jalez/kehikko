@@ -101,6 +101,10 @@ export interface Refusal {
  *    (`myModules.ts`): a repository read with their login, cloned and run on
  *    this machine, or deleted from it. A program that could add one could run
  *    any code it liked, so only a press in the page does it.
+ *  - `/host/module-settings`, `/list`, `/set`, `/file` — a module's settings
+ *    (`moduleSettings.ts`). `/set` mints the pass that makes a change the
+ *    person's, so a program reaching it could change a person-only setting;
+ *    the reads go with it. An agent reads at the door's `module_settings`.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -126,6 +130,10 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/layouts',
   '/host/onboarding',
   '/host/whats-new',
+  '/host/module-settings',
+  '/host/module-settings/list',
+  '/host/module-settings/set',
+  '/host/module-settings/file',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

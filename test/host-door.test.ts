@@ -308,6 +308,7 @@ describe('the host’s server, running', () => {
         'create_epic',
         'fold_modules',
         'mark_disposition',
+        'module_settings',
         'module_versions',
         'my_place',
         'pin_version',

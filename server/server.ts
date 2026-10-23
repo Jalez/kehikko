@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answerCall } from './answers.ts'
@@ -127,6 +127,7 @@ import { within } from './takeover.ts'
 import { resolve } from 'node:path'
 import { embeddedPage, servePage } from './page.ts'
 import { storageDesk } from './storage.ts'
+import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { readShelves, saveLayout } from './layouts.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
@@ -1042,6 +1043,30 @@ const lastDeclared = new Map<string, readonly string[]>()
 /** Whether this module's manifest asks for the capability: what every method is held to. See `Grants`. */
 const declared = (module: string, capability: string): boolean =>
   lastDeclared.get(module)?.includes(capability) === true
+
+/*
+ * A module's settings (protocol 2.15.0), read and changed at the module's own door on a person's
+ * press in the page; the module writes. See `moduleSettings.ts`.
+ */
+const settingsPasses = new Passes()
+const settingsModuleOf = (presence: Presence | undefined): SettingsModule | null =>
+  presence?.condition === 'ready' && presence.module
+    ? { id: presence.id, name: presence.module.name, origin: presence.at, fields: presence.module.declares.settings ?? [] }
+    : null
+/** Every registered module, and the settings it declared when it is running: Settings › Modules and `module_settings`. */
+async function settingsListed() {
+  return (await sweep()).presences.map((presence) => ({
+    id: presence.id,
+    name: presence.module?.name ?? presence.name ?? presence.id,
+    icon: presence.icon ?? null,
+    ready: presence.condition === 'ready',
+    fields: presence.module?.declares.settings ?? [],
+  }))
+}
+const moduleSettings = moduleSettingsDesk({
+  passes: settingsPasses,
+  moduleOf: async (id) => settingsModuleOf(lastPresences.get(id)) ?? settingsModuleOf((await sweep()).presences.find((one) => one.id === id)),
+})
 
 /** When the host last ran a module's script, for as long as that is news. */
 const starting = new Map<string, number>()
@@ -2942,6 +2967,40 @@ const server = Bun.serve({
     }
 
     /*
+     * A module's settings (protocol 2.15.0). Every one of these is the page's alone (`PAGE_ONLY`):
+     * the list and the read so the page draws the form, the change because it is the one place a
+     * person's PASS is minted (`moduleSettings.ts`), and the file because it shows a project's file.
+     * An agent reads settings through the door's `module_settings`, and changes one only at the
+     * module's own door — never here. `project` is a project's id, resolved out of this host's table.
+     */
+    if (url.pathname.startsWith('/host/module-settings') && request.method === 'POST') {
+      const body = ((await request.json().catch(() => null)) ?? {}) as { module?: unknown; project?: unknown; key?: unknown; value?: unknown }
+      const project = typeof body.project === 'number' ? projectById(db, body.project) : null
+      if (url.pathname === '/host/module-settings/list') {
+        return json({ ok: true, modules: await settingsListed() })
+      }
+      const module = moduleIn(body.module)
+      if (!module) return json({ ok: false, why: 'Which module.' }, 400)
+      if (body.project !== undefined && body.project !== null && !project) return json({ ok: false, why: 'There is no project with that id.' }, 404)
+      const path = project?.path ?? null
+      if (url.pathname === '/host/module-settings') return json(await moduleSettings.read(module, path))
+      if (url.pathname === '/host/module-settings/file') return json(await moduleSettings.file(module, path))
+      if (url.pathname === '/host/module-settings/set') {
+        if (typeof body.key !== 'string' || body.key.length > LIMITS.SETTING_KEY) return json({ ok: false, why: 'Which setting.' }, 400)
+        return json(await moduleSettings.set(module, path, body.key, body.value))
+      }
+    }
+
+    /*
+     * Whether a pass is one this host minted for a person's change of a module's setting, asked by
+     * that module's server (`SETTINGS_PASS_PATH`, protocol 2.15.0). Answered to programs on this
+     * machine, like `/host/is-project`; the answer spends the pass.
+     */
+    if (url.pathname === SETTINGS_PASS_PATH && request.method === 'GET') {
+      return json(moduleSettings.vouch(url.searchParams))
+    }
+
+    /*
      * "Refresh all": read every source of the project again, and answer when
      * it lands. Every page standing in the project hears it start and land
      * through `/host/watch`, and every module through `context.tracker`.
@@ -3753,6 +3812,10 @@ const server = Bun.serve({
           },
           dispositionsChanged: (project) => wakes.dispositionsChanged(project),
           storage: (fresh) => storage.read(fresh),
+          moduleSettings: {
+            list: settingsListed,
+            read: (module, project) => moduleSettings.read(module, project),
+          },
           headers: headerDesk.door,
           inbox,
           trackers,

@@ -1,4 +1,4 @@
-import type { Build, ModuleCondition } from 'kehikot-module-protocol'
+import type { Build, ModuleCondition, SettingField } from 'kehikot-module-protocol'
 
 /**
  * What the page knows about what is registered.
@@ -54,6 +54,8 @@ export interface FramedModule {
      * an older server. Read through `showsProject`; see `host/scope.ts`.
      */
     scopes?: ('epic' | 'project')[]
+    /** The settings the module declared (protocol 2.15.0), drawn as one form. Absent: none. See `host/moduleSettings.ts`. */
+    settings?: SettingField[]
   }
   /**
    * What the server answering now is built from: version, commit, when its

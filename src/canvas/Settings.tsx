@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bell,
+  Blocks,
   Bot,
   Check,
   ExternalLink,
@@ -61,6 +62,7 @@ import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
@@ -319,6 +321,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   notices: { title: 'Tracker notices', icon: Bell },
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
+  modules: { title: 'Modules', icon: Blocks },
   about: { title: 'About', icon: KehikotMark },
 }
 
@@ -390,6 +393,7 @@ export function SettingsBody({
   onClose = () => {},
   project = null,
   baseBranch = BASE_BRANCH_DOOR,
+  modulesApi,
 }: {
   answer: SettingsAnswer | null
   trouble?: string | null
@@ -402,6 +406,8 @@ export function SettingsBody({
   onClose?(): void
   project?: SettingsProject | null
   baseBranch?: BaseBranchDoor
+  /** How Settings › Modules asks the host; for tests. */
+  modulesApi?: SettingsApi
 }) {
   const sections = SETTINGS_SECTIONS.filter((one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project))
   const shown = sections.includes(section) ? section : 'agents'
@@ -470,6 +476,9 @@ export function SettingsBody({
                   <About onClose={onClose} />
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
+                ) : key === 'modules' ? (
+                  /* Only while it is shown: listing asks every module, and each form asks its own. */
+                  shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null
                 ) : answer ? (
                   <Section which={key} answer={answer} onChange={onChange} />
                 ) : !trouble ? (
