@@ -312,6 +312,7 @@ describe('view.fold on the wire', () => {
       select: () => {},
       point: () => {},
       locate: () => ({ outcome: 'declined' as const, why: '' }),
+      openAddress: () => ({ outcome: 'declined' as const, why: '' }),
       show: () => {},
       emit: () => ({ ok: true, delivered: 0 }),
       project: () => null,

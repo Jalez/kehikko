@@ -1,7 +1,7 @@
-import { headerItemsSchema, sharedLocationSchema, type HeaderItem, type SharedLocation } from 'kehikot-module-protocol'
+import { headerItemsSchema, sharedAddressSchema, sharedLocationSchema, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
-import type { PressOrder } from './wake.ts'
+import type { AddressOrder, PressOrder } from './wake.ts'
 
 /**
  * What the modules on an open kehikko have declared for their headers, as
@@ -85,6 +85,8 @@ interface Posting {
   headers: Map<string, HeaderItem[]>
   /** Where in a change's code somebody is pointing on this kehikko, or null. */
   location: SharedLocation | null
+  /** The last web address handed to this kehikko (protocol 2.16.0), or null. */
+  address: SharedAddress | null
 }
 
 interface Waiting {
@@ -98,6 +100,7 @@ export interface Declared {
   page: string
   headers: ReadonlyMap<string, readonly HeaderItem[]>
   location: SharedLocation | null
+  address: SharedAddress | null
 }
 
 export class Headers {
@@ -110,7 +113,7 @@ export class Headers {
    * The whole map, replacing what that page said before. Answers `null`, or
    * the sentence saying what was wrong with it.
    */
-  posted(page: string, kehikko: number, at: number, raw: unknown, rawLocation: unknown = null): string | null {
+  posted(page: string, kehikko: number, at: number, raw: unknown, rawLocation: unknown = null, rawAddress: unknown = null): string | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'headers is an object of module id to its items.'
     const entries = Object.entries(raw as Record<string, unknown>)
     if (entries.length > MODULES_MAX) return `No kehikko holds more than ${MODULES_MAX} containers.`
@@ -125,13 +128,16 @@ export class Headers {
     /* A location that does not parse is none: the headers still stand. */
     const read = rawLocation === null || rawLocation === undefined ? null : sharedLocationSchema.safeParse(rawLocation)
     const location = read?.success ? read.data : null
+    /* An address that does not parse is none, for the location's reason. */
+    const given = rawAddress === null || rawAddress === undefined ? null : sharedAddressSchema.safeParse(rawAddress)
+    const address = given?.success ? given.data : null
     const held = this.#pages.get(page)
     if (held && held.at > at) return null
     if (!held && this.#pages.size >= PAGES_MAX) {
       const oldest = [...this.#pages.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) this.#pages.delete(oldest[0])
     }
-    this.#pages.set(page, { kehikko, at, headers, location })
+    this.#pages.set(page, { kehikko, at, headers, location, address })
     return null
   }
 
@@ -155,16 +161,11 @@ export class Headers {
       if (posting.kehikko !== kehikko || !hears(page)) continue
       if (!found || posting.at > found.posting.at) found = { page, posting }
     }
-    return found ? { page: found.page, headers: found.posting.headers, location: found.posting.location } : null
+    return found
+      ? { page: found.page, headers: found.posting.headers, location: found.posting.location, address: found.posting.address }
+      : null
   }
 
-  /**
-   * Ask one page to press, and wait for what it says came of it.
-   *
-   * `send` writes the order to that page's streams and answers whether there
-   * was one to write to. `null` when there was not: the page went away
-   * between being chosen and being asked.
-   */
   /**
    * Ask one page to press, and wait for what it says came of it.
    *
@@ -178,19 +179,43 @@ export class Headers {
     send: (order: PressOrder) => boolean,
     waitMs = PRESS_ANSWER_MS,
   ): Promise<Pressed | null> {
+    return this.#ask(
+      page,
+      (id) => send({ ...order, id, page }),
+      'The page that has this kehikko open did not say what came of the press in time, so it is not known '
+        + 'whether it was pressed. read_canvas shows how the item stands now.',
+      waitMs,
+    )
+  }
+
+  /**
+   * Ask one page to show an address an agent asked for (protocol 2.16.0), and
+   * wait for what it says came of it: the same road and the same answer as a
+   * press. `null` when the page went away before it could be asked.
+   */
+  openAddress(
+    page: string,
+    order: Omit<AddressOrder, 'id' | 'page'>,
+    send: (order: AddressOrder) => boolean,
+    waitMs = PRESS_ANSWER_MS,
+  ): Promise<Pressed | null> {
+    return this.#ask(
+      page,
+      (id) => send({ ...order, id, page }),
+      'The page that has this kehikko open did not say in time whether it showed the address. read_canvas says the last address it holds.',
+      waitMs,
+    )
+  }
+
+  #ask(page: string, send: (id: string) => boolean, late: string, waitMs: number): Promise<Pressed | null> {
     const id = crypto.randomUUID()
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.#waiting.delete(id)
-        resolve({
-          ok: false,
-          why:
-            'The page that has this kehikko open did not say what came of the press in time, so it is not known '
-            + 'whether it was pressed. read_canvas shows how the item stands now.',
-        })
+        resolve({ ok: false, why: late })
       }, waitMs)
       this.#waiting.set(id, { page, resolve, timer })
-      if (!send({ ...order, id, page })) {
+      if (!send(id)) {
         clearTimeout(timer)
         this.#waiting.delete(id)
         resolve(null)
@@ -218,6 +243,8 @@ export interface HeadersDeps {
   /** Whether a stream of this page is open, and a way to write an order to it. See `Wakes`. */
   hears(page: string): boolean
   send(order: PressOrder): boolean
+  /** Write an address order to that page's streams (protocol 2.16.0). Absent: no agent may hand over an address. */
+  sendAddress?(order: AddressOrder): boolean
   /** Override `PRESS_ANSWER_MS`, for a test. */
   waitMs?: number
 }
@@ -225,7 +252,7 @@ export interface HeadersDeps {
 /**
  * The two routes the page reaches, and the two things the MCP door is given.
  *
- * `POST /host/headers` `{ page, kehikko, at?, headers, location? }` and
+ * `POST /host/headers` `{ page, kehikko, at?, headers, location?, address? }` and
  * `POST /host/pressed` `{ page, id, ok, why }`. Anything that is not this
  * host's own page was refused before it got here (`guard.ts`).
  */
@@ -252,7 +279,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         return reply({ ok: false, why: 'A posting of headers names the kehikko the page has open.' }, 400)
       }
       const at = typeof body.at === 'number' && Number.isFinite(body.at) ? body.at : Date.now()
-      const wrong = held.posted(body.page, kehikko, at, body.headers, body.location)
+      const wrong = held.posted(body.page, kehikko, at, body.headers, body.location, body.address)
       return wrong ? reply({ ok: false, why: wrong }, 400) : reply({ ok: true })
     }
 
@@ -274,6 +301,18 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
       location: (kehikko: number): SharedLocation | null | undefined => {
         const found = held.on(kehikko, deps.hears)
         return found ? found.location : undefined
+      },
+      /* The last address on a kehikko, for `read_canvas`; `undefined` when nobody can say. */
+      address: (kehikko: number): SharedAddress | null | undefined => {
+        const found = held.on(kehikko, deps.hears)
+        return found ? found.address : undefined
+      },
+      /* An agent's `open_address`, handed to the page that has the kehikko open. `null`: no such page. */
+      openAddress: (kehikko: number, url: string, title?: string): Promise<Pressed | null> => {
+        const found = held.on(kehikko, deps.hears)
+        const send = deps.sendAddress
+        if (!found || !send) return Promise.resolve(null)
+        return held.openAddress(found.page, { kehikko, url, ...(title === undefined ? {} : { title }) }, send, deps.waitMs)
       },
       press: (kehikko: number, module: string, press: Pressing): Promise<Pressed | null> => {
         const found = held.on(kehikko, deps.hears)

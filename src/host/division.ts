@@ -112,6 +112,10 @@ export const ANSWERED_BY_THE_VIEW = [
      the context — the passage's reason, with the selection beside it to say
      whether it still stands. See `host/location.ts`. */
   'location.set',
+  /* A web address handed to the canvas (protocol 2.16.0): whether anything
+     takes it depends on what is on the open kehikko, and the offer when
+     nothing does is drawn for the person looking. See `host/address.ts`. */
+  'address.open',
   /* A container's own filters live in the canvas's placements, which only the
      page has. The server holds no opinion about what is narrowed. */
   'filters.set',

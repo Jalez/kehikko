@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, WidthProvider, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, SharedLocation } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -51,6 +51,7 @@ import {
   writeOpen,
   type Canvas,
   type Placement,
+  type AddressOrder,
   type PressOrder,
 } from './host/canvases.ts'
 import { arrive, oneAfterAnother } from './host/looks.ts'
@@ -79,6 +80,9 @@ import {
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
+import { NO_ADDRESSES, accepted, addressOn, handed, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
+import { AddressOffer } from './canvas/AddressOffer.tsx'
+import { openExternal } from './host/releaseNotes.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
@@ -406,6 +410,7 @@ export function App() {
   /* An agent's press arrives on the stream opened far above where the frames
      and the open kehikko are declared; `lookRef`'s arrangement, for its reason. */
   const orderedRef = useRef<((order: PressOrder) => void) | null>(null)
+  const addressedRef = useRef<((order: AddressOrder) => void) | null>(null)
   const repostRef = useRef<(() => void) | null>(null)
   /* The Inbox's page-side hook is called far below this; the stream and the
      emit above reach it through refs, for `orderedRef`'s reason. */
@@ -810,6 +815,8 @@ export function App() {
       /* A project was found again where its folder went, in this window or
          another: the list, and the kehikot read from the file where it is now. */
       () => void relistRef.current?.(),
+      /* An agent's `open_address`, handed to this page to show. */
+      (order) => addressedRef.current?.(order),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -1415,6 +1422,16 @@ export function App() {
   useEffect(() => {
     if (typeof window !== 'undefined') writeLocations(window.sessionStorage, locations)
   }, [locations])
+  /**
+   * The last web address handed to each kehikko (protocol 2.16.0) — see
+   * `host/address.ts`. In memory only: opening a page is a request made once,
+   * and a reload is not the person asking again.
+   */
+  const [addresses, setAddresses] = useState<Addresses>(NO_ADDRESSES)
+  const addressesRef = useRef(addresses)
+  addressesRef.current = addresses
+  /* An address put in front of the person because nothing on the kehikko shows pages. */
+  const [offer, setOffer] = useState<Offer | null>(null)
 
   /**
    * Moving to a different PROJECT clears every passage. Moving to a different
@@ -1504,6 +1521,10 @@ export function App() {
   const codeLocation = locationOn(locations, openId, picked ? picked.split('\n') : [])
   const codeAt = codeLocation === null ? '' : JSON.stringify(codeLocation)
 
+  /* The address on the open kehikko, by value (`addressAt`) for `pointing`'s reason. */
+  const shownAddress = addressOn(addresses, openId)
+  const addressAt = shownAddress === null ? '' : JSON.stringify(shownAddress)
+
   /**
    * Every container on the open kehikko, whether it is picked out, and what it
    * shows — composed on every render, cheaply, and depended on BY VALUE below.
@@ -1537,13 +1558,13 @@ export function App() {
       toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
         at: trackerAt,
         refreshing: trackerBusy,
-      }, rewritten, JSON.parse(narrowedTo) as EpicPart[], codeLocation),
+      }, rewritten, JSON.parse(narrowedTo) as EpicPart[], codeLocation, shownAddress),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the
        essays on `pointing` and `described` above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten, narrowedTo, codeAt],
+    [subject, theme, picked, kehikko, pointing, arranged, marked, trackerAt, trackerBusy, rewritten, narrowedTo, codeAt, addressAt],
   )
 
   /**
@@ -1763,6 +1784,52 @@ export function App() {
     return out.answer
   }
 
+  /**
+   * What each module says it reacts to, as last read while it was answering. A
+   * module that shows pages and is still starting has no manifest in the sweep
+   * yet; it is still a reader here, so an address waits for it rather than
+   * being offered to the person.
+   */
+  const reactsSeen = useRef(new Map<string, readonly string[]>())
+  for (const presence of registry?.presences ?? []) {
+    if (presence.module?.reacts) reactsSeen.current.set(presence.id, presence.module.reacts)
+  }
+  const reactsOf = (id: string): readonly string[] | undefined => reactsSeen.current.get(id)
+
+  /**
+   * `address.open`, and an agent's `open_address`, answered against this
+   * render's open kehikko: into a container that shows pages when there is one,
+   * an offer to the person when a module asked and there is none, and a
+   * refusal for an agent. See `host/address.ts`. Through a ref for `filterRef`'s reason.
+   */
+  const handAddressRef = useRef<(asker: Asker, url: string, title: string | undefined, intent: 'show' | undefined, kehikko?: number) => ReturnType<CanvasControls['openAddress']>>(
+    () => ({ outcome: 'declined', why: 'This host is not ready to show an address yet.' }),
+  )
+  handAddressRef.current = (asker, url, title, intent, kehikko) => {
+    if (openId === null || !open) return { outcome: 'declined', why: 'No kehikko is open, so there is nowhere to show an address.' }
+    if (kehikko !== undefined && kehikko !== openId) {
+      return { outcome: 'declined', why: `This page does not have kehikko ${kehikko} open any more, so nothing was opened.` }
+    }
+    if ('by' in asker && !open.placements.some((p) => p.i === asker.by)) {
+      return { outcome: 'declined', why: `${asker.by} is not on the kehikko that is open, so it is not showing anything anybody can see.` }
+    }
+    const out = handed(addressesRef.current, {
+      kehikko: openId,
+      url,
+      ...(title === undefined ? {} : { title }),
+      ...(intent === undefined ? {} : { intent }),
+      asker,
+      at: new Date().toISOString(),
+      readers: readersOn(open.placements.map((p) => p.i), reactsOf),
+    })
+    if (out.next !== addressesRef.current) {
+      addressesRef.current = out.next
+      setAddresses(out.next)
+    }
+    if (out.offer) setOffer(out.offer)
+    return out.answer
+  }
+
   const filterRef = useRef<(from: string, choice: FilterChoice) => Filtered>(() => ({
     ok: false,
     error: 'this host is not ready to hold a filter yet',
@@ -1910,6 +1977,8 @@ export function App() {
       point: (from, next) => setSaidRef.current((was) => pointed(was, from, next)),
       /* Through a ref: the open kehikko and the selection are this render's. */
       locate: (from, next, intent) => locateRef.current(from, next, intent),
+      /* `from` out of the registration, and the address's `by`. Through a ref: the open kehikko is this render's. */
+      openAddress: (from, url, title, intent) => handAddressRef.current({ by: from }, url, title, intent),
       /* `from` arrives already decided — `makeAsk` supplies it out of the
          registration the conversation was built on, and nothing the frame said
          can reach it. This end only adds where the canvas is. */
@@ -3008,6 +3077,19 @@ export function App() {
   }
 
 
+  /**
+   * An agent's `open_address`, made by this page: into a container that shows
+   * pages on the kehikko, and nowhere else — never an offer, never the person's
+   * browser (`handed` with an agent asker). Answered like a press.
+   */
+  const addressesMade = useRef<string[]>([])
+  addressedRef.current = (order) => {
+    if (addressesMade.current.includes(order.id)) return
+    addressesMade.current = [...addressesMade.current.slice(-31), order.id]
+    const out = handAddressRef.current({ agent: true }, order.url, order.title, undefined, order.kehikko)
+    void answerPress(order.id, out.outcome === 'shown' ? { ok: true, why: '' } : { ok: false, why: out.why })
+  }
+
   /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
   const pinViews = useMemo(() => {
     const map = new Map<string, PinView>()
@@ -3423,8 +3505,9 @@ export function App() {
       openId,
       Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
       codeAt ? (JSON.parse(codeAt) as SharedLocation) : null,
+      addressAt ? (JSON.parse(addressAt) as SharedAddress) : null,
     )
-  }, [openId, declaredHere, codeAt])
+  }, [openId, declaredHere, codeAt, addressAt])
   useEffect(() => postDeclared(), [postDeclared])
   repostRef.current = postDeclared
 
@@ -4129,6 +4212,28 @@ export function App() {
           </>
         )}
       </main>
+
+      {/* A module asked to show a page and nothing here shows pages: the person
+          chooses. Nothing is opened before a press. See `AddressOffer.tsx`. */}
+      <AddressOffer
+        offer={offer !== null && offer.kehikko === openId ? offer : null}
+        askerName={registry?.presences.find((one) => one.id === offer?.by)?.name ?? offer?.by ?? ''}
+        addable={(registry?.presences ?? [])
+          .filter((one) => reactsOf(one.id)?.includes(SHOWS_PAGES) && !(open?.placements ?? []).some((p) => p.i === one.id))
+          .map((one) => ({ id: one.id, name: one.name ?? one.id }))}
+        onOpenOutside={(given) => {
+          openExternal(given.url)
+          setOffer(null)
+        }}
+        onAdd={(given, module) => {
+          onPlace(module)
+          const next = accepted(addressesRef.current, given, new Date().toISOString())
+          addressesRef.current = next
+          setAddresses(next)
+          setOffer(null)
+        }}
+        onDismiss={() => setOffer(null)}
+      />
 
       {/* "Locate…", for a project whose folder is gone. See `Locate.tsx`. */}
       <Locate

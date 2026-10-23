@@ -23,6 +23,7 @@ function canvasThatIsAsked(answer: Picked, seen: string[] = []): CanvasControls 
     select: () => {},
     point: () => {},
     locate: () => ({ outcome: 'declined' as const, why: '' }),
+    openAddress: () => ({ outcome: 'declined' as const, why: '' }),
     show: () => {},
     emit: () => ({ ok: true, delivered: 0 }),
     project: () => null,

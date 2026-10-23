@@ -114,6 +114,9 @@ export type News =
   /* The seventh kind, and the first that is not news: an ORDER, for one page.
      See `PressOrder`. */
   | { press: PressOrder }
+  /* The ninth kind, an order like `press`: an agent's `open_address`, for the
+     one page that has the kehikko open. See `AddressOrder`. */
+  | { address: AddressOrder }
   /* The eighth kind: the list of projects is not what a page last read — a
      project was found again where its folder went ("Locate…", or adding the
      moved folder). Carries nothing; the page re-reads `/host/projects`. */
@@ -153,6 +156,21 @@ export interface PressOrder {
   module: string
   item: string
   value?: string | boolean
+}
+
+/**
+ * A web address an agent asked to have shown (protocol 2.16.0), handed to the
+ * page that has the kehikko open: `context.address` lives in that page, and
+ * only it knows which of its containers show pages. Addressed and answered
+ * like `PressOrder`, through `/host/pressed`. The page takes it only into a
+ * container that shows pages, never out into the person's browser.
+ */
+export interface AddressOrder {
+  id: string
+  page: string
+  kehikko: number
+  url: string
+  title?: string
 }
 
 /**
@@ -214,11 +232,20 @@ export class Wakes {
    * not even that a press happened.
    */
   press(order: PressOrder): boolean {
+    return this.#order(order.page, { press: order })
+  }
+
+  /** Hand one page an address an agent asked to have shown. The rule `press` keeps: that page's streams only. */
+  address(order: AddressOrder): boolean {
+    return this.#order(order.page, { address: order })
+  }
+
+  #order(to: string, news: News): boolean {
     let told = false
     for (const [listener, page] of [...this.#pages]) {
-      if (page !== order.page) continue
+      if (page !== to) continue
       try {
-        listener({ press: order })
+        listener(news)
         told = true
       } catch {
         /* A closed stream; see `#tell`. */

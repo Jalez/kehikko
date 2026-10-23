@@ -125,6 +125,7 @@ describe('view.goto with parts and kehikko', () => {
       select() {},
       point() {},
       locate: () => ({ outcome: 'declined', why: '' }),
+      openAddress: () => ({ outcome: 'declined', why: '' }),
       show() {},
       emit: () => ({ ok: true, delivered: 0 }),
       filter: () => ({ ok: true, filters: {} }),

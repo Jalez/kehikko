@@ -150,6 +150,7 @@ describe('the method', () => {
       select: () => {},
       point: () => {},
       locate: (...args) => (calls.push(args), answer),
+      openAddress: () => ({ outcome: 'declined' as const, why: '' }),
       show: () => {},
       emit: () => ({ ok: true, delivered: 0 }),
       project: () => null,

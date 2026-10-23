@@ -43,6 +43,7 @@ describe('what the canvas does when a container says what it shows', () => {
       select: () => {},
       point: () => {},
       locate: () => ({ outcome: 'declined' as const, why: '' }),
+      openAddress: () => ({ outcome: 'declined' as const, why: '' }),
       show: (from, showing) => shown.push({ from, showing }),
       emit: () => ({ ok: true, delivered: 0 }),
       project: () => null,

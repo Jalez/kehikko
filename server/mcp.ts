@@ -2,7 +2,7 @@ import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, HEADER_MENUS, LIMITS, methodParams, PACKAGE_VERSION, type HeaderItem, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, methodParams, PACKAGE_VERSION, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -24,6 +24,7 @@ import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
 import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, pinnedOf, type Pressed, type Pressing } from '../src/host/header.ts'
 import { locationWords } from '../src/host/location.ts'
+import { addressWords } from '../src/host/address.ts'
 import { releaseForAgents } from '../src/host/moduleReleases.ts'
 
 /**
@@ -252,6 +253,18 @@ export interface Door {
      * `undefined` when no listening page has it open.
      */
     location?(kehikko: number): SharedLocation | null | undefined
+    /**
+     * The last web address handed to a kehikko (protocol 2.16.0), as the page
+     * that has it open last said: `null` for none, `undefined` when no
+     * listening page has it open.
+     */
+    address?(kehikko: number): SharedAddress | null | undefined
+    /**
+     * An agent's `open_address`, made by the page that has the kehikko open —
+     * into a container that shows pages, and nowhere else. `null` when no
+     * listening page has it open.
+     */
+    openAddress?(kehikko: number, url: string, title?: string): Promise<Pressed | null>
   }
   /**
    * The Inbox: what the modules said they are doing, and what happened while
@@ -314,6 +327,7 @@ export const TOOL_NAMES = [
   'pin_version',
   'fold_modules',
   'press_item',
+  'open_address',
   'read_inbox',
   'my_place',
   'set_my_place',
@@ -482,6 +496,8 @@ function canvasText(
    * kehikko open, or the caller is not listing it.
    */
   location?: SharedLocation | null,
+  /** The last web address handed to this kehikko, as the page says, or `undefined` to leave it out. */
+  address?: SharedAddress | null,
 ): string {
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const known = new Map(seen.map((sighting) => [sighting.id, sighting]))
@@ -553,6 +569,7 @@ function canvasText(
       : 'refs picked out in this project: none.',
   )
   if (location !== undefined) lines.push(locationWords(location))
+  if (address !== undefined) lines.push(addressWords(address))
   lines.push('')
 
   if (!canvas.placements.length) {
@@ -929,6 +946,42 @@ function tools() {
           },
         },
         required: ['module', 'item'],
+      },
+    },
+    {
+      name: 'open_address',
+      description:
+        'Show a web page in the module on this kehikko that shows pages (the Browser): a design document, a deployed '
+        + 'preview, a dashboard, a pipeline log — anything that is not an issue or a merge request, which are opened '
+        + 'by picking them. The address is https:, or http: to this machine (localhost, 127.0.0.1, [::1]); never '
+        + 'another scheme, and never one with a user name or password in it. It is opened ONLY inside the canvas: '
+        + 'with no module that shows pages on the kehikko it is refused, and nothing is opened in the person’s own '
+        + 'browser — place the Browser with place_modules first, or give the person the address. The page that has '
+        + 'the kehikko open does it, so one nobody has open is refused. The person sees it arrive, and read_canvas '
+        + 'says the last address. Nothing about the arrangement changes.',
+      annotations: {
+        title: 'Show a web page on the canvas',
+        readOnlyHint: false,
+        destructiveHint: false,
+        /* The same address twice is two requests to open it. */
+        idempotentHint: false,
+        /* The Browser loads the page from wherever it is. */
+        openWorldHint: true,
+      },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          url: {
+            type: 'string',
+            description: 'The address, e.g. "https://example.com/design" or "http://localhost:5173/".',
+          },
+          title: {
+            type: 'string',
+            description: 'What to call the page, when you know, e.g. "Design document". Optional.',
+          },
+        },
+        required: ['url'],
       },
     },
     {
@@ -1392,6 +1445,7 @@ export async function call(
         door.inbox && canvas.project !== null ? earlierLines(door.inbox, door.db, canvas.project, 5, Date.now()) : undefined,
         placed,
         door.headers?.location?.(canvas.id),
+        door.headers?.address?.(canvas.id),
       ),
       failed: false,
     }
@@ -1409,6 +1463,7 @@ export async function call(
     return { text: readInboxText(door.inbox, door.db, canvas, where.how, { scope, earlier: asked }), failed: false }
   }
   if (name === 'press_item') return pressOn(canvas, where.how, args, door)
+  if (name === 'open_address') return openAddressOn(canvas, where.how, args, door)
   if (name === 'create_epic') return createEpicAt(canvas, args, door)
   if (name === 'set_parts') return setPartsAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
@@ -1733,6 +1788,47 @@ async function foldOn(
       + ' in the state asked for is left as it is, so asking again changes nothing.'
       + '\n\n'
       + canvasText(door.db, written, how, await door.seen()),
+    failed: false,
+  }
+}
+
+/**
+ * `open_address`: a web page shown in the module on the kehikko that shows
+ * pages, through the page that has the kehikko open (protocol 2.16.0).
+ *
+ * Held tighter than a module's `address.open`: an agent's address goes only
+ * into a container that shows pages. With none the page refuses it and offers
+ * the person nothing, so no agent can open a page outside the canvas or put a
+ * question in front of the person by itself. See `src/host/address.ts`.
+ */
+async function openAddressOn(
+  canvas: Canvas,
+  how: string,
+  args: Record<string, unknown>,
+  door: Door,
+): Promise<{ text: string; failed: boolean }> {
+  const refuse = (text: string) => ({ text: `${text} Nothing was opened.`, failed: true })
+  if (typeof args.url !== 'string') return refuse('open_address needs url: an https: address, or http: to this machine.')
+  const refusal = addressRefusal(args.url)
+  if (refusal !== null) return refuse(refusal)
+  let title: string | undefined
+  if (args.title !== undefined) {
+    if (typeof args.title !== 'string' || !args.title.trim() || args.title.length > LIMITS.TITLE) {
+      return refuse(`title, when given, is the page's name in at most ${LIMITS.TITLE} characters.`)
+    }
+    title = args.title.trim()
+  }
+  if (!door.headers?.openAddress) return refuse('This host does not show web addresses.')
+  const came = await door.headers.openAddress(canvas.id, args.url, title)
+  if (!came) {
+    return refuse(
+      `kehikko ${canvas.id} (${canvas.name}) is not open on a page of this host that is listening, and an address is `
+        + 'shown by the page that has the kehikko open. Ask the person to open it, or try again in a moment.',
+    )
+  }
+  if (!came.ok) return { text: `Not opened: ${came.why}`, failed: true }
+  return {
+    text: `Showed ${args.url} on kehikko ${canvas.id} (${canvas.name}), ${how}: ${came.why || 'the module that shows pages has it.'}`,
     failed: false,
   }
 }
@@ -2381,7 +2477,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'remove — the parts are the epic’s, and every module narrows to the ones a person picks), marks why a '
         + 'closed ref closed, folds a container to its header or '
         + 'unfolds it on a kehikko a page has open, and presses an item of a module’s header — a view switch, a '
-        + 'toggle, a jump, a run — when the module has marked that item for agents. It can ADD, FOLD and PRESS; it '
+        + 'toggle, a jump, a run — when the module has marked that item for agents, and shows a web page in the '
+        + 'module on the kehikko that shows pages (open_address; never outside the canvas). It can ADD, FOLD and PRESS; it '
         + 'cannot remove, move, resize or reorder a container, switch the kehikko, or change which epic is open — '
         + 'the arrangement belongs to the person looking at it. What this door adds is what they can see arrive and '
         + 'take off with one press, what it folds or unfolds is marked on the container as an agent’s doing and put '

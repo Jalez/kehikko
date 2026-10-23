@@ -103,6 +103,7 @@ describe('the door says what it is and what it offers', () => {
       'module_settings',
       'module_versions',
       'my_place',
+      'open_address',
       'pin_version',
       'place_modules',
       'press_item',

@@ -140,6 +140,7 @@ describe('switching between two kehikot in one project', () => {
       select: () => {},
       point: (from, passage) => { said = pointed(said, from, passage) },
       locate: () => ({ outcome: 'declined' as const, why: '' }),
+      openAddress: () => ({ outcome: 'declined' as const, why: '' }),
       show: (from, showing) => { said = shown(said, from, showing) },
       emit: () => ({ ok: true, delivered: 0 }),
       project: () => 1,
