@@ -406,25 +406,6 @@ export function redrawn<T extends Wished>(placements: readonly T[]): T[] {
 }
 
 /**
- * What the grid will draw, worked out before it draws: every container at the
- * height its wish is granted (`redrawn`), at the top edge vertical compaction
- * will give it (`laid`).
- *
- * Handed to the grid as its layout, so a kehikko is DRAWN where it settles
- * rather than settling after it is drawn: the grid's own compaction and the
- * page's `onLayoutChange` then find nothing to change, and nothing moves on
- * the frames after the first. See `host/switching.ts` for what moved before.
- * The heights come from the wishes STORED with each container, not from what
- * its module will say once it is greeted — the module may still ask to grow,
- * which is the module's to ask, but the kehikko does not wait for it.
- *
- * A placement already so is returned as the same object.
- */
-export function arranged<T extends Wished>(placements: readonly T[]): T[] {
-  return laid(redrawn(placements))
-}
-
-/**
  * Containers folded to their headers and unfolded: the states set, and every
  * height redrawn.
  *

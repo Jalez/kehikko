@@ -86,7 +86,6 @@ export function Bar({
   projects,
   project,
   held,
-  heldBefore = null,
   onRetitleEpic,
   onCreateEpic,
   onDeleteEpic,
@@ -129,8 +128,6 @@ export function Bar({
   project: Project | null
   /** What this project holds, or null while it is still being read. */
   held: HeldEpics | null
-  /** What this project held when it was last read, while it is read again: for the epic control's label. */
-  heldBefore?: HeldEpics | null
   /**
    * Change what one of this project's epics is called. Never its slug — see
    * `Epics.tsx` on why those are two different operations and only one is here.
@@ -254,7 +251,6 @@ export function Bar({
           epic={subject.epic}
           allEpics={subject.scope === 'project'}
           held={held}
-          heldBefore={heldBefore}
           hasProject={project !== null}
           /* Any epic, or none, is one epic's scope; "All epics" is the project's. */
           onPick={(epic) => onSubject({ ...subject, epic, scope: 'epic' })}
