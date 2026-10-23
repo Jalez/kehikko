@@ -106,10 +106,21 @@ export interface SubjectEdit {
 export function edited(was: ProjectSubject, edit: SubjectEdit): ProjectSubject {
   const scope = scopeAfter(was, edit)
   const epic = scope === 'project' ? null : edit.epic !== undefined ? edit.epic : was.epic
-  const moved = epic !== was.epic || scope !== (was.scope ?? 'epic')
+  const moved = movesEpic(was, edit)
   const selection = edit.selection !== undefined ? [...edit.selection] : moved ? [] : was.selection
   const parts = epic === null ? [] : edit.parts !== undefined ? [...edit.parts] : moved ? [] : was.parts
   return scope === 'project' ? { epic, scope, parts, selection } : { epic, parts, selection }
+}
+
+/**
+ * Whether an edit moves a project to a different epic, or between one epic
+ * and "All epics": what clears the selection, and what every module redraws
+ * for. Picking parts within the same epic does neither.
+ */
+export function movesEpic(was: Pick<ProjectSubject, 'epic' | 'scope'>, edit: SubjectEdit): boolean {
+  const scope = scopeAfter(was, edit)
+  const epic = scope === 'project' ? null : edit.epic !== undefined ? edit.epic : was.epic
+  return epic !== was.epic || scope !== (was.scope ?? 'epic')
 }
 
 /**

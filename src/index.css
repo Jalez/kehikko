@@ -177,27 +177,45 @@
 }
 
 /*
- * No animation while the grid is still working out how wide it is.
+ * And every layer over the pages that is not the grid: the wrapper the
+ * incoming kehikko is drawn in (`data-switch`) and the still copy of the one
+ * being left (`data-outgoing`). The wrapper is transparent to the pointer
+ * itself (`App.tsx` says why that line matters); these say the rest.
  *
- * `WidthProvider` renders once at a hardcoded 1280 pixels, measures, and
- * renders again at the real width. On any canvas that is not exactly 1280 wide
- * that means every container is first placed wrongly and then corrected — and
- * `react-grid-layout` transitions `transform`, so the correction is animated.
- * The result is that on every single load the containers visibly slide from
- * somewhere they never were into place, which reads as the arrangement being
- * rebuilt in front of you rather than restored.
- *
- * The library's own answer is `measureBeforeMount`, and it is a trap: with it
- * on the measurement never arrives at all and the grid stays at 1280 forever,
- * putting column six four pixels from the left edge. See the essay on
- * `MEASURE_FIRST` in `App.tsx`.
- *
- * So the correction still happens — it has to — and it simply is not animated.
- * The host adds this class for the first moments of a load and of a switch
- * between kehikot, and takes it off once things have settled. A jump nobody
- * sees, instead of a slide everybody does.
+ * The still copy is a clone of the grid, so it carries the headers'
+ * `pointer-events: auto` with it. It is `inert`, and a browser that hit-tests
+ * an inert subtree as `pointer-events: none` needs nothing more — but that is
+ * a browser's reading of the spec, and the copy sits over every page while a
+ * switch is prepared. Nothing in it is ever a target, by rule rather than by
+ * attribute. The same for an incoming kehikko that is not shown yet.
  */
-.react-grid-layout.settling .react-grid-item {
+[data-outgoing],
+[data-outgoing] *,
+[data-switch][inert] * {
+  pointer-events: none !important;
+}
+
+/*
+ * The grid animates only what a person did to it.
+ *
+ * `react-grid-layout` transitions every placement change — `transform`,
+ * `width` and `height`, over 200 ms — and most of what changes a grid is not a
+ * person's hand: a switch of kehikko or project, a load, a module asking to
+ * grow, a window resized. Animated, each of those is the arrangement visibly
+ * rebuilt in front of somebody, and the worst of them was built into the
+ * library: a new grid places its items with `top`/`left` and then, once
+ * mounted, with `transform`, so every container of every kehikko switched to
+ * slid in from the top left corner. That was hidden for a fixed 250 ms after a
+ * switch (`.settling`, which this replaces), and whatever came after — a
+ * module's height arriving — still slid.
+ *
+ * So the default is no transition, and the host adds `in-motion` for exactly
+ * the changes that should glide: a drag or a resize while the hand is on it,
+ * the container let go of settling into place, and a fold or unfold. See
+ * `gliding` in `App.tsx`, and `host/switching.ts` for the measurements.
+ */
+.react-grid-layout:not(.in-motion),
+.react-grid-layout:not(.in-motion) .react-grid-item {
   transition: none;
 }
 
