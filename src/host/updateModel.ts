@@ -1,4 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
+import { fromSourceSaid, preparingSaid, type BuildTold } from './moduleBuilds.ts'
 import { releaseSaid, releaseVersion, type ModuleRelease } from './moduleReleases.ts'
 import { hasUpdate, isCheckout, runsReleases, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
 
@@ -52,7 +53,7 @@ export interface UpdateRow {
   /** For a module that is behind: how many commits. */
   behind: number
   /** What `updating` is doing, for the words. */
-  activity: 'downloading' | 'installing' | 'updating' | 'applying' | 'restarting' | null
+  activity: 'downloading' | 'installing' | 'updating' | 'applying' | 'preparing' | 'restarting' | null
   /** A failed module can be started again from its row. */
   retry?: boolean
   /** What that button says, when "Try again" is not it: nothing was tried on a module that is only running old code. */
@@ -61,6 +62,8 @@ export interface UpdateRow {
   anyway?: boolean
   /** An installed module's releases: which it runs, and the one an update moves it to. See `moduleReleases.ts`. */
   release?: ModuleRelease
+  /** Its build did not finish, so it runs from source: the line that says so (`fromSourceSaid`). */
+  fromSource?: string
 }
 
 /** What the server says about one module beyond its checkout. See `Check.progress` and `Check.stale`. */
@@ -71,6 +74,8 @@ export interface Told {
   older?: string
   /** It is running, and its registration says to keep it. */
   kept?: boolean
+  /** Its copy is being built, or its build did not finish (`moduleBuilds.ts`). */
+  build?: BuildTold
 }
 
 export const APP_ROW_ID = 'app'
@@ -149,8 +154,10 @@ export function moduleRow(
   }
   /* This page's own press first, then what the server says is still running —
      which is all a page that reloaded mid-update has. */
-  const phase = running ?? told.phase ?? null
+  const phase = running ?? told.phase ?? (told.build?.state === 'preparing' ? 'preparing' : null)
   if (phase) return { ...row, state: 'updating', activity: phase }
+  /* Not a failure of anything a person did: it works, from source. Said beside whatever else is true. */
+  if (told.build?.state === 'failed') row.fromSource = fromSourceSaid(reading.name)
   if (outcome?.kind === 'failed') {
     return { ...row, state: 'failed', reason: outcome.why, retry: outcome.retry === true, ...(outcome.retry === true && outcome.kept === true ? { anyway: true } : {}) }
   }
@@ -276,7 +283,10 @@ export function indicator(rows: readonly UpdateRow[]): Indicator | null {
     return { label: `Downloading ${what}${percent}`, tone: 'busy' }
   }
   const moving = rows.find((one) => one.source === 'module' && one.state === 'updating')
-  if (moving) return { label: `${moving.activity === 'restarting' ? 'Restarting' : 'Updating'} ${moving.name}`, tone: 'busy' }
+  if (moving) {
+    if (moving.activity === 'preparing') return { label: preparingSaid(moving.name), tone: 'busy' }
+    return { label: `${moving.activity === 'restarting' ? 'Restarting' : 'Updating'} ${moving.name}`, tone: 'busy' }
+  }
   if (app?.state === 'ready') return { label: RESTART_TO_UPDATE, tone: 'action' }
   if (rows.some((one) => one.state === 'reopen')) return { label: RESTART_THE_HOST, tone: 'action' }
   const available = rows.filter((one) => one.state === 'available').length
@@ -309,6 +319,7 @@ export function stateText(row: UpdateRow): string {
         return `Downloading ${row.version ?? 'the update'}${row.progress === null ? '…' : ` · ${Math.round(row.progress * 100)}%`}`
       }
       if (row.activity === 'restarting') return 'Restarting…'
+      if (row.activity === 'preparing') return preparingSaid(row.name)
       return 'Updating…'
     case 'ready':
       return `${kehikot(row.version)} is ready — restart to update`

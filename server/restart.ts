@@ -51,7 +51,11 @@ function inPageDirs(file: string): boolean {
  * `serverFiles` is `serverGraph` of the checkout as it is AFTER the update,
  * relative paths. Pure, so the rule is tested without a repository.
  */
-export function restartDecision(changed: readonly string[], serverFiles: ReadonlySet<string>): RestartDecision {
+export function restartDecision(changed: readonly string[], serverFiles: ReadonlySet<string>, ready = false): RestartDecision {
+  /* A module served ready-built (`moduleBuilds.ts`) has no page that reloads
+     itself: its page is the build, made again after the update and served by
+     a process that started at the old commit. Every change is a restart. */
+  if (ready) return { restart: changed.length > 0, because: changed.slice(0, 3) }
   const because = changed.filter((file) => !inPageDirs(file) || serverFiles.has(file))
   return { restart: because.length > 0, because: because.slice(0, 3) }
 }
@@ -138,10 +142,10 @@ export type UpdatePreview = 'page' | 'restart' | 'self' | 'kept'
 export function previewUpdate(
   changed: readonly string[],
   serverFiles: ReadonlySet<string>,
-  module: { running: boolean; keep: boolean },
+  module: { running: boolean; keep: boolean; ready?: boolean },
 ): UpdatePreview | null {
   if (!module.running) return null
-  if (!restartDecision(changed, serverFiles).restart) return 'page'
+  if (!restartDecision(changed, serverFiles, module.ready === true).restart) return 'page'
   if (!module.keep) return 'restart'
   return changed.some((file) => serverFiles.has(file)) ? 'self' : 'kept'
 }

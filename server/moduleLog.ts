@@ -36,10 +36,19 @@ export function logFile(id: string, dir: string = logsDir()): string {
   return join(dir, 'modules', `${id.replace(/[^A-Za-z0-9._@-]/g, '_')}.log`)
 }
 
-/** Make the file ready for a start: its directory, its bound, and this run's header. */
-export function openRun(file: string, now: Date = new Date()): void {
+/**
+ * Make the file ready to be appended to: its directory and its bound. A build
+ * (`moduleBuilds.ts`) writes its own header, which is not a run's: the output
+ * of a build is never read as what the module printed when it started.
+ */
+export function readyLog(file: string): void {
   mkdirSync(dirname(file), { recursive: true })
   trim(file)
+}
+
+/** Make the file ready for a start: its directory, its bound, and this run's header. */
+export function openRun(file: string, now: Date = new Date()): void {
+  readyLog(file)
   appendFileSync(file, `${RUN_MARK}${now.toISOString()} ---\n`)
 }
 

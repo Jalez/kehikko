@@ -530,6 +530,8 @@ export function Updates({
   for (const [id, reached] of Object.entries(check?.progress ?? {})) if (id !== current) told[id] = { phase: reached }
   for (const [id, why] of Object.entries(check?.stale ?? {})) told[id] = { ...told[id], stale: why }
   for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
+  /* An installed copy being built, or whose build did not finish (`moduleBuilds.ts`). */
+  for (const [id, build] of Object.entries(check?.builds ?? {})) if (id !== current) told[id] = { ...told[id], build }
   /* Only on a module something is already said about: being kept is not news. */
   for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
   const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
@@ -549,7 +551,7 @@ export function Updates({
     : phase.kind === 'checking'
       ? 'Asking GitHub what is new for the host and each module…'
       : updating
-        ? `${updating.reached === 'restarting' ? 'Restarting' : 'Updating'} ${nameOf(checkouts, current ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
+        ? `${updating.reached === 'restarting' ? 'Restarting' : updating.reached === 'preparing' ? 'Preparing' : 'Updating'} ${nameOf(checkouts, current ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
         : summaryOf(check, lastFailed, count)
 
   return (
@@ -920,6 +922,12 @@ function Row({
         </p>
       ) : null}
       {release && needsNewerSaid(release, have) ? <p className="text-muted-foreground pt-1">{needsNewerSaid(release, have)}</p> : null}
+      {row.fromSource ? (
+        /* Plain, and not an error: the module works. The log is in its details in the modules list. */
+        <p className="text-muted-foreground pt-1" data-testid="updates-from-source">
+          {row.fromSource}
+        </p>
+      ) : null}
       {row.state === 'pinned' ? (
         <p className="pt-1 text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
           {row.reason}

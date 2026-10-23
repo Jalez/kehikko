@@ -15,8 +15,9 @@ import type { Runner } from './versions.ts'
  * Two lists feed it, and both go through the one path below (`begin`): the
  * official list, and the person's own "My modules" (`myModules.ts`). An entry
  * from either is cloned, put on its newest release (or left on `main` when it
- * has none yet), installed, registered, moved to a newer release before it
- * starts (`moduleReleases.ts`) and removed the same way; the only differences are where
+ * has none yet), installed, built when it can be (`moduleBuilds.ts`),
+ * registered, moved to a newer release before it starts (`moduleReleases.ts`)
+ * and removed the same way; the only differences are where
  * its repository may be (a personal one may be on a GitLab) and the port it is
  * first given (a personal one never takes a port the official list names).
  *
@@ -60,7 +61,7 @@ import type { Runner } from './versions.ts'
  * A failure is kept, as a sentence, until the next press tries again.
  */
 
-export type Step = 'cloning' | 'installing' | 'registering'
+export type Step = 'cloning' | 'installing' | 'preparing' | 'registering'
 
 export type Installing = { state: 'installing'; step: Step } | { state: 'failed'; why: string }
 
@@ -107,6 +108,12 @@ export interface Deps {
    * installed (`moduleReleases.ts`). Without it the clone stays on `main`.
    */
   releases?: Pick<ReleaseFollower, 'settle'>
+  /**
+   * Builds the copy once its dependencies are installed, before it is
+   * registered (`moduleBuilds.ts`). Never fatal: a build that does not finish
+   * leaves the module to run from source. Without it nothing is built.
+   */
+  build?(copy: { id: string; name: string; dir: string }): Promise<unknown>
 }
 
 const CLONE_TIMEOUT_MS = 5 * 60_000
@@ -254,6 +261,14 @@ export function installDesk(deps: Deps) {
     if (!installed.ok) {
       const old = stale ? ` — and the clone, left by an earlier attempt, could not be brought up to date first: ${stale}` : ''
       throw new Error(`${entry.name} was cloned, and its dependencies could not be installed: ${installed.why}${old}`)
+    }
+
+    /* Built here, at its release, before anything can start it: its run.sh
+       then serves the build. A build that does not finish is not an install
+       that failed — the module runs from source, and the host's log says why. */
+    if (deps.build) {
+      step('preparing')
+      await deps.build({ id: entry.id, name: entry.name, dir }).catch(() => null)
     }
 
     step('registering')

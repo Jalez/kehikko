@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { appEngine } from '@/host/appUpdate.ts'
 import type { Canvas } from '@/host/canvases.ts'
+import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
@@ -532,7 +533,7 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
  * somebody's own checkout, which runs its branch.
  */
 function ReleaseDetails({ id }: { id: string }) {
-  const [read, setRead] = useState<{ release: ModuleRelease | null; protocol: string | null; app: string | null } | null>(null)
+  const [read, setRead] = useState<{ release: ModuleRelease | null; protocol: string | null; build: BuildDetails | null; app: string | null } | null>(null)
   useEffect(() => {
     const abort = new AbortController()
     void (async () => {
@@ -549,15 +550,17 @@ function ReleaseDetails({ id }: { id: string }) {
     return () => abort.abort()
   }, [id])
   const release = read?.release
-  if (!release) return null
+  const build = read?.build ? <BuildLine build={read.build} /> : null
+  if (!release) return build
   const rows = [
     release.installed ? { label: 'release', tag: release.installed } : null,
     release.newest && release.newest !== release.installed ? { label: 'newest', tag: release.newest } : null,
   ].filter((one): one is { label: string; tag: string } => one !== null)
   const newer = needsNewerSaid(release, { app: read.app, protocol: read.protocol })
-  if (!rows.length && !newer) return null
+  if (!rows.length && !newer) return build
   return (
     <div data-testid="module-release-details">
+      {build}
       {rows.length ? (
         <dl className="mt-0.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
           {rows.map((one) => (
@@ -572,6 +575,45 @@ function ReleaseDetails({ id }: { id: string }) {
         </dl>
       ) : null}
       {newer ? <p className="mt-1 leading-relaxed">{newer}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * How the module runs: "Ready-built" (its copy was built here at its release,
+ * and its run.sh serves the build) or "Running from source". When the build
+ * did not finish, why, and the build's own output — the last of it here and
+ * the whole in the module's log, whose path is shown. All of it as text.
+ */
+function BuildLine({ build }: { build: BuildDetails }) {
+  const [log, setLog] = useState(false)
+  return (
+    <div className="mt-0.5" data-testid="module-build-details">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+        <dt>runs</dt>
+        <dd className="break-words" data-testid="module-runs-as">
+          {build.preparing ? 'Being built…' : runsAsSaid(build)}
+          {!build.preparing && !build.ready && build.failed ? (
+            <>
+              {' — its build didn\'t finish. '}
+              <button type="button" className="hover:text-foreground underline" aria-expanded={log} onClick={() => setLog((was) => !was)}>
+                {log ? 'Hide the log' : 'See the log'}
+              </button>
+            </>
+          ) : null}
+        </dd>
+      </dl>
+      {log && build.failed ? (
+        <div data-testid="module-build-log">
+          <p className="mt-1 leading-relaxed break-words">{build.failed.why}</p>
+          {build.failed.lines.length ? (
+            <pre className="bg-muted mt-1 max-h-40 overflow-auto rounded px-2 py-1 font-mono text-[10px] leading-snug whitespace-pre-wrap">
+              {build.failed.lines.join('\n')}
+            </pre>
+          ) : null}
+          <p className="mt-1 font-mono break-all">{build.failed.log}</p>
+        </div>
+      ) : null}
     </div>
   )
 }
