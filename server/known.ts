@@ -61,6 +61,10 @@ export function ensureKnown(db: Database): void {
   if (!has.has('tags')) db.exec("alter table known_modules add column tags text not null default '[]'")
   /* The icon a module declared (protocol 2.14.0): what it IS, like its name. */
   if (!has.has('icon')) db.exec('alter table known_modules add column icon text')
+  /* What its manifest said it reacts to, null for never seen. Kept for one reason: a module that shows
+     pages (`reacts: ['address']`) and is still starting is where an address waits, not a reason to
+     tell the person that nothing shows pages. It is what the module IS, as the name is. */
+  if (!has.has('reacts')) db.exec('alter table known_modules add column reacts text')
   db.exec(`
     create table if not exists known_doors (
       id        text primary key,
@@ -80,6 +84,8 @@ export interface Known {
   tags: string[]
   /** The icon key its manifest declared, or null for none. */
   icon: string | null
+  /** The context kinds its manifest said it reacts to, or null when it was never seen answering. */
+  reacts: string[] | null
 }
 
 /**
@@ -93,24 +99,30 @@ export function remember(
   db: Database,
   id: string,
   name: string,
-  about: { summary?: string; tags?: readonly string[]; icon?: string | null } = {},
+  about: { summary?: string; tags?: readonly string[]; icon?: string | null; reacts?: readonly string[] } = {},
   now = Date.now(),
 ): void {
   if (!id || !name) return
   db.query(
-    `insert into known_modules (id, name, summary, tags, icon, seen) values (?, ?, ?, ?, ?, ?)
-     on conflict(id) do update set name = excluded.name, summary = excluded.summary, tags = excluded.tags, icon = excluded.icon, seen = excluded.seen`,
-  ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), about.icon ?? null, now)
+    `insert into known_modules (id, name, summary, tags, icon, reacts, seen) values (?, ?, ?, ?, ?, ?, ?)
+     on conflict(id) do update set name = excluded.name, summary = excluded.summary, tags = excluded.tags, icon = excluded.icon,
+       reacts = coalesce(excluded.reacts, known_modules.reacts), seen = excluded.seen`,
+  ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), about.icon ?? null, about.reacts ? JSON.stringify(about.reacts) : null, now)
 }
 
 /** Everything the host has been told, by module id. */
 export function known(db: Database): Map<string, Known> {
   const rows = db
-    .query<{ id: string; name: string; summary: string; tags: string; icon: string | null }, []>(
-      'select id, name, summary, tags, icon from known_modules',
+    .query<{ id: string; name: string; summary: string; tags: string; icon: string | null; reacts: string | null }, []>(
+      'select id, name, summary, tags, icon, reacts from known_modules',
     )
     .all()
-  return new Map(rows.map((row) => [row.id, { name: row.name, summary: row.summary, tags: tagsIn(row.tags), icon: row.icon ?? null }]))
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      { name: row.name, summary: row.summary, tags: tagsIn(row.tags), icon: row.icon ?? null, reacts: row.reacts === null ? null : tagsIn(row.reacts) },
+    ]),
+  )
 }
 
 function tagsIn(text: string): string[] {

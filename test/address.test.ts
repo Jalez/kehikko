@@ -19,6 +19,7 @@ import {
   addressWords,
   freshAt,
   handed,
+  noteReacts,
   offerWords,
   opensOutside,
   readersOn,
@@ -151,6 +152,38 @@ describe('readers', () => {
     const reacts: Record<string, string[]> = { 'kehikot.browser': ['selection', 'address'], 'kehikot.notes': ['parts'] }
     expect(readersOn(['kehikot.notes', 'kehikot.browser', 'kehikot.unknown'], (id) => reacts[id])).toEqual(['kehikot.browser'])
     expect(readersOn(['kehikot.notes'], (id) => reacts[id])).toEqual([])
+  })
+})
+
+describe('a Browser that is still starting', () => {
+  const starting = { id: 'kehikot.browser', reactsKnown: ['selection', 'address'] }
+
+  test('counts as a reader by what the host knows of its manifest, so the address is shown (queued), not offered', () => {
+    const seen = new Map<string, readonly string[]>()
+    noteReacts(seen, [starting, { id: 'kehikot.notes', reactsKnown: ['parts'] }])
+    const readers = readersOn(['kehikot.notes', 'kehikot.browser'], (id) => seen.get(id))
+    expect(readers).toEqual(['kehikot.browser'])
+    const out = handed(NO_ADDRESSES, handing({ readers }))
+    expect(out.answer).toEqual({ outcome: 'shown', why: '' })
+    expect(out.offer).toBeNull()
+    /* Held in the kehikko's context, which the Browser is sent when it greets. */
+    expect(addressOn(out.next, 1)?.url).toBe(URL_)
+  })
+
+  test('a module nobody knows anything about is still not a reader, and the person is offered the page', () => {
+    const seen = new Map<string, readonly string[]>()
+    noteReacts(seen, [{ id: 'kehikot.browser' }, { id: 'kehikot.other', reactsKnown: [] }])
+    const readers = readersOn(['kehikot.browser', 'kehikot.other'], (id) => seen.get(id))
+    expect(readers).toEqual([])
+    expect(handed(NO_ADDRESSES, handing({ readers })).answer.outcome).toBe('offered')
+  })
+
+  test('what a module said while answering is not replaced by a guess, and the module itself wins', () => {
+    const seen = new Map<string, readonly string[]>([['kehikot.browser', ['selection']]])
+    noteReacts(seen, [starting])
+    expect(seen.get('kehikot.browser')).toEqual(['selection'])
+    noteReacts(seen, [{ id: 'kehikot.browser', module: { reacts: ['address'] } }])
+    expect(seen.get('kehikot.browser')).toEqual(['address'])
   })
 })
 

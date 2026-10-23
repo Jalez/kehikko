@@ -376,6 +376,27 @@
   `ANSWERED_UNDECLARED` (answered, one log line per call) until its manifest is
   fixed. Never widen the rule instead.
 
+## A web address on the canvas
+
+- `address.open` (protocol 2.16.0, capability `address:open`) hands a page to the open
+  kehikko. All of it is `src/host/address.ts` (pure; `test/address.test.ts` is its table):
+  a container whose module says `reacts: ['address']` (the Browser) is a READER, and the
+  address goes into `context.address` stamped with `by` (from the registration, never the
+  frame) and `at`, answered `shown`. With no reader the person gets an OFFER
+  (`AddressOffer`: open in their own browser, https only, or add a module that shows
+  pages), answered `offered`; nothing leaves the canvas before a press. An agent's
+  `open_address` is held tighter: a reader or `declined`, never an offer.
+- The address lives in the page's memory by kehikko id. Never `kehikot.json`, the canvases
+  database or `sessionStorage`: opening a page is a request made once.
+- A placed Browser that is still starting counts as a reader. `noteReacts` reads what a
+  module that is not answering is known to react to (`Presence.reactsKnown`: the last
+  manifest it served, kept in `known_modules.reacts`, else `reacts` on its entry in
+  `modules.json`), so the address waits in the context for its greeting instead of the
+  person being told nothing shows pages. What a module says while answering wins.
+  A new module that shows pages gets `reacts` on its official entry.
+- A module's title and address are text, never markup or a link; do not widen the rule
+  for a module that hands many.
+
 ## The Inbox
 
 - ONE record of what modules need, are doing and have said: `src/host/inbox.ts`

@@ -532,3 +532,37 @@ describe('a place in a change’s code (protocol 2.13.0)', () => {
     expect(labelFor(follows!)).toBe('follows a line of a change')
   })
 })
+
+describe('a web address on the canvas (protocol 2.16.0)', () => {
+  const REVIEW = presence('kehikot.review', 'Review', {
+    declares: { protocol: '>=2', uses: ['address:open'], storage: false },
+  })
+  const BROWSER = presence('kehikot.browser', 'Browser', { reacts: ['address'] })
+  const PLACED = { onCanvas: new Set(['kehikot.review', 'kehikot.browser']), elsewhere: new Map() }
+
+  test('a module that hands one over and one that shows pages are a pair, in words that say what the host does', () => {
+    const found = relate([REVIEW, BROWSER], PLACED)
+    const sets = found.get('kehikot.review')?.find((one) => one.role === 'sets')
+    expect(sets?.kind).toBe('address')
+    expect(sets?.with.map((one) => one.name)).toEqual(['Browser'])
+    expect(labelFor(sets!)).toBe('opens web pages on the canvas')
+    const said = sentenceFor('Review', sets!)
+    expect(said).toContain('hand a web address to the canvas')
+    expect(said).toContain('nothing is opened before they choose')
+    const shows = found.get('kehikot.browser')?.[0]
+    expect(shows?.kind).toBe('address')
+    expect(shows?.role).toBe('reacts')
+    expect(labelFor(shows!)).toBe('shows web pages')
+    expect(sentenceFor('Browser', shows!)).toContain('Review')
+  })
+
+  test('a module that hands addresses over with nothing to show them still says what happens then', () => {
+    const sets = relate([REVIEW], PLACED).get('kehikot.review')?.find((one) => one.kind === 'address')
+    expect(sets?.with).toEqual([])
+    expect(sentenceFor('Review', sets!)).toContain('the person is asked')
+  })
+
+  test('a module that shows pages with nothing to hand it one draws no pair', () => {
+    expect(relate([BROWSER], PLACED).has('kehikot.browser')).toBe(false)
+  })
+})

@@ -104,6 +104,18 @@ describe('the official list', () => {
   })
 })
 
+describe('what an entry says a module reacts to', () => {
+  test('the Browser is listed as showing pages, so a placed one that is still starting is a reader', () => {
+    expect(officialOf('kehikot.browser')?.reacts).toContain('address')
+  })
+
+  test('a value this host cannot read is dropped, not a reason to refuse the list', () => {
+    const [entry] = readOfficial({ modules: [{ ...slides, reacts: 'address' }] })
+    expect(entry?.reacts).toBeUndefined()
+    expect(readOfficial({ modules: [{ ...slides, reacts: ['address'] }] })[0]?.reacts).toEqual(['address'])
+  })
+})
+
 describe('installing an official module', () => {
   test('a fresh clone is put on its newest release before its dependencies are installed', async () => {
     const order: string[] = []

@@ -73,9 +73,9 @@ describe('what a module is called', () => {
   test('the summary and the tags are kept with the name, and follow it', () => {
     const db = fresh()
     remember(db, 'kehikot.paper', 'Paper', { summary: 'The paper, as prose.', tags: ['writing', 'reading'] })
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'The paper, as prose.', tags: ['writing', 'reading'], icon: null })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'The paper, as prose.', tags: ['writing', 'reading'], icon: null, reacts: null })
     remember(db, 'kehikot.paper', 'Paper', { summary: 'Read as prose.', tags: [] })
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'Read as prose.', tags: [], icon: null })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: 'Read as prose.', tags: [], icon: null, reacts: null })
   })
 
   test('a table from before the summary and the tags gains them, empty, and keeps its names', () => {
@@ -83,7 +83,7 @@ describe('what a module is called', () => {
     db.exec('create table known_modules (id text primary key, name text not null, seen integer not null)')
     db.query('insert into known_modules (id, name, seen) values (?, ?, ?)').run('kehikot.paper', 'Paper', 1)
     ensureKnown(db)
-    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: '', tags: [], icon: null })
+    expect(known(db).get('kehikot.paper')).toEqual({ name: 'Paper', summary: '', tags: [], icon: null, reacts: null })
   })
 
   test('the icon a module declared is kept with its name (protocol 2.14.0), and follows it', () => {
@@ -92,6 +92,24 @@ describe('what a module is called', () => {
     expect(known(db).get('kehikot.paper')?.icon).toBe('brand:latex')
     remember(db, 'kehikot.paper', 'Paper', { icon: null })
     expect(known(db).get('kehikot.paper')?.icon).toBeNull()
+  })
+
+  test('what a module reacts to is kept with its name, and a sweep that did not see it does not wipe it', () => {
+    const db = fresh()
+    remember(db, 'kehikot.browser', 'Browser', { reacts: ['selection', 'address'] })
+    expect(known(db).get('kehikot.browser')?.reacts).toEqual(['selection', 'address'])
+    remember(db, 'kehikot.browser', 'Browser')
+    expect(known(db).get('kehikot.browser')?.reacts).toEqual(['selection', 'address'])
+    remember(db, 'kehikot.browser', 'Browser', { reacts: [] })
+    expect(known(db).get('kehikot.browser')?.reacts).toEqual([])
+  })
+
+  test('a table from before reacts gains the column, empty', () => {
+    const db = new Database(':memory:')
+    db.exec('create table known_modules (id text primary key, name text not null, seen integer not null)')
+    ensureKnown(db)
+    remember(db, 'kehikot.browser', 'Browser')
+    expect(known(db).get('kehikot.browser')?.reacts).toBeNull()
   })
 
   test('the table can be made twice without complaint', () => {

@@ -168,6 +168,29 @@ export function readersOn(placed: readonly string[], reactsOf: (id: string) => r
   return placed.filter((id) => reactsOf(id)?.includes(SHOWS_PAGES) === true)
 }
 
+/** What a sweep says of one module, as far as `noteReacts` reads it. */
+export interface Reacting {
+  id: string
+  /** Present when the module is answering. */
+  module?: { reacts?: string[] } | undefined
+  /** What the host knows of a module that is not answering: remembered, else the official list. */
+  reactsKnown?: string[] | undefined
+}
+
+/**
+ * Fold a sweep into what each module is known to react to, in `seen`. A module that is answering
+ * says so itself, and that wins. One that is not answering yet — a Browser still starting — counts
+ * by what the host knows of its manifest (`reactsKnown`), so it is a reader at once and an address
+ * handed to the kehikko waits in the context for it to greet, rather than the person being told
+ * that nothing shows pages. What was seen answering is never replaced by a guess.
+ */
+export function noteReacts(seen: Map<string, readonly string[]>, sweep: readonly Reacting[]): void {
+  for (const presence of sweep) {
+    if (presence.module?.reacts) seen.set(presence.id, presence.module.reacts)
+    else if (!presence.module && presence.reactsKnown?.length && !seen.has(presence.id)) seen.set(presence.id, presence.reactsKnown)
+  }
+}
+
 /** The address on one kehikko, or null. */
 export function addressOn(addresses: Addresses, kehikko: number | null): SharedAddress | null {
   if (kehikko === null) return null
