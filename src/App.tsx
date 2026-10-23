@@ -4176,8 +4176,9 @@ export function App() {
 
       {/* The app-wide Settings for the person's agents, and the one-time
           question while it is unanswered. Opened from the projects menu, a
-          module's Tools or Skills window, and the sync's lines in the Inbox. */}
-      <AgentSettingsHost />
+          module's Tools or Skills window, and the sync's lines in the Inbox.
+          Its Project section is the open project's own. */}
+      <AgentSettingsHost project={project} />
 
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}

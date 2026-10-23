@@ -93,6 +93,9 @@ export interface Refusal {
  *  - `/host/trackers` — a person's edit of the project's tracker sources, which
  *    writes a file that travels with the repository, and the "Check" before
  *    it, which spends their login's rate limit.
+ *  - `/host/base-branch` — a person's choice of the project's base branch,
+ *    which writes a file that travels with the repository and asks origin
+ *    with their login.
  *  - `/host/mine/check`, `/host/mine/add`, `/host/mine/install`,
  *    `/host/mine/remove`, `/host/mine/adopt` — the person's own modules
  *    (`myModules.ts`): a repository read with their login, cloned and run on
@@ -108,6 +111,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/act',
   '/host/inbox/migrate',
   '/host/trackers',
+  '/host/base-branch',
   '/host/mine/check',
   '/host/mine/add',
   '/host/mine/install',

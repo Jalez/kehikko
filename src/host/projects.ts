@@ -79,6 +79,12 @@ export const projectSchema = z.object({
    * picked a project. Absent otherwise, and from an older host.
    */
   home: z.boolean().optional(),
+  /**
+   * The branch agents start their work from and updates are pulled from: the
+   * one the project's settings name, else origin's default. Null when neither
+   * says; absent from an older host.
+   */
+  baseBranch: z.string().nullable().optional(),
 })
 export type Project = z.infer<typeof projectSchema>
 
@@ -293,6 +299,49 @@ export async function fetchTracker(project: number, signal?: AbortSignal): Promi
     })
     .parse(await response.json())
   return { ...read, project }
+}
+
+/** What a base branch is, in the one sentence Settings says. */
+export const BASE_BRANCH_SAID = 'The branch agents start their work from and updates are pulled from.'
+
+const baseBranchSchema = z.object({
+  /** What the project's settings name, or null: origin's default is in force. */
+  set: z.string().nullable(),
+  /** Origin's default branch, or null when the project's git cannot say. */
+  origin: z.string().nullable(),
+  /** The one in force. */
+  branch: z.string().nullable(),
+})
+export type BaseBranch = z.infer<typeof baseBranchSchema>
+
+export type BaseBranchSet = { ok: true; said: string; base: BaseBranch } | { ok: false; why: string }
+
+/** One project's base branch: what is set, origin's default, and the one in force. */
+export async function fetchBaseBranch(project: number, signal?: AbortSignal): Promise<BaseBranch> {
+  const response = await fetch(`/host/base-branch?project=${project}`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error(await reason(response))
+  return baseBranchSchema.parse(await response.json())
+}
+
+/**
+ * Set one project's base branch, or with null go back to origin's default.
+ * The host checks the branch is on origin first; a refusal is its sentence.
+ */
+export async function setBaseBranch(project: number, branch: string | null): Promise<BaseBranchSet> {
+  const response = await fetch('/host/base-branch', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, branch }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  const body = z
+    .union([
+      baseBranchSchema.extend({ ok: z.literal(true), said: z.string() }),
+      z.object({ ok: z.literal(false), why: z.string() }),
+    ])
+    .parse(await response.json())
+  if (!body.ok) return body
+  return { ok: true, said: body.said, base: { set: body.set, origin: body.origin, branch: body.branch } }
 }
 
 /**

@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } from 'kehikot-module-protocol'
 
 import { createCanvas, listCanvases } from './canvases.ts'
+import { baseBranchOf, readBaseBranch } from './baseBranch.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
 import { scratchHost } from './machineDirs.ts'
 import { bookmarks, type Bookmarks } from './bookmarks.ts'
@@ -113,6 +114,12 @@ export interface Project {
    * (`isReadOnlyRoot`, `projectRoot.ts`).
    */
   home?: true
+  /**
+   * The branch agents start their work from and updates are pulled from: the
+   * one the project's `.kehikot/host/settings.json` names, else origin's
+   * default branch. Null when neither says (`baseBranch.ts`).
+   */
+  baseBranch: string | null
 }
 
 /** How many projects a person may have open. Far above anybody, low enough to bound a list. */
@@ -173,14 +180,14 @@ const askable = (asked: unknown): asked is string =>
  * The project a folder is, by the rule `isProject` says, with its id (`uid`,
  * null for a project never identified), or null.
  */
-export function projectAt(db: Database, asked: unknown): { uid: string | null } | null {
+export function projectAt(db: Database, asked: unknown): { uid: string | null; path: string } | null {
   if (!askable(asked)) return null
   const real = resolvedFolder(asked)
   if (real === null) return null
   const rows = db.query<{ path: string; uid: string | null }, []>('select path, uid from projects').all()
   /* A ghost at the path (`projectRoot.ts`) is not the project, so a module is not told to write in it. */
   const row = rows.find((one) => resolvedFolder(one.path) === real && projectRootExists(one.path))
-  return row ? { uid: row.uid } : null
+  return row ? { uid: row.uid, path: row.path } : null
 }
 
 /**
@@ -282,17 +289,19 @@ type Row = { id: number; name: string; path: string; uid: string | null }
 /** A row as the page and the agents see it, read off the disk now. */
 function described({ followed_from, picked, ...row }: Row & { followed_from?: string | null; picked?: number | null }): Project {
   const missing = !projectRootExists(row.path)
+  /* A folder that is gone has no history of its own; walking up from it would
+     answer for whatever folder it used to sit in. */
+  const git = !missing && hasGit(row.path)
   return {
     ...row,
     followed: followed_from ?? null,
     name: named(row.path),
     epics: !missing && holdsEpics(row.path),
-    /* A folder that is gone has no history of its own; walking up from it would
-       answer for whatever folder it used to sit in. */
-    git: !missing && hasGit(row.path),
+    git,
     shared: missing ? false : sharesKehikot(row.path),
     missing,
     uid: row.uid,
+    baseBranch: missing ? null : git ? baseBranchOf(row.path).branch : readBaseBranch(row.path),
     /* The fallback only: a home folder the person picked is a project like any other. */
     ...(isHome(row.path) && !picked ? { home: true as const } : {}),
   }

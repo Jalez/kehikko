@@ -768,7 +768,8 @@ function tools() {
         'Which project, epic, parts and kehikko THIS conversation belongs to, as its record says — which can differ '
         + 'from what the person is looking at, because they switch epics while several conversations work. A '
         + 'conversation started from a place in Kehikot is recorded there; one that is not recorded says so, and is '
-        + 'recorded with set_my_place (or by the person, from the ask this puts in their Inbox). Also says what the '
+        + 'recorded with set_my_place (or by the person, from the ask this puts in their Inbox). Says the project’s '
+        + 'base branch, the one to start work from and pull updates from, when it has one. Also says what the '
         + 'person is looking at now, labelled as that. Ask this before acting on "the epic"; every tool here '
         + 'answers about the recorded place, and says when it fell back to the person’s view.',
       annotations: { title: 'This conversation’s place', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -2215,12 +2216,15 @@ function myPlace(door: Door): { text: string; failed: boolean } {
     return {
       text: [
         belongsWords(here),
+        baseBranchWords(here.project),
         lookingWords(here, now),
         here.via === 'session'
           ? 'Recorded for this connection with set_my_place (or by the person, from their Inbox). If the agent restarts or reconnects, it is a new connection with no record, and is asked again.'
           : `Read from ${here.module ?? 'the module'}'s record of this conversation${here.conversation ? ` (${here.conversation})` : ''}, as it is now.`,
         'Every tool here answers about this place unless you name another kehikko or epic.',
-      ].join('\n'),
+      ]
+        .filter(Boolean)
+        .join('\n'),
       failed: false,
     }
   }
@@ -2243,6 +2247,11 @@ function myPlace(door: Door): { text: string; failed: boolean } {
       .join('\n'),
     failed: false,
   }
+}
+
+/** The project's base branch, for an agent about to start work in it, or nothing when the host cannot say one. */
+function baseBranchWords(project: Project): string {
+  return project.baseBranch ? `Its base branch is ${project.baseBranch}: start work from it, and pull updates from it.` : ''
 }
 
 /** `set_my_place`: record this MCP session's place — an existing epic of the project, or none. */
