@@ -15,10 +15,19 @@
  * It imports each one `with { type: 'file' }`, which `bun build --compile`
  * embeds, hands the map to `server/page.ts`'s `embed`, and only then loads
  * `server/server.ts`. The server sees a page and knows it is bundled.
+ *
+ * ## The Bun inside it
+ *
+ * The binary IS a Bun — the one this script runs on — and the host builds
+ * installed modules with it (`buildBun` in `server/moduleBuilds.ts`). A
+ * ready-built module needs `READY_BUILT_BUN` or later, so an older Bun is
+ * refused here rather than shipped.
  */
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
+
+import { olderBun, READY_BUILT_BUN } from '../server/moduleBuilds.ts'
 
 const ROOT = resolve(import.meta.dir, '..')
 
@@ -67,6 +76,11 @@ function filesUnder(dir: string): string[] {
 }
 
 const { target, out } = parse(process.argv.slice(2))
+if (olderBun(Bun.version, READY_BUILT_BUN)) {
+  console.error(`build:sidecar: this is Bun ${Bun.version}; the host is compiled with Bun ${READY_BUILT_BUN} or later, which it builds ready-built modules with. Update bun and run this again.`)
+  process.exit(1)
+}
+console.error(`build:sidecar: compiling with Bun ${Bun.version} (ready-built modules need ${READY_BUILT_BUN} or later)`)
 const work = mkdtempSync(join(tmpdir(), 'kehikko-sidecar-'))
 
 try {

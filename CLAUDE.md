@@ -200,6 +200,52 @@
   module with no release yet); the host itself reaches people only through a
   desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
 
+## Installed modules are built once, here
+
+- A module that adopted the protocol's `/build` and `/run` (2.17.0) has a
+  `build` script that compiles its page into `dist/` and stamps
+  `dist/.kehikot-built` with the commit; its `run.sh` serves that build when
+  the stamp is `HEAD`, and Vite otherwise. Modules are installed as SOURCE at
+  their release tag and built on this machine — nothing is downloaded. All of
+  it is `server/moduleBuilds.ts`; the words are `src/host/moduleBuilds.ts`.
+- Built after `bun install` at install (`installs.ts`, before the registration
+  is written) and after every update (`Place.build`, called by `update()` — so
+  the Update press, `ReleaseWaits.apply` and a restart that takes a release).
+  Skipped when the stamp already names `HEAD`. A start NEVER builds.
+- After the host's own `bun install --frozen-lockfile` in an installed copy
+  (install and update; an installed copy's update is frozen too), it writes
+  the marker the module's `run.sh` writes, `node_modules/.kehikot-installed`
+  (`markInstalled`: empty, as `touch` makes it, newer than `bun.lock` and
+  `package.json`), so the first start does not install again.
+- One build at a time (`ModuleBuilds` queue; a person's before the background
+  pass), never under a running module: one that is running is marked and
+  built when it next stops (`whileStopped` in `server.ts`). While a module's
+  own build runs, `begin` does not start it. A ready-built copy is restarted
+  on any change by an update (`restartDecision(…, ready)`).
+- Only installed copies (`isInstalled`/`isUnder`). A checkout somebody
+  registered from their own folder is never built and keeps Vite.
+- Failure is never fatal: no script, a failed or timed-out build (3 min), or no
+  stamp → it runs from source by its own `run.sh`. The output goes to the
+  module's log (`readyLog`, a `--- kehikko built this at` header, not a run's),
+  and the host says once per commit that it runs from source.
+- Copies installed before this are built once per host start, in the
+  background, `nice`d, after the open kehikko's modules are up (`openUp`) or
+  two minutes in, skipping anything wanted or running (`backfill`).
+- The build runs on the host's own Bun: inside the app, the compiled host with
+  `BUN_BE_BUN=1` and a `bun` link to it first on the build's `PATH`
+  (`buildBun`). A ready-built module needs Bun `READY_BUILT_BUN` (1.4.0,
+  `Bun.spawn({ terminal })`): `whyNoBuilds` checks this Bun and the `bun` on
+  the `PATH` modules run with, and `build:sidecar` refuses an older Bun.
+- The Updates menu says "Preparing Terminal…" while it builds and "Terminal
+  runs from source; its build didn't finish (see log)" after a failure
+  (`builds` on `/host/updates`, phase `preparing`); a module's details say
+  "Ready-built" or "Running from source", with the build's log
+  (`build` on `/host/module-release`). That describes what is RUNNING: for a
+  process the host started, the line the protocol's `run` prints at its start
+  (`<id> serves its built page on … (<sha7>)`, read by `servedAs` from
+  `startOfRun` of the module's log); only for a module the host did not start
+  is it the stamp on disk (`seen: 'disk'`).
+
 ## Switching kehikot is warm
 
 - A module on the open kehikko is NEEDED; one on another kehikko of a project a

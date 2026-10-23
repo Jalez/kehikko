@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { buildDetailsSchema, buildToldSchema, type BuildDetails, type BuildTold } from './moduleBuilds.ts'
 import type { ModuleRelease } from './moduleReleases.ts'
 import type { WorksWith } from './worksWith.ts'
 
@@ -101,14 +102,16 @@ export interface Check {
   kept: string[]
   /** The protocol package this host has; null from an older host. What "you have" says outside the desktop app. */
   protocol: string | null
+  /** Installed copies being built, and the ones whose build did not finish (`moduleBuilds.ts`). Empty from an older host. */
+  builds: Record<string, BuildTold>
 }
 
 export type Preview = 'page' | 'restart' | 'self' | 'kept'
 
 /** What an update is doing right now. */
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
-export type Phase = 'updating' | 'applying' | 'installing' | 'restarting'
-const phaseSchema = z.enum(['updating', 'applying', 'installing', 'restarting'])
+export type Phase = 'updating' | 'applying' | 'installing' | 'preparing' | 'restarting'
+const phaseSchema = z.enum(['updating', 'applying', 'installing', 'preparing', 'restarting'])
 
 export function isCheckout(reading: Reading): reading is Checkout {
   return !('error' in reading)
@@ -130,6 +133,8 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
       previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
       kept: z.array(z.string()).default([]),
       protocol: z.string().nullable().default(null),
+      /* One a later host words differently is dropped, not refused. */
+      builds: z.record(z.string(), buildToldSchema).default({}).catch({}),
     })
     .parse(await response.json())
   return {
@@ -143,6 +148,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
     previews: body.previews,
     kept: body.kept,
     protocol: body.protocol,
+    builds: body.builds,
   }
 }
 
@@ -151,12 +157,20 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal): Promis
  * one it runs, the newest, and which Kehikot each works with. Null for a
  * module that is not an installed copy, and from a host older than this.
  */
-export async function fetchModuleRelease(id: string, signal?: AbortSignal): Promise<{ release: ModuleRelease | null; protocol: string | null }> {
+export async function fetchModuleRelease(
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ release: ModuleRelease | null; protocol: string | null; build: BuildDetails | null }> {
   const response = await globalThis.fetch(`/host/module-release?id=${encodeURIComponent(id)}`, { signal })
-  if (response.status === 404) return { release: null, protocol: null }
+  if (response.status === 404) return { release: null, protocol: null, build: null }
   if (!response.ok) throw new Error(await reason(response))
   return z
-    .object({ release: releaseSchema.nullable().default(null), protocol: z.string().nullable().default(null) })
+    .object({
+      release: releaseSchema.nullable().default(null),
+      protocol: z.string().nullable().default(null),
+      /* How the copy runs (`moduleBuilds.ts`); absent from an older host. */
+      build: buildDetailsSchema.nullable().default(null).catch(null),
+    })
     .parse(await response.json())
 }
 

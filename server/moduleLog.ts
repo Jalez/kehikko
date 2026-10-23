@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readSync, statSync, writeFileSync, appendFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { logsDir } from './machineDirs.ts'
@@ -36,10 +36,19 @@ export function logFile(id: string, dir: string = logsDir()): string {
   return join(dir, 'modules', `${id.replace(/[^A-Za-z0-9._@-]/g, '_')}.log`)
 }
 
-/** Make the file ready for a start: its directory, its bound, and this run's header. */
-export function openRun(file: string, now: Date = new Date()): void {
+/**
+ * Make the file ready to be appended to: its directory and its bound. A build
+ * (`moduleBuilds.ts`) writes its own header, which is not a run's: the output
+ * of a build is never read as what the module printed when it started.
+ */
+export function readyLog(file: string): void {
   mkdirSync(dirname(file), { recursive: true })
   trim(file)
+}
+
+/** Make the file ready for a start: its directory, its bound, and this run's header. */
+export function openRun(file: string, now: Date = new Date()): void {
+  readyLog(file)
   appendFileSync(file, `${RUN_MARK}${now.toISOString()} ---\n`)
 }
 
@@ -94,6 +103,28 @@ export function lastRun(file: string): string[] {
     .split('\n')
     .map((line) => line.trimEnd())
     .filter((line) => line.trim().length > 0)
+}
+
+/**
+ * The first lines the last run printed, read from its header on — what it said
+ * as it started, which a long run would push out of `lastRun`'s window. The
+ * file is bounded (`MAX_BYTES`), so reading it whole is bounded too.
+ */
+export function startOfRun(file: string, lines = 200): string[] {
+  let text: string
+  try {
+    text = plain(readFileSync(file, 'utf8'))
+  } catch {
+    return []
+  }
+  const at = text.lastIndexOf(RUN_MARK)
+  if (at === -1) return []
+  return text
+    .slice(text.indexOf('\n', at) + 1)
+    .split('\n', lines * 2)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(0, lines)
 }
 
 /**

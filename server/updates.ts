@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
+import { hasBuildScript, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -11,12 +12,14 @@ import type { WorksWith } from '../src/host/worksWith.ts'
  *
  * ## What "the installed version" is here
  *
- * Nothing is built or bundled. The desktop app runs `run.sh` in a checkout, and
+ * Nothing is downloaded. The desktop app runs `run.sh` in a checkout, and
  * the host runs each module's `run.sh` in its checkout, so the version a person
  * is looking at IS whatever those working trees have checked out. An update is
  * therefore not a download: it is the checkout catching up with the branch it
  * tracks. This reads each one — the host's own, and every registered module
- * that names a `dir` — and says how far behind it is.
+ * that names a `dir` — and says how far behind it is. (An installed copy that
+ * can be built is built here, on this machine, once it has moved: `Place.build`,
+ * `moduleBuilds.ts`. Its `run.sh` serves that build while it is the commit's.)
  *
  * ## What an update will and will not do
  *
@@ -92,6 +95,12 @@ export interface Place {
   dir: string
   /** For an installed module: what reads its releases over the checkout. See `moduleReleases.ts`. */
   releases?: ReleaseFollower
+  /**
+   * For an installed module: builds the copy after an update moved it
+   * (`moduleBuilds.ts`). Never fatal: a build that does not finish leaves the
+   * module running from source. Absent for a checkout somebody edits.
+   */
+  build?(place: Place): Promise<Built>
 }
 
 /** Reads an installed copy's releases over what `readCheckout` found. `releaseFollower` in `moduleReleases.ts`. */
@@ -105,9 +114,9 @@ export interface ReleaseFollower {
   worksFor?(place: Place, tags: readonly string[]): Promise<Record<string, WorksWith>>
 }
 
-/** A place as it is said: without the follower, which is not data. */
-function said(place: Place): Omit<Place, 'releases'> {
-  const { releases: _releases, ...rest } = place
+/** A place as it is said: without the follower and the builder, which are not data. */
+function said(place: Place): Omit<Place, 'releases' | 'build'> {
+  const { releases: _releases, build: _build, ...rest } = place
   return rest
 }
 
@@ -313,6 +322,8 @@ export interface Updated {
   installFailed: string | null
   /** `bun.lock` held only an install's rewrite and was reset before merging. */
   lockfileReset: boolean
+  /** What building the copy came to, for an installed module (`moduleBuilds.ts`); absent for anything else. */
+  built?: Built['kind']
 }
 
 export type Updating = Updated | { ok: false; why: string; status: number }
@@ -345,6 +356,8 @@ export type Updating = Updated | { ok: false; why: string; status: number }
 export interface UpdateHooks {
   merged?(changed: string[]): Promise<void> | void
   installing?(): void
+  /** The copy is being built (`Place.build`): "Preparing Terminal…". */
+  preparing?(): void
 }
 
 export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHooks = {}): Promise<Updating> {
@@ -381,14 +394,29 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const dependencies = lockfileReset || changed.some((file) => file === 'package.json' || file === 'bun.lock')
   if (dependencies && existsSync(join(place.dir, 'bun.lock'))) {
     hooks.installing?.()
-    const child = Bun.spawn(['bun', 'install'], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
+    /* An installed copy installs exactly what its release's bun.lock says, as
+       its run.sh would: a rewritten lockfile is a change to a tracked file,
+       which no build is stamped from and which the next update must refuse. */
+    const installedCopy = place.build !== undefined
+    const child = Bun.spawn(['bun', 'install', ...(installedCopy ? ['--frozen-lockfile'] : [])], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
     const err = await new Response(child.stderr).text()
     const code = await child.exited
-    if (code === 0) installed = true
-    else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
+    if (code === 0) {
+      installed = true
+      /* And marked as its run.sh marks one, so its next start does not install again. */
+      if (installedCopy) markInstalled(place.dir)
+    } else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
   }
 
-  return { ok: true, checkout: await readCheckout(place, false), changed, installed, installFailed, lockfileReset }
+  /* An installed copy is built for the commit it is on now, after its
+     dependencies, while its module is stopped. Never a reason the update failed. */
+  let built: Built['kind'] | undefined
+  if (place.build) {
+    if (hasBuildScript(place.dir)) hooks.preparing?.()
+    built = (await place.build(place).catch((error: unknown): Built => ({ kind: 'failed', why: String(error) }))).kind
+  }
+
+  return { ok: true, checkout: await readCheckout(place, false), changed, installed, installFailed, lockfileReset, ...(built ? { built } : {}) }
 }
 
 /**

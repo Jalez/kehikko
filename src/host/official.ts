@@ -8,7 +8,7 @@ import { z } from 'zod'
  */
 
 const installingSchema = z.union([
-  z.object({ state: z.literal('installing'), step: z.enum(['cloning', 'installing', 'registering']) }),
+  z.object({ state: z.literal('installing'), step: z.enum(['cloning', 'installing', 'preparing', 'registering']) }),
   z.object({ state: z.literal('failed'), why: z.string() }),
 ])
 

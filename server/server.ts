@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
@@ -68,9 +68,10 @@ import {
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
-import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
+import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
+import { builtAt, hasBuildScript, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -104,7 +105,7 @@ import { Wakes } from './wake.ts'
 import { TrackerNotices } from './trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
-import { hasUpdate, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
+import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
 import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
@@ -436,7 +437,7 @@ function knownName(id: string): string | null {
 /** One module's place: named as it calls itself when that is known, with its releases when it is installed. */
 function placeOf(id: string, dir: string): Place {
   const name = knownName(id) ?? id
-  return { id, name, dir, ...(isInstalled(dir) ? { releases: follower } : {}) }
+  return { id, name, dir, ...(isInstalled(dir) ? { releases: follower, build: buildPlace } : {}) }
 }
 
 /** Every installed module's copy as it is now: no fetch, and none that could not be read. */
@@ -573,6 +574,8 @@ const installs = installDesk({
   installed: () => wakes.registryChanged(),
   /* A fresh clone is put on its newest release before it is installed. */
   releases: { settle: (place) => follower.settle(place) },
+  /* And built at that release before it is registered (`moduleBuilds.ts`). */
+  build: (copy) => builds.build(copy),
 })
 
 /* "My modules": what the person installs from a repository that is on no
@@ -1186,7 +1189,8 @@ function doing(id: string): Doing {
     /* Read only for a start still in flight: it is a file read. */
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
-    levelling: releases.applying(id),
+    /* Its copy is being put on a newer release, or built: started after. */
+    levelling: releases.applying(id) || builds.busy(id),
   }
 }
 
@@ -1225,6 +1229,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
   for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
   staleness.forgetAllBut(here)
   releases.forgetAllBut(here)
+  builds.forgetAllBut(here)
   for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
 
   return presences.map((presence) => {
@@ -1279,9 +1284,12 @@ function begin(id: string): void {
   /* Somebody else was running it and it has only just gone: theirs to bring
      back first. See `THEIRS_TO_RESTART_MS`. */
   if (theirs.has(id)) return
-  /* A newer release is being put in place while it is stopped (`applyWaiting`);
+  /* A newer release is being put in place while it is stopped (`whileStopped`);
      started when that is done. */
   if (releases.applying(id)) return
+  /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
+     a module, so the start waits for that one build. Started when it ends. */
+  if (builds.busy(id)) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
@@ -1329,7 +1337,7 @@ async function untilAnswered(id: string, url: string): Promise<void> {
  *
  * A start never waits for that. The copy starts as it is; the check runs beside
  * it (`releaseWait.ts`), and a newer release it finds is put in place when the
- * module next stops (`applyWaiting`) or is restarted (`restart`), or when the
+ * module next stops (`whileStopped`) or is restarted (`restart`), or when the
  * person presses Update. A module that is running is never changed under the
  * person using it. `update` refuses a copy with changes of its own, and then
  * the copy stays as it is and the log says why.
@@ -1340,25 +1348,131 @@ const releases = new ReleaseWaits({
   log: (line) => console.log(line),
 })
 
+/** An installed copy, under `installsDir`: the only kind that runs releases and is built here. Never a checkout somebody edits. */
 function isInstalled(dir: string): boolean {
-  const root = installsDir()
-  const real = (path: string) => {
-    try {
-      return realpathSync(path)
-    } catch {
-      return path
-    }
-  }
-  const inside = real(dir)
-  const under = real(root)
-  return inside === under || inside.startsWith(`${under}/`)
+  return isUnder(dir, installsDir())
 }
 
 /** An installed module's place, with the follower that reads its releases; null for anything else. */
 function installedPlace(id: string): Place | null {
   const dir = registered.get(id)?.dir
-  return dir && isInstalled(dir) ? { id, name: id, dir, releases: follower } : null
+  return dir && isInstalled(dir) ? { id, name: knownName(id) ?? id, dir, releases: follower, build: buildPlace } : null
 }
+
+/**
+ * Installed modules are built once, here, at install and at update — never at
+ * a start — and one at a time. See `moduleBuilds.ts`. A module somebody
+ * registered from their own checkout is never built: it keeps Vite.
+ */
+const builds = new ModuleBuilds({
+  build: (copy, options) => runBuild(copy, { ...options, log: buildLog(copy.id) }),
+  head: (dir) => headOf(dir),
+  stamp: (dir, commit) => builtAt(dir, commit),
+  hasScript: (dir) => hasBuildScript(dir),
+  async running(id) {
+    if (nursery.holds(id)) return true
+    const registration = registered.get(id)
+    return registration ? (await look(registration)).reached : false
+  },
+  unable: () =>
+    whyNoBuilds(async () => {
+      const ran = await runQuietly(['bun', '--version'])
+      return ran.ok ? ran.out : null
+    }),
+  logOf: (id) => logFile(id),
+  log: (line) => console.log(line),
+  changed: () => wakes.registryChanged(),
+  /* A start put off while its module was being built happens now. */
+  finished: (id) => {
+    if (!registered.has(id)) return
+    void sweep()
+      .then((view) => govern(view.presences))
+      .catch(() => null)
+  },
+})
+
+/** The module's log, made ready to be appended to; null when it cannot be. */
+function buildLog(id: string): string | null {
+  const file = logFile(id)
+  try {
+    readyLog(file)
+    return file
+  } catch {
+    return null
+  }
+}
+
+/** An installed copy, built for the commit it is on now: the `build` of its `Place`. */
+function buildPlace(place: Place) {
+  return builds.build({ id: place.id, name: place.name, dir: place.dir })
+}
+
+/**
+ * How a module runs, for its details: ready-built or from source; whether it
+ * is being built; and why its build did not finish, with the last of what it
+ * printed and where the rest is.
+ *
+ * Ready-built describes what is RUNNING. For a process this host started, it
+ * is what that process said when it started (`servedAs`, from this run's part
+ * of the module's log): the protocol's `run` names the build it serves, and
+ * anything else is source. Only for a module the host did not start — nothing
+ * of its output is here — is it read from the disk instead: whether `dist/` is
+ * a build of the commit checked out, which is what its `run.sh` would serve.
+ */
+async function buildOf(id: string, dir: string, installed: boolean) {
+  const started = nursery.holds(id)
+  const head = await headOf(dir)
+  const served = started ? servedAs(startOfRun(logFile(id)), !starting.has(id)) : null
+  const failure = installed ? builds.failure(id) : null
+  return {
+    ready: served !== null ? served === 'built' : head !== null && builtAt(dir, head),
+    seen: served !== null ? ('running' as const) : ('disk' as const),
+    preparing: installed && builds.state(id) !== null,
+    failed: failure && (failure.commit === null || failure.commit === head) ? { why: failure.why, lines: failure.lines, log: logFile(id) } : null,
+  }
+}
+
+/** Whether a module's page is served ready-built once it is updated: an installed copy with a `build` script. */
+function readyBuilt(dir: string): boolean {
+  return isInstalled(dir) && hasBuildScript(dir)
+}
+
+/**
+ * The copies installed before modules were built, built once per host start:
+ * in the background, at low priority, once the open kehikko's modules are up,
+ * and never one that is running or wanted (`skip`) — that one is built when it
+ * next stops. Never holds up a start.
+ */
+let backfilled = false
+const BACKFILL_AFTER_MS = 5_000
+const BACKFILL_AT_THE_LATEST_MS = 2 * 60_000
+function backfill(): void {
+  if (backfilled) return
+  backfilled = true
+  setTimeout(() => {
+    const copies: Copy[] = []
+    for (const registration of registered.values()) {
+      if (registration.dir && isInstalled(registration.dir)) copies.push({ id: registration.id, name: knownName(registration.id) ?? registration.id, dir: registration.dir })
+    }
+    if (!copies.length) return
+    void builds
+      .backfill(copies, (id) => {
+        const { needed, warm } = wantedNow()
+        return needed.has(id) || warm.has(id)
+      })
+      .then((done) => {
+        const built = done.filter((one) => one.kind === 'built').length
+        if (built) console.log(`kehikko: built ${built} installed module${built === 1 ? '' : 's'} that had no build of their release`)
+      })
+  }, BACKFILL_AFTER_MS).unref?.()
+}
+/** The open kehikko's modules are up: one is needed, and each needed one answers, failed, or cannot be started here. */
+function openUp(standing: readonly Standing[]): boolean {
+  const needed = standing.filter((one) => one.needed)
+  return needed.length > 0 && needed.every((one) => one.answering || one.failed || !one.startable)
+}
+/* With no page open nothing is ever "up", so it happens anyway, later. */
+setTimeout(backfill, BACKFILL_AT_THE_LATEST_MS).unref?.()
 
 /**
  * Put a waiting release in place, on a module that is not running. Local: the
@@ -1381,17 +1495,21 @@ async function level(place: Place): Promise<void> {
 }
 
 /**
- * The reaper stopped a module that had a release waiting: once its process has
- * let go of its port, put the release in place, then decide again — a page
- * that opened its kehikko meanwhile was told "starting" and gets it now.
+ * The reaper stopped a module that had a release waiting, or a build put off
+ * while it ran (`moduleBuilds.ts`): once its process has let go of its port,
+ * put the release in place (which builds it) or build it, then decide again —
+ * a page that opened its kehikko meanwhile was told "starting" and gets it now.
  */
-async function applyWaiting(id: string, url: string): Promise<void> {
+async function whileStopped(id: string, url: string): Promise<void> {
   const place = installedPlace(id)
-  if (!place || releases.waiting(id) === null) return
+  if (!place || (releases.waiting(id) === null && !builds.owes(id))) return
   try {
     await gone(url, WELL_KNOWN)
     if (nursery.holds(id)) return
-    await releases.apply(place)
+    /* A waiting release builds the copy as it is put in place (`update`);
+       a build put off while it ran happens now. */
+    if (releases.waiting(id) !== null) await releases.apply(place)
+    else await builds.stopped({ id, name: place.name, dir: place.dir })
   } finally {
     void sweep()
       .then((view) => govern(view.presences))
@@ -1564,6 +1682,9 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
        open kehikko's own are still to start, a few at a time after. The next
        few start when one answers (`untilAnswered`). */
     for (const id of toWarm(standing)) begin(id)
+    /* Once the open kehikko's modules are up, the copies installed before
+       modules were built are built, in the background (`backfill`). */
+    if (!backfilled && openUp(standing)) backfill()
   }
 
   /* The versions containers are pinned to, by the same rule as the modules:
@@ -1579,7 +1700,7 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
     starting.delete(id)
     console.log(`kehikko: stopped ${id} — no open kehikko or project has had it for the grace period`)
     const url = registered.get(id)?.url
-    if (url) void applyWaiting(id, url)
+    if (url) void whileStopped(id, url)
   }
 
   tether(standing)
@@ -1859,6 +1980,7 @@ async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<str
     const preview = previewUpdate(await incomingFiles(one.dir, to), serverGraph(one.dir), {
       running,
       keep: registered.get(one.id)?.keep === true,
+      ready: readyBuilt(one.dir),
     })
     if (preview) said[one.id] = preview
   }
@@ -2038,9 +2160,14 @@ async function restart(
     /* Said only of a module that was running: one that was not is starting. */
     if (halted.was === 'running') working.set(id, 'restarting')
     wakes.registryChanged()
-    /* A release a check found while it ran goes in now, while it is down. */
+    /* A release a check found while it ran goes in now, while it is down
+       (and is built as it goes in); else a build put off while it ran. */
     const waiting = releases.waiting(id) === null ? null : installedPlace(id)
     if (waiting) await releases.apply(waiting)
+    else if (builds.owes(id)) {
+      const place = installedPlace(id)
+      if (place) await builds.stopped({ id, name: place.name, dir: place.dir })
+    }
     return await bringUp(id, runnable, within)
   } finally {
     working.delete(id)
@@ -2225,7 +2352,7 @@ const anyway = anywayDesk({
 })
 
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
-type UpdateStep = 'updating' | 'applying' | 'installing' | 'restarting'
+type UpdateStep = 'updating' | 'applying' | 'installing' | 'preparing' | 'restarting'
 type Phase = (now: UpdateStep) => void
 
 /** How long a module the host may not stop is given to end by itself after its server files changed. */
@@ -2289,7 +2416,9 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
     const done = await update(place, signal, {
       async merged(changed) {
         phase('applying')
-        const decision = restartDecision(changed, serverGraph(place.dir))
+        /* A copy served ready-built is built again, and a build is never run
+           under its module: any change stops it first. */
+        const decision = restartDecision(changed, serverGraph(place.dir), readyBuilt(place.dir))
         if (!decision.restart) return
         const running = registration ? (await look(registration)).reached : false
         if (!running && !nursery.holds(id) && !neededNow().has(id)) {
@@ -2319,6 +2448,7 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
         console.log(`kehikko: updating ${id} needs a restart (${decision.because.join(', ')})`)
       },
       installing: () => phase('installing'),
+      preparing: () => phase('preparing'),
     })
     if (!done.ok) return { error: done.why }
 
@@ -3231,6 +3361,9 @@ const server = Bun.serve({
         /* The protocol package this host has: what "you have" is compared
            with when the page does not know the app's version. */
         protocol: PACKAGE_VERSION,
+        /* Installed copies being built ("Preparing Terminal…"), and the ones
+           whose build did not finish and run from source. See `moduleBuilds.ts`. */
+        builds: builds.said(),
       })
     }
 
@@ -3244,10 +3377,13 @@ const server = Bun.serve({
       const id = moduleIn(url.searchParams.get('id'))
       if (!id) return json({ error: 'Name a module: /host/module-release?id=…' }, 400)
       const registration = await registrationOf(id)
-      if (!registration?.dir || !isInstalled(registration.dir)) return json({ release: null, protocol: PACKAGE_VERSION })
+      if (!registration?.dir || !isInstalled(registration.dir)) {
+        /* A checkout somebody registered is never built here; what it runs is still said. */
+        return json({ release: null, protocol: PACKAGE_VERSION, ...(registration?.dir ? { build: await buildOf(id, registration.dir, false) } : {}) })
+      }
       await appProtocols.settled(2_000)
       const reading = await readCheckout(placeOf(id, registration.dir), false, request.signal)
-      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION })
+      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION, build: await buildOf(id, registration.dir, true) })
     }
 
     /*
