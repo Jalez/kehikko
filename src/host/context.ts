@@ -7,6 +7,7 @@ import {
   passageSchema,
   locationStands,
   sharedLocationSchema,
+  sharedAddressSchema,
   type CanvasContainer,
   type ContentChange,
   type ContextScope,
@@ -14,6 +15,7 @@ import {
   type EpicPart,
   type ModuleContext,
   type Passage,
+  type SharedAddress,
   type SharedLocation,
   type TrackerSignal,
 } from 'kehikot-module-protocol'
@@ -311,6 +313,12 @@ export function toWireContext(
    * it too.
    */
   location: SharedLocation | null = null,
+  /**
+   * The last web address handed to this kehikko to be shown, or null (protocol
+   * 2.16.0); see `host/address.ts`. Checked on its own for the passage's
+   * reason. It survives the fallback below: it is about the kehikko, not the epic.
+   */
+  address: SharedAddress | null = null,
 ): WireContext {
   /**
    * The passage, checked on its own before anything else is composed.
@@ -334,6 +342,9 @@ export function toWireContext(
      while its change is picked out. */
   const placed =
     location !== null && locationStands(location, selection) && sharedLocationSchema.safeParse(location).success ? location : null
+
+  /* The address, failed separately for the passage's reason. */
+  const handed = address !== null && sharedAddressSchema.safeParse(address).success ? address : null
 
   /* The parts, failed separately for the passage's reason. A list that will
      not parse becomes no parts — nothing narrowed, the state every module
@@ -374,6 +385,7 @@ export function toWireContext(
     kehikko: wire,
     passage: pointing,
     location: placed,
+    address: handed,
     containers,
     dispositions,
     tracker,
@@ -430,6 +442,8 @@ export function toWireContext(
     selection: [],
     kehikko: wire,
     passage: pointing,
+    /* The address survives with the kehikko it was handed to. */
+    address: handed,
     /* The containers survive with the kehikko, for the kehikko's reason: they
        are the arrangement, and the arrangement has nothing to do with whether
        an epic slug parses. The selection inside a setter's row goes with the

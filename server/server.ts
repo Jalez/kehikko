@@ -2163,6 +2163,7 @@ const settingsDesk = settingsRoute({
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
+  sendAddress: (order) => wakes.address(order),
 })
 
 const inboxRoutes = inboxDesk({

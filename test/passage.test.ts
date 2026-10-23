@@ -23,6 +23,7 @@ function canvasThatRemembers() {
     select: () => {},
     point: (_from, passage) => pointed.push(passage),
     locate: () => ({ outcome: 'declined' as const, why: '' }),
+    openAddress: () => ({ outcome: 'declined' as const, why: '' }),
     show: () => {},
     emit: () => ({ ok: true, delivered: 0 }),
     project: () => null,

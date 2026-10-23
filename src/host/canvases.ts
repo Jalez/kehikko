@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MODULE_ID, contentSignalSchema, type ContentChange, type HeaderItem, type SharedLocation } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -455,6 +455,12 @@ export function watchCanvases(
    * went. See `projectsChanged` in `server/wake.ts`. Carries nothing.
    */
   relisted?: () => void,
+  /**
+   * An agent asked the host's door to show a web address on a kehikko, and the
+   * server picked THIS page to do it — see `address` in `server/wake.ts`. An
+   * order like `ordered`, answered with `answerPress`.
+   */
+  addressed?: (order: AddressOrder) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -548,6 +554,8 @@ export function watchCanvases(
       }
       const order = pressOrderIn((parsed as { press?: unknown })?.press)
       if (order) ordered?.(order)
+      const asked = addressOrderIn((parsed as { address?: unknown })?.address)
+      if (asked) addressed?.(asked)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */
@@ -605,6 +613,34 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
 }
 
 /**
+ * A web address an agent asked to have shown on a kehikko (protocol 2.16.0),
+ * as the server hands it to the page that is to show it. `id` comes back with
+ * the answer, through `answerPress`.
+ */
+export interface AddressOrder {
+  id: string
+  kehikko: number
+  url: string
+  title?: string
+}
+
+/**
+ * An address order off the stream, or `null` for anything that is not one —
+ * for one addressed to another page, and for an address the protocol would not
+ * take. Checked here again rather than taken on the server's word.
+ */
+export function addressOrderIn(value: unknown, page: string = pageId()): AddressOrder | null {
+  if (typeof value !== 'object' || value === null) return null
+  const said = value as Record<string, unknown>
+  if (said.page !== page) return null
+  if (typeof said.id !== 'string' || !said.id || said.id.length > 64) return null
+  if (typeof said.kehikko !== 'number' || !Number.isInteger(said.kehikko) || said.kehikko <= 0) return null
+  if (!isWebAddress(said.url)) return null
+  if (said.title !== undefined && (typeof said.title !== 'string' || !said.title.trim() || said.title.length > LIMITS.TITLE)) return null
+  return { id: said.id, kehikko: said.kehikko, url: said.url, ...(said.title === undefined ? {} : { title: said.title.trim() }) }
+}
+
+/**
  * Tell the server what each module on the open kehikko has declared for its
  * header.
  *
@@ -624,12 +660,14 @@ export function postHeaders(
      `read_canvas` can say it. The same posting, because it is the same kind of
      fact: about this page's screen, held per page, gone with the process. */
   location: SharedLocation | null = null,
+  /* The last web address handed to it (protocol 2.16.0), for `read_canvas`, for the location's reason. */
+  address: SharedAddress | null = null,
 ): Promise<void> {
   return fetch('/host/headers', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     /* `at`, so a posting that arrives after a later one does not replace it. */
-    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, location }),
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, location, address }),
   })
     .then(() => undefined)
     .catch(() => {

@@ -1,6 +1,8 @@
 import {
   methodParams,
   type ActivityItem,
+  type AddressIntent,
+  type AddressOpenResult,
   type CodeLocation,
   type LocationIntent,
   type LocationSetResult,
@@ -153,6 +155,13 @@ export interface CanvasControls {
    * becomes the location's `by` — never anything the frame wrote.
    */
   locate(from: string, location: CodeLocation | null, intent: LocationIntent | undefined): LocationSetResult
+  /**
+   * Hand a web address to the open kehikko (protocol 2.16.0). See
+   * `host/address.ts`: `shown` when a container there shows pages, `offered`
+   * when none does and the person was asked instead, `declined` otherwise.
+   * `from` is supplied out of the registration and becomes the address's `by`.
+   */
+  openAddress(from: string, url: string, title: string | undefined, intent: AddressIntent | undefined): AddressOpenResult
   /**
    * Hold what one container says it is showing, and tell every module.
    *
@@ -403,6 +412,17 @@ function answerInTheView(
   if (method === 'location.set') {
     const { location, intent } = parsed.data as { location: CodeLocation | null; intent?: LocationIntent }
     return succeeded(method, canvas.locate(moduleId, location, intent))
+  }
+
+  /*
+   * A web address handed to the canvas, for whichever container shows pages.
+   * `parsed.data` and never `rawParams`: the schema is what refuses a scheme
+   * other than https: (or http: to this machine) and an address carrying a
+   * credential. Every outcome is `ok: true`; `offered` is an answer, not a fault.
+   */
+  if (method === 'address.open') {
+    const { url, title, intent } = parsed.data as { url: string; title?: string; intent?: AddressIntent }
+    return succeeded(method, canvas.openAddress(moduleId, url, title, intent))
   }
 
   /*
