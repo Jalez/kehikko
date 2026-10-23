@@ -646,3 +646,18 @@
   Do not take that chord. All of them go through `openSettings(section?)`; the
   window event `kehikot:settings` (`OPEN_EVENT`) is also the desktop shell's way
   in for an app-menu "Settings…".
+
+## Switching kehikko or project
+
+- A switch must not fidget: `host/switching.ts` holds the rule and the
+  measurements, `canvas/useCalmSwitch.ts` drives it, and
+  `dev/calm-switch.drive.mjs` measures it in a browser (visible moves per
+  painted frame; zero after the switch is shown, on a revisit).
+- Change the open kehikko through `setOpenId` in `App.tsx`, never the raw
+  `setOpenIdNow`: it keeps a still copy of the kehikko being left on screen
+  while the next is drawn out of sight. The raw setter is only for inside a
+  state updater.
+- The grid animates only with `in-motion` (`index.css`): a drag or resize in
+  hand, the glide after it, and a fold. Never turn transitions on for a
+  switch, a load or a module's height. The grid is TOLD its width (`useRects`);
+  do not bring back `WidthProvider`, which renders every new grid at 1280 px.
