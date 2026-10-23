@@ -352,6 +352,7 @@ export function HeaderMenus({
   note = null,
   mode: asked,
   pinned: askedPinned,
+  onSettings,
 }: {
   /** What the module last declared. Empty draws nothing at all. */
   items: readonly HeaderItem[]
@@ -378,6 +379,11 @@ export function HeaderMenus({
   mode?: MenuMode
   /** Whether pinned runs are drawn, when the caller knows. Left out, it follows the measured width. */
   pinned?: boolean
+  /**
+   * Open the module's settings (protocol 2.15.0). Given, the merged "⋯" has a "Settings…" row: under
+   * 220 px the header's gear is not drawn (`settingsPlaceFor`), and this is where it went.
+   */
+  onSettings?(): void
 }) {
   const anchor = useRef<HTMLSpanElement>(null)
   const menus = useMemo(() => menusOf(items), [items])
@@ -505,7 +511,7 @@ export function HeaderMenus({
         <PinnedRun key={item.id} item={item} rows={rows} word={said?.item === item.id ? said : null} />
       ))}
       {mode === 'merged' ? (
-        <Menu which="more" menus={menus} mode={mode} name={name} rows={rows} onClosed={disarm} word={said} />
+        <Menu which="more" menus={menus} mode={mode} name={name} rows={rows} onClosed={disarm} word={said} onSettings={onSettings} />
       ) : (
         menus.map((menu) => (
           <Menu
@@ -641,6 +647,7 @@ function Menu({
   rows,
   onClosed,
   word,
+  onSettings,
 }: {
   which: HeaderMenu | 'more'
   menus: readonly ModuleMenu[]
@@ -649,6 +656,8 @@ function Menu({
   rows: Pressable
   onClosed(): void
   word: Said | null
+  /** The module's settings, as a row at the foot of the merged "⋯" only. */
+  onSettings?(): void
 }) {
   const [open, setOpen] = useOpen(onClosed, rows.closing)
   const quiet = useRef(false)
@@ -758,6 +767,15 @@ function Menu({
             ))}
           </DropdownMenuGroup>
         ))}
+        {which === 'more' && onSettings ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className={ROW} data-more="settings" onSelect={onSettings}>
+              <Settings className="text-muted-foreground size-3.5" />
+              <span className="flex-1">Settings…</span>
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -1163,9 +1181,12 @@ export function FrameMenu({
   onPrompts,
   kehikko,
   epic,
+  onSettings,
 }: {
   module: string
   name: string
+  /** The module's settings (protocol 2.15.0): a "Settings…" row, at every width. Absent: the module declared none. */
+  onSettings?(): void
   /** What the sweep read of the agent's configuration for this module. `none` or absent: no door, no row. */
   agent: AgentAwareness | undefined
   onTools(): void
@@ -1237,6 +1258,12 @@ export function FrameMenu({
           <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
             {name}
           </DropdownMenuLabel>
+          {onSettings ? (
+            <DropdownMenuItem className={ROW} title={`${name} settings`} data-frame="settings" onSelect={onSettings}>
+              <Settings className="text-muted-foreground size-3.5" />
+              <span className="flex-1">Settings…</span>
+            </DropdownMenuItem>
+          ) : null}
           {tools ? (
             <DropdownMenuItem className={ROW} title={tools.hint} data-frame="tools" onSelect={onTools}>
               {tools.loud ? <Unplug className="size-3.5" /> : <Plug className="text-muted-foreground size-3.5" />}

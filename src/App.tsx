@@ -12,6 +12,7 @@ import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
+import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
@@ -302,6 +303,11 @@ const OTHER_NAMES: Namer = { epic: () => null, part: () => null, kehikko: () => 
 const FIRST_RETRY_MS = 2000
 const LONGEST_RETRY_MS = 30_000
 
+/** Who the host's own pointing is filed under in `said`: its id on the wire. */
+const HOST_POINTS = 'kehikko'
+/** The Editor module, which shows a file the canvas points at, and files under `.kehikot/` read-only. */
+const EDITOR_ID = 'kehikot.editor'
+
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -448,6 +454,8 @@ export function App() {
   const [toolsFor, setToolsFor] = useState<string | null>(null)
   /* Whose Claude Code skills are open (protocol 2.5.0). See `Skills.tsx`. */
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
+  /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Frame menu. */
+  const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
@@ -1456,10 +1464,27 @@ export function App() {
   /* The latest pointing among the modules placed on the open kehikko — see
      `passageOn`. Switching kehikko changes who is placed, not what was said. */
   const placedIds = (open?.placements ?? []).map((p) => p.i).join('\n')
+  /* The host's own pointing counts too: "Open the file" in a module's settings points the Editor
+     at it (see below), and that is the host's word, not a module's. */
   const passage = useMemo(
-    () => (placedIds ? passageOn(said, placedIds.split('\n')) : null),
+    () => (placedIds ? passageOn(said, [...placedIds.split('\n'), HOST_POINTS]) : null),
     [said, placedIds],
   )
+
+  /* What a module's settings need of this page (protocol 2.15.0): "Open the file" in the Editor, read-only, when an Editor is on the open kehikko — the host points the
+     canvas at the file, as itself. Without one, the form shows the file in a dialog. */
+  useEffect(() => {
+    const editor = placedIds.split('\n').includes(EDITOR_ID)
+    setSettingsFileOpener(
+      editor
+        ? (path) => {
+            setSaidRef.current((was) => pointed(was, HOST_POINTS, { path, page: null, from: null, to: null, quoted: '', section: null }))
+            return true
+          }
+        : null,
+    )
+    return () => setSettingsFileOpener(null)
+  }, [placedIds])
 
   /**
    * The passage as a VALUE, for the same reason `picked` is a joined string.
@@ -4048,6 +4073,7 @@ export function App() {
                   onPrompts={() => setPrompting(presence.id)}
                   onTools={() => setToolsFor(presence.id)}
                   onSkills={() => setSkillsFor(presence.id)}
+                  onSettings={() => setSettingsFor(presence.id)}
                   onStarted={() => void look()}
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
@@ -4171,6 +4197,17 @@ export function App() {
           onOpenChange={(isOpen) => setSkillsFor(isOpen ? skillsFor : null)}
           module={skillsFor}
           name={byId.get(skillsFor)?.name ?? skillsFor}
+        />
+      ) : null}
+
+      {/* A module's settings, drawn from what it declared and saved by the module (protocol 2.15.0). */}
+      {settingsFor ? (
+        <ModuleSettingsDialog
+          open
+          onOpenChange={(isOpen) => setSettingsFor(isOpen ? settingsFor : null)}
+          module={settingsFor}
+          name={byId.get(settingsFor)?.name ?? settingsFor}
+          project={project ? { id: project.id, name: project.name } : null}
         />
       ) : null}
 

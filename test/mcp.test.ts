@@ -77,7 +77,7 @@ describe('the door says what it is and what it offers', () => {
     expect(result.capabilities).toEqual({ tools: {} })
   })
 
-  test('fifteen tools and no more', async () => {
+  test('sixteen tools and no more', async () => {
     const reply = await mcp({ id: 2, method: 'tools/list' }, door(), { name: 'kehikko', version: '0.1.0' })
     const tools = (reply.body as { result: { tools: { name: string }[] } }).result.tools
     /* The surface is still narrow on purpose, and the line has moved once:
@@ -100,6 +100,7 @@ describe('the door says what it is and what it offers', () => {
       'create_epic',
       'fold_modules',
       'mark_disposition',
+      'module_settings',
       'module_versions',
       'my_place',
       'pin_version',
