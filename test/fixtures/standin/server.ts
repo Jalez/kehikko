@@ -1,0 +1,66 @@
+/**
+ * A stand-in module for `dev/pages-take-input.drive.mjs`: a page with a text
+ * field, a button that counts its presses and a list that scrolls, and one
+ * toggle in its header. Everything a person does to a module's page, in the
+ * smallest page that lets a driver read whether it arrived.
+ *
+ *     bun test/fixtures/standin/server.ts <id> <name> <port> <host origins, space-separated>
+ *
+ * It greets the host the way a real module does (the protocol's `connect`),
+ * because a page the host has not greeted is drawn hidden.
+ */
+import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
+
+const [id, name, portText, origins] = process.argv.slice(2)
+if (!id || !name || !portText || !origins) throw new Error('usage: server.ts <id> <name> <port> <origins>')
+const port = Number(portText)
+
+const manifest = manifestSchema.parse({
+  kind: MANIFEST_KIND,
+  protocol: PROTOCOL,
+  id,
+  name,
+  version: '0.1.0',
+  dataVersion: 1,
+  summary: `${name}, a stand-in with a field, a button and a list.`,
+  tags: [],
+  guidance: `This canvas has ${name} on it; it is a stand-in and does nothing.`,
+  entry: '/app',
+  modes: [{ id: id.split('.').pop()!, label: name, scope: 'epic' }],
+  extensions: { emits: [], consumes: [] },
+  reacts: [],
+  partless: 'A stand-in for a test: it holds nothing of a part.',
+  declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: [], storage: true, prompt: false },
+  health: '/healthz',
+})
+
+const built = await Bun.build({ entrypoints: [`${import.meta.dir}/page.ts`], target: 'browser', minify: true })
+if (!built.success) throw new Error(built.logs.join('\n'))
+const script = await built.outputs[0]!.text()
+const json = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c')
+
+const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title>
+<style>
+  :root { color-scheme: light dark }
+  body { margin: 0; font: 13px system-ui; background: Canvas; color: CanvasText }
+  #list { height: 120px; overflow: auto; border: 1px solid GrayText; margin: 6px }
+  #list div { height: 24px }
+</style></head><body>
+<div style="padding:6px"><input id="field" placeholder="type here" autocomplete="off"> <button id="press">press</button>
+<span id="pressed">0</span> <span id="greeted">not greeted</span></div>
+<div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
+<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))} }</script>
+<script type="module">${script}</script></body></html>`
+
+Bun.serve({
+  port,
+  hostname: '127.0.0.1',
+  fetch(request) {
+    const { pathname } = new URL(request.url)
+    if (pathname === WELL_KNOWN) return Response.json(manifest)
+    if (pathname === '/healthz') return new Response('ok')
+    if (pathname === '/app') return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    return new Response('not here', { status: 404 })
+  },
+})
+console.log(`${id} answers on ${port}`)

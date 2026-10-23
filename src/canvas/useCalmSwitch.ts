@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Framing, Rect } from '@/canvas/Frames.tsx'
 import {
   ask,
+  deadline,
   due,
+  finish,
   interactive,
   layoutOf,
   looks,
@@ -29,9 +31,11 @@ import {
  * reads the incoming layout and moves the switch on, until it is `shown`.
  *
  * `ready` is whether the incoming kehikko can be drawn at all — the kehikot
- * have been read and the canvas has a width. Until it is, nothing settles and
- * the cap does not start: the first kehikko of a load waits for its data
- * rather than being shown empty after 300 ms.
+ * have been read and the canvas has a width. Until it is, nothing settles —
+ * but the cap runs all the same: `capMs` after the newest press the kehikko
+ * is shown and takes input, read or not. A canvas that stayed inert because a
+ * reading never came is a canvas nobody can use, and that was once the
+ * symptom people saw; see `deadline` in `host/switching.ts`.
  */
 export function useCalmSwitch({
   ready,
@@ -48,6 +52,8 @@ export function useCalmSwitch({
   slow: boolean
   /** Whether the incoming kehikko takes the pointer and the keyboard. */
   interactive: boolean
+  /** Whether the pages on screen are the ones being left, held, and take no input. */
+  pagesStill: boolean
   incoming: Look
   outgoing: Look
   pages: Look
@@ -80,7 +86,7 @@ export function useCalmSwitch({
   const move = useCallback((next: Switch) => {
     const was = stateRef.current
     stateRef.current = next
-    if (next.phase !== was.phase || next.asked !== was.asked || next.outgoing !== was.outgoing) setState(next)
+    if (next.phase !== was.phase || next.asked !== was.asked || next.pressed !== was.pressed || next.outgoing !== was.outgoing) setState(next)
   }, [stateRef])
   const [slow, setSlow] = useState(false)
 
@@ -156,6 +162,16 @@ export function useCalmSwitch({
     }
   }, [phase, timing, move, stateRef])
 
+  /* The hard ceiling, on a timer of its own: whatever the frames and the
+     layout readings did, the switch is over by `deadline`, the canvas takes
+     input, and whatever waited for it runs. */
+  const pressed = state.pressed
+  useEffect(() => {
+    if (phase === 'shown') return
+    const timer = setTimeout(() => move(finish(stateRef.current, now())), Math.max(0, deadline(stateRef.current, timing) - now()) + 40)
+    return () => clearTimeout(timer)
+  }, [phase, pressed, timing, move, stateRef])
+
   /* The quiet word, only for a switch slower than `slowMs`. */
   const asked = state.asked
   useEffect(() => {
@@ -189,6 +205,7 @@ export function useCalmSwitch({
     holding: pagesHeld(phase) && state.outgoing,
     slow,
     interactive: interactive(phase),
+    pagesStill: pagesHeld(phase),
     incoming: look.incoming,
     outgoing: look.outgoing,
     pages: look.pages,

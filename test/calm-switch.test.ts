@@ -7,7 +7,9 @@ import { arranged, type Wished } from '@/host/columns.ts'
 import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
   ask,
+  deadline,
   due,
+  finish,
   foldsOnlyChanged,
   held,
   interactive,
@@ -57,8 +59,9 @@ describe('the switch, phase by phase', () => {
     const run = frames(state, 0, ['a', 'b', 'b', 'b'])
     expect(run.phases).toEqual(['preparing', 'preparing', 'preparing', 'leaving'])
     state = run.state
+    /* Being shown: the chrome takes input, the pages held are still the old ones. */
     expect(pagesHeld(state.phase)).toBe(true)
-    expect(interactive(state.phase)).toBe(false)
+    expect(interactive(state.phase)).toBe(true)
 
     /* The fades run on time, whatever is read. */
     state = step(state, run.at + TIMING.leaveMs - 1, 'b')
@@ -72,24 +75,73 @@ describe('the switch, phase by phase', () => {
     expect(step(state, state.since + 10_000, 'x')).toBe(state)
   })
 
-  test('a layout that keeps moving is shown at the cap, counted from when it was first drawn', () => {
+  test('a layout that keeps moving is shown at the cap, counted from the press', () => {
     let state = ask(shown(0), 0, true)
-    /* Not drawn yet for half a second: nothing settles and the cap has not started. */
-    const waiting = frames(state, 0, Array.from({ length: 30 }, () => null))
-    expect(waiting.state.phase).toBe('preparing')
-    expect(waiting.state.drawn).toBeNull()
-    state = waiting.state
-    /* Then a layout that never stops changing. */
-    let at = waiting.at
-    let drawnAt: number | null = null
+    let at = 0
     for (let i = 0; state.phase === 'preparing' && i < 100; i += 1) {
       at += 16
       state = step(state, at, `moving-${i}`)
-      drawnAt ??= state.drawn
     }
     expect(state.phase).toBe('leaving')
-    expect(at - drawnAt!).toBeGreaterThanOrEqual(TIMING.capMs)
-    expect(at - drawnAt!).toBeLessThan(TIMING.capMs + 16)
+    expect(at).toBeGreaterThanOrEqual(TIMING.capMs)
+    expect(at).toBeLessThan(TIMING.capMs + 16)
+  })
+
+  /* The safety. 0.1.54 shipped a canvas no module page took input on; the
+     cause was a layer's pointer-events (`dev/pages-take-input.drive.mjs`), but
+     a switch that waited on a reading without a ceiling could do the same. */
+  test('a layout that never reads is shown, and takes input, at the cap all the same', () => {
+    const run = frames(ask(shown(0), 0, true), 0, Array.from({ length: 30 }, () => null))
+    const at = run.phases.indexOf('leaving')
+    expect(at).toBeGreaterThan(-1)
+    expect(16 * (at + 1)).toBeGreaterThanOrEqual(TIMING.capMs)
+    expect(16 * (at + 1)).toBeLessThan(TIMING.capMs + 16)
+    expect(interactive(run.phases[at] as Switch['phase'])).toBe(true)
+    /* No frames at all — a window the system stopped painting — and one late look. */
+    const late = step(ask(shown(0), 0, false), TIMING.capMs, null)
+    expect(interactive(late.phase)).toBe(true)
+    for (const timing of [TIMING, STILL]) {
+      expect(interactive(step(ask(shown(0), 0, true), timing.capMs, null, timing).phase)).toBe(true)
+      expect(interactive(step(ask(shown(0), 0, true), timing.capMs - 1, null, timing).phase)).toBe(false)
+    }
+  })
+
+  test('the cap counts from the newest press', () => {
+    let state = ask(shown(0), 0, true)
+    state = step(state, 200, 'a')
+    state = ask(state, 250, false)
+    expect(state.pressed).toBe(250)
+    expect(due(state, 250)).toBe(TIMING.capMs)
+    expect(step(state, 250 + TIMING.capMs - 1, null).phase).toBe('preparing')
+    expect(step(state, 250 + TIMING.capMs, null).phase).toBe('leaving')
+  })
+
+  test('the hard deadline: past it the switch is finished, whatever phase it was left in', () => {
+    const state = ask(shown(0), 100, true)
+    expect(deadline(state)).toBe(100 + TIMING.capMs + TIMING.leaveMs + TIMING.arriveMs)
+    for (const phase of ['preparing', 'leaving', 'arriving'] as const) {
+      const done = finish({ ...state, phase }, 900)
+      expect(done.phase).toBe('shown')
+      expect(interactive(done.phase)).toBe(true)
+      expect(pagesHeld(done.phase)).toBe(false)
+      expect(looks(done).incoming.opacity).toBe(1)
+      expect(looks(done).pages.opacity).toBe(1)
+    }
+    const already = shown(5)
+    expect(finish(already, 900)).toBe(already)
+  })
+
+  test('the hook holds a timer of its own to the deadline, and the canvas wrapper never takes the pointer', () => {
+    const hook = readFileSync(new URL('../src/canvas/useCalmSwitch.ts', import.meta.url), 'utf8')
+    expect(hook).toMatch(/setTimeout\(\(\) => move\(finish\(stateRef\.current, now\(\)\)\), Math\.max\(0, deadline\(/)
+    const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+    const wrapper = /<div\s+ref=\{calm\.incomingRef\}[^>]*>/.exec(app)?.[0] ?? ''
+    expect(wrapper).toContain('inert={!calm.interactive}')
+    expect(wrapper).toMatch(/className="[^"]*\bpointer-events-none\b/)
+    const outgoing = /<div ref=\{calm\.outgoingRef\}[^>]*>/.exec(app)?.[0] ?? ''
+    expect(outgoing).toMatch(/className="[^"]*\bpointer-events-none\b/)
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\[data-outgoing\],\s*\[data-outgoing\] \*,\s*\[data-switch\]\[inert\] \* \{\s*pointer-events: none !important;/)
   })
 
   test('with nothing on screen to leave, there is no fading out: preparing → arriving → shown', () => {
@@ -121,11 +173,11 @@ describe('the switch, phase by phase', () => {
 
   test('a hidden tab paints no frames, and the switch still ends: `due` says when to look again', () => {
     let state = ask(shown(0), 0, true)
-    expect(due(state, 0)).toBeNull()
+    expect(due(state, 0)).toBe(TIMING.capMs)
     state = step(state, 10, 'a')
-    expect(due(state, 10)).toBe(TIMING.capMs)
+    expect(due(state, 10)).toBe(TIMING.capMs - 10)
     /* One late look, with no frames between, is past the cap. */
-    state = step(state, 10 + TIMING.capMs, 'a')
+    state = step(state, TIMING.capMs, 'a')
     expect(state.phase).toBe('leaving')
     expect(due(state, state.since)).toBe(TIMING.leaveMs)
   })

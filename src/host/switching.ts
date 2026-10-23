@@ -75,7 +75,13 @@ export type Phase = 'preparing' | 'leaving' | 'arriving' | 'shown'
 export interface Timing {
   /** How many painted frames in a row the incoming layout must be unchanged to count as settled. */
   settledFrames: number
-  /** The longest the incoming kehikko is held back once it is drawn, settled or not. */
+  /**
+   * The longest the incoming kehikko is held back after the newest press,
+   * settled or not, drawn or not. A ceiling and not a guess: past it the
+   * kehikko is shown and takes the pointer whatever the layout says, so no
+   * reading of the page (a layout that never reads, a frame never painted, a
+   * window the system has stopped painting) can leave a canvas inert.
+   */
   capMs: number
   /** How long the outgoing kehikko takes to fade. */
   leaveMs: number
@@ -110,7 +116,9 @@ export interface Switch {
   phase: Phase
   /** When the switch was asked for: what `slowMs` counts from. */
   asked: number
-  /** When the incoming kehikko was first seen drawn, `null` until it has been: what `capMs` counts from. */
+  /** When the newest press was: what `capMs` counts from. A second press while preparing moves it. */
+  pressed: number
+  /** When the incoming kehikko was first seen drawn, `null` until it has been. */
   drawn: number | null
   /** When the phase began. */
   since: number
@@ -123,7 +131,7 @@ export interface Switch {
 
 /** Nothing happening: the state a page has once it has shown a kehikko. */
 export function shown(now: number): Switch {
-  return { phase: 'shown', asked: now, drawn: null, since: now, last: null, still: 0, outgoing: false }
+  return { phase: 'shown', asked: now, pressed: now, drawn: null, since: now, last: null, still: 0, outgoing: false }
 }
 
 /**
@@ -133,26 +141,27 @@ export function shown(now: number): Switch {
  * on screen, and keeps counting the slowness from the first press.
  */
 export function ask(state: Switch, now: number, outgoing: boolean): Switch {
-  if (state.phase === 'preparing') return { ...state, drawn: null, last: null, still: 0, outgoing: state.outgoing || outgoing }
-  return { phase: 'preparing', asked: now, drawn: null, since: now, last: null, still: 0, outgoing }
+  if (state.phase === 'preparing') return { ...state, pressed: now, drawn: null, last: null, still: 0, outgoing: state.outgoing || outgoing }
+  return { phase: 'preparing', asked: now, pressed: now, drawn: null, since: now, last: null, still: 0, outgoing }
 }
 
 /**
  * One painted frame, with the incoming layout as read on it — `null` when it
  * cannot be read yet (the kehikot are still being fetched, the canvas has no
- * width), which neither settles nor starts the cap.
+ * width), which does not settle it. Nothing stops the cap: `capMs` after the
+ * newest press the kehikko moves on, read or not.
  */
 export function step(state: Switch, now: number, layout: string | null, timing: Timing = TIMING): Switch {
   switch (state.phase) {
     case 'shown':
       return state
     case 'preparing': {
-      if (layout === null) return state
-      let next: Switch
-      if (state.drawn === null) next = { ...state, drawn: now, last: layout, still: 0 }
+      let next: Switch = state
+      if (layout === null) next = state
+      else if (state.drawn === null) next = { ...state, drawn: now, last: layout, still: 0 }
       else if (layout === state.last) next = { ...state, still: state.still + 1 }
       else next = { ...state, last: layout, still: 0 }
-      const settled = next.still >= timing.settledFrames || now - (next.drawn ?? now) >= timing.capMs
+      const settled = next.still >= timing.settledFrames || now - next.pressed >= timing.capMs
       return settled ? after(next, 'preparing', now, timing) : next
     }
     case 'leaving':
@@ -184,7 +193,7 @@ export function due(state: Switch, now: number, timing: Timing = TIMING): number
     case 'shown':
       return null
     case 'preparing':
-      return state.drawn === null ? null : Math.max(0, state.drawn + timing.capMs - now)
+      return Math.max(0, state.pressed + timing.capMs - now)
     case 'leaving':
       return Math.max(0, state.since + timing.leaveMs - now)
     case 'arriving':
@@ -202,9 +211,30 @@ export function pagesHeld(phase: Phase): boolean {
   return phase === 'preparing' || phase === 'leaving'
 }
 
-/** Whether the incoming kehikko takes the pointer and the keyboard: only once it is being shown. */
+/**
+ * Whether the incoming kehikko takes the pointer and the keyboard: from the
+ * moment it starts being shown, which is at most `capMs` after the newest
+ * press. Its pages wait for `pagesHeld` to end as well — until then the pages
+ * on screen are the ones being left.
+ */
 export function interactive(phase: Phase): boolean {
-  return phase === 'arriving' || phase === 'shown'
+  return phase !== 'preparing'
+}
+
+/**
+ * The latest a switch may still be under way, from its newest press: the cap
+ * and both fades. `useCalmSwitch` holds a timer to it of its own, apart from
+ * the frames and from `step`, and shows the kehikko when it fires — so a
+ * driver that stopped (an effect that threw, a frame never painted) cannot
+ * leave the canvas inert either.
+ */
+export function deadline(state: Switch, timing: Timing = TIMING): number {
+  return state.pressed + timing.capMs + timing.leaveMs + timing.arriveMs
+}
+
+/** The switch ended where it stands: shown, and taking input. */
+export function finish(state: Switch, now: number): Switch {
+  return state.phase === 'shown' ? state : { ...state, phase: 'shown', since: now }
 }
 
 /**

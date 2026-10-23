@@ -3987,12 +3987,23 @@ export function App() {
          * While a switch prepares it, it is drawn at its final size, invisible
          * and `inert`: no click, no Tab, no screen reader reaches a kehikko
          * that is not shown yet. See `canvas/useCalmSwitch.ts`.
+         *
+         * `pointer-events-none`, and that is the line this element cannot do
+         * without. It is as big as the canvas and stacked above the pages, so
+         * without it every click and wheel meant for a module's page landed on
+         * this div instead, and with no click there is no focus to type into:
+         * 0.1.54 and 0.1.55 shipped that, in every browser, and no module page
+         * took input. The rule in
+         * `index.css` that makes the grid transparent to the pointer covers
+         * the grid and its items, not a wrapper put around them — any layer
+         * added over the pages needs the same, and `dev/pages-take-input.drive.mjs`
+         * (run by `bun test`) is what proves it with a real pointer.
          */}
         <div
           ref={calm.incomingRef}
           data-switch={calm.phase}
           inert={!calm.interactive}
-          className="relative z-[1] h-full"
+          className="pointer-events-none relative z-[1] h-full"
           style={fade(calm.incoming)}
         >
         {width === null ? null : (
@@ -4303,7 +4314,7 @@ export function App() {
           watcherFor={watcherFor}
           onDocument={onDocument}
           moving={moving}
-          still={!calm.interactive}
+          still={calm.pagesStill}
           layer={fade(calm.pages)}
         />
           </>

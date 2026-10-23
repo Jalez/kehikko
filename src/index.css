@@ -177,6 +177,25 @@
 }
 
 /*
+ * And every layer over the pages that is not the grid: the wrapper the
+ * incoming kehikko is drawn in (`data-switch`) and the still copy of the one
+ * being left (`data-outgoing`). The wrapper is transparent to the pointer
+ * itself (`App.tsx` says why that line matters); these say the rest.
+ *
+ * The still copy is a clone of the grid, so it carries the headers'
+ * `pointer-events: auto` with it. It is `inert`, and a browser that hit-tests
+ * an inert subtree as `pointer-events: none` needs nothing more — but that is
+ * a browser's reading of the spec, and the copy sits over every page while a
+ * switch is prepared. Nothing in it is ever a target, by rule rather than by
+ * attribute. The same for an incoming kehikko that is not shown yet.
+ */
+[data-outgoing],
+[data-outgoing] *,
+[data-switch][inert] * {
+  pointer-events: none !important;
+}
+
+/*
  * The grid animates only what a person did to it.
  *
  * `react-grid-layout` transitions every placement change — `transform`,
