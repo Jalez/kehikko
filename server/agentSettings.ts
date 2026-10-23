@@ -15,6 +15,7 @@ import {
 } from '../src/host/agentSettings.ts'
 import { noticesPatched } from '../src/host/trackerNotices.ts'
 import { readNotices, writeNotices } from './trackerNotices.ts'
+import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -197,6 +198,8 @@ export interface SettingsDeps {
   changed(settings: AgentSettings): void
   /** The tracker notices setting changed: every project's notices again. */
   noticesChanged?(): void
+  /** "Keep this project's modules running" changed: decide again what runs. */
+  modulesChanged?(keep: boolean): void
   skillsAt(): string
   hook?(): StartHook
 }
@@ -205,7 +208,8 @@ export interface SettingsDeps {
  * `GET /host/settings` and `POST /host/settings`.
  *
  * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
- * any subset), or a change of the settings (`{ settings: { tools: { auto } } }`,
+ * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
+ * `keepRunning.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
  * what a module's own Tools and Skills windows send, so two windows each
@@ -218,6 +222,7 @@ export function settingsRoute(deps: SettingsDeps) {
     status: deps.status(),
     hook: (deps.hook ?? (() => startHook()))(),
     notices: readNotices(deps.db),
+    modules: { keep: readKeepRunning(deps.db) },
     skillsAt: deps.skillsAt(),
   })
 
@@ -228,7 +233,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -241,6 +246,16 @@ export function settingsRoute(deps: SettingsDeps) {
       if (!next) return json({ ok: false, why: 'That is not a change the tracker notices take.' }, 400)
       writeNotices(deps.db, next)
       deps.noticesChanged?.()
+      return json(answer())
+    }
+
+    if (body.modules !== undefined) {
+      const keep = keepRunningChange(body.modules)
+      if (keep === null) return json({ ok: false, why: 'A change of the running modules is { keep: true } or { keep: false }.' }, 400)
+      if (keep !== readKeepRunning(deps.db)) {
+        writeKeepRunning(deps.db, keep)
+        deps.modulesChanged?.(keep)
+      }
       return json(answer())
     }
 

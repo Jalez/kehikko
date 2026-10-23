@@ -54,16 +54,22 @@ import {
   lifecycleOf,
   MIN_RUN_MS,
   silentSaid,
+  STARTING_FOR_MS,
   THEIRS_TO_RESTART_MS,
   toStart,
   toStop,
+  toWarm,
   toWatch,
+  wanted,
   WATCH_EVERY_MS,
   type Doing,
+  type Wanted,
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
 import { installing, logFile, openRun, tail, trim } from './moduleLog.ts'
+import { readKeepRunning } from './keepRunning.ts'
+import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -1118,13 +1124,18 @@ function theirReturn(id: string): void {
  * lets the reaper run on a timer without the timer costing anything.
  */
 function neededNow(now = Date.now()): Set<string> {
-  const openIds = new Set(openness.every(now))
-  const needed = new Set<string>()
-  for (const canvas of listCanvases(db)) {
-    if (!openIds.has(canvas.id)) continue
-    for (const placement of canvas.placements) needed.add(placement.i)
-  }
-  return needed
+  return wantedNow(now).needed
+}
+
+/**
+ * What is needed, and what is warm: every module on another kehikko of a
+ * project a live page has open, in the order to start them — the project's
+ * kehikot in their order, then each one's containers — unless the person
+ * turned "Keep this project's modules running" off (`keepRunning.ts`). A
+ * module on both is needed, not warm. Local, like `neededNow`.
+ */
+function wantedNow(now = Date.now()): Wanted {
+  return wanted(listCanvases(db), new Set(openness.every(now)), readKeepRunning(db))
 }
 
 /** What the host is doing to one module, for `lifecycleOf`. */
@@ -1138,7 +1149,7 @@ function doing(id: string): Doing {
     /* Read only for a start still in flight: it is a file read. */
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
-    levelling: levelling.has(id),
+    levelling: releases.applying(id),
   }
 }
 
@@ -1157,8 +1168,12 @@ function isStarting(id: string, now: number): boolean {
  * exhaustively without a process ever being created.
  */
 function standings(presences: readonly Presence[], now: number): Standing[] {
-  const needed = neededNow(now)
+  const { needed, warm } = wantedNow(now)
   idleness.noted(needed, now)
+  /* Warm counts as needed for idleness: a module on another kehikko of the
+     open project is idle from when the project closed, not from when the
+     person last looked at its kehikko. */
+  idleness.noted(warm.keys(), now)
 
   /* A module whose registration is gone stops being remembered anywhere here.
      Not housekeeping for its own sake: an entry left in `sleeping` would keep
@@ -1172,6 +1187,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
   for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
   for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
   staleness.forgetAllBut(here)
+  releases.forgetAllBut(here)
   for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
 
   return presences.map((presence) => {
@@ -1180,9 +1196,15 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
        the nursery is also what drops a pid whose process has died — so a module
        somebody restarted by hand stops being ours at the moment we look. */
     const startedAt = nursery.startedAt(presence.id)
+    /* Answering ends a start, whoever asked: without this a module that came
+       up stayed "starting" here until a page's own sweep said otherwise, and
+       the project's next modules (`toWarm`) waited the whole `STARTING_FOR_MS`
+       behind it. */
+    if (presence.condition !== 'silent') starting.delete(presence.id)
     return {
       id: presence.id,
       needed: needed.has(presence.id),
+      warm: warm.get(presence.id) ?? null,
       answering: presence.reached,
       startable: startable(registration).ok,
       ours: startedAt !== null,
@@ -1208,9 +1230,11 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
  * directory they chose. The press has not disappeared; it has moved from a
  * button on the container to the act of opening the kehikko the container is on.
  *
- * Nothing is started that is not on an open kehikko. There is no warming, no
- * prediction and no retry loop: a start that does not take is a container that
- * says so, with the button on it, which is where this began.
+ * Nothing is started that is not on an open kehikko or on another kehikko of
+ * the project it is in (`toWarm`, while the person keeps a project's modules
+ * running — the kehikot they arranged in the project they have open). There
+ * is no prediction beyond that and no retry loop: a start that does not take is
+ * a container that says so, with the button on it, which is where this began.
  */
 function begin(id: string): void {
   /* A host on its way out starts nothing: see `leave` below. */
@@ -1218,50 +1242,66 @@ function begin(id: string): void {
   /* Somebody else was running it and it has only just gone: theirs to bring
      back first. See `THEIRS_TO_RESTART_MS`. */
   if (theirs.has(id)) return
-  /* Being moved to its newest release (or level with its branch); started when that is done. */
-  if (levelling.has(id)) return
+  /* A newer release is being put in place while it is stopped (`applyWaiting`);
+     started when that is done. */
+  if (releases.applying(id)) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
-  if (registration?.dir && isInstalled(registration.dir) && Date.now() - (levelledAt.get(id) ?? 0) > LEVEL_AT_MOST_EVERY_MS) {
-    levelling.add(id)
-    void level({ id, name: id, dir: registration.dir, releases: follower })
-      .catch((error: unknown) => console.log(`kehikko: could not bring ${id} level before starting it: ${String(error)}`))
-      .finally(() => {
-        levelling.delete(id)
-        levelledAt.set(id, Date.now())
-        begin(id)
-        /* The start this was on the way to happened after whatever asked for
-           it had its answer, so the pages are told rather than left to find
-           out on the next focus or press. The fault this closes: after a
-           launch every installed module levels first, the page's sweep read
-           them as not running, and the canvas offered Start over modules that
-           were already up until somebody switched apps and back. */
-        wakes.registryChanged()
-      })
-    return
-  }
   const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
-  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko has it (pid ${ran.child.pid})`)
+  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko or project has it (pid ${ran.child.pid})`)
+  /* The copy as it is starts now; whether a newer release is out is asked
+     beside it, never before it. See `releaseWait.ts`. */
+  const place = installedPlace(id)
+  if (place) void releases.started(place)
+  void untilAnswered(id, can.run.url)
+}
+
+/**
+ * The moment a module the host started answers, decide again and tell the
+ * pages — instead of the page finding out on its next 1.5-second look, and
+ * so that the next of the project's modules (`toWarm`) starts as soon as
+ * there is room. Bounded by `STARTING_FOR_MS`, after which the host has
+ * stopped saying "starting" anyway.
+ */
+async function untilAnswered(id: string, url: string): Promise<void> {
+  const at = runs.get(id)
+  const up = await answered(url, WELL_KNOWN, STARTING_FOR_MS)
+  /* Replaced or stopped meanwhile: whoever did that decides. */
+  if (!up || runs.get(id) !== at) return
+  try {
+    if (sweeping) await sweeping.catch(() => null)
+    const view = await sweep()
+    govern(view.presences)
+    /* A wake makes every page sweep: only for a module somebody is looking at. */
+    if (neededNow().has(id)) wakes.registryChanged()
+  } catch {
+    /* Nothing found out; the page's own look and the watch still ask. */
+  }
 }
 
 /**
  * A module the app installed runs its repository's releases.
  *
  * Installed modules (`installs.ts`) live in a folder this host owns and nobody
- * works in. Before one is started it is moved to the newest release this host
- * can run — its tags fetched, and the newer release's tag checked out — so
- * what the app runs is what was released (`moduleReleases.ts`). A repository
- * with no release yet is brought level with `main` instead, fast-forward only,
- * as before releases. Only at a start: a module that is running is never
- * changed under the person using it. `update` refuses a copy with changes of
- * its own, and then the copy starts as it is and the log says why.
+ * works in. It runs the newest release this host can run — its tags fetched,
+ * and the newer release's tag checked out — so what the app runs is what was
+ * released (`moduleReleases.ts`). A repository with no release yet is brought
+ * level with `main` instead, fast-forward only, as before releases.
+ *
+ * A start never waits for that. The copy starts as it is; the check runs beside
+ * it (`releaseWait.ts`), and a newer release it finds is put in place when the
+ * module next stops (`applyWaiting`) or is restarted (`restart`), or when the
+ * person presses Update. A module that is running is never changed under the
+ * person using it. `update` refuses a copy with changes of its own, and then
+ * the copy stays as it is and the log says why.
  */
-const levelling = new Set<string>()
-const levelledAt = new Map<string, number>()
-/** How often a module is checked against its branch on its way to starting. */
-const LEVEL_AT_MOST_EVERY_MS = 10 * 60_000
+const releases = new ReleaseWaits({
+  check: async (place) => foundIn(await readCheckout(place, true)),
+  apply: (place) => level(place),
+  log: (line) => console.log(line),
+})
 
 function isInstalled(dir: string): boolean {
   const root = installsDir()
@@ -1277,26 +1317,49 @@ function isInstalled(dir: string): boolean {
   return inside === under || inside.startsWith(`${under}/`)
 }
 
+/** An installed module's place, with the follower that reads its releases; null for anything else. */
+function installedPlace(id: string): Place | null {
+  const dir = registered.get(id)?.dir
+  return dir && isInstalled(dir) ? { id, name: id, dir, releases: follower } : null
+}
+
+/**
+ * Put a waiting release in place, on a module that is not running. Local: the
+ * check already fetched its tags, so this is a checkout (and a `bun install`
+ * when the lockfile moved), nothing asked of the network.
+ */
 async function level(place: Place): Promise<void> {
-  const reading = await readCheckout(place, true)
+  const reading = await readCheckout(place, false)
   if ('error' in reading) {
-    console.log(`kehikko: could not read ${place.dir} before starting ${place.id}: ${reading.error}`)
+    console.log(`kehikko: could not read ${place.dir} before updating ${place.id}: ${reading.error}`)
     return
   }
-  if (!hasUpdate(reading)) {
-    if (reading.release?.follows === 'ahead') console.log(`kehikko: ${place.id} stays where it is: ${reading.blocked}`)
-    return
-  }
-  if (reading.blocked) {
-    console.log(`kehikko: ${place.id} is behind ${reading.upstream} and was not updated: ${reading.blocked}`)
-    return
-  }
+  if (!hasUpdate(reading) || reading.blocked) return
   const done = await update(place)
   console.log(
     done.ok
-      ? `kehikko: brought ${place.id} to ${reading.upstream} before starting it (${done.changed.length} files changed)`
+      ? `kehikko: brought ${place.id} to ${reading.release?.target ?? reading.upstream} while it was stopped (${done.changed.length} files changed)`
       : `kehikko: ${done.why}`,
   )
+}
+
+/**
+ * The reaper stopped a module that had a release waiting: once its process has
+ * let go of its port, put the release in place, then decide again — a page
+ * that opened its kehikko meanwhile was told "starting" and gets it now.
+ */
+async function applyWaiting(id: string, url: string): Promise<void> {
+  const place = installedPlace(id)
+  if (!place || releases.waiting(id) === null) return
+  try {
+    await gone(url, WELL_KNOWN)
+    if (nursery.holds(id)) return
+    await releases.apply(place)
+  } finally {
+    void sweep()
+      .then((view) => govern(view.presences))
+      .catch(() => null)
+  }
 }
 
 /**
@@ -1458,7 +1521,13 @@ function notice(presences: readonly Presence[], now: number): void {
 
 /** The same decision, from standings the caller already gathered. */
 function act(standing: readonly Standing[], now: number, mayStart: boolean): void {
-  if (mayStart) for (const id of toStart(standing)) begin(id)
+  if (mayStart) {
+    for (const id of toStart(standing)) begin(id)
+    /* The rest of the open project, in the background: nothing while the
+       open kehikko's own are still to start, a few at a time after. The next
+       few start when one answers (`untilAnswered`). */
+    for (const id of toWarm(standing)) begin(id)
+  }
 
   /* The versions containers are pinned to, by the same rule as the modules:
      started for an open kehikko, stopped when nothing pins them or nobody has
@@ -1471,7 +1540,9 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
     if (was !== 'stopped') continue
     sleeping.set(id, now)
     starting.delete(id)
-    console.log(`kehikko: stopped ${id} — no open kehikko has had it for the grace period`)
+    console.log(`kehikko: stopped ${id} — no open kehikko or project has had it for the grace period`)
+    const url = registered.get(id)?.url
+    if (url) void applyWaiting(id, url)
   }
 
   tether(standing)
@@ -1930,6 +2001,9 @@ async function restart(
     /* Said only of a module that was running: one that was not is starting. */
     if (halted.was === 'running') working.set(id, 'restarting')
     wakes.registryChanged()
+    /* A release a check found while it ran goes in now, while it is down. */
+    const waiting = releases.waiting(id) === null ? null : installedPlace(id)
+    if (waiting) await releases.apply(waiting)
     return await bringUp(id, runnable, within)
   } finally {
     working.delete(id)
@@ -2049,6 +2123,13 @@ const settingsDesk = settingsRoute({
   changed: () => agentSync.poke(),
   noticesChanged: () => {
     for (const one of trackerNotices.restate(listProjects(db).map((project) => project.id))) wakes.inboxChanged(one.project, one.rev)
+  },
+  /* On: the rest of the open project starts now. Off: it is no longer warm,
+     and the reaper stops it after the grace period like anything unneeded. */
+  modulesChanged: () => {
+    void sweep()
+      .then((view) => govern(view.presences))
+      .catch(() => null)
   },
   skillsAt: () => claudeSkillsDir(),
 })

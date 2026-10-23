@@ -3,7 +3,7 @@ import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
 
 import { readableBy } from '@/host/context.ts'
 
-import { whileFrozen } from '@/host/context.ts'
+import { whileAway, whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { answeredFor } from '@/host/division.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
@@ -55,6 +55,7 @@ export function ModuleFrame({
   pinned,
   prompt,
   filters,
+  away = false,
 }: {
   module: FramedModule
   context: ModuleContext
@@ -100,6 +101,12 @@ export function ModuleFrame({
    * has to ride on the channel the host re-sends when the canvas moves.
    */
   filters: FilterChoice
+  /**
+   * Its module is not on the open kehikko: the page is kept, hidden, and is
+   * not told the open kehikko's context — see `whileAway`. Coming back sends
+   * the context as it is then.
+   */
+  away?: boolean
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
@@ -149,6 +156,8 @@ export function ModuleFrame({
 
   const contextRef = useRef(told)
   contextRef.current = told
+  const awayRef = useRef(away)
+  awayRef.current = away
   /* Same reason as the context, and the timing matters more here: the kept
      state arrives with the registry sweep, which can land either side of the
      frame's load. A module greeted with `null` because the sweep had not
@@ -258,7 +267,10 @@ export function ModuleFrame({
       /* What this host will answer for THIS module, from the manifest it last
          read. A manifest not read gives `null`: unknown, never a wrong list. */
       const uses = usesRef.current
-      conversation.greet(contextRef.current, stateRef.current, Array.isArray(uses) ? answeredFor(uses) : null)
+      /* A page that reloads while its kehikko is not open is greeted with
+         what it was last told there, not with the open kehikko's context. */
+      const greeting = awayRef.current && sentContext.current ? sentContext.current : contextRef.current
+      conversation.greet(greeting, stateRef.current, Array.isArray(uses) ? answeredFor(uses) : null)
       onDocumentRef.current?.(framed.id, 'loaded')
     }
     frame.addEventListener('load', onLoad)
@@ -384,6 +396,15 @@ export function ModuleFrame({
   const sentContext = useRef<ModuleContext | null>(null)
 
   useEffect(() => {
+    /* On another kehikko: what it was told on its own stays, but for the theme. */
+    if (away) {
+      const relit = whileAway(sentContext.current, told)
+      if (!relit) return
+      sentContext.current = relit
+      conversationRef.current?.sendContext(relit)
+      return
+    }
+
     const froze = sentPinned.current !== pinned
     sentPinned.current = pinned
 
@@ -399,7 +420,7 @@ export function ModuleFrame({
     if (!relit) return
     sentContext.current = relit
     conversationRef.current?.sendContext(relit)
-  }, [told, pinned])
+  }, [told, pinned, away])
 
   /*
    * The frame's address: the entry, with the theme the host is drawing in NOW

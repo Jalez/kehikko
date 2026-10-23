@@ -145,10 +145,12 @@
   private repository works with their `gh`/ssh credentials), cached by
   `TagLister` and asked afresh at most once a minute, and only on a check: a
   reading without `fetch` uses the copy's own tags. A fresh install is put on
-  the newest release before `bun install` (`settle`). Before a module starts
-  (`level` in `server/server.ts`, at most every ten minutes; never while it
-  runs) or when the person presses Update, the copy moves to a newer release:
-  tags fetched, `git checkout --detach refs/tags/<tag>`.
+  the newest release before `bun install` (`settle`). A start NEVER waits for
+  a release check: the copy starts as it is, and the check runs beside it (at
+  most every ten minutes, `server/releaseWait.ts`). A newer release it finds
+  WAITS, and is put in place (tags already fetched, `git checkout --detach
+  refs/tags/<tag>`) only while the module is not running: when the reaper next
+  stops it, when it is restarted, or when the person presses Update.
 - A repository with no release yet: the copy follows `main` as before ("following
   main · no releases yet"), fast-forward only. A copy on `main` moves to the
   newest release that contains its commit; one AHEAD of the newest release is
@@ -193,6 +195,24 @@
 - What reaches the app is what is RELEASED (what is merged to main, for a
   module with no release yet); the host itself reaches people only through a
   desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
+
+## Switching kehikot is warm
+
+- A module on the open kehikko is NEEDED; one on another kehikko of a project a
+  page has open is WARM (`wanted` in `server/lifecycle.ts`). Warm modules are
+  started in the background once the open kehikko's own are up, `WARM_AT_ONCE`
+  at a time in kehikko order (`toWarm`), and are never stopped while warm; the
+  ordinary idle rule (`GRACE_MS`, `keep`, only what the host started) applies
+  once the project closes. Watch and tether stay on the open kehikko's.
+- Settings › Module tools › "Keep this project's modules running" (default on;
+  `server/keepRunning.ts`, `{ modules: { keep } }` on `POST /host/settings`).
+  Off, nothing is warm.
+- The host wakes the pages the moment a module it started answers
+  (`untilAnswered`), so a container does not wait for the page's 1.5 s look.
+- The page keeps the pages of the open kehikko and the last `KEPT_KEHIKOT` left
+  (`recentlyOpen`, `framesKept` in `src/host/canvases.ts`); a hidden page is
+  `inert` (`hiddenFrame`) and is not told the open kehikko's context
+  (`away`, `whileAway` in `src/host/context.ts`): its place is its own kehikko.
 
 ## A folder nobody picked is never written
 

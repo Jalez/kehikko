@@ -11,7 +11,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 12
+const TESTS = 14
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -226,6 +226,38 @@ test('Skills: a kehikko-bound skill is said where it works, not as a chip to ins
   expect(row.querySelector('[data-note]')!.textContent).toBe(`/review-factory · ${where}`)
   expect(row.textContent).not.toContain('Install ')
   expect(document.querySelector('[data-status="skills"]')!.textContent).toBe('2 installed, 1 changed by you, 1 only on a kehikko')
+})
+
+test('Module tools: “Keep this project’s modules running”, on by default, with its memory price, sent as it is pressed', async () => {
+  if (!inChild) return
+  const saved: unknown[] = []
+  await render(
+    <Settings.SettingsDialog
+      open
+      onOpenChange={() => {}}
+      load={async () => answer({ modules: { keep: true } })}
+      save={(async (change: { modules?: { keep: boolean } }) => {
+        saved.push(change)
+        return answer({ modules: { keep: change.modules?.keep ?? true } })
+      }) as typeof Settings.postSettings}
+      section="tools"
+    />,
+  )
+  const keep = switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!
+  expect(keep).toBeTruthy()
+  expect(on(keep)).toBe(true)
+  const about = document.getElementById(keep.getAttribute('aria-describedby')!)!
+  expect(about.textContent).toContain('MB of memory')
+  expect(about.textContent).toContain('only the open kehikko’s modules run')
+  await act(async () => keep.click())
+  expect(saved).toEqual([{ modules: { keep: false } }])
+  expect(on(switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!)).toBe(false)
+})
+
+test('Module tools: no keep-running switch from a host that does not say it', async () => {
+  if (!inChild) return
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} section="tools" />)
+  expect(switches().some((one) => named(one) === Settings.KEEP_RUNNING.label)).toBe(false)
 })
 
 test('the module list is searched by name or id', async () => {

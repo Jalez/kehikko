@@ -339,4 +339,6 @@ export interface SettingsAnswer {
   skillsAt: string
   /** Tracker notices in the Inbox (`trackerNotices.ts`). Absent from an older host. */
   notices?: NoticeSettings
+  /** "Keep this project's modules running" (`server/keepRunning.ts`). Absent from an older host. */
+  modules?: { keep: boolean }
 }
