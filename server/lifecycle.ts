@@ -21,8 +21,13 @@
  *  - A module on a kehikko an open page is looking at is NEEDED.
  *  - A needed module that nothing answers for is STARTED, if its registration
  *    says how.
- *  - A module that has not been needed for `GRACE_MS` is STOPPED — but only if
- *    this host process started it, and only if its owner has not said to keep it.
+ *  - A module on ANOTHER kehikko of a project a page has open is WARM (unless
+ *    the person turned "Keep this project's modules running" off): started in
+ *    the background once the open kehikko's own are up, `WARM_AT_ONCE` at a
+ *    time, and not stopped while it stays warm. See `toWarm`.
+ *  - A module that has been neither needed nor warm for `GRACE_MS` is STOPPED —
+ *    but only if this host process started it, and only if its owner has not
+ *    said to keep it.
  *  - Nothing is started because it exists. Boot starts nothing.
  *
  * ## Why the grace period is five minutes
@@ -148,6 +153,13 @@ export interface Standing {
   /** On a kehikko that some live page says it has open. */
   needed: boolean
   /**
+   * On another kehikko of a project some live page has open, and the person
+   * keeps a project's modules running: the order to start it in, lowest first
+   * (the project's kehikot in their order, then each one's containers). Null
+   * or absent when it is on none, or the setting is off. See `toWarm`.
+   */
+  warm?: number | null
+  /**
    * Something answered at its address — anything at all, including a 404 or a
    * document that was not a manifest.
    *
@@ -187,10 +199,12 @@ export interface Standing {
 /**
  * Which modules to start, right now.
  *
- * Only ever a module somebody is looking at the container of. There is no
- * warming, no prediction, and no starting of the other twelve because one was
- * wanted — a host that ran programs on a guess is the thing `launch.ts` refuses
- * in its own essay, and a guess dressed as an optimisation is still a guess.
+ * Only ever a module somebody is looking at the container of. The other
+ * modules of the project open are `toWarm`'s, and that is not a guess either:
+ * they are on kehikot the person arranged in the project they have open, and
+ * switching to one of those is a click. Nothing on no open project's kehikko
+ * is ever started — a host that ran programs on a guess is the thing
+ * `launch.ts` refuses in its own essay.
  */
 export function toStart(standings: readonly Standing[]): string[] {
   return standings
@@ -198,6 +212,89 @@ export function toStart(standings: readonly Standing[]): string[] {
        running and has not bound its port — compiling, or hung. A second copy
        beside it would race it for the port. */
     .filter((s) => s.needed && !s.answering && s.startable && !s.starting && !s.failed && !s.ours)
+    .map((s) => s.id)
+}
+
+/** What the open pages want running: see `wanted`. */
+export interface Wanted {
+  /** On a kehikko a live page has open. */
+  needed: Set<string>
+  /** On another kehikko of a project a live page has open, by the order to start it in. */
+  warm: Map<string, number>
+}
+
+/**
+ * Which modules are needed and which are warm, from the kehikot and which of
+ * them live pages have open.
+ *
+ * Needed is the old rule, unchanged: on an open kehikko. Warm is every other
+ * module on any kehikko of a project one of those is in — numbered in the
+ * order of the project's kehikot (as `listCanvases` gives them) and then each
+ * one's containers, so the next kehikko in the list comes first. A module on
+ * both is needed, not warm. With `keep` off (the person turned "Keep this
+ * project's modules running" off) nothing is warm. A kehikko in no project
+ * makes only itself needed: a project of null is not a project.
+ */
+export function wanted(
+  canvases: readonly { id: number; project: number | null; placements: readonly { i: string }[] }[],
+  open: ReadonlySet<number>,
+  keep: boolean,
+): Wanted {
+  const needed = new Set<string>()
+  const projects = new Set<number>()
+  for (const canvas of canvases) {
+    if (!open.has(canvas.id)) continue
+    if (canvas.project !== null) projects.add(canvas.project)
+    for (const placement of canvas.placements) needed.add(placement.i)
+  }
+  const warm = new Map<string, number>()
+  if (!keep || projects.size === 0) return { needed, warm }
+  for (const canvas of canvases) {
+    if (open.has(canvas.id) || canvas.project === null || !projects.has(canvas.project)) continue
+    for (const placement of canvas.placements) {
+      if (!needed.has(placement.i) && !warm.has(placement.i)) warm.set(placement.i, warm.size)
+    }
+  }
+  return { needed, warm }
+}
+
+/**
+ * How many of a project's other modules are started at once in the background.
+ *
+ * Measured: a module's dev server binds in 0.2–0.3 s and its first page load
+ * transforms for 0.3–0.6 s, each a burst of CPU. Two at a time keeps a
+ * project of twelve modules warm inside a few seconds without a burst of
+ * twelve competing with the kehikko the person is actually looking at.
+ */
+export const WARM_AT_ONCE = 2
+
+/** Whether a module is on another kehikko of an open project. */
+function isWarm(s: Standing): boolean {
+  return s.warm !== undefined && s.warm !== null
+}
+
+/**
+ * Which of an open project's OTHER modules to start, right now, in the
+ * background.
+ *
+ * Lowest priority, by construction: nothing while a module on the open
+ * kehikko is still to be started or is starting, and at most `atOnce` warm
+ * starts in flight. The order is `warm`'s — the project's kehikot in their
+ * order — so the kehikko a person is likeliest to open next comes first.
+ * Every gate `toStart` has applies here too: a module somebody else runs, one
+ * already up, one that failed to start, or one that cannot be started is
+ * never started by this.
+ */
+export function toWarm(standings: readonly Standing[], atOnce = WARM_AT_ONCE): string[] {
+  if (toStart(standings).length > 0) return []
+  if (standings.some((s) => s.needed && s.starting)) return []
+  const busy = standings.filter((s) => isWarm(s) && !s.needed && s.starting).length
+  const room = atOnce - busy
+  if (room <= 0) return []
+  return standings
+    .filter((s) => isWarm(s) && !s.needed && !s.answering && s.startable && !s.starting && !s.failed && !s.ours)
+    .sort((a, b) => (a.warm ?? 0) - (b.warm ?? 0) || a.id.localeCompare(b.id))
+    .slice(0, room)
     .map((s) => s.id)
 }
 
@@ -303,8 +400,8 @@ export function toStop(standings: readonly Standing[], now: number, grace = GRAC
       if (!s.ours) return false
       /* The owner said no. */
       if (s.keep) return false
-      /* Somebody is looking at it. */
-      if (s.needed) return false
+      /* Somebody is looking at it, or at another kehikko of its project. */
+      if (s.needed || isWarm(s)) return false
       /* Still coming up. Killing a module mid-start would leave a half-booted
          dev server and a container that had said "starting" and then lied. */
       if (s.starting) return false
@@ -372,10 +469,10 @@ export interface Doing {
   /** The host stopped it because nothing needed it. */
   asleep: boolean
   /**
-   * The host is bringing its installed copy level with its branch, on the way
-   * to starting it (`begin` in `server.ts`). Part of starting: a page told
-   * nothing here would draw a Start button over a start already under way, and
-   * would not look again until somebody pressed it or came back to the window.
+   * The host is putting a waiting release in place while the module is stopped
+   * (`applyWaiting` in `server.ts`), and starts it after if it is wanted. Part
+   * of starting: a page told nothing here would draw a Start button over a
+   * start already under way. A start itself never waits for a release check.
    */
   levelling: boolean
 }
@@ -530,7 +627,7 @@ export function silentSaid(
 /** Said on a container whose module the host stopped because nothing used it. */
 export function asleepLine(id: string, at: string): string {
   return (
-    `${id} is asleep. The host started it, then stopped it because no open kehikko had it for ` +
+    `${id} is asleep. The host started it, then stopped it because no open kehikko or project had it for ` +
     `${Math.round(GRACE_MS / 60_000)} minutes. Nothing is wrong with it: open a kehikko it is on ` +
     `and the host starts it again at ${at}.`
   )

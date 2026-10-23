@@ -14,6 +14,9 @@ import {
   silentSaid,
   STARTING_FOR_MS,
   toStart,
+  toWarm,
+  wanted,
+  WARM_AT_ONCE,
   type Doing,
   type Known,
   toStop,
@@ -134,6 +137,114 @@ describe('what the host stops', () => {
     const seconds = 10_000
     expect(toStop([idle({ idleSince: NOW - seconds })], NOW)).toEqual([])
     expect(GRACE_MS).toBeGreaterThan(seconds * 10)
+  })
+})
+
+describe('needed is project-wide: what the open pages want running', () => {
+  const k = (id: number, project: number | null, ...modules: string[]) => ({ id, project, placements: modules.map((i) => ({ i })) })
+  const canvases = [
+    k(1, 10, 'kehikot.a', 'kehikot.b'),
+    k(2, 10, 'kehikot.c', 'kehikot.a'),
+    k(3, 10, 'kehikot.d'),
+    k(4, 20, 'kehikot.e'),
+    k(5, null, 'kehikot.f'),
+  ]
+
+  test('the open kehikko’s modules are needed; the rest of its project is warm, in kehikko order', () => {
+    const got = wanted(canvases, new Set([1]), true)
+    expect([...got.needed].sort()).toEqual(['kehikot.a', 'kehikot.b'])
+    expect([...got.warm]).toEqual([
+      ['kehikot.c', 0],
+      ['kehikot.d', 1],
+    ])
+  })
+
+  test('another project’s kehikot are neither', () => {
+    const got = wanted(canvases, new Set([1]), true)
+    expect(got.needed.has('kehikot.e') || got.warm.has('kehikot.e')).toBe(false)
+  })
+
+  test('with the setting off, only the open kehikko’s modules', () => {
+    const got = wanted(canvases, new Set([1]), false)
+    expect([...got.needed].sort()).toEqual(['kehikot.a', 'kehikot.b'])
+    expect(got.warm.size).toBe(0)
+  })
+
+  test('two pages on two projects keep both projects warm', () => {
+    const got = wanted(canvases, new Set([3, 4]), true)
+    expect([...got.needed].sort()).toEqual(['kehikot.d', 'kehikot.e'])
+    expect([...got.warm.keys()]).toEqual(['kehikot.a', 'kehikot.b', 'kehikot.c'])
+  })
+
+  test('nothing open, nothing wanted; a kehikko in no project warms nothing', () => {
+    expect(wanted(canvases, new Set(), true)).toEqual({ needed: new Set(), warm: new Map() })
+    const got = wanted(canvases, new Set([5]), true)
+    expect([...got.needed]).toEqual(['kehikot.f'])
+    expect(got.warm.size).toBe(0)
+  })
+})
+
+describe('the rest of the open project, kept warm', () => {
+  const warm = (id: string, rank: number, over: Partial<Standing> = {}) =>
+    standing({ id, warm: rank, answering: false, ...over })
+
+  test('a module on another kehikko of the open project is started in the background', () => {
+    expect(toWarm([warm('kehikot.a', 0)])).toEqual(['kehikot.a'])
+  })
+
+  test('never while a module on the open kehikko is still to be started', () => {
+    const open = standing({ id: 'kehikot.open', needed: true, answering: false })
+    expect(toWarm([open, warm('kehikot.a', 0)])).toEqual([])
+    /* toStart takes the open one; the warm one waits. */
+    expect(toStart([open, warm('kehikot.a', 0)])).toEqual(['kehikot.open'])
+  })
+
+  test('nor while one on the open kehikko is starting', () => {
+    const open = standing({ id: 'kehikot.open', needed: true, answering: false, starting: true })
+    expect(toWarm([open, warm('kehikot.a', 0)])).toEqual([])
+  })
+
+  test('once the open kehikko is up, a few at a time, in the order of the project’s kehikot', () => {
+    const open = standing({ id: 'kehikot.open', needed: true, answering: true })
+    const all = [warm('kehikot.c', 2), warm('kehikot.a', 0), warm('kehikot.d', 3), warm('kehikot.b', 1), open]
+    expect(WARM_AT_ONCE).toBe(2)
+    expect(toWarm(all)).toEqual(['kehikot.a', 'kehikot.b'])
+  })
+
+  test('the warm starts in flight count against the room', () => {
+    const all = [warm('kehikot.a', 0, { starting: true }), warm('kehikot.b', 1), warm('kehikot.c', 2)]
+    expect(toWarm(all)).toEqual(['kehikot.b'])
+    expect(toWarm([warm('kehikot.a', 0, { starting: true }), warm('kehikot.b', 1, { starting: true }), warm('kehikot.c', 2)])).toEqual([])
+    expect(toWarm(all, 3)).toEqual(['kehikot.b', 'kehikot.c'])
+  })
+
+  test('the gates toStart has: answering, not startable, failed, ours, and on no project open', () => {
+    expect(toWarm([warm('kehikot.a', 0, { answering: true })])).toEqual([])
+    expect(toWarm([warm('kehikot.a', 0, { startable: false })])).toEqual([])
+    expect(toWarm([warm('kehikot.a', 0, { failed: true })])).toEqual([])
+    expect(toWarm([warm('kehikot.a', 0, { ours: true })])).toEqual([])
+    expect(toWarm([standing({ answering: false, warm: null })])).toEqual([])
+    expect(toWarm([standing({ answering: false })])).toEqual([])
+  })
+
+  test('never stopped while it is on any kehikko of the open project', () => {
+    const idle = standing({ ours: true, idleSince: NOW - GRACE_MS * 10, warm: 4 })
+    expect(toStop([idle], NOW)).toEqual([])
+  })
+
+  test('once the project is no longer open, the ordinary idle rule applies', () => {
+    const left = standing({ ours: true, idleSince: NOW - GRACE_MS, warm: null })
+    expect(toStop([left], NOW)).toEqual(['kehikot.thing'])
+    expect(toStop([{ ...left, idleSince: NOW - GRACE_MS + 1 }], NOW)).toEqual([])
+  })
+
+  test('keep and not-ours are exactly as before', () => {
+    expect(toStop([standing({ ours: false, idleSince: NOW - GRACE_MS * 10 })], NOW)).toEqual([])
+    expect(toStop([standing({ ours: true, keep: true, idleSince: NOW - GRACE_MS * 10 })], NOW)).toEqual([])
+  })
+
+  test('a warm module is not watched or tethered: only the open kehikko’s are', () => {
+    expect(toWatch([standing({ warm: 0 })])).toEqual([])
   })
 })
 
@@ -428,10 +539,9 @@ describe('what the host says it is doing', () => {
     expect(lifecycleOf(true, { ...idle, ranAt: NOW - STARTING_FOR_MS - 1, alive: true }, NOW)).toBeUndefined()
   })
 
-  test('starting while an installed copy is brought level on the way to running — the first start after a launch', () => {
-    /* Before this, the sweep that set the levelling going answered "not
-       running", the page drew Start over a start under way, and asked again
-       only when the window was focused. Starting makes the page look again. */
+  test('starting while a waiting release is put in place on a stopped module, before it starts again', () => {
+    /* A sweep that answered "not running" here would have the page draw Start
+       over a start under way. Starting makes the page look again. */
     const levelling: Doing = { ...idle, levelling: true }
     expect(lifecycleOf(true, levelling, NOW)).toBe('starting')
     expect(inFlight(lifecycleOf(true, levelling, NOW))).toBe(true)

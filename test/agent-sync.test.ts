@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 
 import { skillPath, type ModuleSkill } from 'kehikot-module-protocol'
 
+import { readKeepRunning } from '../server/keepRunning.ts'
 import { claudeSettingsFile, ensureSettings, madeEntries, readSettings, recordMade, settingsRoute, startHook, writeSettings } from '../server/agentSettings.ts'
 import { AgentSync, fingerprintOf, settingsInbox, syncOnce, tidySkills, type ModuleSeen, type SyncDeps } from '../server/agentSync.ts'
 import { open } from '../server/canvases.ts'
@@ -586,6 +587,34 @@ describe('the settings', () => {
     expect(readSettings(db).tools.except).toEqual(['kehikot.browser'])
     expect((await post({ settings: { nope: 1 } }))!.status).toBe(400)
     expect(pokes).toBe(4)
+  })
+
+  test('“Keep this project’s modules running”: on by default, changed with { modules: { keep } }, told once per change', async () => {
+    const db = new Database(':memory:')
+    ensureSettings(db)
+    const told: boolean[] = []
+    const route = settingsRoute({
+      db,
+      status: () => ({ at: null, running: false, modules: [], problems: [] }),
+      changed: () => {},
+      modulesChanged: (keep) => told.push(keep),
+      skillsAt: () => '/s',
+      hook: () => ({ file: '/x', on: false }),
+    })
+    const at = new URL('http://127.0.0.1/host/settings')
+    const post = (body: unknown) => route(new Request(at, { method: 'POST', body: JSON.stringify(body) }), at)
+    expect((await (await route(new Request(at), at))!.json()).modules).toEqual({ keep: true })
+    expect(readKeepRunning(db)).toBe(true)
+    const off = await (await post({ modules: { keep: false } }))!.json()
+    expect(off.modules).toEqual({ keep: false })
+    expect(readKeepRunning(db)).toBe(false)
+    /* The same again is no change and tells nobody. */
+    await post({ modules: { keep: false } })
+    expect(told).toEqual([false])
+    expect((await post({ modules: { keep: 'yes' } }))!.status).toBe(400)
+    await post({ modules: { keep: true } })
+    expect(told).toEqual([false, true])
+    expect(readSettings(db)).toEqual(DEFAULT_SETTINGS)
   })
 
   test('the POST is the page’s alone', () => {
