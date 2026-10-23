@@ -1,3 +1,4 @@
+import { whyOfFailure } from './gitAuth.ts'
 import { QUIET_ENV } from './updates.ts'
 
 /**
@@ -167,7 +168,8 @@ export const run: Runner = async (argv, options = {}) => {
   clearTimeout(timer)
   if (code === 0) return { ok: true, out: out.trim() }
   if (child.signalCode) return { ok: false, why: `${argv.slice(0, 2).join(' ')} took longer than ${Math.round(timeout / 1000)}s and was stopped` }
-  return { ok: false, why: (err.trim() || out.trim() || `${argv.slice(0, 2).join(' ')} failed`).split('\n').slice(-3).join(' ') }
+  const plain = (err.trim() || out.trim() || `${argv.slice(0, 2).join(' ')} failed`).split('\n').slice(-3).join(' ')
+  return { ok: false, why: argv[0] === 'git' ? whyOfFailure(err, argv, plain) : plain }
 }
 
 /**

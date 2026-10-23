@@ -49,6 +49,7 @@ import {
   type SkillState,
   type ToolState,
 } from '@/host/agentSettings.ts'
+import { isGitReason } from '@/host/gitSaid.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
@@ -57,6 +58,7 @@ import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNot
 import { openStorage } from '@/host/storage.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
+import { GitSaid } from './GitSaid.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
@@ -788,6 +790,7 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
   const [base, setBase] = useState<BaseBranch | null>(null)
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
+  const asked = useRef<string | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [said, setSaid] = useState<string | null>(null)
   const unavailable = project.home
@@ -816,6 +819,7 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
   }, [project.id, door, unavailable])
 
   const submit = async (branch: string | null) => {
+    asked.current = branch
     setBusy(true)
     setTrouble(null)
     setSaid(null)
@@ -902,7 +906,16 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
               {said}
             </p>
           ) : null}
-          {trouble ? <Trouble>{trouble}</Trouble> : null}
+          {trouble ? (
+            <Trouble>
+              <GitSaid said={trouble} />
+              {isGitReason(trouble) ? (
+                <Button type="button" variant="outline" size="sm" className="ml-2 h-6" disabled={busy} onClick={() => void submit(asked.current)}>
+                  Retry
+                </Button>
+              ) : null}
+            </Trouble>
+          ) : null}
         </form>
       )}
     </>

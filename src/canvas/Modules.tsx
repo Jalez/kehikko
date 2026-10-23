@@ -34,6 +34,7 @@ import {
 } from '@/host/relations.ts'
 import { ConditionDot } from './Conditions.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
+import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -330,7 +331,7 @@ function AvailableRow({
           <p className="text-muted-foreground mt-1 text-xs leading-relaxed">Needs a newer version of Kehikot than this one.</p>
         ) : failed ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
-            {failed}
+            <GitSaid said={failed} />
           </p>
         ) : null}
         {onRemove && !working ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
