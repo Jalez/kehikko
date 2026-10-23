@@ -124,6 +124,13 @@ export interface Presence {
    * (`moduleIconFor`), so the page draws what arrives.
    */
   icon?: string | null
+  /**
+   * What the host knows the module reacts to when it is NOT answering: remembered from the last
+   * manifest it served (`known.ts`), else written on the official list. Only on a presence with no
+   * `module`. It lets a placed Browser that is still starting count as a module that shows pages
+   * (`reacts: ['address']`), so a web address waits for it. Never what a running module says now.
+   */
+  reactsKnown?: string[]
   /** Present exactly when the condition is `ready`. URLs already resolved. */
   module?: FramedModule
   /**

@@ -61,6 +61,11 @@ const entrySchema = z.object({
      cannot use is dropped rather than failing the list (`moduleIconFor` draws
      only a key it knows). Held unique across the list by a test. */
   icon: z.string().max(64).optional().catch(undefined),
+  /* What the module's manifest reacts to, for the one thing a host needs it for before the module has
+     ever answered here: `address` means it shows pages, so an address handed to a kehikko waits for it
+     while it starts. Its own manifest wins once it answers. Optional; a value this host cannot read is
+     dropped rather than failing the list. */
+  reacts: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,31}$/)).max(16).optional().catch(undefined),
 })
 /* `z.object` drops keys it does not know, so a field a later list adds is
    ignored by this host rather than refusing the list. Held by a test. */

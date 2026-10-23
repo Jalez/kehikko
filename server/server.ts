@@ -665,8 +665,14 @@ async function survey(): Promise<{
   const remembered = known(db)
   const listed = official.current()
   for (const presence of presences) {
-    if (presence.name) remember(db, presence.id, presence.name, { summary: presence.summary, tags: presence.tags, icon: presence.icon ?? null })
-    else {
+    if (presence.name) {
+      remember(db, presence.id, presence.name, {
+        summary: presence.summary,
+        tags: presence.tags,
+        icon: presence.icon ?? null,
+        ...(presence.module ? { reacts: presence.module.reacts } : {}),
+      })
+    } else {
       const was = remembered.get(presence.id)
       if (was) {
         presence.name = was.name
@@ -679,6 +685,11 @@ async function survey(): Promise<{
        did), else the official list's. Resolved here, after remembering, so
        what is remembered is only ever what the module itself declared. */
     presence.icon = moduleIconFor(presence.icon, listed.find((one) => one.id === presence.id)?.icon)
+    /* What a module that is not answering reacts to: what it last said, else what the official list says. */
+    if (!presence.module) {
+      const reacts = remembered.get(presence.id)?.reacts ?? listed.find((one) => one.id === presence.id)?.reacts
+      if (reacts?.length) presence.reactsKnown = [...reacts]
+    }
   }
   /* Where each running module's door is, for keeping it connected while the
      module sleeps (`knownDoors`, `agentSync.ts`). A running module that

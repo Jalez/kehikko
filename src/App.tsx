@@ -82,7 +82,7 @@ import {
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
-import { NO_ADDRESSES, accepted, addressOn, handed, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
+import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
@@ -1831,9 +1831,7 @@ export function App() {
    * being offered to the person.
    */
   const reactsSeen = useRef(new Map<string, readonly string[]>())
-  for (const presence of registry?.presences ?? []) {
-    if (presence.module?.reacts) reactsSeen.current.set(presence.id, presence.module.reacts)
-  }
+  noteReacts(reactsSeen.current, registry?.presences ?? [])
   const reactsOf = (id: string): readonly string[] | undefined => reactsSeen.current.get(id)
 
   /**

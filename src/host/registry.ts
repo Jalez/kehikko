@@ -125,6 +125,12 @@ export interface Presence {
    */
   icon?: string | null
   /**
+   * What the host knows the module reacts to while it is NOT answering: what it last said, else the
+   * official list. Only on a presence with no `module`. The page reads it for one thing: a placed
+   * container that shows pages (`address`) counts as one while it starts, so an address waits for it.
+   */
+  reactsKnown?: string[]
+  /**
    * Whether anything at all answered at the address. A silent module that was
    * reached is an address held by something else; one that was not is simply
    * not running. See `attention` in `moduleMenu.ts`.

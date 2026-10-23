@@ -182,6 +182,9 @@ const SETS: Record<string, string> = {
   /* A place in a change's code (protocol 2.13.0): Review points at the line a
      comment is about, Source and Diff follow. The same pair as the passage. */
   location: 'location:set',
+  /* A web address handed to the canvas (protocol 2.16.0): Review, References and Flows hand one
+     over, and a module that shows pages (the Browser) opens it. */
+  address: 'address:open',
   /* The third pair, and the one whose reaction has another end the registry
      cannot see: half of `context.containers` — which containers are picked
      out — is the host's own act, set by a tick in a header. What a registry
@@ -194,7 +197,7 @@ const SETS: Record<string, string> = {
 }
 
 export interface Relationship {
-  kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'location' | 'containers' | 'navigation'
+  kind: 'emits' | 'consumes' | 'selection' | 'passage' | 'location' | 'address' | 'containers' | 'navigation'
   /**
    * Which end of a context kind this module is.
    *
@@ -369,6 +372,18 @@ export function relate(
         told: others,
       })
     }
+    /* A web address handed to the canvas. Named apart because the host does more
+       with it than broadcast it: with a module that shows pages it is shown
+       there, and with none the person is asked. */
+    if (module.declares.uses.includes('address:open')) {
+      relationships.push({
+        kind: 'address',
+        role: 'sets',
+        direct: false,
+        with: reactorsOf('address', presence.id, reactors, named, placings),
+        told: others,
+      })
+    }
     /* A container saying what it shows. The same shape again, named apart
        from the passage because it is a different claim — not where a reader
        is pointing but what a program has open, said by the program about
@@ -390,7 +405,7 @@ export function relate(
        and would be repeating on trust. `told` is zero here rather than the
        audience count — a reactor has no audience, it IS one. */
     for (const kind of module.reacts ?? []) {
-      if (kind !== 'selection' && kind !== 'passage' && kind !== 'location' && kind !== 'containers') continue
+      if (kind !== 'selection' && kind !== 'passage' && kind !== 'location' && kind !== 'address' && kind !== 'containers') continue
       const from = (setters.get(kind) ?? []).filter((id) => id !== presence.id)
       if (!from.length) continue
       relationships.push({
@@ -492,6 +507,9 @@ export function sentenceFor(name: string, relationship: Relationship): string {
    * sets" be read as a wire between them.
    */
   if (relationship.role === 'reacts') {
+    if (kind === 'address') {
+      return `${name} says it shows pages, and ${names(relationship.with)} ${relationship.with.length === 1 ? 'says it can' : 'say they can'} hand it a web address to open. The address is in the context every module on the kehikko is told, stamped with who handed it over; what a module says about itself is all the host goes on, and it opens nothing outside the canvas.`
+    }
     const noun = kind === 'passage' ? 'a passage' : kind === 'location' ? 'a place in a change’s code' : kind === 'containers' ? 'what the containers show' : 'a selection'
     const what =
       kind === 'passage'
@@ -513,6 +531,14 @@ export function sentenceFor(name: string, relationship: Relationship): string {
     return relationship.told > 0
       ? `${name} can say what its container is showing — which references, and which places in which documents — and the host puts it in the list of containers every module on this kehikko is told, beside whether the container is picked out, ${count(relationship.told)} beside this one right now. ${reacting}`
       : `${name} can say what its container is showing — which references, and which places in which documents — and the host puts it in the list of containers every module on the kehikko is told, beside whether the container is picked out; nothing else is on this one. ${reacting}`
+  }
+
+  if (kind === 'address') {
+    const then =
+      'A module that says it shows pages opens it there. With none on the kehikko the person is asked whether to open it in their own browser or to add one, and nothing is opened before they choose.'
+    return relationship.told > 0
+      ? `${name} can hand a web address to the canvas — a design document, a preview, a log — and the host puts it in the context every module on this kehikko is told, ${count(relationship.told)} beside this one right now. ${then} ${reacting}`
+      : `${name} can hand a web address to the canvas — a design document, a preview, a log — and the host puts it in the context every module on the kehikko is told; nothing else is on this one. ${then} ${reacting}`
   }
 
   if (kind === 'location') {
@@ -543,6 +569,9 @@ export function labelFor(relationship: Relationship): string {
   }
   if (relationship.kind === 'location') {
     return relationship.role === 'reacts' ? 'follows a line of a change' : 'points at a line of a change'
+  }
+  if (relationship.kind === 'address') {
+    return relationship.role === 'reacts' ? 'shows web pages' : 'opens web pages on the canvas'
   }
   if (relationship.kind === 'containers') {
     return relationship.role === 'reacts' ? 'narrows to what is picked out' : 'says what it shows'
@@ -654,7 +683,7 @@ export interface Standing {
 }
 
 /** The capabilities that make a module a provider of something shared. */
-const OFFERS = ['events:emit', 'selection:set', 'passage:set', 'location:set', 'showing:set', 'view:navigate']
+const OFFERS = ['events:emit', 'selection:set', 'passage:set', 'location:set', 'address:open', 'showing:set', 'view:navigate']
 
 export function standingOf(presence: Presence, relationships: readonly Relationship[]): Standing {
   const module = presence.module
