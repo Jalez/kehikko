@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
-import { hasBuildScript, type Built } from './moduleBuilds.ts'
+import { hasBuildScript, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -394,11 +394,18 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const dependencies = lockfileReset || changed.some((file) => file === 'package.json' || file === 'bun.lock')
   if (dependencies && existsSync(join(place.dir, 'bun.lock'))) {
     hooks.installing?.()
-    const child = Bun.spawn(['bun', 'install'], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
+    /* An installed copy installs exactly what its release's bun.lock says, as
+       its run.sh would: a rewritten lockfile is a change to a tracked file,
+       which no build is stamped from and which the next update must refuse. */
+    const installedCopy = place.build !== undefined
+    const child = Bun.spawn(['bun', 'install', ...(installedCopy ? ['--frozen-lockfile'] : [])], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
     const err = await new Response(child.stderr).text()
     const code = await child.exited
-    if (code === 0) installed = true
-    else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
+    if (code === 0) {
+      installed = true
+      /* And marked as its run.sh marks one, so its next start does not install again. */
+      if (installedCopy) markInstalled(place.dir)
+    } else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
   }
 
   /* An installed copy is built for the commit it is on now, after its

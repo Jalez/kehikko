@@ -23,6 +23,8 @@ export type BuildTold = z.infer<typeof buildToldSchema>
 /** How an installed copy runs, for its details. Mirrors `buildOf` in `server/server.ts`. */
 export const buildDetailsSchema = z.object({
   ready: z.boolean(),
+  /** Read from what the running process said at its start, or (a module the host did not start) from the disk. */
+  seen: z.enum(['running', 'disk']).default('disk'),
   preparing: z.boolean().default(false),
   failed: z.object({ why: z.string(), lines: z.array(z.string()).default([]), log: z.string() }).nullable().default(null),
 })

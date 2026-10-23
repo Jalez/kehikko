@@ -68,10 +68,10 @@ import {
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
-import { installing, logFile, openRun, readyLog, tail, trim } from './moduleLog.ts'
+import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
-import { builtAt, hasBuildScript, isUnder, ModuleBuilds, runBuild, whyNoBuilds, type Copy } from './moduleBuilds.ts'
+import { builtAt, hasBuildScript, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -1408,17 +1408,26 @@ function buildPlace(place: Place) {
 }
 
 /**
- * How an installed copy runs, for its details: ready-built (its `dist/` is a
- * build of the commit checked out, which its `run.sh` serves) or from source;
- * whether it is being built; and why its build did not finish, with the last
- * of what it printed and where the rest is.
+ * How a module runs, for its details: ready-built or from source; whether it
+ * is being built; and why its build did not finish, with the last of what it
+ * printed and where the rest is.
+ *
+ * Ready-built describes what is RUNNING. For a process this host started, it
+ * is what that process said when it started (`servedAs`, from this run's part
+ * of the module's log): the protocol's `run` names the build it serves, and
+ * anything else is source. Only for a module the host did not start — nothing
+ * of its output is here — is it read from the disk instead: whether `dist/` is
+ * a build of the commit checked out, which is what its `run.sh` would serve.
  */
-async function buildOf(id: string, dir: string) {
+async function buildOf(id: string, dir: string, installed: boolean) {
+  const started = nursery.holds(id)
   const head = await headOf(dir)
-  const failure = builds.failure(id)
+  const served = started ? servedAs(startOfRun(logFile(id)), !starting.has(id)) : null
+  const failure = installed ? builds.failure(id) : null
   return {
-    ready: head !== null && builtAt(dir, head),
-    preparing: builds.state(id) !== null,
+    ready: served !== null ? served === 'built' : head !== null && builtAt(dir, head),
+    seen: served !== null ? ('running' as const) : ('disk' as const),
+    preparing: installed && builds.state(id) !== null,
     failed: failure && (failure.commit === null || failure.commit === head) ? { why: failure.why, lines: failure.lines, log: logFile(id) } : null,
   }
 }
@@ -3369,12 +3378,12 @@ const server = Bun.serve({
       if (!id) return json({ error: 'Name a module: /host/module-release?id=…' }, 400)
       const registration = await registrationOf(id)
       if (!registration?.dir || !isInstalled(registration.dir)) {
-        /* A checkout somebody registered is never built: it runs from source. */
-        return json({ release: null, protocol: PACKAGE_VERSION, ...(registration ? { build: { ready: false, preparing: false, failed: null } } : {}) })
+        /* A checkout somebody registered is never built here; what it runs is still said. */
+        return json({ release: null, protocol: PACKAGE_VERSION, ...(registration?.dir ? { build: await buildOf(id, registration.dir, false) } : {}) })
       }
       await appProtocols.settled(2_000)
       const reading = await readCheckout(placeOf(id, registration.dir), false, request.signal)
-      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION, build: await buildOf(id, registration.dir) })
+      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION, build: await buildOf(id, registration.dir, true) })
     }
 
     /*

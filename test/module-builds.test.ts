@@ -1,16 +1,20 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { STAMP_FILE } from 'kehikot-module-protocol/build'
 
 import { installDesk } from '../server/installs.ts'
+import { openRun, startOfRun } from '../server/moduleLog.ts'
 import {
   buildBun,
   builtAt,
   hasBuildScript,
+  INSTALLED_MARKER,
   isUnder,
+  markInstalled,
+  servedAs,
   ModuleBuilds,
   olderBun,
   runBuild,
@@ -511,6 +515,14 @@ describe('none at start', () => {
     const launch = readFileSync(join(import.meta.dir, '..', 'server', 'launch.ts'), 'utf8')
     expect(launch).not.toContain('moduleBuilds')
   })
+
+  test("a module's details read what the process the host started said, and the disk only for one it did not start", () => {
+    const at = server.indexOf('\nasync function buildOf(')
+    const code = server.slice(at, server.indexOf('\n}\n', at))
+    expect(code).toContain('const started = nursery.holds(id)')
+    expect(code).toContain('started ? servedAs(startOfRun(logFile(id))')
+    expect(code).toMatch(/served !== null \? served === 'built' : head !== null && builtAt\(dir, head\)/)
+  })
 })
 
 describe('the Bun it is built with', () => {
@@ -538,5 +550,138 @@ describe('the Bun it is built with', () => {
     const shim = compiled.env.PATH!.split(':')[0]!
     expect(readlinkSync(join(shim, 'bun'))).toBe('/Applications/Kehikot.app/Contents/MacOS/kehikko-host')
     rmSync(shim, { recursive: true, force: true })
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The install marker a module's run.sh reads, and what a running
+ * process says it serves.
+ * ------------------------------------------------------------------ */
+
+/** The exact test Terminal's, Claude's and the template's run.sh make before they install: true means "install again". */
+function runShWouldInstall(dir: string): boolean {
+  const test = '[ ! -d node_modules ] || [ ! -f "$INSTALLED" ] || [ bun.lock -nt "$INSTALLED" ] || [ package.json -nt "$INSTALLED" ]'
+  const ran = Bun.spawnSync(['bash', '-c', `INSTALLED=node_modules/.kehikot-installed; ${test}`], { cwd: dir })
+  return ran.exitCode === 0
+}
+
+describe("the install marker run.sh reads", () => {
+  test('is the file run.sh touches, and once the host has written it a start does not install again', () => {
+    expect(INSTALLED_MARKER).toBe('node_modules/.kehikot-installed')
+    const dir = join(root, `marker${(made += 1)}`)
+    mkdirSync(join(dir, 'node_modules'), { recursive: true })
+    writeFileSync(join(dir, 'package.json'), '{}')
+    writeFileSync(join(dir, 'bun.lock'), '{}')
+    const past = new Date(Date.now() - 60_000)
+    utimesSync(join(dir, 'package.json'), past, past)
+    utimesSync(join(dir, 'bun.lock'), past, past)
+    expect(runShWouldInstall(dir)).toBe(true)
+    expect(markInstalled(dir)).toBe(true)
+    expect(readFileSync(join(dir, INSTALLED_MARKER), 'utf8')).toBe('')
+    expect(runShWouldInstall(dir)).toBe(false)
+    /* A lockfile that moves after it: run.sh installs again, as it should. */
+    const later = new Date(Date.now() + 60_000)
+    utimesSync(join(dir, 'bun.lock'), later, later)
+    expect(runShWouldInstall(dir)).toBe(true)
+    expect(markInstalled(dir, new Date(Date.now() + 120_000))).toBe(true)
+    expect(runShWouldInstall(dir)).toBe(false)
+  })
+
+  test('nothing installed, nothing marked', () => {
+    const dir = join(root, `marker${(made += 1)}`)
+    mkdirSync(dir, { recursive: true })
+    expect(markInstalled(dir)).toBe(false)
+    expect(existsSync(join(dir, INSTALLED_MARKER))).toBe(false)
+  })
+
+  test("an install writes it after its bun install, so the module's first start does not install again", async () => {
+    const base = join(root, `install${(made += 1)}`)
+    const registry = join(base, 'modules')
+    const entry: Official = { id: 'kehikot.thing', name: 'Thing', repo: 'Jalez/kehikko-thing', port: 7990, summary: 'A thing.', tags: [] }
+    const desk = installDesk({
+      list: [entry],
+      run: async (argv, options) => {
+        if (argv[1] === 'clone') {
+          const dir = argv[argv.length - 1]!
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(join(dir, 'package.json'), '{}')
+          writeFileSync(join(dir, 'bun.lock'), '{}')
+        }
+        /* What bun install leaves. */
+        if (argv[0] === 'bun') mkdirSync(join(options!.cwd!, 'node_modules'), { recursive: true })
+        return { ok: true, out: '' }
+      },
+      root: join(base, 'installed'),
+      registry,
+      registered: async () => (existsSync(join(registry, `${entry.id}.json`)) ? [{ id: entry.id, port: null }] : []),
+    })
+    await desk.install(entry.id)
+    for (let i = 0; i < 200 && !(await desk.list())[0]?.installed; i++) await new Promise((wake) => setTimeout(wake, 5))
+    const dir = join(base, 'installed', entry.id)
+    expect(existsSync(join(dir, INSTALLED_MARKER))).toBe(true)
+    expect(runShWouldInstall(dir)).toBe(false)
+  })
+
+  test("an update of an installed copy installs from the release's lockfile, frozen, and marks it; an edited checkout is not marked", async () => {
+    const make = () => {
+      const base = join(root, `upd${(made += 1)}`)
+      const origin = join(base, 'origin.git')
+      const work = join(base, 'work')
+      mkdirSync(base, { recursive: true })
+      git(base, 'init', '--quiet', '--bare', '-b', 'main', origin)
+      git(base, 'clone', '--quiet', origin, work)
+      git(work, 'switch', '--quiet', '-c', 'main')
+      mkdirSync(join(work, 'dep'), { recursive: true })
+      writeFileSync(join(work, 'dep', 'package.json'), JSON.stringify({ name: 'dep', version: '1.0.0' }))
+      writeFileSync(join(work, '.gitignore'), 'node_modules\n')
+      writeFileSync(join(work, 'package.json'), JSON.stringify({ name: 'm', version: '1.0.0', dependencies: { dep: 'file:./dep' } }))
+      expect(Bun.spawnSync(['bun', 'install'], { cwd: work }).exitCode).toBe(0)
+      git(work, 'add', '.')
+      git(work, 'commit', '--quiet', '-m', 'one')
+      git(work, 'push', '--quiet', '-u', 'origin', 'main')
+      const here = join(base, 'here')
+      git(base, 'clone', '--quiet', origin, here)
+      writeFileSync(join(work, 'package.json'), JSON.stringify({ name: 'm', version: '1.1.0', description: 'two', dependencies: { dep: 'file:./dep' } }))
+      git(work, 'add', '.')
+      git(work, 'commit', '--quiet', '-m', 'two')
+      git(work, 'push', '--quiet')
+      git(here, 'fetch', '--quiet')
+      return here
+    }
+    /* An installed copy: its place builds (here, nothing to build). */
+    const copy = make()
+    const done = await update({ id: 'kehikot.thing', name: 'Thing', dir: copy, build: async () => ({ kind: 'none' }) })
+    expect(done.ok && done.installed).toBe(true)
+    expect(existsSync(join(copy, INSTALLED_MARKER))).toBe(true)
+    expect(runShWouldInstall(copy)).toBe(false)
+    expect(git(copy, 'status', '--porcelain', '--untracked-files=no')).toBe('')
+    /* Somebody's own checkout: installed as before, and its run.sh keeps its own marker. */
+    const mine = make()
+    const theirs = await update({ id: 'kehikot.thing', name: 'Thing', dir: mine })
+    expect(theirs.ok && theirs.installed).toBe(true)
+    expect(existsSync(join(mine, INSTALLED_MARKER))).toBe(false)
+  }, 30_000)
+})
+
+describe('"Ready-built" is what is running', () => {
+  test("read from what the process said at its start: the protocol's run names the build it serves", () => {
+    expect(servedAs(['installing…', 'kehikot.terminal serves its built page on http://127.0.0.1:7920/app (31203b5)'], true)).toBe('built')
+    expect(servedAs(['kehikot.terminal: NOT serving the built page. It is stale.', 'kehikot.terminal serves its built page on http://127.0.0.1:7920/app — refused, see above'], true)).toBe('source')
+    /* Vite says nothing of the sort. */
+    expect(servedAs(['  VITE v6.3.5  ready in 312 ms', '  ➜  Local:   http://127.0.0.1:7920/'], true)).toBe('source')
+    /* Still starting, nothing said yet: not known. */
+    expect(servedAs([], false)).toBeNull()
+  })
+
+  test("the start of this run is read, however long it has gone on", () => {
+    const file = join(root, `log${(made += 1)}`, 'kehikot.terminal.log')
+    openRun(file, new Date(0))
+    appendFileSync(file, 'an older run served from source\n')
+    openRun(file, new Date(1))
+    appendFileSync(file, 'kehikot.terminal serves its built page on http://127.0.0.1:7920/app (31203b5)\n')
+    for (let i = 0; i < 2000; i++) appendFileSync(file, `terminal: a shell said line ${i} of a long session\n`)
+    expect(statSync(file).size).toBeGreaterThan(32 * 1024)
+    expect(servedAs(startOfRun(file), true)).toBe('built')
+    expect(startOfRun(file)).not.toContain('an older run served from source')
   })
 })

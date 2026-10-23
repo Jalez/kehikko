@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, statSync, symlinkSync, writeSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 
@@ -356,6 +356,49 @@ export function isUnder(dir: string, root: string): boolean {
   const inside = real(dir)
   const under = real(root)
   return inside === under || inside.startsWith(`${under}/`)
+}
+
+/**
+ * The marker a module's `run.sh` writes after an install that succeeded, and
+ * reads before it starts: it installs again when the marker is missing or when
+ * `bun.lock` or `package.json` is newer than it (`-nt`). The same file in
+ * Terminal's, Claude's and the protocol template's `run.sh`, made with
+ * `touch` — so empty, and its age is all that is read.
+ */
+export const INSTALLED_MARKER = join('node_modules', '.kehikot-installed')
+
+/**
+ * Write that marker after the host's own `bun install --frozen-lockfile`
+ * succeeded in a copy (an install, an update), as `run.sh` would have: so the
+ * module's first start does not install again. Nothing when there is no
+ * `node_modules` (nothing was installed); never a reason anything failed.
+ */
+export function markInstalled(dir: string, now: Date = new Date()): boolean {
+  if (!existsSync(join(dir, 'node_modules'))) return false
+  const file = join(dir, INSTALLED_MARKER)
+  try {
+    if (!existsSync(file)) writeFileSync(file, '')
+    utimesSync(file, now, now)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * What the process the host started is serving, from what it printed: the
+ * protocol's `run` (`kehikot-module-protocol/run`, 2.17.0) says
+ * `<id> serves its built page on <origin>/app (<sha7>)` once it is listening,
+ * and `… — refused, see above` when the build was not this commit's. Anything
+ * else — Vite, an older module — is the module's source. Null while nothing
+ * of this run says either way and it has not answered yet.
+ */
+export function servedAs(lines: readonly string[], answered: boolean): 'built' | 'source' | null {
+  for (const line of lines) {
+    if (/ serves its built page on \S+\/app \([0-9a-f]{7,}\)\s*$/.test(line)) return 'built'
+    if (/ serves its built page on \S+ — refused/.test(line) || /: NOT serving the built page\./.test(line)) return 'source'
+  }
+  return answered ? 'source' : null
 }
 
 /** Whether a checkout's `package.json` names a `build` script. Read as data; nothing is run. */

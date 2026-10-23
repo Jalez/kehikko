@@ -212,6 +212,11 @@
   is written) and after every update (`Place.build`, called by `update()` — so
   the Update press, `ReleaseWaits.apply` and a restart that takes a release).
   Skipped when the stamp already names `HEAD`. A start NEVER builds.
+- After the host's own `bun install --frozen-lockfile` in an installed copy
+  (install and update; an installed copy's update is frozen too), it writes
+  the marker the module's `run.sh` writes, `node_modules/.kehikot-installed`
+  (`markInstalled`: empty, as `touch` makes it, newer than `bun.lock` and
+  `package.json`), so the first start does not install again.
 - One build at a time (`ModuleBuilds` queue; a person's before the background
   pass), never under a running module: one that is running is marked and
   built when it next stops (`whileStopped` in `server.ts`). While a module's
@@ -235,7 +240,11 @@
   runs from source; its build didn't finish (see log)" after a failure
   (`builds` on `/host/updates`, phase `preparing`); a module's details say
   "Ready-built" or "Running from source", with the build's log
-  (`build` on `/host/module-release`).
+  (`build` on `/host/module-release`). That describes what is RUNNING: for a
+  process the host started, the line the protocol's `run` prints at its start
+  (`<id> serves its built page on … (<sha7>)`, read by `servedAs` from
+  `startOfRun` of the module's log); only for a module the host did not start
+  is it the stamp on disk (`seen: 'disk'`).
 
 ## Switching kehikot is warm
 

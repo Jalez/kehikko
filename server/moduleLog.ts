@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readSync, statSync, writeFileSync, appendFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { logsDir } from './machineDirs.ts'
@@ -103,6 +103,28 @@ export function lastRun(file: string): string[] {
     .split('\n')
     .map((line) => line.trimEnd())
     .filter((line) => line.trim().length > 0)
+}
+
+/**
+ * The first lines the last run printed, read from its header on — what it said
+ * as it started, which a long run would push out of `lastRun`'s window. The
+ * file is bounded (`MAX_BYTES`), so reading it whole is bounded too.
+ */
+export function startOfRun(file: string, lines = 200): string[] {
+  let text: string
+  try {
+    text = plain(readFileSync(file, 'utf8'))
+  } catch {
+    return []
+  }
+  const at = text.lastIndexOf(RUN_MARK)
+  if (at === -1) return []
+  return text
+    .slice(text.indexOf('\n', at) + 1)
+    .split('\n', lines * 2)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(0, lines)
 }
 
 /**

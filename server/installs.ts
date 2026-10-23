@@ -5,6 +5,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
+import { markInstalled } from './moduleBuilds.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
 import type { Runner } from './versions.ts'
@@ -262,6 +263,8 @@ export function installDesk(deps: Deps) {
       const old = stale ? ` — and the clone, left by an earlier attempt, could not be brought up to date first: ${stale}` : ''
       throw new Error(`${entry.name} was cloned, and its dependencies could not be installed: ${installed.why}${old}`)
     }
+    /* As the module's run.sh marks an install of its own, so its first start does not install again. */
+    markInstalled(dir)
 
     /* Built here, at its release, before anything can start it: its run.sh
        then serves the build. A build that does not finish is not an install
