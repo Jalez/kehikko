@@ -10,7 +10,9 @@
   `HOST_FOLDER`, `hostDir`, `hostFile`): epics/state, `kehikot.json`,
   `trackers.json`, the tracker reading, dispositions, `data-versions.json`,
   `settings.json` (the project's base branch; `server/baseBranch.ts` is its
-  one writer, `POST /host/base-branch` in `PAGE_ONLY`, and it travels).
+  one writer, `POST /host/base-branch` in `PAGE_ONLY`, and it travels; it writes
+  only where `projectWritable` says, so the home fallback never gets one, and
+  older hosts ignore the file).
   Reach it only through `hostRoot`/`hostPath`/`epicsDir`/`stateDir` in
   `server/hostData.ts`; never `moduleFile(…, HOST_ID, …)`. `HOST_ID` stays
   `kehikko` — the host's name on the wire and its MCP door — only the folder

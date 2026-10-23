@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 import { spawnRunner, type Runner } from './feedback.ts'
 import { hostPath } from './hostData.ts'
-import { isReadOnlyRoot, makeUnderRoot, projectRootExists, refusedSaid } from './projectRoot.ts'
+import { makeUnderRoot, projectRootExists, projectWritable, refusedSaid } from './projectRoot.ts'
 import { QUIET_ENV } from './updates.ts'
 
 /**
@@ -165,7 +165,7 @@ export async function setBaseBranch(
   run: Runner = spawnRunner,
   read?: (root: string) => string | null,
 ): Promise<BaseBranchEdited> {
-  if (!projectRootExists(root) || isReadOnlyRoot(root)) return { outcome: 'declined', why: `${refusedSaid(root)} The base branch was not changed.` }
+  if (!projectWritable(root)) return { outcome: 'declined', why: `${refusedSaid(root)} The base branch was not changed.` }
   const held = readHeld(root)
   if (held === null) return { outcome: 'declined', why: `.kehikot/host/${SETTINGS_FILE} does not read as JSON, so it was left as it is. Fix or delete it first.` }
 
@@ -185,6 +185,8 @@ export async function setBaseBranch(
     return { outcome: 'unchanged', said: `Nothing changed. ${baseSaid(base)}`, base }
   }
 
+  /* A newer host's version of the file is kept as it wrote it, so an older one never downgrades it. */
+  const kept = typeof held.version === 'number' && held.version > VERSION ? held.version : VERSION
   const rest: Held = { ...held }
   delete rest.baseBranch
   const next: Held = branch === null ? rest : { ...rest, baseBranch: branch }
@@ -195,7 +197,7 @@ export async function setBaseBranch(
       if (existsSync(file)) unlinkSync(file)
     } else {
       if (!makeUnderRoot(root, dirname(file))) return { outcome: 'declined', why: `${refusedSaid(root)} The base branch was not changed.` }
-      writeFileSync(beside, `${JSON.stringify(Object.assign({ version: VERSION }, next, { version: VERSION }), null, 2)}\n`, 'utf8')
+      writeFileSync(beside, `${JSON.stringify(Object.assign({ version: VERSION }, next, { version: kept }), null, 2)}\n`, 'utf8')
       renameSync(beside, file)
     }
   } catch (error) {

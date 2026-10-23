@@ -151,6 +151,13 @@ describe('setting it', () => {
     expect(written()).toEqual({ version: 1, later: { kept: true } })
   })
 
+  test('keeps the version a newer host wrote', async () => {
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
+    writeFileSync(settingsFile(folder)!, JSON.stringify({ version: 3, later: 1 }))
+    await setBaseBranch(folder, 'development', git({}).run, MAIN)
+    expect(written()).toEqual({ version: 3, later: 1, baseBranch: 'development' })
+  })
+
   test('leaves a file that does not read as it is', async () => {
     mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
     writeFileSync(settingsFile(folder)!, '{ not json')

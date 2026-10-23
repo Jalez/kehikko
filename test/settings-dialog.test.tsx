@@ -11,7 +11,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 14
+const TESTS = 16
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
