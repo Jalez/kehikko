@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { COLUMNS } from '@/host/canvases.ts'
 import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
   availability,
   availabilitySaid,
+  chipsOf,
   fetchLayouts,
   saveLayout,
   toInstall,
@@ -104,6 +106,10 @@ function LayoutCard({
 }) {
   const said = availabilitySaid(available)
   const optional = available.filter((one) => one.optional && one.state !== 'here').map((one) => one.name)
+  const chips = layout.containers
+    .filter((c) => !c.optional || available.find((one) => one.module === c.module)?.state === 'here')
+    .map((c) => ({ module: c.module, name: shortName(c.module, available) }))
+  const { shown, hidden } = chipsOf(chips)
   return (
     <button
       type="button"
@@ -111,32 +117,47 @@ function LayoutCard({
       aria-pressed={chosen}
       data-layout-card={`${layout.from}:${layout.id}`}
       className={
-        'group bg-card focus-visible:ring-ring/50 relative flex flex-col gap-1.5 rounded-lg border p-2 text-left outline-none transition-colors focus-visible:ring-[3px] ' +
+        'group bg-card min-w-0 focus-visible:ring-ring/50 relative flex min-w-0 max-w-full flex-col gap-1.5 overflow-hidden rounded-lg border p-2 text-left outline-none transition-colors focus-visible:ring-[3px] ' +
         (chosen ? 'border-primary ring-primary/40 ring-2' : 'hover:border-foreground/30')
       }
     >
       <LayoutPreview containers={layout.containers} available={available} />
-      <span className="flex items-center gap-1.5 text-sm font-medium">
-        {layout.name}
+      <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+        <span className="min-w-0 truncate" title={layout.name}>
+          {layout.name}
+        </span>
         {chosen ? <Check className="text-primary size-3.5" aria-hidden /> : null}
       </span>
-      <span className="text-muted-foreground line-clamp-2 text-xs leading-snug">{layout.summary}</span>
-      {layout.containers.length ? (
-        <span className="text-muted-foreground text-[11px] leading-snug" data-layout-modules="">
-          {layout.containers
-            .filter((c) => !c.optional || available.find((one) => one.module === c.module)?.state === 'here')
-            .map((c, at) => (
-              <span key={c.module} className="whitespace-nowrap">
-                {at ? ' · ' : null}
-                <ModuleIcon id={c.module} name={shortName(c.module, available)} className="mr-0.5 inline size-3 align-[-2px]" />
-                {shortName(c.module, available)}
-              </span>
+      <span className="text-muted-foreground line-clamp-2 text-xs [overflow-wrap:anywhere] leading-snug">{layout.summary}</span>
+      {chips.length ? (
+        <span className="text-muted-foreground flex min-w-0 max-w-full flex-col gap-0.5 text-[11px] leading-snug" data-layout-modules="">
+          <ul className="m-0 flex min-w-0 max-w-full list-none flex-wrap gap-x-2 gap-y-0.5 p-0" data-layout-chips="">
+            {shown.map((c) => (
+              <li key={c.module} title={c.name} className="inline-flex min-w-0 max-w-full items-center gap-0.5" data-layout-chip={c.module}>
+                <ModuleIcon id={c.module} name={c.name} className="size-3 shrink-0" />
+                <span className="min-w-0 truncate">{c.name}</span>
+              </li>
             ))}
-          {optional.length ? ` · ${optional.join(', ')} if installed` : ''}
+            {hidden.length ? (
+              <li className="inline-flex min-w-0 max-w-full items-center" data-layout-more="">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-default underline decoration-dotted underline-offset-2">+{hidden.length} more</span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-64 [overflow-wrap:anywhere]">{hidden.map((c) => c.name).join(', ')}</TooltipContent>
+                </Tooltip>
+              </li>
+            ) : null}
+          </ul>
+          {optional.length ? (
+            <span className="min-w-0 [overflow-wrap:anywhere]" data-layout-optional="" title={optional.join(', ')}>
+              {optional.join(', ')} if installed
+            </span>
+          ) : null}
         </span>
       ) : null}
       {said ? (
-        <span className="text-amber-700 dark:text-amber-400 text-[11px] leading-snug" data-layout-availability="">
+        <span className="text-amber-700 dark:text-amber-400 min-w-0 text-[11px] leading-snug [overflow-wrap:anywhere]" data-layout-availability="">
           {said}
         </span>
       ) : null}
@@ -282,7 +303,8 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
           </div>
         ) : (
           <>
-            <ScrollArea className="max-h-[56vh] pr-2">
+            {/* Radix wraps the viewport's content in a `display: table` box that grows to its widest child; block keeps it the viewport's width. */}
+            <ScrollArea className="max-h-[56vh] pr-2 [&_[data-radix-scroll-area-viewport]>div]:!block" data-layout-scroll="">
               <div className="flex flex-col gap-4">
                 {sections.map((section) => (
                   <section
@@ -295,7 +317,7 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
                       {section.title}
                       {section.note ? <span className="font-normal"> — {section.note}</span> : null}
                     </h3>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 [&>*]:min-w-0">
                       {section.layouts.map((layout) => (
                         <LayoutCard
                           key={`${layout.from}:${layout.id}`}

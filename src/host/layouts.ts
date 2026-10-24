@@ -171,6 +171,18 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
   },
 ]
 
+/** How many modules a card names before it says "+N more". */
+export const CHIPS_SHOWN = 4
+
+/**
+ * The names a card draws as chips: the first `CHIPS_SHOWN`, and the rest as a count with their names
+ * (for its tooltip). One more than the limit is not worth a "+1 more" chip, so it is shown.
+ */
+export function chipsOf<T>(names: readonly T[], limit = CHIPS_SHOWN): { shown: T[]; hidden: T[] } {
+  if (names.length <= limit + 1) return { shown: [...names], hidden: [] }
+  return { shown: names.slice(0, limit), hidden: names.slice(limit) }
+}
+
 const NAME_MAX = 60
 const SUMMARY_MAX = 200
 
