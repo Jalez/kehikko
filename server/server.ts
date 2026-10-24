@@ -2325,6 +2325,14 @@ const placeRoutes = placeDesk({
         ? [{ module: presence.id, declared: presence.module.mcp.as ?? null, url: presence.module.mcp.url, transport: presence.module.mcp.transport === 'sse' ? ('sse' as const) : ('http' as const) }]
         : [],
     ),
+  /* Asked right after `doors`: that sweep's presences, not thirteen more requests. */
+  modules: async () =>
+    (await (seen ?? sweep())).presences.map((presence) => ({
+      id: presence.id,
+      name: presence.module?.name ?? presence.name ?? null,
+      summary: presence.module?.summary ?? presence.summary,
+      skills: presence.module?.declares.skills ?? [],
+    })),
   known: () => agentKnows(),
   open: () => {
     const open = openness.open()

@@ -10,7 +10,7 @@ import { createEpic, editParts } from '../server/holdings.ts'
 import { Inbox } from '../server/inbox.ts'
 import { call, mcp, type Door } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
-import { ASK_PREFIX, doorsFor, nameFor, placeDesk, withToken } from '../server/placeRoutes.ts'
+import { ASK_PREFIX, doorsFor, modulesOn, nameFor, placeDesk, withToken, type ModuleAbout } from '../server/placeRoutes.ts'
 import { addProject, projectById, relinkProject, type Project } from '../server/projects.ts'
 import { askChoices, isPlaceAsk } from '../src/host/placeAsk.ts'
 
@@ -37,6 +37,8 @@ let other: Canvas
 let records: Record<string, { conversation: string; epic: string | null; parts: string[]; kehikko: string | null }>
 let changed: number[]
 let desk: ReturnType<typeof placeDesk>
+/** What the last sweep saw of every registered module: what a session is told of the ones on its kehikko. */
+let about: ModuleAbout[]
 
 const module = (async (url: string) => {
   const token = new URL(url).searchParams.get(PLACE_PARAM) ?? ''
@@ -65,7 +67,12 @@ beforeEach(() => {
     [TOKEN_B]: { conversation: '22222222-2222-4222-8222-222222222222', epic: 'results', parts: [], kehikko: other.key },
   }
   changed = []
+  about = [
+    { id: 'a.one', name: 'One', summary: 'Does the first thing.\nWell.', skills: [{ name: 'one-skill' }, { name: 'needs-two', needs: ['a.two'] }] },
+    { id: 'a.two', name: 'Two', summary: 'Does the second.', skills: [] },
+  ]
   desk = placeDesk({
+    modules: async () => about,
     db,
     inbox,
     hostUrl: () => 'http://127.0.0.1:4180/mcp',
@@ -126,6 +133,38 @@ describe('a module that starts conversations issues a token, and gets the doors 
       /* The person connected a.one as "my-one": the session's entry replaces theirs by that name. */
       { module: 'a.one', name: 'my-one', url: `http://127.0.0.1:4601/mcp?${PLACE_PARAM}=${TOKEN_A}`, transport: 'http' },
     ])
+  })
+
+  test('beside the doors, every container on that kehikko: name, its one line, its door’s name and the skills that work there', async () => {
+    const reply = await issue(TOKEN_A, canvas.key)
+    const body = (await reply!.json()) as { modules: unknown }
+    /* a.two's door is not handed over: it has no container here, and so needs-two cannot work here either. */
+    expect(body.modules).toEqual([{ module: 'a.one', name: 'One', summary: 'Does the first thing. Well.', door: 'my-one', skills: ['one-skill'] }])
+
+    /* The person adds Two, and a module this host never saw answer, above it: asking again with the same token says so. */
+    editCanvas(db, canvas.id, {
+      placements: [
+        { i: 'a.one', x: 0, y: 10, w: 6, h: 10 },
+        { i: 'a.two', x: 6, y: 10, w: 6, h: 10 },
+        { i: 'b.gone', x: 0, y: 0, w: 6, h: 10 },
+      ],
+    })
+    const again = (await (await issue(TOKEN_A, canvas.key))!.json()) as { modules: unknown }
+    expect(again.modules).toEqual([
+      { module: 'b.gone', name: 'b.gone', summary: '', door: null, skills: [] },
+      { module: 'a.one', name: 'One', summary: 'Does the first thing. Well.', door: 'my-one', skills: ['one-skill', 'needs-two'] },
+      { module: 'a.two', name: 'Two', summary: 'Does the second.', door: 'two', skills: [] },
+    ])
+    /* No kehikko: no containers. */
+    expect(((await (await issue(TOKEN_B, null))!.json()) as { modules: unknown }).modules).toEqual([])
+  })
+
+  test('a module’s line is one line, clipped; a kehikko with nothing on it lists nothing', () => {
+    const long = modulesOn({ placements: [{ i: 'a.one', x: 0, y: 0, w: 1, h: 1 }] } as never, [{ id: 'a.one', name: 'One', summary: 'x'.repeat(500), skills: [] }], [])
+    expect(long[0]!.summary.length).toBe(200)
+    expect(long[0]!.summary.endsWith('…')).toBe(true)
+    expect(modulesOn(null, about, [])).toEqual([])
+    expect(modulesOn({ placements: [] } as never, about, [])).toEqual([])
   })
 
   test('a token that is not spelled as one, or a folder the host does not hold, is refused', async () => {
