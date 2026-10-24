@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
-import { answerCall } from './answers.ts'
+import { answer as answerOne, answerCall } from './answers.ts'
+import { serverAskDesk } from './serverAsk.ts'
+import { isReadOnlyRoot } from './projectRoot.ts'
 import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
@@ -2343,6 +2345,28 @@ const placeRoutes = placeDesk({
 })
 
 /*
+ * A module's server asking what its page would be told (protocol 2.19.0): the
+ * tracker reading for its MCP door, with no page open. Held to the same grant
+ * and answered by the page's own `answer`. See `serverAsk.ts`.
+ */
+const serverAsk = serverAskDesk({
+  known: (id) => callers.has(id),
+  originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
+  may: declared,
+  undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
+  /* A folder nobody picked is not answered for: a module is told of no project there either. */
+  projectAt: (folder) => {
+    const at = projectAt(db, folder)
+    return at && !isReadOnlyRoot(at.path) ? at.path : null
+  },
+  answer: (module, method, params, root) =>
+    answerOne(module, method, params, (id) => callers.has(id), () => {}, root, undefined, trackers, null, null, {
+      may: declared,
+      undeclared: () => {},
+    }),
+})
+
+/*
  * "Restart anyway": the one way a module that is kept is stopped, and only by
  * a person pressing twice in the page. See `anyway.ts`.
  */
@@ -3559,6 +3583,13 @@ const server = Bun.serve({
     /* The inbox: what the modules said they are doing, held per project. `inbox.ts`. */
     const inboxAnswer = await inboxRoutes.route(request, url)
     if (inboxAnswer) return inboxAnswer
+
+    /* A module's server asking what its page would be told. `serverAsk.ts`. */
+    if (url.pathname === SERVER_ASK_PATH) {
+      if (!callers.size) await sweep()
+      const asked = await serverAsk.route(request, url)
+      if (asked) return asked
+    }
 
     /* A conversation's place, and the person's answer to an ask. `placeRoutes.ts`. */
     const placeAnswer = await placeRoutes.route(request, url)

@@ -2058,7 +2058,8 @@ function markAt(
  * One row of the tracker reading as `read_tracker` says it: state, pipeline,
  * review, board column, (protocol 2.7.0) the reviewers, the person's roles,
  * the review threads and the last push, (2.8.0) the branches, the stack
- * and the last activity, and (2.11.0) a GitLab issue's work item type —
+ * and the last activity, (2.11.0) a GitLab issue's work item type and
+ * (2.19.0) an issue's linked branches —
  * `#12 issue (task) open` — each only when the row has it.
  */
 export function trackerLine(row: TrackerRow): string {
@@ -2070,6 +2071,7 @@ export function trackerLine(row: TrackerRow): string {
     + `${row.discussions ? ` threads:${row.discussions.unresolved} unresolved,${row.discussions.resolved} resolved` : ''}`
     + `${row.lastPushAt ? ` pushed:${row.lastPushAt}` : ''}`
     + `${row.baseBranch ? ` base:${row.baseBranch}` : ''}${row.headBranch ? ` head:${row.headBranch}` : ''}`
+    + `${row.branches?.length ? ` linked branches:${row.branches.map((b) => b.name).join(',')}` : ''}`
     + `${row.stack ? ` stack:${row.stack.below ? `on ${row.stack.below}` : 'bottom'}${row.stack.above.length ? `,under ${row.stack.above.join('+')}` : ''}` : ''}`
     + `${row.lastActivity ? ` last:${row.lastActivity.kind} by ${row.lastActivity.login}${row.lastActivity.mine === true ? ' (me)' : row.lastActivity.mine === false ? ' (not me)' : ''} at ${row.lastActivity.at}` : ''}`
     + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`

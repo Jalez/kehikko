@@ -22,7 +22,7 @@ import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
 import type { Adapter, BoardsRead, HeldBoard, Me, Read, Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
-import { columnsOn, gitlabAdapter } from './gitlab.ts'
+import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { withRoles } from './roles.ts'
 import { withStacks } from './stacks.ts'
@@ -117,6 +117,13 @@ const storedBoards = z.object({
   unreadable: z.string().max(LIMITS.REASON).nullable().default(null),
 })
 type StoredBoards = z.infer<typeof storedBoards>
+/** A source's branch names, for an issue's related branches on a tracker that does not say them (GitLab). */
+const storedBranches = z.object({
+  /** `sourceKey` of the source these are the branches of. */
+  source: z.string(),
+  names: z.array(z.string().min(1).max(LIMITS.BRANCH)).max(BRANCH_PAGES * 100),
+})
+type StoredBranches = z.infer<typeof storedBranches>
 const fileSchema = z.object({
   version: z.literal(VERSION),
   at: z.string().nullable(),
@@ -132,10 +139,12 @@ const fileSchema = z.object({
   notFound: z.array(z.string()).max(LIMITS.TRACKER_ROWS),
   /** Each source's boards, as last read. Absent in a file from before boards: none known. */
   boards: z.array(storedBoards).max(LIMITS.TRACKER_SOURCES).default([]),
+  /** Each GitLab source's branch names, as last read (2.19.0). Absent in an older file: none known. */
+  branches: z.array(storedBranches).max(LIMITS.TRACKER_SOURCES).default([]),
 })
 type Stored = z.infer<typeof fileSchema>
 
-const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [], boards: [] })
+const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [], boards: [], branches: [] })
 
 export function readingFile(projectPath: string): string | null {
   return hostPath(projectPath, `${FILE_NAME}.json`)
@@ -279,6 +288,21 @@ function placedOnBoards(rows: TrackerRow[], boards: readonly StoredBoards[]): Tr
   })
 }
 
+/**
+ * Give each GitLab issue its related branches from the names held for its
+ * source (protocol 2.19.0), worked out every time as its column is. A GitHub
+ * row came from its tracker with its linked branches already; a source whose
+ * names were never read leaves its issues with none said (absent).
+ */
+function withBranches(rows: TrackerRow[], branches: readonly StoredBranches[]): TrackerRow[] {
+  const by = new Map(branches.map((b) => [b.source, b.names]))
+  return rows.map((row) => {
+    if (row.tracker !== 'gitlab') return row
+    const names = by.get(sourceKey(row))
+    return names ? branchesOn(row, names) : row
+  })
+}
+
 /** Every ref spelling an epic names, in `refs` arrays and `ref`/`umbrella` fields at any depth. */
 export function refsInEpic(epic: unknown): string[] {
   const out = new Set<string>()
@@ -323,7 +347,18 @@ export function epicsByRef(root: string): Map<string, string> {
   return out
 }
 
-export type Scope = { refs: string[] } | { epic: string } | { project: true }
+/**
+ * Which refs a call is about. `also`, with an epic (protocol 2.19.0, `tracker.get { epic, parts: true }`):
+ * refs to answer beside the ones the epic names — what its parts hold.
+ */
+export type Scope = { refs: string[] } | { epic: string; also?: readonly string[] } | { project: true }
+
+/** The refs an epic scope covers: the epic's own, then `also` that it does not name. Null for no such epic. */
+function epicScopeRefs(root: string, scope: { epic: string; also?: readonly string[] }): string[] | null {
+  const own = epicRefs(root, scope.epic)
+  if (own === null) return null
+  return [...new Set([...own, ...(scope.also ?? [])])]
+}
 
 interface Held {
   stored: Stored
@@ -543,7 +578,7 @@ export class Trackers {
       rows = [...byId.values()]
       if (held.stored.at === null) this.#start(root, { project: true })
     } else {
-      const refs = 'refs' in scope ? scope.refs : epicRefs(root, scope.epic)
+      const refs = 'refs' in scope ? scope.refs : epicScopeRefs(root, scope)
       if (refs === null) return { refused: 'There is no epic here under that name.' }
       for (const ref of refs) {
         const source = sourceFor(sources, ref)
@@ -767,7 +802,7 @@ export class Trackers {
     let refs: string[]
     if ('refs' in scope) refs = scope.refs
     else if ('epic' in scope) {
-      const found = epicRefs(root, scope.epic)
+      const found = epicScopeRefs(root, scope)
       if (found === null) return { outcome: 'declined', at: held.stored.at, why: 'There is no epic here under that name.' }
       refs = found
     } else refs = [...new Set([...named, ...held.stored.asked])]
@@ -867,6 +902,22 @@ export class Trackers {
       )
     }
 
+    /* And its branch names, for an issue's related branches (GitLab, 2.19.0):
+       a listing of them per source that read cleanly, never a request per
+       issue. A failure keeps the names held before. */
+    const branchesRead = new Map<string, string[]>()
+    if ('project' in scope) {
+      await Promise.all(
+        sources.map(async (source) => {
+          const key = sourceKey(source)
+          const read = this.#adapters[source.tracker].branches
+          if (!read || errors.get(key)) return
+          const got = await read(source).catch(() => null)
+          if (got) branchesRead.set(key, got)
+        }),
+      )
+    }
+
     /* Merge: fresh rows replace their identities; a listed source's rows that
        neither its new listing nor anybody's ref still names are dropped, so
        the reading does not grow forever. Rows of a failed source stay. */
@@ -943,6 +994,15 @@ export class Trackers {
       boards.push({ source: key, boards: whole ? got.boards.slice(0, LIMITS.TRACKER_BOARDS) : unionBoards(was?.boards ?? [], got.boards), unreadable: null })
     }
 
+    const branchesWas = new Map(held.stored.branches.map((b) => [b.source, b]))
+    const branches: StoredBranches[] = []
+    for (const source of sources) {
+      const key = sourceKey(source)
+      const got = branchesRead.get(key)
+      if (got) branches.push({ source: key, names: got.slice(0, BRANCH_PAGES * 100) })
+      else if (branchesWas.has(key)) branches.push(branchesWas.get(key)!)
+    }
+
     /* Who the person is on each host read, and their roles over the whole reading. */
     const meBy = new Map<string, string>()
     for (const source of sources) {
@@ -983,11 +1043,12 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: placedOnBoards(withStacks(backLinked(roled)), boards).slice(0, LIMITS.TRACKER_ROWS),
+      rows: withBranches(placedOnBoards(withStacks(backLinked(roled)), boards), branches).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),
       boards,
+      branches,
     }
     try {
       saveReading(root, held.stored)
