@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bell,
   Blocks,
   BookOpen,
@@ -92,6 +93,7 @@ export const KEHIKOT_ITSELF = 'kehikko'
 
 /** Every Lucide name the protocol lets a module count on, to its component. A test holds the two to each other. */
 export const LUCIDE_DRAWN: Record<(typeof LUCIDE_MODULE_ICONS)[number], LucideIcon> = {
+  activity: Activity,
   bell: Bell,
   blocks: Blocks,
   'book-open': BookOpen,

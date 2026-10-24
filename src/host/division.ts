@@ -56,6 +56,10 @@ export const ANSWERED_BY_THE_SERVER = [
      to an epic: `context.content` moves and the epics are read again. See
      `editParts` in `server/holdings.ts`. */
   'parts.set',
+  /* The record of traffic (protocol 2.20.0) is this process's: it is what
+     made and received the calls. See `server/traffic.ts`. */
+  'traffic.read',
+  'traffic.note',
 ] as const
 
 /**

@@ -5,6 +5,7 @@ import { protocolPin } from './moduleReleases.ts'
 import { HOST_REPO } from './official.ts'
 import type { Runner } from './versions.ts'
 import { appsInOrder, compareVersions, type AppProtocol } from '../src/host/worksWith.ts'
+import { because } from './traffic.ts'
 
 /**
  * Which protocol package each Kehikot app release shipped — so a module
@@ -138,7 +139,7 @@ export function appProtocolSource(deps: AppProtocolDeps) {
   const on = deps.on ?? true
   const repo = deps.repo ?? HOST_REPO
   const now = deps.now ?? Date.now
-  const ask = deps.fetch ?? ((url, init) => fetch(url, init))
+  const ask: NonNullable<AppProtocolDeps['fetch']> = (url, init) => because('which Kehikot each release works with', () => (deps.fetch ?? fetch)(url, init))
   const remote = `https://github.com/${repo}.git`
 
   let tags: Record<string, ReadTag> = {}

@@ -113,6 +113,8 @@ import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { githubGateway } from './github.ts'
+import { because, noteFree, receivedRow, recordThisProcess, ROUTE_REASONS, tag, trafficDoor, TrafficRecord } from './traffic.ts'
+import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL } from './official.ts'
@@ -160,6 +162,14 @@ import pkg from '../package.json' with { type: 'json' }
  */
 const PAGE = embeddedPage()
 const BUNDLED = PAGE !== null
+
+/*
+ * The record of traffic (protocol 2.20.0): every call this process makes,
+ * through `fetch` and `Bun.spawn`, from here on — so it is put in place before
+ * anything else runs. In memory only. See `traffic.ts`.
+ */
+const traffic = new TrafficRecord()
+recordThisProcess(traffic)
 
 /* 4170 bundled, so the app's host and a development host on 4180 can run side
    by side on one machine without either claiming the other's port. */
@@ -277,7 +287,7 @@ const trackers = new Trackers({
 /* The schedule: a project somebody looked at in the last half hour is read
    whole once its `every` minutes have passed. A minute tick that decides
    nothing for a project nobody is looking at. */
-setInterval(() => trackers.tick(), 60_000).unref?.()
+setInterval(() => because('tracker refresh: on its schedule', () => trackers.tick()), 60_000).unref?.()
 
 /**
  * What has changed in the material kept for each project's epics, and the
@@ -461,6 +471,7 @@ async function installedCopies(signal?: AbortSignal): Promise<{ place: Place; re
 const github = githubGateway({
   file: githubCacheFile(),
   log: (line) => console.log(line),
+  held: (url) => noteFree(traffic, url, 'refused'),
   gh: async (path) => {
     const ran = await spawnRunner(['gh', 'api', path])
     if (ran.code === 0) {
@@ -876,6 +887,56 @@ const tagLister = new TagLister()
 /** The version processes this host started, keyed `<module>@<tag>`. Separate from `nursery`, whose keys are module ids. */
 const versionNursery = new Nursery()
 
+/*
+ * Connections nobody reported, on this host's processes and each module's
+ * process group, looked at only while a reader asks (`trafficProcesses.ts`).
+ */
+const sampler = new ProcessSampler({
+  record: traffic,
+  roots: async () => {
+    const roots: Array<readonly [string, number]> = []
+    for (const id of nursery.ids) {
+      const pid = nursery.pidOf(id)
+      if (pid) roots.push([id, pid])
+    }
+    for (const key of versionNursery.ids) {
+      const pid = versionNursery.pidOf(key)
+      if (pid) roots.push([key.split('@')[0]!, pid])
+    }
+    /* A module somebody started by hand: the process listening on its registered port. */
+    const held = new Set(roots.map(([id]) => id))
+    const unheld = [...registered.values()].filter((one) => !held.has(one.id) && one.url)
+    if (unheld.length) {
+      const listening = parseListeners((await runQuiet(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])) ?? '')
+      for (const one of unheld) {
+        const port = portOfUrl(one.url!)
+        const pid = port === null ? undefined : listening.get(port)
+        if (pid && pid !== process.pid) roots.push([one.id, pid])
+      }
+    }
+    return roots
+  },
+})
+
+/** The record of traffic, as `traffic.read` and `traffic.note` answer it. */
+const trafficReading = trafficDoor({
+  record: traffic,
+  budgets: () => {
+    const said = github.stats()
+    return [
+      {
+        name: 'GitHub API without an account',
+        used: said.spent,
+        limit: said.budget,
+        left: Math.max(0, said.budget - said.spent),
+        resets: said.frees,
+        note: 'Kehikot reads GitHub through your gh when it is signed in; this hourly budget is for when it is not.',
+      },
+    ]
+  },
+  processes: (wanted) => (wanted ? sampler.want() : sampler.last),
+})
+
 /** How long a freshly installed version gets to answer: a first Vite start optimises its dependencies. */
 const VERSION_ANSWERS_WITHIN_MS = 90_000
 
@@ -1150,7 +1211,7 @@ function theirReturn(id: string): void {
     }
     wakes.registryChanged()
   }
-  setTimeout(() => void again(), 1_000).unref()
+  setTimeout(() => void because('is the module back', again), 1_000).unref()
 }
 
 /**
@@ -1915,7 +1976,7 @@ function told(view: Swept): Swept {
  */
 const REAP_EVERY_MS = 30_000
 setInterval(() => {
-  void (async () => {
+  void because('is each module still up', async () => {
     try {
       /* No sweep has happened yet, so the host knows nothing about what is
          running — and a host that knows nothing must not decide anything. It
@@ -1934,7 +1995,7 @@ setInterval(() => {
     } catch {
       /* A failed sweep is not a reason to kill anything. */
     }
-  })()
+  })
   /* The sooner of the two, so that either constant may be lowered on its own
      argument without the other silently capping it. */
 }, Math.min(REAP_EVERY_MS, WATCH_EVERY_MS)).unref()
@@ -2360,10 +2421,21 @@ const serverAsk = serverAskDesk({
     return at && !isReadOnlyRoot(at.path) ? at.path : null
   },
   answer: (module, method, params, root) =>
-    answerOne(module, method, params, (id) => callers.has(id), () => {}, root, undefined, trackers, null, null, {
-      may: declared,
-      undeclared: () => {},
-    }),
+    answerOne(
+      module,
+      method,
+      params,
+      (id) => callers.has(id),
+      () => {},
+      root,
+      undefined,
+      trackers,
+      null,
+      null,
+      { may: declared, undeclared: () => {} },
+      /* The record of traffic (protocol 2.20.0): the Monitor's door reads it, a module's server notes into it. */
+      { door: trafficReading, via: 'server' },
+    ),
 })
 
 /*
@@ -2576,7 +2648,28 @@ const server = Bun.serve({
      of the host's own sockets forever. */
   idleTimeout: 30,
 
-  async fetch(request) {
+  /* Every request is answered by `answerRequest`, and recorded as received
+     (`traffic.ts`): who asked, which route, the status and the time. */
+  async fetch(request, srv) {
+    const at = Date.now()
+    const began = performance.now()
+    const heard = (response: Response) => {
+      const row = receivedRow(request, response, at, performance.now() - began, { pageOrigins: OWN.origins, portOwner: (port) => sampler.portOwner(port) }, srv.requestIP(request))
+      if (row) traffic.add(row)
+      return response
+    }
+    try {
+      /* What a route sets out to do is the reason for every call it makes, unless a call names a nearer one. */
+      const path = new URL(request.url).pathname
+      return heard(await because(ROUTE_REASONS[path] ?? (path.startsWith('/host/') ? `answering ${path}` : 'answering the page'), () => answerRequest(request)))
+    } catch (error) {
+      heard(new Response(null, { status: 500 }))
+      throw error
+    }
+  },
+})
+
+async function answerRequest(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
     /* Before anything is routed: where this request came from. One check for
@@ -2671,6 +2764,9 @@ const server = Bun.serve({
         return json({ ok: false, reason: 'failed', error: 'A call names a module and a method.' }, 400)
       }
       const named = body.module
+      /* Recorded under the module the page relays for, with the method as the
+         reason; reading and noting traffic is not recorded (a loop). */
+      tag(request, { by: named, via: 'page', reason: body.method, ...(body.method.startsWith('traffic.') ? { skip: true } : {}) })
 
       /* If nothing has swept yet — a module framed by a page that was already
          open when this server restarted — sweep once so the answer is about the
@@ -2715,6 +2811,7 @@ const server = Bun.serve({
             may: declared,
             undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
           },
+          { door: trafficReading, via: 'page' },
         ),
       )
     }
@@ -4044,8 +4141,7 @@ const server = Bun.serve({
     }
 
     return elsewhere()
-  },
-})
+}
 
 /* The agent sync's first run, after the server is up and never awaited: it
    sweeps, and does nothing at all before the one-time question was answered. */

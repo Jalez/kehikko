@@ -19,7 +19,8 @@ import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
-import type { TrackerColumns, TrackerReading, TrackerRefreshResult } from 'kehikot-module-protocol'
+import type { TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
+import type { TrafficDoor } from './traffic.ts'
 
 /**
  * The shared tracker reading, as this file needs it. Injected for `keep`'s
@@ -246,6 +247,11 @@ export function answer(
   divide: PartsDoor | null = null,
   /** Who may ask what. Absent, nothing is held to a manifest. */
   grants: Grants | null = null,
+  /**
+   * The record of traffic (protocol 2.20.0), and which part of the module asked: its page through
+   * the frame, or its server through `/host/server-ask`. Absent, the traffic methods are refused.
+   */
+  traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -531,6 +537,23 @@ export function answer(
   }
 
   /**
+   * The record of traffic: the rows after a cursor, with the budgets and, asked with `sample`, the
+   * connections on this host's processes. Held to `traffic:read` above like every method, so only a
+   * module that shows traffic reads it. See `server/traffic.ts`.
+   */
+  case 'traffic.read': {
+    if (!traffic) return notMineToSay('This host keeps no record of traffic to read.')
+    return nothingToShow('traffic.read', traffic.door.read(parsed.data as { since: number; limit: number; sample: boolean }))
+  }
+
+  /** A module's own calls, filed under it as the module's report and sanitized again. */
+  case 'traffic.note': {
+    if (!traffic) return nothingToShow('traffic.note', { outcome: 'declined', taken: 0, why: 'This host keeps no record of traffic. Nothing was noted.' })
+    const { calls } = parsed.data as { calls: TrafficNote[] }
+    return nothingToShow('traffic.note', traffic.door.note(moduleId, traffic.via, calls))
+  }
+
+  /**
    * A write, refused. `ok: true` would cost nothing today and would mean a
    * module's button turning green over a report that exists nowhere — the
    * module believes work was filed, the person believes it was filed, and there
@@ -671,9 +694,10 @@ export async function answerCall(
   report: ((module: string, root: string, epic: string | null) => void) | null = null,
   divide: PartsDoor | null = null,
   grants: Grants | null = null,
+  traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic)
   }
   /* A refresh spends the person's rate limit for everybody: declined, in the
      outcome the protocol gives it, for a module that did not ask. */

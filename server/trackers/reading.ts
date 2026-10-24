@@ -29,6 +29,14 @@ import { withStacks } from './stacks.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
+import { basename } from 'node:path'
+import { because } from '../traffic.ts'
+
+/** Why a tracker read is made, for the record of traffic: whose project and how much of it. */
+export function trackerReason(root: string, scope: Scope): string {
+  const what = 'refs' in scope ? `${scope.refs.length} ref${scope.refs.length === 1 ? '' : 's'}` : 'epic' in scope ? `epic ${scope.epic}` : 'whole project'
+  return `tracker read: ${basename(root)} (${what})`
+}
 
 /**
  * The host's one tracker reading per project, and the only thing in Kehikot
@@ -781,7 +789,7 @@ export class Trackers {
       )
       return after
     }
-    const run = this.#read(root, scope).finally(() => {
+    const run = because(trackerReason(root, scope), () => this.#read(root, scope)).finally(() => {
       held.running = null
       held.runningScope = null
       this.#told(root, { at: held.stored.at, refreshing: false })

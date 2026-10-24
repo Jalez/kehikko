@@ -2,6 +2,7 @@ import {
   LIMITS,
   SERVER_ASK_PATH,
   SERVER_PASS_PATH,
+  needsProject,
   serverAskSchema,
   serverPassResult,
   type ServerAskRefusal,
@@ -10,6 +11,7 @@ import {
 
 import { hold } from '../src/host/grants.ts'
 import type { Answer } from './answers.ts'
+import { tag, untraced } from './traffic.ts'
 
 /**
  * A module's SERVER asking this host a question (protocol 2.19.0): `POST /host/server-ask`.
@@ -45,8 +47,8 @@ export interface ServerAskDeps {
   undeclared?(module: string, method: string, capability: string): void
   /** The project this host holds at that folder, or null. Never the unpicked home fallback. */
   projectAt(folder: string): string | null
-  /** The page's answer to the call, in that project. */
-  answer(module: string, method: string, params: unknown, root: string): Answer
+  /** The page's answer to the call, in that project — or in none, for a question about this computer (`traffic.*`, 2.20.0). */
+  answer(module: string, method: string, params: unknown, root: string | null): Answer
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -105,15 +107,19 @@ export function serverAskDesk(deps: ServerAskDeps) {
       return reply({ ok: false, error: `Not a question this host takes: ${issue?.path.join('.') || 'body'} — ${issue?.message ?? 'malformed'}.` }, 400)
     }
     const { module, pass, project, method, params } = asked.data
+    /* Who asked, for the record of traffic; reading and noting traffic is not itself recorded (a loop). */
+    const plumbing = method.startsWith('traffic.')
+    tag(request, { by: module, via: 'server', reason: method, ...(plumbing ? { skip: true } : {}) })
 
     if (!deps.known(module)) return refused('module', SERVER_ASK_SAYS.module, 'unknown-module')
     /* First the pass: nothing about a module's grants or a project is said to a program that is not it. */
-    if (!(await vouched(module, pass))) return refused('pass', SERVER_ASK_SAYS.pass)
+    if (!(await (plumbing ? untraced(() => vouched(module, pass)) : vouched(module, pass)))) return refused('pass', SERVER_ASK_SAYS.pass)
     const held = hold(method, (capability) => deps.may(module, capability))
     if (held.held) return refused('grant', held.why)
     if ('undeclared' in held) deps.undeclared?.(module, method, held.undeclared)
-    const root = deps.projectAt(project)
-    if (!root) return refused('project', SERVER_ASK_SAYS.project)
+    /* A question about this computer names no project (protocol 2.20.0); the schema holds the rest to one. */
+    const root = needsProject(method) ? deps.projectAt(project ?? '') : null
+    if (needsProject(method) && !root) return refused('project', SERVER_ASK_SAYS.project)
 
     const said = deps.answer(module, method, params, root)
     return reply(said.ok ? { ok: true, data: said.data } : { ok: false, reason: said.reason, error: said.error.slice(0, LIMITS.REASON) })
