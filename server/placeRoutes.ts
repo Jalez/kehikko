@@ -1,7 +1,8 @@
 import type { Database } from 'bun:sqlite'
+import { missingNeeds, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { awarenessOf, type AgentAwareness } from './agents.ts'
-import { listCanvases } from './canvases.ts'
+import { listCanvases, type Canvas } from './canvases.ts'
 import {
   askingIn,
   doorPlaceOf,
@@ -38,9 +39,12 @@ import { doorName } from './register.ts'
  *    issued the token (`RECORDED_PLACE_PATH`); it keeps no place of its own.
  *  - `POST /host/place` — a module that starts conversations and keeps their
  *    records says it issued a token, in a project, and gets every Kehikot door
- *    the session should have with the token on its URL (`placeDoorsSchema`).
- *    A program's: a token grants nothing a call could not do by naming the
- *    place (`doorPlaces.ts`).
+ *    the session should have with the token on its URL (`placeDoorsSchema`),
+ *    and beside them the modules on that kehikko (`modulesOn`), so the session
+ *    can be told what it has around it from its first turn. A program's: a
+ *    token grants nothing a call could not do by naming the place
+ *    (`doorPlaces.ts`), and asking again with the same token is how a module
+ *    learns that the kehikko changed.
  *  - `POST /host/place/answer` — the person's answer to an ask in the Inbox:
  *    which epic an unplaced conversation is for. The page's alone
  *    (`PAGE_ONLY`): no program, and no MCP tool, answers for the person.
@@ -56,6 +60,63 @@ const PROJECT_ID = /^[a-z0-9][a-z0-9-]{6,62}[a-z0-9]$/
 /** An ask's item id in the Inbox: `place-ask:<session>`. The page draws its choices by it. */
 export const ASK_PREFIX = 'place-ask:'
 const BODY_MAX = 16 * 1024
+
+/** A registered module as a session is told of it: what the host knows of it whether or not it answers. */
+export interface ModuleAbout {
+  id: string
+  /** What it calls itself; null when the host never learnt. */
+  name: string | null
+  /** Its own one line of what it is for, when it has one. */
+  summary?: string
+  /** The skills it declares (protocol 2.5.0); empty for one that is not answering. */
+  skills: readonly Pick<ModuleSkill, 'name' | 'needs'>[]
+}
+
+/** One container on a session's kehikko, as `POST /host/place` lists it. */
+export interface ModuleOn {
+  module: string
+  name: string
+  /** The module's one line, clipped; empty when it has none. Its words, to be read as text. */
+  summary: string
+  /** The name its MCP door has in the session's config (one of `doors`), or null for a module with none. */
+  door: string | null
+  /** The skills it offers that can work on this kehikko: every module a skill `needs` has a container here. */
+  skills: string[]
+}
+
+const SUMMARY_MAX = 200
+
+/**
+ * The containers on a session's kehikko, in the order the canvas is read (top to bottom, then left
+ * to right, as `read_canvas` lists them), each with its name, its one line, its door's name in the
+ * session's config and the skills it offers there. A module the host has never seen answer is
+ * still listed — the container is there — by its id, with no door and no skills.
+ */
+export function modulesOn(
+  canvas: Pick<Canvas, 'placements'> | null,
+  about: readonly ModuleAbout[],
+  doors: readonly { module: string; name: string }[],
+): ModuleOn[] {
+  if (!canvas) return []
+  const known = new Map(about.map((one) => [one.id, one]))
+  const on = new Set(canvas.placements.map((p) => p.i))
+  const seen = new Set<string>()
+  const out: ModuleOn[] = []
+  for (const p of [...canvas.placements].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    if (seen.has(p.i)) continue
+    seen.add(p.i)
+    const one = known.get(p.i)
+    const summary = (one?.summary ?? '').replace(/[\s\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
+    out.push({
+      module: p.i,
+      name: (one?.name ?? '').trim().slice(0, 80) || p.i,
+      summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX - 1)}…` : summary,
+      door: doors.find((door) => door.module === p.i)?.name ?? null,
+      skills: (one?.skills ?? []).filter((skill) => missingNeeds(skill, on).length === 0).map((skill) => skill.name),
+    })
+  }
+  return out
+}
 
 /** What a door is, as far as handing it to a session goes. */
 export interface DoorSeen {
@@ -73,6 +134,8 @@ export interface PlaceDeps {
   hostUrl(): string
   /** Every registered module's MCP door, as the last sweep saw it. */
   doors(): Promise<DoorSeen[]>
+  /** Every registered module, as the last sweep saw it: what a session is told of the ones on its kehikko. */
+  modules?(): Promise<ModuleAbout[]>
   /** What the person's agent config holds (`agentKnows`). */
   known(): Map<string, unknown>
   /** The kehikko a page has open, or null. */
@@ -236,7 +299,9 @@ export function placeDesk(deps: PlaceDeps) {
       if (!issue(db, token, module, project.uid)) return reply({ ok: false, error: 'token is 22 to 64 URL-safe characters and module a module id.' }, 400)
       kept.delete(token)
       const canvas = kehikko === null ? null : (listCanvases(db).find((one) => one.project === project.id && one.key === kehikko) ?? null)
-      return reply({ ok: true, token, doors: doorsFor({ token, canvas }, deps.hostUrl(), await deps.doors(), deps.known()) })
+      const doors = doorsFor({ token, canvas }, deps.hostUrl(), await deps.doors(), deps.known())
+      const modules = deps.modules ? modulesOn(canvas, await deps.modules(), doors) : undefined
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {

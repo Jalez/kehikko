@@ -581,6 +581,11 @@
 - The token travels as `?kehikot-place=` on every Kehikot door URL, in a 0600
   per-session `--mcp-config` the Claude module writes. It is a pointer, not a
   credential.
+- `POST /host/place` answers `modules` beside `doors`: every container on the
+  token's kehikko (name, the module's one line, its door's name, the skills that
+  work there — `modulesOn`). It is what a session is told of its kehikko at its
+  start and, asked again with the same token, how the module hears that the
+  kehikko changed. Additive: a module that does not read it gets the doors as before.
 - `server/mcp.ts` answers from `door.here` when there is one; a tool that used
   the person's view instead says so every time (`UNPLACED_LINE`). `my_place`
   with no record says so and how a record is made; what is on screen is said
