@@ -75,6 +75,8 @@ export interface GatewayDeps {
   file?: string
   budget?: number
   log?(line: string): void
+  /** A call that did not go out — held back by the budget or a limit — for the record of traffic. */
+  held?(url: string): void
 }
 
 interface Kept {
@@ -186,10 +188,14 @@ export function githubGateway(deps: GatewayDeps = {}) {
     }
 
     const at = now()
-    if (at < limitedUntil) return { ok: false, why: limitedWhy, status: 503, retryAt: limitedUntil }
+    if (at < limitedUntil) {
+      deps.held?.(`https://api.github.com${clean}`)
+      return { ok: false, why: limitedWhy, status: 503, retryAt: limitedUntil }
+    }
     const until = waitFor(priority)
     if (until !== null) {
       stats.waited++
+      deps.held?.(`https://api.github.com${clean}`)
       const retryAt = Math.min(until, at + FAILED_MS)
       return { ok: false, waiting: true, why: 'GitHub is being asked less often to stay within its limit; this will be read in a moment.', status: 503, retryAt }
     }
@@ -274,9 +280,10 @@ export function githubGateway(deps: GatewayDeps = {}) {
     raw,
     ghValue,
     last,
-    stats: (): Stats & { spent: number; budget: number } => {
+    stats: (): Stats & { spent: number; budget: number; frees: number | null } => {
       prune()
-      return { ...stats, spent: spent.length, budget }
+      /* When the oldest call spent stops counting: the next slot. */
+      return { ...stats, spent: spent.length, budget, frees: spent.length ? spent[0]! + WINDOW_MS : null }
     },
   }
 }

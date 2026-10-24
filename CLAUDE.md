@@ -712,3 +712,35 @@
   hand, the glide after it, and a fold. Never turn transitions on for a
   switch, a load or a module's height. The grid is TOLD its width (`useRects`);
   do not bring back `WidthProvider`, which renders every new grid at 1280 px.
+
+## The record of traffic (protocol 2.20.0)
+
+- ONE record of the calls this host makes and receives, the calls modules note
+  and the connections it sees on their processes: `server/traffic.ts`
+  (`TrafficRecord`, the last `LIMITS.TRAFFIC_KEPT` rows, in memory only — never
+  in a project, never on disk) and `server/trafficProcesses.ts` (the sampler).
+  Read by `traffic.read`, held to `traffic:read` like every method, for the
+  Monitor and no other module; `traffic.note` (`traffic:report`) files a
+  module's own calls under it, sanitized again (`takeNotes`).
+- Recorded at the two choke points, put in place first thing in `server.ts`
+  (`recordThisProcess`): the global `fetch` and `Bun.spawn`/`spawnSync`
+  (`trafficCommand` decides which runs went over the network). A new call site
+  needs nothing here — only a reason. Give one with `because(reason, work)`
+  around the work (a short phrase from a fixed vocabulary: "release tags",
+  "tracker read: <folder> (whole project)"); a route's reason is
+  `ROUTE_REASONS`, and the innermost wins. Anything without one is shown as
+  "no reason given". Sanitize with the protocol's `trafficTarget`/`trafficPath`,
+  never by hand; never record a body, a header or a query value.
+- Every request this host answers is a row `in` (`receivedRow`, around
+  `answerRequest`): the page by its origin, a module relayed by `/host/call`
+  (`tag`), a module's server by a `module` query or the port the sampler saw.
+  The traffic methods themselves, and the vouching for their passes, are not
+  recorded (`tag({ skip })`, `untraced`): a reader polling every second would
+  fill the record with itself.
+- The sampler runs only while a `traffic.read` with `sample: true` came in the
+  last `WANTED_MS`: `ps`, then `nettop -L 1 -n -x -J bytes_in,bytes_out -p …`
+  (no root needed; `lsof -i` without bytes when it fails). A module is its
+  process group and everything under it (`attribute`), from the `Nursery` pid
+  or the process listening on its registered port. It cannot see a connection
+  that opened and closed between looks, or DNS (macOS resolves it in
+  `mDNSResponder`).

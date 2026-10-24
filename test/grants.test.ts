@@ -42,6 +42,8 @@ const PARAMS: Record<string, unknown> = {
   'projects.pick': {},
   'activity.set': { items: [] },
   'events.emit': { extension: 'kehikot.notifications@1', payload: {} },
+  'traffic.read': {},
+  'traffic.note': { calls: [{ at: 1, kind: 'GET', host: 'api.example.com', path: '/' }] },
 }
 
 describe('the rule', () => {

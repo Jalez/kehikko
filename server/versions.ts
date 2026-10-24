@@ -1,5 +1,6 @@
 import { whyOfFailure } from './gitAuth.ts'
 import { QUIET_ENV } from './updates.ts'
+import { because, noteHit } from './traffic.ts'
 
 /**
  * A module's versions: the semver tags on its repository, read without a token.
@@ -210,8 +211,11 @@ export class TagLister {
   async tags(url: string, fresh = false): Promise<Tags> {
     const was = this.#cache.get(url)
     const now = this.#now()
-    if (was && !fresh && now - was.at < (was.ok ? TAGS_FRESH_MS : TAGS_FAILED_MS)) return was
-    const ran = await this.#runner(['git', 'ls-remote', '--tags', '--refs', url])
+    if (was && !fresh && now - was.at < (was.ok ? TAGS_FRESH_MS : TAGS_FAILED_MS)) {
+      because('release tags', () => noteHit(url, 'git ls-remote'))
+      return was
+    }
+    const ran = await because('release tags', () => this.#runner(['git', 'ls-remote', '--tags', '--refs', url]))
     const got: Tags = ran.ok ? { ok: true, tags: tagsFromLsRemote(ran.out), at: now } : { ok: false, why: ran.why, at: now }
     this.#cache.set(url, got)
     return got

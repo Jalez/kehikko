@@ -1,0 +1,417 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+import {
+  LIMITS,
+  TRAFFIC_HOST_BY,
+  trafficCallSchema,
+  trafficCommand,
+  trafficNoteSchema,
+  trafficPath,
+  trafficTarget,
+  type TrafficBudget,
+  type TrafficCache,
+  type TrafficCall,
+  type TrafficNote,
+  type TrafficNoteResult,
+  type TrafficProcesses,
+  type TrafficReadResult,
+  type TrafficVia,
+} from 'kehikot-module-protocol'
+
+/**
+ * The host's record of traffic (protocol 2.20.0): every call this host makes, every request it
+ * receives on its own routes, the calls modules note, and the connections the process sampler sees.
+ *
+ * ## In memory, and bounded
+ *
+ * The last `LIMITS.TRAFFIC_KEPT` rows, in a ring, in this process. Never in a project, never on
+ * disk: what a person's machine talked to and when is theirs, and a restart forgets it.
+ *
+ * ## The reason comes from the call site
+ *
+ * `because(reason, work)` runs `work` with a reason that every call made inside it — however deep,
+ * across awaits — is filed under (`AsyncLocalStorage`). The recorders sit at the two choke points,
+ * the global `fetch` and `Bun.spawn`, so a call nobody gave a reason is still recorded, as "no reason
+ * given", and a new call site cannot be missed: only its reason can.
+ *
+ * ## Sanitized where it is made
+ *
+ * An address goes through the protocol's `trafficTarget`/`trafficPath`/`trafficCommand` before it
+ * reaches the record: no user, password, query value, fragment or token-looking segment, and of a
+ * program's arguments only the remote or API path. Never a body or a header.
+ */
+
+/** A row before the record numbers it. */
+export type Unnumbered = Omit<TrafficCall, 'seq'>
+
+interface Context {
+  reason: string | null
+  /** True inside `untraced`: the plumbing of traffic itself, which is not recorded. */
+  quiet: boolean
+}
+
+const context = new AsyncLocalStorage<Context>()
+
+/** Run `work` with every call made inside it filed under `reason`. The innermost reason wins. */
+export function because<T>(reason: string, work: () => T): T {
+  return context.run({ reason: reason.trim().slice(0, LIMITS.TRAFFIC_REASON) || null, quiet: context.getStore()?.quiet ?? false }, work)
+}
+
+/** Run `work` without recording what it calls: reading and noting traffic would otherwise fill the record with itself. */
+export function untraced<T>(work: () => T): T {
+  return context.run({ reason: context.getStore()?.reason ?? null, quiet: true }, work)
+}
+
+/** The reason the code running now was given, or null. */
+export const reasonNow = (): string | null => context.getStore()?.reason ?? null
+const quietNow = (): boolean => context.getStore()?.quiet === true
+
+/** The ring. */
+export class TrafficRecord {
+  readonly started: number
+  readonly kept: number
+  #rows: TrafficCall[] = []
+  #seq = 0
+  #listeners = new Set<(row: TrafficCall) => void>()
+
+  constructor(kept: number = LIMITS.TRAFFIC_KEPT, now: () => number = Date.now) {
+    this.kept = kept
+    this.started = now()
+  }
+
+  /** Number and keep one row; a row that does not fit the protocol's shape is dropped, not clipped into one. */
+  add(row: Unnumbered): TrafficCall | null {
+    const read = trafficCallSchema.safeParse({ ...row, seq: this.#seq + 1 })
+    if (!read.success) return null
+    this.#seq++
+    this.#rows.push(read.data)
+    if (this.#rows.length > this.kept) this.#rows.splice(0, this.#rows.length - this.kept)
+    for (const listen of this.#listeners) listen(read.data)
+    return read.data
+  }
+
+  /** Told of every row as it is kept. Returns the way to stop. */
+  listen(listener: (row: TrafficCall) => void): () => void {
+    this.#listeners.add(listener)
+    return () => this.#listeners.delete(listener)
+  }
+
+  get newest(): number {
+    return this.#seq
+  }
+
+  get oldest(): number {
+    return this.#rows[0]?.seq ?? this.#seq + 1
+  }
+
+  /** The rows after `since`, oldest first, at most `limit`. */
+  read(since: number, limit: number): Pick<TrafficReadResult, 'calls' | 'newest' | 'oldest' | 'gap' | 'kept' | 'started'> {
+    const after = since > this.#seq ? 0 : since
+    const first = this.#rows.findIndex((row) => row.seq > after)
+    const calls = first < 0 ? [] : this.#rows.slice(first, first + Math.max(1, Math.min(limit, LIMITS.TRAFFIC_KEPT)))
+    const oldest = this.oldest
+    return { calls, newest: this.#seq, oldest, gap: after > 0 && after < oldest - 1, kept: this.kept, started: this.started }
+  }
+}
+
+/* ------------------------------------------------------------------------ *
+ * The host's own calls: `fetch` and `Bun.spawn`.
+ * ------------------------------------------------------------------------ */
+
+const lengthOf = (headers: Headers): number | undefined => {
+  const said = Number(headers.get('content-length'))
+  return headers.has('content-length') && Number.isInteger(said) && said >= 0 ? said : undefined
+}
+
+function bodyBytes(body: unknown): number | undefined {
+  if (typeof body === 'string') return Buffer.byteLength(body)
+  if (body instanceof ArrayBuffer) return body.byteLength
+  if (ArrayBuffer.isView(body)) return body.byteLength
+  return undefined
+}
+
+/** A row of the host's own making, `out` from its server. */
+export function hostCall(fields: Pick<Unnumbered, 'at' | 'kind' | 'host' | 'path'> & Partial<Unnumbered>): Unnumbered {
+  return {
+    ms: null,
+    reason: reasonNow(),
+    status: null,
+    ok: null,
+    by: TRAFFIC_HOST_BY,
+    via: 'server',
+    side: 'out',
+    reported: 'host',
+    ...fields,
+  }
+}
+
+/**
+ * `fetch` that records the call: method, sanitized address, status, time, the bytes the headers say,
+ * and a 304 as `not-modified`. The body is never read here — the caller reads the same response.
+ */
+export function recordingFetch(record: TrafficRecord, inner: typeof fetch, now: () => number = Date.now): typeof fetch {
+  const traced = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    if (quietNow()) return inner(input, init)
+    const at = now()
+    const url = input instanceof Request ? input.url : String(input)
+    const kind = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase().slice(0, LIMITS.TRAFFIC_KIND)
+    const target = trafficTarget(url)
+    const reason = reasonNow()
+    const out = bodyBytes(init?.body)
+    try {
+      const response = await inner(input, init)
+      const bytesIn = lengthOf(response.headers)
+      record.add(
+        hostCall({
+          at,
+          ms: Math.min(3_600_000, now() - at),
+          reason,
+          kind,
+          ...target,
+          status: response.status,
+          ok: response.ok || response.status === 304,
+          ...(bytesIn !== undefined ? { bytesIn } : {}),
+          ...(out !== undefined ? { bytesOut: out } : {}),
+          ...(response.status === 304 ? { cache: 'not-modified' as const } : {}),
+        }),
+      )
+      return response
+    } catch (error) {
+      record.add(hostCall({ at, ms: Math.min(3_600_000, now() - at), reason, kind, ...target, ok: false, ...(out !== undefined ? { bytesOut: out } : {}) }))
+      throw error
+    }
+  }
+  return Object.assign(traced, inner) as typeof fetch
+}
+
+type Spawn = typeof Bun.spawn
+type SpawnSync = typeof Bun.spawnSync
+
+const argvOf = (first: unknown): string[] | null => {
+  if (Array.isArray(first)) return first.map(String)
+  if (first && typeof first === 'object' && Array.isArray((first as { cmd?: unknown }).cmd)) return (first as { cmd: unknown[] }).cmd.map(String)
+  return null
+}
+
+/**
+ * `Bun.spawn` and `Bun.spawnSync` that record a program run when it went over the network
+ * (`trafficCommand`: `git fetch`, `gh api`, `glab api`…), with its exit code and time. Every other run
+ * passes through untouched.
+ */
+export function recordingSpawn(record: TrafficRecord, inner: { spawn: Spawn; spawnSync: SpawnSync }, now: () => number = Date.now) {
+  const spawn = ((...args: Parameters<Spawn>) => {
+    const child = (inner.spawn as (...a: unknown[]) => ReturnType<Spawn>)(...args)
+    if (quietNow()) return child
+    const said = trafficCommand(argvOf(args[0]) ?? [])
+    if (!said) return child
+    const at = now()
+    const reason = reasonNow()
+    void child.exited
+      .then((code) => record.add(hostCall({ at, ms: Math.min(3_600_000, now() - at), reason, kind: said.kind, host: said.host, path: said.path, status: code, ok: code === 0 })))
+      .catch(() => {})
+    return child
+  }) as Spawn
+  const spawnSync = ((...args: Parameters<SpawnSync>) => {
+    const at = now()
+    const ran = (inner.spawnSync as (...a: unknown[]) => ReturnType<SpawnSync>)(...args)
+    if (quietNow()) return ran
+    const said = trafficCommand(argvOf(args[0]) ?? [])
+    if (said) record.add(hostCall({ at, ms: Math.min(3_600_000, now() - at), kind: said.kind, host: said.host, path: said.path, status: ran.exitCode, ok: ran.exitCode === 0 }))
+    return ran
+  }) as SpawnSync
+  return { spawn, spawnSync }
+}
+
+/** The record this process keeps, once `recordThisProcess` put it in place; null in a test that did not. */
+let processRecord: TrafficRecord | null = null
+
+/** Put both recorders in place, once, for this process. */
+export function recordThisProcess(record: TrafficRecord): void {
+  const marked = globalThis as { __kehikotTraffic?: boolean }
+  if (marked.__kehikotTraffic) return
+  marked.__kehikotTraffic = true
+  processRecord = record
+  globalThis.fetch = recordingFetch(record, globalThis.fetch.bind(globalThis))
+  const recorded = recordingSpawn(record, { spawn: Bun.spawn, spawnSync: Bun.spawnSync })
+  ;(Bun as unknown as { spawn: Spawn }).spawn = recorded.spawn
+  ;(Bun as unknown as { spawnSync: SpawnSync }).spawnSync = recorded.spawnSync
+}
+
+/**
+ * A call answered from what this host kept, so nothing was sent: filed in this process's record
+ * (`recordThisProcess`) as `hit`, so a reader sees what a cache saved. A no-op before that.
+ */
+export function noteHit(address: string, kind = 'GET'): void {
+  if (processRecord) noteFree(processRecord, address, 'hit', kind)
+}
+
+/** A call that never went out: answered from what was kept, or held back by a budget. */
+export function noteFree(record: TrafficRecord, address: string, cache: TrafficCache, kind = 'GET', now: () => number = Date.now): void {
+  if (quietNow()) return
+  record.add(hostCall({ at: now(), ms: 0, kind, ...trafficTarget(address), cache, ok: cache !== 'refused' }))
+}
+
+/* ------------------------------------------------------------------------ *
+ * What modules note.
+ * ------------------------------------------------------------------------ */
+
+const HOST_NAME = /^[a-z0-9.-]{1,253}(?::\d{1,5})?$|^\[[0-9a-f:.]+\](?::\d{1,5})?$|^$/
+
+/**
+ * A module's notes, sanitized again and filed under it. The module said it sanitized them; this
+ * host does not take its word: the host must be a host name, the path goes through `trafficPath`.
+ */
+export function takeNotes(record: TrafficRecord, module: string, via: TrafficVia, calls: readonly TrafficNote[]): TrafficNoteResult {
+  let taken = 0
+  for (const one of calls) {
+    const note = trafficNoteSchema.safeParse(one)
+    if (!note.success) continue
+    const host = note.data.host.toLowerCase()
+    const row = record.add({
+      ...note.data,
+      host: HOST_NAME.test(host) ? host : '',
+      path: trafficPath(note.data.path),
+      by: module,
+      via,
+      side: 'out',
+      reported: 'module',
+    })
+    if (row) taken++
+  }
+  return { outcome: 'taken', taken, why: '' }
+}
+
+/* ------------------------------------------------------------------------ *
+ * What this host receives.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * What a received request is about, by route: the reason a row of `in` gets when nothing more exact
+ * is known. A fixed vocabulary; a route not here is "no reason given".
+ */
+export const ROUTE_REASONS: Readonly<Record<string, string>> = {
+  '/host/call': 'a module asks',
+  '/host/watch': 'the page waits for news',
+  '/host/modules': 'the page reads the modules',
+  '/host/quiet': 'the page asks whether modules are quiet',
+  '/host/canvases': 'the page reads or saves the kehikot',
+  '/host/projects': 'the page reads the projects',
+  '/host/epics': 'the page reads the epics',
+  '/host/tracker': 'the page reads the tracker reading',
+  '/host/tracker/refresh': 'tracker refresh asked',
+  '/host/dispositions': 'the page reads why refs closed',
+  '/host/updates': 'update check',
+  '/host/module-release': 'a module’s release details',
+  '/host/release-notes': 'release notes',
+  '/host/releases': 'release list',
+  '/host/official': 'the official module list',
+  '/host/is-project': 'a module asks whether a folder is a project',
+  '/host/place': 'a session’s place',
+  '/host/settings-pass': 'a module checks a settings pass',
+  '/host/server-ask': 'a module’s server asks',
+  '/host/headers': 'the page reports a module’s header',
+  '/host/pressed': 'the page reports a press',
+  '/host/open': 'the page says what it has open',
+  '/host/start': 'start a module',
+  '/host/agent': 'an agent’s place',
+  '/host/inbox/report': 'the page reports a module’s Inbox items',
+  '/host/inbox': 'the page reads the Inbox',
+  '/host/health': 'is Kehikot up',
+  '/host/hello': 'is Kehikot here',
+  '/host/tools': 'a module’s tools',
+  '/host/versions': 'a module’s versions',
+  '/host/whats-new': 'what’s new',
+  '/host/settings': 'settings',
+  '/mcp': 'an agent asks Kehikot',
+}
+
+/** What the route that answered says about the request, beside what the wrapper sees. */
+export interface Tag {
+  by?: string
+  via?: TrafficVia
+  reason?: string | null
+  /** Not recorded: the plumbing of traffic itself. */
+  skip?: boolean
+}
+
+const tags = new WeakMap<Request, Tag>()
+
+/** Said by a route about the request it is answering: who asked, and why. */
+export function tag(request: Request, said: Tag): void {
+  tags.set(request, { ...(tags.get(request) ?? {}), ...said })
+}
+
+export interface ReceivedFrom {
+  /** The page's own origins: a request carrying one of these is this host's page. */
+  pageOrigins: readonly string[]
+  /** Who holds this local port on this computer, when the process sampler knows: a module id or `kehikko`. */
+  portOwner?(port: number): string | null
+}
+
+/**
+ * The row for one request this host answered. Who asked: what the route said (`tag`), else this
+ * host's own page by its `Origin`/`Sec-Fetch-Site`, else a module named in the query, else whoever
+ * the sampler saw holding the client's port, else `''`.
+ */
+export function receivedRow(
+  request: Request,
+  response: Response,
+  at: number,
+  ms: number,
+  from: ReceivedFrom,
+  client: { port: number } | null,
+): Unnumbered | null {
+  const said = tags.get(request) ?? {}
+  if (said.skip) return null
+  const url = new URL(request.url)
+  const origin = request.headers.get('origin')
+  const site = request.headers.get('sec-fetch-site')
+  const fromPage = (origin !== null && from.pageOrigins.includes(origin)) || (origin === null && (site === 'same-origin' || site === 'none'))
+  const named = url.searchParams.get('module')
+  const byPort = !fromPage && client ? (from.portOwner?.(client.port) ?? null) : null
+  const by = said.by ?? (fromPage ? TRAFFIC_HOST_BY : named && /^[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]$/.test(named) ? named : byPort ?? '')
+  const via: TrafficVia = said.via ?? (fromPage ? 'page' : 'server')
+  const reason = said.reason !== undefined ? said.reason : (ROUTE_REASONS[url.pathname] ?? null)
+  const bytesIn = lengthOf(request.headers)
+  const bytesOut = lengthOf(response.headers)
+  return {
+    at,
+    ms: Math.min(3_600_000, Math.max(0, Math.round(ms))),
+    reason,
+    kind: request.method.toUpperCase().slice(0, LIMITS.TRAFFIC_KIND),
+    host: url.host.toLowerCase().slice(0, LIMITS.TRAFFIC_HOST),
+    path: trafficPath(`${url.pathname}${url.search}`),
+    status: response.status,
+    ok: response.ok || response.status === 304,
+    ...(bytesIn !== undefined ? { bytesIn } : {}),
+    ...(bytesOut !== undefined ? { bytesOut } : {}),
+    ...(response.status === 304 ? { cache: 'not-modified' as const } : {}),
+    by: by.slice(0, LIMITS.TRAFFIC_BY),
+    via,
+    side: 'in',
+    reported: 'host',
+  }
+}
+
+/* ------------------------------------------------------------------------ *
+ * The door: `traffic.read`.
+ * ------------------------------------------------------------------------ */
+
+export interface TrafficDoor {
+  read(asked: { since: number; limit: number; sample: boolean }): TrafficReadResult
+  note(module: string, via: TrafficVia, calls: readonly TrafficNote[]): TrafficNoteResult
+}
+
+export function trafficDoor(deps: {
+  record: TrafficRecord
+  budgets(): TrafficBudget[]
+  /** Ask the sampler to look (for a while), and what it last saw. */
+  processes(wanted: boolean): TrafficProcesses | null
+}): TrafficDoor {
+  return {
+    read({ since, limit, sample }) {
+      return { ...deps.record.read(since, limit), budgets: deps.budgets(), processes: sample ? deps.processes(true) : null }
+    },
+    note: (module, via, calls) => takeNotes(deps.record, module, via, calls),
+  }
+}

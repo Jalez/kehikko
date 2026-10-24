@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 
 
 import { HOST_REPO, readOfficial, type Official } from './official.ts'
+import { because } from './traffic.ts'
 
 /**
  * The CURRENT official module list, learned at run time.
@@ -157,7 +158,7 @@ async function bounded(response: Response, max: number): Promise<string> {
 
 export function officialSource(deps: SourceDeps) {
   const now = deps.now ?? Date.now
-  const ask = deps.fetch ?? ((url, init) => fetch(url, init))
+  const ask: NonNullable<SourceDeps['fetch']> = (url, init) => because('the official module list', () => (deps.fetch ?? fetch)(url, init))
   const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS
 
   let fetched: Official[] | null = null

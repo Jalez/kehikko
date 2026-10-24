@@ -1,5 +1,6 @@
 import { githubGateway, PRIORITY, type GitHubGateway, type Priority } from './github.ts'
 import { isVersionTag } from './versions.ts'
+import { because, noteHit } from './traffic.ts'
 
 /**
  * Release notes, read from GitHub for the repositories this host knows.
@@ -134,7 +135,7 @@ export function releaseNotesDesk(deps: Deps) {
     accept: (value: unknown) => boolean,
   ): Promise<Asked> {
     const at = now()
-    const got = await gateway.api(path, priority, accept)
+    const got = await because(`GitHub releases: ${/^\/repos\/([^/]+\/[^/]+)/.exec(path)?.[1] ?? 'a repository'}`, () => gateway.api(path, priority, accept))
     if (got.ok) return { ok: true, value: got.value, until: at + FRESH_MS }
     const hold = got.waiting ? Math.max(1000, Math.min(got.retryAt - at, FAILED_MS)) : got.status === 404 ? MISSING_MS : Math.max(1000, got.retryAt - at)
     return { ok: false, why: got.why, status: got.status, url: page, until: at + hold, waiting: got.waiting }
@@ -170,7 +171,10 @@ export function releaseNotesDesk(deps: Deps) {
     if (!(await known(repo))) return { ok: false, why: `${repo} is not a repository this host knows.`, status: 403, url: page }
     if (!isVersionTag(tag)) return { ok: false, why: 'A release is named by a version tag such as v1.2.0.', status: 400, url: page }
     const kept = fresh(notes, key(repo, tag))
-    if (kept) return kept
+    if (kept) {
+      because(`GitHub releases: ${repo}`, () => noteHit(`https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`))
+      return kept
+    }
     const asked = await ask(`/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`, page, priorityOf(repo), isRecord)
     const missing = `No release notes were published for ${tag}.`
     let got: Got<Release>
@@ -198,7 +202,10 @@ export function releaseNotesDesk(deps: Deps) {
     const page = releasePage(repo)
     if (!(await known(repo))) return { ok: false, why: `${repo} is not a repository this host knows.`, status: 403, url: page }
     const kept = fresh(lists, key(repo))
-    if (kept) return kept
+    if (kept) {
+      because(`GitHub releases: ${repo}`, () => noteHit(`https://api.github.com/repos/${repo}/releases`))
+      return kept
+    }
     const path = `/repos/${repo}/releases?per_page=${LIST_SIZE}`
     const asked = await ask(path, page, priority, Array.isArray)
     const summaries = (list: unknown[], until: number | null) => {
