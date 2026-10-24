@@ -13,7 +13,7 @@ import {
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
-import { epicsIn, listEpics, readEpic, readLive, readStepsSaid } from './holdings.ts'
+import { epicsIn, listEpics, readEpic, readLive, readParts, readStepsSaid } from './holdings.ts'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
@@ -470,8 +470,10 @@ export function answer(
   case 'tracker.get': {
     if (!trackers) return notMineToSay('This host was not given a tracker reading to answer from.')
     if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
-    const { detail, ...scope } = parsed.data as { detail: 'summary' | 'detail' } & Partial<Record<'refs' | 'epic' | 'project', unknown>>
-    const reading = trackers.get(root, scopeOf(scope), detail)
+    const { detail, parts, ...scope } = parsed.data as { detail: 'summary' | 'detail'; parts?: boolean } & Partial<Record<'refs' | 'epic' | 'project', unknown>>
+    const asked = scopeOf(scope)
+    /* `parts: true` (protocol 2.19.0): the refs the epic's parts hold beside the epic's own, in one answer. */
+    const reading = trackers.get(root, parts === true && 'epic' in asked ? { epic: asked.epic, also: partRefsOf(root, asked.epic) } : asked, detail)
     if ('refused' in reading) return notMineToSay(reading.refused)
     return nothingToShow('tracker.get', reading)
   }
@@ -600,6 +602,11 @@ export function answer(
 function clip(sentence: string): string {
   const room = LIMITS.REASON - 120
   return sentence.length > room ? `${sentence.slice(0, room)}…` : sentence
+}
+
+/** Every ref the parts of an epic hold, each once, in part order: what `context.parts[].refs` carries. */
+export function partRefsOf(root: string, epic: string): string[] {
+  return [...new Set((readParts(root, epic) ?? []).flatMap((part) => part.refs))]
 }
 
 /** The one scope a parsed tracker call named. The schema has already refused zero or two. */

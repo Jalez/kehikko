@@ -491,6 +491,46 @@ export function columnsOn(row: TrackerRow, boards: readonly HeldBoard[]): Tracke
   return placed.length > 1 ? { ...rest, column: placed[0], columns: placed } : { ...rest, column: placed[0] }
 }
 
+/*
+ * Related branches (protocol 2.19.0).
+ *
+ * GitLab's related branches of an issue are the project's branches named
+ * `<iid>-…` — what its "Create branch" names them — leaving out a stable
+ * branch (`12-0-stable`), the rule its own `related_branches` applies. That
+ * list is one request PER ISSUE, so it is not asked: the source's branch names
+ * are listed instead, `BRANCH_PAGES` pages of a hundred on a whole read (as
+ * its boards are), and each issue's are worked out from them wherever the
+ * row was read (`branchesOn`). A repository with more branches than that has
+ * the rest unseen until a branch is deleted.
+ */
+
+/** Pages of a hundred branch names read per source on a whole read. */
+export const BRANCH_PAGES = 3
+
+/** The branches of an issue among a project's branch names: `<iid>-…`, never `<iid>-<n>-stable`. */
+export function relatedBranches(iid: number, names: readonly string[]): string[] {
+  const related = new RegExp(`^${iid}-(?!\\d+-stable)`, 'i')
+  return names.filter((name) => related.test(name)).slice(0, LIMITS.TRACKER_BRANCHES)
+}
+
+/** A branch's page on a GitLab host: `https://<host>/<project>/-/tree/<name>`, each segment encoded. */
+export function branchUrl(source: Pick<Source, 'host' | 'repo'>, name: string): string | undefined {
+  const url = `https://${source.host}/${source.repo}/-/tree/${name.split('/').map(encodeURIComponent).join('/')}`
+  return url.length <= LIMITS.URL ? url : undefined
+}
+
+/** A GitLab issue's row with its related branches put in afresh from the source's names. A change is left as it is. */
+export function branchesOn(row: TrackerRow, names: readonly string[]): TrackerRow {
+  if (row.kind !== 'issue') return row
+  return {
+    ...row,
+    branches: relatedBranches(row.number, names).map((name) => {
+      const url = branchUrl(row, name)
+      return { name, ...(url ? { url } : {}) }
+    }),
+  }
+}
+
 /** How many pages of a hundred a listing of `limit` takes. */
 /**
  * References per GraphQL query: GitLab's complexity grows with it, against a limit of 250 for a
@@ -669,6 +709,22 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
           .filter((one): one is HeldBoard => one !== null)
           .slice(0, LIMITS.TRACKER_BOARDS),
       }
+    },
+
+    async branches(source): Promise<string[] | null> {
+      const names: string[] = []
+      for (let page = 1; page <= BRANCH_PAGES; page += 1) {
+        const ran = await glab([`${project(source)}/repository/branches?per_page=100&page=${page}`], source)
+        if (ran.code !== 0) return page === 1 ? null : names
+        const got = parsed(ran)
+        if (!Array.isArray(got)) return page === 1 ? null : names
+        for (const one of got) {
+          const name = branchOf(obj(one).name)
+          if (name) names.push(name)
+        }
+        if (got.length < 100) break
+      }
+      return names
     },
 
     async refs(source, wanted, now): Promise<Read> {

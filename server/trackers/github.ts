@@ -230,6 +230,50 @@ const branchOf = (v: unknown): string | undefined => {
   return b && b.length <= LIMITS.BRANCH ? b : undefined
 }
 
+/*
+ * Linked branches (protocol 2.19.0).
+ *
+ * An issue's Development branches — made with "Create a branch" or linked by
+ * hand — are its `linkedBranches`, asked in the same query as everything else
+ * about the issue: no request of their own. A branch may be in another
+ * repository; its link is that repository's `/tree/<name>`. A GitHub
+ * Enterprise Server too old for the field refuses the whole query ("Field
+ * 'linkedBranches' doesn't exist on type 'Issue'"): it is asked again without
+ * them, the refusal is believed for `SCOPE_RECHECK_MS`, and its issues have no
+ * `branches` (absent: not read), never an empty list.
+ */
+
+/** Development branches asked of an issue. Ten: the row's bound. */
+const LINKED_BRANCHES = `linkedBranches(first: ${LIMITS.TRACKER_BRANCHES}) { nodes { ref { name repository { url } } } }`
+
+/** A branch's page on GitHub, each segment of its name encoded; nothing when the repository's link is not https. */
+export function branchUrl(repositoryUrl: unknown, name: string): string | undefined {
+  const base = str(repositoryUrl).replace(/\/+$/, '')
+  if (!base.startsWith('https://')) return undefined
+  const url = `${base}/tree/${name.split('/').map(encodeURIComponent).join('/')}`
+  return url.length <= LIMITS.URL ? url : undefined
+}
+
+/** An issue's linked branches as the row carries them, each once. */
+export function linkedBranchesOf(linked: unknown): Array<{ name: string; url?: string }> {
+  const out = new Map<string, { name: string; url?: string }>()
+  for (const node of nodes(linked).map(obj)) {
+    const ref = obj(node.ref)
+    const name = branchOf(ref.name)
+    if (!name) continue
+    const url = branchUrl(obj(ref.repository).url, name)
+    const key = url ?? name
+    if (!out.has(key)) out.set(key, { name, ...(url ? { url } : {}) })
+  }
+  return [...out.values()].slice(0, LIMITS.TRACKER_BRANCHES)
+}
+
+/** GitHub refusing a query for a field it does not have — here, `linkedBranches` on an older Enterprise Server. */
+export function lacksLinkedBranches(answer: unknown, ran: { err: string; out: string }): boolean {
+  const said = [...list(obj(answer).errors).map((e) => str(obj(e).message)), ran.err, ran.out].join('\n')
+  return /linkedBranches/.test(said) && /doesn't exist|undefinedField|Field '/i.test(said) && !Object.keys(obj(obj(answer).data)).length
+}
+
 /** One issue, from `gh issue list --json` or GraphQL — the two spell these fields the same. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -269,6 +313,8 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
     links,
     lastActivity: has(r, 'timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
+    /* Absent when the answer did not carry them (an older Enterprise Server), which is not "none". */
+    branches: has(r, 'linkedBranches') ? linkedBranchesOf(r.linkedBranches) : undefined,
     ...placed(r.projectItems),
     readAt: now,
   }, peopleRead(r), source.host))
@@ -449,10 +495,10 @@ const PULL_ACTS = `${ISSUE_ACTS}
 const ISSUE_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT, REOPENED_EVENT]) { nodes { ${ISSUE_ACTS} } }`
 const PULL_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT]) { nodes { ${PULL_ACTS} } }`
 
-const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
+const ISSUE_GRAPH = (boards: boolean, branches = true) => `number state stateReason title url createdAt updatedAt closedAt
     author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
     closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }
-    ${ISSUE_ACTIVITY}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
+    ${ISSUE_ACTIVITY}${branches ? `\n    ${LINKED_BRANCHES}` : ''}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }
     latestReviews(first: 32) { nodes { state author { login ${AVATAR} ... on User { name } } } }
@@ -474,10 +520,10 @@ const repository = (source: Source) => {
  * is false. Owner and name passed `NAME` in `sources.ts`, so they cannot leave
  * the string.
  */
-export function refsQuery(source: Source, numbers: readonly number[], boards = true): string {
+export function refsQuery(source: Source, numbers: readonly number[], boards = true, branches = true): string {
   const asked = numbers
     .map((n) => `n${n}: issueOrPullRequest(number: ${n}) { __typename
-  ... on Issue { ${ISSUE_GRAPH(boards)} }
+  ... on Issue { ${ISSUE_GRAPH(boards, branches)} }
   ... on PullRequest { ${PULL_GRAPH(boards)} } }`)
     .join('\n')
   return `query { ${repository(source)} {\n${asked}\n} }`
@@ -504,12 +550,13 @@ export function listQuery(
   after: { issues: string | null | false; pulls: string | null | false },
   boards = true,
   size = PAGE,
+  branches = true,
 ): string {
   const page = (cursor: string | null) =>
     `first: ${size}${cursor ? `, after: "${cursor}"` : ''}, orderBy: { field: CREATED_AT, direction: DESC }`
   const parts: string[] = []
   if (after.issues !== false) {
-    parts.push(`issues(${page(after.issues)}) { pageInfo { hasNextPage endCursor } nodes { ${ISSUE_GRAPH(boards)} } }`)
+    parts.push(`issues(${page(after.issues)}) { pageInfo { hasNextPage endCursor } nodes { ${ISSUE_GRAPH(boards, branches)} } }`)
   }
   if (after.pulls !== false) {
     parts.push(`pullRequests(${page(after.pulls)}) { pageInfo { hasNextPage endCursor } nodes { ${PULL_GRAPH(boards)} } }`)
@@ -529,27 +576,42 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
     run(['gh', ...args], { timeout: 30_000 }).then((ran) => ({ ran, source }))
   /** Hosts that refused `read:project`, until when that is believed. */
   const noScope = new Map<string, number>()
+  /** Hosts that have no `linkedBranches` (an older Enterprise Server), until when that is believed. */
+  const noBranches = new Map<string, number>()
+  const believedNot = (map: Map<string, number>, host: string) => {
+    const until = map.get(host)
+    return until !== undefined && clock() < until
+  }
 
   /**
    * One GraphQL query, with the boards when the host is believed to show them,
-   * and again without them when it refuses the scope. Says which it got.
+   * and again without them when it refuses the scope; with linked branches
+   * unless the host is believed not to have them, and again without them when
+   * it says it has not. Says which boards it got.
    */
-  async function graph(source: Source, build: (boards: boolean) => string) {
+  async function graph(source: Source, build: (boards: boolean, branches: boolean) => string) {
     const call = (query: string) => {
       const args = ['api', 'graphql', '-f', `query=${query}`]
       if (source.host !== 'github.com') args.push('--hostname', source.host)
       return gh(args, source).then(({ ran }) => ({ ran, answer: parsed(ran) }))
     }
-    const believed = noScope.get(source.host)
-    if (believed === undefined || clock() >= believed) {
-      const first = await call(build(true))
+    /* The branches first: a host without the field refuses every query that names it, boards or not. */
+    const ask = async (boards: boolean) => {
+      const branches = !believedNot(noBranches, source.host)
+      const got = await call(build(boards, branches))
+      if (!branches || !lacksLinkedBranches(got.answer, got.ran)) return got
+      noBranches.set(source.host, clock() + SCOPE_RECHECK_MS)
+      return call(build(boards, false))
+    }
+    if (!believedNot(noScope, source.host)) {
+      const first = await ask(true)
       if (!lacksProjectScope(first.answer, first.ran)) {
         noScope.delete(source.host)
         return { ...first, boards: true }
       }
       noScope.set(source.host, clock() + SCOPE_RECHECK_MS)
     }
-    return { ...(await call(build(false))), boards: false }
+    return { ...(await ask(false)), boards: false }
   }
 
   const boardsRead = (boards: boolean, items: readonly unknown[]): BoardsRead =>
@@ -574,7 +636,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
       let after: { issues: string | null | false; pulls: string | null | false } = { issues: null, pulls: null }
       let boards = true
       while (after.issues !== false || after.pulls !== false) {
-        const got = await graph(source, (b) => listQuery(source, after, b))
+        const got = await graph(source, (b, branches) => listQuery(source, after, b, PAGE, branches))
         boards &&= got.boards
         const repo = obj(obj(obj(got.answer).data).repository)
         if (!Object.keys(repo).length) {
@@ -611,7 +673,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
       const notFound: Array<{ number: number; kind: null }> = []
       let boards = true
       for (const group of chunks(numbers, 50)) {
-        const got = await graph(source, (b) => refsQuery(source, group, b))
+        const got = await graph(source, (b, branches) => refsQuery(source, group, b, branches))
         boards &&= got.boards
         const data = obj(obj(obj(got.answer).data).repository)
         /* Partly found is still an answer: GraphQL says NOT_FOUND for a

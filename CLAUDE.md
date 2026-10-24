@@ -440,6 +440,25 @@
   `ANSWERED_UNDECLARED` (answered, one log line per call) until its manifest is
   fixed. Never widen the rule instead.
 
+## A module's server asking (protocol 2.19.0)
+
+- `POST /host/server-ask` (`SERVER_ASK_PATH`, `server/serverAsk.ts`) answers a
+  module's SERVER what its page would be answered — `SERVER_METHODS` only
+  (`tracker.get`, `tracker.columns`) — so its MCP door reads the tracker with no
+  page open. The protocol's `askHost` asks it.
+- In this order, never another: the module is registered; the module at its
+  REGISTERED origin vouches for the question's pass (`SERVER_PASS_PATH`, spent by
+  the asking — never trust an origin from the question); `hold` against the
+  manifest the last sweep read (a module that did not declare the capability gets
+  nothing); the folder is a project here and not the unpicked home fallback.
+  Then the page's own `answer()` in `answers.ts`, so the two cannot differ.
+- It reads the stored reading: no tracker request a page's question would not
+  make. Never add a write method to the list, and never let it answer a program
+  the module did not vouch for.
+- `tracker.get { epic, parts: true }`: the epic's refs and its parts' refs
+  (`partRefsOf`, what `context.parts[].refs` carries) in one answer, through
+  `Scope`'s `also`.
+
 ## A web address on the canvas
 
 - `address.open` (protocol 2.16.0, capability `address:open`) hands a page to the open
@@ -499,6 +518,13 @@
   Older hosts strip the key and read the repository: additive, not breaking.
 - The words a person is told about a source (`rolesOf`, `readSaid`) live in
   `src/host/trackerSources.ts`, shared by the panel and the MCP tools.
+- An issue's linked branches (`branches`, protocol 2.19.0) come with the reads
+  already made, never a request per issue: GitHub's `linkedBranches` in the same
+  GraphQL query (asked again without it, and believed `SCOPE_RECHECK_MS`, on a
+  GitHub Enterprise Server without the field); GitLab's related branches
+  (`<iid>-…`, `relatedBranches`) from one listing of the source's branch names per
+  whole read (`BRANCH_PAGES`), kept in the reading and applied wherever a row was
+  read (`withBranches`). Absent means not read, `[]` read and none.
 
 ## The storage overview
 - What every module's data takes in every project, and Kehikot's machine data:

@@ -89,6 +89,13 @@ export interface Adapter {
    */
   boards?(source: Source): Promise<BoardsRead | null>
   /**
+   * The source's branch names, read on their own on a whole read — for a
+   * tracker whose issues do not say which branches are theirs (GitLab: a
+   * related branch is one named `<iid>-…`). Null when they could not be read;
+   * the names held before stay. (protocol 2.19.0)
+   */
+  branches?(source: Source): Promise<string[] | null>
+  /**
    * Who the person is on this tracker host — `gh api user`, `glab api user` —
    * or why that could not be read, in a sentence. For `myRoles`. (2.7.0)
    */
