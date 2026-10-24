@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 24
+const TESTS = 25
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -817,6 +817,57 @@ describe('the layout picker', () => {
     expect(used.at(-1)).toEqual({ id: 'start-simple', install: [] })
     /* A host never asked to install anything by itself. */
     expect(asked.filter((one) => one.url.includes('/install'))).toEqual([])
+  })
+
+  test('a card names its modules in a wrapping list that can shrink, shows the first few and says "+N more" for the rest', async () => {
+    const names = Array.from({ length: 9 }, (_, i) => `Module number ${i + 1}`)
+    const long = 'unbreakablemodulenamewithoutanyseparatorsatallinit'
+    const many = { id: 'many', from: 'builtin' as const, name: 'Many', summary: '', containers: names.map((_, i) => ({ module: `kehikot.m${i}`, x: 0, y: i, w: 4, h: 1 })) }
+    const few = { id: 'few', from: 'builtin' as const, name: 'Few', summary: '', containers: [0, 1].map((i) => ({ module: `kehikot.m${i}`, x: 0, y: i, w: 4, h: 1 })) }
+    const one = { id: 'five', from: 'builtin' as const, name: 'Five', summary: '', containers: [0, 1, 2, 3, 4].map((i) => ({ module: `kehikot.m${i}`, x: 0, y: i, w: 4, h: 1 })) }
+    const longest = { id: 'long', from: 'builtin' as const, name: 'Long', summary: '', containers: [{ module: 'kehikot.long', x: 0, y: 0, w: 4, h: 1 }] }
+    await render(
+      <Layouts.LayoutPicker
+        open
+        onOpenChange={nothing}
+        mode="new"
+        project={1}
+        registered={new Map()}
+        load={async () => ({ builtIn: [many, few, one, longest], project: [], mine: [], trouble: [] })}
+        loadOfficial={async () => [
+          ...names.map((name, i) => ({ id: `kehikot.m${i}`, name, installed: true })),
+          { id: 'kehikot.long', name: long, installed: true },
+        ]}
+        onUse={async () => null}
+      />,
+    )
+    await settle()
+    const card = (id: string) => document.querySelector(`[data-layout-card="builtin:${id}"]`)!
+    const chips = (id: string) => [...card(id).querySelectorAll('[data-layout-chip] .truncate')].map((el) => el.textContent)
+
+    /* The list wraps, and it and everything in it may shrink below its content. */
+    const list = card('many').querySelector('[data-layout-chips]')!
+    expect(list.className).toContain('flex-wrap')
+    expect(list.className).toContain('min-w-0')
+    for (const chip of list.querySelectorAll('[data-layout-chip]')) {
+      expect(chip.className).toContain('min-w-0')
+      expect(chip.querySelector('.truncate')).not.toBeNull()
+    }
+    expect(card('many').className).toContain('min-w-0')
+
+    /* The first few, then a count; the rest are in its tooltip, and a card never grows with them. */
+    expect(chips('many')).toEqual(names.slice(0, layouts.CHIPS_SHOWN))
+    expect(card('many').querySelector('[data-layout-more]')?.textContent).toBe(`+${names.length - layouts.CHIPS_SHOWN} more`)
+    /* Short lists say everything; one over the limit is shown rather than hidden behind "+1 more". */
+    expect(chips('few')).toEqual(names.slice(0, 2))
+    expect(card('few').querySelector('[data-layout-more]')).toBeNull()
+    expect(chips('five')).toEqual(names.slice(0, 5))
+    expect(card('five').querySelector('[data-layout-more]')).toBeNull()
+
+    /* A name is cut with an ellipsis and says itself in full. */
+    const chip = card('long').querySelector('[data-layout-chip]')!
+    expect(chip.getAttribute('title')).toBe(long)
+    expect(chip.querySelector('.truncate')?.textContent).toBe(long)
   })
 })
 

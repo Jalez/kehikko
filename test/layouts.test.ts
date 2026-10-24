@@ -12,6 +12,8 @@ import { OFFICIAL } from '../server/official.ts'
 import {
   availability,
   availabilitySaid,
+  CHIPS_SHOWN,
+  chipsOf,
   BUILT_IN_LAYOUTS,
   layoutFileSchema,
   placementsFor,
@@ -245,3 +247,16 @@ describe('the introduction is shown once', () => {
   })
 })
 
+
+describe('the module chips on a card', () => {
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `m${i}`)
+
+  test('the first few are shown and the rest are counted', () => {
+    expect(chipsOf(names(CHIPS_SHOWN + 6))).toEqual({ shown: names(CHIPS_SHOWN), hidden: names(CHIPS_SHOWN + 6).slice(CHIPS_SHOWN) })
+  })
+
+  test('one over the limit is shown, never "+1 more"; at or under it, nothing is hidden', () => {
+    for (const n of [0, 1, CHIPS_SHOWN, CHIPS_SHOWN + 1]) expect(chipsOf(names(n))).toEqual({ shown: names(n), hidden: [] })
+    expect(chipsOf(names(CHIPS_SHOWN + 2)).hidden).toHaveLength(2)
+  })
+})
