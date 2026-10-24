@@ -628,7 +628,7 @@ function overlay(
   /* Which change delivers which issue: both say, and neither knows all of it —
      the file holds changes the reading never read, the reading ones newer than
      the file. Each issue gets the numbers of both. */
-  for (const map of ['links', 'ghLinks']) {
+  for (const map of ['links', 'ghLinks', 'ghPartOf']) {
     const merged: Record<string, unknown[]> = {}
     for (const from of [file[map], reading[map]]) {
       if (!from || typeof from !== 'object' || Array.isArray(from)) continue

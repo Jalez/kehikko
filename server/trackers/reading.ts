@@ -25,6 +25,7 @@ import { githubAdapter } from './github.ts'
 import { columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { withRoles } from './roles.ts'
+import { withContributors } from './contributions.ts'
 import { withStacks } from './stacks.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
@@ -149,7 +150,7 @@ export function loadReading(projectPath: string): Stored {
     const parsed = fileSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
     /* Linked again on the way in: a file written before the links were worked
        out over the whole reading is put right without waiting for a read. */
-    return parsed.success ? { ...parsed.data, rows: backLinked(parsed.data.rows) } : empty()
+    return parsed.success ? { ...parsed.data, rows: withContributors(backLinked(parsed.data.rows)) } : empty()
   } catch {
     return empty()
   }
@@ -641,6 +642,11 @@ export class Trackers {
    * request's own description (`DECLARATION` in `gitlab.ts`), and for GitHub
    * its closing references. A change that only mentions an issue has no link
    * and folds nowhere.
+   *
+   * And `ghPartOf`, a GitHub issue's ref to the pull requests that say they
+   * are part of it without closing it — the row's contributions, the
+   * cross-references their authors made — the bag the old refresher kept for
+   * "Part of #N".
    */
   live(root: string, epic: string): Record<string, unknown> | null {
     const got = this.get(root, { epic })
@@ -654,7 +660,15 @@ export class Trackers {
     const links: Record<string, number[]> = {}
     const ghLinks: Record<string, number[]> = {}
     const spelled = new Map(got.rows.filter((row) => row.kind === 'issue').map((row) => [rowIdentity(row), row.ref]))
+    const ghPartOf: Record<string, number[]> = {}
     for (const row of got.rows) {
+      for (const one of row.tracker === 'github' ? (row.contributions ?? []) : []) {
+        const other = readTrackerRef(one.ref)
+        if (!other) continue
+        const issue = row.kind === 'issue' ? row.ref : (spelled.get(identity(row, 'issue', other.number)) ?? one.ref)
+        const change = row.kind === 'issue' ? other.number : row.number
+        if (!ghPartOf[issue]?.includes(change)) ghPartOf[issue] = [...(ghPartOf[issue] ?? []), change]
+      }
       for (const link of row.links) {
         const other = readTrackerRef(link.ref)
         if (!other) continue
@@ -688,7 +702,7 @@ export class Trackers {
       if (row.tracker === 'github') bags[row.kind === 'change' ? 'ghPrs' : 'ghIssues'][row.ref] = entry
       else bags[row.kind === 'change' ? 'mrs' : 'issues'][String(row.number)] = entry
     }
-    return { generated: got.at, ...bags, links, ghLinks }
+    return { generated: got.at, ...bags, links, ghLinks, ghPartOf }
   }
 
   #find(byId: Map<string, TrackerRow>, source: Source, kind: 'issue' | 'change' | null, number: number) {
@@ -983,7 +997,7 @@ export class Trackers {
           error: error === null ? null : error.slice(0, LIMITS.REASON),
         }
       }),
-      rows: placedOnBoards(withStacks(backLinked(roled)), boards).slice(0, LIMITS.TRACKER_ROWS),
+      rows: placedOnBoards(withStacks(withContributors(backLinked(roled))), boards).slice(0, LIMITS.TRACKER_ROWS),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),

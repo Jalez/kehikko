@@ -1,11 +1,13 @@
 import {
   LIMITS,
+  readTrackerRef,
   type LastActivityKind,
   type PipelineState,
   type ReviewState,
   type TrackerBoard,
   type TrackerActivity,
   type TrackerColumn,
+  type TrackerContribution,
   type TrackerDetailFacts,
   type TrackerDiscussions,
   type TrackerReviewer,
@@ -36,6 +38,7 @@ import {
   type Me,
   type Read,
 } from './common.ts'
+import { withContributors } from './contributions.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -230,6 +233,43 @@ const branchOf = (v: unknown): string | undefined => {
   return b && b.length <= LIMITS.BRANCH ? b : undefined
 }
 
+/*
+ * Changes that are part of an issue (protocol 2.19.0).
+ *
+ * A pull request that says "Part of #12" leaves a cross-reference on the
+ * issue's timeline whose source is the pull request; one that says "Closes
+ * #12" leaves one too, with `willCloseTarget`, and is a closer already. Only
+ * the pull request's author speaks for it: a cross-reference somebody else
+ * made, in a comment or a review of theirs, is a mention and not a claim. One
+ * from another repository is spelled with that repository's name. The newest
+ * `CROSS_REFERENCES` are asked for, with the issue, in the same query.
+ */
+
+/** Cross-references asked of each issue: as many as a row may carry links. */
+export const CROSS_REFERENCES = LIMITS.TRACKER_LINKS
+
+const CROSS_REFERENCED = `crossReferences: timelineItems(last: ${CROSS_REFERENCES}, itemTypes: [CROSS_REFERENCED_EVENT]) { nodes {
+      ... on CrossReferencedEvent { willCloseTarget actor { login }
+        source { __typename ... on PullRequest { number author { login } repository { nameWithOwner } } } } } }`
+
+/** The pull requests whose authors said, on this issue's timeline, that they are part of it, less the ones in `closing`. */
+export function contributionsOf(source: Source, crossReferences: unknown, closing: ReadonlySet<string>): TrackerContribution[] {
+  const out: string[] = []
+  for (const event of nodes(crossReferences).map(obj)) {
+    if (event.willCloseTarget === true) continue
+    const pull = obj(event.source)
+    if (str(pull.__typename) !== 'PullRequest' || typeof pull.number !== 'number') continue
+    const author = login(pull.author).toLowerCase()
+    if (!author || login(event.actor).toLowerCase() !== author) continue
+    const repo = str(obj(pull.repository).nameWithOwner)
+    const from = !repo || repo.toLowerCase() === source.repo.toLowerCase() ? source : { ...source, repo, default: false }
+    const ref = spell(from, 'change', pull.number)
+    if (!ref || !readTrackerRef(ref) || closing.has(ref) || out.includes(ref)) continue
+    out.push(ref)
+  }
+  return out.slice(0, LIMITS.TRACKER_LINKS).map((ref) => ({ ref, relation: 'contributed-by' as const }))
+}
+
 /** One issue, from `gh issue list --json` or GraphQL — the two spell these fields the same. */
 export function issueRow(source: Source, raw: unknown, now: string): TrackerRow | null {
   const r = obj(raw)
@@ -245,6 +285,9 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     .filter((one): one is string => one !== null)
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closed-by' as const }))
+  const contributions = has(r, 'crossReferences')
+    ? contributionsOf(source, r.crossReferences, new Set(links.map((one) => one.ref)))
+    : undefined
   return row(withPeople({
     ref,
     tracker: 'github',
@@ -268,6 +311,7 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
     updatedAt: instant(r.updatedAt) ?? undefined,
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
     links,
+    contributions,
     lastActivity: has(r, 'timelineItems') ? activityOf(r.timelineItems, r.author, r.createdAt) : undefined,
     ...placed(r.projectItems),
     readAt: now,
@@ -452,6 +496,7 @@ const PULL_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_RE
 const ISSUE_GRAPH = (boards: boolean) => `number state stateReason title url createdAt updatedAt closedAt
     author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
     closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }
+    ${CROSS_REFERENCED}
     ${ISSUE_ACTIVITY}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }
@@ -598,7 +643,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
         ...issues.slice(0, limit).map((one) => issueRow(source, one, now)),
         ...pulls.slice(0, limit).map((one) => pullRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
-      return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items) }
+      return { ok: true, rows: withContributors(linkClosers(rows)), notFound: [], boards: boardsRead(boards, items) }
     },
 
     async refs(source, wanted, now): Promise<Read> {

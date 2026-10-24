@@ -8,6 +8,7 @@ import { dispositionOf, facetsOf } from 'kehikot-module-protocol/facets'
 import { answer, answerCall } from '../server/answers.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
+import { withContributors } from '../server/trackers/contributions.ts'
 import { githubAdapter } from '../server/trackers/github.ts'
 import { BATCH, declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
 import { readingFile, refsInEpic, Trackers } from '../server/trackers/reading.ts'
@@ -113,6 +114,66 @@ describe('GitHub through gh', () => {
     expect(run.asked).toHaveLength(1)
     expect(run.asked[0]!.join(' ')).toContain('repository(owner: "Jalez", name: "kehikko")')
     expect(run.asked.flat().join(' ')).not.toContain(';')
+  })
+
+  test('a pull request whose author cross-referenced an issue contributes to it, and the pull request says so too', async () => {
+    const cross = (number: number, author: string, more: Record<string, unknown> = {}) => ({
+      willCloseTarget: false,
+      actor: { login: author },
+      source: { __typename: 'PullRequest', number, author: { login: author }, repository: { nameWithOwner: 'Jalez/kehikko' } },
+      ...more,
+    })
+    const epic = {
+      ...issues[1],
+      number: 5,
+      state: 'OPEN',
+      closedAt: null,
+      closedByPullRequestsReferences: { nodes: [{ number: 9, merged: false }] },
+      crossReferences: {
+        nodes: [
+          cross(6, 'b'),
+          /* The same pull request mentioned again, in a comment of its author's. */
+          cross(6, 'b'),
+          /* A mention somebody else made on a pull request is not its author's word. */
+          { ...cross(7, 'b'), actor: { login: 'c' } },
+          /* "Closes #5": a closer, not a contributor. */
+          cross(8, 'b', { willCloseTarget: true }),
+          /* Already a closer by GitHub's own reference. */
+          cross(9, 'b'),
+          /* An issue that mentions this one. */
+          { willCloseTarget: false, actor: { login: 'b' }, source: { __typename: 'Issue', number: 4 } },
+          /* A pull request in another repository, spelled with its name. */
+          { ...cross(41, 'd'), source: { __typename: 'PullRequest', number: 41, author: { login: 'D' }, repository: { nameWithOwner: 'Jalez/kehikko-protocol' } } },
+          {},
+        ],
+      },
+    }
+    const contributor = { ...prs[0], number: 6, state: 'OPEN', closingIssuesReferences: { nodes: [] }, mergedAt: null, closedAt: null }
+    const run = runner([['gh api graphql', ok({ data: { repository: { issues: page([issues[0], epic]), pullRequests: page([contributor, prs[0]]) } } })]])
+    const read = await githubAdapter(run).list(gh, 400, NOW.toISOString())
+    if (!read.ok) throw new Error(read.why)
+    const byRef = new Map(read.rows.map((one) => [one.ref, one]))
+    expect(byRef.get('gh#5')?.links).toEqual([{ ref: 'gh#9', relation: 'closed-by' }])
+    expect(byRef.get('gh#5')?.contributions).toEqual([
+      { ref: 'gh#6', relation: 'contributed-by' },
+      { ref: 'gh:Jalez/kehikko-protocol#41', relation: 'contributed-by' },
+    ])
+    expect(byRef.get('gh#6')?.contributions).toEqual([{ ref: 'gh#5', relation: 'contributes-to' }])
+    /* An answer without them: nothing said. A pull request contributing to nothing held: nothing said either. */
+    expect(byRef.get('gh#1')?.contributions).toBeUndefined()
+    expect('contributions' in byRef.get('gh#3')!).toBe(false)
+    const query = run.asked[0]!.join(' ')
+    expect(query).toContain('crossReferences: timelineItems(last: 32, itemTypes: [CROSS_REFERENCED_EVENT])')
+    expect(query).toContain('... on PullRequest { number author { login } repository { nameWithOwner } }')
+  })
+
+  test('an issue whose answer carries its cross-references and none of them is a contribution says none', async () => {
+    const quiet = { ...issues[1], number: 11, crossReferences: { nodes: [] } }
+    const run = runner([['gh api graphql', ok({ data: { repository: { n11: { __typename: 'Issue', ...quiet } } } })]])
+    const read = await githubAdapter(run).refs(gh, [{ number: 11, kind: null }], NOW.toISOString())
+    if (!read.ok) throw new Error(read.why)
+    expect(read.rows[0]?.contributions).toEqual([])
+    expect(run.asked[0]!.join(' ')).toContain('CROSS_REFERENCED_EVENT')
   })
 
   test('a named number GitHub does not have is not-found; the rest still read', async () => {
@@ -558,6 +619,85 @@ describe('an issue carries every held change that declares it', () => {
   })
 })
 
+describe('a change that is part of an issue carries the issue back', () => {
+  const contributedBy = (...refs: string[]) => ({ contributions: refs.map((ref) => ({ ref, relation: 'contributed-by' as const })) })
+  function twoReads(listed: () => TrackerRow[], named: () => TrackerRow[]): Adapter {
+    return {
+      async list() {
+        return { ok: true as const, rows: listed(), notFound: [] }
+      },
+      async refs(_source: Source, wanted: readonly Wanted[]) {
+        return { ok: true as const, rows: named().filter((r) => wanted.some((w) => w.number === r.number)), notFound: [] }
+      },
+      async detail() {
+        return new Map()
+      },
+    }
+  }
+  const rowsOf = (trackers: Trackers, refs: string[]) => {
+    const got = trackers.get(folder, { refs })
+    if ('refused' in got) throw new Error(got.refused)
+    return got.rows
+  }
+
+  test('a pull request read by ref after its issue was listed gets contributes-to, and loses it when the issue stops naming it', async () => {
+    let claims = true
+    const trackers = new Trackers({
+      run: remotes,
+      adapters: {
+        github: twoReads(
+          () => [ghRow(5, claims ? contributedBy('gh#6') : { contributions: [] })],
+          () => [ghRow(6, { kind: 'change', state: 'merged' })],
+        ),
+      },
+      now: () => NOW,
+    })
+    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { refs: ['gh#6'] })
+    expect(rowsOf(trackers, ['gh#6'])[0]?.contributions).toEqual([{ ref: 'gh#5', relation: 'contributes-to' }])
+    claims = false
+    await trackers.refresh(folder, { project: true })
+    expect(rowsOf(trackers, ['gh#6'])[0]?.contributions ?? []).toEqual([])
+  })
+
+  test('across repositories: matched by what a ref names, not how it is spelled', () => {
+    const elsewhere = { ref: 'gh:Jalez/kehikko-protocol#41', repo: 'Jalez/kehikko-protocol', kind: 'change' as const, state: 'merged' as const }
+    const [, change, same] = withContributors([
+      ghRow(5, contributedBy('gh:Jalez/kehikko-protocol#41')),
+      ghRow(41, elsewhere),
+      /* The same number in the issue's own repository is another pull request. */
+      ghRow(41, { kind: 'change', state: 'merged' }),
+    ])
+    expect(change?.contributions).toEqual([{ ref: 'gh#5', relation: 'contributes-to' }])
+    expect('contributions' in same!).toBe(false)
+  })
+
+  test('a mirror of an issue nobody holds stays; one the issue was read without stays too', () => {
+    const kept = [{ ref: 'gh#70', relation: 'contributes-to' as const }, { ref: 'gh#5', relation: 'contributes-to' as const }]
+    const [, change] = withContributors([ghRow(5), ghRow(6, { kind: 'change', contributions: kept })])
+    expect(change?.contributions).toEqual(kept)
+  })
+
+  test('a change that now closes the issue is a closer and no longer a contributor', async () => {
+    const trackers = new Trackers({
+      run: remotes,
+      adapters: {
+        github: twoReads(
+          () => [ghRow(5, contributedBy('gh#6', 'gh#7')), ghRow(6, { kind: 'change', links: [{ ref: 'gh#5', relation: 'closes' }] }), ghRow(7, { kind: 'change' })],
+          () => [],
+        ),
+      },
+      now: () => NOW,
+    })
+    await trackers.refresh(folder, { project: true })
+    const [issue, closer, part] = rowsOf(trackers, ['gh#5', 'gh#6', 'gh#7'])
+    expect(issue?.links).toEqual([{ ref: 'gh#6', relation: 'closed-by' }])
+    expect(issue?.contributions).toEqual([{ ref: 'gh#7', relation: 'contributed-by' }])
+    expect('contributions' in closer!).toBe(false)
+    expect(part?.contributions).toEqual([{ ref: 'gh#5', relation: 'contributes-to' }])
+  })
+})
+
 /**
  * Jalez/kehikko#36: `live.get` says which change delivers which issue from the
  * same reading, as the old refresher's `links` and `ghLinks` did.
@@ -586,6 +726,20 @@ describe('live.get folds changes under their issues from the reading', () => {
     const live = trackers.live(folder, 'one')!
     expect(live.ghLinks).toEqual({ 'gh:Jalez/kehikko#2': [3], 'gh#70': [5], 'gh#6': [90, 8] })
     expect(live.links).toEqual({})
+  })
+
+  test('GitHub: a pull request that is part of an issue is in ghPartOf, not ghLinks', async () => {
+    epicFile({ steps: [{ title: 's', refs: ['gh#2', 'gh#4'] }] })
+    const rows = [
+      ghRow(2, { contributions: [{ ref: 'gh#3', relation: 'contributed-by' }] }),
+      ghRow(3, { kind: 'change', state: 'merged' }),
+      ghRow(4, { kind: 'change', ...closes('gh#2') }),
+    ]
+    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const live = trackers.live(folder, 'one')!
+    expect(live.ghLinks).toEqual({ 'gh#2': [4] })
+    expect(live.ghPartOf).toEqual({ 'gh#2': [3] })
   })
 
   test('GitLab: under the issue’s number, and a merge request that declares nothing folds nowhere', async () => {

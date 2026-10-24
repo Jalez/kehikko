@@ -2072,8 +2072,11 @@ export function trackerLine(row: TrackerRow): string {
     + `${row.baseBranch ? ` base:${row.baseBranch}` : ''}${row.headBranch ? ` head:${row.headBranch}` : ''}`
     + `${row.stack ? ` stack:${row.stack.below ? `on ${row.stack.below}` : 'bottom'}${row.stack.above.length ? `,under ${row.stack.above.join('+')}` : ''}` : ''}`
     + `${row.lastActivity ? ` last:${row.lastActivity.kind} by ${row.lastActivity.login}${row.lastActivity.mine === true ? ' (me)' : row.lastActivity.mine === false ? ' (not me)' : ''} at ${row.lastActivity.at}` : ''}`
-    + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
+    + ` — ${row.title}${tied(row).length ? ` [${tied(row).map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
 }
+
+/** A row's links and its contributions (protocol 2.19.0), as one list for a line. */
+const tied = (row: TrackerRow) => [...row.links, ...(row.contributions ?? [])]
 
 /**
  * The shared tracker reading, for an agent: the same rows a module gets from
