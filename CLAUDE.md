@@ -351,6 +351,20 @@
   `installed/` by hand from a repository on no list is OFFERED as "Keep it as
   one of my modules" and adopted only on that press.
 
+## Where a new container lands
+
+- `place()` in `src/host/canvases.ts` is the ONE rule, for the page's add flow,
+  `place_modules` (`server/mcp.ts`) and anything else that adds a single module:
+  the first free rectangle in reading order that holds 6x10 on the grid as it is
+  DRAWN (`arranged`, so a gap vertical compaction would close is not a gap); else
+  the first gap of at least `GAP_MIN_W`x`GAP_MIN_H` (4x6) at its own size, capped
+  at 6x10; else beside the last on the bottom row, or a new row. Not a search for
+  the best fit: it is the first hole you would see reading the canvas. Layouts
+  (`src/host/layouts.ts`) keep their own explicit placements.
+- A container that appears on the open kehikko is ringed and scrolled into view
+  (`showLanded` in `src/App.tsx`, `[data-landed]` in `index.css`), never focused.
+  `dev/place-in-gaps.drive.mjs` (run by `test/place-in-gaps.test.ts`) checks it.
+
 ## A module's header menus, and an agent's press
 
 - A module declares its header (`kehikot.header`, protocol 1.1.0) and the host
