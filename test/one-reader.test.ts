@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterAll, describe, expect, test } from 'bun:test'
 
-import { JOURNEYS_FILE, JOURNEYS_MODULE, moduleFile, stepsOf, journeyIn } from 'kehikot-module-protocol'
+import { JOURNEYS_FILE, JOURNEYS_MODULE, moduleFile, planOfJourney, stepsOf, journeyIn } from 'kehikot-module-protocol'
 import { readJourneys } from 'kehikot-module-protocol/serve'
 
 import { answer } from '../server/answers.ts'
@@ -41,6 +41,14 @@ afterAll(() => {
 
 const ME = 'kehikot.someone'
 const registered = (id: string) => id === ME
+
+/**
+ * The steps `steps.list` hands over for an epic only the fallback provides
+ * (protocol 2.21.0): the epic's own steps, as a plan, each with the module
+ * that provides it. What every assertion below compares `steps.list` with.
+ */
+const planned = (epic: Record<string, unknown>) => planOfJourney(epic)?.steps ?? []
+const unmarked = (steps: unknown) => (steps as Array<Record<string, unknown>>).map(({ module: _module, ...rest }) => rest)
 
 const divided = {
   slug: 'the-posting-seam',
@@ -100,8 +108,9 @@ describe('every answer about an epic is about the same epic', () => {
 
       test('`steps.list` hands over the steps `epic.get` has', () => {
         expect(steps.length).toBeGreaterThan(0)
-        expect(steps).toEqual(epic.steps as typeof steps)
-        expect(readSteps(root, slug)).toEqual(steps)
+        /* As a plan (protocol 2.21.0): the same steps, each saying who provides it. */
+        expect(unmarked(steps)).toEqual(planned(epic))
+        expect(readSteps(root, slug)).toEqual(epic.steps as unknown[])
       })
 
       test('the row in `epics.list` counts those steps and is divided by those groups', () => {
@@ -270,8 +279,8 @@ describe('when the two copies of an epic disagree', () => {
         const scope = epicRefs(root, slug)!
 
         expect(steps.length).toBeGreaterThan(0)
-        expect(steps).toEqual(epic.steps as typeof steps)
-        expect(readSteps(root, slug)).toEqual(steps)
+        expect(unmarked(steps)).toEqual(planned(epic))
+        expect(readSteps(root, slug)).toEqual(epic.steps as unknown[])
         expect(row.size).toBe(shown(row))
         const parts = partsOf(epic)
         if (parts.length) expect(row.parts).toEqual(parts)
@@ -288,7 +297,11 @@ describe('when the two copies of an epic disagree', () => {
   test('the steps, the groups and the prose are the journey’s', () => {
     const root = disagreeing()
     const epic = asked(root, 'epic.get', { epic: 'the-posting-seam' })
-    expect(asked(root, 'steps.list', { epic: 'the-posting-seam' }).steps).toEqual(record.steps)
+    const listed = asked(root, 'steps.list', { epic: 'the-posting-seam' })
+    expect(unmarked(listed.steps)).toEqual(planned(record))
+    /* Read from the journey while Journeys has not published: under its name, as the fallback. */
+    expect((listed.steps as Array<{ module: string }>).every((one) => one.module === JOURNEYS_MODULE)).toBe(true)
+    expect(listed.providers).toEqual([{ module: JOURNEYS_MODULE, fallback: true }])
     expect(epic.steps).toEqual(record.steps)
     expect(epic.groups).toEqual(record.groups)
     expect(epic.lede).toBe(record.lede)
@@ -350,7 +363,9 @@ describe('when the two copies of an epic disagree', () => {
   test('an epic the project keeps no journey for is answered from this host’s own file', () => {
     const root = disagreeing()
     expect(asked(root, 'epic.get', { epic: 'plain' })).toEqual(plain)
-    expect(asked(root, 'steps.list', { epic: 'plain' }).steps).toEqual(plain.steps)
+    const listed = asked(root, 'steps.list', { epic: 'plain' })
+    expect(unmarked(listed.steps)).toEqual(planned(plain))
+    expect(listed.providers).toEqual([{ module: 'kehikko', fallback: true }])
   })
 
   test('whether an epic exists is this host’s alone', () => {
@@ -371,7 +386,7 @@ describe('when the two copies of an epic disagree', () => {
       const root = disagreeing()
       writeFileSync(moduleFile(root, JOURNEYS_MODULE, JOURNEYS_FILE)!, broken)
       expect(asked(root, 'epic.get', { epic: 'the-posting-seam' })).toEqual(snapshot)
-      expect(asked(root, 'steps.list', { epic: 'the-posting-seam' }).steps).toEqual(snapshot.steps)
+      expect(unmarked(asked(root, 'steps.list', { epic: 'the-posting-seam' }).steps)).toEqual(planned(snapshot))
       expect(listEpics(root)).toHaveLength(3)
     }
   })
@@ -424,7 +439,7 @@ describe('when the two copies of an epic disagree', () => {
     test('an epic with none written is still an empty list, and one with steps beside a paper still has them', () => {
       const root = disagreeing()
       writeFileSync(join(epicsDir(root), 'empty.json'), `${JSON.stringify({ slug: 'empty', title: 'Empty' })}\n`)
-      expect(asked(root, 'steps.list', { epic: 'empty' })).toEqual({ steps: [] })
+      expect(asked(root, 'steps.list', { epic: 'empty' })).toEqual({ steps: [], phases: [], providers: [] })
       expect(readStepsSaid(root, 'empty')).toEqual({ kind: 'none' })
       journeys(root, { 'a-paper': { ...paper, steps: [{ title: 'A stored one', body: '', refs: [], notes: [] }] } })
       expect(asked(root, 'steps.list', { epic: 'a-paper' }).steps).toHaveLength(1)
@@ -439,7 +454,7 @@ describe('when the two copies of an epic disagree', () => {
       expect('size' in listEpics(root).find((one) => one.slug === 'a-paper')!).toBe(false)
       /* A `stepsFrom` nobody can read is not a claim that they are elsewhere. */
       writeFileSync(join(epicsDir(root), 'odd.json'), `${JSON.stringify({ slug: 'odd', steps: [], stepsFrom: 'somewhere' })}\n`)
-      expect(asked(root, 'steps.list', { epic: 'odd' })).toEqual({ steps: [] })
+      expect(asked(root, 'steps.list', { epic: 'odd' })).toEqual({ steps: [], phases: [], providers: [] })
     })
   })
 
@@ -507,7 +522,9 @@ describe('only one file opens an epic', () => {
     const opening = [...sources(join(HERE, 'server')), ...sources(join(HERE, 'src'))]
       .filter((path) => /\b(readJourneys?|journeyIn)\(/.test(readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')))
       .map((path) => relative(HERE, path))
-    expect(opening).toEqual(['server/holdings.ts'])
+    /* And `server/plans.ts`, which reads it as the steps provider it was before
+       protocol 2.21.0, until Journeys publishes a `steps.json`. */
+    expect(opening).toEqual(['server/holdings.ts', 'server/plans.ts'])
     /* And it spells neither the folder nor the file: the protocol does. */
     const holdings = readFileSync(join(HERE, 'server/holdings.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
     expect(holdings).not.toContain('journeys.json')

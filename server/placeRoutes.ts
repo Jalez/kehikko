@@ -1,5 +1,7 @@
 import type { Database } from 'bun:sqlite'
-import { missingNeeds, type ModuleSkill } from 'kehikot-module-protocol'
+import { isKehikkoBound, missingNeeds, type ModuleSkill } from 'kehikot-module-protocol'
+
+import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
 import { awarenessOf, type AgentAwareness } from './agents.ts'
 import { listCanvases, type Canvas } from './canvases.ts'
@@ -70,6 +72,12 @@ export interface ModuleAbout {
   summary?: string
   /** The skills it declares (protocol 2.5.0); empty for one that is not answering. */
   skills: readonly Pick<ModuleSkill, 'name' | 'needs'>[]
+  /**
+   * What its manifest says that a skill's needs are matched against (protocol 2.21.0): `reacts`,
+   * `declares.uses`, `declares.provides`, `declares.agentSessions`, `mcp.subjects` and `build`.
+   * Absent for one that is not answering: it meets only a need that names its id.
+   */
+  manifest?: Omit<ReadManifest, 'id'>
 }
 
 /** One container on a session's kehikko, as `POST /host/place` lists it. */
@@ -80,7 +88,12 @@ export interface ModuleOn {
   summary: string
   /** The name its MCP door has in the session's config (one of `doors`), or null for a module with none. */
   door: string | null
-  /** The skills it offers that can work on this kehikko: every module a skill `needs` has a container here. */
+  /**
+   * The skills it offers that can work on this kehikko: every need a skill lists is met by a
+   * container here (`missingNeeds`, protocol 2.21.0: by id, or by what a module provides, says or
+   * asks for). Kehikko-bound ones only for a session started by a module that loads skills
+   * (`loadsSkillsHere`): that is where such a skill is routed.
+   */
   skills: string[]
 }
 
@@ -96,10 +109,13 @@ export function modulesOn(
   canvas: Pick<Canvas, 'placements'> | null,
   about: readonly ModuleAbout[],
   doors: readonly { module: string; name: string }[],
+  /** Whether the module the session is for loads kehikko-bound skills into it. */
+  loadsBound = true,
 ): ModuleOn[] {
   if (!canvas) return []
   const known = new Map(about.map((one) => [one.id, one]))
-  const on = new Set(canvas.placements.map((p) => p.i))
+  /* What is on the kehikko, as a skill's needs are matched against it: each container's manifest, read with the pre-2.21 table. */
+  const on = [...new Set(canvas.placements.map((p) => p.i))].map((id) => asRead({ ...(known.get(id)?.manifest ?? {}), id }))
   const seen = new Set<string>()
   const out: ModuleOn[] = []
   for (const p of [...canvas.placements].sort((a, b) => a.y - b.y || a.x - b.x)) {
@@ -112,7 +128,9 @@ export function modulesOn(
       name: (one?.name ?? '').trim().slice(0, 80) || p.i,
       summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX - 1)}…` : summary,
       door: doors.find((door) => door.module === p.i)?.name ?? null,
-      skills: (one?.skills ?? []).filter((skill) => missingNeeds(skill, on).length === 0).map((skill) => skill.name),
+      skills: (one?.skills ?? [])
+        .filter((skill) => (loadsBound || !isKehikkoBound(skill)) && missingNeeds(skill, on).length === 0)
+        .map((skill) => skill.name),
     })
   }
   return out
@@ -300,7 +318,9 @@ export function placeDesk(deps: PlaceDeps) {
       kept.delete(token)
       const canvas = kehikko === null ? null : (listCanvases(db).find((one) => one.project === project.id && one.key === kehikko) ?? null)
       const doors = doorsFor({ token, canvas }, deps.hostUrl(), await deps.doors(), deps.known())
-      const modules = deps.modules ? modulesOn(canvas, await deps.modules(), doors) : undefined
+      const about = deps.modules ? await deps.modules() : undefined
+      const asker = about?.find((one) => one.id === module)
+      const modules = about ? modulesOn(canvas, about, doors, loadsSkillsHere({ ...(asker?.manifest ?? {}), id: module })) : undefined
       return reply({ ok: true, token, doors, ...(modules ? { modules } : {}) })
     }
 

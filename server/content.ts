@@ -3,10 +3,12 @@ import { existsSync, readFileSync, readdirSync, statSync, watch, type FSWatcher 
 import { dirname, join, sep } from 'node:path'
 import {
   CONTENT_HOST,
+  CONTENT_STEPS,
   EPIC_SLUG,
   JOURNEYS_MODULE,
   LIMITS,
   MODULE_ID,
+  PLAN_FILE,
   kehikotDir,
   type ContentChange,
 } from 'kehikot-module-protocol'
@@ -61,9 +63,24 @@ import { HOST_FOLDER, LEGACY_HOST_FOLDER, epicsDir, stateDir } from './hostData.
  * alike and neither can be the path that forgot. When the watcher is the one
  * that saw it the epic is null — it knows whose folder moved and not which
  * record — and a module takes a null as any epic of that source.
+ *
+ * ## Any steps provider (protocol 2.21.0)
+ *
+ * Steps are a holding now: any module publishes its own `steps.json`, and
+ * `steps.list` answers the union (`server/plans.ts`). A reader showing that
+ * union cannot name every module that might provide steps, so a change by any
+ * of them is announced a third time, as `CONTENT_STEPS`: whoever says it
+ * provides steps (`providesSteps`, from its manifest), and whatever the
+ * watcher sees rewrite a module's `steps.json`. Journeys is a steps provider
+ * the same way, by its manifest or, from before 2.21.0, by the host's table.
  */
 
 export interface ContentsOptions {
+  /**
+   * Whether a source's material is an epic's steps: a module that provides them (protocol 2.21.0).
+   * Absent: the Journeys module only, as before.
+   */
+  providesSteps?: (source: string) => boolean
   /** Told a project's whole list whenever one entry moved. */
   told?: (projectPath: string, changes: ContentChange[]) => void
   now?: () => Date
@@ -73,8 +90,10 @@ export class Contents {
   #held = new Map<string, ContentChange[]>()
   #told: (projectPath: string, changes: ContentChange[]) => void
   #now: () => Date
+  #providesSteps: (source: string) => boolean
 
   constructor(options: ContentsOptions = {}) {
+    this.#providesSteps = options.providesSteps ?? stepsAreKeptBy
     this.#told = options.told ?? (() => {})
     this.#now = options.now ?? (() => new Date())
   }
@@ -93,10 +112,11 @@ export class Contents {
    * whether to re-read, and a second change stamped the same as the first
    * would be a change nobody heard.
    */
-  announce(root: string, source: string, epic: string | null = null): ContentChange[] {
-    /* The steps this host answers with are the journeys': see the head of
-       this file. One telling for both, so a container is woken once. */
-    const sources = stepsAreKeptBy(source) ? [source, CONTENT_HOST] : [source]
+  announce(root: string, source: string, epic: string | null = null, said: { steps?: boolean } = {}): ContentChange[] {
+    /* The steps this host answers with are every provider's: see the head of
+       this file. One telling for all three, so a container is woken once.
+       `said.steps`: the watcher saw the module's `steps.json` move. */
+    const sources = said.steps || this.#providesSteps(source) ? [source, CONTENT_HOST, CONTENT_STEPS] : [source]
     let held = this.#held.get(root) ?? []
     for (const one of sources) held = this.#moved(held, one, epic)
     /* Newest kept. One dropped moves the stamp of a module that was showing it
@@ -119,10 +139,9 @@ export class Contents {
 }
 
 /**
- * Whether a source is the module this host reads an epic's steps from.
- *
- * Under the name it has now: a Journeys registered from before the rename is
- * the same module, and its changes are changes to the same steps.
+ * Whether a source is the module this host read an epic's steps from before
+ * protocol 2.21.0: the default for `providesSteps`, for a `Contents` given no
+ * manifests to read. The server passes its own, which reads `declares.provides`.
  */
 export function stepsAreKeptBy(source: string): boolean {
   try {
@@ -153,8 +172,11 @@ export const CONTENT_QUIET_MS = 150
 export const CONTENT_REPORTED_MS = 2000
 
 export interface ContentWatchOptions {
-  /** A source's material changed under `root`, from outside this host. */
-  changed: (root: string, source: string, epic: string | null) => void
+  /**
+   * A source's material changed under `root`, from outside this host. `said.steps` when the file
+   * that moved was the module's `steps.json` (protocol 2.21.0): its steps changed, whatever it says.
+   */
+  changed: (root: string, source: string, epic: string | null, said?: { steps?: boolean }) => void
   /** A project's `state/` was rewritten from outside: the `live.get` view is not what it was. */
   stateChanged?: (root: string) => void
   /**
@@ -175,6 +197,8 @@ interface Watched {
   pending: Map<string, ReturnType<typeof setTimeout>>
   /** When each source last reported its own write. */
   reported: Map<string, number>
+  /** The sources whose `steps.json` moved in the burst not yet announced. */
+  steps: Set<string>
 }
 
 /**
@@ -275,7 +299,7 @@ export class ContentWatch {
         if (typeof name === 'string') this.#heard(root, dir, name)
       })
       watcher.on('error', () => this.#stop(root))
-      this.#watched.set(root, { watcher, seen, pending: new Map(), reported: new Map() })
+      this.#watched.set(root, { watcher, seen, pending: new Map(), reported: new Map(), steps: new Set() })
     } catch (error) {
       this.#options.log?.(`kehikko: could not watch ${dir}: ${(error as Error).message}`)
     }
@@ -319,11 +343,16 @@ export class ContentWatch {
 
     const source = (this.#options.sourceOf ?? folderSource)(folder)
     if (!source) return
+    /* A module's plan (protocol 2.21.0), directly in its folder: its steps moved. Kept across the
+       burst, so a quiet write of another file in the same moment does not lose it. */
+    const held = this.#watched.get(root)
+    if (held && parts.length === 2 && leaf === `${PLAN_FILE}.json`) held.steps.add(source)
     this.#soon(root, `module ${source}`, () => {
-      const held = this.#watched.get(root)
-      const last = held?.reported.get(source) ?? 0
+      const now = this.#watched.get(root)
+      const steps = now?.steps.delete(source) === true
+      const last = now?.reported.get(source) ?? 0
       if (Date.now() - last < this.#reportedMs) return
-      this.#options.changed(root, source, null)
+      this.#options.changed(root, source, null, steps ? { steps } : undefined)
     })
   }
 

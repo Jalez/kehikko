@@ -7,9 +7,11 @@ import { isKehikkoBound, isSkillName, LIMITS, skillPath, skillTextIssue, type Mo
 
 import { machineDir, modulesDir } from './machineDirs.ts'
 import { boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
+import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
 
 /**
- * Claude Code skills a module offers, installed by the PERSON (protocol 2.5.0).
+ * Agent skills a module offers (protocol 2.5.0), installed by the PERSON into
+ * Claude Code's skills folder.
  *
  * A module lists skills in `declares.skills` and serves each SKILL.md at
  * `skillPath(name)` on its own origin. A skill is instructions that land in
@@ -34,10 +36,11 @@ import { boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStat
  * thing this is built not to allow.
  *
  * A kehikko-bound skill (protocol 2.12.0: one whose declaration lists `needs`,
- * other modules it cannot work without) is never installed or updated here:
- * `~/.claude/skills` is every conversation, on any kehikko or none. The Claude
- * module's per-session plugin loads such a skill into a conversation whose
- * kehikko has the modules it needs. Removing an untouched install of one is
+ * what it cannot work without) is never installed or updated here:
+ * `~/.claude/skills` is every conversation, on any kehikko or none. A module
+ * that runs agent sessions and loads skills (protocol 2.21.0,
+ * `declares.agentSessions`; `providers.ts`) loads such a skill into a
+ * conversation whose kehikko meets its needs. Removing an untouched install of one is
  * allowed as for any skill, and the Settings sync does it (`agentSync.ts`).
  */
 
@@ -242,12 +245,15 @@ function refusedFor(local: LocalSkill, name: string, root: string): Done | null 
   return null
 }
 
-/** The refusal for installing or updating a kehikko-bound skill for every conversation. */
-export function boundRefusal(module: string, skill: ModuleSkill, nameOf: (id: string) => string = nameFromId): Done {
+/**
+ * The refusal for installing or updating a kehikko-bound skill for every conversation. `loaded` is
+ * where such a skill is loaded instead (`loadedWhere`), naming the modules that load skills.
+ */
+export function boundRefusal(module: string, skill: ModuleSkill, nameOf: (id: string) => string = nameFromId, loaded: string = LOADED_SOMEWHERE): Done {
   return {
     ok: false,
     status: 409,
-    why: `${boundSays(module, skill.needs ?? [], nameOf)}, where the Claude module loads it, so Kehikot does not install /${skill.name} for every conversation.`,
+    why: `${boundSays(module, skill.needs ?? [], nameOf)}, ${loaded}, so Kehikot does not install /${skill.name} for every conversation.`,
   }
 }
 
@@ -344,6 +350,8 @@ export interface SkillDeps {
   root?(): string
   /** A module's name, for the words about a kehikko-bound skill; `nameFromId` by default. */
   nameOf?(id: string): string
+  /** The names of the modules that load kehikko-bound skills into their agent sessions (`skillLoaders`). Absent: none known. */
+  loaders?(): string[]
 }
 
 const json = (body: unknown, status = 200) =>
@@ -358,6 +366,7 @@ export async function skillRows(
   root: string,
   fetcher: typeof fetch = fetch,
   nameOf: (id: string) => string = nameFromId,
+  loaded: string = LOADED_SOMEWHERE,
 ): Promise<SkillRow[]> {
   return Promise.all(
     found.skills.map(async (skill): Promise<SkillRow> => {
@@ -379,7 +388,7 @@ export async function skillRows(
         installedText: status === 'outdated' || status === 'edited' || status === 'taken' ? local.text : null,
         path: join(root, skill.name),
         ...(local.who && status !== 'bound' ? { who: local.who } : {}),
-        ...(bound ? { bound } : {}),
+        ...(bound ? { bound, loaded } : {}),
       }
     }),
   )
@@ -394,6 +403,7 @@ export function skillsRoute(deps: SkillDeps) {
   const fetcher = deps.fetcher ?? fetch
   const root = deps.root ?? (() => claudeSkillsDir())
   const nameOf = deps.nameOf ?? nameFromId
+  const loaded = () => (deps.loaders ? loadedWhere(deps.loaders()) : LOADED_SOMEWHERE)
 
   return async (request: Request, url: URL): Promise<Response | null> => {
     if (url.pathname !== '/host/skills') return null
@@ -404,7 +414,7 @@ export function skillsRoute(deps: SkillDeps) {
       const found = await deps.lookup(module)
       if (!found.ok) return json({ ok: false, why: found.why }, found.status)
       const at = root()
-      return json({ ok: true, module, name: found.name, writesTo: at, skills: await skillRows(found, at, fetcher, nameOf) })
+      return json({ ok: true, module, name: found.name, writesTo: at, skills: await skillRows(found, at, fetcher, nameOf, loaded()) })
     }
 
     if (request.method !== 'POST') return json({ ok: false, why: 'GET or POST.' }, 405)
@@ -437,7 +447,7 @@ export function skillsRoute(deps: SkillDeps) {
     const skill = found.skills.find((one) => one.name === name)
     if (!skill) return json({ ok: false, why: `${found.name} does not offer a skill called ${name}.` }, 404)
     if (isKehikkoBound(skill)) {
-      const refused = boundRefusal(module, skill, nameOf) as Extract<Done, { ok: false }>
+      const refused = boundRefusal(module, skill, nameOf, loaded()) as Extract<Done, { ok: false }>
       return json(refused, refused.status)
     }
     const fetched = await fetchSkillText(found.origin, name, fetcher)

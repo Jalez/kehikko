@@ -453,12 +453,28 @@
   `ANSWERED_UNDECLARED` (answered, one log line per call) until its manifest is
   fixed. Never widen the rule instead.
 
+## Steps, and what a module provides (protocol 2.21.0)
+
+- An epic's steps are the union of every module's `steps.json` (`server/plans.ts`,
+  read through `epicOf` in `server/holdings.ts`, the one reader). Journeys'
+  `journeys.json` is a fallback provider only while `.kehikot/journeys/steps.json`
+  does not exist. Never read another module's file for steps.
+- What a module provides and whether it loads skills into its agent sessions is
+  its manifest's (`declares.provides`, `declares.agentSessions`), read by
+  `src/host/providers.ts`. The only modules read as saying it without saying it
+  are Journeys (steps) and Claude (loads skills), and only while their manifests
+  predate 2.21.0 (`BEFORE_2_21`). Never add another, and never route by id.
+- A skill's `needs` are matched against the manifests on the kehikko
+  (`missingNeeds` over `asRead`) in `modulesOn` (`server/placeRoutes.ts`).
+  Kehikko-bound skills go only to a session posted by a module that loads skills.
+
 ## A module's server asking (protocol 2.19.0)
 
 - `POST /host/server-ask` (`SERVER_ASK_PATH`, `server/serverAsk.ts`) answers a
   module's SERVER what its page would be answered — `SERVER_METHODS` only
-  (`tracker.get`, `tracker.columns`) — so its MCP door reads the tracker with no
-  page open. The protocol's `askHost` asks it.
+  (`tracker.get`, `tracker.columns`, the traffic methods, and since 2.21.0
+  `epics.list`, `epic.get`, `steps.list`, `parts.get`, `dispositions.get`) — so
+  its MCP door reads with no page open. The protocol's `askHost` asks it.
 - In this order, never another: the module is registered; the module at its
   REGISTERED origin vouches for the question's pass (`SERVER_PASS_PATH`, spent by
   the asking — never trust an origin from the question); `hold` against the

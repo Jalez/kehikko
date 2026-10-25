@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CONTENT_HOST, LIMITS, contentSignalSchema, contentStamp, kehikotDir } from 'kehikot-module-protocol'
+import { CONTENT_HOST, CONTENT_STEPS, LIMITS, contentSignalSchema, contentStamp, kehikotDir } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
 import { Contents, ContentWatch, folderSource, stepsAreKeptBy } from '../server/content.ts'
@@ -25,8 +25,9 @@ describe('what the host keeps about what changed', () => {
     contents.announce('/p', CONTENT_HOST, 'x')
     contents.announce('/p', 'kehikot.journeys', 'x')
     contents.announce('/p', CONTENT_HOST, 'x')
-    expect(contents.of('/p').map((one) => `${one.source} ${one.epic}`)).toEqual(['kehikot.journeys x', 'host x'])
-    expect(told).toEqual([['/p', 1], ['/p', 2], ['/p', 2]])
+    /* Journeys provides steps: its change is also `steps` (protocol 2.21.0). */
+    expect(contents.of('/p').map((one) => `${one.source} ${one.epic}`)).toEqual(['kehikot.journeys x', 'steps x', 'host x'])
+    expect(told).toEqual([['/p', 1], ['/p', 3], ['/p', 3]])
     expect(contents.of('/elsewhere')).toEqual([])
   })
 
@@ -62,8 +63,8 @@ describe('a change to the journeys is a change to the steps this host answers wi
     const before = contentStamp(contents.of('/p'), hostOnly)
     const after = contentStamp(contents.announce('/p', 'kehikot.journeys', 'x'), hostOnly)
     expect(after).not.toBe(before)
-    /* Under both names: it is the module's change, and it is the host's answer that moved. */
-    expect(contents.of('/p').map((one) => `${one.source} ${one.epic}`).sort()).toEqual(['host x', 'kehikot.journeys x'])
+    /* Under three names: it is the module's change, the host's answer moved, and so did an epic's steps (2.21.0). */
+    expect(contents.of('/p').map((one) => `${one.source} ${one.epic}`).sort()).toEqual(['host x', 'kehikot.journeys x', 'steps x'])
   })
 
   test('and when the file moved without anybody saying which journey, for whichever epic is open', () => {
@@ -77,7 +78,7 @@ describe('a change to the journeys is a change to the steps this host answers wi
     const told: number[] = []
     const contents = new Contents({ told: (_root, changes) => void told.push(changes.length) })
     contents.announce('/p', 'kehikot.journeys', 'x')
-    expect(told).toEqual([2])
+    expect(told).toEqual([3])
   })
 
   test('a step saved for one epic does not move a module showing another', () => {
@@ -114,7 +115,35 @@ describe('a change to the journeys is a change to the steps this host answers wi
     const contents = new Contents()
     for (let i = 0; i <= LIMITS.CONTENT; i += 1) contents.announce('/p', 'kehikot.journeys', `e-${i}`)
     expect(contentSignalSchema.safeParse(contents.of('/p')).success).toBe(true)
-    expect(contents.of('/p').at(-1)).toMatchObject({ source: CONTENT_HOST, epic: `e-${LIMITS.CONTENT}` })
+    expect(contents.of('/p').at(-1)).toMatchObject({ source: CONTENT_STEPS, epic: `e-${LIMITS.CONTENT}` })
+    expect(contents.of('/p').some((one) => one.source === CONTENT_HOST && one.epic === `e-${LIMITS.CONTENT}`)).toBe(true)
+  })
+})
+
+/**
+ * Protocol 2.21.0: any module that provides steps publishes them, and a reader
+ * of `steps.list` follows `CONTENT_STEPS` rather than naming every provider.
+ */
+describe('a change by any steps provider is a change of the steps', () => {
+  const steps = { sources: [CONTENT_STEPS], epic: 'x' }
+
+  test('a module that says it provides steps is announced as steps, and as the host’s', () => {
+    const contents = new Contents({ providesSteps: (source) => source === 'kehikot.planner' })
+    const before = contentStamp(contents.of('/p'), steps)
+    contents.announce('/p', 'kehikot.planner', 'x')
+    expect(contentStamp(contents.of('/p'), steps)).not.toBe(before)
+    expect(contents.of('/p').map((one) => one.source).sort()).toEqual([CONTENT_HOST, 'kehikot.planner', CONTENT_STEPS].sort())
+    /* Journeys is read from its manifest then, like anybody: here it says nothing. */
+    contents.announce('/p', 'kehikot.journeys', 'y')
+    expect(contents.of('/p').filter((one) => one.epic === 'y').map((one) => one.source)).toEqual(['kehikot.journeys'])
+  })
+
+  test('a module that does not is its own change only, unless its steps.json moved', () => {
+    const contents = new Contents({ providesSteps: () => false })
+    contents.announce('/p', 'kehikot.notes', 'x')
+    expect(contents.of('/p').map((one) => one.source)).toEqual(['kehikot.notes'])
+    contents.announce('/p', 'kehikot.notes', null, { steps: true })
+    expect(contents.of('/p').filter((one) => one.epic === null).map((one) => one.source).sort()).toEqual([CONTENT_HOST, 'kehikot.notes', CONTENT_STEPS].sort())
   })
 })
 
@@ -202,7 +231,7 @@ describe('a project’s .kehikot, watched', () => {
     const heard: string[] = []
     let states = 0
     const watch = new ContentWatch({
-      changed: (_root, source, epic) => void heard.push(`${source} ${epic ?? '*'}`),
+      changed: (_root, source, epic, said) => void heard.push(`${source} ${epic ?? '*'}${said?.steps ? ' steps' : ''}`),
       stateChanged: () => void (states += 1),
       quietMs: QUIET,
       reportedMs: QUIET * 20,
@@ -218,6 +247,16 @@ describe('a project’s .kehikot, watched', () => {
     writeFileSync(join(one.journeys, 'journeys.json'), '{"steps":[1]}\n')
     await settle()
     expect(one.heard).toEqual(['kehikot.journeys *'])
+  })
+
+  test('a module’s steps.json moving is said to be its steps (protocol 2.21.0)', async () => {
+    const one = await project()
+    const planner = join(kehikotDir(one.root)!, 'planner')
+    mkdirSync(planner, { recursive: true })
+    writeFileSync(join(planner, 'steps.json'), '{"epics":{}}\n')
+    writeFileSync(join(planner, 'notes.json'), '{}\n')
+    await settle()
+    expect(one.heard).toEqual(['kehikot.planner * steps'])
   })
 
   test('a burst is one announcement', async () => {

@@ -149,7 +149,20 @@ stores data outside `.kehikot/`. `bun test` runs the same scan
 (`test/storage-boundary.test.ts`), and `run.sh` prints the violations loudly at
 startup without refusing to start.
 
-## An epic's steps are the Journeys module's, and the host reads them there
+## An epic's steps: every provider's, and Journeys' old file until it publishes
+
+**Since protocol 2.21.0** steps are a holding like parts. Any module that keeps
+steps publishes them in its own `.kehikot/<module>/steps.json` (`writePlan`,
+`planSchema`: phases, steps with `under`, `after`, `phase` and gates) and says
+`declares.provides: ['steps']`. The host takes the union of every publisher for
+the epic (`server/plans.ts`): `steps.list` answers it — each step and phase with
+the `module` that provides it, and the `providers` — and `epic.get` carries the
+same steps once anybody publishes. Until the Journeys module writes its own
+`steps.json`, its `journeys.json` record (or, with none, the host's own file) is
+read as one more provider, marked `fallback: true`, so nothing changes for a
+person while modules move. A change by any steps provider is also announced as
+`steps` in `context.content` (`CONTENT_STEPS`). What follows is how the host has
+read the Journeys record since before 2.21.0, which is what the fallback is.
 
 Every epic used to exist twice in a project: the host's file,
 `.kehikot/host/epics/<slug>.json`, and the Journeys module's record in
@@ -195,9 +208,9 @@ written as a paper, and their steps are the paper's sections: the record carries
 The host never answers "no steps" for one:
 
 ```ts
-{ steps: [...] }   // stored
-{ steps: [] }      // nobody has written any
-{ stepsFrom: { projector, where, why } }   // kept elsewhere: NO `steps` key at all
+{ steps: [...], phases, providers }   // stored (2.21.0: each step with its module)
+{ steps: [], phases: [], providers: [] }   // nobody has written any
+{ stepsFrom: { projector, where, why } }   // kept elsewhere, and nobody publishes: NO `steps` key at all
 ```
 
 A module that reads `steps` finds no list to count rather than an empty one,
