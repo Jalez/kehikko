@@ -58,7 +58,7 @@ import { ModuleIcon } from './ModuleIcon.tsx'
 import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
-import { openWhatsNew, pokeWhatsNew, readInUpdates, updatesRunning } from '@/host/whatsNew.ts'
+import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -386,8 +386,6 @@ export function Updates({
   const updateAll = async (ids: string[]) => {
     if (busy.current) return
     busy.current = true
-    /* "What's new" waits for the whole batch, and then tells of it once. */
-    updatesRunning(true)
     const abort = new AbortController()
     controller.current = abort
     setNotice(null)
@@ -418,7 +416,6 @@ export function Updates({
       }
     }
     if (abort.signal.aborted) setNotice('Update cancelled. Anything not marked as updated was left as it was.')
-    updatesRunning(false)
     busy.current = false
     controller.current = null
     setPhase({ kind: 'idle' })

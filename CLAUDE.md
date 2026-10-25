@@ -117,8 +117,7 @@
   and leaves the page usable (`data-tour-mode="wait"`, `driver-active` taken
   off) and never takes focus. Every step has "I've got this"; it, Escape and ✕
   pause at the step and point at Help; Help → Continue tour resumes there,
-  Restart tour starts from the first step not done. While the tour runs
-  `<html data-tour-running>` stands (`tourStanding`), and What's new waits on it.
+  Restart tour starts from the first step not done.
   A control the tour should find gets a `data-tour` and a frame.
 - Layouts are in the kehikko menu (new kehikko… opens the picker) and on the
   empty canvas, never in Help. The built-ins start with Design, Research,
@@ -581,16 +580,21 @@
 - No record is the first run: what is here is recorded and nothing is shown.
   A module the record does not name yet is recorded the same way. Nothing is
   ever acknowledged backwards.
-- It never stacks: it waits for Settings' one-time question and the
-  introduction (`firstRunSettled`), then for a quiet moment (`whenQuiet` /
-  `notQuiet`: no `role=dialog|alertdialog|menu|listbox` or tour standing, no
-  focus in a field or a module's iframe, no Updates batch, `QUIET_MS` of it).
-  A new first-run window is covered as long as it is a Radix dialog.
-- The Updates menu tells it what landed (`pokeWhatsNew`), marks a batch
-  (`updatesRunning`) and reports notes read there (`readInUpdates`), which
-  count as acknowledged. One dialog per quiet moment: what lands while it
-  stands is merged in (`mergeItems`); a module the server is still updating,
-  or whose update failed, is left out.
+- It never opens by itself. When anything is news, the bar's notice
+  (`WhatsNewNotice`, drawn in `Bar.tsx`; words by `noticeSaid`: "What's new in
+  0.1.61", "What's new · 3 modules", "What's new" at 1100 px, its icon at 900)
+  stands at once — never gated on GitHub's release list, which is read in the
+  background for the notes — takes no focus, and shows with focus in a module.
+  Pressing it opens the dialog and acknowledges what it shows; closing
+  acknowledges again. Do not bring back a quiet-moment or first-run gate.
+- A module the server is still updating (`updating`) is a "Preparing…" row,
+  counted by the notice, never acknowledged, filled in on `pokeWhatsNew` or
+  the re-read every `pollMs` while one stands (`mergeItems` drops one whose
+  update came to nothing). A failed update is left out. `show: false` means no
+  notice: what moved is acknowledged as it is. Settings → About and the
+  Updates menu open it by hand (`openWhatsNew`), everything installed listed.
+- The Updates menu reports notes read there (`readInUpdates`), which count as
+  acknowledged.
 - Notes are drawn by `ReleaseSections` (`ReleaseNotes.tsx`), the same
   Markdown-only drawing; a failure that hit every release is said once.
 

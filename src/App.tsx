@@ -4468,8 +4468,8 @@ export function App() {
         onInstalled={() => void look()}
       />
 
-      {/* "What's new" after Kehikot or a module updates, once the first-run
-          windows are done and nothing else is open. See `WhatsNew.tsx`. */}
+      {/* "What's new" after Kehikot or a module updates: it never opens by
+          itself — the bar's notice (`WhatsNewNotice`) opens it. See `WhatsNew.tsx`. */}
       <WhatsNewHost />
 
     </div>
