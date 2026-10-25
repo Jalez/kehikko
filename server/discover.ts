@@ -174,7 +174,7 @@ export interface FramedModule {
   icon: string | null
   health: string | null
   /** `as` is the name the module asks its door to be registered under, when it says one. */
-  mcp: { url: string; transport: string; about: string; as?: string } | null
+  mcp: { url: string; transport: string; about: string; as?: string; subjects?: { kind: string }[] } | null
   modes: Manifest['modes']
   extensions: Manifest['extensions']
   /**
@@ -518,6 +518,8 @@ export async function look(
                   transport: manifest.mcp.transport,
                   about: manifest.mcp.about,
                   ...(manifest.mcp.as ? { as: manifest.mcp.as } : {}),
+                  /* The kinds its door can show or answer for: what a skill's `{ subject }` need is met by (protocol 2.21.0). */
+                  ...(manifest.mcp.subjects.length ? { subjects: manifest.mcp.subjects.map((one) => ({ kind: one.kind })) } : {}),
                 }
               : null
           })()

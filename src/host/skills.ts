@@ -1,3 +1,7 @@
+import { needSaid, type SkillNeed } from 'kehikot-module-protocol'
+
+import { LOADED_SOMEWHERE } from './providers.ts'
+
 /**
  * The words and the pure parts of the Skills window (protocol 2.5.0), shared by
  * the page (`src/canvas/Skills.tsx`) and the server (`server/skills.ts`).
@@ -30,8 +34,9 @@ export const BUILD_A_MODULE_GUIDE = 'https://github.com/Jalez/kehikko-protocol/b
  * - `edited`: installed by Kehikot from this module, and changed since by hand. Never overwritten.
  * - `taken`: a skill of that name is there and is not this module's. Never overwritten.
  * - `bound`: kehikko-bound (protocol 2.12.0, `needs`) and not installed for every conversation,
- *   which is where it stays: the Claude module loads it into a conversation whose kehikko has
- *   the modules it needs. Never installed user-wide.
+ *   which is where it stays: a module that runs agent sessions and loads skills (protocol 2.21.0,
+ *   `declares.agentSessions`) loads it into a conversation whose kehikko meets its needs. Never
+ *   installed user-wide.
  */
 export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'bound'
 
@@ -58,10 +63,11 @@ export function nameFromId(id: string): string {
 
 /**
  * Where a kehikko-bound skill works, in the words the Skills window and Settings › Skills show:
- * the modules it needs, then the one offering it. `nameOf` names a module id.
+ * what it needs — a module by name, or (protocol 2.21.0) a kind of module, "a module that keeps an
+ * epic’s steps" — then the one offering it. `nameOf` names a module id.
  */
-export function boundSays(own: string, needs: readonly string[], nameOf: (id: string) => string): string {
-  const names = [...new Set([...needs.filter((id) => id !== own).map(nameOf), nameOf(own)])]
+export function boundSays(own: string, needs: readonly SkillNeed[], nameOf: (id: string) => string): string {
+  const names = [...new Set([...needs.filter((need) => need !== own).map((need) => needSaid(need, nameOf)), nameOf(own)])]
   return `Available in conversations on a kehikko that also has ${namesSaid(names)}`
 }
 
@@ -91,6 +97,11 @@ export interface SkillRow {
    * this offers no Install and no Update.
    */
   bound?: string
+  /**
+   * For a kehikko-bound skill: where it is loaded, in words (`loadedWhere` in `providers.ts`) —
+   * the modules that run agent sessions and load skills, by name. Absent: said generally.
+   */
+  loaded?: string
 }
 
 /** The one press a row offers, if any. */
@@ -113,7 +124,7 @@ export function whyNot(row: SkillRow): string | null {
     if (row.status === 'installed' || row.status === 'outdated') {
       return `${row.path} puts it in every conversation. ${row.bound}, so Kehikot removes it from there.`
     }
-    return `${row.bound}: the Claude module loads it into such a conversation, so it is not installed for every one.`
+    return `${row.bound}, ${row.loaded ?? LOADED_SOMEWHERE}, so it is not installed for every conversation.`
   }
   if (row.status === 'edited') {
     return `${row.path} has been changed since it was installed. Kehikot leaves your changes alone: to take the module’s text, move or delete that folder yourself.`

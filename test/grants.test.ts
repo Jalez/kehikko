@@ -44,6 +44,8 @@ const PARAMS: Record<string, unknown> = {
   'events.emit': { extension: 'kehikot.notifications@1', payload: {} },
   'traffic.read': {},
   'traffic.note': { calls: [{ at: 1, kind: 'GET', host: 'api.example.com', path: '/' }] },
+  'parts.get': { epic: 'x' },
+  'dispositions.get': {},
 }
 
 describe('the rule', () => {

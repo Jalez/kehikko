@@ -29,6 +29,7 @@ import {
   type Made,
 } from './agentSettings.ts'
 import { boundSays, nameFromId } from '../src/host/skills.ts'
+import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
 import { awarenessAt, connect, disconnect, repoint, runClaude, type Door, type Ran, type Runner } from './register.ts'
 import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSkill, thisRegistry } from './skills.ts'
 
@@ -68,7 +69,8 @@ import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSki
  *
  * A kehikko-bound skill (protocol 2.12.0, `needs`) is never installed: it
  * belongs only in a conversation on a kehikko that has the modules it needs,
- * where the Claude module's session plugin loads it. One Kehikot installed
+ * where a module that runs agent sessions loads it (protocol 2.21.0,
+ * `declares.agentSessions`; `providers.ts`). One Kehikot installed
  * earlier and the person has not touched is removed — whatever the settings
  * say, as with `tidySkills` — with one Inbox line. One they changed is left,
  * and said once (`skill_bound_left`).
@@ -119,6 +121,8 @@ export interface SyncDeps {
    * otherwise `nameFromId`.
    */
   nameOf?(id: string): string | null
+  /** The names of the modules that load kehikko-bound skills into their agent sessions (`skillLoaders`). Absent: said generally. */
+  loaders?(): string[]
   /** One change made: one line in the Inbox. */
   tell(line: string): void
   /** What could not be done, as the one quiet item; empty clears it. */
@@ -345,7 +349,7 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
         problems.push(`The /${skill.name} skill from ${one.name} is in every conversation and could not be removed: ${done.why}`)
         return { name: skill.name, state: 'failed', bound }
       }
-      tell(`Removed the /${skill.name} skill from every conversation. ${bound}, where the Claude module loads it`)
+      tell(`Removed the /${skill.name} skill from every conversation. ${bound}, ${deps.loaders ? loadedWhere(deps.loaders()) : LOADED_SOMEWHERE}`)
     }
     return { name: skill.name, state: 'bound', bound }
   }

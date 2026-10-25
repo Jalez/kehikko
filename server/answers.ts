@@ -13,7 +13,8 @@ import {
 } from '../src/host/division.ts'
 import { shaped } from '../src/host/shape.ts'
 import type { Marked, Marking } from './dispositions.ts'
-import { epicsIn, listEpics, readEpic, readLive, readParts, readStepsSaid } from './holdings.ts'
+import { epicsIn, listEpics, readEpic, readLive, readParts, readStepsAnswer } from './holdings.ts'
+import { marksOf } from './dispositions.ts'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
@@ -363,39 +364,66 @@ export function answer(
   }
 
   /**
-   * An epic's steps — or where they are, when they are not here.
+   * An epic's steps — from every module that provides them (protocol 2.21.0).
    *
-   * `{ steps }` for an epic whose steps are stored, and `{ steps: [] }` for
-   * one nobody has written any for. Those are both "nothing to show" in this
-   * file's sense: the host looked, and the list is the true answer.
+   * A module that keeps steps publishes them in its own `steps.json`, and the
+   * answer is the union: each step and phase saying which module provides it,
+   * and the providers (`stepsListResult`). While the Journeys module has not
+   * published, its record — or this host's own file — is read as one more
+   * provider, marked `fallback`, so nothing changes for anybody mid-move. See
+   * `server/plans.ts`.
+   *
+   * An epic nobody has written steps for is `{ steps: [], … }`: the host
+   * looked, and the empty list is the true answer.
    *
    * An epic written as a paper is neither. Its record carries `"steps": []`
    * and a `stepsFrom`, the steps are the paper's sections, and this host
    * cannot read a paper. Answering `{ steps: [] }` there is the lie this
    * host has told before — an epic with twenty sections reported as having no
-   * steps — and it is a lie precisely because it is well-formed.
-   *
-   * So that answer has **no `steps` at all**: `{ stepsFrom: { projector,
-   * where, why } }`, the record's own field under the record's own name. Not
-   * a refusal, which would carry the where as prose in an error string and
-   * tell a module the question failed when it was answered. And not
-   * `{ steps: [], stepsFrom }`, which is the same lie with a footnote: a
-   * module that reads `steps` and nothing else — every module written before
-   * today — would count an empty list. With the key absent there is no list
-   * to count, and a module that looks for `stepsFrom` can say WHERE.
-   *
-   * The protocol leaves this answer's content to the host on purpose, so no
-   * shape is broken by it; `README.md` says what a module should read.
+   * steps — and it is a lie precisely because it is well-formed. So, while no
+   * module provides any, that answer has **no `steps` at all**: `{ stepsFrom:
+   * { projector, where, why } }`, the record's own field under its own name.
    */
   case 'steps.list': {
     if (!dir) {
       return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
     }
     const { epic } = parsed.data as { epic: string }
-    const said = readStepsSaid(dir, epic)
+    const said = readStepsAnswer(dir, epic)
     if (said === null) return notMineToSay('There is no epic here under that name.')
-    if (said.kind === 'elsewhere') return nothingToShow('steps.list', { stepsFrom: said.from })
-    return nothingToShow('steps.list', { steps: said.kind === 'stored' ? said.steps : [] })
+    return nothingToShow('steps.list', said)
+  }
+
+  /**
+   * An epic's parts, each with what the modules hold for it (protocol 2.21.0):
+   * the list the page composes `context.parts` from, read by the same
+   * function, with nothing picked — picking is a person's, on one screen.
+   */
+  case 'parts.get': {
+    if (!dir) return notMineToSay('This host holds no epics of its own, so there are no parts here to read.')
+    const { epic } = parsed.data as { epic: string }
+    const parts = readParts(dir, epic)
+    if (parts === null) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('parts.get', {
+      parts: parts.map((part) => ({
+        id: part.id,
+        heading: part.heading,
+        refs: part.refs,
+        picked: false,
+        ...(part.files?.length ? { files: part.files } : {}),
+        ...(part.documents?.length ? { documents: part.documents } : {}),
+      })),
+    })
+  }
+
+  /**
+   * Why closed refs closed, for the project (protocol 2.21.0): the marks the
+   * page is handed in `context.dispositions`, from the same file. A file that
+   * will not read is no marks, as it is for the page.
+   */
+  case 'dispositions.get': {
+    if (!root) return notMineToSay('This call is standing in no project, so there are no dispositions to read.')
+    return nothingToShow('dispositions.get', { dispositions: marksOf(root) })
   }
 
   /**

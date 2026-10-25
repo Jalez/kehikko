@@ -312,7 +312,7 @@ describe('kehikko-bound skills (protocol 2.12.0)', () => {
     at.state.seen = [factory([bound('review-factory')])]
     const ran = await syncOnce(at.deps)
     expect(existsSync(join(at.root, 'review-factory'))).toBe(false)
-    expect(at.told).toEqual([`Removed the /review-factory skill from every conversation. ${where}, where the Claude module loads it`])
+    expect(at.told).toEqual([`Removed the /review-factory skill from every conversation. ${where}, where a module that runs agent sessions loads it`])
     expect(ran.status.modules[0]!.skills).toEqual([{ name: 'review-factory', state: 'bound', bound: where }])
     at.told.length = 0
     await syncOnce(at.deps)

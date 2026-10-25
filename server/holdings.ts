@@ -11,12 +11,13 @@ import {
   type ProjectHoldings,
   type StepsFrom,
 } from 'kehikot-module-protocol'
-import { holdingsSpoken, readHoldings, readJourneys } from 'kehikot-module-protocol/serve'
+import { holdingsSpoken, readHoldings, readJourneys, readPlans, type PublishedPlans } from 'kehikot-module-protocol/serve'
 
 import { slugFrom } from '../src/host/epics.ts'
 
 import { edited, listedIn, partsHeld, type Part, type PartsEdit } from '../src/host/parts.ts'
 import { EPICS_REL, epicsDir, stateDir } from './hostData.ts'
+import { epicPlans, stepsAnswer } from './plans.ts'
 import { isReadOnlyRoot, makeUnderRoot, MISSING_SAID, projectRootExists, READ_ONLY_SAID, refusedSaid, sayMissing, sayReadOnly } from './projectRoot.ts'
 
 /**
@@ -170,8 +171,9 @@ export function listEpics(dir: string): EpicSummary[] {
      rows would otherwise put an epic list on screen that was never true at
      any single moment. */
   const journeys = readJourneys(dir)
-  /* And once for what the modules hold for the parts, for the same reason. */
+  /* And once for what the modules hold for the parts, and for every module's plan, for the same reason. */
   const holdings = readHoldings(dir)
+  const plans = readPlans(dir)
 
   for (const file of files) {
     if (!file.endsWith('.json')) continue
@@ -179,7 +181,7 @@ export function listEpics(dir: string): EpicSummary[] {
     if (!SLUG.test(slug)) continue
     const own = read(join(epicsDir(dir), file))
     if (!own) continue
-    epics.push(summarise(slug, epicOf(dir, slug, own, journeys), own, holdings, dir))
+    epics.push(summarise(slug, epicOf(dir, slug, own, journeys, plans), own, holdings, dir))
   }
 
   return epics.sort((a, b) => (a.title ?? a.slug).localeCompare(b.title ?? b.slug))
@@ -339,14 +341,34 @@ function epicOf(
   slug: string,
   own: Record<string, unknown>,
   journeys: unknown = readJourneys(dir),
+  published: readonly PublishedPlans[] = readPlans(dir),
 ): Record<string, unknown> {
   const record = journeyIn(journeys, slug)
-  if (!record) return own
   const title = str(own.title)
   /* The list of parts is this host's, like the slug and the title: when its
      file keeps one, that is the epic's list, whatever the record says. */
   const listed = listedIn(own)
-  return { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}), ...(listed ? { parts: listed } : {}) }
+  const epic = record ? { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}), ...(listed ? { parts: listed } : {}) } : own
+  /* Protocol 2.21.0: once any module publishes a plan for the epic, its steps
+     are the union of every provider's (`server/plans.ts`) — the same steps
+     `steps.list` hands over, each saying whose it is. Until then the epic is
+     exactly what it was. */
+  const plans = epicPlans(dir, slug, own, journeys, published)
+  if (!plans.published) return epic
+  const union = stepsAnswer(plans)
+  return union.steps && union.steps.length ? { ...epic, steps: union.steps } : epic
+}
+
+/**
+ * What `steps.list` answers for one epic (protocol 2.21.0): the union of
+ * every module's plan and the fallback (`server/plans.ts`), or `{ stepsFrom }`
+ * for an epic whose steps are kept where nobody publishes them. `null` when
+ * there is no such epic: whether an epic exists is this host's alone.
+ */
+export function readStepsAnswer(dir: string, slug: string): Record<string, unknown> | null {
+  if (!SLUG.test(slug)) return null
+  const own = read(join(epicsDir(dir), `${slug}.json`))
+  return own ? stepsAnswer(epicPlans(dir, slug, own)) : null
 }
 
 /**

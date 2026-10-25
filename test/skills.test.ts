@@ -18,7 +18,7 @@ import {
   syncSkill,
   type SkillsOf,
 } from '../server/skills.ts'
-import { lineDiff, pressFor, removable, skillsSaying, whyNot } from '../src/host/skills.ts'
+import { lineDiff, pressFor, removable, skillsSaying, whyNot, type SkillRow } from '../src/host/skills.ts'
 
 /** A module's Claude Code skills (protocol 2.5.0): read, installed, updated and removed in a scratch CLAUDE_CONFIG. */
 
@@ -199,7 +199,7 @@ describe('kehikko-bound skills (protocol 2.12.0)', () => {
     const root = freshRoot()
     const refused = syncSkill(root, FACTORY, bound, 'install', text('review-factory'))
     expect(refused).toMatchObject({ ok: false, status: 409 })
-    expect(!refused.ok && refused.why).toBe(`${where}, where the Claude module loads it, so Kehikot does not install /review-factory for every conversation.`)
+    expect(!refused.ok && refused.why).toBe(`${where}, where a module that runs agent sessions loads it, so Kehikot does not install /review-factory for every conversation.`)
     expect(existsSync(join(root, 'review-factory'))).toBe(false)
     /* Installed before it was bound: not updated, but removable. */
     syncSkill(root, FACTORY, skill('review-factory'), 'install', text('review-factory'))
@@ -221,10 +221,29 @@ describe('kehikko-bound skills (protocol 2.12.0)', () => {
     ])
     expect(rows.map(pressFor)).toEqual([null, null])
     expect(rows.map(removable)).toEqual([false, true])
-    expect(whyNot(rows[0]!)).toBe(`${where}: the Claude module loads it into such a conversation, so it is not installed for every one.`)
+    expect(whyNot(rows[0]!)).toBe(`${where}, where a module that runs agent sessions loads it, so it is not installed for every conversation.`)
     expect(whyNot(rows[1]!)).toMatch(/so Kehikot removes it from there/)
     /* Still readable. */
     expect(rows[0]!.text).toBe(text('review-factory'))
+  })
+
+  test('a need by what a module provides is said as a kind of module, and the loader by name (protocol 2.21.0)', async () => {
+    const root = freshRoot()
+    const flows: ModuleSkill = { ...skill('flow-roadmap'), needs: [{ provides: 'steps' }] }
+    const { fetcher } = serving({ 'flow-roadmap': text('flow-roadmap') })
+    const lookup = async (): Promise<SkillsOf> => ({ ok: true, module: 'kehikot.flows', name: 'Flows', origin: ORIGIN, skills: [flows] })
+    for (const [loaders, said] of [
+      [['Claude'], 'where Claude loads it'],
+      [['Claude', 'Codex'], 'where Claude or Codex loads it'],
+      [[], 'where a module that runs agent sessions loads it; none installed here does yet'],
+    ] as const) {
+      const route = skillsRoute({ lookup, fetcher, root: () => root, loaders: () => [...loaders] })
+      const url = new URL('http://127.0.0.1:4180/host/skills?module=kehikot.flows')
+      const got = (await (await route(new Request(url), url))!.json()) as { skills: SkillRow[] }
+      expect(got.skills[0]!.bound).toBe('Available in conversations on a kehikko that also has a module that keeps an epic’s steps and Flows')
+      expect(got.skills[0]!.loaded).toBe(said)
+      expect(whyNot(got.skills[0]!)).toContain(said)
+    }
   })
 
   test('the route refuses Install, names modules as the host knows them, and still removes', async () => {

@@ -60,6 +60,12 @@ export const ANSWERED_BY_THE_SERVER = [
      made and received the calls. See `server/traffic.ts`. */
   'traffic.read',
   'traffic.note',
+  /* An epic's parts and the project's dispositions by name (protocol 2.21.0):
+     what the page is handed in `context.parts` and `context.dispositions`,
+     read from the same files, for a module's server, which has no frame. See
+     `readParts` in `server/holdings.ts` and `server/dispositions.ts`. */
+  'parts.get',
+  'dispositions.get',
 ] as const
 
 /**

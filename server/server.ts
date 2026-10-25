@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, CONTENT_HOST, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
@@ -10,6 +10,7 @@ import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
+import { providesHere, skillLoaders } from '../src/host/providers.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
@@ -295,6 +296,7 @@ setInterval(() => because('tracker refresh: on its schedule', () => trackers.tic
  * news of it to every page standing in that project. See `server/content.ts`.
  */
 const contents = new Contents({
+  providesSteps: (source) => providesSteps(source),
   told: (root, changes) => {
     for (const project of listProjects(db)) {
       if (project.path === root) wakes.contentChanged(project.id, changes)
@@ -308,7 +310,7 @@ const contents = new Contents({
  * MCP door, an agent or a person editing a file.
  */
 const contentWatch = new ContentWatch({
-  changed: (root, source, epic) => void contents.announce(root, source, epic),
+  changed: (root, source, epic, said) => void contents.announce(root, source, epic, said),
   stateChanged: (root) => trackers.stateChanged(root),
   /* The registered module whose folder this is; the folder drops the id's
      prefix, so the registry is asked rather than the name rebuilt. A folder
@@ -1140,6 +1142,22 @@ const lastDeclared = new Map<string, readonly string[]>()
 /** Whether this module's manifest asks for the capability: what every method is held to. See `Grants`. */
 const declared = (module: string, capability: string): boolean =>
   lastDeclared.get(module)?.includes(capability) === true
+
+/** Every answering module's manifest, as the last sweep read it. */
+const lastManifests = () => [...lastPresences.values()].flatMap((presence) => (presence.module ? [presence.module] : []))
+/**
+ * The modules that load kehikko-bound skills into the agent sessions they run (protocol 2.21.0,
+ * `declares.agentSessions`), by name: where such a skill is routed. See `src/host/providers.ts`.
+ */
+const skillLoaderNames = (): string[] => skillLoaders(lastManifests()).map((id) => knownName(id) ?? nameFromId(id))
+/**
+ * Whether a source's material is an epic's steps (protocol 2.21.0): a module that says it provides
+ * them, or Journeys from before 2.21.0, whose old file this host still reads as a provider.
+ */
+const providesSteps = (source: string): boolean => {
+  const manifest = lastPresences.get(source)?.module
+  return manifest ? providesHere(manifest).includes('steps') : source === JOURNEYS_MODULE
+}
 
 /*
  * A module's settings (protocol 2.15.0), read and changed at the module's own door on a person's
@@ -2299,6 +2317,7 @@ async function keptAndRunning(): Promise<string[]> {
  */
 const skillDesk = skillsRoute({
   nameOf: (id) => knownName(id) ?? nameFromId(id),
+  loaders: skillLoaderNames,
   lookup: async (id) => {
     /* Kehikot's own skills: the host's, read from this host's own origin, never from the registry. */
     if (id === HOST_ID) return { ok: true, module: HOST_ID, name: 'Kehikot', origin: ownOrigin, skills: ownSkillDeclarations() }
@@ -2381,6 +2400,7 @@ const agentSync = new AgentSync({
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
   nameOf: knownName,
+  loaders: skillLoaderNames,
   /* The host is never "no longer registered": its own skills are never tidied away. */
   registry: () => withHost(lastRegistry),
   ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),
@@ -2437,6 +2457,8 @@ const placeRoutes = placeDesk({
       name: presence.module?.name ?? presence.name ?? null,
       summary: presence.module?.summary ?? presence.summary,
       skills: presence.module?.declares.skills ?? [],
+      /* What a skill's needs are matched against (protocol 2.21.0). */
+      ...(presence.module ? { manifest: presence.module } : {}),
     })),
   known: () => agentKnows(),
   open: () => {
