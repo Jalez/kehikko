@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
+import { because } from './traffic.ts'
 import { adoptedReadyBuilt, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
@@ -67,6 +68,12 @@ export interface Checkout {
   incoming: Incoming[]
   /** Why the remote could not be read just now, when it could not. */
   fetchFailed: string | null
+  /**
+   * The automatic check compared the branch on the remote with what this checkout last fetched
+   * (`git ls-remote`), and the remote has moved — but this is a checkout somebody edits, so it was
+   * not fetched: Check now reads what is new. Absent when nothing is waiting, and from an older host.
+   */
+  waiting?: boolean
   /** Why `update` would refuse, or null when it would go ahead. */
   blocked: string | null
   /**
@@ -218,8 +225,44 @@ export async function topLevels(places: readonly Place[]): Promise<{ places: Pla
   return { places: out, unreadable }
 }
 
-/** One checkout, read; fetched first when `fetch` and not fetched in the last minute. */
-export async function readCheckout(place: Place, fetch: boolean, signal?: AbortSignal): Promise<Reading> {
+/**
+ * What each remote branch was when `git ls-remote` was last asked, per checkout and ref, so two
+ * pages' automatic checks in a minute ask the remote once.
+ */
+const remoteAt = new Map<string, { at: number; commit: string }>()
+
+/**
+ * Whether the branch `upstream` names has moved on its remote since this checkout last fetched it:
+ * one `git ls-remote` (asked at most once a minute), compared with the local `upstream` ref. Null
+ * with why when the remote could not be asked.
+ */
+async function remoteMoved(dir: string, upstream: string, signal?: AbortSignal): Promise<{ moved: boolean } | { why: string }> {
+  const slash = upstream.indexOf('/')
+  if (slash <= 0) return { moved: false }
+  const remote = upstream.slice(0, slash)
+  const ref = `refs/heads/${upstream.slice(slash + 1)}`
+  const key = `${dir}\u0000${ref}`
+  let there = remoteAt.get(key)
+  if (!there || Date.now() - there.at > FETCH_AT_MOST_EVERY_MS) {
+    const listed = await because('update check: compare with the remote', () => git(dir, ['ls-remote', '--exit-code', remote, ref], FETCH_TIMEOUT_MS, signal))
+    if (!listed.ok) return { why: listed.why }
+    const commit = listed.out.split(/\s+/)[0] ?? ''
+    there = { at: Date.now(), commit }
+    remoteAt.set(key, there)
+  }
+  const here = await git(dir, ['rev-parse', upstream])
+  return { moved: !here.ok || here.out !== there.commit }
+}
+
+/**
+ * One checkout, read; fetched first when `fetch` and not fetched in the last minute.
+ *
+ * `fetch: 'compare'` is the automatic check: the remote is asked with `git ls-remote` whether the
+ * branch moved, and fetched only when it did — and then only for an installed copy, which nobody
+ * edits. A checkout somebody edits is never fetched by the automatic check; it says `waiting`, and
+ * Check now (`fetch: true`) fetches it.
+ */
+export async function readCheckout(place: Place, fetch: boolean | 'compare', signal?: AbortSignal): Promise<Reading> {
   const { dir } = place
   const head = await git(dir, ['rev-parse', '--short', 'HEAD'])
   if (!head.ok) return { ...said(place), error: head.why }
@@ -231,13 +274,27 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
   const upstream = upstreamRead.ok ? upstreamRead.out : null
 
   let fetchFailed: string | null = null
+  let waiting = false
   if (fetch && upstream) {
     const last = fetchedAt.get(dir) ?? 0
     if (Date.now() - last > FETCH_AT_MOST_EVERY_MS) {
       const remote = upstream.split('/')[0] ?? 'origin'
-      const fetched = await git(dir, ['fetch', '--quiet', '--no-tags', remote], FETCH_TIMEOUT_MS, signal)
-      if (fetched.ok) fetchedAt.set(dir, Date.now())
-      else fetchFailed = fetched.why
+      let go = fetch === true
+      if (fetch === 'compare') {
+        const compared = await remoteMoved(dir, upstream, signal)
+        if ('why' in compared) fetchFailed = compared.why
+        else if (compared.moved && place.releases) go = true
+        else if (compared.moved) waiting = true
+      }
+      if (go) {
+        const fetched = await because(fetch === true ? 'update check: fetch (Check now)' : 'update check: fetch, the remote moved', () =>
+          git(dir, ['fetch', '--quiet', '--no-tags', remote], FETCH_TIMEOUT_MS, signal),
+        )
+        if (fetched.ok) {
+          fetchedAt.set(dir, Date.now())
+          remoteAt.delete(`${dir}\u0000refs/heads/${upstream.slice(upstream.indexOf('/') + 1)}`)
+        } else fetchFailed = fetched.why
+      }
     }
   }
 
@@ -278,9 +335,11 @@ export async function readCheckout(place: Place, fetch: boolean, signal?: AbortS
     incoming,
     fetchFailed,
     blocked: null,
+    ...(waiting ? { waiting } : {}),
   }
   checkout.blocked = blockedBy(checkout)
-  return place.releases ? place.releases.overlay(place, checkout, fetch) : checkout
+  /* An installed copy's releases: `git ls-remote --tags`, and a fetch only when a tag is new. */
+  return place.releases ? place.releases.overlay(place, checkout, fetch !== false) : checkout
 }
 
 /**

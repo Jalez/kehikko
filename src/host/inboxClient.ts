@@ -1,5 +1,6 @@
 import type { ActivityItem } from 'kehikot-module-protocol'
 
+import { hostRead } from './hostRead.ts'
 import type { Entry, LogRow, NoticeLine, Scope } from './inbox.ts'
 
 /**
@@ -42,8 +43,13 @@ const query = (narrowing: Narrowing | null): string =>
     ? `&scope=here${narrowing.epic ? `&epic=${encodeURIComponent(narrowing.epic)}` : ''}${narrowing.kehikko ? `&kehikko=${encodeURIComponent(narrowing.kehikko)}` : ''}`
     : '&scope=everywhere'
 
-export async function fetchInbox(project: number): Promise<Snapshot | null> {
-  const got = await ask<Snapshot & { ok: boolean }>(`/host/inbox?project=${project}`)
+/**
+ * One project's record. `join`: a read of it already out will do (the reads at load, which
+ * StrictMode makes twice in development); without, it is read now — news said it changed.
+ * Nothing is kept.
+ */
+export async function fetchInbox(project: number, { join = false }: { join?: boolean } = {}): Promise<Snapshot | null> {
+  const got = await hostRead(`inbox:${project}`, () => ask<Snapshot & { ok: boolean }>(`/host/inbox?project=${project}`), { keep: false, fresh: !join })
   return got && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0 } : null
 }
 

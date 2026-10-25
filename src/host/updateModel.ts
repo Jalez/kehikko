@@ -35,6 +35,8 @@ export type UpdateState =
   | 'failed'
   | 'blocked'
   | 'pinned'
+  /** The automatic check saw new commits on the remote of a checkout somebody edits, and fetched nothing. */
+  | 'waiting'
 
 export interface UpdateRow {
   /** `app`, `host`, or the module's registration id. */
@@ -182,6 +184,8 @@ export function moduleRow(
     return reading.blocked === null ? { ...row, state: 'available' } : { ...row, state: 'blocked', reason: reading.blocked }
   }
   if (reading.fetchFailed) return { ...row, state: 'failed', reason: `GitHub could not be reached: ${reading.fetchFailed}` }
+  /* The automatic check saw the remote move and fetched nothing of a checkout somebody edits. */
+  if (reading.waiting) return { ...row, state: 'waiting', reason: `New commits on ${reading.upstream ?? 'its branch'} — Check now fetches them` }
   return row
 }
 
@@ -343,6 +347,8 @@ export function stateText(row: UpdateRow): string {
       return `Failed: ${row.reason ?? 'no reason given'}`
     case 'blocked':
       return `Not updated automatically: ${row.reason ?? 'no reason given'}`
+    case 'waiting':
+      return row.reason ?? 'New commits — Check now fetches them'
     case 'pinned': {
       const pinned = row.reason ?? `Pinned${row.version ? ` to ${row.version}` : ''}`
       if (row.release && runsReleases(row)) return row.release.target ? `${pinned} · latest moves to ${releaseVersion(row.release.target)}` : pinned

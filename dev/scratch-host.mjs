@@ -73,7 +73,15 @@ export function stop() {
 process.on('exit', stop)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(130))
 
-export async function bootHost(name = 'kehikko-drive') {
+/* What the last `bootHost` started, for a drive that needs more than the page's URL. */
+export const scratch = { api: 0, page: 0, root: '', modules: [] }
+
+/**
+ * `env` is added to every process's environment. `traffic: true` makes the third stand-in (Gamma) a reader of the host's record of traffic, as
+ * the Monitor is: it declares `traffic:read` and answers `GET /traffic?since=<seq>` with
+ * `traffic.read` (`test/fixtures/standin/server.ts`).
+ */
+export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {} } = {}) {
   ROOT = realpathSync(mkdtempSync(join(tmpdir(), `${name}-`)))
   for (const dir of ['home', 'project-a', 'project-b', 'modules', 'versions', 'installed', 'logs', 'claude']) mkdirSync(at(dir), { recursive: true })
   writeFileSync(at('project-a/README.md'), 'a\n')
@@ -85,8 +93,14 @@ export async function bootHost(name = 'kehikko-drive') {
   const api = await pairOfPorts()
   const page = sidecar ? api : api + 1
   const origins = [`http://127.0.0.1:${page}`, `http://localhost:${page}`, `http://127.0.0.1:${api}`, `http://localhost:${api}`]
+  /* Nothing this shell says about where a host is goes through: a scratch module told the real
+     app's origins (`KEHIKOT_ORIGINS`, on 4170) once talked to it. Every location is set below. */
+  const inherited = { ...process.env }
+  for (const key of ['PORT', 'HOST_PORT', 'KEHIKOT_ORIGIN', 'KEHIKOT_ORIGINS', 'KEHIKKO_RESTART_FILE', 'KEHIKKO_PORT', 'KEHIKKO_API_PORT', 'KEHIKKO_HOST_DIR']) delete inherited[key]
   const env = {
-    ...process.env,
+    ...inherited,
+    KEHIKOT_ORIGIN: origins.join(' '),
+    KEHIKOT_ORIGINS: origins.join(' '),
     HOME: at('home'),
     PORT: String(api),
     HOST_PORT: String(api),
@@ -101,10 +115,11 @@ export async function bootHost(name = 'kehikko-drive') {
     KEHIKOT_OFFICIAL_LIST: 'off',
     KEHIKOT_SEED_PROJECT: at('project-a'),
     KEHIKKO_RESTART_FILE: at('restart'),
+    ...more,
   }
-  const run = (cmd, args, log) => {
+  const run = (cmd, args, log, extra = {}) => {
     const out = openSync(at(log), 'a')
-    const child = spawn(cmd, args, { cwd: HOST, env, stdio: ['ignore', out, out] })
+    const child = spawn(cmd, args, { cwd: HOST, env: { ...env, ...extra }, stdio: ['ignore', out, out] })
     children.push(child)
     return child
   }
@@ -117,8 +132,10 @@ export async function bootHost(name = 'kehikko-drive') {
     const port = await freePort()
     modules.push({ id, name, port })
     writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))
-    run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`)
+    const reads = traffic && id === 'kehikot.gamma'
+    run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`, reads ? { STANDIN_TRAFFIC: `http://127.0.0.1:${api}` } : {})
   }
+  Object.assign(scratch, { api, page, root: ROOT, modules })
   if (sidecar) run(sidecar, [], 'api.log')
   else {
     run(BUN, ['run', 'server/server.ts'], 'api.log')

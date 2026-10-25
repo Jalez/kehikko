@@ -10,10 +10,14 @@
  * because a page the host has not greeted is drawn hidden.
  */
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
+import { askHost, serverPassReply } from 'kehikot-module-protocol/serve'
 
 const [id, name, portText, origins] = process.argv.slice(2)
 if (!id || !name || !portText || !origins) throw new Error('usage: server.ts <id> <name> <port> <origins>')
 const port = Number(portText)
+/* `STANDIN_TRAFFIC=<host origin>`: this one also reads the host's record of traffic, as the
+   Monitor does (`traffic:read`), and hands it to a driver at `/traffic?since=<seq>`. */
+const trafficHost = process.env.STANDIN_TRAFFIC ?? null
 
 const manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -30,7 +34,7 @@ const manifest = manifestSchema.parse({
   extensions: { emits: [], consumes: [] },
   reacts: [],
   partless: 'A stand-in for a test: it holds nothing of a part.',
-  declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: [], storage: true, prompt: false },
+  declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: trafficHost ? ['traffic:read'] : [], storage: true, prompt: false },
   health: '/healthz',
 })
 
@@ -60,8 +64,17 @@ Bun.serve({
   port,
   hostname: '127.0.0.1',
   fetch(request) {
-    const { pathname } = new URL(request.url)
+    const url = new URL(request.url)
+    const { pathname } = url
     if (pathname === WELL_KNOWN) return Response.json(manifest)
+    const pass = serverPassReply(request.method, pathname, url.searchParams)
+    if (pass) return Response.json(pass.body, { status: pass.status })
+    if (trafficHost && pathname === '/traffic') {
+      const since = Number(url.searchParams.get('since')) || 0
+      return askHost('traffic.read', { since, limit: 5000 }, { module: id, env: { KEHIKOT_ORIGINS: trafficHost } }).then((read) =>
+        Response.json(read, { status: read.ok ? 200 : 502 }),
+      )
+    }
     if (pathname === '/healthz') return new Response('ok')
     if (pathname === '/app') return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } })
     return new Response('not here', { status: 404 })

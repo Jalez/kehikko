@@ -2,6 +2,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 
 import { DEFAULT_SETTINGS, type SettingsAnswer } from '../src/host/agentSettings.ts'
+import { forgetEveryRead } from '../src/host/hostRead.ts'
 import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
 
 /*
@@ -58,6 +59,8 @@ afterEach(() => {
   if (!inChild) return
   act(() => unmount?.())
   unmount = null
+  /* What the page read once per load is read again by the next test's page. */
+  forgetEveryRead()
   document.body.innerHTML = ''
 })
 

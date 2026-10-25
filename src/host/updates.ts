@@ -66,6 +66,8 @@ const checkoutSchema = z.object({
   ahead: z.number(),
   incoming: z.array(incomingSchema),
   fetchFailed: z.string().nullable(),
+  /** The automatic check saw the remote move and fetched nothing: Check now reads it. Absent from an older host. */
+  waiting: z.boolean().optional(),
   blocked: z.string().nullable(),
   /** Absent for a checkout that is not an installed copy, and from an older host. */
   release: releaseSchema.optional(),
@@ -118,10 +120,14 @@ export function isCheckout(reading: Reading): reading is Checkout {
   return !('error' in reading)
 }
 
-/** Read every checkout; `fetch` asks GitHub first, which is the slow part. */
-export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: string | null): Promise<Check> {
+/**
+ * Read every checkout; `fetch` asks GitHub first, which is the slow part. `quiet`: the automatic
+ * check, which only compares each remote with what was fetched and fetches no checkout somebody
+ * edits (`readCheckout` in `server/updates.ts`); Check now leaves it out.
+ */
+export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: string | null, quiet = false): Promise<Check> {
   /* `app` is the running app's version: when it is newer than the newest app the host has read the tags of, the host reads them again. */
-  const query = fetch ? `?fetch=1${app ? `&app=${encodeURIComponent(app)}` : ''}` : ''
+  const query = fetch ? `?fetch=1${quiet ? '&quiet=1' : ''}${app ? `&app=${encodeURIComponent(app)}` : ''}` : ''
   const response = await globalThis.fetch(`/host/updates${query}`, { signal })
   if (!response.ok) throw new Error(await reason(response))
   const body = z
@@ -410,7 +416,7 @@ export type Outcome =
 export function needsAttention(reading: Reading, outcome: Outcome | null | undefined, flagged = false): boolean {
   if (outcome || flagged) return true
   if (!isCheckout(reading)) return true
-  return hasUpdate(reading) || reading.fetchFailed !== null
+  return hasUpdate(reading) || reading.fetchFailed !== null || reading.waiting === true
 }
 
 /** The checkouts that need a person, most pressing first, and the level rest. */
@@ -434,7 +440,7 @@ export function triage(
 function weight(one: Reading): number {
   if (!isCheckout(one)) return 2
   if (hasUpdate(one)) return 3
-  return one.fetchFailed ? 1 : 0
+  return one.fetchFailed || one.waiting ? 1 : 0
 }
 
 /** Whether "Restart Kehikot" is offered for an outcome: the host's server changed and the app can restart it. */

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { hostRead } from './hostRead.ts'
 import { compareReleases, isRelease, releasesNewestFirst, releaseVersion, type Follows } from './moduleReleases.ts'
 import { compareVersions } from './worksWith.ts'
 
@@ -343,13 +344,23 @@ export function ackFor(items: readonly NewsItem[]): { app?: string; modules?: Re
 
 /* ---- the page's side ---- */
 
-export async function fetchWhatsNew(signal?: AbortSignal): Promise<WhatsNewAnswer | null> {
+/**
+ * What is new. `fresh: false` shares the read that is out (StrictMode asks twice at load) and
+ * keeps nothing; every other read is the host's answer now — a poke, the dialog opened.
+ */
+export async function fetchWhatsNew(signal?: AbortSignal, fresh = true): Promise<WhatsNewAnswer | null> {
   try {
-    const response = await fetch('/host/whats-new', { signal, cache: 'no-store' })
-    /* An older host has no such route: nothing is shown by itself. */
-    if (!response.ok) return null
-    const body = (await response.json()) as WhatsNewAnswer
-    return { record: body.record ? recordSchema.parse(body.record) : null, modules: body.modules ?? [], updating: body.updating ?? [] }
+    return await hostRead(
+      'whats-new',
+      async () => {
+        const response = await fetch('/host/whats-new', { cache: 'no-store' })
+        /* An older host has no such route: nothing is shown by itself. */
+        if (!response.ok) return null
+        const body = (await response.json()) as WhatsNewAnswer
+        return { record: body.record ? recordSchema.parse(body.record) : null, modules: body.modules ?? [], updating: body.updating ?? [] }
+      },
+      { signal, fresh, keep: false },
+    )
   } catch {
     return null
   }

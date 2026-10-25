@@ -210,8 +210,10 @@ export interface RegistryView {
  * right now and a cached one would tell somebody a module is silent for as long
  * as their browser felt like it.
  */
-export async function fetchRegistry(signal?: AbortSignal): Promise<RegistryView> {
-  const response = await fetch('/host/modules', { signal, cache: 'no-store' })
+export async function fetchRegistry(signal?: AbortSignal, fresh = false): Promise<RegistryView> {
+  /* `fresh`: a person pressed something, so the host asks every module again rather than reading
+     the manifests it keeps (`server/manifests.ts`). */
+  const response = await fetch(fresh ? '/host/modules?fresh=1' : '/host/modules', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = (await response.json()) as RegistryView
   if (!body || !Array.isArray(body.presences)) throw new Error("the host's server answered something else")

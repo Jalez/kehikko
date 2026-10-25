@@ -397,8 +397,8 @@ function Host({
   const alive = useRef(true)
 
   /** The answer, with what the record does not know yet recorded first. */
-  const read = useCallback(async (): Promise<WhatsNewAnswer | null> => {
-    const answer = await load()
+  const read = useCallback(async (fresh = true): Promise<WhatsNewAnswer | null> => {
+    const answer = await load(undefined, fresh)
     if (!answer) return null
     const record = answer.record
     if (!record || (!record.app && app) || answer.modules.some((one) => !Object.hasOwn(record.modules, one.id))) {
@@ -449,9 +449,9 @@ function Host({
   )
 
   /** Read again: the notice's news, and the open dialog's rows. */
-  const tell = useRef<() => Promise<void>>(async () => {})
-  tell.current = async () => {
-    const answer = await read()
+  const tell = useRef<(given?: WhatsNewAnswer) => Promise<void>>(async () => {})
+  tell.current = async (given?: WhatsNewAnswer) => {
+    const answer = given ?? (await read())
     if (!alive.current || !answer?.record) return
     setShow(answer.record.show)
     const next = itemsOf(answer, false).filter((one) => one.news)
@@ -483,9 +483,11 @@ function Host({
   useEffect(() => {
     alive.current = true
     void (async () => {
-      const first = await read()
+      /* Shared with a read already out: StrictMode mounts this twice in development. */
+      const first = await read(false)
       if (!alive.current || !first?.record) return
-      await tell.current()
+      /* The first read is the notice's: one request at load, not a second to say the same. */
+      await tell.current(first)
     })()
     return () => {
       alive.current = false

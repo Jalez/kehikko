@@ -354,20 +354,50 @@ export function pageId(): string {
  * comes AFTER the server knows what is open, or the sweep asks about a kehikko
  * the server has not heard of yet and nothing starts until something else
  * happens to look. The promise resolves whether the report landed or not: a
- * failed report is a sweep that finds nothing new, not a page that stops.
+ * failed report is a sweep that finds nothing new, not a page that stops. It
+ * resolves to whether the host started anything on it (true when it did not
+ * say), so the sweep after it is made only when it can find something new.
  */
-export function reportOpen(kehikko: number | null): Promise<void> {
-  const body = JSON.stringify({ page: pageId(), kehikko })
-  return fetch('/host/open', {
+export function reportOpen(kehikko: number | null, { again = false }: { again?: boolean } = {}): Promise<{ started: boolean }> {
+  const page = pageId()
+  const now = Date.now()
+  /* The same report from this page, standing and recent: the one already made is the answer.
+     `again` is for a server that may have forgotten it (the stream reopened). */
+  if (!again && lastReport && lastReport.page === page && lastReport.kehikko === kehikko && now - lastReport.at < REASSERT_MS) return lastReport.said
+  /* Nothing was ever said by this page, so there is nothing to withdraw. */
+  if (!again && kehikko === null && (!lastReport || lastReport.page !== page)) return Promise.resolve({ started: false })
+  const body = JSON.stringify({ page, kehikko })
+  const said = fetch('/host/open', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
     keepalive: true,
   })
-    .then(() => undefined)
-    .catch(() => {
-      /* See above. */
+    .then(async (response) => {
+      const answer = (await response.json().catch(() => null)) as { started?: unknown } | null
+      /* An answer that does not say is one to look after. */
+      return { started: answer?.started !== false }
     })
+    .catch(() => {
+      /* See above; and said again next time, since it may not have landed. */
+      if (lastReport?.said === said) lastReport = null
+      return { started: true }
+    })
+  lastReport = { page, kehikko, at: now, said }
+  return said
+}
+
+/**
+ * The last report this page made, so one said again on focus, on `pageshow` and by React's
+ * StrictMode in development is not sent again. Said anew after `REASSERT_MS`: the server believes
+ * a report for half a day (`server/open.ts`), and a page open longer than that says it again.
+ */
+let lastReport: { page: string; kehikko: number | null; at: number; said: Promise<{ started: boolean }> } | null = null
+const REASSERT_MS = 10 * 60_000
+
+/** For tests: as if this page had reported nothing. */
+export function forgetReports(): void {
+  lastReport = null
 }
 
 /**

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
+import { forgetReports, reportOpen } from '../src/host/canvases.ts'
 import { arrive, oneAfterAnother } from '../src/host/looks.ts'
 
 /*
@@ -18,6 +19,7 @@ let sent: Sent[] = []
 let release: (() => void)[] = []
 
 beforeEach(() => {
+  forgetReports()
   for (const key of ['window', 'document', 'fetch', 'requestAnimationFrame']) had[key] = g[key]
   sent = []
   release = []
@@ -78,6 +80,40 @@ describe('arriving at a kehikko, with the window not frontmost', () => {
     expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual(['GET /host/modules', 'POST /host/open', 'GET /host/modules'])
     release.shift()!()
     await arrived
+  })
+})
+
+describe('a report that changes nothing', () => {
+  const answering = (body: unknown) => {
+    g.fetch = async (input: string, init?: RequestInit) => {
+      const url = new URL(input, 'http://127.0.0.1:4290')
+      sent.push({ method: init?.method ?? 'GET', path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : null })
+      return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+    }
+  }
+
+  test('the host started nothing on it: no sweep after it', async () => {
+    answering({ ok: true, started: false })
+    await arrive(7, async () => {
+      await fetch('/host/modules')
+    })
+    expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual(['POST /host/open'])
+  })
+
+  test('the same report said again (focus, pageshow, StrictMode) is sent once; another kehikko is sent', async () => {
+    answering({ ok: true, started: false })
+    await Promise.all([reportOpen(7), reportOpen(7)])
+    await reportOpen(7)
+    await reportOpen(8)
+    /* A reopened stream: the server may have forgotten it. */
+    await reportOpen(8, { again: true })
+    expect(sent.map((s) => (s.body as { kehikko: number }).kehikko)).toEqual([7, 8, 8])
+  })
+
+  test('a page that never reported has nothing to withdraw', async () => {
+    answering({ ok: true, started: false })
+    await reportOpen(null)
+    expect(sent).toEqual([])
   })
 })
 

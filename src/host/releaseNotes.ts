@@ -1,4 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
+import { hostRead } from './hostRead.ts'
 
 /**
  * Release notes, the page's side: what the version beside "Kehikot" says,
@@ -172,12 +173,28 @@ export async function fetchReleases(repo: string, signal?: AbortSignal): Promise
   return (await fetchReleaseList(repo, signal)).releases
 }
 
-/** The host's own version, from `/host/health`; null when it does not say. */
-export async function fetchHostVersion(signal?: AbortSignal): Promise<string | null> {
-  const response = await fetch('/host/health', { signal, cache: 'no-store' })
-  const body = (await response.json().catch(() => null)) as { version?: unknown } | null
-  return response.ok && typeof body?.version === 'string' ? body.version : null
+/**
+ * The host's own version, from `/host/health`; null when it does not say. Asked once per page
+ * load, whoever asks (`hostRead`), and again only after the host's stream reopened — a host that
+ * restarted may be another version (`forgetRead('health')` in `App.tsx`).
+ */
+export function fetchHostVersion(signal?: AbortSignal): Promise<string | null> {
+  return hostRead(
+    'health',
+    async () => {
+      const response = await fetch('/host/health', { cache: 'no-store' })
+      const body = (await response.json().catch(() => null)) as { version?: unknown } | null
+      /* Not kept: a host that did not say is asked again by the next reader. */
+      if (!response.ok) throw NOT_SAID
+      return typeof body?.version === 'string' ? body.version : null
+    },
+    { signal },
+  ).catch((error: unknown) => {
+    if (error === NOT_SAID) return null
+    throw error
+  })
 }
+const NOT_SAID = new Error('the host did not say its version')
 
 /**
  * Open a web address in the person's browser.

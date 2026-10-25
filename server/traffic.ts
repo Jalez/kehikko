@@ -321,6 +321,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/tools': 'a module’s tools',
   '/host/versions': 'a module’s versions',
   '/host/whats-new': 'what’s new',
+  '/host/onboarding': 'the introduction and the tour',
   '/host/settings': 'settings',
   '/mcp': 'an agent asks Kehikot',
 }

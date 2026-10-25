@@ -21,14 +21,14 @@ import { KehikkoMark } from './Mark.tsx'
  * thing not yet done. Its own control, beside and apart from the Settings
  * gear. Layouts are not here: they are the kehikko menu's (new kehikko…).
  */
-export function HelpMenu({ read = fetchOnboarding }: { read?: () => Promise<Onboarding | null> }) {
+export function HelpMenu({ read = fetchOnboarding }: { read?: (signal?: AbortSignal, fresh?: boolean) => Promise<Onboarding | null> }) {
   const [state, setState] = useState<Onboarding | null>(null)
   const paused = continuable(state)
   const at = TOUR_STEPS.findIndex((step) => step.id === state?.tour.step)
   const started = state !== null && (state.tour.step !== null || state.tour.finished || state.tour.paused)
 
   return (
-    <DropdownMenu onOpenChange={(open) => (open ? void read().then(setState) : undefined)}>
+    <DropdownMenu onOpenChange={(open) => (open ? void read(undefined, true).then(setState) : undefined)}>
       <Hint label="Help — the introduction and the tour">
         <DropdownMenuTrigger asChild>
           <Button

@@ -206,7 +206,7 @@ export function useInbox(options: {
         if (done) clearStored(window.localStorage, project)
         if (!cancelled && done) adopt(project, done)
       }
-      const got = await fetchInbox(project)
+      const got = await fetchInbox(project, { join: true })
       if (!cancelled) adopt(project, got)
     })()
     return () => {
@@ -264,7 +264,7 @@ export function useInbox(options: {
     let cancelled = false
     for (const one of projectsRef.current) {
       if (one.id === projectRef.current || snapsRef.current[one.id]) continue
-      void fetchInbox(one.id).then((got) => {
+      void fetchInbox(one.id, { join: true }).then((got) => {
         if (!cancelled && !snapsRef.current[one.id]) adopt(one.id, got)
       })
     }
