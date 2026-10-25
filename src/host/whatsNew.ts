@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 import { compareReleases, isRelease, releasesNewestFirst, releaseVersion, type Follows } from './moduleReleases.ts'
 import { compareVersions } from './worksWith.ts'
-import { tourStanding } from './tour.ts'
 
 /**
  * "What's new" after an update: Kehikot and every module, in one dialog.
@@ -23,18 +22,19 @@ import { tourStanding } from './tour.ts'
  * very first run (no record at all — the introduction has the floor then) are
  * recorded as they are, silently: `baselined`.
  *
- * ## When it opens
+ * ## How it is told
  *
- * Never over anything: after Settings' one-time question and the introduction
- * (`firstRunSettled`), and only at a quiet moment (`whenQuiet`) — no dialog,
- * popover, menu or tour standing, nobody typing in the page or in a module's
- * frame, no update batch running in the Updates menu, and `QUIET_MS` of that.
- * Updates that land meanwhile are gathered into the one dialog; one landing
- * while it stands adds to its list. A module still updating (the server's
- * `updating`) or whose update failed is left out.
+ * Never by opening itself. As soon as anything is news, a notice stands in
+ * the bar ("What's new in 0.1.61", "What's new · 3 modules": `noticeSaid`)
+ * until the person presses it; the press opens the dialog, and what it shows
+ * is acknowledged. A module the server is still updating (its `updating`) is
+ * news already: the notice counts it and the dialog lists it as a
+ * "Preparing…" row that fills in once the update has finished. One whose
+ * update failed is left out. With the setting off there is no notice either,
+ * and what moved is acknowledged as it is.
  *
- * This file is pure apart from the page's requests and the quiet gate at the
- * bottom; the server uses the record rules too.
+ * This file is pure apart from the page's requests at the bottom; the server
+ * uses the record rules too.
  */
 
 export const APP_ITEM = 'kehikot'
@@ -75,7 +75,7 @@ export interface WhatsNewAnswer {
   /** Null on the very first run: nothing has been recorded yet. */
   record: WhatsNewRecord | null
   modules: InstalledModule[]
-  /** Modules an update is running on right now: not shown until it has finished. */
+  /** Modules an update is running on right now: "Preparing…" rows until it has finished. */
   updating: string[]
 }
 
@@ -182,6 +182,8 @@ export interface NewsItem {
   ack: { app: string } | { module: Position }
   /** Whether this is news, rather than what is installed shown on demand. */
   news: boolean
+  /** An update is still running on it: a "Preparing…" row, never acknowledged. */
+  preparing: boolean
 }
 
 /** "1.5.0 → 1.6.0", "0.1.43", "following main". */
@@ -247,17 +249,18 @@ export function newsItems(input: {
         works: {},
         ack: { app },
         news,
+        preparing: false,
       })
     }
   }
   const later: NewsItem[] = []
   for (const one of answer.modules) {
-    if (updating.has(one.id)) continue
     const ack = record?.modules[one.id]
-    const news = !!record && !failed.has(one.id) && moved(ack, one.position)
+    const preparing = updating.has(one.id)
+    const news = !!record && (preparing || (!failed.has(one.id) && moved(ack, one.position)))
     if (!news && !input.all) continue
     const onMain = !one.position.release
-    const tags = onMain ? [] : news && one.range.length ? one.range : [one.position.release!]
+    const tags = onMain || preparing ? [] : news && one.range.length ? one.range : [one.position.release!]
     const item: NewsItem = {
       id: one.id,
       kind: 'module',
@@ -270,40 +273,68 @@ export function newsItems(input: {
       works: one.works,
       ack: { module: one.position },
       news,
+      preparing,
     }
     ;(news ? items : later).push(item)
   }
   return [...items, ...later.sort((a, b) => a.name.localeCompare(b.name))]
 }
 
-/** Items merged into what the dialog already shows: a row updated in place, a new one added at the end. */
+/**
+ * Items merged into what the dialog already shows: a row updated in place (a
+ * "Preparing…" row filled in), a new one added at the end. A "Preparing…" row
+ * that is not news any more — its update failed, or changed nothing — goes.
+ */
 export function mergeItems(shown: readonly NewsItem[], next: readonly NewsItem[]): NewsItem[] {
   const byId = new Map(next.map((one) => [one.id, one]))
-  const merged = shown.map((one) => {
+  const merged = shown.flatMap((one) => {
     const fresh = byId.get(one.id)
-    if (!fresh) return one
+    if (!fresh) return one.preparing ? [] : [one]
     /* A later release of the same module: the range grows from where it started. */
-    return { ...fresh, from: one.from ?? fresh.from, tags: [...new Set([...fresh.tags, ...one.tags])].sort((a, b) => (isRelease(a) && isRelease(b) ? compareReleases(b, a) : 0)), news: one.news || fresh.news }
+    return [{ ...fresh, from: one.from ?? fresh.from, tags: [...new Set([...fresh.tags, ...one.tags])].sort((a, b) => (isRelease(a) && isRelease(b) ? compareReleases(b, a) : 0)), news: one.news || fresh.news }]
   })
   for (const one of next) if (!shown.some((was) => was.id === one.id)) merged.push(one)
   return merged
 }
 
+const modulesSaid = (count: number) => `${count} module${count === 1 ? '' : 's'}`
+
 /** "0.1.41 → 0.1.43" for the header, from Kehikot's row; else how many modules. */
 export function headerSaid(items: readonly NewsItem[]): string {
   const app = items.find((one) => one.kind === 'app')
-  const modules = items.filter((one) => one.kind === 'module' && one.news).length
+  const modules = items.filter((one) => one.kind === 'module' && one.news && !one.preparing).length
+  const preparing = items.filter((one) => one.preparing).length
   const parts: string[] = []
   if (app) parts.push(app.from ? `${app.from} → ${app.to}` : app.to)
-  if (modules) parts.push(`${modules} module${modules === 1 ? '' : 's'} updated`)
+  if (modules) parts.push(`${modulesSaid(modules)} updated`)
+  if (preparing) parts.push(`${preparing} preparing`)
   if (!parts.length) parts.push('Kehikot and your modules, as installed')
   return parts.join(' · ')
 }
 
-/** What "Got it" sends: every row shown. */
+/**
+ * The bar's notice for what is news, or null when nothing is: `text` in a
+ * wide bar ("What's new in 0.1.61", or "What's new · 3 modules" when only
+ * modules moved), "What's new" at 1100 pixels and under, an icon at 900 — and
+ * `label`, the whole of it, for the tooltip and the accessible name.
+ */
+export function noticeSaid(items: readonly NewsItem[]): { text: string; label: string } | null {
+  const news = items.filter((one) => one.news)
+  if (!news.length) return null
+  const app = news.find((one) => one.kind === 'app')
+  const modules = news.filter((one) => one.kind === 'module').length
+  const preparing = news.filter((one) => one.preparing).length
+  const text = app ? `What’s new in ${app.to}` : `What’s new · ${modulesSaid(modules)}`
+  const what = [app ? `Kehikot ${app.to}` : null, modules ? modulesSaid(modules) : null].filter(Boolean).join(' and ')
+  const still = preparing ? `, ${preparing} still preparing` : ''
+  return { text, label: `What’s new: ${what}${still} — press to read` }
+}
+
+/** What "Got it" sends: every row shown, but a "Preparing…" one, whose copy is still moving. */
 export function ackFor(items: readonly NewsItem[]): { app?: string; modules?: Record<string, Position> } {
   const ack: { app?: string; modules?: Record<string, Position> } = {}
   for (const one of items) {
+    if (one.preparing) continue
     if ('app' in one.ack) ack.app = one.ack.app
     else (ack.modules ??= {})[one.id] = one.ack.module
   }
@@ -355,7 +386,7 @@ const OPEN_WHATS_NEW = 'kehikot:open-whats-new'
 const POKE = 'kehikot:whats-new-poke'
 const SHOW_CHANGED = 'kehikot:whats-new-show'
 
-/** Open "What's new" now, on demand: About, the Updates menu. */
+/** Open "What's new" now, on demand: Settings → About, the Updates menu. */
 export function openWhatsNew(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_WHATS_NEW))
 }
@@ -392,114 +423,4 @@ export function onShowChanged(then: (show: boolean) => void): () => void {
 /** The Updates menu's notes for a module were read: `from` the installed release, `to` the newest shown. */
 export function readInUpdates(module: string, from: string | null, to: string): void {
   void postWhatsNew({ read: { module, from, to } })
-}
-
-/* An "Update all" in the Updates menu: while one runs, nothing opens. */
-let batches = 0
-export function updatesRunning(on: boolean): void {
-  batches = Math.max(0, batches + (on ? 1 : -1))
-}
-export function updatesBusy(): boolean {
-  return batches > 0
-}
-
-/* ---- a quiet moment ---- */
-
-/** How long the page has to be quiet — nothing open, nobody typing — before "What's new" opens. */
-export const QUIET_MS = 1500
-
-const STANDING = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .driver-popover'
-
-/** Why now is not a moment to open a dialog, or null when it is. */
-export function notQuiet(root: Document = document): string | null {
-  if (updatesBusy()) return 'updating'
-  /* The tour: driver.js's own mark while a step is shown, and the tour's
-     own for as long as it runs — a step waiting for the person draws no
-     overlay and has no `driver-active`. */
-  if (root.body?.classList.contains('driver-active') || tourStanding(root)) return 'tour'
-  if (root.querySelector(STANDING)) return 'open'
-  const active = root.activeElement as HTMLElement | null
-  const focused = typeof root.hasFocus === 'function' ? root.hasFocus() : true
-  if (focused && active && active !== root.body) {
-    const tag = active.tagName
-    if (tag === 'IFRAME' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) return 'typing'
-  }
-  return null
-}
-
-/**
- * Call `then` once the page has been quiet for `idleMs`: nothing standing, no
- * focus in a field or a module's frame, no update batch running, and no key or
- * press in that time. Returns the cancel.
- */
-export function whenQuiet(then: () => void, { idleMs = QUIET_MS, everyMs = 250, root = document }: { idleMs?: number; everyMs?: number; root?: Document } = {}): () => void {
-  let since: number | null = null
-  let lastInput = 0
-  const input = () => {
-    lastInput = Date.now()
-    since = null
-  }
-  const view = root.defaultView ?? window
-  view.addEventListener('keydown', input, true)
-  view.addEventListener('pointerdown', input, true)
-  const stop = () => {
-    clearInterval(timer)
-    view.removeEventListener('keydown', input, true)
-    view.removeEventListener('pointerdown', input, true)
-  }
-  const look = () => {
-    const now = Date.now()
-    if (notQuiet(root) !== null || now - lastInput < idleMs) {
-      since = null
-      return
-    }
-    since ??= now
-    if (now - since >= idleMs) {
-      stop()
-      then()
-    }
-  }
-  const timer = setInterval(look, everyMs)
-  look()
-  return stop
-}
-
-/** Has Settings' one-time question been answered? True when it cannot be told. */
-async function settingsAsked(): Promise<boolean> {
-  try {
-    const response = await fetch('/host/settings', { cache: 'no-store' })
-    if (!response.ok) return true
-    const body = (await response.json()) as { settings?: { asked?: unknown } } | null
-    return body?.settings?.asked !== false
-  } catch {
-    return true
-  }
-}
-
-/**
- * Resolves once the first-run windows are done with: Settings' one-time
- * question answered (or shown and closed this session) and the introduction
- * seen. Asked again every `everyMs` while either stands; `introDue` is the
- * onboarding module's own rule.
- */
-export function firstRunSettled(
-  deps: { introDue(): Promise<boolean>; asked?: () => Promise<boolean>; everyMs?: number; root?: Document },
-  signal?: AbortSignal,
-): Promise<void> {
-  const root = deps.root ?? document
-  const asked = deps.asked ?? settingsAsked
-  const everyMs = deps.everyMs ?? 1500
-  let questionSeen = false
-  return new Promise((resolve) => {
-    const look = async () => {
-      if (signal?.aborted) return
-      if (root.querySelector('[data-first-question]')) questionSeen = true
-      const questionDone = !root.querySelector('[data-first-question]') && (questionSeen || (await asked()))
-      const introDone = questionDone && !(await deps.introDue())
-      if (signal?.aborted) return
-      if (questionDone && introDone) resolve()
-      else setTimeout(() => void look(), everyMs)
-    }
-    void look()
-  })
 }

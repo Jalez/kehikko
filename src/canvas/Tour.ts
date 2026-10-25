@@ -182,7 +182,6 @@ export class Guide {
     this.watch = null
     this.root.defaultView?.removeEventListener('keydown', this.onKey, true)
     this.root.defaultView?.removeEventListener('pagehide', this.onLeave)
-    this.root.documentElement.removeAttribute('data-tour-running')
     this.restoreHeaders()
     this.example?.removeAttribute(EXAMPLE_ATTR)
     this.example = null
@@ -234,8 +233,6 @@ export class Guide {
   }
 
   private listen(): void {
-    /* What would open by itself waits while this stands (`tourStanding`). */
-    this.root.documentElement.setAttribute('data-tour-running', '')
     if (!this.watch) {
       const View = this.root.defaultView
       if (View && 'MutationObserver' in View) {

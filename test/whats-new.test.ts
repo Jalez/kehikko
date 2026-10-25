@@ -13,6 +13,7 @@ import {
   mergeItems,
   moved,
   newsItems,
+  noticeSaid,
   rangeFor,
   rangeSaid,
   type InstalledModule,
@@ -24,7 +25,7 @@ import {
 /*
  * "What's new" after an update: the rules (what is news, what acknowledging
  * records, what a read in the Updates menu counts for) and the record kept in
- * `frame.sqlite`. The dialog and when it opens are `whats-new-dom.test.tsx`.
+ * `frame.sqlite`. The notice and the dialog are `whats-new-dom.test.tsx`.
  */
 
 const at = (release: string | null, commit: string | null = null): Position => ({ release, commit })
@@ -98,13 +99,33 @@ describe('what counts as new', () => {
     expect(item).toMatchObject({ follows: 'main', from: 'aaa1111', to: 'bbb2222', tags: [] })
   })
 
-  test('a module still updating, or whose update failed, is not news', () => {
+  test('a module still updating is news already, as a "Preparing…" row with no notes; one whose update failed is not', () => {
     const answer: WhatsNewAnswer = {
       record: record({ modules: { a: at('v1.0.0'), b: at('v1.0.0') } }),
       modules: [module('a', 'A', at('v1.1.0'), ['v1.1.0']), module('b', 'B', at('v1.1.0'), ['v1.1.0'])],
       updating: ['a'],
     }
-    expect(newsItems({ answer, app: null, appTags: null, failed: new Set(['b']) })).toEqual([])
+    const items = newsItems({ answer, app: null, appTags: null, failed: new Set(['b']) })
+    expect(items.map((one) => [one.id, one.news, one.preparing, one.tags])).toEqual([['a', true, true, []]])
+    expect(headerSaid(items)).toBe('1 preparing')
+    /* Never acknowledged while its copy is still moving. */
+    expect(ackFor(items)).toEqual({})
+  })
+
+  test('the notice: Kehikot\'s version, or how many modules; nothing when nothing is news', () => {
+    const none = newsItems({ answer: { record: record({ app: '0.1.61', modules: { a: at('v1.1.0') } }), modules: [module('a', 'A', at('v1.1.0'))], updating: [] }, app: '0.1.61', appTags: null })
+    expect(noticeSaid(none)).toBeNull()
+    /* On demand everything installed is a row, and still nothing is news. */
+    expect(noticeSaid(newsItems({ answer: { record: record({ app: '0.1.61', modules: { a: at('v1.1.0') } }), modules: [module('a', 'A', at('v1.1.0'))], updating: [] }, app: '0.1.61', appTags: null, all: true }))).toBeNull()
+    const both = newsItems({
+      answer: { record: record({ app: '0.1.41', modules: { a: at('v1.0.0'), b: at('v1.0.0') } }), modules: [module('a', 'A', at('v1.1.0'), ['v1.1.0']), module('b', 'B', at('v1.0.0'))], updating: ['b'] },
+      app: '0.1.61',
+      appTags: null,
+    })
+    expect(noticeSaid(both)).toEqual({ text: 'What’s new in 0.1.61', label: 'What’s new: Kehikot 0.1.61 and 2 modules, 1 still preparing — press to read' })
+    const one = newsItems({ answer: { record: record({ app: '0.1.61', modules: { a: at('v1.0.0') } }), modules: [module('a', 'A', at('v1.1.0'), ['v1.1.0'])], updating: [] }, app: '0.1.61', appTags: null })
+    expect(noticeSaid(one)).toEqual({ text: 'What’s new · 1 module', label: 'What’s new: 1 module — press to read' })
+    expect(noticeSaid([])).toBeNull()
   })
 
   test('on demand, everything installed is listed, news first', () => {
@@ -159,6 +180,19 @@ describe('acknowledging', () => {
       ['a', '1.0.0 → 1.2.0', ['v1.2.0', 'v1.1.0']],
       ['b', '1.0.0 → 1.1.0', ['v1.1.0']],
     ])
+  })
+
+  test('a "Preparing…" row fills in once done, and goes when its update came to nothing', () => {
+    const answer = (updating: string[], b: Position): WhatsNewAnswer => ({
+      record: record({ modules: { a: at('v1.0.0'), b: at('v1.0.0') } }),
+      modules: [module('a', 'A', at('v1.0.0')), module('b', 'B', b, b.release === 'v1.1.0' ? ['v1.1.0'] : [])],
+      updating,
+    })
+    const first = newsItems({ answer: answer(['a', 'b'], at('v1.0.0')), app: null, appTags: null })
+    expect(first.map((one) => [one.id, one.preparing])).toEqual([['a', true], ['b', true]])
+    /* B landed on 1.1.0; A's update changed nothing. */
+    const next = newsItems({ answer: answer([], at('v1.1.0')), app: null, appTags: null })
+    expect(mergeItems(first, next).map((one) => [one.id, one.preparing, rangeSaid(one), one.tags])).toEqual([['b', false, '1.0.0 → 1.1.0', ['v1.1.0']]])
   })
 
   test('a change is one of four shapes, nothing else', () => {

@@ -4,11 +4,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import type { InstalledModule, Position, WhatsNewEdit, WhatsNewRecord } from '../src/host/whatsNew.ts'
 
 /*
- * "What's new" after an update, rendered: when it opens (not on the first
- * run, not over Settings' question or the introduction, not over the Updates
- * menu or any other window, not while somebody types), what it lists, what
- * "Got it" and "Don't show this after updates" record, Settings' switch, the
- * notes and the offline sentence, and the layout that folds under 640 pixels.
+ * "What's new" after an update, rendered: the bar's notice (there at once
+ * when anything is news, never on the first run, never the dialog by itself,
+ * not waiting for GitHub, not taking focus from a module, gone once pressed,
+ * none with the setting off, and its narrow forms), what the dialog lists —
+ * "Preparing…" rows that fill in — what opening it, "Got it" and "Don't show
+ * this after updates" record, Settings' switch, the notes and the offline
+ * sentence, and the layout that folds under 640 pixels.
  *
  * In a process of its own for the reason `updates-panel.test.tsx` gives:
  * Radix decides at load whether it has a DOM. The host behind it is a fake
@@ -16,7 +18,7 @@ import type { InstalledModule, Position, WhatsNewEdit, WhatsNewRecord } from '..
  */
 
 const inChild = process.env.WHATS_NEW_DOM === '1'
-const TESTS = 16
+const TESTS = 19
 
 if (!inChild) {
   test('"What\'s new", rendered in a process of its own', () => {
@@ -189,10 +191,16 @@ async function render(node: React.ReactNode) {
 }
 
 const dialog = () => document.querySelector('[data-whats-new]')
+const notice = () => document.querySelector<HTMLElement>('[data-testid="whats-new-notice"]')
 const items = () => [...document.querySelectorAll('[data-whats-new] [data-item]')].map((one) => one.getAttribute('data-item'))
 
 function Host(props: Partial<import('../src/canvas/WhatsNew.tsx').WhatsNewDeps> = {}) {
-  return <WhatsNew.WhatsNewHost app="0.1.43" settled={async () => {}} quietMs={40} pollMs={40} {...props} />
+  return (
+    <>
+      <WhatsNew.WhatsNewNotice />
+      <WhatsNew.WhatsNewHost app="0.1.43" pollMs={40} {...props} />
+    </>
+  )
 }
 
 async function click(element: Element) {
@@ -203,28 +211,129 @@ async function click(element: Element) {
   await tick()
 }
 
-describe.skipIf(!inChild)('when it opens', () => {
+/** The notice is there; press it, and the dialog is open. */
+async function openFromNotice() {
+  await until(() => notice() !== null)
+  expect(notice()).not.toBeNull()
+  await click(notice()!)
+  await until(() => dialog() !== null)
+  expect(dialog()).not.toBeNull()
+}
+
+describe.skipIf(!inChild)('the notice in the bar', () => {
   test('not on the very first run: what is here is recorded instead', async () => {
     start(null, [copy('kehikot.journeys', 'Journeys', 'v1.6.0')])
     await render(<Host />)
     await tick(200)
+    expect(notice()).toBeNull()
     expect(dialog()).toBeNull()
     expect(host.posts).toEqual([{ baseline: { app: '0.1.43' } }])
     expect(host.record).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true })
   })
 
-  test('after an app update, with the range and every release in it', async () => {
+  test('nothing new: no notice', async () => {
+    start({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true }, [copy('kehikot.journeys', 'Journeys', 'v1.6.0')])
+    await render(<Host />)
+    await tick(200)
+    expect(notice()).toBeNull()
+    expect(dialog()).toBeNull()
+  })
+
+  test('after an app update it is there at once, before GitHub answers, and the dialog never opens by itself', async () => {
+    start({ app: '0.1.41', modules: {}, show: true }, [])
+    let asked = 0
+    const never = () => {
+      asked++
+      return new Promise<never>(() => {})
+    }
+    await render(<Host releases={never} />)
+    await until(() => notice() !== null, 200)
+    expect(notice()!.textContent).toContain('What’s new in 0.1.43')
+    expect(notice()!.getAttribute('aria-label')).toBe('What’s new: Kehikot 0.1.43 — press to read')
+    /* The release list is asked after, in the background: the notice did not wait for it. */
+    expect(asked).toBe(1)
+    await tick(300)
+    expect(dialog()).toBeNull()
+    expect(openings).toBe(0)
+    /* Pressed, with GitHub still silent: Kehikot's row has the running release. */
+    await openFromNotice()
+    expect(items()).toEqual(['kehikot'])
+    expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('0.1.41 → 0.1.43')
+  })
+
+  test('there while focus is in a module page or a field, and typing goes on undisturbed', async () => {
+    start({ app: '0.1.41', modules: {}, show: true }, [])
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    await render(<Host />)
+    await until(() => notice() !== null, 200)
+    expect(notice()).not.toBeNull()
+    expect(document.activeElement).toBe(field)
+    frame.focus()
+    await tick(100)
+    expect(notice()).not.toBeNull()
+    expect(document.activeElement).not.toBe(notice())
+    expect(dialog()).toBeNull()
+  })
+
+  test('only modules moved: it counts them', async () => {
+    start({ app: '0.1.43', modules: { 'kehikot.a': at('v1.0.0'), 'kehikot.b': at('v1.0.0') }, show: true }, [
+      copy('kehikot.a', 'A', 'v1.1.0', ['v1.0.0', 'v1.1.0']),
+      copy('kehikot.b', 'B', 'v1.1.0', ['v1.0.0', 'v1.1.0']),
+    ])
+    await render(<Host />)
+    await until(() => notice() !== null)
+    expect(notice()!.querySelector('[data-notice-text]')!.textContent).toBe('What’s new · 2 modules')
+    expect(notice()!.getAttribute('aria-label')).toBe('What’s new: 2 modules — press to read')
+  })
+
+  test('a dot and words; in a narrow bar "What\'s new", then its icon, always with the whole label', async () => {
     start({ app: '0.1.41', modules: {}, show: true }, [])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await until(() => notice() !== null)
+    const one = notice()!
+    expect(one.querySelector('[data-notice-dot]')!.getAttribute('aria-hidden')).toBe('true')
+    const text = one.querySelector('[data-notice-text]')!
+    const short = one.querySelector('[data-notice-short]')!
+    const icon = one.querySelector('svg')!
+    expect(text.textContent).toBe('What’s new in 0.1.43')
+    expect(text.className).toContain('max-[1100px]:hidden')
+    expect(short.textContent).toBe('What’s new')
+    expect(short.className).toContain('hidden')
+    expect(short.className).toContain('max-[1100px]:inline')
+    expect(short.className).toContain('max-[900px]:hidden')
+    expect(icon.getAttribute('class')).toContain('max-[900px]:block')
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+    /* One row: the bar's own height, never wrapping. */
+    expect(one.className).toContain('h-6')
+    expect(one.className).toContain('shrink-0')
+    expect(one.className).toContain('max-[900px]:size-6')
+    expect(one.getAttribute('aria-label')).toBe('What’s new: Kehikot 0.1.43 — press to read')
+  })
+
+  test('pressed: the dialog, with the range and every release; acknowledged as it opens, and the notice goes', async () => {
+    start({ app: '0.1.41', modules: {}, show: true }, [])
+    await render(<Host />)
+    await openFromNotice()
     expect(dialog()!.textContent).toContain('What’s new in Kehikot')
     expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('0.1.41 → 0.1.43')
     expect(items()).toEqual(['kehikot'])
+    await until(() => host.posts.some((one) => 'acknowledge' in one))
+    expect(host.record).toMatchObject({ app: '0.1.43' })
+    expect(notice()).toBeNull()
     await until(() => document.querySelectorAll('[data-testid="release-notes-release"]').length === 2)
     const releases = [...document.querySelectorAll('[data-testid="release-notes-release"]')]
     expect(releases.map((one) => one.getAttribute('data-tag'))).toEqual(['v0.1.43', 'v0.1.42'])
     expect(releases[0]!.querySelector('h3')!.textContent).toContain('Kehikot 0.1.43')
     expect(releases[0]!.querySelector('h3')!.textContent).toMatch(/2026/)
+    await click(document.querySelector('[data-testid="whats-new-got-it"]')!)
+    await until(() => dialog() === null)
+    await tick(100)
+    expect(notice()).toBeNull()
+    expect(openings).toBe(1)
   })
 
   test('module updates are listed beside Kehikot, with their versions, a count, the notes and which Kehikot they work with', async () => {
@@ -233,7 +342,7 @@ describe.skipIf(!inChild)('when it opens', () => {
       copy('kehikot.notes', 'Notes', 'v2.0.0'),
     ])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     expect(items()).toEqual(['kehikot', 'kehikot.journeys'])
     const tab = document.querySelector('[data-item="kehikot.journeys"]')!
     expect(tab.textContent).toContain('1.5.0 → 1.6.0')
@@ -263,7 +372,7 @@ describe.skipIf(!inChild)('when it opens', () => {
       copy('kehikot.notes', 'Notes', 'v2.0.0', ['v1.0.0', 'v2.0.0']),
     ])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     expect(dialog()!.querySelector('h2 .kehikko-mark, [data-slot="dialog-title"] .kehikko-mark')).not.toBeNull()
     expect(document.querySelector('[data-item="kehikot"] .kehikko-mark')).not.toBeNull()
     expect(document.querySelector('[data-item="kehikot.journeys"] [data-module-icon]')!.getAttribute('data-module-icon')).toBe('lucide:route')
@@ -278,7 +387,7 @@ describe.skipIf(!inChild)('when it opens', () => {
   test('"Got it" acknowledges everything shown, and it does not come back', async () => {
     start({ app: '0.1.41', modules: { 'kehikot.journeys': at('v1.5.0') }, show: true }, [copy('kehikot.journeys', 'Journeys', 'v1.6.0')])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     await click(document.querySelector('[data-testid="whats-new-got-it"]')!)
     await until(() => host.posts.some((one) => 'acknowledge' in one))
     expect(host.record).toMatchObject({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true })
@@ -286,13 +395,14 @@ describe.skipIf(!inChild)('when it opens', () => {
     document.body.innerHTML = ''
     await render(<Host />)
     await tick(300)
+    expect(notice()).toBeNull()
     expect(dialog()).toBeNull()
   })
 
-  test('"Don\'t show this after updates" stops it, and Settings\' switch brings it back', async () => {
+  test('"Don\'t show this after updates": no notice either, what moved is acknowledged, and Settings\' switch brings it back', async () => {
     start({ app: '0.1.41', modules: {}, show: true }, [])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     await click(document.querySelector('[data-testid="whats-new-dont-show"]')!)
     await click(document.querySelector('[data-testid="whats-new-got-it"]')!)
     await until(() => host.record?.show === false)
@@ -300,10 +410,12 @@ describe.skipIf(!inChild)('when it opens', () => {
     act(() => unmount?.())
     document.body.innerHTML = ''
 
-    /* Another update: not shown, and acknowledged as it is. */
+    /* Another update: no notice, and acknowledged as it is. */
     host.record = { ...host.record!, app: '0.1.42' }
     await render(<Host />)
-    await tick(300)
+    await until(() => host.record?.app === '0.1.43')
+    await tick(200)
+    expect(notice()).toBeNull()
     expect(dialog()).toBeNull()
     expect(host.record.app).toBe('0.1.43')
     act(() => unmount?.())
@@ -323,63 +435,13 @@ describe.skipIf(!inChild)('when it opens', () => {
 
     host.record = { ...host.record!, app: '0.1.42' }
     await render(<Host />)
-    await until(() => dialog() !== null)
-    expect(dialog()).not.toBeNull()
-  })
-
-  test('never over Settings\' one-time question or the introduction: after both', async () => {
-    start({ app: '0.1.41', modules: {}, show: true }, [])
-    let due = true
-    const question = document.createElement('div')
-    question.setAttribute('role', 'dialog')
-    question.setAttribute('data-first-question', '')
-    document.body.appendChild(question)
-    await render(
-      <Host settled={(signal: AbortSignal) => Rules.firstRunSettled({ introDue: async () => due, asked: async () => false, everyMs: 20 }, signal)} />,
-    )
-    await tick(300)
-    expect(dialog()).toBeNull()
-    /* The question is answered; the introduction stands now. */
-    question.remove()
-    const intro = document.createElement('div')
-    intro.setAttribute('role', 'dialog')
-    document.body.appendChild(intro)
-    await tick(300)
-    expect(dialog()).toBeNull()
-    /* The introduction is closed and marked seen. */
-    intro.remove()
-    due = false
-    await until(() => dialog() !== null)
-    expect(dialog()).not.toBeNull()
-  })
-
-  test('not while the Updates menu or another window is open, nor while somebody types in a module: at a quiet moment', async () => {
-    start({ app: '0.1.41', modules: {}, show: true }, [])
-    const menu = document.createElement('div')
-    menu.setAttribute('role', 'dialog')
-    menu.setAttribute('aria-label', 'Updates')
-    document.body.appendChild(menu)
-    const frame = document.createElement('iframe')
-    document.body.appendChild(frame)
-    await render(<Host />)
-    await tick(250)
-    expect(dialog()).toBeNull()
-    menu.remove()
-    /* Typing in a module's frame. */
-    const field = document.createElement('input')
-    document.body.appendChild(field)
-    field.focus()
-    await tick(250)
-    expect(dialog()).toBeNull()
-    field.blur()
-    field.remove()
-    await until(() => dialog() !== null)
-    expect(openings).toBe(1)
+    await until(() => notice() !== null)
+    expect(notice()).not.toBeNull()
   })
 })
 
 describe.skipIf(!inChild)('updates from the Updates menu', () => {
-  test('"Update all" over five modules finishing at staggered times opens exactly one dialog, listing all five', async () => {
+  test('"Update all" over five modules finishing at staggered times: the notice counts them, and one press shows all five', async () => {
     const names = ['Journeys', 'Notes', 'Board', 'Paper', 'Claude']
     start(
       { app: '0.1.43', modules: Object.fromEntries(names.map((name) => [`kehikot.${name.toLowerCase()}`, at('v1.0.0')])), show: true },
@@ -387,53 +449,70 @@ describe.skipIf(!inChild)('updates from the Updates menu', () => {
     )
     await render(<Host />)
     await tick(150)
-    expect(dialog()).toBeNull()
+    expect(notice()).toBeNull()
 
-    /* The menu opens and "Update all" runs: one after another, each landing a while after the last. */
-    const menu = document.createElement('div')
-    menu.setAttribute('role', 'dialog')
-    menu.setAttribute('aria-label', 'Updates')
-    document.body.appendChild(menu)
-    Rules.updatesRunning(true)
+    /* "Update all" runs: one after another, each landing a while after the last. */
     for (const [i, one] of host.copies.entries()) {
       host.updating = [one.id]
       await tick(30 + i * 25)
       one.position = at('v1.1.0')
       host.updating = []
       Rules.pokeWhatsNew({ updated: one.id })
-      await tick(20)
+      await until(() => notice()?.querySelector('[data-notice-text]')?.textContent === `What’s new · ${i + 1} module${i ? 's' : ''}`)
+      expect(notice()!.querySelector('[data-notice-text]')!.textContent).toBe(`What’s new · ${i + 1} module${i ? 's' : ''}`)
       expect(dialog()).toBeNull()
     }
-    Rules.updatesRunning(false)
+    await openFromNotice()
     await tick(200)
-    /* Still open: nothing yet. */
-    expect(dialog()).toBeNull()
-    menu.remove()
-    await until(() => dialog() !== null)
-    await tick(300)
     expect(openings).toBe(1)
     expect(items()).toEqual(names.map((name) => `kehikot.${name.toLowerCase()}`))
     expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('5 modules updated')
   })
 
-  test('a module still updating, or whose update failed, is left out; one that lands while the dialog stands is added to it', async () => {
+  test('a module still updating is a "Preparing…" row that fills in; one whose update failed is left out', async () => {
     start(
-      { app: '0.1.43', modules: { 'kehikot.a': at('v1.0.0'), 'kehikot.b': at('v1.0.0'), 'kehikot.c': at('v1.0.0') }, show: true },
-      [copy('kehikot.a', 'A', 'v1.1.0', ['v1.0.0', 'v1.1.0']), copy('kehikot.b', 'B', 'v1.1.0', ['v1.0.0', 'v1.1.0']), copy('kehikot.c', 'C', 'v1.0.0', ['v1.0.0', 'v1.1.0'])],
+      { app: '0.1.43', modules: { 'kehikot.a': at('v1.0.0'), 'kehikot.b': at('v1.0.0'), 'kehikot.c': at('v1.0.0'), 'kehikot.d': at('v1.0.0') }, show: true },
+      [
+        copy('kehikot.a', 'A', 'v1.1.0', ['v1.0.0', 'v1.1.0']),
+        copy('kehikot.b', 'B', 'v1.1.0', ['v1.0.0', 'v1.1.0']),
+        copy('kehikot.c', 'C', 'v1.0.0', ['v1.0.0', 'v1.1.0']),
+        copy('kehikot.d', 'D', 'v1.0.0', ['v1.0.0', 'v1.1.0']),
+      ],
     )
+    /* B's update failed after its copy had moved; C's and D's are still running. */
+    host.updating = ['kehikot.c', 'kehikot.d']
     await render(<Host />)
-    /* B's update failed after its copy had moved; C's is still running. */
     Rules.pokeWhatsNew({ failed: 'kehikot.b' })
-    host.updating = ['kehikot.c']
-    await until(() => dialog() !== null)
-    expect(items()).toEqual(['kehikot.a'])
-    /* C finishes while the dialog stands: it joins the list, no second dialog. */
+    await until(() => notice()?.querySelector('[data-notice-text]')?.textContent === 'What’s new · 3 modules')
+    expect(notice()!.querySelector('[data-notice-text]')!.textContent).toBe('What’s new · 3 modules')
+    expect(notice()!.getAttribute('aria-label')).toBe('What’s new: 3 modules, 2 still preparing — press to read')
+    await openFromNotice()
+    expect(items()).toEqual(['kehikot.a', 'kehikot.c', 'kehikot.d'])
+    expect(document.querySelector('[data-item="kehikot.c"] [data-preparing]')!.textContent).toBe('Preparing…')
+    expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('1 module updated · 2 preparing')
+    /* Opening acknowledged A, and not what is still preparing. */
+    await until(() => host.posts.some((one) => 'acknowledge' in one))
+    expect(host.record!.modules['kehikot.a']).toEqual(at('v1.1.0'))
+    expect(host.record!.modules['kehikot.c']).toEqual(at('v1.0.0'))
+    /* C finishes and the Updates menu says so: its row fills in, no second dialog. */
     host.copies[2]!.position = at('v1.1.0')
-    host.updating = []
+    host.updating = ['kehikot.d']
     Rules.pokeWhatsNew({ updated: 'kehikot.c' })
-    await until(() => items().length === 2)
-    expect(items()).toEqual(['kehikot.a', 'kehikot.c'])
+    await until(() => document.querySelector('[data-item="kehikot.c"] [data-preparing]') === null)
+    expect(document.querySelector('[data-item="kehikot.c"]')!.textContent).toContain('1.0.0 → 1.1.0')
+    /* D finishes with nobody saying so: asked again while it was preparing, it fills in too. */
+    host.copies[3]!.position = at('v1.1.0')
+    host.updating = []
+    await until(() => document.querySelector('[data-item="kehikot.d"] [data-preparing]') === null)
+    expect(document.querySelector('[data-item="kehikot.d"]')!.textContent).toContain('1.0.0 → 1.1.0')
+    expect(items()).toEqual(['kehikot.a', 'kehikot.c', 'kehikot.d'])
+    expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('3 modules updated')
     expect(openings).toBe(1)
+    await click(document.querySelector('[data-testid="whats-new-got-it"]')!)
+    await until(() => host.record!.modules['kehikot.d']?.release === 'v1.1.0')
+    expect(host.record!.modules).toMatchObject({ 'kehikot.c': at('v1.1.0'), 'kehikot.d': at('v1.1.0') })
+    await tick(150)
+    expect(notice()).toBeNull()
   })
 
   test('notes read in the Updates menu are not told again', async () => {
@@ -449,7 +528,7 @@ describe.skipIf(!inChild)('updates from the Updates menu', () => {
       one.position = at('v1.1.0')
       Rules.pokeWhatsNew({ updated: one.id })
     }
-    await until(() => dialog() !== null)
+    await openFromNotice()
     await tick(100)
     expect(items()).toEqual(['kehikot.b'])
   })
@@ -460,6 +539,7 @@ describe.skipIf(!inChild)('the dialog', () => {
     offline = true
     start({ app: '0.1.41', modules: { 'kehikot.journeys': at('v1.5.0') }, show: true }, [copy('kehikot.journeys', 'Journeys', 'v1.6.0', ['v1.5.0', 'v1.6.0'])])
     await render(<Host />)
+    await openFromNotice()
     await until(() => document.querySelector('[data-testid="release-notes-offline"]') !== null)
     expect(items()).toEqual(['kehikot', 'kehikot.journeys'])
     expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('0.1.41 → 0.1.43 · 1 module updated')
@@ -474,13 +554,13 @@ describe.skipIf(!inChild)('the dialog', () => {
       { id: 'kehikot.board', name: 'Board', position: at(null, 'bbb2222'), local: [] },
     ])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     const pane = document.querySelector('[data-pane="kehikot.board"]')!
     expect(pane.querySelector('[data-testid="whats-new-main"]')!.textContent).toContain('following main · no release notes')
     expect(pane.textContent).toContain('It moved from aaa1111 to bbb2222.')
   })
 
-  test('on demand, from About or the Updates menu: everything installed, even with nothing new', async () => {
+  test('on demand, from Settings → About or the Updates menu: everything installed, even with nothing new', async () => {
     start({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true }, [copy('kehikot.journeys', 'Journeys', 'v1.6.0')])
     await render(<Host />)
     await tick(200)
@@ -494,7 +574,7 @@ describe.skipIf(!inChild)('the dialog', () => {
   test('keyboard: the list is a tab list the arrows walk, Escape closes and acknowledges', async () => {
     start({ app: '0.1.41', modules: { 'kehikot.journeys': at('v1.5.0') }, show: true }, [copy('kehikot.journeys', 'Journeys', 'v1.6.0')])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     await until(() => document.activeElement?.getAttribute('data-testid') === 'whats-new-got-it')
     expect(document.activeElement?.textContent).toBe('Got it')
     const list = document.querySelector('[data-whats-new] [role="tablist"]')!
@@ -522,7 +602,7 @@ describe.skipIf(!inChild)('the dialog', () => {
   test('narrow: the list is a strip on top that scrolls sideways, and a column beside the notes from 640 pixels', async () => {
     start({ app: '0.1.41', modules: {}, show: true }, [])
     await render(<Host />)
-    await until(() => dialog() !== null)
+    await openFromNotice()
     const tabs = dialog()!.querySelector('[data-slot="tabs"]')!
     const list = dialog()!.querySelector('[role="tablist"]')!
     const aside = dialog()!.querySelector('aside')!

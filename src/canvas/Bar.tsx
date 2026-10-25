@@ -20,6 +20,7 @@ import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
+import { WhatsNewNotice } from './WhatsNew.tsx'
 import { HelpMenu } from './Help.tsx'
 import { AppVersion } from './AppVersion.tsx'
 import { FeedbackButton } from './Feedback.tsx'
@@ -303,6 +304,12 @@ export function Bar({
         />
 
         <span className="flex-1" />
+
+        {/* "What's new in 0.1.61": there from the moment anything updated
+            until it is pressed, and pressing it is the only way the dialog
+            opens by itself — it never interrupts. "What's new" at 1100
+            pixels, its icon at 900. See `WhatsNew.tsx`. */}
+        <WhatsNewNotice />
 
         <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
 

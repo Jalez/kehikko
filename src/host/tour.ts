@@ -427,17 +427,6 @@ export function shownExplanations(root: ParentNode = document, layout = true): n
   return TOUR_STEPS.flatMap((step, index) => (step.kind === 'show' && frameOf(step, root, layout) ? [index] : []))
 }
 
-/**
- * Is the tour running: a step drawn, a step waiting for the person between
- * one window and the next (nothing drawn for a moment), or the note at Help?
- * `Tour.ts` marks <html> with `data-tour-running` for as long as it is, so
- * anything that would open by itself (What's new, `src/host/whatsNew.ts`)
- * waits — driver.js's own `driver-active` is taken off while a step waits.
- */
-export function tourStanding(root: Document = document): boolean {
-  return root.documentElement?.hasAttribute('data-tour-running') ?? false
-}
-
 /** The class every tour popover carries, which `index.css` themes with the app's own tokens. */
 export const TOUR_CLASS = 'kehikot-tour'
 
