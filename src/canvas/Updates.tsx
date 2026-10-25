@@ -272,7 +272,8 @@ export function Updates({
       }
       const since = Date.now()
       try {
-        const found = await fetchUpdates(true, abort.signal, appVersion.current)
+        /* A press fetches; the automatic check only compares (`quiet`). */
+        const found = await fetchUpdates(true, abort.signal, appVersion.current, !loud)
         if (loud) await drawn(since, abort.signal, markMs)
         setCheck(found)
         setFailed(null)
@@ -939,7 +940,11 @@ function Row({
         </p> : null
       ) : (
         <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
-          {one.behind ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}` : 'Up to date'}
+          {one.behind
+            ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}`
+            : one.waiting
+              ? `New commits on ${one.upstream} — Check now fetches them`
+              : 'Up to date'}
           {one.fetchFailed ? (
             <span className="text-muted-foreground">
               {' — '}

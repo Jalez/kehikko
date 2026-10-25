@@ -748,3 +748,27 @@
   or the process listening on its registered port. It cannot see a connection
   that opened and closed between looks, or DNS (macOS resolves it in
   `mDNSResponder`).
+
+## Asking once (fewer repeated calls)
+
+- A sweep reads each module's kept manifest (`ManifestCache`, `server/manifests.ts`):
+  kept `MANIFEST_FRESH_MS` for a module that answered, never for one that did not.
+  Forget it (`manifests.forget`) wherever the process changes — `run`, `halt`,
+  `ended`, the liveness check seeing it go, come back or answer from another build.
+  `sweep(true)` / `/host/modules?fresh=1` is for a person's press only. Never add a
+  `look()` to a path a page reaches on load, focus or a report.
+- The liveness check asks a module's health door (`probe`, the `x-module-build`
+  header), not its manifest. A tether's idle close is put back before anything
+  is asked; only a reconnect that fails asks.
+- `/host/open` answers `started`; the page sweeps after a report only when it is
+  true (`arrive`). `reportOpen` sends the same report once (focus, `pageshow`,
+  StrictMode); `{ again: true }` after the stream reopened.
+- The page reads its host endpoints through `hostRead` (`src/host/hostRead.ts`):
+  one read shared per page load, `fresh` on a person's act, `keepRead` with a
+  write's answer, `forgetRead` on news. A new endpoint read at load goes through it.
+- The automatic update check is `fetch=1&quiet=1`: `git ls-remote` compared with
+  the local upstream (`readCheckout(…, 'compare')`), a fetch only for an installed
+  copy whose remote moved, and a checkout somebody edits is never fetched — it
+  says `waiting` until Check now.
+- `dev/traffic-counts.drive.mjs` counts it from the record of traffic;
+  `test/traffic-counts.test.ts` fails a page load that asks an endpoint twice.

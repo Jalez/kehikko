@@ -23,11 +23,14 @@ import { connect as netConnect } from 'node:net'
  *
  * A close is a reason to look, not a finding. A server also closes a
  * connection that has sat idle (Node after about a minute, Bun after ten
- * seconds), so on every close the caller asks the module once and acts only
- * if what it finds differs from what it believed; the tether is then put
- * back. That is one small request per idle timeout per module, in place of
- * one per thirty seconds — and none at all for a module the host started, a
- * module that is not answering, or one no open kehikko has.
+ * seconds), so on a close after a settled connection the caller puts the
+ * tether straight back: a process that died leaves nothing listening, so the
+ * new tether closes at once (`quick`), and only that drop asks the module.
+ * An idle close costs one TCP connection and no request; it once cost a
+ * request every ten seconds per module. Nothing at all for a module the host
+ * started, a module that is not answering, or one no open kehikko has. What a
+ * reconnect cannot tell is another process having taken the port in the
+ * meantime: the watch's build stamp says that, within half a minute.
  *
  * What it does not hear: a process that is alive and hung. The watch still
  * runs for that, unchanged.

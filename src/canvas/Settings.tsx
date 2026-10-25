@@ -51,6 +51,7 @@ import {
   type ToolState,
 } from '@/host/agentSettings.ts'
 import { isGitReason } from '@/host/gitSaid.ts'
+import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
@@ -102,11 +103,21 @@ type Change =
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
   | { modules: { keep: boolean } }
 
-export async function fetchSettings(signal?: AbortSignal): Promise<SettingsAnswer> {
-  const response = await fetch('/host/settings', { cache: 'no-store', signal })
-  const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
-  if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'The host would not say its settings.')
-  return body
+/**
+ * The settings, read once per page load whoever asks (the one-time question, the introduction),
+ * and afresh when the Settings window is opened or re-reads (`fresh`). See `hostRead`.
+ */
+export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<SettingsAnswer> {
+  return hostRead(
+    'settings',
+    async () => {
+      const response = await fetch('/host/settings', { cache: 'no-store' })
+      const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
+      if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'The host would not say its settings.')
+      return body
+    },
+    { signal, fresh },
+  )
 }
 
 export async function postSettings(change: Change): Promise<SettingsAnswer> {
@@ -117,6 +128,8 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   })
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
   if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'The host did not take that change.')
+  if (body.status) keepRead('settings', body)
+  else forgetRead('settings')
   return body
 }
 
@@ -132,9 +145,10 @@ export function useAgentSettings(open: boolean, load = fetchSettings, save = pos
   const [saved, setSaved] = useState(0)
   const queue = useRef<Promise<void>>(Promise.resolve())
 
+  /* Open, the window reads the settings afresh: what the sync found may have moved. */
   const read = useCallback(async () => {
     try {
-      setAnswer(await load())
+      setAnswer(await load(undefined, true))
       setTrouble(null)
     } catch (error) {
       setTrouble(notAnswering(error))

@@ -2,6 +2,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 
+import { forgetEveryRead } from '../src/host/hostRead.ts'
+
 /*
  * The introduction, the tour and the layout picker, rendered. In a process of
  * its own for the reason `header-menus.test.tsx` gives: Radix decides at load
@@ -88,6 +90,8 @@ afterEach(() => {
   if (!inChild) return
   act(() => unmount?.())
   unmount = null
+  /* What the page read once per load is read again by the next test's page. */
+  forgetEveryRead()
   for (const one of guides) one.stop()
   guides = []
   document.body.innerHTML = ''

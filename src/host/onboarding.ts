@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { forgetRead, hostRead, keepRead } from './hostRead.ts'
+
 /**
  * The introduction and the tour: whether the person has seen the one, and
  * where they left the other.
@@ -85,12 +87,19 @@ export function introDue(state: Onboarding | null): boolean {
 
 /* The page's side. */
 
-export async function fetchOnboarding(signal?: AbortSignal): Promise<Onboarding | null> {
+/** Read once per page load, whoever asks (`hostRead`); afresh with `fresh` — the Help menu opened. */
+export async function fetchOnboarding(signal?: AbortSignal, fresh = false): Promise<Onboarding | null> {
   try {
-    const response = await fetch('/host/onboarding', { signal, cache: 'no-store' })
-    /* An older host has no such route: nothing is shown by itself. */
-    if (!response.ok) return null
-    return onboardingSchema.parse(await response.json())
+    return await hostRead(
+      'onboarding',
+      async () => {
+        const response = await fetch('/host/onboarding', { cache: 'no-store' })
+        /* An older host has no such route: nothing is shown by itself, and nothing is kept. */
+        if (!response.ok) throw new Error(`the host answered ${response.status}`)
+        return onboardingSchema.parse(await response.json())
+      },
+      { signal, fresh },
+    )
   } catch {
     return null
   }
@@ -104,8 +113,11 @@ export async function postOnboarding(edit: OnboardingEdit): Promise<Onboarding |
       body: JSON.stringify(edit),
     })
     if (!response.ok) return null
-    return onboardingSchema.parse(await response.json())
+    const state = onboardingSchema.parse(await response.json())
+    keepRead('onboarding', state)
+    return state
   } catch {
+    forgetRead('onboarding')
     return null
   }
 }

@@ -90,6 +90,36 @@ describe('reading a checkout', () => {
   })
 })
 
+describe('the automatic check: compared, not fetched', () => {
+  const compare = async (place: { id: string; name: string; dir: string }): Promise<Checkout> => {
+    const reading = await readCheckout(place, 'compare')
+    if ('error' in reading) throw new Error(reading.error)
+    return reading
+  }
+
+  test('level with the remote: nothing waiting and nothing fetched', async () => {
+    const { place, here } = repos()
+    const c = await compare(place)
+    expect(c.waiting).toBeUndefined()
+    expect(c.behind).toBe(0)
+    expect(existsSync(join(here, '.git/FETCH_HEAD'))).toBe(false)
+  })
+
+  test('a checkout somebody edits whose remote moved waits for Check now, and is not fetched', async () => {
+    const { place, push, here } = repos()
+    const before = run(here, 'rev-parse', 'origin/main')
+    push('a.txt', 'two\n', 'second')
+    const c = await compare(place)
+    expect(c.waiting).toBe(true)
+    expect(c.behind).toBe(0)
+    expect(run(here, 'rev-parse', 'origin/main')).toBe(before)
+    /* Check now fetches it. */
+    const pressed = await read(place)
+    expect(pressed.behind).toBe(1)
+    expect(pressed.waiting).toBeUndefined()
+  })
+})
+
 describe('updating a checkout', () => {
   test('fast-forwards and says what changed', async () => {
     const { place, push } = repos()

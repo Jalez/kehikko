@@ -37,7 +37,8 @@ import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
-import { fetchManifest, look, stampOf, type Presence } from './discover.ts'
+import { fetchManifest, look, type Presence } from './discover.ts'
+import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { sourceOf } from './source.ts'
@@ -654,7 +655,10 @@ async function survey(): Promise<{
   protocol: number
 }> {
   const found = await readRegistrations()
-  const presences = await Promise.all(found.registrations.map((registration) => look(registration)))
+  /* From each module's kept manifest when it is fresh: see `manifests.ts`. */
+  manifests.keepOnly(found.registrations.map((registration) => registration.id))
+  /* Copies: what follows writes names and icons onto them, and the kept one is what the module said. */
+  const presences = await Promise.all(found.registrations.map(async (registration) => ({ ...(await manifests.read(registration)) })))
   const knows = agentKnows()
 
   callers.clear()
@@ -840,7 +844,15 @@ async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
  * answer differs; the answer does not.
  */
 let sweeping: Promise<Swept> | null = null
-function sweep(): Promise<Swept> {
+/**
+ * `fresh`: every manifest asked again, not read from `manifests` — for a person's press. A sweep
+ * already out may have read kept ones, so a fresh one waits for it and then asks.
+ */
+function sweep(fresh = false): Promise<Swept> {
+  if (fresh) {
+    manifests.forgetAll()
+    if (sweeping) return sweeping.catch(() => null).then(() => sweep())
+  }
   if (sweeping) return sweeping
   const running = survey().finally(() => {
     sweeping = null
@@ -871,6 +883,14 @@ let seen: Promise<Swept> | null = null
  * writes exactly once, and not a rule about ports.
  */
 const nursery = new Nursery()
+
+/**
+ * Each module's manifest as it was last read, so a sweep asks only the modules whose process may
+ * have changed. Forgotten when this host starts or stops one (`run`, `halt`), when a process ends
+ * (`ended`), and when the liveness check sees one go, come back or answer from another build
+ * (`watch`). See `manifests.ts`.
+ */
+const manifests = new ManifestCache((registration) => look(registration))
 
 /** When each module was last on a kehikko somebody had open. */
 const idleness = new Idleness()
@@ -1606,6 +1626,7 @@ function run(id: string, runnable: Runnable): Started {
   })
   if (!ran.ok || !ran.child) return ran
   nursery.keep(id, { child: ran.child, at, url: runnable.url })
+  manifests.forget(id)
   runs.set(id, at)
   starting.set(id, at)
   sleeping.delete(id)
@@ -1617,6 +1638,7 @@ function run(id: string, runnable: Runnable): Started {
 /** Stop a module this host holds, on purpose: its exit is not news. */
 function halt(id: string): ReturnType<Nursery['stop']> {
   runs.delete(id)
+  manifests.forget(id)
   return nursery.stop(id)
 }
 
@@ -1672,6 +1694,8 @@ if (RESTART_FILE) {
 async function ended(id: string, at: number, code: number | null): Promise<void> {
   if (runs.get(id) !== at) return
   runs.delete(id)
+  /* What it served was that process's. */
+  manifests.forget(id)
   /* An update or a restart in hand already knows, and decides for itself. */
   if (working.has(id) || inHand.has(id)) return
   try {
@@ -1781,13 +1805,21 @@ const tethers = new Tethers((id, quick) => {
       if (!seen) return
       const now = Date.now()
       const standing = standings((await seen).presences, now)
+      /* It had been held a while: most often an idle connection the module
+         closed (Bun's server does after ten seconds). Put it back before asking
+         anything — a process that died leaves nothing to connect to, so the new
+         tether closes at once, and THAT is the drop that asks. Asking the module
+         on every idle close was a request every ten seconds per module, each to
+         be told nothing changed. */
+      if (!quick) {
+        tether(standing)
+        return
+      }
       /* A watch already asking is asking about this one too, a moment early:
-         once it is done, ask again. */
+         once it is done, ask again. One that closed at once is put back by the
+         next tick. */
       while (watching) await new Promise((wake) => setTimeout(wake, 50))
       await watch(standing, new Set([id]))
-      /* Still there, and it had been held a while: an idle connection the
-         module closed. Put it back. One that closed at once waits for the tick. */
-      if (!quick && seen) tether(standings((await seen).presences, Date.now()))
     } catch {
       /* Nothing found out; the watch asks within half a minute. */
     }
@@ -1821,15 +1853,20 @@ let watching = false
  * workspace's recurring failure shape. See `WATCH_EVERY_MS` in `lifecycle.ts`
  * for why this is a check and not a heartbeat, and for the numbers.
  *
- * ## Why it asks for the manifest rather than something cheaper
+ * ## What it asks
  *
- * Because the question is the same question a sweep asks, and asking it a
- * second, cheaper way would be a second definition of "there". `fetchManifest`
- * already distinguishes the case that matters from the case that looks like it:
- * a connection REFUSED is nothing running, while a connection accepted and then
- * silent is something running badly, and only the first is worth restarting.
- * One small localhost GET, bounded in time and size by the same constants the
- * sweep uses.
+ * The module's health door (its manifest's `health`, `/healthz` on the
+ * protocol's doors), not its manifest: `probe` in `manifests.ts`. The two
+ * cases that matter are the same — a connection REFUSED is nothing running, a
+ * connection accepted and then silent is something running badly — and the
+ * health door's `x-module-build` header says which process answered, which is
+ * all the manifest was asked for here. A module that names no health door is
+ * asked for its manifest, through `manifests`, so the answer is kept. A module
+ * whose manifest was read within the last half tick is not asked at all on the
+ * timer's round: that read is the answer. A tether's drop (`only`) always asks.
+ *
+ * What it finds goes to `manifests`: a module that went, came back or answers
+ * from another build is forgotten there, so the sweep below reads it again.
  *
  * ## Why nothing here decides anything
  *
@@ -1861,8 +1898,12 @@ async function watch(standing: readonly Standing[], only?: ReadonlySet<string>):
         /* Unregistered since the standings were gathered. `standings` will
            forget it on the next tick; there is nothing to ask. */
         if (!registration) return null
-        const got = await fetchManifest(registration.url)
-        return { id, reached: got.ok ? true : got.reached, stamp: got.ok ? stampOf(got.text) : null }
+        const read = manifests.readAt(id)
+        if (!only && read !== null && Date.now() - read < WATCH_EVERY_MS / 2) return { id, reached: true, stamp: manifests.stampOf(id) }
+        const health = lastPresences.get(id)?.module?.health ?? null
+        if (health) return { id, ...(await probe(health)) }
+        const presence = await manifests.read(registration, { fresh: true })
+        return { id, reached: presence.reached, stamp: presence.module?.build ? buildStamp(presence.module.build) : null }
       }),
     )
 
@@ -1875,6 +1916,7 @@ async function watch(standing: readonly Standing[], only?: ReadonlySet<string>):
       (one): one is Found => one !== null && (believed.get(one.id) !== one.reached || another(one)),
     )
     if (changed.length === 0) return
+    for (const one of changed) manifests.forget(one.id)
     for (const one of changed) {
       console.log(
         `kehikko: ${one.id} is ${another(one) ? 'answered by another process' : one.reached ? 'answering again' : 'no longer answering'} — `
@@ -2682,7 +2724,9 @@ async function answerRequest(request: Request): Promise<Response> {
        no polling, because a host that re-swept every second would be a host
        hammering somebody's own machine to tell them nothing changed. */
     if (url.pathname === '/host/modules' && request.method === 'GET') {
-      const view = await sweep()
+      /* `fresh=1`: a person pressed something (look again, Start, an install), so every
+         manifest is asked again; otherwise what `manifests` keeps stands. */
+      const view = await sweep(url.searchParams.get('fresh') === '1')
       /* And then act on it. A sweep is the only moment the host knows both what
          is running and what is wanted, so it is where a module on the open
          kehikko that nothing answers for gets started. Synchronous — it spawns
@@ -3458,6 +3502,10 @@ async function answerRequest(request: Request): Promise<Response> {
     if (url.pathname === '/host/updates' && request.method === 'GET') {
       const { places, unreadable } = await topLevels(updatePlaces())
       const fetch = url.searchParams.get('fetch') === '1'
+      /* `quiet=1`: the page's automatic check, not a press. Each checkout's remote is compared
+         with `git ls-remote` and fetched only when it moved — and never a checkout somebody edits;
+         that waits for Check now. See `readCheckout`. */
+      const quiet = fetch && url.searchParams.get('quiet') === '1'
       const app = url.searchParams.get('app')
       const runningApp = app && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(app) ? app : null
       /* Somebody asked what is new: that includes which modules exist. Not
@@ -3466,7 +3514,7 @@ async function answerRequest(request: Request): Promise<Response> {
       /* And which Kehikot each release works with: read at most daily, so
          this is nearly always instant; never waited for long. */
       if (fetch) await appProtocols.settled(4_000, runningApp)
-      const checkouts = await Promise.all(places.map((place) => readCheckout(place, fetch, request.signal)))
+      const checkouts = await Promise.all(places.map((place) => readCheckout(place, quiet ? 'compare' : fetch, request.signal)))
       await judgeStaleness()
       return json({
         checked: new Date().toISOString(),
@@ -3907,7 +3955,8 @@ async function answerRequest(request: Request): Promise<Response> {
       if (!registration) {
         return json({ ok: false, error: 'No module is registered under that id.' }, 404)
       }
-      const presence = await look(registration)
+      /* Asked now, whatever was kept: the page says its module went quiet. */
+      const presence = await manifests.read(registration, { fresh: true })
       if (!presence.reached) {
         /* A page reported that its module stopped answering, and nothing is
            listening there: the container must not wait for the watch to say so. */
@@ -3942,16 +3991,20 @@ async function answerRequest(request: Request): Promise<Response> {
       if (kehikko === null) headerDesk.held.forget(page)
       /* A kehikko was just opened, so the set of modules anybody is looking at
          has just changed — which is the whole trigger this design runs on. The
-         page sweeps too, and the two coalesce into one (see `sweep`); this one
-         exists so the decision does not depend on which of the two requests the
-         browser happened to send first. Not awaited: the page asked to report
-         what it has open and is owed nothing but an acknowledgement. */
-      void sweep()
-        .then((view) => govern(view.presences))
-        .catch(() => {
-          /* A sweep that failed is a decision not made, which is the safe one. */
-        })
-      return json({ ok: true })
+         sweep reads the kept manifests (`manifests`), so this costs no request
+         to a module that has not changed, and is awaited: the answer says
+         whether anything was started, and the page sweeps after it only then
+         (`arrive` in `src/host/looks.ts`). A withdrawal decides nothing new. */
+      if (kehikko === null) return json({ ok: true, started: false })
+      try {
+        const view = await sweep()
+        const started = toStart(standings(view.presences, Date.now())).length > 0
+        govern(view.presences)
+        return json({ ok: true, started })
+      } catch {
+        /* A sweep that failed is a decision not made, which is the safe one; the page looks. */
+        return json({ ok: true, started: true })
+      }
     }
 
     /*

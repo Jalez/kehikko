@@ -19,6 +19,7 @@ import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSett
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
+import { forgetRead, hostRead } from './host/hostRead.ts'
 import { openLayouts } from './host/onboarding.ts'
 import { projectPicked } from './host/tour.ts'
 import { Button } from './components/ui/button.tsx'
@@ -275,6 +276,8 @@ interface Live {
  * window switching, far too short to make "I just started a module" wait.
  */
 const QUIET_BETWEEN_SWEEPS_MS = 3000
+/** How long the page waits after a module's header changed before posting the whole map. */
+const HEADERS_SETTLE_MS = 250
 
 /** Names for another project's places: none are read for a project that is not open, so a line says its slugs. */
 const OTHER_NAMES: Namer = { epic: () => null, part: () => null, kehikko: () => null }
@@ -529,6 +532,9 @@ export function App() {
      before they have been, or the first render would save an empty canvas over
      a person's arrangement. */
   const loaded = useRef(false)
+  /* The same, as state: what waits for the canvases' first read — the report of what is open and
+     the stream — so a load says it once, about the kehikko it opens, and not first about none. */
+  const [settled, setSettled] = useState(false)
   /* Whether this browser has never opened this host — see the effect below. */
   const firstVisit = useRef(false)
 
@@ -554,7 +560,8 @@ export function App() {
            was last on is the best answer to "which epic was this project on".
            See `hintSubject` in `server/canvases.ts`. */
         const remembered = readOpen(window.localStorage)
-        const found = await fetchCanvases(undefined, remembered)
+        /* Joined: StrictMode runs this twice in development, and one read serves both. */
+        const found = await hostRead('canvases:first', () => fetchCanvases(undefined, remembered), { keep: false })
         if (cancelled) return
         firstVisit.current = remembered === null
         const project = chooseProject(found.projects, readOpenProject(window.localStorage))
@@ -568,6 +575,7 @@ export function App() {
            is one nobody can get back to. */
         setOpenId(chooseOpen(found.canvases, remembered, project))
         loaded.current = true
+        setSettled(true)
         /* A project's `kehikot.json` that would not read. Said in the header's error line,
            where the host's own line is, because the person who edited that
            file is the person looking at this page, and it stays until a load
@@ -575,6 +583,7 @@ export function App() {
         if (found.trouble.length) setTrouble(found.trouble.join(' '))
       } catch (error) {
         if (cancelled) return
+        setSettled(true)
         setTrouble(
           `The canvases could not be read: ${(error as Error).message}. Nothing can be arranged until they can.`,
         )
@@ -622,6 +631,7 @@ export function App() {
    * does not.
    */
   useEffect(() => {
+    if (!settled) return
     let here = true
     /* On arriving, and on nothing else: not focus, not visibility, not a
        frame. See `arrive`. */
@@ -675,7 +685,7 @@ export function App() {
       window.removeEventListener('focus', back)
       document.removeEventListener('visibilitychange', back)
     }
-  }, [openId])
+  }, [openId, settled])
 
   /**
    * Something other than this page changed a kehikko: read it again.
@@ -721,6 +731,7 @@ export function App() {
    * it — for a reason that has nothing to do with what this page has open.
    */
   useEffect(() => {
+    if (!settled) return
     const stop = watchCanvases(
       openId,
       (kehikko, note) => {
@@ -845,7 +856,12 @@ export function App() {
          server that restarted has also forgotten the page's word, and the
          word is what outlives a stream that drops again. */
       (again) => {
-        if (again) void reportOpen(openId)
+        /* The first opening follows the page's own reads and reports by a moment, and a server
+           that has not restarted still holds them: only a reopening says them again. */
+        if (!again) return
+        /* A host that restarted may be another version. */
+        forgetRead('health')
+        void reportOpen(openId, { again: true })
         repostRef.current?.()
         inboxWokeRef.current?.(-1, null)
       },
@@ -861,7 +877,7 @@ export function App() {
        The stream's URL carries what this page has open — see `watchCanvases` —
        and a socket left open on a stale kehikko would tell the server the wrong
        thing for as long as it lived. Reopening it costs one request. */
-  }, [writer, openId])
+  }, [writer, openId, settled])
 
   /* Which project is open, remembered the same way and for the same reason: two
      windows on two screens showing two projects is a reasonable thing to do,
@@ -983,10 +999,11 @@ export function App() {
 
   /* One at a time, and a call made during one gets one more after it rather
      than nothing: see `oneAfterAnother`. */
-  const look = useMemo(() => oneAfterAnother(async () => {
+  const look = useMemo(() => oneAfterAnother(async (fresh) => {
     setLooking(true)
     try {
-      const view = await fetchRegistry()
+      /* `fresh` after a person's press: every manifest asked again, not the host's kept ones. */
+      const view = await fetchRegistry(undefined, fresh)
       /* A module the host has restarted gets a new document, not the one the
          old server sent. See `Runs` in `host/standing.ts`. */
       const again = runs.current.seen(view.presences)
@@ -1027,8 +1044,10 @@ export function App() {
 
   lookRef.current = look
 
+  /* The first look, joined rather than queued: StrictMode runs this twice in development, and
+     one answer serves both. The look after the report is `arrive`'s. */
   useEffect(() => {
-    void look()
+    void look.join()
   }, [look])
 
   /**
@@ -3578,7 +3597,12 @@ export function App() {
       addressAt ? (JSON.parse(addressAt) as SharedAddress) : null,
     )
   }, [openId, declaredHere, codeAt, addressAt])
-  useEffect(() => postDeclared(), [postDeclared])
+  /* A moment after the last change: the modules of a kehikko greet one after another, and each
+     greeting is a change, but one posting of the whole map says all of them. */
+  useEffect(() => {
+    const later = setTimeout(postDeclared, HEADERS_SETTLE_MS)
+    return () => clearTimeout(later)
+  }, [postDeclared])
   repostRef.current = postDeclared
 
   /**
@@ -3914,7 +3938,7 @@ export function App() {
         theme={theme}
         onTheme={onTheme}
         trouble={trouble}
-        onLookAgain={() => void look()}
+        onLookAgain={() => void look(true)}
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
@@ -4275,7 +4299,7 @@ export function App() {
                   onTools={() => setToolsFor(presence.id)}
                   onSkills={() => setSkillsFor(presence.id)}
                   onSettings={() => setSettingsFor(presence.id)}
-                  onStarted={() => void look()}
+                  onStarted={() => void look(true)}
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
                   epic={about.epic}
@@ -4285,7 +4309,7 @@ export function App() {
                   current={waiting ? null : (presence.module?.version ?? null)}
                   /* The server has written the pin and woken this page for the
                      kehikko; looking again picks up what the version is doing. */
-                  onVersion={() => void look()}
+                  onVersion={() => void look(true)}
                   activity={activityMarks.modules.get(presence.id) ?? null}
                   onActivitySeen={() =>
                     inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
@@ -4425,7 +4449,7 @@ export function App() {
           name={
             toolsFor === registry?.host?.id ? 'this host' : (byId.get(toolsFor)?.name ?? toolsFor)
           }
-          onChanged={() => void look()}
+          onChanged={() => void look(true)}
         />
       ) : null}
 
@@ -4465,7 +4489,7 @@ export function App() {
         registered={registeredNames}
         onMade={onMade}
         onFill={(placements) => change({ placements })}
-        onInstalled={() => void look()}
+        onInstalled={() => void look(true)}
       />
 
       {/* "What's new" after Kehikot or a module updates: it never opens by

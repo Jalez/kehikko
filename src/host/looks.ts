@@ -15,25 +15,37 @@ import { reportOpen } from './canvases.ts'
  * Every such call shares that one follow-up: two timers and a report asking at
  * once still cost two sweeps, not four.
  */
-export function oneAfterAnother(work: () => Promise<void>): () => Promise<void> {
+export function oneAfterAnother(
+  work: (fresh: boolean) => Promise<void>,
+): ((fresh?: boolean) => Promise<void>) & { join(): Promise<void> } {
   let running: Promise<void> | null = null
   let next: Promise<void> | null = null
-  const ask = (): Promise<void> => {
+  /* Whether any call waiting for the follow-up asked for a fresh one. */
+  let nextFresh = false
+  const ask = (fresh = false): Promise<void> => {
     if (!running) {
-      running = work().finally(() => {
+      running = work(fresh).finally(() => {
         running = null
       })
       return running
     }
+    nextFresh ||= fresh
     next ??= running
       .catch(() => undefined)
       .then(() => {
         next = null
-        return ask()
+        const asked = nextFresh
+        nextFresh = false
+        return ask(asked)
       })
     return next
   }
-  return ask
+  /**
+   * The sweep already out, or a new one when none is: for a caller that only needs AN answer and
+   * carries no order — the page's first look, which React's StrictMode asks twice in development.
+   */
+  const join = (): Promise<void> => running ?? ask()
+  return Object.assign(ask, { join })
 }
 
 /**
@@ -44,9 +56,13 @@ export function oneAfterAnother(work: () => Promise<void>): () => Promise<void> 
  * not frontmost, and the modules on its kehikko are to start all the same. The
  * server starts them on the report (`/host/open`); the sweep after it is what
  * reads them back as starting, so the container says so instead of offering
- * Start over a start already under way.
+ * Start over a start already under way. The report's answer says whether
+ * anything was started; when nothing was, the page's own first look stands and
+ * there is no second one.
  */
 export async function arrive(kehikko: number | null, look: () => Promise<void>): Promise<void> {
-  await reportOpen(kehikko)
-  await look()
+  const said = await reportOpen(kehikko)
+  /* The host answers whether the report started anything; when it did not, what the page
+     already read stands, and a sweep would be the same answer again. */
+  if (said.started) await look()
 }

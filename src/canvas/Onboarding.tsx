@@ -21,6 +21,7 @@ import { installOfficial } from '@/host/official.ts'
 import { EXPLORING, NO_FACTS, type Facts } from '@/host/tour.ts'
 import { IntroDialog } from './Intro.tsx'
 import { LayoutPicker, SaveLayoutDialog } from './Layouts.tsx'
+import { fetchSettings } from './Settings.tsx'
 import { Guide, type Drawer } from './Tour.ts'
 
 /**
@@ -41,9 +42,8 @@ const INSTALL_POLL_MS = 1500
 /** Has Settings' one-time question been answered? True when it cannot be told (an older host). */
 async function settingsAsked(): Promise<boolean> {
   try {
-    const response = await fetch('/host/settings', { cache: 'no-store' })
-    if (!response.ok) return true
-    const body = (await response.json()) as { settings?: { asked?: unknown } } | null
+    /* The same read as the one-time question's: one request between them. */
+    const body = (await fetchSettings()) as { settings?: { asked?: unknown } } | null
     return body?.settings?.asked !== false
   } catch {
     return true
