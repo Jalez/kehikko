@@ -313,6 +313,44 @@ const HOST_POINTS = 'kehikko'
 /** The Editor module, which shows a file the canvas points at, and files under `.kehikot/` read-only. */
 const EDITOR_ID = 'kehikot.editor'
 
+/**
+ * Ring the containers of these modules and bring the first into view.
+ *
+ * `scrollIntoView` with `nearest` moves the canvas only when the container is
+ * off screen, and neither it nor the ring touches focus: a person typing in a
+ * module goes on typing. The ring fades over 1.2 seconds (`[data-landed]` in
+ * `index.css`); where motion is asked to be less it is a static outline that
+ * clears on the next press or key, not on a timer.
+ */
+function showLanded(modules: readonly string[]): void {
+  let tries = 0
+  const find = () => {
+    const found = modules
+      .map((id) => [...document.querySelectorAll<HTMLElement>('[data-module]')].find((one) => one.dataset.module === id))
+      .filter((one): one is HTMLElement => one !== undefined)
+    if (found.length < modules.length && tries < 30) {
+      tries += 1
+      window.requestAnimationFrame(find)
+      return
+    }
+    if (found.length === 0) return
+    found[0]!.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    for (const one of found) one.setAttribute('data-landed', '')
+    const clear = () => {
+      for (const one of found) one.removeAttribute('data-landed')
+      document.removeEventListener('pointerdown', clear, true)
+      document.removeEventListener('keydown', clear, true)
+    }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      document.addEventListener('pointerdown', clear, true)
+      document.addEventListener('keydown', clear, true)
+    } else {
+      window.setTimeout(clear, 1300)
+    }
+  }
+  window.requestAnimationFrame(find)
+}
+
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -3288,6 +3326,25 @@ export function App() {
     [containers, pulling],
   )
   const placed = placements.map((p) => p.i)
+
+  /*
+   * Where a new container landed. One that appears on the kehikko already open
+   * (the add button, an agent's `place_modules`, anything else that adds one)
+   * is ringed for about a second and scrolled into view if it is off screen —
+   * `showLanded`. A kehikko opening or being filled for the first time is not
+   * an arrival: the ids are compared only within the same kehikko, and an
+   * empty one filled with several at once is skipped.
+   */
+  const arrivals = useRef<{ canvas: number | null; ids: Set<string> } | null>(null)
+  useEffect(() => {
+    const ids = new Set(placements.map((p) => p.i))
+    const was = arrivals.current
+    arrivals.current = { canvas: openId, ids }
+    if (!was || was.canvas !== openId) return
+    const added = [...ids].filter((one) => !was.ids.has(one))
+    if (added.length === 0 || (was.ids.size === 0 && added.length > 1)) return
+    showLanded(added)
+  }, [placements, openId])
 
   /*
    * What the modules say they are doing (`activity.set`) and the lines they

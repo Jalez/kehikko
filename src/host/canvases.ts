@@ -4,6 +4,8 @@ import { LIMITS, MODULE_ID, contentSignalSchema, isWebAddress, type ContentChang
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
+import { arranged, granted, tops } from './columns.ts'
+import { CANVAS_ROWS } from './fit.ts'
 
 /**
  * The page's side of the canvases.
@@ -784,65 +786,158 @@ export function inProject(canvases: readonly Canvas[], project: number | null): 
 export const COLUMNS = 12
 const NEW_W = 6
 const NEW_H = 10
+/**
+ * The least a container is shaped down to when only a smaller gap exists: four
+ * columns by six rows. Four of twelve columns is a third of the canvas, the
+ * narrowest at which a module's header (title, version and its menus) and a
+ * line of content still sit side by side; six rows is twice `SQUEEZED_ROWS`, the
+ * least a neighbour may be pushed to, so a shaped container is a header and a
+ * readable body and never one that looks as if it had been squeezed. The repo has
+ * no per-module minimum size (the grid is given no `minW` or `minH`); this is the
+ * host's own floor for a placement it chooses, and a person can still resize.
+ */
+export const GAP_MIN_W = 4
+export const GAP_MIN_H = 6
 
 /**
- * Where a module goes when it is put on the canvas.
+ * Where a module goes when it is put on the canvas: the first free space that
+ * fits, in reading order.
  *
- * Beside the last one if the bottom row has room, on a new row below if it does
- * not. Left to right, top to bottom, like words.
+ * The canvas is scanned left to right, top to bottom, over the grid as it is
+ * DRAWN (`arranged`: wishes granted, vertical compaction applied), and the
+ * container takes the first free rectangle that holds the usual six columns by
+ * ten rows. Failing that, the first gap in reading order that holds at least
+ * `GAP_MIN_W` by `GAP_MIN_H` is taken at that gap's size, capped at the usual
+ * one; a full-size gap anywhere is preferred to a shaped one. Failing that, the
+ * old rule: beside the last container on the bottom row if it has room, else on
+ * a new row below.
  *
- * Deliberately not a packing algorithm. Something that hunted for the largest
- * gap would put a new container somewhere a person cannot predict, and then finding
- * it is a step before moving it — two gestures where there should be one. This
- * rule is small enough to hold in your head, which is the only property that
- * matters: you press add, and you already know where to look.
+ * Why it is a scan and not a search for the best fit. The only property that
+ * matters is that you press add and already know where to look, and the first
+ * hole you would see reading the canvas is that place. Something that hunted
+ * for the tightest or largest gap would be right more often and
+ * unpredictable every time. A gap the grid's vertical compaction would close
+ * (a stored top edge that is lower than the drawn one) is not a gap: the scan
+ * runs on the compacted layout, and the result is checked against it, so the
+ * new container is where it was put after the grid has settled. The existing
+ * containers are returned as they were.
  */
 export function place(placements: readonly Placement[], id: string): Placement[] {
   if (placements.some((p) => p.i === id)) return [...placements]
 
-  const bottom = placements.reduce((low, p) => Math.max(low, p.y), 0)
-  const onBottomRow = placements.filter((p) => p.y === bottom)
+  const drawn = arranged(placements)
+  const spot = firstGap(drawn)
+  const holds = (at: Spot) => {
+    const trial = [...placements, fresh(id, at)]
+    const heights = granted(trial)
+    const before = granted(placements)
+    const above = tops(trial)
+    const was = tops(placements)
+    return (
+      above.get(id) === at.y &&
+      heights.get(id) === at.h &&
+      placements.every((p) => heights.get(p.i) === before.get(p.i) && above.get(p.i) === was.get(p.i))
+    )
+  }
+  const at = spot && holds(spot) ? spot : beside(drawn)
+  return [...placements, fresh(id, at)]
+}
+
+interface Spot {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** The old rule: beside the last container on the bottom row if it has room, else a new row. */
+function beside(drawn: readonly Placement[]): Spot {
+  const bottom = drawn.reduce((low, p) => Math.max(low, p.y), 0)
+  const onBottomRow = drawn.filter((p) => p.y === bottom)
   const usedToTheRight = onBottomRow.reduce((edge, p) => Math.max(edge, p.x + p.w), 0)
+  const next = drawn.length > 0 && usedToTheRight + NEW_W <= COLUMNS
+  return {
+    x: next ? usedToTheRight : 0,
+    y: next ? bottom : drawn.reduce((low, p) => Math.max(low, p.y + p.h), 0),
+    w: NEW_W,
+    h: NEW_H,
+  }
+}
 
-  const beside = placements.length > 0 && usedToTheRight + NEW_W <= COLUMNS
-  const y = beside ? bottom : placements.reduce((low, p) => Math.max(low, p.y + p.h), 0)
-  const x = beside ? usedToTheRight : 0
+/** The first free rectangle in reading order: a full-size one if any, else the first that is at least the least. */
+function firstGap(drawn: readonly Placement[]): Spot | null {
+  const taken = Array.from({ length: CANVAS_ROWS }, () => new Array<boolean>(COLUMNS).fill(false))
+  for (const p of drawn) {
+    for (let y = Math.max(0, p.y); y < Math.min(CANVAS_ROWS, p.y + p.h); y += 1) {
+      for (let x = Math.max(0, p.x); x < Math.min(COLUMNS, p.x + p.w); x += 1) taken[y]![x] = true
+    }
+  }
+  /* How far down from (x, y) the column is free, to the bottom of the canvas. */
+  const down = (x: number, y: number) => {
+    let n = 0
+    while (y + n < CANVAS_ROWS && !taken[y + n]![x]) n += 1
+    return n
+  }
+  for (let y = 0; y + NEW_H <= CANVAS_ROWS; y += 1) {
+    for (let x = 0; x + NEW_W <= COLUMNS; x += 1) {
+      let fits = true
+      for (let c = x; c < x + NEW_W && fits; c += 1) fits = down(c, y) >= NEW_H
+      if (fits) return { x, y, w: NEW_W, h: NEW_H }
+    }
+  }
 
+  for (let y = 0; y + GAP_MIN_H <= CANVAS_ROWS; y += 1) {
+    for (let x = 0; x + GAP_MIN_W <= COLUMNS; x += 1) {
+      if (taken[y]![x]) continue
+      let best: Spot | null = null
+      let height = NEW_H
+      for (let w = 1; w <= NEW_W && x + w <= COLUMNS; w += 1) {
+        height = Math.min(height, down(x + w - 1, y))
+        if (height === 0) break
+        if (w >= GAP_MIN_W && height >= GAP_MIN_H && (!best || w * height >= best.w * best.h)) {
+          best = { x, y, w, h: height }
+        }
+      }
+      if (best) return best
+    }
+  }
+  return null
+}
+
+function fresh(id: string, at: Spot): Placement {
+  const { x, y, w, h } = at
   /* Off. A new container is the size this host chose and stays there until somebody
      says otherwise — either by dragging its corner or by turning this on. */
-  return [
-    ...placements,
-    {
-      i: id,
-      x,
-      y,
-      w: NEW_W,
-      h: NEW_H,
-      grow: false,
-      pinned: false,
-      prompt: '',
-      promptFor: null,
-      collapsed: false,
-      /* The height it was given, which is the height it asks for until a hand
-         or its module says otherwise. */
-      wish: NEW_H,
-      /* Off. A container arriving on the canvas has not been picked out by
-         anybody, and a host that selected what it just added would be aiming an
-         agent at a container the person has not even looked at yet. */
-      selected: false,
-      /* Nothing chosen. Every group falls back to whatever its module says its
-         resting option is, which is what a container nobody has pressed this
-         on should be showing. */
-      filters: {},
-      /* Not on a clock. A container that arrived refreshing itself every five
-         minutes would be spending somebody's rate limit on a decision they
-         never made. */
-      refreshEvery: null,
-      /* Latest. A new container runs the module's own checkout until somebody
-         picks a version in its header. */
-      version: null,
-    },
-  ]
+  return {
+    i: id,
+    x,
+    y,
+    w,
+    h,
+    grow: false,
+    pinned: false,
+    prompt: '',
+    promptFor: null,
+    collapsed: false,
+    /* The height it was given, which is the height it asks for until a hand
+       or its module says otherwise. */
+    wish: h,
+    /* Off. A container arriving on the canvas has not been picked out by
+       anybody, and a host that selected what it just added would be aiming an
+       agent at a container the person has not even looked at yet. */
+    selected: false,
+    /* Nothing chosen. Every group falls back to whatever its module says its
+       resting option is, which is what a container nobody has pressed this
+       on should be showing. */
+    filters: {},
+    /* Not on a clock. A container that arrived refreshing itself every five
+       minutes would be spending somebody's rate limit on a decision they
+       never made. */
+    refreshEvery: null,
+    /* Latest. A new container runs the module's own checkout until somebody
+       picks a version in its header. */
+    version: null,
+  }
 }
 
 /** Take one off. */

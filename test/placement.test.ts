@@ -53,6 +53,103 @@ describe('putting things on the canvas and taking them off', () => {
   })
 })
 
+const at = (i: string, x: number, y: number, w: number, h: number, collapsed = false) => ({
+  ...place([], i)[0]!,
+  x,
+  y,
+  w,
+  h,
+  wish: h,
+  collapsed,
+})
+const spot = (placements: ReturnType<typeof place>, id: string) => {
+  const { x, y, w, h } = placements.find((p) => p.i === id)!
+  return { x, y, w, h }
+}
+
+describe('a new module takes the first free space that fits, in reading order', () => {
+  test('an empty canvas: top left, six by ten', () => {
+    expect(spot(place([], 'n'), 'n')).toEqual({ x: 0, y: 0, w: 6, h: 10 })
+  })
+
+  test('a hole beside the first container is taken before the bottom row', () => {
+    const holed = [at('a', 0, 0, 6, 10), at('c', 0, 10, 12, 6), at('e', 6, 16, 6, 12)]
+    expect(spot(place(holed, 'n'), 'n')).toEqual({ x: 6, y: 0, w: 6, h: 10 })
+  })
+
+  test('a hole in the middle, first in reading order', () => {
+    const board = [at('a', 0, 0, 12, 4), at('b', 0, 4, 3, 24), at('c', 9, 4, 3, 24), at('d', 0, 14, 12, 14)]
+    /* Between b and c, rows 4..14, six columns of ten: exactly one fit, x 3. */
+    const placed = place(board, 'n')
+    expect(spot(placed, 'n')).toEqual({ x: 3, y: 4, w: 6, h: 10 })
+  })
+
+  test('a hole too small for the usual size is shaped to the gap, capped at the usual size', () => {
+    const board = [at('a', 0, 0, 12, 4), at('b', 0, 4, 4, 18), at('c', 9, 4, 3, 18), at('d', 0, 22, 12, 6)]
+    /* Gap is x 4..9 (five wide), rows 4..22 (eighteen): five by ten. */
+    const shaped = place(board, 'n')
+    expect(spot(shaped, 'n')).toEqual({ x: 4, y: 4, w: 5, h: 10 })
+    expect(shaped.find((p) => p.i === 'n')!.wish).toBe(10)
+  })
+
+  test('a gap shorter than the least is not used', () => {
+    /* Columns 4..7 are free for rows 10..15 only: four wide, but five tall. */
+    const board = [at('e', 0, 0, 4, 28), at('c', 4, 0, 4, 10), at('f', 8, 0, 4, 15), at('d', 4, 15, 8, 13)]
+    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 0, y: 28, w: 6, h: 10 })
+  })
+
+  test('a gap the grid would collapse is not a gap', () => {
+    /* b is stored at row 15 but drawn at row 10, so there is no hole from 10 to 15. */
+    const board = [at('a', 0, 0, 12, 10), at('b', 0, 15, 12, 10)]
+    const placed = place(board, 'n')
+    expect(spot(placed, 'n')).toEqual({ x: 0, y: 20, w: 6, h: 8 })
+  })
+
+  test('a folded container is one row, and the space under it is free', () => {
+    const board = [at('a', 0, 0, 12, 10, true), at('b', 0, 1, 6, 10)]
+    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 6, y: 1, w: 6, h: 10 })
+  })
+
+  test('nothing fits: the old rule, beside the last or a new row', () => {
+    const full = [at('a', 0, 0, 12, 14), at('b', 0, 14, 12, 14)]
+    const placed = place(full, 'n')
+    expect(spot(placed, 'n').x).toBe(0)
+    expect(spot(placed, 'n').y).toBe(28)
+    const nearly = [at('a', 0, 0, 12, 14), at('b', 0, 14, 10, 14)]
+    expect(spot(place(nearly, 'n'), 'n')).toEqual({ x: 0, y: 28, w: 6, h: 10 })
+  })
+
+  test('several in a row each take the next gap', () => {
+    const board = [at('a', 0, 0, 12, 4), at('b', 0, 4, 3, 24), at('c', 9, 4, 3, 24)]
+    const one = place(board, 'n1')
+    expect(spot(one, 'n1')).toEqual({ x: 3, y: 4, w: 6, h: 10 })
+    const two = place(one, 'n2')
+    expect(spot(two, 'n2')).toEqual({ x: 3, y: 14, w: 6, h: 10 })
+    const three = place(two, 'n3')
+    /* The gap is used up (four rows are left under them), so the old rule: a new row. */
+    expect(spot(three, 'n3')).toEqual({ x: 0, y: 28, w: 6, h: 10 })
+    /* None of them overlaps another. */
+    for (const p of three) {
+      for (const q of three) {
+        if (p.i >= q.i) continue
+        const apart = p.x + p.w <= q.x || q.x + q.w <= p.x || p.y + p.h <= q.y || q.y + q.h <= p.y
+        expect(apart).toBe(true)
+      }
+    }
+  })
+
+  test('an id already placed is left where it is', () => {
+    const board = [at('a', 0, 0, 6, 10)]
+    expect(place(board, 'a')).toEqual(board)
+  })
+
+  test('the existing containers are returned untouched', () => {
+    const board = [at('a', 0, 0, 12, 10), at('b', 0, 15, 12, 10)]
+    const placed = place(board, 'n')
+    expect(placed.slice(0, 2)).toEqual(board)
+  })
+})
+
 describe('which canvas opens', () => {
   test('the one this browser had open last', () => {
     const all = [canvas(1), canvas(2), canvas(3)]

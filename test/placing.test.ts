@@ -182,14 +182,15 @@ describe('where a placed container lands', () => {
   })
 
   test('its height is cut to what the column grants when the wish would not fit whole', async () => {
-    /* A full-width container twenty rows tall; the new one goes under it,
-       asks for ten, and eight is what is left. Its wish stays ten: a drawn
-       height is never written into a wish. */
+    /* A full-width container twenty rows tall; the new one goes under it, in
+       the eight rows left: a shaped gap, so it asks for eight (its wish is the
+       gap's height, not the ten it would have had, because a wish over the gap
+       would push whatever is under the gap down). */
     const id = aCanvas([box('a.one', 0, 0, 12, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.two'] }, door())
     expect(done.failed).toBe(false)
     const it = canvasNow(id).placements.find((p) => p.i === 'a.two')!
-    expect(it).toMatchObject({ x: 0, y: 20, h: 8, wish: 10 })
+    expect(it).toMatchObject({ x: 0, y: 20, h: 8, wish: 8 })
     legal(canvasNow(id).placements)
   })
 
