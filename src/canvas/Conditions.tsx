@@ -104,6 +104,7 @@ export function ConditionDot({ condition, lifecycle }: { condition: ModuleCondit
 export function ConditionPanel({
   condition,
   lifecycle,
+  title,
   line,
   detail,
   at,
@@ -113,6 +114,12 @@ export function ConditionPanel({
   condition: ModuleCondition
   /** Only ever `asleep` here: every word that ends on its own is `ModuleCover`'s. */
   lifecycle?: 'asleep'
+  /**
+   * A heading above the line, for a module that does not fit this Kehikot:
+   * "Monitor needs a newer Kehikot". Text, never markup: it holds the
+   * module's name as written. Then the line is the one fact that says why.
+   */
+  title?: string
   line: string
   /** The last lines a module the host started printed, when its start failed. */
   detail?: string[]
@@ -152,7 +159,19 @@ export function ConditionPanel({
           only thing in this container worth reading and the layout should say so.
           `text-balance` so a two-line sentence breaks into two even lines
           instead of a long one and an orphan. */}
-      <p className="text-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{line}</p>
+      {title ? (
+        <h2 className="text-foreground max-w-[46ch] text-balance text-sm font-medium leading-snug" data-testid="condition-title">
+          {title}
+        </h2>
+      ) : null}
+      <p
+        className={cn(
+          'max-w-[46ch] text-balance leading-relaxed',
+          title ? 'text-muted-foreground text-xs' : 'text-foreground text-sm',
+        )}
+      >
+        {line}
+      </p>
 
       {/*
        * Both numbers, always, for an incompatible module — the brief's own

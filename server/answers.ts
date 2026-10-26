@@ -92,7 +92,7 @@ export interface TrackerDoor {
 /** What one answer looks like before it becomes a `kehikot.response`. */
 export type Answer =
   | { ok: true; data: unknown }
-  | { ok: false; reason: ResponseFailureReason; error: string }
+  | { ok: false; reason: ResponseFailureReason; error: string; declined?: 'host-too-old' }
 
 /**
  * A successful answer, held to the shape the protocol names for that method.
@@ -282,10 +282,16 @@ export function answer(
        asked for, and a host that echoes strangers' strings by habit is a host
        that will echo an unbounded one the day somebody adds a field without a
        max. The habit is the thing being avoided. */
+    /* `declined: 'host-too-old'` (protocol 2.22.0): every method this host
+       knows is answered, so one it does not is newer than it — or a typo,
+       which the module's own copy of the protocol tells apart (`tooOldOf`): it
+       says `host-too-old`, with the version, only for a method it knows. A
+       reader before 2.22.0 strips the word and sees `unknown-method`. */
     return {
       ok: false,
       reason: 'unknown-method',
-      error: `This host speaks ${METHOD_NAMES.length} methods and that is not one of them. Nothing here answers it, now or later.`,
+      declined: 'host-too-old',
+      error: `This host speaks ${METHOD_NAMES.length} methods and that is not one of them. A newer Kehikot may answer it.`,
     }
   }
 

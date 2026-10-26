@@ -113,11 +113,28 @@ export function Start({
 export function Update() {
   return (
     <div className="pointer-events-auto flex flex-col items-center gap-2">
-      <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" onClick={openUpdates}>
+      <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" onClick={() => openUpdates()}>
         <CloudDownload className="size-3" />
         check for updates
       </Button>
       <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">Starting it again would serve the same manifest.</p>
+    </div>
+  )
+}
+
+/**
+ * The button on a container whose module does not fit this Kehikot (protocol
+ * `fitOf`). Its words are the protocol's (`fitSaid`): "Update Kehikot" opens
+ * the updates panel, where the app's own update is; "Update <Module>" opens it
+ * at that module's row. `label` is text: it holds the module's name as written.
+ */
+export function UpdateFor({ label, module }: { label: string; module?: string }) {
+  return (
+    <div className="pointer-events-auto flex flex-col items-center gap-2">
+      <Button variant="secondary" size="sm" className="h-7 max-w-full px-3 text-xs" onClick={() => openUpdates(module)}>
+        <CloudDownload className="size-3 shrink-0" aria-hidden />
+        <span className="truncate">{label}</span>
+      </Button>
     </div>
   )
 }

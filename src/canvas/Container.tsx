@@ -13,7 +13,8 @@ import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
 import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
-import { ConditionDot, ConditionPanel, ModuleCover } from './Conditions.tsx'
+import { ConditionDot, ModuleCover } from './Conditions.tsx'
+import { ContainerNotice } from './Notice.tsx'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
@@ -23,7 +24,6 @@ import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
-import { Start, Update } from './Start.tsx'
 import { BranchMark } from './Branch.tsx'
 import { releaseShown } from '@/host/source.ts'
 import { VersionPicker } from './Versions.tsx'
@@ -836,28 +836,7 @@ export function Container({
 
         {showing.kind === 'notice' && notice ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
-            <ConditionPanel
-              condition={showing.condition}
-              lifecycle={showing.asleep ? 'asleep' : undefined}
-              line={notice.line}
-              detail={notice.detail}
-              at={presence.at}
-              protocols={presence.protocols}
-            >
-              {/* Only for silence. An incompatible module is running and
-                  answering — starting it again would change nothing, and the
-                  panel already says which protocol each side speaks, which is
-                  the thing to act on.
-
-                  A module the host is already starting never reaches here: it
-                  is a cover, with no button to spawn a second copy. `asleep`
-                  keeps the button: the host will start it when this kehikko
-                  next asks, and somebody who would rather not wait for that has
-                  every right to say so now. */}
-              {notice.offer === 'start' ? <Start module={presence.id} onStarted={onStarted} /> : null}
-              {/* Running, and refused: an update changes that, a start does not. See `noticeOf`. */}
-              {notice.offer === 'update' ? <Update /> : null}
-            </ConditionPanel>
+            <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} />
           </div>
         ) : null}
       </div>

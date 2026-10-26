@@ -83,12 +83,40 @@ export function showing(said: Said, found: Found | undefined, asked = true): Sho
  */
 export function noticeOf(
   notice: Extract<Showing, { kind: 'notice' }>,
-  presence: { refused?: true; remedy?: true; detail?: string[] },
-): { line: string; detail?: string[]; offer: 'start' | 'update' | null } {
+  presence: { refused?: true; remedy?: true; detail?: string[]; fit?: NoticeFit },
+): {
+  line: string
+  /** Above the line, for a module that does not fit: "Monitor needs a newer Kehikot". */
+  title?: string
+  detail?: string[]
+  offer: 'start' | 'update' | null
+  /** The fit's button: "Update Kehikot", or "Update <Module>" with `module` set to open its row. */
+  fix?: { label: string; module?: true }
+} {
+  /* The module and this Kehikot do not fit, and the protocol says which side
+     is behind (`fitOf`): its title, its one line, and the update that changes
+     it. No start: the program is running, and starting it again changes nothing. */
+  if (notice.condition === 'incompatible' && presence.fit) {
+    const fit = presence.fit
+    return {
+      title: fit.title,
+      line: fit.line,
+      offer: null,
+      fix: fit.kind === 'host-too-old' ? { label: fit.action } : { label: fit.action, module: true },
+    }
+  }
   if (notice.condition !== 'silent') return { line: notice.line, detail: presence.detail, offer: null }
   if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update' }
   if (presence.remedy) return { line: notice.line, offer: null }
   return { line: notice.line, detail: presence.detail, offer: 'start' }
+}
+
+/** What `noticeOf` reads of a presence's fit (`Presence.fit`). */
+export interface NoticeFit {
+  kind: 'host-too-old' | 'module-too-old'
+  title: string
+  line: string
+  action: string
 }
 
 /**
