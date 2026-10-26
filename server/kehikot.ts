@@ -249,15 +249,6 @@ const FILE_NAME = 'kehikot'
 const VERSION = 2
 
 /**
- * The rows a file's containers are counted in, given what its top says: the
- * old twenty-eight when it says nothing. See "And the rows it counts in".
- */
-function rowsOf(raw: unknown): number {
-  const rows = (raw as { rows?: unknown } | null)?.rows
-  return rows === undefined ? ROWS_BEFORE : (rows as number)
-}
-
-/**
  * A file's kehikko in the rows a canvas has now. Exact, because `rows` is
  * held to a divisor of `CANVAS_ROWS` by the schema; only the vertical numbers,
  * since columns did not change.
@@ -723,7 +714,7 @@ export function parse(text: string): Parsed {
   }
   /* In rows finer than this host's, which only a newer host writes: refused
      in words, since the schema's own sentence would be about a number. */
-  const rows = rowsOf(raw)
+  const rows = (raw as { rows?: unknown } | null)?.rows
   if (typeof rows === 'number' && Number.isInteger(rows) && rows > CANVAS_ROWS) {
     return {
       ok: false,
@@ -733,6 +724,7 @@ export function parse(text: string): Parsed {
 
   const read = fileSchema.safeParse(raw)
   if (read.success) {
+    /* Absent is every file written before the finer rows: twenty-eighths. */
     const counted = read.data.rows ?? ROWS_BEFORE
     return {
       ok: true,
