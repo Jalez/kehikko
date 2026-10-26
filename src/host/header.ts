@@ -205,15 +205,28 @@ export type FocusAfter = 'trigger' | 'module' | 'nowhere'
  * - A press that was NOT taken leaves focus on the trigger, which is where
  *   the reason is said. Nothing happened in the module to go and look at.
  * - A menu closed because focus already went to a module is not answered by
- *   pulling focus back out of it.
+ *   pulling focus back out of it. That is judged by where focus IS when the
+ *   menu has closed (`focusIsInModule`), not only by having heard the window
+ *   blur: the content's own blur comes first and closes the menu.
  *
  * A toggle and a switch do not close the menu (`staysOpen`), so they are
  * never the reason one closed: after setting two of them, Escape is the
  * first case.
  */
-export function focusAfter(closing: Closing): FocusAfter {
+export function focusAfter(closing: Closing, inModule = false): FocusAfter {
+  /* Focus is in a module's page already, whatever closed the menu: in Chromium
+     the menu's own content blurs a moment BEFORE the window does, so the menu
+     can be closed as an ordinary dismissal first and the "away" is never
+     heard. The page holding the keyboard is the fact; the trigger does not
+     take it back. */
+  if (inModule) return 'nowhere'
   if (closing === 'pressed') return 'module'
   return closing === 'away' ? 'nowhere' : 'trigger'
+}
+
+/** Whether the keyboard is in a module's page now: the host's active element is the frame that holds it. */
+export function focusIsInModule(active: Element | null): boolean {
+  return active?.tagName === 'IFRAME'
 }
 
 /* ------------------------------------------------------------------ *
