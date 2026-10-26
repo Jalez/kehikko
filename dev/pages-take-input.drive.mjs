@@ -6,8 +6,8 @@
  *     node dev/pages-take-input.drive.mjs            # boots its own scratch host
  *     BROWSERS=webkit node dev/pages-take-input.drive.mjs
  *
- * `bun test` runs it (`test/pages-take-input.test.ts`), so it cannot be
- * skipped by forgetting it. Exits 0 when every check passes.
+ * `test/pages-take-input.test.ts` runs it on bee (`dev/bee-browser-tests.sh`;
+ * browsers never start on the Mac). Exits 0 when every check passes.
  *
  * ## Why it exists
  *
@@ -87,6 +87,21 @@ async function steadyBox(page, locator) {
     if (box && last && ['x', 'y', 'width', 'height'].every((key) => Math.abs(box[key] - last[key]) < 0.5)) return box
     last = box
     if (Date.now() > deadline) return box
+    await painted(page)
+  }
+}
+
+/**
+ * Until `test` holds in a module's page, read from here a painted host frame apart; false at the
+ * ceiling. Not the page's own `waitForFunction`: that polls on the frame's own animation frames
+ * or timers, and WebKit holds those back in a cross-origin frame — a scroll that happened in
+ * 30 ms was seen 8.6 s later, a told epic a second late. The host page's frames are not held back.
+ */
+async function inPage(page, frame, test, arg) {
+  const deadline = Date.now() + CEILING
+  for (;;) {
+    if (await frame.evaluate(test, arg).catch(() => false)) return true
+    if (Date.now() > deadline) return false
     await painted(page)
   }
 }
@@ -200,7 +215,7 @@ async function everyPageTakesInput(page, label, expected) {
     const word = `w${Math.random().toString(36).slice(2, 7)}`
     await page.keyboard.type(word)
     /* The word is in the field once the page has handled the keys: wait for it, then judge what is there. */
-    await frame.waitForFunction(([word]) => document.getElementById('field').value === word, [word], { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, ([word]) => document.getElementById('field').value === word, [word])
     const typed = await field.inputValue()
     if (typed !== word) {
       const focus = await frame.evaluate(() => `${document.hasFocus()} ${document.activeElement?.tagName}`)
@@ -212,7 +227,7 @@ async function everyPageTakesInput(page, label, expected) {
     const count = frame.locator('#pressed')
     const before = Number(await count.innerText())
     await press(page, await steadyBox(page, frame.locator('#press')))
-    await frame.waitForFunction(([before]) => Number(document.getElementById('pressed').textContent) !== before, [before], { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, ([before]) => Number(document.getElementById('pressed').textContent) !== before, [before])
     const after = Number(await count.innerText())
     if (after !== before + 1) problems.push(`button pressed, its count went ${before} → ${after}`)
     /* The wheel, over its list. */
@@ -222,7 +237,7 @@ async function everyPageTakesInput(page, label, expected) {
     const listBox = await steadyBox(page, list)
     await page.mouse.move(listBox.x + listBox.width / 2, listBox.y + listBox.height / 2)
     await page.mouse.wheel(0, 120)
-    await frame.waitForFunction(() => document.getElementById('list').scrollTop > 0, null, { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, () => document.getElementById('list').scrollTop > 0, null)
     const scrolled = await list.evaluate((element) => element.scrollTop)
     if (!(scrolled > 0)) problems.push('the wheel over its list scrolled nothing')
     lines.push(problems.length ? `FAIL ${id}: ${problems.join('; ')}` : `ok   ${id}`)
@@ -316,8 +331,12 @@ async function choose(page, kind, row, label) {
   await watched(page, label, () => pressHost(page, item))
 }
 
-/* The epic picker, and how long the pages wait to be told: never more than the cap. */
-async function chooseEpic(page, label) {
+/*
+ * The epic picker: the hand-over, watched on every frame; or how long the pages wait to be told,
+ * never more than the cap. Two presses, not one: the watching does work on every painted frame of
+ * the host page, and a switch timed while it runs is timed with that work in its way.
+ */
+async function chooseEpic(page, label, timed = false) {
   /* The other one: what a project is about is the host's to keep, so a second
      browser finds the epic the first one left it on. */
   const trigger = page.locator('button[aria-label="the epic this project is on"]')
@@ -331,18 +350,35 @@ async function chooseEpic(page, label) {
      host's to keep from the press on, not the time a slow machine takes to
      look at the screen. */
   const box = await steadyBox(page, item)
-  let started = 0
-  const told = Promise.all(
-    frames.map((frame) => frame.waitForFunction((slug) => document.getElementById('told')?.textContent === slug, slug, { timeout: CEILING, polling: 10 }).then(() => Date.now() - started)),
-  )
-  await watched(page, label, async () => {
-    started = Date.now()
-    await press(page, box)
+  /* When the press reached the host page, and when each page was told: both read in the
+     browsers, on the clock they share, so what is measured is the host's hand-over and not how
+     soon a driver on a busy machine got round to looking. */
+  await page.evaluate(() => {
+    window.__pressedAt = 0
+    window.__phases = []
+    /* A menu row is chosen on its release, so that is the press the cap counts from. */
+    window.addEventListener('pointerup', () => void (window.__pressedAt ||= Date.now()), { capture: true, once: true })
+    /* The switch's phases as the host draws them, for a line that says where the time went. */
+    new MutationObserver(() => {
+      const phase = document.querySelector('[data-switch]')?.getAttribute('data-switch') ?? 'shown'
+      if (window.__phases.at(-1)?.[0] !== phase) window.__phases.push([phase, Date.now()])
+    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-switch'] })
   })
-  const waited = await told.catch(() => null)
-  /* The cap, and what it costs to carry a message and to be polled for it. */
+  if (!timed) return void (await watched(page, label, () => press(page, box)))
+  await press(page, box)
+  /* Shown again after the switch it started: what the host draws, observed above, not polled. */
+  await page.waitForFunction(() => window.__phases.length > 1 && window.__phases.at(-1)[0] === 'shown', null, { timeout: CEILING, polling: 100 }).catch(() => {})
+  /* Read once the hand-over is shown, not polled during it: the pages say when they were told,
+     and reading them over and over while the switch runs is work the switch then waits behind. */
+  const arrived = (await Promise.all(frames.map((frame) => inPage(page, frame, (slug) => document.getElementById('told')?.textContent === slug, slug)))).every(Boolean)
+  const pressedAt = await page.evaluate(() => window.__pressedAt)
+  const toldAt = arrived && pressedAt ? await Promise.all(frames.map((frame) => frame.evaluate(([slug, after]) => (window.__toldLog ?? []).find(([said, at]) => said === slug && at >= after)?.[1] ?? 0, [slug, pressedAt]))) : null
+  const waited = toldAt?.every(Boolean) ? toldAt.map((at) => at - pressedAt) : null
+  /* The cap, and what it costs to carry a message from the host's page into another. */
   const ok = waited !== null && Math.max(...waited) <= 300 + 120
-  say(`    ${ok ? 'ok  ' : 'FAIL'} every page told "${slug}" ${waited ? `within ${Math.max(...waited)} ms` : 'never'}`)
+  const phases = await page.evaluate(() => window.__phases)
+  const timeline = pressedAt ? phases.map(([phase, at]) => `${phase} +${at - pressedAt}`).join(', ') : ''
+  say(`    ${ok ? 'ok  ' : 'FAIL'} every page told "${slug}" ${waited ? `within ${Math.max(...waited)} ms` : 'never'}${ok ? '' : ` (pressed, then ${timeline}; told ${waited?.map((ms) => `+${ms}`).join(' ') ?? 'never'})`}`)
   if (!ok) failures.push(`${label}: the pages were told the new epic ${waited ? `only after ${Math.max(...waited)} ms` : 'never'}`)
 }
 
@@ -354,10 +390,8 @@ async function headerMenu(page, label) {
   await page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first().waitFor({ state: 'visible', timeout: CEILING })
   await menuSettled(page)
   await pressHost(page, page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first())
-  const now = await frame
-    ?.waitForFunction((was) => (document.body.dataset.flag ?? 'false') !== was, was, { timeout: CEILING })
-    .then(() => frame.evaluate(() => document.body.dataset.flag))
-    .catch(() => was)
+  const moved = frame ? await inPage(page, frame, (was) => (document.body.dataset.flag ?? 'false') !== was, was) : false
+  const now = moved ? await frame.evaluate(() => document.body.dataset.flag) : was
   const ok = now !== was
   /* A toggle keeps its menu open (`staysOpen` in `host/header.ts`); Escape
      closes it, as a person would. Not a click into the page: measured in
@@ -393,11 +427,11 @@ async function clickOutIntoPage(page, label) {
        after" is a person typing once they see it done, so wait for both to be
        so. The typing is judged the same as ever: every letter, in the field. */
     await page.waitForFunction(() => document.querySelectorAll('[data-menu-content]').length === 0, null, { timeout: CEILING }).catch(() => {})
-    await frame.waitForFunction(() => document.hasFocus() && document.activeElement?.id === 'field', null, { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, () => document.hasFocus() && document.activeElement?.id === 'field', null)
     await painted(page)
     const word = `c${Math.random().toString(36).slice(2, 7)}`
     await page.keyboard.type(word)
-    await frame.waitForFunction(([word]) => document.getElementById('field').value === word, [word], { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, ([word]) => document.getElementById('field').value === word, [word])
     const typed = await field.inputValue()
     const open = await page.locator('[data-menu-content]').count()
     if (open) problems.push('the menu is still open after the click')
@@ -503,6 +537,7 @@ async function drive(kind, browserType) {
     await choose(page, 'kehikko', 'Tall', name('a kehikko switch'))
     await everyPageTakesInput(page, name('after a kehikko switch'), 3)
     await chooseEpic(page, name('an epic switch'))
+    await chooseEpic(page, name('an epic switch back, timed'), true)
     await everyPageTakesInput(page, name('after an epic switch'), 3)
     if (scheme === 'light') {
       await headerMenu(page, name('a header menu press'))

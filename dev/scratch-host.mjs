@@ -11,7 +11,7 @@
  * `KEEP=1` keeps the directory, with every process's log in it.
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -21,25 +21,50 @@ export const HOST = join(dirname(fileURLToPath(import.meta.url)), '..')
 const KEEP = process.env.KEEP === '1'
 const BUN = process.env.BUN ?? 'bun'
 
-/* Every port handed out, so the next one asked for is a different one: a port
-   is free until something listens on it, and nothing has yet. */
-const taken = new Set()
-const freePort = async () => {
-  for (;;) {
-    const port = await anyPort()
-    if (!taken.has(port) && !taken.has(port - 1)) return taken.add(port), port
+/*
+ * Ports, claimed so that two drives started in the same moment — on one machine, in two runs —
+ * never share one.
+ *
+ * Asking the system for a free port (listen on 0, close) and handing it to a child that binds it
+ * later leaves a gap, and the system fills it: macOS hands out its ephemeral ports in order, so a
+ * second drive probing a moment later is given the port the first was about to use for its page
+ * (the API's plus one), and every connection a browser opens takes one from the same range. A
+ * scratch host then timed out waiting for a page that another process held.
+ *
+ * So a port is taken from below every system's ephemeral range (Linux starts at 32768, macOS at
+ * 49152), and claimed by creating a file named for it, exclusively, in one directory every drive
+ * on this machine shares — whatever its TMPDIR. The file holds the claiming process's pid; a
+ * claim whose process is gone is stale and taken over. A claimed port must also be free to bind.
+ * The claims are dropped in `stop`.
+ */
+const PORTS_DIR = '/tmp/kehikko-scratch-ports'
+const PORTS_FROM = 20000
+const PORTS_SPAN = 10000
+const claimed = []
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error.code === 'EPERM'
   }
 }
-const anyPort = () =>
-  new Promise((done, fail) => {
-    const server = createServer()
-    server.unref()
-    server.on('error', fail)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      server.close(() => done(port))
-    })
-  })
+function claim(port) {
+  const file = join(PORTS_DIR, String(port))
+  for (let tries = 0; tries < 2; tries += 1) {
+    try {
+      writeFileSync(file, String(process.pid), { flag: 'wx' })
+      claimed.push(file)
+      return true
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      const holder = Number(readFileSync(file, 'utf8')) || 0
+      if (holder && alive(holder)) return false
+      rmSync(file, { force: true })
+    }
+  }
+  return false
+}
 const portFree = (port) =>
   new Promise((done) => {
     const server = createServer()
@@ -47,14 +72,33 @@ const portFree = (port) =>
     server.on('error', () => done(false))
     server.listen(port, '127.0.0.1', () => server.close(() => done(true)))
   })
-/* The page is the API's port plus one (`server.ts`), so both must be free. */
-async function pairOfPorts() {
-  for (let tries = 0; tries < 50; tries += 1) {
-    const api = await freePort()
-    if (!taken.has(api + 1) && (await portFree(api + 1))) return taken.add(api + 1), api
+/** `count` ports in a row, claimed and free. */
+async function claimPorts(count) {
+  mkdirSync(PORTS_DIR, { recursive: true })
+  for (let tries = 0; tries < 200; tries += 1) {
+    const first = PORTS_FROM + Math.floor(Math.random() * (PORTS_SPAN - count))
+    const got = []
+    for (let port = first; port < first + count; port += 1) {
+      if (!claim(port)) break
+      got.push(port)
+    }
+    if (got.length === count) {
+      const free = await Promise.all(got.map(portFree))
+      if (free.every(Boolean)) return first
+    }
+    for (const port of got) release(port)
   }
-  throw new Error('no two free ports in a row')
+  throw new Error(`no ${count} free ports in a row between ${PORTS_FROM} and ${PORTS_FROM + PORTS_SPAN}`)
 }
+function release(port) {
+  const file = join(PORTS_DIR, String(port))
+  const at = claimed.indexOf(file)
+  if (at >= 0) claimed.splice(at, 1)
+  rmSync(file, { force: true })
+}
+const freePort = () => claimPorts(1)
+/* The page is the API's port plus one (`server.ts`), so both are claimed together. */
+const pairOfPorts = () => claimPorts(2)
 
 let ROOT = ''
 const at = (path) => join(ROOT, path)
@@ -66,6 +110,7 @@ export function stop() {
     } catch {}
   }
   children.length = 0
+  for (const file of claimed.splice(0)) rmSync(file, { force: true })
   if (ROOT && !KEEP) rmSync(ROOT, { recursive: true, force: true })
   else if (ROOT) console.log(`scratch host kept at ${ROOT}`)
   ROOT = ''
@@ -120,6 +165,7 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
   const run = (cmd, args, log, extra = {}) => {
     const out = openSync(at(log), 'a')
     const child = spawn(cmd, args, { cwd: HOST, env: { ...env, ...extra }, stdio: ['ignore', out, out] })
+    child.log = log
     children.push(child)
     return child
   }
@@ -142,14 +188,22 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
     run(join(HOST, 'node_modules/.bin/vite'), ['--port', String(page), '--strictPort', '--host', '127.0.0.1'], 'vite.log')
   }
 
+  /* Until it answers; a process that ended first is named with what it said, rather than waited
+     on. The ceiling is for a machine under load, not a pace. */
   const answers = async (url) => {
-    for (let tries = 0; tries < 300; tries += 1) {
+    const until = Date.now() + 90_000
+    while (Date.now() < until) {
+      const ended = children.find((child) => child.exitCode !== null || child.signalCode !== null)
+      if (ended) {
+        const said = readFileSync(at(ended.log), 'utf8').trim().split('\n').slice(-15).join('\n')
+        throw new Error(`${ended.log.replace(/\.log$/, '')} ended (${ended.exitCode ?? ended.signalCode}) before ${url} answered:\n${said}`)
+      }
       try {
         if ((await fetch(url)).ok) return
       } catch {}
       await new Promise((done) => setTimeout(done, 100))
     }
-    throw new Error(`nothing answered at ${url}; logs in ${ROOT} (KEEP=1 keeps them)`)
+    throw new Error(`nothing answered at ${url} in 90 s; logs in ${ROOT} (KEEP=1 keeps them)`)
   }
   await answers(`http://127.0.0.1:${api}/host/health`)
   for (const { port } of modules) await answers(`http://127.0.0.1:${port}/healthz`)

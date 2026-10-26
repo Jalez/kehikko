@@ -116,11 +116,14 @@ export function useCalmSwitch({
   }, [])
 
   const leaving = useCallback(() => {
+    /* The press is now, before the still copy is made: the cap counts from the press, and copying
+       a whole kehikko's grid is part of the switch it caps, not time before it. */
+    const pressedAt = now()
     const was = stateRef.current
     /* Already preparing: what is on screen is already the kehikko being left,
        and the newest press is what will be waited for. */
     if (was.phase === 'preparing') {
-      move(ask(was, now(), false))
+      move(ask(was, pressedAt, false))
       return
     }
     /* Mid-fade: the fade is finished at once, and what is now on screen is
@@ -130,7 +133,7 @@ export function useCalmSwitch({
     const host = outgoing.current
     if (grid && host) host.replaceChildren(stillCopy(grid))
     seen.current = grid && host ? seenAt(framingsRef.current) : null
-    move(ask(stateRef.current, now(), grid !== null && host !== null))
+    move(ask(stateRef.current, pressedAt, grid !== null && host !== null))
   }, [clear, move, stateRef])
 
   /* Every painted frame while a switch is under way, and a timer for when no
