@@ -437,7 +437,7 @@ let checkout = null
 try {
   checkout = paperCheckout()
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: checkout.dir, encoding: 'utf8' }).trim()
-  const stamp = existsSync(join(checkout.dir, 'dist/.kehikot-built')) ? readFileSync(join(checkout.dir, 'dist/.kehikot-built'), 'utf8').trim() : ''
+  const stamp = existsSync(join(checkout.dir, 'dist/.kehikot-built')) ? readFileSync(join(checkout.dir, 'dist/.kehikot-built'), 'utf8').split('\n')[0].trim() : ''
   if (stamp !== head) throw new Error(`Paper at ${checkout.dir} has no build of its own commit ${head.slice(0, 7)} (dist/.kehikot-built: ${stamp || 'none'}); \`bun run build\` there`)
   const version = JSON.parse(readFileSync(join(checkout.dir, 'package.json'), 'utf8')).version
   say(`Paper ${version} at ${head.slice(0, 12)}${process.env.PAPER_REF ? ` (${process.env.PAPER_REF})` : ''}, ready-built`)
