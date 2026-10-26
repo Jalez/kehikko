@@ -200,6 +200,8 @@ export interface HostDoor {
 }
 
 export interface RegistryView {
+  /** Which of the host's sweeps this reading is (`swept` in `server/server.ts`). Absent from an older host. */
+  swept?: number
   presences: Presence[]
   /**
    * Optional for the reason `reacts` is: a server older than this page answers
@@ -227,7 +229,28 @@ export async function fetchRegistry(signal?: AbortSignal, fresh = false): Promis
      the manifests it keeps (`server/manifests.ts`). */
   const response = await fetch(fresh ? '/host/modules?fresh=1' : '/host/modules', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
-  const body = (await response.json()) as RegistryView
-  if (!body || !Array.isArray(body.presences)) throw new Error("the host's server answered something else")
+  const body = registryIn(await response.json())
+  if (!body) throw new Error("the host's server answered something else")
   return body
+}
+
+/**
+ * A reading of the modules, from `/host/modules` or carried by the host's news on `/host/watch`
+ * (`{ registry: true, modules }`, sent when its wait for a module it started ended): the one shape
+ * check both go through. Null when it is not one.
+ */
+export function registryIn(value: unknown): RegistryView | null {
+  const body = value as RegistryView | null
+  if (!body || typeof body !== 'object' || !Array.isArray(body.presences)) return null
+  if (body.swept !== undefined && !Number.isInteger(body.swept)) return null
+  return body
+}
+
+/**
+ * Whether `got` may replace `held`. A look's answer and the host's news can cross: a look asked
+ * before a module came up may land after the news that it did, and must not put "starting" back.
+ * A reading without a number (an older host) is always taken.
+ */
+export function newerReading(held: RegistryView | null, got: RegistryView): boolean {
+  return held?.swept === undefined || got.swept === undefined || got.swept >= held.swept
 }

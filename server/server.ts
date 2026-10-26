@@ -119,7 +119,7 @@ import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
-import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, ROUTE_REASONS, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
+import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
 import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
@@ -667,18 +667,25 @@ const json = (body: unknown, status = 200) =>
  * modules would be twelve seconds of a person watching an empty canvas, and the
  * one thing this host must not do is make "not running" look like "broken".
  */
-async function survey(): Promise<{
+/** Each sweep's number, so a page holding a newer reading can tell an older one that arrives after it. */
+let sweeps = 0
+
+async function survey(kept = false): Promise<{
+  /** Which sweep this was (`sweeps`): a page takes a reading only over an older one (`newerReading`). */
+  swept: number
   presences: (Presence & { state: string | null; agent: AgentAwareness })[]
   /** The host's own door and whether the agent has been told about it. See `hostDoor`. */
   host: { id: string; as: string; url: string; agent: AgentAwareness }
   sweep: RegistrationSweep
   protocol: number
 }> {
+  const swept = ++sweeps
   const found = await readRegistrations()
-  /* From each module's kept manifest when it is fresh: see `manifests.ts`. */
+  /* From each module's kept manifest when it is fresh: see `manifests.ts`. `kept`: whatever is
+     kept, however old — the sweep after the host's wait for one module, which changed nothing else. */
   manifests.keepOnly(found.registrations.map((registration) => registration.id))
   /* Copies: what follows writes names and icons onto them, and the kept one is what the module said. */
-  const presences = await Promise.all(found.registrations.map(async (registration) => ({ ...(await manifests.read(registration)) })))
+  const presences = await Promise.all(found.registrations.map(async (registration) => ({ ...(await manifests.read(registration, { kept })) })))
   const knows = agentKnows()
 
   callers.clear()
@@ -774,6 +781,7 @@ async function survey(): Promise<{
   }
 
   return {
+    swept,
     /*
      * Each module's kept state travels with its presence, because the page is
      * what greets a module and the greeting is where state has to be — a module
@@ -864,6 +872,8 @@ async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
  * answer differs; the answer does not.
  */
 let sweeping: Promise<Swept> | null = null
+/** Whether the sweep out reads only what is kept (`sweep({ kept: true })`). */
+let sweepingKept = false
 /**
  * At host start, with "Keep modules up to date automatically" on, an installed copy is not started
  * until its own tags were read (`bootAutoUpdates`, on the first sweep): `booting` until then.
@@ -874,19 +884,24 @@ let bootRead = false
  * `fresh`: every manifest asked again, not read from `manifests` — for a person's press. A sweep
  * already out may have read kept ones, so a fresh one waits for it and then asks.
  */
-function sweep(fresh = false): Promise<Swept> {
+function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
+  const fresh = how === true
+  const kept = typeof how === 'object'
   /* `refresh` declines a press right behind another press: what that one read stands. */
   if (fresh && manifests.refresh()) {
     if (sweeping) return sweeping.catch(() => null).then(() => sweep())
   }
-  if (sweeping) return sweeping
-  const running = survey().finally(() => {
-    sweeping = null
+  /* A sweep of what is kept may share any sweep out; any other does not share one of those. */
+  if (sweeping && (kept || !sweepingKept)) return sweeping
+  if (sweeping) return sweeping.catch(() => null).then(() => sweep(how))
+  const running = survey(kept).finally(() => {
+    if (sweeping === running) sweeping = null
     seen = running
   })
   sweeping = running
+  sweepingKept = kept
   /* The first sweep is also when "Keep modules up to date automatically" reads the copies (`bootAutoUpdates`). */
-  if (booting && !bootRead) void bootAutoUpdates(running)
+  if (booting && !bootRead) void because('auto-update’s first look', () => bootAutoUpdates(running))
   return running
 }
 
@@ -1493,15 +1508,20 @@ function begin(id: string): void {
  */
 async function untilAnswered(id: string, url: string): Promise<void> {
   const at = runs.get(id)
-  const up = await answered(url, WELL_KNOWN, STARTING_FOR_MS)
-  /* Replaced or stopped meanwhile: whoever did that decides. */
-  if (!up || runs.get(id) !== at) return
+  const registration = registered.get(id)
+  if (!registration || registration.url !== url) return
+  /* The one asker of a module the host started: every sweep meanwhile reads what this found. */
+  const waited = await manifests.wait(registration, STARTING_FOR_MS)
+  /* Replaced, stopped or ended meanwhile: whoever did that decides, and tells. */
+  if ((!waited.up && waited.cancelled) || runs.get(id) !== at) return
   try {
     if (sweeping) await sweeping.catch(() => null)
-    const view = await sweep()
+    /* What every other module said stands: only this one changed, and the wait has its answer. */
+    const view = await sweep({ kept: true })
     govern(view.presences)
-    /* A wake makes every page sweep: only for a module somebody is looking at. */
-    if (neededNow().has(id)) wakes.registryChanged()
+    /* Up, or given up on: either way the containers stop saying "starting". The reading goes
+       with the news, so no page asks for it again (`registryIn` in `src/host/registry.ts`). */
+    wakes.registryChanged(await pageView(view))
   } catch {
     /* Nothing found out; the page's own look and the watch still ask. */
   }
@@ -1573,7 +1593,7 @@ const auto = new AutoUpdates({
       busy: progress.has(id) || inHand.has(id) || releases.applying(id) || builds.busy(id),
     }
   },
-  apply: (id) => applyAutomatically(id),
+  apply: (id) => because('auto-update puts a release in place', () => applyAutomatically(id)),
   changed: () => wakes.updatesChanged(),
   log: (line) => console.log(line),
 })
@@ -1633,8 +1653,17 @@ async function bootAutoUpdates(first: Promise<Swept>): Promise<void> {
     if (readings) void auto.found(readings.filter((one): one is Reading => one !== null))
   } finally {
     booting = false
-    /* What was held back starts now, decided from the sweep in hand: nothing is asked again. */
-    if (seen) void seen.then((view) => govern(view.presences)).catch(() => null)
+    /* What was held back starts now, decided from the sweep in hand: nothing is asked again. The
+       pages are told with that reading: a copy held back that is not started now no longer says
+       "starting", and none of them asks for it. */
+    if (seen) {
+      void seen
+        .then(async (view) => {
+          govern(view.presences)
+          wakes.registryChanged(await pageView(view))
+        })
+        .catch(() => null)
+    }
   }
 }
 
@@ -1651,7 +1680,8 @@ const builds = new ModuleBuilds({
   async running(id) {
     if (nursery.holds(id)) return true
     const registration = registered.get(id)
-    return registration ? (await look(registration)).reached : false
+    /* Through the kept manifests: the backfill asks this of every installed copy. */
+    return registration ? (await manifests.read(registration)).reached : false
   },
   unable: () =>
     whyNoBuilds(async () => {
@@ -1728,7 +1758,7 @@ const BACKFILL_AT_THE_LATEST_MS = 2 * 60_000
 function backfill(): void {
   if (backfilled) return
   backfilled = true
-  setTimeout(() => {
+  setTimeout(() => because('the host builds installed copies', () => {
     const copies: Copy[] = []
     for (const registration of registered.values()) {
       if (registration.dir && isInstalled(registration.dir)) copies.push({ id: registration.id, name: knownName(registration.id) ?? registration.id, dir: registration.dir })
@@ -1743,7 +1773,7 @@ function backfill(): void {
         const built = done.filter((one) => one.kind === 'built').length
         if (built) console.log(`kehikko: built ${built} installed module${built === 1 ? '' : 's'} that had no build of their release`)
       })
-  }, BACKFILL_AFTER_MS).unref?.()
+  }), BACKFILL_AFTER_MS).unref?.()
 }
 /** The open kehikko's modules are up: one is needed, and each needed one answers, failed, or cannot be started here. */
 function openUp(standing: readonly Standing[]): boolean {
@@ -2002,7 +2032,7 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
  * of that one module.
  */
 const tethers = new Tethers((id, quick) => {
-  void (async () => {
+  void because('a module’s connection closed', async () => {
     try {
       if (!seen) return
       const now = Date.now()
@@ -2025,7 +2055,7 @@ const tethers = new Tethers((id, quick) => {
     } catch {
       /* Nothing found out; the watch asks within half a minute. */
     }
-  })()
+  })
 })
 
 /** Tether exactly the modules an open kehikko has, that answer, and that this host does not hold. */
@@ -2157,6 +2187,18 @@ function saidOf(presence: Presence, now: number): Lifecycle | undefined {
     failures.delete(presence.id)
   }
   return lifecycleOf(presence.condition === 'silent', doing(presence.id), now)
+}
+
+/**
+ * What `/host/modules` answers, from a sweep in hand: the host's words on it (`told`) and what each
+ * pinned version is doing. Also what the host's wait for a module it started sends with its news.
+ */
+async function pageView(view: Swept, press = false): Promise<Swept & { pins: Awaited<ReturnType<typeof pins.views>> }> {
+  const open = new Set(openness.every())
+  pins.recordLatest(open, view.presences)
+  /* The pinned versions' manifests are kept as the registered modules' are (`Pins`): this
+     answer is read on every look, and every look used to ask every running version. */
+  return { ...told(view), pins: await pins.views(open, press) }
 }
 
 /** A sweep as the page receives it, with the host's own lifecycle words on it. */
@@ -2586,7 +2628,9 @@ function settingsProjects(): number[] {
 
 const agentSync = new AgentSync({
   db,
-  modules: async () => seenOf((await sweep()).presences),
+  /* The sweep it was poked by (`saw`), not one of its own: a sweep asks every module that is not
+     answering, and at a cold start each module coming up poked it again. */
+  modules: () => because('your agent’s setup', async () => seenOf((await (seen ?? sweep())).presences)),
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
   nameOf: knownName,
@@ -2957,7 +3001,7 @@ const server = Bun.serve({
       /* A person's press may spend past Kehikot's share of their GitHub limit (never past its floor). */
       const answer = () => answerRequest(request)
       const work = pressedRequest(request.method, asked) ? () => pressed(answer) : answer
-      return heard(await because(ROUTE_REASONS[path] ?? (path.startsWith('/host/') ? `answering ${path}` : 'answering the page'), work))
+      return heard(await because(routeReason(path) ?? `answering ${path}`, work))
     } catch (error) {
       void heard(new Response(null, { status: 500 }))
       throw error
@@ -2989,11 +3033,7 @@ async function answerRequest(request: Request): Promise<Response> {
          whatever was just run, and the container says so instead of sitting on
          a sentence about a program that is not running. */
       govern(view.presences)
-      const open = new Set(openness.every())
-      pins.recordLatest(open, view.presences)
-      /* The pinned versions' manifests are kept as the registered modules' are (`Pins`): this
-         answer is read on every look, and every look used to ask every running version. */
-      return json({ ...told(view), pins: await pins.views(open, press) })
+      return json(await pageView(view, press))
     }
 
     /* A module's versions, for the picker in a container's header: its own

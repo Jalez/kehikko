@@ -95,7 +95,11 @@ export type News =
      see `FoldNote`. A page that does not know the field re-reads the kehikko,
      which is all the first kind ever asked of it. */
   | { kehikko: number; folded?: FoldNote }
-  | { registry: true }
+  /* `modules`, when the host has the reading in hand — its wait for a module it started has just
+     ended, and it swept — is that reading, what `/host/modules` would answer: the page takes it
+     as a look's answer, newer ones only (`swept`), instead of every page asking for it again. A
+     cold start with six modules coming up was six reads per page. Without it, look again. */
+  | { registry: true; modules?: unknown }
   | { epics: number }
   | { dispositions: number }
   /* The inbox of a project: what its modules said they are doing, or what a
@@ -293,9 +297,11 @@ export class Wakes {
    * merely elapsed. That restraint is the whole design: a page told on every
    * tick would sweep on every tick, and the interval this exists to avoid would
    * have moved into a different process rather than gone away.
+   *
+   * `modules`: the reading itself, when the host has just made it (see `News`).
    */
-  registryChanged(): void {
-    this.#tell({ registry: true })
+  registryChanged(modules?: unknown): void {
+    this.#tell(modules === undefined ? { registry: true } : { registry: true, modules })
   }
 
   /**

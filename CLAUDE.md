@@ -333,8 +333,9 @@
 - Settings › Module tools › "Keep this project's modules running" (default on;
   `server/keepRunning.ts`, `{ modules: { keep } }` on `POST /host/settings`).
   Off, nothing is warm.
-- The host wakes the pages the moment a module it started answers
-  (`untilAnswered`), so a container does not wait for the page's 1.5 s look.
+- The host tells the pages the moment its wait for a module it started ends,
+  up or given up on (`untilAnswered`), with the reading; the page does not
+  poll while modules start (see "Asking once").
 - The page keeps the pages of the open kehikko and the last `KEPT_KEHIKOT` left
   (`recentlyOpen`, `framesKept` in `src/host/canvases.ts`); a hidden page is
   `inert` (`hiddenFrame`) and is not told the open kehikko's context
@@ -450,7 +451,9 @@
   gets the same check.
 - An order to a page (`Wakes.press`) goes to that page's streams only. Every
   other kind of news on `/host/watch` goes to everyone and says only that there
-  is something to re-read.
+  is something to re-read — except where it carries the small thing itself
+  (`tracker`, `content`) and `{ registry: true, modules }`, the `/host/modules`
+  reading the host just made at the end of a start wait.
 
 ## A module's icon, and Kehikot's own mark
 
@@ -820,8 +823,12 @@
   needs nothing here — only a reason. Give one with `because(reason, work)`
   around the work (a short phrase from a fixed vocabulary: "release tags",
   "tracker read: <folder> (whole project)"); a route's reason is
-  `ROUTE_REASONS`, and the innermost wins. Anything without one is shown as
-  "no reason given". Sanitize with the protocol's `trafficTarget`/`trafficPath`,
+  `routeReason` (`ROUTE_REASONS`, a path under a route is that route's, the
+  desktop app's page files are "the page loads Kehikot"), and the innermost
+  wins. Anything without one is shown as "no reason given". A new route gets an
+  entry (`test/traffic-reasons.test.ts` fails without one); work started by a
+  timer, a socket event or another module's poke (`agentSync`, the tethers, the
+  backfill, auto-update's first look) carries its own `because`. Sanitize with the protocol's `trafficTarget`/`trafficPath`,
   never by hand; never record a body, a header or a query value.
 - Every request this host answers is a row `in` (`receivedRow`, around
   `answerRequest`): the page by its origin, a module relayed by `/host/call`
@@ -869,7 +876,11 @@
 ## Asking once (fewer repeated calls)
 
 - A sweep reads each module's kept manifest (`ManifestCache`, `server/manifests.ts`):
-  kept `MANIFEST_FRESH_MS` for a module that answered, never for one that did not.
+  kept `MANIFEST_FRESH_MS` for a module that answered, `UNANSWERED_MS` (1.5 s) for one
+  that did not. A module the host started is asked by its start wait alone
+  (`manifests.wait`, from `untilAnswered`): every read meanwhile is what the wait last
+  found, and the answer that ends it is kept. The sweep after a wait reads what is
+  kept however old (`sweep({ kept: true })`) — only that module changed.
   Forget it (`manifests.forget`) wherever the process changes — `run`, `halt`,
   `ended`, the liveness check seeing it go, come back or answer from another build.
   `sweep(true)` / `/host/modules?fresh=1` is for a person's press only. Never add a
@@ -878,7 +889,11 @@
   header), not its manifest. A tether's idle close is put back before anything
   is asked; only a reconnect that fails asks.
 - `/host/open` answers `started`; the page sweeps after a report only when it is
-  true (`arrive`). `reportOpen` sends the same report once (focus, `pageshow`,
+  true (`arrive`). After that the page looks only on news: no timer while modules
+  start (once 33 reads of `/host/modules` in 9.1 s). `{ registry: true, modules }`
+  is taken as a look's answer (`registryIn`), never over a newer one (`swept`,
+  `newerReading`); one look after `MISSED_NEWS_MS` if a reading still says
+  something is moving. `reportOpen` sends the same report once (focus, `pageshow`,
   StrictMode); `{ again: true }` after the stream reopened.
 - The page reads its host endpoints through `hostRead` (`src/host/hostRead.ts`):
   one read shared per page load, `fresh` on a person's act, `keepRead` with a
@@ -889,6 +904,13 @@
   says `waiting` until Check now.
 - `dev/traffic-counts.drive.mjs` counts it from the record of traffic;
   `test/traffic-counts.test.ts` (on bee) fails a page load that asks an endpoint twice.
+  That is a steady load. A COLD start — six modules the host starts, some slow — is
+  `dev/cold-start.drive.mjs` (plain HTTP, the page's requests made as `App.tsx` makes
+  them; `test/cold-start.test.ts`) and `dev/cold-start-page.drive.mjs` (the real page,
+  on bee): besides its start wait, a manifest at most once before the page arrives
+  (the first sweep) and once after (the page's first look), `/host/modules` at most
+  twice, no row of Kehikot's own without a reason. Change the page's start-up and
+  change the plain drive's `aPage` with it.
 
 ## Skills for an agent other than Claude Code
 

@@ -1,6 +1,7 @@
 import { BUILD_HEADER, buildStamp } from 'kehikot-module-protocol'
 
 import { MANIFEST_TIMEOUT_MS, type Presence } from './discover.ts'
+import { ASK_FIRST_MS, nextAsk } from './launch.ts'
 import type { Registration } from './registrations.ts'
 
 /**
@@ -20,8 +21,14 @@ import type { Registration } from './registrations.ts'
  *
  * - A presence of a module that answered (`reached`) is kept for `MANIFEST_FRESH_MS`, against the
  *   registration's url; a sweep within that time reads it from here.
- * - A module nothing answers for is never kept: asking it is a refused connection, and the next
- *   sweep must see it the moment somebody starts it in a terminal.
+ * - A module nothing answers for is kept only for `UNANSWERED_MS`: asking it is a refused
+ *   connection, and a sweep must see it soon after somebody starts it in a terminal — but a cold
+ *   start asks the same refused port from every sweep in a row (the page's first reads, a stream
+ *   opening, a module's server asking), and Monitor's record on 0.1.72 showed every starting
+ *   module's manifest fetched 28 times in 9.5 s. Within that short time a sweep reads the refusal.
+ * - A module the host has just started is asked by the host's wait for it (`wait`) and by nothing
+ *   else: every read while the wait runs is what the wait's last ask found, and the answer that
+ *   ends it is kept as any read is, so the sweep after it asks nothing.
  * - `forget(id)` on everything that changes the process: the host starting or stopping it, its
  *   process ending, the liveness check seeing it go, come back, or answer from another build.
  * - `read(…, { fresh: true })` for a person's press ("look again", Start, an install) and for the
@@ -41,6 +48,13 @@ import type { Registration } from './registrations.ts'
 export const MANIFEST_FRESH_MS = 60_000
 
 /**
+ * How long a module that did not answer stands as not answering before a sweep asks it again.
+ * Short: it is what stands between somebody starting a module in a terminal and the canvas
+ * seeing it, and only a burst of sweeps in a row — a page arriving while modules start — needs it.
+ */
+export const UNANSWERED_MS = 1_500
+
+/**
  * How soon after one press's fresh read another press reads the kept manifests instead.
  *
  * A press asks every module again, which is right once. Monitor's record on a real machine showed
@@ -55,6 +69,19 @@ interface Kept {
   at: number
   presence: Presence
 }
+
+/** The host's own wait for a module it started: what its last ask found, and its first ask while out. */
+interface Waiting {
+  url: string
+  last: Presence | null
+  first: Promise<Presence>
+}
+
+/** How the host's wait for a module it started ended. */
+export type Waited = { up: true; presence: Presence } | { up: false; presence: Presence | null; cancelled: boolean }
+
+/** Whether a presence is the module answering: anything served at its manifest path, as `answered` in `launch.ts` took an OK reply. */
+export const answers = (presence: Presence): boolean => presence.reached && (presence.condition !== 'silent' || presence.served === true)
 
 export interface Probed {
   /** Whether anything answered at all (a refused connection is the only false). */
@@ -72,6 +99,11 @@ export class ManifestCache {
   /** When `refresh` last forgot everything, or null. */
   #refreshedAt: number | null = null
   readonly #kept = new Map<string, Kept>()
+  /** What did not answer, and when: kept for `UNANSWERED_MS`. */
+  readonly #unanswered = new Map<string, Kept>()
+  readonly #unansweredMs: number
+  readonly #waiting = new Map<string, Waiting>()
+  readonly #sleep: (ms: number) => Promise<void>
   readonly #reading = new Map<string, { url: string; read: Promise<Presence> }>()
   /** Bumped by `forget`, so a read that was out when the module changed is not kept as fresh. */
   readonly #generation = new Map<string, number>()
@@ -82,31 +114,53 @@ export class ManifestCache {
    */
   constructor(
     look: (registration: Registration) => Promise<Presence>,
-    options: { now?: () => number; freshMs?: number; floorMs?: number; keyOf?: (registration: Registration) => string } = {},
+    options: {
+      now?: () => number
+      freshMs?: number
+      floorMs?: number
+      unansweredMs?: number
+      keyOf?: (registration: Registration) => string
+      sleep?: (ms: number) => Promise<void>
+    } = {},
   ) {
     this.#look = look
     this.#now = options.now ?? Date.now
     this.#freshMs = options.freshMs ?? MANIFEST_FRESH_MS
+    this.#unansweredMs = options.unansweredMs ?? UNANSWERED_MS
+    this.#sleep = options.sleep ?? ((ms) => new Promise((wake) => setTimeout(wake, ms)))
     this.#floorMs = options.floorMs ?? FRESH_FLOOR_MS
     this.#keyOf = options.keyOf ?? ((registration) => registration.id)
   }
 
-  /** What the module is, from what was kept when it is fresh, otherwise asked (once, however many ask). */
-  read(registration: Registration, { fresh = false }: { fresh?: boolean } = {}): Promise<Presence> {
+  /**
+   * What the module is, from what was kept when it is fresh, otherwise asked (once, however many
+   * ask). While the host waits for a module it started, what that wait last found, whoever asks.
+   * `kept`: whatever is kept however old, for a sweep that only one module's news calls for.
+   */
+  read(registration: Registration, { fresh = false, kept: stale = false }: { fresh?: boolean; kept?: boolean } = {}): Promise<Presence> {
     const { url } = registration
     const id = this.#keyOf(registration)
+    const waiting = this.#waiting.get(id)
+    if (waiting && waiting.url === url) return waiting.last ? Promise.resolve(waiting.last) : waiting.first
+    /* `kept`: what was kept, however old, and asked only when nothing is. */
     const kept = this.#kept.get(id)
-    if (!fresh && kept && kept.url === url && this.#now() - kept.at < this.#freshMs) return Promise.resolve(kept.presence)
+    if (!fresh && kept && kept.url === url && (stale || this.#now() - kept.at < this.#freshMs)) return Promise.resolve(kept.presence)
+    const refused = this.#unanswered.get(id)
+    if (!fresh && refused && refused.url === url && (stale || this.#now() - refused.at < this.#unansweredMs)) return Promise.resolve(refused.presence)
     const out = this.#reading.get(id)
     if (out && out.url === url) return out.read
+    return this.#ask(registration)
+  }
+
+  /** One ask of the module, shared by everyone who asks while it is out, and kept by its outcome. */
+  #ask(registration: Registration): Promise<Presence> {
+    const { url } = registration
+    const id = this.#keyOf(registration)
     const generation = this.#generation.get(id) ?? 0
     const read = this.#look(registration).then(
       (presence) => {
         if (this.#reading.get(id)?.read === read) this.#reading.delete(id)
-        if ((this.#generation.get(id) ?? 0) === generation) {
-          if (presence.reached) this.#kept.set(id, { url, at: this.#now(), presence })
-          else this.#kept.delete(id)
-        }
+        if ((this.#generation.get(id) ?? 0) === generation) this.#keep(id, url, presence)
         return presence
       },
       (error: unknown) => {
@@ -118,16 +172,82 @@ export class ManifestCache {
     return read
   }
 
-  /** The module's process changed, or may have: the next read asks it. */
+  #keep(id: string, url: string, presence: Presence): void {
+    if (presence.reached) {
+      this.#kept.set(id, { url, at: this.#now(), presence })
+      this.#unanswered.delete(id)
+    } else {
+      this.#kept.delete(id)
+      this.#unanswered.set(id, { url, at: this.#now(), presence })
+    }
+  }
+
+  /**
+   * The host started this module: ask it until it answers or `within` runs out, at widening
+   * intervals (`nextAsk`, from `ASK_FIRST_MS`), and let nothing else ask it meanwhile. The answer
+   * that ends the wait is kept, so the sweep after it asks nothing. Ends early, `cancelled`, when
+   * the module is forgotten meanwhile (stopped, ended, started again): whoever did that decides.
+   */
+  async wait(registration: Registration, within: number): Promise<Waited> {
+    const { url } = registration
+    const id = this.#keyOf(registration)
+    const until = this.#now() + within
+    const first = this.#look(registration)
+    const mine: Waiting = { url, last: null, first }
+    this.#waiting.set(id, mine)
+    const current = () => this.#waiting.get(id) === mine
+    let wait = ASK_FIRST_MS
+    let asking: Promise<Presence> = first
+    try {
+      for (;;) {
+        const presence = await asking.catch((): Presence | null => null)
+        if (!current()) return { up: false, presence, cancelled: true }
+        if (presence) {
+          mine.last = presence
+          if (answers(presence)) {
+            this.#keep(id, url, presence)
+            return { up: true, presence }
+          }
+        }
+        const left = until - this.#now()
+        if (left <= 0) {
+          if (presence) this.#keep(id, url, presence)
+          return { up: false, presence, cancelled: false }
+        }
+        /* Widening, but never past the deadline: the last ask is still made at it. */
+        await this.#sleep(Math.max(0, Math.min(wait, left)))
+        wait = nextAsk(wait)
+        if (!current()) return { up: false, presence: mine.last, cancelled: true }
+        asking = this.#look(registration)
+      }
+    } finally {
+      if (current()) this.#waiting.delete(id)
+    }
+  }
+
+  /** Whether the host is waiting for this module to answer (`wait`). */
+  waiting(id: string): boolean {
+    return this.#waiting.has(id)
+  }
+
+  /** The module's process changed, or may have: the next read asks it. A wait for it ends. */
   forget(id: string): void {
     this.#kept.delete(id)
+    this.#unanswered.delete(id)
     this.#reading.delete(id)
+    this.#waiting.delete(id)
     this.#generation.set(id, (this.#generation.get(id) ?? 0) + 1)
   }
 
-  /** Every module's process may have changed (a person asked to look again): every next read asks. */
+  /**
+   * Every module's process may have changed (a person asked to look again): every next read asks.
+   * A wait the host has out goes on: it is already asking, and what it finds is the answer.
+   */
   forgetAll(): void {
-    for (const id of new Set([...this.#kept.keys(), ...this.#reading.keys()])) this.forget(id)
+    for (const id of new Set([...this.#kept.keys(), ...this.#unanswered.keys(), ...this.#reading.keys()])) {
+      if (this.#waiting.has(id)) continue
+      this.forget(id)
+    }
   }
 
   /**
@@ -146,6 +266,7 @@ export class ManifestCache {
   keepOnly(ids: Iterable<string>): void {
     const keep = new Set(ids)
     for (const id of [...this.#kept.keys()]) if (!keep.has(id)) this.#kept.delete(id)
+    for (const id of [...this.#unanswered.keys()]) if (!keep.has(id)) this.#unanswered.delete(id)
   }
 
   /** When the kept manifest was read, or null when none is kept. */
