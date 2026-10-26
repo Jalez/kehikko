@@ -25,7 +25,10 @@ import type { Registration } from './registrations.ts'
  * - `forget(id)` on everything that changes the process: the host starting or stopping it, its
  *   process ending, the liveness check seeing it go, come back, or answer from another build.
  * - `read(…, { fresh: true })` for a person's press ("look again", Start, an install) and for the
- *   checks that must know now (a page saying its module went quiet).
+ *   checks that must know now (a page saying its module went quiet). A press within
+ *   `FRESH_FLOOR_MS` of the last one reads what that one read (`refresh`).
+ * - Every reader of a manifest on a page's request goes through a cache: the registered modules'
+ *   here, the pinned versions' in `Pins` (one per program), the update check's here.
  * - Two reads of one module at once are one request.
  *
  * The protocol's doors answer with no `ETag` (every reply is `no-store`) and send the build on
@@ -36,6 +39,16 @@ import type { Registration } from './registrations.ts'
 
 /** How long a manifest that was read stands before a sweep reads it again. */
 export const MANIFEST_FRESH_MS = 60_000
+
+/**
+ * How soon after one press's fresh read another press reads the kept manifests instead.
+ *
+ * A press asks every module again, which is right once. Monitor's record on a real machine showed
+ * every module's manifest fetched about every twenty seconds under "the page reads the modules";
+ * whatever presses in a row, a press within this long of the last one has nothing new to learn
+ * that the one before did not already ask.
+ */
+export const FRESH_FLOOR_MS = 2_000
 
 interface Kept {
   url: string
@@ -54,20 +67,34 @@ export class ManifestCache {
   readonly #look: (registration: Registration) => Promise<Presence>
   readonly #now: () => number
   readonly #freshMs: number
+  readonly #floorMs: number
+  readonly #keyOf: (registration: Registration) => string
+  /** When `refresh` last forgot everything, or null. */
+  #refreshedAt: number | null = null
   readonly #kept = new Map<string, Kept>()
   readonly #reading = new Map<string, { url: string; read: Promise<Presence> }>()
   /** Bumped by `forget`, so a read that was out when the module changed is not kept as fresh. */
   readonly #generation = new Map<string, number>()
 
-  constructor(look: (registration: Registration) => Promise<Presence>, options: { now?: () => number; freshMs?: number } = {}) {
+  /**
+   * `keyOf`: what a kept manifest is filed under, the registration's id by default. A cache of
+   * several programs per module id (the pinned versions, each on its own port) files them apart.
+   */
+  constructor(
+    look: (registration: Registration) => Promise<Presence>,
+    options: { now?: () => number; freshMs?: number; floorMs?: number; keyOf?: (registration: Registration) => string } = {},
+  ) {
     this.#look = look
     this.#now = options.now ?? Date.now
     this.#freshMs = options.freshMs ?? MANIFEST_FRESH_MS
+    this.#floorMs = options.floorMs ?? FRESH_FLOOR_MS
+    this.#keyOf = options.keyOf ?? ((registration) => registration.id)
   }
 
   /** What the module is, from what was kept when it is fresh, otherwise asked (once, however many ask). */
   read(registration: Registration, { fresh = false }: { fresh?: boolean } = {}): Promise<Presence> {
-    const { id, url } = registration
+    const { url } = registration
+    const id = this.#keyOf(registration)
     const kept = this.#kept.get(id)
     if (!fresh && kept && kept.url === url && this.#now() - kept.at < this.#freshMs) return Promise.resolve(kept.presence)
     const out = this.#reading.get(id)
@@ -103,7 +130,19 @@ export class ManifestCache {
     for (const id of new Set([...this.#kept.keys(), ...this.#reading.keys()])) this.forget(id)
   }
 
-  /** Only these ids are kept; the rest were unregistered. */
+  /**
+   * A person's press: `forgetAll`, unless a press already did within `FRESH_FLOOR_MS` — then what
+   * that press read stands. True when it forgot, which is when the reads after it are fresh.
+   */
+  refresh(): boolean {
+    const now = this.#now()
+    if (this.#refreshedAt !== null && now - this.#refreshedAt < this.#floorMs) return false
+    this.#refreshedAt = now
+    this.forgetAll()
+    return true
+  }
+
+  /** Only these keys are kept; the rest were unregistered (or, for versions, stopped). */
   keepOnly(ids: Iterable<string>): void {
     const keep = new Set(ids)
     for (const id of [...this.#kept.keys()]) if (!keep.has(id)) this.#kept.delete(id)
