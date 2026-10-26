@@ -79,17 +79,18 @@ export function epicPlans(
     if (module) plans.push({ module, folder: one.folder, plan: one.epics[slug]! })
   }
   const anyPublished = plans.length > 0
+  /* Where the steps are kept elsewhere is the record's to say (`stepsFrom`, no steps), and it is worked
+     out whether or not Journeys has published: a record kept elsewhere publishes no plan, so a
+     `steps.json` beside it says nothing about this epic. */
+  const record = journeyIn(journeys, slug)
+  const base: Record<string, unknown> = record ?? own
+  const plan = planOfJourney(base)
   let elsewhere: StepsFrom | null = null
-  if (!journeysPublish(published)) {
-    const record = journeyIn(journeys, slug)
-    const base: Record<string, unknown> = record ?? own
-    const plan = planOfJourney(base)
-    if (plan === null) {
-      const from = stepsFromSchema.safeParse(base.stepsFrom)
-      if (from.success) elsewhere = from.data
-    } else if (plan.steps.length > 0) {
-      plans.push({ module: record ? JOURNEYS_MODULE : HOST_ID, folder: record ? JOURNEYS_FOLDER : '', plan, fallback: true })
-    }
+  if (plan === null) {
+    const from = stepsFromSchema.safeParse(base.stepsFrom)
+    if (from.success) elsewhere = from.data
+  } else if (!journeysPublish(published) && plan.steps.length > 0) {
+    plans.push({ module: record ? JOURNEYS_MODULE : HOST_ID, folder: record ? JOURNEYS_FOLDER : '', plan, fallback: true })
   }
   plans.sort((a, b) => a.folder.localeCompare(b.folder))
   return { plans, published: anyPublished, elsewhere }
@@ -97,7 +98,8 @@ export function epicPlans(
 
 /**
  * `steps.list`'s answer for one epic: the union (`plansUnion`), or — for an epic whose steps are kept
- * where no module publishes them, and nobody else provides any — `{ stepsFrom }` with no `steps` at
+ * where no module publishes them, and nobody else provides any steps (an empty published plan counts
+ * as none: a record kept elsewhere has no plan, so an empty one says nothing) — `{ stepsFrom }` with no `steps` at
  * all, because an empty list would say there are none.
  */
 export function stepsAnswer(found: EpicPlans): StepsListResult {
