@@ -13,7 +13,10 @@ import { dirname } from 'node:path'
  * ## What it does
  *
  * - The person's own `gh` first, whenever it is installed and logged in: it
- *   has 5000 an hour and reads private repositories. When it turns out not to
+ *   has 5000 an hour and reads private repositories. Those calls are the
+ *   person's account's, and Kehikot keeps to a share of it (`githubAccount.ts`):
+ *   one it holds answers here as not usable this time, and the anonymous budget
+ *   may read it instead. When it turns out not to
  *   be usable it is left alone for `GH_BACKOFF_MS`, not spawned for every call.
  * - Otherwise anonymously, with a BUDGET of `BUDGET` calls in any hour
  *   (`spent`, kept on disk so a restart does not forget it), well under

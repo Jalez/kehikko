@@ -116,7 +116,8 @@ import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { githubGateway } from './github.ts'
-import { because, noteFree, receivedRow, recordThisProcess, ROUTE_REASONS, tag, trafficDoor, TrafficRecord } from './traffic.ts'
+import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
+import { because, noteFree, noteHeld, receivedRow, recordThisProcess, ROUTE_REASONS, tag, trafficDoor, TrafficRecord } from './traffic.ts'
 import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
@@ -126,7 +127,7 @@ import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { appProtocolsFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
+import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
 import { appProtocolSource, appProtocolsOn } from './appProtocols.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
@@ -173,6 +174,17 @@ const BUNDLED = PAGE !== null
  */
 const traffic = new TrafficRecord()
 recordThisProcess(traffic)
+
+/* Every call to GitHub as the person goes through their signed-in `gh`, and
+   through this: Kehikot keeps to a share of their account's limit, leaves a
+   floor alone, and waits when GitHub says to. A held call is filed in the
+   record of traffic with the sentence why. See `githubAccount.ts`. */
+const account = githubAccount({
+  run: spawnRunner,
+  file: githubAccountFile(),
+  log: (line) => console.log(line),
+  held: (argv, why) => noteHeld(traffic, argv, why),
+})
 
 /* 4170 bundled, so the app's host and a development host on 4180 can run side
    by side on one machine without either claiming the other's port. */
@@ -271,7 +283,7 @@ const wakes = new Wakes()
  * is read here at startup — see `server/trackers/reading.ts`.
  */
 const trackers = new Trackers({
-  run: spawnRunner,
+  run: account.run,
   told: (root, signal) => {
     for (const project of listProjects(db)) {
       if (project.path === root) wakes.trackerChanged(project.id, signal)
@@ -477,7 +489,9 @@ const github = githubGateway({
   log: (line) => console.log(line),
   held: (url) => noteFree(traffic, url, 'refused'),
   gh: async (path) => {
-    const ran = await spawnRunner(['gh', 'api', path])
+    const ran = await account.run(['gh', 'api', path])
+    /* Held by the account's budget: not gh's fault, so it is not left alone; the anonymous budget may read it. */
+    if (ran.held) return { ok: false, status: null, usable: true }
     if (ran.code === 0) {
       try {
         return { ok: true, value: JSON.parse(ran.out) as unknown }
@@ -525,7 +539,7 @@ void appProtocols.refresh()
    read from the registration here, never taken from the request — see
    `feedback.ts`. The version is the module's manifest, when it is answering. */
 const feedback = feedbackDesk({
-  run: spawnRunner,
+  run: account.run,
   /* The last sweep's map first, and the disk when it has not seen the id yet —
      the reason `/host/start` reads the directory at the press: a menu opened
      before the first sweep answered "not registered" for a module that is. */
@@ -603,7 +617,7 @@ const mine = myModulesDesk({
   file: myModulesFile(),
   official: official.current,
   desk: installs,
-  run: spawnRunner,
+  run: account.run,
   git: runQuietly,
   root: installsDir(),
   registry: registryDir(),
@@ -626,7 +640,7 @@ void mine
    repository. See `proposals.ts`. */
 const proposals = proposalDesk({
   list: official.current,
-  run: spawnRunner,
+  run: account.run,
   repo: HOST_REPO,
   registration: async (id) => registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
   manifest: async (id) => {
@@ -944,19 +958,12 @@ const sampler = new ProcessSampler({
 /** The record of traffic, as `traffic.read` and `traffic.note` answer it. */
 const trafficReading = trafficDoor({
   record: traffic,
-  budgets: () => {
-    const said = github.stats()
-    return [
-      {
-        name: 'GitHub API without an account',
-        used: said.spent,
-        limit: said.budget,
-        left: Math.max(0, said.budget - said.spent),
-        resets: said.frees,
-        note: 'Kehikot reads GitHub through your gh when it is signed in; this hourly budget is for when it is not.',
-      },
-    ]
-  },
+  budgets: () => budgetRows(account.account(), anonymousBudget(github.stats())),
+  limits: () => ({
+    github: { account: account.account(), anonymous: anonymousBudget(github.stats()) },
+    ...(account.gitlabAccount() ? { gitlab: { account: account.gitlabAccount() } } : {}),
+  }),
+  read: () => account.watch(),
   processes: (wanted) => (wanted ? sampler.want() : sampler.last),
 })
 
@@ -2751,8 +2758,12 @@ const server = Bun.serve({
     }
     try {
       /* What a route sets out to do is the reason for every call it makes, unless a call names a nearer one. */
-      const path = new URL(request.url).pathname
-      return heard(await because(ROUTE_REASONS[path] ?? (path.startsWith('/host/') ? `answering ${path}` : 'answering the page'), () => answerRequest(request)))
+      const asked = new URL(request.url)
+      const path = asked.pathname
+      /* A person's press may spend past Kehikot's share of their GitHub limit (never past its floor). */
+      const answer = () => answerRequest(request)
+      const work = pressedRequest(request.method, asked) ? () => pressed(answer) : answer
+      return heard(await because(ROUTE_REASONS[path] ?? (path.startsWith('/host/') ? `answering ${path}` : 'answering the page'), work))
     } catch (error) {
       heard(new Response(null, { status: 500 }))
       throw error

@@ -44,6 +44,8 @@ export interface Ran {
   /** The program is not installed (spawn failed). */
   missing?: boolean
   timedOut?: boolean
+  /** Not run: held back by Kehikot's budget for the person's GitHub account (`githubAccount.ts`); `err` says why. */
+  held?: boolean
 }
 
 /** Runs one program by argv. Injectable so tests never reach the real `gh`. */
@@ -131,6 +133,7 @@ export function composeBody(text: string, foot: string): string {
 /** Why gh failed, as a sentence somebody can act on. */
 export function ghTrouble(ran: Ran): string {
   if (ran.missing) return 'The GitHub CLI (gh) is not installed, so feedback cannot be read or sent from here.'
+  if (ran.held) return `${ran.err}.`
   if (ran.timedOut) return `GitHub did not answer within ${TIMEOUT_MS / 1000}s.`
   const said = `${ran.err}\n${ran.out}`
   /* gh exits 4 when it needs a login, and older versions only say so in words. */

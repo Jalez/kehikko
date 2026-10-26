@@ -249,6 +249,8 @@ export function row(fields: Record<string, unknown>): TrackerRow | null {
 export function trouble(ran: Ran, cli: 'gh' | 'glab', host: string): string {
   const name = cli === 'gh' ? 'The GitHub CLI (gh)' : 'The GitLab CLI (glab)'
   if (ran.missing) return `${name} is not installed, so ${host} cannot be read from here.`
+  /* Held back by Kehikot's budget for the person's account: the sentence says why, as it is. */
+  if (ran.held) return clip(`${ran.err}.`, LIMITS.REASON)
   if (ran.timedOut) return `${host} did not answer within ${TIMEOUT_MS / 1000}s.`
   const said = `${ran.err}\n${ran.out}`
   const low = said.toLowerCase()

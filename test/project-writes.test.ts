@@ -31,6 +31,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',
   'appProtocols.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the app version → protocol cache',
   'github.ts: mkdirSync(dirname(deps.file), { recursive: true })': 'the GitHub answers cache, in the machine directory (githubCacheFile)',
+  'githubAccount.ts: mkdirSync(dirname(deps.file), { recursive: true })': "what Kehikot spent of its share of the person's GitHub limit, in the machine directory (githubAccountFile)",
   'myModules.ts: mkdirSync(dirname(file), { recursive: true })': 'the My modules list, in the machine directory',
   'layouts.ts: mkdirSync(dir, { recursive: true })': "the person's own layouts, in the machine directory (layoutsDir)",
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
