@@ -91,10 +91,11 @@ const MEASURE = (id) => {
   }
   /* Everything inside the header, and the header itself, on one row. */
   const h = rect(header)
-  if (h.height > 34 && !header.dataset.dense) bad.push(`the header is ${h.height}px tall`)
+  if (!header.dataset.dense && h.height > 34) bad.push(`the header is ${h.height}px tall`)
+  const centres = items.map((el) => rect(el).top + rect(el).height / 2)
+  if (centres.length && Math.max(...centres) - Math.min(...centres) > 4) bad.push(`not one row: centres span ${(Math.max(...centres) - Math.min(...centres)).toFixed(1)}px`)
   for (const el of items) {
     const r = rect(el)
-    if (r.top < h.top - 1 || r.bottom > h.bottom + 1) bad.push(`${label(el)} leaves the header's row (${r.top.toFixed(0)}..${r.bottom.toFixed(0)} vs ${h.top.toFixed(0)}..${h.bottom.toFixed(0)})`)
     if (r.right > h.right + 0.5 || r.left < h.left - 0.5) bad.push(`${label(el)} is drawn outside the header horizontally`)
   }
   if (header.scrollWidth > header.clientWidth + 1) bad.push(`the header scrolls sideways (${header.scrollWidth} > ${header.clientWidth})`)

@@ -22,7 +22,7 @@ browserTest('the header’s name, version and branch never overlap at any width,
     timeout: 420_000,
   })
   const out = `${run.stdout.toString()}${run.stderr.toString()}`
-  console.log(out)
-  expect(out).toContain('never overlap')
+  if (run.exitCode !== 0) console.error(out.slice(0, 6000))
   expect(run.exitCode).toBe(0)
+  expect(out.includes('never overlap')).toBe(true)
 }, 430_000)

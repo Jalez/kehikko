@@ -25,7 +25,7 @@ import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { BranchMark } from './Branch.tsx'
-import { fitFor, type HeaderFit } from '@/host/headerFit.ts'
+import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
@@ -255,23 +255,30 @@ export function Container({
   onActivitySeen?(): void
 }) {
   const name = presence.name ?? presence.id
-  /* How much of the header's left side there is room for, from the header's own width
-     (`host/headerFit.ts`), kept as the container is resized. A change of class is one render. */
+  /* How much of the header's left side there is room for (`host/headerFit.ts`): what the header's
+     width allows, less the steps taken because the name was crowded. Kept as the container is
+     resized; steps are taken in a layout effect, so none is ever painted. */
   const grip = useRef<HTMLElement>(null)
-  const [fit, setFit] = useState<HeaderFit>(() => fitFor(null))
+  const [width, setWidth] = useState<number | null>(null)
+  const [steps, setSteps] = useState(0)
   useLayoutEffect(() => {
     const header = grip.current
     if (!header) return
-    const measure = () => {
-      const next = fitFor(header.offsetWidth || null)
-      setFit((was) => (was.icon === next.icon && was.version === next.version && was.badgeText === next.badgeText ? was : next))
-    }
+    const measure = () => setWidth((was) => (header.offsetWidth || null) === was ? was : header.offsetWidth || null)
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const watching = new ResizeObserver(measure)
     watching.observe(header)
     return () => watching.disconnect()
   }, [])
+  const fit = stepDown(fitFor(width), steps)
+  /* What is drawn changes with the words, the width and the source: start from the most again. */
+  const content = `${name}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
+  useLayoutEffect(() => setSteps(0), [width, content])
+  useLayoutEffect(() => {
+    const label = grip.current?.querySelector<HTMLElement>('[data-testid="header-name"]')
+    if (label && steps < STEPS && crowded(label.clientWidth, label.scrollWidth)) setSteps(steps + 1)
+  }, [steps, width, content])
   const shownVersion = versionLabel(version ?? null, current ?? releaseShown(presence.source) ?? presence.module?.version ?? null)
   /* The name is cut with an ellipsis when it must be, so its whole is in its title, with the
      version once that has no room of its own. */
@@ -572,7 +579,7 @@ export function Container({
           text={fit.version}
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
-        <BranchMark source={presence.source} text={fit.badgeText} />
+        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} />
         <span className="flex-1" />
 
         {/*

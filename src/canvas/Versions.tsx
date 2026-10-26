@@ -115,11 +115,13 @@ export function VersionPicker({
             data-pinned={pinned ? 'true' : 'false'}
             aria-label={pinned ? `${name}: pinned to ${pinned}` : `${name}: latest${current ? ` (${current})` : ''}`}
             onMouseDown={(event) => event.stopPropagation()}
-            className={
+            className={`pointer-events-auto inline-flex shrink-[20] cursor-default items-center gap-0.5 overflow-hidden font-mono text-[10px] ${
+              text ? (pinned ? 'max-w-[16ch] min-w-[7ch]' : 'max-w-[12ch] min-w-[7ch]') : 'min-w-[18px]'
+            } ${
               pinned
-                ? 'pointer-events-auto inline-flex min-w-0 max-w-[16ch] shrink-[20] cursor-default items-center gap-0.5 overflow-hidden rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-                : `text-muted-foreground hover:text-foreground pointer-events-auto flex min-w-0 max-w-[12ch] shrink-[20] cursor-default items-center overflow-hidden font-mono text-[10px]${text ? '' : ' hidden'}`
-            }
+                ? 'rounded border border-amber-500/50 bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300'
+                : `text-muted-foreground hover:text-foreground${text ? '' : ' hidden'}`
+            }`}
           >
             {pinned ? <Tag className="size-2.5 shrink-0" aria-hidden /> : null}
             {text ? <span data-testid="version-label" className="min-w-0 truncate">{label}</span> : null}
