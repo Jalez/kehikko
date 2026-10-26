@@ -727,14 +727,14 @@ describe('pinned runs are icon buttons in the header row', () => {
 
   test('busy is a spinner that takes no press, failed is the menu’s mark', async () => {
     const { presses } = await mount(review({ accept: { state: 'busy' }, next: { state: 'failed', result: '2 errors' } }))
-    expect(pin('accept').querySelector('.animate-spin')).not.toBeNull()
+    expect(pin('accept').querySelector('[class*="animate-spin"]')).not.toBeNull()
     expect(pin('accept').getAttribute('aria-busy')).toBe('true')
     /* Busy is a mark of its own, not the dimmed look of a disabled one. */
     expect(pin('accept').className.split(' ')).not.toContain('opacity-50')
     await choose(pin('accept'))
     expect(presses).toEqual([])
     expect(pin('next').getAttribute('data-state-run')).toBe('failed')
-    expect(pin('next').querySelector('.animate-spin')).toBeNull()
+    expect(pin('next').querySelector('[class*="animate-spin"]')).toBeNull()
     expect(pin('next').querySelector('[class*="size-3"]')).not.toBeNull()
   })
 
