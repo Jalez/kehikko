@@ -306,7 +306,9 @@ export function takeNotes(record: TrafficRecord, module: string, via: TrafficVia
 
 /**
  * What a received request is about, by route: the reason a row of `in` gets when nothing more exact
- * is known. A fixed vocabulary; a route not here is "no reason given".
+ * is known. A fixed vocabulary, read through `routeReason`: a route under one of these (`/host/canvases/3`
+ * under `/host/canvases`) is about the same thing. Every route `server/` answers has one
+ * (`test/traffic-reasons.test.ts`); a route not here is "no reason given".
  */
 export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/call': 'a module asks',
@@ -314,16 +316,28 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/modules': 'the page reads the modules',
   '/host/quiet': 'the page asks whether modules are quiet',
   '/host/canvases': 'the page reads or saves the kehikot',
+  '/host/subject': 'the page says which epic is open',
+  '/host/parts': 'the page edits an epic’s parts',
+  '/host/layouts': 'the page’s suggested layouts',
   '/host/projects': 'the page reads the projects',
+  '/host/projects/followed': 'the page reads the projects',
+  '/host/projects/locate': 'a person locates a project',
+  '/host/folders': 'a person picks a folder',
+  '/host/base-branch': 'a project’s base branch',
   '/host/epics': 'the page reads the epics',
   '/host/tracker': 'the page reads the tracker reading',
   '/host/tracker/refresh': 'tracker refresh asked',
+  '/host/trackers': 'a project’s tracker sources',
   '/host/dispositions': 'the page reads why refs closed',
   '/host/updates': 'update check',
   '/host/module-release': 'a module’s release details',
   '/host/release-notes': 'release notes',
   '/host/releases': 'release list',
   '/host/official': 'the official module list',
+  '/host/official/install': 'a person installs a module',
+  '/host/official/propose': 'a person proposes a module',
+  '/host/mine': 'my modules',
+  '/host/feedback': 'a person sends feedback',
   '/host/is-project': 'a module asks whether a folder is a project',
   '/host/place': 'a session’s place',
   '/host/settings-pass': 'a module checks a settings pass',
@@ -332,17 +346,44 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/pressed': 'the page reports a press',
   '/host/open': 'the page says what it has open',
   '/host/start': 'start a module',
+  '/host/restart': 'restart a module',
+  '/host/restart-anyway': 'restart a module',
   '/host/agent': 'an agent’s place',
   '/host/inbox/report': 'the page reports a module’s Inbox items',
+  '/host/inbox/notice': 'the page reports a module’s notice',
+  '/host/inbox/act': 'a person acts on the Inbox',
+  '/host/inbox/log': 'the page reads the Inbox',
+  '/host/inbox/migrate': 'the page reads the Inbox',
   '/host/inbox': 'the page reads the Inbox',
   '/host/health': 'is Kehikot up',
   '/host/hello': 'is Kehikot here',
   '/host/tools': 'a module’s tools',
+  '/host/skills': 'a module’s skills',
   '/host/versions': 'a module’s versions',
   '/host/whats-new': 'what’s new',
   '/host/onboarding': 'the introduction and the tour',
   '/host/settings': 'settings',
+  '/host/module-settings': 'a module’s settings',
+  '/host/storage': 'the storage overview',
   '/mcp': 'an agent asks Kehikot',
+}
+
+/** What the page's own files are fetched for, when this host serves them (the desktop app's). */
+export const PAGE_FILES_REASON = 'the page loads Kehikot'
+
+/**
+ * The reason for a request to `pathname`: its route's, else the route it is under, else — for
+ * anything outside `/host/` and `/mcp` — the page's own files. Null for an unknown `/host/` path.
+ */
+export function routeReason(pathname: string): string | null {
+  const exact = ROUTE_REASONS[pathname]
+  if (exact) return exact
+  for (let at = pathname.lastIndexOf('/'); at > 0; at = pathname.lastIndexOf('/', at - 1)) {
+    const under = ROUTE_REASONS[pathname.slice(0, at)]
+    if (under) return under
+  }
+  if (pathname === '/host' || pathname.startsWith('/host/') || pathname === '/mcp' || pathname.startsWith('/mcp/')) return null
+  return PAGE_FILES_REASON
 }
 
 /** What the route that answered says about the request, beside what the wrapper sees. */
@@ -445,7 +486,7 @@ export function receivedRow(
     caller = callerOf(null, { module: nameOf })
   }
   if (said.via && !said.caller) via = said.via
-  const reason = said.reason !== undefined ? said.reason : (ROUTE_REASONS[url.pathname] ?? null)
+  const reason = said.reason !== undefined ? said.reason : routeReason(url.pathname)
   const bytesIn = lengthOf(request.headers)
   const bytesOut = lengthOf(response.headers)
   return {

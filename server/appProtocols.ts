@@ -192,7 +192,7 @@ export function appProtocolSource(deps: AppProtocolDeps) {
   }
 
   async function once(): Promise<void> {
-    const listed = await deps.run(['git', 'ls-remote', '--tags', remote, 'refs/tags/app-v*'], { timeoutMs: LS_REMOTE_TIMEOUT_MS })
+    const listed = await because('which Kehikot each release works with', () => deps.run(['git', 'ls-remote', '--tags', remote, 'refs/tags/app-v*'], { timeoutMs: LS_REMOTE_TIMEOUT_MS }))
     if (!listed.ok) throw new Error(listed.why)
     const found = appTagsFromLsRemote(listed.out)
     const next: Record<string, ReadTag> = {}

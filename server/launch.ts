@@ -197,6 +197,8 @@ export interface Child {
  */
 const ANSWERS_WITHIN_MS = 6000
 const ASK_EVERY_MS = 300
+/** The first wait between two asks of a module the host started (`ManifestCache.wait`, `answered`). */
+export const ASK_FIRST_MS = ASK_EVERY_MS
 
 /**
  * The longest wait between two asks, which widen from `ASK_EVERY_MS` by half each time (`nextAsk`).

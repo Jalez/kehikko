@@ -58,7 +58,7 @@ import {
   type AddressOrder,
   type PressOrder,
 } from './host/canvases.ts'
-import { arrive, oneAfterAnother } from './host/looks.ts'
+import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
   addProject,
@@ -105,7 +105,7 @@ import { fetchLog } from './host/inboxClient.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
-import { fetchRegistry, type Presence, type RegistryView } from './host/registry.ts'
+import { fetchRegistry, newerReading, type Presence, type RegistryView } from './host/registry.ts'
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
@@ -814,7 +814,8 @@ export function App() {
           }
         })()
       },
-      () => void lookRef.current?.(),
+      /* With the reading, when the host sent it with the news: taken, not asked for again. */
+      (reading) => (reading ? takeRef.current(reading) : void lookRef.current?.()),
       /* A project's epics changed — an agent's `create_epic`, or a `+` in
          another window. Re-read only when it is THIS page's project: the
          dropdown of a page standing in the thesis folder has nothing to learn
@@ -1035,37 +1036,52 @@ export function App() {
   /** The current `look`, for the effects declared above it. See `reportOpen`. */
   const lookRef = useRef<(() => Promise<void>) | null>(null)
 
+  /** The reading the page holds, for `newerReading`: a ref, because it should cause no render. */
+  const heldReading = useRef<RegistryView | null>(null)
+
+  /**
+   * A reading of the modules, taken: a look's answer, or the one the host sent with its news
+   * (`{ registry: true, modules }` on `/host/watch`). Not one older than the reading held — a look
+   * asked before a module came up can land after the news that it did.
+   */
+  const take = useCallback((view: RegistryView) => {
+    if (!newerReading(heldReading.current, view)) return
+    heldReading.current = view
+    /* A module the host has restarted gets a new document, not the one the
+       old server sent. See `Runs` in `host/standing.ts`. */
+    const again = runs.current.seen(view.presences)
+    if (again.length) {
+      setGenerations((was) => {
+        const next = { ...was }
+        for (const id of again) next[id] = (next[id] ?? 0) + 1
+        return next
+      })
+    }
+    setRegistry(view)
+    setRegisteredIcons(view.presences)
+    setTrouble(null)
+    /* A sweep replaces what the server knew; it does not replace what a frame
+       has since found out. Live findings are kept for modules still present
+       and dropped for the rest. */
+    setLive((was) => {
+      const kept: Record<string, Live> = {}
+      for (const presence of view.presences) {
+        const previous = was[presence.id]
+        if (previous) kept[presence.id] = previous
+      }
+      return kept
+    })
+  }, [])
+  const takeRef = useRef(take)
+  takeRef.current = take
+
   /* One at a time, and a call made during one gets one more after it rather
      than nothing: see `oneAfterAnother`. */
   const look = useMemo(() => oneAfterAnother(async (fresh) => {
     setLooking(true)
     try {
       /* `fresh` after a person's press: every manifest asked again, not the host's kept ones. */
-      const view = await fetchRegistry(undefined, fresh)
-      /* A module the host has restarted gets a new document, not the one the
-         old server sent. See `Runs` in `host/standing.ts`. */
-      const again = runs.current.seen(view.presences)
-      if (again.length) {
-        setGenerations((was) => {
-          const next = { ...was }
-          for (const id of again) next[id] = (next[id] ?? 0) + 1
-          return next
-        })
-      }
-      setRegistry(view)
-      setRegisteredIcons(view.presences)
-      setTrouble(null)
-      /* A sweep replaces what the server knew; it does not replace what a frame
-         has since found out. Live findings are kept for modules still present
-         and dropped for the rest. */
-      setLive((was) => {
-        const kept: Record<string, Live> = {}
-        for (const presence of view.presences) {
-          const previous = was[presence.id]
-          if (previous) kept[presence.id] = previous
-        }
-        return kept
-      })
+      take(await fetchRegistry(undefined, fresh))
     } catch (error) {
       /* The sentence, and the recognition of it, both come from
          `host/reachable.ts`. Four places in this program used to write their own
@@ -1078,7 +1094,7 @@ export function App() {
       sweptAt.current = Date.now()
       setLooking(false)
     }
-  }), [])
+  }), [take])
 
   lookRef.current = look
 
@@ -1181,45 +1197,23 @@ export function App() {
   }, [trouble, look])
 
   /**
-   * Look again while the host is starting something.
+   * Look again once, if the host has said nothing for a long while about something it said was
+   * moving.
    *
-   * The host starts a module when a kehikko that has it is opened — see
-   * `server/lifecycle.ts` — and a start takes a second or two of a dev server
-   * binding a port. Without this, the container would say "starting" and stay
-   * that way until somebody happened to alt-tab, which is the same complaint
-   * `wake.ts` was written about: the one moment the focus mechanism cannot
-   * catch is the only moment this needs.
-   *
-   * It is a loop and it is bounded, which is the pair of properties that makes
-   * it allowed at all. It runs only while some presence says `starting`; the
-   * server stops saying that after `STARTING_FOR_MS` whatever happens, so the
-   * loop has an end even if the module never comes up — and the end is a
-   * container saying the module was run and did not answer, with the button on
-   * it. The same argument `ModuleCover` makes: it may move because it
-   * resolves, both ways, on its own.
+   * The host starts a module when a kehikko that has it is opened — see `server/lifecycle.ts` —
+   * and tells this page when it is up, or that it gave up waiting, with the reading
+   * (`untilAnswered` in `server/server.ts`); an update, a restart and a pinned version being
+   * prepared are told at every step (`server/wake.ts`). So nothing here polls while modules start.
+   * It used to: a look every 1.5 s while anything said "starting", and every 2 s while a version
+   * was being prepared, each look asking every module not answering yet — 33 reads of
+   * `/host/modules` in 9.1 s after the app started, on the person's Monitor. What is left is one
+   * look for news that was missed, after `MISSED_NEWS_MS`, re-armed by a reading that still says
+   * something is moving.
    */
   useEffect(() => {
-    const starting = (registry?.presences ?? []).some(
-      (presence) => presence.lifecycle !== undefined && presence.lifecycle !== 'asleep',
-    )
-    if (!starting) return
-    /* An interval rather than one timeout, because `look` declines to run while
-       another sweep is in flight — and a single dropped retry would leave the
-       container saying "starting" with nothing left to ask again. An interval
-       simply asks at the next tick instead. */
-    const again = setInterval(() => void look(), 1500)
-    return () => clearInterval(again)
-  }, [registry, look])
-
-  /* The same, while a container's pinned version is being prepared or started.
-     The server also wakes the page at every step (`wake.ts`); this is the
-     bounded fallback for a wake that was missed, and it ends when every pin
-     has either arrived or failed. */
-  useEffect(() => {
-    const preparing = (registry?.pins ?? []).some((pin) => ['preparing', 'starting'].includes(pin.state))
-    if (!preparing) return
-    const again = setInterval(() => void look(), 2000)
-    return () => clearInterval(again)
+    if (!stillMoving(registry)) return
+    const missed = window.setTimeout(() => void look(), MISSED_NEWS_MS)
+    return () => window.clearTimeout(missed)
   }, [registry, look])
 
   /**

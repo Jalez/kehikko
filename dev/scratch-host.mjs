@@ -131,9 +131,11 @@ export const scratch = { api: 0, page: 0, root: '', modules: [], extra: [] }
  * which runs a process that `stop` stops by its pid. It answers `[{ id, name, port }]`, each registered
  * as the stand-ins are (`keep`, so the host never stops it) and waited for at `/healthz`. `traffic: true` makes the third stand-in (Gamma) a reader of the host's record of traffic, as
  * the Monitor is: it declares `traffic:read` and answers `GET /traffic?since=<seq>` with
- * `traffic.read` (`test/fixtures/standin/server.ts`).
+ * `traffic.read` (`test/fixtures/standin/server.ts`). `before` is called with `{ root, origins, env }`
+ * once the stand-ins are registered and before the host starts, for registrations of modules the
+ * HOST is to start (`dev/cold-start.drive.mjs`): nothing waits for those.
  */
-export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {}, modules: others = null } = {}) {
+export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {}, modules: others = null, before = null } = {}) {
   ROOT = realpathSync(mkdtempSync(join(tmpdir(), `${name}-`)))
   for (const dir of ['home', 'project-a', 'project-b', 'modules', 'versions', 'installed', 'logs', 'claude']) mkdirSync(at(dir), { recursive: true })
   writeFileSync(at('project-a/README.md'), 'a\n')
@@ -190,6 +192,7 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
   }
   const extra = others ? await others({ root: ROOT, origins, env: { ...env }, start: (cmd, args, log, { cwd = HOST, env: own = {} } = {}) => run(cmd, args, log, own, cwd) }) : []
   for (const { id, port } of extra) writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))
+  if (before) await before({ root: ROOT, origins, env: { ...env } })
   Object.assign(scratch, { api, page, root: ROOT, modules, extra })
   if (sidecar) run(sidecar, [], 'api.log')
   else {

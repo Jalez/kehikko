@@ -7,6 +7,7 @@ import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
+import { registryIn, type RegistryView } from './registry.ts'
 
 /**
  * The page's side of the canvases.
@@ -440,7 +441,11 @@ export function watchCanvases(
    * fold somebody other than the person made — see `folds.ts`.
    */
   woke: (kehikko: number, folded: FoldNote | null) => void,
-  looked?: () => void,
+  /**
+   * What is registered or answering changed: look again — or, with the reading the host sent
+   * with the news (`{ registry: true, modules }`), take that instead of asking for it.
+   */
+  looked?: (reading?: RegistryView) => void,
   /**
    * A project's epics are not what this page last read — see `epicsChanged`
    * in `server/wake.ts`. Given the project's id, so a page standing in a
@@ -562,7 +567,12 @@ export function watchCanvases(
       /* Checked for `=== true` rather than for truthiness, so that a future
          server sending something else under this name is news this page does
          not understand rather than news it half-understands. */
-      if ((parsed as { registry?: unknown })?.registry === true) looked?.()
+      /* With the reading itself when the host had it in hand (its wait for a module it started
+         ended): taken as a look's answer, so no page asks for it again. Without one, look. */
+      if ((parsed as { registry?: unknown })?.registry === true) {
+        const carried = (parsed as { modules?: unknown }).modules
+        looked?.(carried === undefined ? undefined : (registryIn(carried) ?? undefined))
+      }
       if ((parsed as { projects?: unknown })?.projects === true) relisted?.()
       /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
          menu and What's new read again, each on its own (`onUpdatesChanged`). */
