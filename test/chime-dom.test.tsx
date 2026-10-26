@@ -11,7 +11,7 @@ import { DEFAULT_CHIME, chimePatched, withoutFile, fellBackWords, type ChimeSett
  */
 
 const inChild = process.env.CHIME_DOM === '1'
-const TESTS = 7
+const TESTS = 9
 
 if (!inChild) {
   test('the chime, rendered in a process of their own', () => {
@@ -279,6 +279,49 @@ describe.skipIf(!inChild)('the chime, rendered', () => {
     expect(el.querySelector('[data-chime-file]')).toBeNull()
     expect(note()).toContain('Needs you went back to its default')
     expect(host.sounds.attention).toEqual(DEFAULT_CHIME.sounds.attention)
+  })
+
+  test('the file input accepts audio by type as well as by extension, wav included', async () => {
+    const el = await mount(<Panels.ChimePanel />)
+    const accept = el.querySelector<HTMLInputElement>('input[type="file"]')!.getAttribute('accept')!.split(',')
+    expect(accept).toContain('audio/*')
+    expect(accept).toContain('audio/wav')
+    expect(accept).toContain('audio/x-wav')
+    for (const ext of ['wav', 'mp3', 'ogg', 'm4a', 'aac']) expect(accept).toContain(`.${ext}`)
+    expect(el.querySelector('[data-chime-drop-hint]')!.textContent).toBe('or drop a sound file here')
+  })
+
+  test('a sound file dropped on the panel is imported by the same route, with a drop target while dragging', async () => {
+    const el = await mount(<Panels.ChimePanel />)
+    const zone = el.querySelector<HTMLElement>('[data-chime-files]')!
+    const note = () => el.querySelector('[data-chime-note]')!.textContent ?? ''
+    const drag = async (type: string, files: File[] = []) => {
+      await act(async () => {
+        const event = new Event(type, { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files, dropEffect: '' } })
+        zone.dispatchEvent(event)
+      })
+    }
+    await drag('dragenter')
+    expect(zone.hasAttribute('data-dropping')).toBe(true)
+    expect(el.querySelector('[data-chime-drop-hint]')!.textContent).toContain('Drop it')
+    await drag('dragleave')
+    expect(zone.hasAttribute('data-dropping')).toBe(false)
+
+    const before = posts.filter((one) => one.url === '/host/sounds').length
+    decodedSeconds = 1.2
+    await drag('dragenter')
+    await drag('drop', [new File([new Uint8Array(4)], 'notes.txt')])
+    await settle()
+    expect(note()).toContain('wav, mp3, ogg, m4a, aac')
+    expect(posts.filter((one) => one.url === '/host/sounds')).toHaveLength(before)
+
+    await drag('dragenter')
+    await drag('drop', [new File([new Uint8Array(100)], 'Dropped.wav')])
+    await settle()
+    expect(zone.hasAttribute('data-dropping')).toBe(false)
+    expect(posts.at(-1)).toEqual({ url: '/host/sounds', body: expect.objectContaining({ name: 'Dropped.wav', seconds: 1.2 }) })
+    expect(el.querySelector('[data-chime-file]')!.textContent).toContain('Dropped.wav')
   })
 
   test('the page unlocks audio on its first gesture, and a burst plays once, unless muted', async () => {

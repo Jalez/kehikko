@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { Bell, BellOff, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -151,11 +151,35 @@ export function ChimePanel({ modules = [] }: { modules?: readonly ModuleRef[] })
   )
 }
 
-/** The person's own clips: add, preview, rename, remove. */
+/**
+ * What the file input offers. WKWebView's open panel is built from `accept`
+ * by WebKit itself, and it matches a type, not just an extension, so the list
+ * names the audio types as well; `audio/*` covers any wav spelling a system
+ * knows. wry's macOS panel sets no filter at all, so there it is moot. The
+ * server, and `add` below, still refuse anything that is not a sound.
+ */
+export const SOUND_ACCEPT = [
+  'audio/*',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/vnd.wave',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/aac',
+  ...FILE_LIMITS.exts.map((one) => `.${one}`),
+].join(',')
+
+/** The person's own clips: add (pick or drop), preview, rename, remove. */
 function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: string | null): void }) {
   const input = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [name, setName] = useState('')
+  const [over, setOver] = useState(false)
+  const depth = useRef(0)
+  const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
 
   const add = async (file: File) => {
     setNote(null)
@@ -185,7 +209,35 @@ function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: st
   }
 
   return (
-    <section className="flex min-w-0 flex-col gap-2" data-chime-files>
+    <section
+      className={`flex min-w-0 flex-col gap-2 rounded-lg ${over ? 'ring-primary bg-accent/40 ring-2 ring-offset-4' : ''}`}
+      data-chime-files
+      data-dropping={over ? '' : undefined}
+      onDragEnter={(event) => {
+        if (!carriesFiles(event)) return
+        event.preventDefault()
+        depth.current += 1
+        setOver(true)
+      }}
+      onDragOver={(event) => {
+        if (!carriesFiles(event)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={(event) => {
+        if (!carriesFiles(event)) return
+        depth.current = Math.max(0, depth.current - 1)
+        if (depth.current === 0) setOver(false)
+      }}
+      onDrop={(event) => {
+        if (!carriesFiles(event)) return
+        event.preventDefault()
+        depth.current = 0
+        setOver(false)
+        const file = event.dataTransfer.files?.[0]
+        if (file) void add(file)
+      }}
+    >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <h4 className="text-sm font-medium">Your sounds</h4>
         <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => input.current?.click()}>
@@ -195,7 +247,7 @@ function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: st
         <input
           ref={input}
           type="file"
-          accept={FILE_LIMITS.exts.map((one) => `.${one}`).join(',')}
+          accept={SOUND_ACCEPT}
           hidden
           aria-label="Add a sound"
           onChange={(event) => {
@@ -205,6 +257,9 @@ function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: st
           }}
         />
       </div>
+      <p className="text-muted-foreground text-xs" data-chime-drop-hint>
+        {over ? 'Drop it to add the sound' : 'or drop a sound file here'}
+      </p>
       <p className="text-muted-foreground text-xs leading-relaxed">
         Your own clips ({FILE_LIMITS.exts.join(', ')}; up to {FILE_LIMITS.seconds} seconds and {FILE_LIMITS.bytes / 1024 / 1024} MB). They are copied to this computer and nowhere else, and Kehikot ships none.
       </p>
