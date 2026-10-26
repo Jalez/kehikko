@@ -7,7 +7,7 @@
  *     node dev/switch-frames.drive.mjs [out dir]     # default /tmp/kehikko-switch-frames
  *
  * Needs `ffmpeg` and ImageMagick's `magick` on the PATH (evidence, not a
- * gate: `dev/pages-take-input.drive.mjs` is the gate, and `bun test` runs it).
+ * gate: `dev/pages-take-input.drive.mjs` is the gate, run on bee).
  *
  * ## How a frame is put at a time
  *

@@ -70,6 +70,33 @@
   test that moves one of those variables restores what it found — never
   `delete`. A new machine-level location goes in that file's `LOCATIONS`.
 
+## Browser tests run on bee
+
+- Browsers (Playwright's Chromium, its headless shell, WebKit) start only on bee,
+  our CI machine — never on this Mac, by an agent, a test or a drive. A test
+  that launches Playwright or spawns a `dev/` drive is declared with
+  `browserTest` (`test/browser-gate.ts`): it runs when `KEHIKOT_BROWSER_TESTS=1`
+  and is skipped otherwise, so a plain `bun test` here starts no browser.
+  `test/browser-gate.test.ts` fails a test file that reaches a browser any
+  other way.
+- Run them with `dev/bee-browser-tests.sh <ref>` from this Mac, on a branch or
+  sha already pushed: it fetches that ref into a fresh run directory on bee,
+  installs, runs the browser tests, streams the output and exits with their
+  status; on a failure the log, screenshots and scratch host logs are copied
+  to `$TMPDIR/kehikko-bee/<run>/`. `BEE_FULL=1` runs the whole suite there.
+  Runs can go at once. `dev/bee-setup.sh` installs the pinned bun and browsers
+  (once, idempotent).
+- Every agent changing UI behaviour runs the browser tests on bee before its
+  PR, and says the result in it.
+- Everything on bee is under `~/kehikko-ci/` of its WSL user, which also runs
+  another project's GitHub Actions runner: that runner, `~/.bun` and
+  `~/.cache/ms-playwright` are not ours. Kehikko gets no self-hosted runner —
+  the repository is public, and one would run strangers' PR code on bee.
+- A drive waits on the condition it means, with a ceiling for a loaded machine,
+  and reads a module page from the driver (`inPage` in
+  `dev/pages-take-input.drive.mjs`): WebKit holds back a cross-origin frame's
+  own timers and animation frames by seconds.
+
 ## The shared layout and the person's view
 
 - `<project>/.kehikot/host/kehikot.json` is the LAYOUT and travels with the
@@ -363,7 +390,7 @@
   (`src/host/layouts.ts`) keep their own explicit placements.
 - A container that appears on the open kehikko is ringed and scrolled into view
   (`showLanded` in `src/App.tsx`, `[data-landed]` in `index.css`), never focused.
-  `dev/place-in-gaps.drive.mjs` (run by `test/place-in-gaps.test.ts`) checks it.
+  `dev/place-in-gaps.drive.mjs` (run by `test/place-in-gaps.test.ts`, on bee) checks it.
 
 ## A module's header menus, and an agent's press
 
@@ -717,8 +744,7 @@
 - Module pages must take a real click, typing and the wheel, in WebKit (the
   app's engine) and Chromium. `dev/pages-take-input.drive.mjs` proves it with
   `page.mouse`/`page.keyboard` at coordinates and `elementFromPoint`, and
-  `bun test` runs it (`test/pages-take-input.test.ts`; it needs Playwright's
-  browsers: `bunx playwright-core install webkit chromium-headless-shell`).
+  `test/pages-take-input.test.ts` runs it on bee (see "Browser tests run on bee").
   0.1.54–0.1.55 shipped a full-canvas wrapper over the pages that took every
   click: any layer over the pages is `pointer-events: none`, and a test that
   uses `locator.click()` or a dispatched event cannot see a layer in the way.
@@ -801,4 +827,4 @@
   copy whose remote moved, and a checkout somebody edits is never fetched — it
   says `waiting` until Check now.
 - `dev/traffic-counts.drive.mjs` counts it from the record of traffic;
-  `test/traffic-counts.test.ts` fails a page load that asks an endpoint twice.
+  `test/traffic-counts.test.ts` (on bee) fails a page load that asks an endpoint twice.

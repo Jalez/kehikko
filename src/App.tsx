@@ -115,7 +115,7 @@ import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
-import { agentRefusal, declared, NO_HEADER, NO_HEADERS, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
+import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
@@ -3645,8 +3645,14 @@ export function App() {
     }
     return JSON.stringify(on)
   }, [open, headers])
-  const postDeclared = useCallback(() => {
+  /* What this page last posted: a posting that says what the server already holds is not made
+     (`headerPosting`), unless the stream reopened and the server may have forgotten it. */
+  const postedRef = useRef(NOTHING_POSTED)
+  const postDeclared = useCallback((again = false) => {
     if (openId === null || declaredHere === null) return
+    const said = headerPosting(openId, declaredHere, codeAt, addressAt)
+    if (!again && said === postedRef.current) return
+    postedRef.current = said
     void postHeaders(
       openId,
       Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
@@ -3657,10 +3663,10 @@ export function App() {
   /* A moment after the last change: the modules of a kehikko greet one after another, and each
      greeting is a change, but one posting of the whole map says all of them. */
   useEffect(() => {
-    const later = setTimeout(postDeclared, HEADERS_SETTLE_MS)
+    const later = setTimeout(() => postDeclared(), HEADERS_SETTLE_MS)
     return () => clearTimeout(later)
   }, [postDeclared])
-  repostRef.current = postDeclared
+  repostRef.current = () => postDeclared(true)
 
   /**
    * Every module page that currently has a document, and where each one goes.

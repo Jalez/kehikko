@@ -6,8 +6,8 @@
  *     node dev/pages-take-input.drive.mjs            # boots its own scratch host
  *     BROWSERS=webkit node dev/pages-take-input.drive.mjs
  *
- * `bun test` runs it (`test/pages-take-input.test.ts`), so it cannot be
- * skipped by forgetting it. Exits 0 when every check passes.
+ * `test/pages-take-input.test.ts` runs it on bee (`dev/bee-browser-tests.sh`;
+ * browsers never start on the Mac). Exits 0 when every check passes.
  *
  * ## Why it exists
  *
@@ -62,6 +62,50 @@ const failures = []
 let doing = 'loading'
 const say = (line) => console.log(line)
 
+/*
+ * Waiting, in this file, is on the condition and never on the clock. A step has
+ * a generous ceiling (`CEILING`) so a machine running a whole test suite
+ * beside it is given time, and the assertion after the wait is the same one
+ * there would be without it: a wait that runs out fails with what it was
+ * waiting for, it is never retried and nothing is skipped.
+ */
+const CEILING = 20_000
+
+/** Two painted frames: whatever the page was about to lay out has been. */
+const painted = (where) => where.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true)))))
+
+/**
+ * Where a thing is drawn once it has stopped moving: the same box on two
+ * readings a painted frame apart. A switch, a fold or a resize animates, and a
+ * pointer sent to where a box WAS on a slow machine lands beside it.
+ */
+async function steadyBox(page, locator) {
+  const deadline = Date.now() + CEILING
+  let last = null
+  for (;;) {
+    const box = await locator.boundingBox()
+    if (box && last && ['x', 'y', 'width', 'height'].every((key) => Math.abs(box[key] - last[key]) < 0.5)) return box
+    last = box
+    if (Date.now() > deadline) return box
+    await painted(page)
+  }
+}
+
+/**
+ * Until `test` holds in a module's page, read from here a painted host frame apart; false at the
+ * ceiling. Not the page's own `waitForFunction`: that polls on the frame's own animation frames
+ * or timers, and WebKit holds those back in a cross-origin frame — a scroll that happened in
+ * 30 ms was seen 8.6 s later, a told epic a second late. The host page's frames are not held back.
+ */
+async function inPage(page, frame, test, arg) {
+  const deadline = Date.now() + CEILING
+  for (;;) {
+    if (await frame.evaluate(test, arg).catch(() => false)) return true
+    if (Date.now() > deadline) return false
+    await painted(page)
+  }
+}
+
 /** Click the middle of a box with the real pointer. */
 async function press(page, box) {
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
@@ -69,16 +113,18 @@ async function press(page, box) {
 
 /** Press an element of the HOST page where it is drawn: the pointer goes wherever it lands. */
 async function pressHost(page, locator) {
-  await locator.waitFor({ state: 'visible' })
-  const box = await locator.boundingBox()
+  await locator.waitFor({ state: 'visible', timeout: CEILING })
+  const box = await steadyBox(page, locator)
   if (!box) throw new Error(`nothing drawn for ${locator}`)
   await press(page, box)
 }
 
+/** Hover over a thing; resolves once it is the thing under the pointer, as far as the page can say. */
 async function pointAt(page, locator) {
-  const box = await locator.boundingBox()
+  await locator.waitFor({ state: 'visible', timeout: CEILING })
+  const box = await steadyBox(page, locator)
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.waitForTimeout(150)
+  await painted(page)
 }
 
 /**
@@ -107,23 +153,40 @@ async function shownPages(page) {
 /* A host without the calm switch (before 0.1.54) has no `data-switch`: shown at once. */
 const SHOWN = () => (document.querySelector('[data-switch]')?.getAttribute('data-switch') ?? 'shown') === 'shown'
 
-async function settle(page) {
+/**
+ * The pages shown now, once there are `expected` of them and each has been
+ * greeted and drawn its field (the stand-in says `greeted` when the host's
+ * greeting arrived). Fewer, at the ceiling, is what is reported: the caller
+ * compares.
+ */
+async function settle(page, expected = 0) {
   /* Shown, and taking input: the switch's own word for it, with its ceiling. */
-  await page.waitForFunction(SHOWN, null, { timeout: 5000 })
-  await page.waitForTimeout(250)
+  await page.waitForFunction(SHOWN, null, { timeout: CEILING })
+  const deadline = Date.now() + CEILING
+  for (;;) {
+    const pages = await shownPages(page)
+    let ready = pages.length >= expected
+    for (const { frame } of pages) {
+      const here = await frame.evaluate(() => document.getElementById('greeted')?.textContent === 'greeted' && !!document.getElementById('field')).catch(() => false)
+      if (!here) ready = false
+    }
+    if (ready || Date.now() > deadline) break
+    await painted(page)
+  }
+  await painted(page)
 }
 
 /** Click, type and scroll in every page shown, as a hand would. */
 async function everyPageTakesInput(page, label, expected) {
-  await settle(page)
+  await settle(page, expected)
   const pages = await shownPages(page)
   const lines = []
   if (pages.length < expected) lines.push(`FAIL only ${pages.length} of ${expected} pages shown`)
   for (const { id, frame } of pages) {
     const problems = []
     const field = frame.locator('#field')
-    await field.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
-    const fieldBox = await field.boundingBox()
+    await field.waitFor({ state: 'visible', timeout: CEILING }).catch(() => {})
+    const fieldBox = await steadyBox(page, field)
     if (!fieldBox) {
       lines.push(`FAIL ${id}: its field is not drawn`)
       continue
@@ -151,6 +214,8 @@ async function everyPageTakesInput(page, label, expected) {
     doing = `typing in ${id}`
     const word = `w${Math.random().toString(36).slice(2, 7)}`
     await page.keyboard.type(word)
+    /* The word is in the field once the page has handled the keys: wait for it, then judge what is there. */
+    await inPage(page, frame, ([word]) => document.getElementById('field').value === word, [word])
     const typed = await field.inputValue()
     if (typed !== word) {
       const focus = await frame.evaluate(() => `${document.hasFocus()} ${document.activeElement?.tagName}`)
@@ -161,17 +226,18 @@ async function everyPageTakesInput(page, label, expected) {
     doing = `pressing ${id}'s button`
     const count = frame.locator('#pressed')
     const before = Number(await count.innerText())
-    await press(page, await frame.locator('#press').boundingBox())
+    await press(page, await steadyBox(page, frame.locator('#press')))
+    await inPage(page, frame, ([before]) => Number(document.getElementById('pressed').textContent) !== before, [before])
     const after = Number(await count.innerText())
     if (after !== before + 1) problems.push(`button pressed, its count went ${before} → ${after}`)
     /* The wheel, over its list. */
     doing = `scrolling ${id}'s list`
     const list = frame.locator('#list')
     await list.evaluate((element) => (element.scrollTop = 0))
-    const listBox = await list.boundingBox()
+    const listBox = await steadyBox(page, list)
     await page.mouse.move(listBox.x + listBox.width / 2, listBox.y + listBox.height / 2)
     await page.mouse.wheel(0, 120)
-    await frame.waitForFunction(() => document.getElementById('list').scrollTop > 0, null, { timeout: 1500 }).catch(() => {})
+    await inPage(page, frame, () => document.getElementById('list').scrollTop > 0, null)
     const scrolled = await list.evaluate((element) => element.scrollTop)
     if (!(scrolled > 0)) problems.push('the wheel over its list scrolled nothing')
     lines.push(problems.length ? `FAIL ${id}: ${problems.join('; ')}` : `ok   ${id}`)
@@ -232,7 +298,7 @@ const WATCH = () => {
 async function watched(page, label, act) {
   await page.evaluate(WATCH)
   await act()
-  await page.waitForFunction(() => window.__handover?.done, null, { timeout: 5000 }).catch(() => {})
+  await page.waitForFunction(() => window.__handover?.done, null, { timeout: CEILING }).catch(() => {})
   const seen = await page.evaluate(() => window.__handover)
   const problems = []
   if (!seen.done) problems.push(`never shown (phases ${seen.phases.join(' → ')})`)
@@ -245,31 +311,74 @@ async function watched(page, label, act) {
   for (const problem of problems) failures.push(`${label}, the hand-over: ${problem}`)
 }
 
+/**
+ * An open menu is ready to be used once it has taken the keyboard (Radix
+ * focuses its content as it mounts, after the rows are drawn). A person clicks
+ * after they have seen it; a driver that clicks the frame it appeared in is
+ * clicking a menu that has not finished opening, whose late focus then lands
+ * on top of the click.
+ */
+async function menuSettled(page) {
+  await page.waitForFunction(() => document.querySelector('[data-menu-content], [role="menu"]')?.contains(document.activeElement), null, { timeout: CEILING })
+  await painted(page)
+}
+
 async function choose(page, kind, row, label) {
   await pressHost(page, page.locator(`button[aria-label="switch ${kind}"]`))
   const item = page.locator('[role="menuitem"]', { hasText: row }).first()
+  await item.waitFor({ state: 'visible', timeout: CEILING })
+  await menuSettled(page)
   await watched(page, label, () => pressHost(page, item))
 }
 
-/* The epic picker, and how long the pages wait to be told: never more than the cap. */
-async function chooseEpic(page, label) {
+/*
+ * The epic picker: the hand-over, watched on every frame; or how long the pages wait to be told,
+ * never more than the cap. Two presses, not one: the watching does work on every painted frame of
+ * the host page, and a switch timed while it runs is timed with that work in its way.
+ */
+async function chooseEpic(page, label, timed = false) {
   /* The other one: what a project is about is the host's to keep, so a second
      browser finds the epic the first one left it on. */
   const trigger = page.locator('button[aria-label="the epic this project is on"]')
   const [title, slug] = (await trigger.innerText()).includes('Results') ? ['Methods', 'methods'] : ['Results', 'results']
   await pressHost(page, trigger)
   const item = page.locator('[role^="menuitem"]', { hasText: title }).first()
-  await item.waitFor({ state: 'visible' })
+  await item.waitFor({ state: 'visible', timeout: CEILING })
+  await menuSettled(page)
   const frames = (await shownPages(page)).map((one) => one.frame)
-  const started = Date.now()
-  const told = Promise.all(
-    frames.map((frame) => frame.waitForFunction((slug) => document.getElementById('told')?.textContent === slug, slug, { timeout: 3000, polling: 10 }).then(() => Date.now() - started)),
-  )
-  await watched(page, label, () => pressHost(page, item))
-  const waited = await told.catch(() => null)
-  /* The cap, and what it costs to carry a message and to be polled for it. */
+  /* Where the row is drawn, found BEFORE the clock starts: the cap is the
+     host's to keep from the press on, not the time a slow machine takes to
+     look at the screen. */
+  const box = await steadyBox(page, item)
+  /* When the press reached the host page, and when each page was told: both read in the
+     browsers, on the clock they share, so what is measured is the host's hand-over and not how
+     soon a driver on a busy machine got round to looking. */
+  await page.evaluate(() => {
+    window.__pressedAt = 0
+    window.__phases = []
+    /* A menu row is chosen on its release, so that is the press the cap counts from. */
+    window.addEventListener('pointerup', () => void (window.__pressedAt ||= Date.now()), { capture: true, once: true })
+    /* The switch's phases as the host draws them, for a line that says where the time went. */
+    new MutationObserver(() => {
+      const phase = document.querySelector('[data-switch]')?.getAttribute('data-switch') ?? 'shown'
+      if (window.__phases.at(-1)?.[0] !== phase) window.__phases.push([phase, Date.now()])
+    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-switch'] })
+  })
+  if (!timed) return void (await watched(page, label, () => press(page, box)))
+  await press(page, box)
+  /* Shown again after the switch it started: what the host draws, observed above, not polled. */
+  await page.waitForFunction(() => window.__phases.length > 1 && window.__phases.at(-1)[0] === 'shown', null, { timeout: CEILING, polling: 100 }).catch(() => {})
+  /* Read once the hand-over is shown, not polled during it: the pages say when they were told,
+     and reading them over and over while the switch runs is work the switch then waits behind. */
+  const arrived = (await Promise.all(frames.map((frame) => inPage(page, frame, (slug) => document.getElementById('told')?.textContent === slug, slug)))).every(Boolean)
+  const pressedAt = await page.evaluate(() => window.__pressedAt)
+  const toldAt = arrived && pressedAt ? await Promise.all(frames.map((frame) => frame.evaluate(([slug, after]) => (window.__toldLog ?? []).find(([said, at]) => said === slug && at >= after)?.[1] ?? 0, [slug, pressedAt]))) : null
+  const waited = toldAt?.every(Boolean) ? toldAt.map((at) => at - pressedAt) : null
+  /* The cap, and what it costs to carry a message from the host's page into another. */
   const ok = waited !== null && Math.max(...waited) <= 300 + 120
-  say(`    ${ok ? 'ok  ' : 'FAIL'} every page told "${slug}" ${waited ? `within ${Math.max(...waited)} ms` : 'never'}`)
+  const phases = await page.evaluate(() => window.__phases)
+  const timeline = pressedAt ? phases.map(([phase, at]) => `${phase} +${at - pressedAt}`).join(', ') : ''
+  say(`    ${ok ? 'ok  ' : 'FAIL'} every page told "${slug}" ${waited ? `within ${Math.max(...waited)} ms` : 'never'}${ok ? '' : ` (pressed, then ${timeline}; told ${waited?.map((ms) => `+${ms}`).join(' ') ?? 'never'})`}`)
   if (!ok) failures.push(`${label}: the pages were told the new epic ${waited ? `only after ${Math.max(...waited)} ms` : 'never'}`)
 }
 
@@ -278,18 +387,18 @@ async function headerMenu(page, label) {
   const frame = (await shownPages(page)).find((one) => one.id === 'kehikot.alpha')?.frame
   const was = await frame?.evaluate(() => document.body.dataset.flag ?? 'false')
   await pressHost(page, page.locator('button[aria-label^="view of Alpha"]'))
+  await page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first().waitFor({ state: 'visible', timeout: CEILING })
+  await menuSettled(page)
   await pressHost(page, page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first())
-  const now = await frame
-    ?.waitForFunction((was) => (document.body.dataset.flag ?? 'false') !== was, was, { timeout: 3000 })
-    .then(() => frame.evaluate(() => document.body.dataset.flag))
-    .catch(() => was)
+  const moved = frame ? await inPage(page, frame, (was) => (document.body.dataset.flag ?? 'false') !== was, was) : false
+  const now = moved ? await frame.evaluate(() => document.body.dataset.flag) : was
   const ok = now !== was
   /* A toggle keeps its menu open (`staysOpen` in `host/header.ts`); Escape
      closes it, as a person would. Not a click into the page: measured in
      WebKit, before the calm switch as after it, the click that dismisses an
      open host menu is not one that focuses the page under it. */
   await page.keyboard.press('Escape')
-  await page.waitForTimeout(300)
+  await page.waitForFunction(() => document.querySelectorAll('[data-menu-content]').length === 0, null, { timeout: CEILING })
   say(`  ${label}`)
   say(`    ${ok ? 'ok  ' : 'FAIL'} the header toggle reached Alpha (${was} → ${now})`)
   if (!ok) failures.push(`${label}: the header toggle did not reach Alpha`)
@@ -309,11 +418,20 @@ async function clickOutIntoPage(page, label) {
     const field = frame.locator('#field')
     await field.evaluate((input) => (input.value = ''))
     await pressHost(page, page.locator('button[aria-label^="view of Alpha"]'))
-    await page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first().waitFor({ state: 'visible' })
-    const box = await field.boundingBox()
+    await page.locator('[role="menuitemcheckbox"]', { hasText: 'Flag' }).first().waitFor({ state: 'visible', timeout: CEILING })
+    /* The menu is open and has the keyboard: it is what a person is looking at when they click out of it. */
+    await menuSettled(page)
+    const box = await steadyBox(page, field)
     await page.mouse.click(box.x + 8, box.y + box.height / 2)
+    /* The click is one that both closes the menu and focuses the page; "straight
+       after" is a person typing once they see it done, so wait for both to be
+       so. The typing is judged the same as ever: every letter, in the field. */
+    await page.waitForFunction(() => document.querySelectorAll('[data-menu-content]').length === 0, null, { timeout: CEILING }).catch(() => {})
+    await inPage(page, frame, () => document.hasFocus() && document.activeElement?.id === 'field', null)
+    await painted(page)
     const word = `c${Math.random().toString(36).slice(2, 7)}`
     await page.keyboard.type(word)
+    await inPage(page, frame, ([word]) => document.getElementById('field').value === word, [word])
     const typed = await field.inputValue()
     const open = await page.locator('[data-menu-content]').count()
     if (open) problems.push('the menu is still open after the click')
@@ -333,14 +451,22 @@ async function resize(page) {
      rightly, because the page is what is under the middle of the item. */
   await pointAt(page, item.locator('.container-grip').first())
   const handle = item.locator('.react-resizable-handle-se')
-  const box = await handle.boundingBox()
-  const before = await item.boundingBox()
+  const box = await steadyBox(page, handle)
+  const before = await steadyBox(page, item)
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
   for (let step = 1; step <= 8; step += 1) await page.mouse.move(box.x + box.width / 2 - step * 15, box.y + box.height / 2 - step * 10)
   await page.mouse.up()
-  await page.waitForTimeout(400)
-  const after = await item.boundingBox()
+  /* The item takes its new size, then stops. */
+  await page.waitForFunction(
+    ([width, height, id]) => {
+      const box = document.querySelector(`[data-module="${id}"]`)?.closest('.react-grid-item')?.getBoundingClientRect()
+      return !!box && (Math.abs(box.width - width) >= 20 || Math.abs(box.height - height) >= 20)
+    },
+    [before.width, before.height, 'kehikot.beta'],
+    { timeout: CEILING },
+  ).catch(() => {})
+  const after = await steadyBox(page, item)
   if (Math.abs(after.width - before.width) < 20 && Math.abs(after.height - before.height) < 20) {
     failures.push('resize: the corner did not resize Beta')
     say('    FAIL the corner did not resize Beta')
@@ -350,8 +476,15 @@ async function resize(page) {
 async function fold(page, id) {
   const container = page.locator(`[data-module="${id}"]`).first()
   await pointAt(page, container.locator('.container-grip').first())
-  await pressHost(page, container.locator('button[aria-label^="fold this container"], button[aria-label^="unfold this container"]').first())
-  await page.waitForTimeout(400)
+  const button = container.locator('button[aria-label^="fold this container"], button[aria-label^="unfold this container"]').first()
+  const was = await button.getAttribute('aria-label')
+  await pressHost(page, button)
+  /* Folded or unfolded: the control says the other thing, and the container has stopped moving. */
+  await page.waitForFunction(([id, was]) => {
+    const now = document.querySelector(`[data-module="${id}"] button[aria-label^="fold this container"], [data-module="${id}"] button[aria-label^="unfold this container"]`)
+    return now && now.getAttribute('aria-label') !== was
+  }, [id, was], { timeout: CEILING })
+  await steadyBox(page, container)
 }
 
 async function drive(kind, browserType) {
@@ -375,25 +508,36 @@ async function drive(kind, browserType) {
       if (process.env.STACKS === '1') console.log(error.stack)
     })
     say(`[${kind}, ${scheme}]`)
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('[data-frame]', { state: 'attached', timeout: 30000 })
-    await page.waitForFunction(SHOWN, null, { timeout: 30000 })
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    await page.waitForSelector('[data-frame]', { state: 'attached', timeout: 60000 })
+    await page.waitForFunction(SHOWN, null, { timeout: 60000 })
     /* A fresh host asks, once, whether to keep the agent set up. */
-    for (let tries = 0; tries < 6 && (await page.locator('[role="dialog"]').count()); tries += 1) {
+    /* A fresh browser is welcomed with a dialog (the intro), and a fresh host asks
+       first, once, whether to keep the agent set up; the welcome follows the
+       answer. Each is waited for where it is expected, and each one's overlay is
+       waited out: it outlives the dialog by its exit animation and takes every
+       click until it is gone. */
+    const dialogs = page.locator('[role="dialog"]')
+    const goneOverlay = () => page.waitForFunction(() => document.querySelectorAll('[role="dialog"], [data-state].fixed.inset-0').length === 0, null, { timeout: CEILING }).catch(() => {})
+    await dialogs.first().waitFor({ state: 'visible', timeout: CEILING }).catch(() => {})
+    for (let tries = 0; tries < 6 && (await dialogs.count()); tries += 1) {
       const myself = page.locator('[role="dialog"] button', { hasText: 'do it myself' })
-      if (await myself.count()) await pressHost(page, myself.first())
+      const question = (await myself.count()) > 0
+      if (question) await pressHost(page, myself.first())
       else await page.keyboard.press('Escape')
-      await page.waitForTimeout(400)
+      await goneOverlay()
+      if (question) await dialogs.first().waitFor({ state: 'visible', timeout: CEILING }).catch(() => {})
     }
-    await page.waitForFunction(() => document.querySelectorAll('[data-frame]').length >= 3, null, { timeout: 30000 })
-    /* Every page greeted: a page is drawn only once it has been. */
-    await page.waitForTimeout(1500)
+    await page.waitForFunction(() => document.querySelectorAll('[data-frame]').length >= 3, null, { timeout: 60000 })
+    /* Every page greeted: a page is drawn only once it has been (the stand-in says so). */
+    await settle(page, 3)
     const name = (label) => `${kind} ${scheme}, ${label}`
 
     await everyPageTakesInput(page, name('after the first load'), 3)
     await choose(page, 'kehikko', 'Tall', name('a kehikko switch'))
     await everyPageTakesInput(page, name('after a kehikko switch'), 3)
     await chooseEpic(page, name('an epic switch'))
+    await chooseEpic(page, name('an epic switch back, timed'), true)
     await everyPageTakesInput(page, name('after an epic switch'), 3)
     if (scheme === 'light') {
       await headerMenu(page, name('a header menu press'))

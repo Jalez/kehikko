@@ -18,7 +18,11 @@ document.getElementById('press')!.addEventListener('click', () => {
 const told = (context: { epic?: string | null; scope?: string; theme?: 'light' | 'dark' }) => {
   /* In the host's theme, as a real module is: a switch is judged on what a person sees. */
   if (context.theme) applyTheme(context.theme)
-  document.getElementById('told')!.textContent = context.scope === 'project' ? 'all epics' : (context.epic ?? 'no epic')
+  const said = context.scope === 'project' ? 'all epics' : (context.epic ?? 'no epic')
+  document.getElementById('told')!.textContent = said
+  /* When it was told, on the clock every page on this computer shares: a driver measures the
+     host's hand-over from the press to here, not from its own polling of the page. */
+  ;((window as unknown as { __toldLog?: [string, number][] }).__toldLog ??= []).push([said, Date.now()])
 }
 
 const header = () => [{ kind: 'toggle' as const, id: 'flag', label: 'Flag', checked: flag, agents: true }]
