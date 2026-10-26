@@ -16,6 +16,8 @@ import type { Runner } from '../feedback.ts'
 import {
   chunks,
   clip,
+  contributedIssues,
+  contributesOf,
   instant,
   labelsOf,
   list,
@@ -30,6 +32,7 @@ import {
   str,
   trouble,
   who,
+  withContributors,
   withPeople,
   type Adapter,
   type BoardsRead,
@@ -336,6 +339,10 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     .filter((one): one is string => one !== null)
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closes' as const }))
+  /* GitHub's closing references are its own closing truth; "Part of #12" in
+     the body is a contribution (protocol 2.26.0), and never one of them. Only
+     when the body was asked for: without it, nothing is said. */
+  const contributes = has(r, 'body') ? contributesOf(source, contributedIssues(str(r.body)), links.map((l) => l.ref)) : undefined
   /* GraphQL hangs the rollup off the last commit; the list hands it over flat. */
   const head = obj(obj(nodes(obj(r.commits))[0]).commit)
   const rollup = r.statusCheckRollup ?? head.statusCheckRollup
@@ -361,6 +368,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     closedAt: state === 'open' ? null : (instant(r.closedAt) ?? undefined),
     mergedAt: state === 'merged' ? (instant(r.mergedAt) ?? undefined) : null,
     links,
+    contributes,
     pipeline: rollup === undefined || rollup === null ? undefined : pipelineOf(rollup),
     review: reviewOf(r.reviewDecision),
     /* Absent when the answer did not carry them, which is not the same as nobody. */
@@ -378,9 +386,14 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
 /**
  * Give each issue the changes that say they close it, from the changes in the
  * same reading — the listing hands over a pull request's closing references and
- * not an issue's closers.
+ * not an issue's closers. The pull requests that say they are only part of it
+ * go in its `contributedBy`, and never make it `closedByMerge` (protocol 2.26.0).
  */
 export function linkClosers(rows: TrackerRow[]): TrackerRow[] {
+  return withContributors(closedByClosers(rows))
+}
+
+function closedByClosers(rows: TrackerRow[]): TrackerRow[] {
   const closers = new Map<string, TrackerRow[]>()
   for (const one of rows) {
     if (one.kind !== 'change') continue
@@ -503,7 +516,8 @@ const ISSUE_GRAPH = (boards: boolean, branches = true) => `number state stateRea
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }
     latestReviews(first: 32) { nodes { state author { login ${AVATAR} ... on User { name } } } }
     reviewThreads(first: 100) { totalCount nodes { isResolved } }`
-const PULL_GRAPH = (boards: boolean) => `number state title url createdAt updatedAt closedAt mergedAt isDraft reviewDecision
+/* `body` for the issues a pull request says it is part of (protocol 2.26.0): a field of the node, at no cost in GitHub's points. */
+const PULL_GRAPH = (boards: boolean) => `number state title url body createdAt updatedAt closedAt mergedAt isDraft reviewDecision
     baseRefName headRefName isCrossRepository ${PULL_ACTIVITY}
     author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
     closingIssuesReferences(first: 10) { nodes { number } }

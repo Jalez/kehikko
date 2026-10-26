@@ -9,7 +9,7 @@ import { answer, answerCall } from '../server/answers.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
 import { githubAdapter } from '../server/trackers/github.ts'
-import { BATCH, declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
+import { BATCH, contributedIssues, declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
 import { readingFile, refsInEpic, Trackers } from '../server/trackers/reading.ts'
 import { readConfig, sourceFor, sourceOfRemote, sourcesOf, type Source } from '../server/trackers/sources.ts'
 import { toWireContext } from '../src/host/context.ts'
@@ -135,8 +135,9 @@ describe('GitHub through gh', () => {
 })
 
 describe('GitLab through glab', () => {
-  test('a merge request delivers what its own description declares', () => {
-    expect(declaredIssues('Closes #12 and #13. Part of #2274; mentions #99 in passing')).toEqual([12, 13, 2274])
+  test('a merge request delivers what its own description says it closes, and only that (Jalez/kehikko#187)', () => {
+    expect(declaredIssues('Closes #12 and #13. Part of #2274; mentions #99 in passing')).toEqual([12, 13])
+    expect(contributedIssues('Closes #12 and #13. Part of #2274; mentions #99 in passing')).toEqual([2274])
   })
 
   test('issues and merge requests list together, spelled #N and !N, and a merged declarer closes its issue', async () => {

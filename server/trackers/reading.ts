@@ -20,7 +20,7 @@ import { z } from 'zod'
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import type { Adapter, BoardsRead, HeldBoard, Me, Read, Wanted } from './common.ts'
+import { withContributors, type Adapter, type BoardsRead, type HeldBoard, type Me, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -221,6 +221,13 @@ const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
 function backLinked(rows: TrackerRow[]): TrackerRow[] {
   /* Refs are spelled per source, so `#12` is only itself within one. */
   const within = (row: TrackerRow, ref: string) => `${sourceKey(row)}|${ref}`
+  /* And the changes that are only part of an issue, as its `contributedBy`
+     (protocol 2.26.0): over the whole reading for the same reason, after the
+     closers, so that a change that closes the issue is not also one of them. */
+  return withContributors(closedByDeclarers(rows, within), within)
+}
+
+function closedByDeclarers(rows: TrackerRow[], within: (row: TrackerRow, ref: string) => string): TrackerRow[] {
   const changes = new Map<string, TrackerRow>()
   const declarers = new Map<string, TrackerRow[]>()
   for (const one of rows) {
@@ -638,6 +645,26 @@ export class Trackers {
         held.queued.add(ref)
         if (detail === 'detail') held.queuedDetail.add(ref)
       }
+      /* An epic's issues come with the changes that are part of them
+         (protocol 2.26.0, Jalez/kehikko#187): "Part of #3912" names the issue,
+         not the epic, so without this the change is missing from the epic
+         while its issue is there. Only what the reading holds; nothing is
+         asked for, and a ref asked for by name is answered as itself only. */
+      if ('epic' in scope) {
+        const answered = new Set(rows.map(rowIdentity))
+        for (const issue of [...rows]) {
+          if (issue.kind !== 'issue') continue
+          for (const ref of issue.contributedBy ?? []) {
+            const name = readTrackerRef(ref)
+            if (!name) continue
+            const found = this.#find(byId, issue, 'change', name.number)
+            if (!found || answered.has(rowIdentity(found))) continue
+            answered.add(rowIdentity(found))
+            const { detail: _, ...summary } = found
+            rows.push(summary)
+          }
+        }
+      }
       this.#kick(root)
     }
 
@@ -685,10 +712,12 @@ export class Trackers {
    * `ghLinks`, a GitHub issue's ref as the epic spells it to its pull requests'
    * numbers. A change is under an issue only where a row's link says so — a
    * `closes` on the change or its `closed-by` mirror on the issue — which for
-   * GitLab is a closing keyword, "part of" or "implements" in the merge
-   * request's own description (`DECLARATION` in `gitlab.ts`), and for GitHub
-   * its closing references. A change that only mentions an issue has no link
-   * and folds nowhere.
+   * GitLab is a closing keyword in the merge request's own description
+   * (`closingIssues` in `common.ts`), and for GitHub its closing references. A
+   * change that is only part of an issue ("Part of #12", protocol 2.26.0) is
+   * not under it here: these maps say which change delivers which issue, and
+   * their readers take an issue with a merged change as delivered. A change
+   * that only mentions an issue has no link and folds nowhere.
    */
   live(root: string, epic: string): Record<string, unknown> | null {
     const got = this.get(root, { epic })
@@ -739,7 +768,7 @@ export class Trackers {
     return { generated: got.at, ...bags, links, ghLinks }
   }
 
-  #find(byId: Map<string, TrackerRow>, source: Source, kind: 'issue' | 'change' | null, number: number) {
+  #find(byId: Map<string, TrackerRow>, source: Pick<Source, 'tracker' | 'host' | 'repo'>, kind: 'issue' | 'change' | null, number: number) {
     return byId.get(identity(source, kind, number))
   }
 

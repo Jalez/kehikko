@@ -289,3 +289,88 @@ export function chunks<T>(items: readonly T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
   return out
 }
+
+/* ------------------------------------------------------------------------ *
+ * Closing, and contributing (protocol 2.26.0, Jalez/kehikko#187)
+ * ------------------------------------------------------------------------ */
+
+/** The issue numbers after a keyword: `#12`, `#12, #13`, `#12 and #13`. */
+const NUMBERS = String.raw`[\s:]*((?:#\d+[\s,]*(?:and\s*)?)+)`
+
+/**
+ * The words in a change's description that say it DELIVERS an issue: GitLab's
+ * own closing keywords, which GitHub reads the same way.
+ */
+const CLOSING = new RegExp(String.raw`\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing))\b${NUMBERS}`, 'gi')
+
+/**
+ * The words that say it delivers PART of one: "Part of #12", "Implements #12",
+ * "Contributes to #12". The upper merge requests of a stack use them, since
+ * GitLab's `closed_by` ignores a merge request that targets a feature branch.
+ * Never closing: the issue is done when it closes, not when one part merges.
+ */
+const CONTRIBUTING = new RegExp(String.raw`\b(?:part of|implements|contributes to)\b${NUMBERS}`, 'gi')
+
+function numbersAfter(description: string | null | undefined, words: RegExp): number[] {
+  const out = new Set<number>()
+  for (const m of (description ?? '').matchAll(words)) {
+    for (const ref of m[1]!.matchAll(/#(\d+)/g)) out.add(Number(ref[1]))
+  }
+  return [...out]
+}
+
+/** The issues a description says the change closes. */
+export const closingIssues = (description: string | null | undefined): number[] => numbersAfter(description, CLOSING)
+
+/** The issues a description says the change is part of, leaving out any it also says it closes. */
+export function contributedIssues(description: string | null | undefined): number[] {
+  const closes = new Set(closingIssues(description))
+  return numbersAfter(description, CONTRIBUTING).filter((n) => !closes.has(n))
+}
+
+/**
+ * A change's `contributes`: the issues spelled for this source, without any the
+ * change already `closes`, bounded. Undefined when there are none, so a row
+ * that contributes nothing has no field rather than an empty one.
+ */
+export function contributesOf(source: Source, numbers: readonly number[], closes: readonly string[]): string[] | undefined {
+  const closing = new Set(closes)
+  const refs = numbers
+    .map((n) => spell(source, 'issue', n))
+    .filter((one): one is string => one !== null && !closing.has(one))
+  const out = [...new Set(refs)].slice(0, LIMITS.TRACKER_LINKS)
+  return out.length ? out : undefined
+}
+
+/**
+ * Give each issue the changes among `rows` that say they are part of it, as
+ * `contributedBy`. Worked out afresh every time: no tracker hands an issue its
+ * contributors, so the field is only ever this mirror. An entry naming a change
+ * `rows` does not hold is kept (nothing here can say it is wrong); one naming a
+ * held change that no longer contributes is taken off. A change that closes
+ * the issue (a `closed-by` link) is not also a contributor. Never touches
+ * `links` or `closedByMerge`. `key` says which source a ref is spelled in.
+ */
+export function withContributors(rows: TrackerRow[], key: (row: TrackerRow, ref: string) => string = (_, ref) => ref): TrackerRow[] {
+  const held = new Set<string>()
+  const by = new Map<string, string[]>()
+  for (const one of rows) {
+    if (one.kind !== 'change') continue
+    held.add(key(one, one.ref))
+    for (const ref of one.contributes ?? []) {
+      const at = key(one, ref)
+      by.set(at, [...(by.get(at) ?? []), one.ref])
+    }
+  }
+  return rows.map((one) => {
+    if (one.kind !== 'issue') return one
+    const was = one.contributedBy ?? []
+    const closing = new Set(one.links.filter((l) => l.relation === 'closed-by').map((l) => l.ref))
+    const next = [...new Set([...was.filter((ref) => !held.has(key(one, ref))), ...(by.get(key(one, one.ref)) ?? [])])]
+      .filter((ref) => !closing.has(ref))
+      .slice(0, LIMITS.TRACKER_LINKS)
+    if (next.length === was.length && next.every((ref, i) => ref === was[i])) return one
+    const { contributedBy: _, ...rest } = one
+    return next.length ? { ...rest, contributedBy: next } : rest
+  })
+}
