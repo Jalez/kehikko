@@ -311,16 +311,21 @@ function withBranches(rows: TrackerRow[], branches: readonly StoredBranches[]): 
   })
 }
 
-/** Every ref spelling an epic names, in `refs` arrays and `ref`/`umbrella` fields at any depth. */
+/**
+ * Every ref spelling an epic names, in `refs` and `related` arrays and `ref`/`issue`/`umbrella` fields at
+ * any depth. `related` and `issue` are a published plan step's (protocol 2.21.0): the older record keeps
+ * a step's prior art among its `refs`, a plan moves it to `related`, and the scope must be the same
+ * before and after Journeys publishes. A gate's `waitsOn` is not read: the record never was.
+ */
 export function refsInEpic(epic: unknown): string[] {
   const out = new Set<string>()
   const walk = (v: unknown, depth: number) => {
     if (depth > 8 || v === null || typeof v !== 'object') return
     if (Array.isArray(v)) return v.forEach((one) => walk(one, depth + 1))
     for (const [key, value] of Object.entries(v)) {
-      if (key === 'refs' && Array.isArray(value)) {
+      if ((key === 'refs' || key === 'related') && Array.isArray(value)) {
         for (const one of value) if (typeof one === 'string' && readTrackerRef(one.trim())) out.add(one.trim())
-      } else if ((key === 'ref' || key === 'umbrella') && typeof value === 'string' && readTrackerRef(value.trim())) {
+      } else if ((key === 'ref' || key === 'issue' || key === 'umbrella') && typeof value === 'string' && readTrackerRef(value.trim())) {
         out.add(value.trim())
       } else walk(value, depth + 1)
     }

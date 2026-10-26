@@ -8,6 +8,8 @@ import { writePlan } from 'kehikot-module-protocol/serve'
 import { answer, type Grants } from '../server/answers.ts'
 import { setDisposition } from '../server/dispositions.ts'
 import { editParts, readEpic } from '../server/holdings.ts'
+import { epicRefs } from '../server/trackers/reading.ts'
+import { planOfJourney } from 'kehikot-module-protocol'
 import { modulesOn, type ModuleAbout } from '../server/placeRoutes.ts'
 import { serverAskDesk, type ServerAskDeps } from '../server/serverAsk.ts'
 import { asRead, builtBefore221, loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
@@ -92,6 +94,66 @@ describe('steps.list: the union of every provider', () => {
   test('an epic the host has no file for is not an epic, whoever publishes for it', () => {
     writePlan(folder, 'kehikot.planner', 'nowhere', PLAN)
     expect(answer(ME, 'steps.list', { epic: 'nowhere' }, known, () => {}, folder).ok).toBe(false)
+  })
+})
+
+/** A record shaped like Journeys' own seed `modes-are-modules.json`: no steps, projected from a paper. */
+const PAPER = {
+  slug: 'seam',
+  title: 'The seam',
+  steps: [],
+  stepsFrom: {
+    projector: 'the paper reader in the host this app was extracted from (src/modules/paper/steps.ts)',
+    where: 'data/papers/seam/main.tex',
+    why: 'The steps of this journey are the sections of its paper.',
+  },
+}
+const writeJourneys = (record: unknown): void => {
+  const file = moduleFile(folder, JOURNEYS_MODULE, JOURNEYS_FILE)!
+  mkdirSync(join(file, '..'), { recursive: true })
+  writeFileSync(file, JSON.stringify({ version: 1, journeys: { seam: record } }))
+}
+
+describe('steps kept elsewhere stay elsewhere once a plan is published', () => {
+  test('a plan published beside a stepsFrom epic still answers stepsFrom', () => {
+    writeJourneys(PAPER)
+    const before = asked('steps.list', { epic: 'seam' })
+    expect(before).toEqual({ stepsFrom: PAPER.stepsFrom })
+    /* Journeys publishes for another epic; the record kept elsewhere publishes nothing. */
+    writePlan(folder, JOURNEYS_MODULE, 'other', PLAN)
+    expect(asked('steps.list', { epic: 'seam' })).toEqual(before)
+  })
+
+  test('an empty published plan for it does not say there are none', () => {
+    writeJourneys(PAPER)
+    writePlan(folder, JOURNEYS_MODULE, 'seam', { steps: [] })
+    expect(asked('steps.list', { epic: 'seam' })).toEqual({ stepsFrom: PAPER.stepsFrom })
+  })
+
+  test('a provider with real steps still wins over stepsFrom', () => {
+    writeJourneys(PAPER)
+    writePlan(folder, 'kehikot.planner', 'seam', PLAN)
+    expect(asked('steps.list', { epic: 'seam' }).steps).toHaveLength(2)
+  })
+})
+
+describe('the tracker scope is the same before and after Journeys publishes', () => {
+  test('prior art and related refs stay in scope', () => {
+    const record = {
+      slug: 'seam',
+      title: 'The seam',
+      steps: [
+        { title: 'Draft', refs: ['gh#1', 'gh#2'], roles: { 'gh#2': 'prior-art' }, issue: 'gh#1', part: 'core' },
+        { title: 'Wire', refs: ['gh#3', 'gh#4'], roles: { 'gh#4': 'related' }, blockedBy: ['legal'] },
+      ],
+      gates: [{ id: 'legal', title: 'Legal', kind: 'issue', ref: 'gh#5' }],
+    }
+    writeJourneys(record)
+    const before = epicRefs(folder, 'seam')!.sort()
+    expect(before).toEqual(['gh#1', 'gh#2', 'gh#3', 'gh#4', 'gh#5'])
+    writePlan(folder, JOURNEYS_MODULE, 'seam', planOfJourney(record)!)
+    const after = epicRefs(folder, 'seam')!.sort()
+    expect(after).toEqual(before)
   })
 })
 
