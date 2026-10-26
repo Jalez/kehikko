@@ -117,6 +117,8 @@ describe.skipIf(!inChild)('each thing once', () => {
     /* The header names it once; no second "Factory 0.6.0" heading under it. */
     expect(count(pane.textContent!, 'Factory')).toBe(1)
     expect(pane.textContent).toContain('0.5.0 → 0.6.0')
+    /* Its date moved up into the header line. */
+    expect(pane.querySelector('[data-testid="whats-new-date"]')!.textContent).toBe('Oct 26, 2026')
   })
 
   test('a module with several releases shows each release once', async () => {

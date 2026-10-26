@@ -340,6 +340,7 @@ export function ReleaseSections({
   load = fetchNotes,
   oneTrouble = false,
   headings = tags.length > 1,
+  onDate,
 }: {
   repo: string
   name: string
@@ -352,6 +353,8 @@ export function ReleaseSections({
   oneTrouble?: boolean
   /** A heading with the version and date over each release. */
   headings?: boolean
+  /** Told the date of a release once it is read: for a caller that draws it elsewhere. */
+  onDate?(tag: string, date: string | null): void
 }) {
   const [readings, setReadings] = useState<Record<string, Reading>>({})
   const key = tags.join(',')
@@ -373,6 +376,10 @@ export function ReleaseSections({
     }
     return () => abort.abort()
   }, [open, repo, key, load])
+
+  useEffect(() => {
+    for (const [tag, reading] of Object.entries(readings)) if (reading.kind === 'read') onDate?.(tag, releaseDate(reading.release.publishedAt))
+  }, [readings, onDate])
 
   const failures = tags.map((tag) => readings[tag]).filter((one): one is Extract<Reading, { kind: 'failed' }> => one?.kind === 'failed' && !one.missing)
   const allFailed = oneTrouble && tags.length > 0 && failures.length === tags.length
