@@ -107,10 +107,14 @@
   (`PERSONAL_PLACEMENT_FIELDS`, `PERSONAL_SUBJECT_FIELDS`; `server/view.ts`).
   The host folder's `.gitignore` names `view.json`. A new `Placement` field
   goes on one list or the build fails.
-- `kehikot.json` stays `"version": 2` on purpose: every older host reads it
-  with a strict schema in which the personal fields default, so it still
-  reads the file (`test/fixtures/pre-split/reader.ts` is that reader, frozen —
-  never edit it to pass a test). Legacy personal fields in it are read into
+- `kehikot.json` stays `"version": 2`, and a file written since the 56-row
+  canvas also carries `"rows": 56`. A host before 56 rows refuses such a file
+  ("field this host does not know (rows)") and keeps its own canvases without
+  writing over it — the owner accepted that break: a teammate on an older host
+  sees layout changes once they update. A file without `rows` is 28 rows and
+  is read doubled; it gains `rows` on its next write, never on a read. The
+  pre-split reader in `test/fixtures/pre-split/reader.ts` is frozen — never
+  edit it to pass a test; it confirms the refusal. Legacy personal fields in it are read into
   `view.json` only when there is none, and dropped on the next write. Folds
   are written unfolded (`shared`), so a fold is no diff.
 
