@@ -124,6 +124,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'github-cache.json (Application Support/Kehikot) is the last answers the host read from GitHub\'s API with their ETags, and the hour\'s anonymous calls, so a restart asks conditionally, stays within the hourly budget and can still show the last good release list (host server/machineDirs.ts `githubCacheFile`)',
   },
   {
+    id: 'github-account',
+    match: /github-account\.json|KEHIKOT_GITHUB_ACCOUNT/,
+    reason: 'github-account.json (Application Support/Kehikot) is what Kehikot spent of its own share of the person\'s signed-in GitHub limit this window, and any wait GitHub asked for, so a restart keeps to the share (host server/machineDirs.ts `githubAccountFile`)',
+  },
+  {
     id: 'my-modules',
     match: /my-modules\.json|KEHIKOT_MY_MODULES/,
     reason: 'my-modules.json (Application Support/Kehikot) is the person\'s own list of modules added from a repository: this machine\'s alone, never published (host server/machineDirs.ts `myModulesFile`)',

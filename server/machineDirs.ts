@@ -208,3 +208,14 @@ export function browserProfileDir(env: Env = process.env): string {
 export function githubCacheFile(env: Env = process.env): string {
   return env.KEHIKOT_GITHUB_CACHE || join(machineDir(env), 'github-cache.json')
 }
+
+/**
+ * What Kehikot has spent of its own share of the person's signed-in GitHub
+ * limit in the account's current window, and any wait GitHub asked for: so a
+ * restart neither spends the share again nor asks while GitHub said to wait —
+ * see `server/githubAccount.ts`. Never a token or an answer.
+ * `KEHIKOT_GITHUB_ACCOUNT` overrides it.
+ */
+export function githubAccountFile(env: Env = process.env): string {
+  return env.KEHIKOT_GITHUB_ACCOUNT || join(machineDir(env), 'github-account.json')
+}

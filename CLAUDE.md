@@ -833,6 +833,35 @@
   that opened and closed between looks, or DNS (macOS resolves it in
   `mDNSResponder`).
 
+## Kehikot's share of the person's GitHub limit
+
+- Every `gh` run goes through `account.run` (`server/githubAccount.ts`), never
+  `spawnRunner` directly: the trackers, the gateway's `gh`, feedback, proposals,
+  My modules. A new caller of `gh` takes `account.run`. Only github.com is
+  budgeted; GitLab's limit is only reported (`RateLimit-*` headers of `glab api`
+  REST calls already made).
+- The rules are `decide`, pure, and what to test: a SHARE of 20% of each hourly
+  limit (REST `core`, GraphQL points), counted in the account's own window; a
+  FLOOR of 10% left, whoever spent it; and a wait when GitHub says so (403/429
+  with nothing remaining → that limit until its reset; `retry-after` or a
+  secondary limit's words → everything, a minute doubling). Background reads
+  obey share and floor; a person's press (`pressed`, routes in
+  `pressedRequest`: Refresh, Check now, Update, feedback, proposals, My
+  modules) may pass the share, never the floor; a write (`gh issue create`)
+  only waits for GitHub. A held run is not run: `held: true` with the sentence
+  in `err`, said as is by `trouble`/`ghTrouble`, and a `refused` row "held: …"
+  in the record of traffic (`noteHeld`).
+- The account is read with `gh api rate_limit` (free) at most once a minute,
+  only while a Monitor reads traffic (`watch`), near the floor, stale, or before
+  the first call. Otherwise from the answers: `gh api` runs with `--include`
+  and the headers are taken off before the caller sees the output; a GraphQL
+  query asks its own `rateLimit { cost }` (`withCost`), taken out of the answer.
+  Never read an answer's data for limit words — only a failure's.
+- What the share spent and any wait are kept in `github-account.json`
+  (`githubAccountFile`). `traffic.read` says it in `limits` (protocol 2.24.0)
+  and, for older readers, as rows in `budgets` (`budgetRows`: the anonymous
+  budget only when it was used or there is no account).
+
 ## Asking once (fewer repeated calls)
 
 - A sweep reads each module's kept manifest (`ManifestCache`, `server/manifests.ts`):
