@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { CANVAS_ROWS, FLOOR_ROW, NOMINAL_ROW, roomBelow, rowHeightFor } from '../src/host/fit.ts'
+import { CANVAS_ROWS, finer, FLOOR_ROW, NOMINAL_ROW, roomBelow, ROWS_BEFORE, rowHeightFor, rowsHolding } from '../src/host/fit.ts'
 
 /**
- * A canvas is twelve columns wide and twenty-eight rows tall, and both of those
+ * A canvas is twelve columns wide and fifty-six rows tall, and both of those
  * are COUNTS rather than pixel sizes.
  *
  * That is the third answer to one complaint. The canvas fitted its width and
@@ -49,29 +49,38 @@ describe('the row height a canvas draws with', () => {
 
   /*
    * The whole canvas, filled, on any screen — which is what twelve columns do
-   * across the width. The old version capped the rows at a nominal 24 and would
-   * have left a band at the bottom of a tall screen that no container could be
-   * dragged into, because nothing may exceed `CANVAS_ROWS`. Space a person can
-   * see and cannot use is a bug.
+   * across the width. Capped rows left a band at the bottom of a tall screen
+   * that no container could be dragged into, because nothing may exceed
+   * `CANVAS_ROWS`; floored rows left one too, up to a pixel a row, at every
+   * height that did not divide evenly — the owner's "empty space at the bottom
+   * to which you can't expand to". Space a person can see and cannot use is a
+   * bug, so the rows and their gaps are the room, exactly.
    */
-  test('the rows fill the height they are given, on any screen', () => {
-    for (const room of [600, 720, 904, 1200, 1600]) {
+  test('the rows and their gaps are exactly the room, at every height above the floor', () => {
+    for (let room = 568; room <= 2400; room += 1) {
       const height = rowHeightFor({ room, gap })
       const drawn = CANVAS_ROWS * height + (CANVAS_ROWS + 1) * gap
-      expect(drawn).toBeLessThanOrEqual(room)
-      /* And within one row of filling it. What is left over is the remainder of
-         an integer division, never a policy. */
-      expect(room - drawn).toBeLessThan(CANVAS_ROWS + gap)
+      expect(Math.abs(drawn - room)).toBeLessThan(1e-9)
     }
   })
 
-  /* Floored, not rounded: half a pixel too tall, times twenty-eight rows, is
-     fourteen pixels of overflow — the original complaint by the back door. */
-  test('a fit is never rounded up into an overflow', () => {
-    for (let room = 600; room <= 1400; room += 7) {
-      const height = rowHeightFor({ room, gap })
-      if (height > FLOOR_ROW) {
-        expect(CANVAS_ROWS * height + (CANVAS_ROWS + 1) * gap).toBeLessThanOrEqual(room)
+  /*
+   * And what the grid then draws. react-grid-layout places a container at
+   * `round((row + gap) * y + gap)` and draws it `round(row * h + gap * (h - 1))`
+   * tall — rounding each container on its own, so nothing accumulates. The
+   * bottom edge of a container that reaches the last row is then within a
+   * pixel of the room less its gap below, and never past the room: no band,
+   * and no scrollbar.
+   */
+  test('a container reaching the last row ends within a pixel of the bottom, and never past it', () => {
+    for (let room = 568; room <= 2400; room += 1) {
+      const row = rowHeightFor({ room, gap })
+      for (const y of [0, 1, 7, 20, 41, CANVAS_ROWS - 2]) {
+        const h = CANVAS_ROWS - y
+        const top = Math.round((row + gap) * y + gap)
+        const bottom = top + Math.round(row * h + gap * (h - 1))
+        expect(Math.abs(room - gap - bottom)).toBeLessThanOrEqual(1)
+        expect(bottom).toBeLessThanOrEqual(room)
       }
     }
   })
@@ -80,17 +89,14 @@ describe('the row height a canvas draws with', () => {
    * The gaps are the part a first attempt forgets. A canvas of N rows spends
    * N+1 of them on air — one above the first, one below the last, one between
    * each pair — and fitting only the rows leaves it exactly one gap too tall.
-   * At twenty-eight rows that is 232 pixels of air, which is why the floor is
-   * reached as early as it is.
    */
   test('the fit counts the air as well as the rows', () => {
     const room = 904
     const height = rowHeightFor({ room, gap })
-    expect(CANVAS_ROWS * height + (CANVAS_ROWS + 1) * gap).toBeLessThanOrEqual(room)
-    /* 904 is the canvas these arrangements were built on: 28 rows at the old
-       nominal 24, plus 29 gaps. It should come back out at exactly 24, which is
-       the evidence that 28 is the count this workspace has been using all
-       along without writing it down. */
+    expect(CANVAS_ROWS * height + (CANVAS_ROWS + 1) * gap).toBe(room)
+    /* 904 is the canvas these arrangements were built on: twenty-eight rows at
+       the old nominal 24 plus twenty-nine gaps, which is fifty-six rows at the
+       nominal 8 plus fifty-seven. */
     expect(height).toBe(NOMINAL_ROW)
   })
 
@@ -101,19 +107,71 @@ describe('the row height a canvas draws with', () => {
    * seeing all of a useless one. A test that demanded a fit here would be
    * demanding the floor be abandoned.
    */
-  test('a canvas too short for twenty-eight readable rows stops at the floor', () => {
+  test('a canvas too short for its rows to be readable stops at the floor', () => {
     expect(rowHeightFor({ room: 480, gap })).toBe(FLOOR_ROW)
     expect(rowHeightFor({ room: 120, gap })).toBe(FLOOR_ROW)
     expect(rowHeightFor({ room: 10, gap })).toBe(FLOOR_ROW)
   })
 
-  /* Where that boundary is, stated so a change to it is deliberate. Twenty-eight
-     rows at the floor, plus twenty-nine gaps, is 568 pixels — but a row of
-     thirteen needs 596, so a canvas between the two is at the floor and
-     overflows by the remainder. Below 596 pixels of canvas, this scrolls. */
-  test('and the boundary is where it says it is', () => {
-    expect(rowHeightFor({ room: 592, gap })).toBe(FLOOR_ROW)
-    expect(rowHeightFor({ room: 596, gap })).toBeGreaterThan(FLOOR_ROW)
+  /* Where that boundary is, stated so a change to it is deliberate: fifty-six
+     rows at the floor, plus fifty-seven gaps, is 568 pixels — where twenty-eight
+     rows at the old floor of 12 put it too. */
+  test('and the boundary is where it says it is, where it always was', () => {
+    expect(rowHeightFor({ room: 567, gap })).toBe(FLOOR_ROW)
+    expect(rowHeightFor({ room: 568, gap })).toBe(FLOOR_ROW)
+    expect(rowHeightFor({ room: 569, gap })).toBeGreaterThan(FLOOR_ROW)
+  })
+})
+
+/**
+ * Twenty-eight rows became fifty-six, and nothing a person built moved.
+ *
+ * A container `h` rows tall at row `y` of twenty-eight is, to the pixel, one
+ * `2h` tall at row `2y` of fifty-six — the air between two half-rows is the
+ * gap the old row spent inside itself. That is what lets every stored
+ * placement be doubled once and draw where it drew.
+ */
+describe('the finer rows', () => {
+  test('are a whole multiple of the old ones', () => {
+    expect(CANVAS_ROWS % ROWS_BEFORE).toBe(0)
+    expect(finer(ROWS_BEFORE)).toBe(CANVAS_ROWS)
+    expect(finer(10)).toBe(20)
+  })
+
+  test('draw a doubled placement exactly where the old one drew, at every height', () => {
+    for (let room = 568; room <= 1600; room += 3) {
+      const old = rowHeightFor({ room, gap }, ROWS_BEFORE, 12, 24)
+      const now = rowHeightFor({ room, gap })
+      for (const [y, h] of [[0, 28], [0, 10], [10, 18], [27, 1], [14, 7]] as const) {
+        const oldTop = (old + gap) * y + gap
+        const oldHeight = old * h + gap * (h - 1)
+        const newTop = (now + gap) * finer(y) + gap
+        const newHeight = now * finer(h) + gap * (finer(h) - 1)
+        expect(Math.abs(newTop - oldTop)).toBeLessThan(1e-9)
+        expect(Math.abs(newHeight - oldHeight)).toBeLessThan(1e-9)
+      }
+    }
+  })
+})
+
+/**
+ * How many rows a module's request for pixels is — `kehikot.resize`.
+ */
+describe('the rows that hold a height', () => {
+  test('the least that holds it, at a fractional row', () => {
+    const row = rowHeightFor({ room: 823, gap })
+    for (const h of [1, 2, 3, 10, 20, 41]) {
+      const exactly = row * h + gap * (h - 1)
+      /* Exactly a container's worth is that container, not one row more. */
+      expect(rowsHolding(exactly, row, gap)).toBe(h)
+      /* A pixel more needs the next row. */
+      expect(rowsHolding(exactly + 1, row, gap)).toBe(h + 1)
+    }
+  })
+
+  test('and never more than the canvas, nor less than a row', () => {
+    expect(rowsHolding(100_000, 8, gap)).toBe(CANVAS_ROWS)
+    expect(rowsHolding(0, 8, gap)).toBe(1)
   })
 })
 
@@ -131,7 +189,7 @@ describe('the room left below a container', () => {
   })
 
   test('and one further down may not', () => {
-    expect(roomBelow(18)).toBe(CANVAS_ROWS - 18)
+    expect(roomBelow(36)).toBe(CANVAS_ROWS - 36)
     expect(roomBelow(CANVAS_ROWS - 1)).toBe(1)
   })
 

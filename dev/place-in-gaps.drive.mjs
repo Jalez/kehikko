@@ -33,18 +33,18 @@ const SCENES = {
   top: {
     size: { width: 1280, height: 900 },
     placements: [
-      { i: 'kehikot.alpha', x: 0, y: 0, w: 6, h: 10 },
-      { i: 'kehikot.beta', x: 0, y: 10, w: 12, h: 18 },
+      { i: 'kehikot.alpha', x: 0, y: 0, w: 6, h: 20 },
+      { i: 'kehikot.beta', x: 0, y: 20, w: 12, h: 36 },
     ],
-    lands: { x: 6, y: 0, w: 6, h: 10 },
+    lands: { x: 6, y: 0, w: 6, h: 20 },
   },
   low: {
     size: { width: 1100, height: 520 },
     placements: [
-      { i: 'kehikot.alpha', x: 0, y: 0, w: 12, h: 18 },
-      { i: 'kehikot.beta', x: 0, y: 18, w: 6, h: 10 },
+      { i: 'kehikot.alpha', x: 0, y: 0, w: 12, h: 36 },
+      { i: 'kehikot.beta', x: 0, y: 36, w: 6, h: 20 },
     ],
-    lands: { x: 6, y: 18, w: 6, h: 10 },
+    lands: { x: 6, y: 36, w: 6, h: 20 },
   },
 }
 

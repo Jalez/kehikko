@@ -5,7 +5,9 @@ import {
   BUILT_IN_LAYOUTS,
   containersOf,
   layoutFileSchema,
+  layoutFromFile,
   layoutText,
+  LAYOUT_VERSION,
   slugFor,
   type Layout,
   type LayoutSource,
@@ -56,7 +58,9 @@ function shelf(dir: string | null, from: LayoutSource, trouble: string[]): Layou
         trouble.push(`${file} is not a layout: ${issue ? `${issue.path.join('.') || 'the top level'} ${issue.message}` : 'it did not read'}.`)
         continue
       }
-      out.push({ id: name.slice(0, -5), from, name: read.data.name, summary: read.data.summary, containers: read.data.containers })
+      /* In the rows a canvas has now, whichever version wrote it. */
+      const layout = layoutFromFile(read.data)
+      out.push({ id: name.slice(0, -5), from, name: layout.name, summary: layout.summary, containers: layout.containers })
     } catch (error) {
       trouble.push(`${file} could not be read: ${(error as Error).message}.`)
     }
@@ -102,7 +106,7 @@ export function saveLayout(
   if (canvas.placements.length === 0) return { ok: false, why: 'There is nothing on this kehikko to save.', status: 400 }
 
   const parsed = layoutFileSchema.safeParse({
-    version: 1,
+    version: LAYOUT_VERSION,
     name,
     summary: typeof ask.summary === 'string' ? ask.summary.trim() : '',
     containers: containersOf(shared(canvas.placements)),

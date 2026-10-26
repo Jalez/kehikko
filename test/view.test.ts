@@ -8,6 +8,7 @@ import { createCanvas, editCanvas, listCanvases, open as openDb, readSubject, se
 import { keep, kehikotFile, parse, serialize, syncProject } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { parseView, viewFile } from '../server/view.ts'
+import { FOLDED_ROWS } from '../src/host/columns.ts'
 import { olderHostReads } from './fixtures/pre-split/reader.ts'
 
 /*
@@ -67,11 +68,11 @@ describe('what is shared and what is one person’s', () => {
     const { dir, store, p, kehikko } = arranged()
     const shared = readFileSync(kehikotFile(dir)!, 'utf8')
 
-    /* Notes folded as the page folds it: one row, and paper moves up under it. */
+    /* Notes folded as the page folds it: its header, and paper moves up under it. */
     editCanvas(store, kehikko.id, {
       placements: [
-        { ...notes, collapsed: true, h: 1, selected: true },
-        { ...paper, y: 1, filters: { scope: 'chapter' } },
+        { ...notes, collapsed: true, h: FOLDED_ROWS, selected: true },
+        { ...paper, y: FOLDED_ROWS, filters: { scope: 'chapter' } },
       ],
     })
     setSubject(store, p.id, { epic: 'modes-are-modules', parts: ['a'], selection: ['gh#1'] })
@@ -104,7 +105,7 @@ describe('what is shared and what is one person’s', () => {
 
   test('another computer gets the layout, and its own view: nothing folded, no epic', () => {
     const { dir, store, p, kehikko } = arranged()
-    editCanvas(store, kehikko.id, { placements: [{ ...notes, collapsed: true, h: 1 }, { ...paper, y: 1 }] })
+    editCanvas(store, kehikko.id, { placements: [{ ...notes, collapsed: true, h: FOLDED_ROWS }, { ...paper, y: FOLDED_ROWS }] })
     setSubject(store, p.id, { epic: 'mine' })
     keep(store, p.id)
 
@@ -128,14 +129,14 @@ describe('what is shared and what is one person’s', () => {
 
   test('the same computer reads its folds back through the layout', () => {
     const { dir, store, p, kehikko } = arranged()
-    editCanvas(store, kehikko.id, { placements: [{ ...notes, collapsed: true, h: 1 }, { ...paper, y: 1 }] })
+    editCanvas(store, kehikko.id, { placements: [{ ...notes, collapsed: true, h: FOLDED_ROWS }, { ...paper, y: FOLDED_ROWS }] })
     keep(store, p.id)
     const there = openDb(':memory:')
     const q = project(there, dir)
     syncProject(there, q)
     expect(listCanvases(there)[0]!.placements.map((x) => [x.i, x.y, x.h, x.collapsed])).toEqual([
-      ['kehikot.notes', 0, 1, true],
-      ['kehikot.paper', 1, 12, false],
+      ['kehikot.notes', 0, FOLDED_ROWS, true],
+      ['kehikot.paper', FOLDED_ROWS, 12, false],
     ])
     /* And reading it again changes nothing. */
     expect(syncProject(there, q)).toMatchObject({ outcome: 'read', changed: false })
@@ -145,7 +146,7 @@ describe('what is shared and what is one person’s', () => {
     const { dir, store, p, kehikko } = arranged()
     const before = readFileSync(kehikotFile(dir)!, 'utf8')
     for (const look of [
-      { placements: [{ ...notes, collapsed: true, h: 1 }, { ...paper, y: 1, selected: true }], epic: 'one' },
+      { placements: [{ ...notes, collapsed: true, h: FOLDED_ROWS }, { ...paper, y: FOLDED_ROWS, selected: true }], epic: 'one' },
       { placements: [notes, { ...paper, filters: { kind: 'todo' } }], epic: 'two' },
     ]) {
       editCanvas(store, kehikko.id, { placements: look.placements })
@@ -208,7 +209,9 @@ describe('a file written before the split', () => {
     expect(syncProject(store, p)).toMatchObject({ outcome: 'read', changed: true })
     expect(readSubject(store, p.id)).toEqual({ epic: 'every-epic-aims-at-a-paper', parts: ['a'], selection: ['gh#4'] })
     const placements = listCanvases(store)[0]!.placements
-    expect(placements.find((x) => x.i === 'kehikot.journeys')).toMatchObject({ collapsed: true, h: 1, wish: 10 })
+    /* Version 2 counts in the old twenty-eight rows: doubled on the way in. */
+    expect(placements.find((x) => x.i === 'kehikot.journeys')).toMatchObject({ collapsed: true, h: 2, wish: 20 })
+    expect(placements.find((x) => x.i === 'kehikot.claude')).toMatchObject({ y: 2, h: 54, wish: 54 })
     expect(placements.find((x) => x.i === 'kehikot.claude')).toMatchObject({ selected: true, filters: { kind: 'todo' } })
 
     /* The view has them now. */
@@ -249,33 +252,49 @@ describe('a file written before the split', () => {
   })
 })
 
-describe('an older host reads the new file', () => {
-  test('the reader of every host before the split parses what this host writes, layout intact', () => {
+describe('an older host and the new file', () => {
+  /*
+   * The split did not bump the version, so every host before it read what this
+   * host wrote. The finer rows added `rows` at the top (`server/kehikot.ts`,
+   * "And the rows it counts in"): a host from before them reading fifty-sixths
+   * as twenty-eighths would draw every container twice as tall and write that
+   * back. So the frozen reader of those hosts must REFUSE what this host
+   * writes — which is what keeps it from writing over the file — and name the
+   * field, which its sentence turns into "is the file from a newer Kehikot?".
+   */
+  test('the reader of every host before the finer rows refuses what this host writes, naming rows', () => {
     const { dir, store, p, kehikko } = arranged()
     editCanvas(store, kehikko.id, {
-      placements: [{ ...notes, collapsed: true, h: 1, selected: true, filters: { a: 'b' }, version: 'v1.2.0' }, { ...paper, y: 1 }],
+      placements: [{ ...notes, collapsed: true, h: FOLDED_ROWS, selected: true, filters: { a: 'b' }, version: 'v1.2.0' }, { ...paper, y: FOLDED_ROWS }],
     })
     setSubject(store, p.id, { epic: 'one', parts: ['a'], selection: ['gh#1'] })
     keep(store, p.id)
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
 
     const older = olderHostReads(text)
-    expect(older.success).toBe(true)
-    if (!older.success) return
-    /* Version 2, as it always was: the version is not what the split changed. */
-    expect(older.data.version).toBe(2)
+    expect(older.success).toBe(false)
+    if (older.success) return
+    expect(older.error.issues).toHaveLength(1)
+    expect(older.error.issues[0]).toMatchObject({ code: 'unrecognized_keys', keys: ['rows'], path: [] })
+    /* And the same text without it, halved back into its rows, is a layout it
+       reads intact — so nothing else about the shape changed: `rows` is the
+       whole of the refusal. */
+    const halved = JSON.parse(text) as { rows?: number; kehikot: { containers: { y: number; h: number; wish: number }[] }[] }
+    delete halved.rows
+    for (const one of halved.kehikot[0]!.containers) Object.assign(one, { y: one.y / 2, h: one.h / 2, wish: one.wish / 2 })
+    const reads = olderHostReads(JSON.stringify(halved))
+    expect(reads.success).toBe(true)
+    if (!reads.success) return
     /* What it makes of the personal fields it no longer finds: the whole epic, nothing folded. */
-    expect(older.data.epic).toBeNull()
-    expect(older.data.selection).toEqual([])
-    const read = older.data.kehikot[0]!.containers
-    expect(read.map((c) => [c.module, c.x, c.y, c.w, c.h, c.wish, c.collapsed, c.version ?? null])).toEqual([
-      ['kehikot.notes', 0, 0, 6, 10, 10, false, 'v1.2.0'],
-      ['kehikot.paper', 0, 10, 6, 12, 12, false, null],
+    expect(reads.data.epic).toBeNull()
+    expect(reads.data.kehikot[0]!.containers.map((c) => [c.module, c.x, c.y, c.w, c.h, c.wish, c.collapsed, c.version ?? null])).toEqual([
+      ['kehikot.notes', 0, 0, 6, 5, 5, false, 'v1.2.0'],
+      ['kehikot.paper', 0, 5, 6, 6, 6, false, null],
     ])
   })
 
-  test('and this host reads what an older host writes', () => {
-    const read = parse(serialize([]).replace('"version": 2,', '"version": 2,\n  "epic": "x",\n  "selection": [],'))
+  test('and this host reads what an older host writes, in its rows', () => {
+    const read = parse(serialize([]).replace('  "rows": 56,\n', '  "epic": "x",\n  "selection": [],\n'))
     expect(read.ok && read.legacy?.subject.epic).toBe('x')
   })
 })

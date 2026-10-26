@@ -109,7 +109,7 @@ function recordAgrees() {
 
 describe('what the person does meanwhile', () => {
   test('a change landed while the modules are being looked at is not overwritten', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10), box('a.two', 6, 0, 6, 10), box('a.three', 0, 10, 6, 8)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20), box('a.two', 6, 0, 6, 20), box('a.three', 0, 20, 6, 16)])
     let looked!: (sightings: Sighting[]) => void
     const looking = new Promise<Sighting[]>((resolve) => {
       looked = resolve
@@ -122,7 +122,7 @@ describe('what the person does meanwhile', () => {
     editCanvas(db, id, {
       placements: canvasNow(id)
         .placements.filter((p) => p.i !== 'a.three')
-        .map((p) => (p.i === 'a.two' ? { ...p, x: 8, w: 4, h: 14, wish: 14 } : p)),
+        .map((p) => (p.i === 'a.two' ? { ...p, x: 8, w: 4, h: 28, wish: 28 } : p)),
     })
     const theirs = canvasNow(id).placements
     looked(seen)
@@ -138,38 +138,38 @@ describe('what the person does meanwhile', () => {
 
 describe('where a placed container lands', () => {
   test('beside the last one when the bottom row has room, exactly where the page’s + would put it', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.two'] }, door())
     expect(done.failed).toBe(false)
     const after = canvasNow(id).placements
-    expect(after.find((p) => p.i === 'a.two')).toMatchObject({ x: 6, y: 0, w: 6, h: 10, wish: 10 })
+    expect(after.find((p) => p.i === 'a.two')).toMatchObject({ x: 6, y: 0, w: 6, h: 20, wish: 20 })
     legal(after)
-    expect(done.text).toContain('a.two at column 6, row 0, 6 wide and 10 tall')
+    expect(done.text).toContain('a.two at column 6, row 0, 6 wide and 20 tall')
     expect(done.text).toContain('Nothing else was moved')
   })
 
   test('on a new row under everything when the bottom row is full', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10), box('a.two', 6, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20), box('a.two', 6, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.three'] }, door())
     expect(done.failed).toBe(false)
     const after = canvasNow(id).placements
-    expect(after.find((p) => p.i === 'a.three')).toMatchObject({ x: 0, y: 10, w: 6, h: 10 })
+    expect(after.find((p) => p.i === 'a.three')).toMatchObject({ x: 0, y: 20, w: 6, h: 20 })
     legal(after)
   })
 
   test('several at once, each landing after the one before, in the order given', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.two', 'a.three', 'a.four'] }, door())
     expect(done.failed).toBe(false)
     const after = canvasNow(id).placements
     expect(after.find((p) => p.i === 'a.two')).toMatchObject({ x: 6, y: 0 })
-    expect(after.find((p) => p.i === 'a.three')).toMatchObject({ x: 0, y: 10 })
-    expect(after.find((p) => p.i === 'a.four')).toMatchObject({ x: 6, y: 10 })
+    expect(after.find((p) => p.i === 'a.three')).toMatchObject({ x: 0, y: 20 })
+    expect(after.find((p) => p.i === 'a.four')).toMatchObject({ x: 6, y: 20 })
     legal(after)
   })
 
   test('nobody else’s rectangle changes — stored or drawn', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 12, 8), box('a.two', 0, 8, 4, 12)])
+    const id = aCanvas([box('a.one', 0, 0, 12, 16), box('a.two', 0, 16, 4, 24)])
     const before = canvasNow(id).placements
     const drawnBefore = granted(before)
     const done = await call('place_modules', { kehikko: id, modules: ['a.three'] }, door())
@@ -182,15 +182,15 @@ describe('where a placed container lands', () => {
   })
 
   test('its height is cut to what the column grants when the wish would not fit whole', async () => {
-    /* A full-width container twenty rows tall; the new one goes under it, in
-       the eight rows left: a shaped gap, so it asks for eight (its wish is the
-       gap's height, not the ten it would have had, because a wish over the gap
+    /* A full-width container forty rows tall; the new one goes under it, in
+       the sixteen rows left: a shaped gap, so it asks for sixteen (its wish is the
+       gap's height, not the twenty it would have had, because a wish over the gap
        would push whatever is under the gap down). */
-    const id = aCanvas([box('a.one', 0, 0, 12, 20)])
+    const id = aCanvas([box('a.one', 0, 0, 12, 40)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.two'] }, door())
     expect(done.failed).toBe(false)
     const it = canvasNow(id).placements.find((p) => p.i === 'a.two')!
-    expect(it).toMatchObject({ x: 0, y: 20, h: 8, wish: 8 })
+    expect(it).toMatchObject({ x: 0, y: 40, h: 16, wish: 16 })
     legal(canvasNow(id).placements)
   })
 
@@ -198,20 +198,20 @@ describe('where a placed container lands', () => {
     const id = aCanvas([])
     const done = await call('place_modules', { kehikko: id, modules: ['a.one'] }, door())
     expect(done.failed).toBe(false)
-    expect(canvasNow(id).placements[0]).toMatchObject({ i: 'a.one', x: 0, y: 0, w: 6, h: 10 })
+    expect(canvasNow(id).placements[0]).toMatchObject({ i: 'a.one', x: 0, y: 0, w: 6, h: 20 })
   })
 })
 
 describe('the record', () => {
   test('the file in the project and the database agree, and the page is woken', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.two'] }, door())
     expect(done.failed).toBe(false)
     /* By name: `addProject` gives a project an empty kehikko of its own on the
        way in, so this one is not the file's first. */
     const mine = recordAgrees().find((k) => k.name === 'the wire')
     expect(mine?.containers.map((c) => c.module)).toEqual(['a.one', 'a.two'])
-    expect(mine?.containers.find((c) => c.module === 'a.two')).toMatchObject({ x: 6, y: 0, w: 6, h: 10, wish: 10 })
+    expect(mine?.containers.find((c) => c.module === 'a.two')).toMatchObject({ x: 6, y: 0, w: 6, h: 20, wish: 20 })
     /* Written first, woken after — see `select_modules`. */
     expect(woken).toEqual([id])
   })
@@ -234,7 +234,7 @@ describe('the record', () => {
 
 describe('what is refused, and what is merely declined', () => {
   test('a module not registered on this computer is refused, whole, naming what could be placed', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const before = canvasNow(id).placements
     const done = await call('place_modules', { kehikko: id, modules: ['a.two', 'nobody.home'] }, door())
     expect(done.failed).toBe(true)
@@ -247,7 +247,7 @@ describe('what is refused, and what is merely declined', () => {
   })
 
   test('a module already on the kehikko is left alone, with a sentence, and nothing is written', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const before = canvasNow(id).placements
     const done = await call('place_modules', { kehikko: id, modules: ['a.one'] }, door())
     expect(done.failed).toBe(false)
@@ -258,7 +258,7 @@ describe('what is refused, and what is merely declined', () => {
   })
 
   test('one already there and one new: the new one is placed, the other is named as left alone', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.one', 'a.two'] }, door())
     expect(done.failed).toBe(false)
     expect(done.text).toContain('a.one was already there and left alone')
@@ -294,9 +294,9 @@ describe('what is refused, and what is merely declined', () => {
   })
 
   test('several where the last has no room: refused whole, saying which would have fitted', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 12, CANVAS_ROWS - 10)])
+    const id = aCanvas([box('a.one', 0, 0, 12, CANVAS_ROWS - 20)])
     const before = canvasNow(id).placements
-    /* a.two fits under (ten rows); a.three would go beside it — also fits;
+    /* a.two fits under (twenty rows); a.three would go beside it — also fits;
        a.four would need a new row and there is none. */
     const done = await call('place_modules', { kehikko: id, modules: ['a.two', 'a.three', 'a.four'] }, door())
     expect(done.failed).toBe(true)
@@ -314,7 +314,7 @@ describe('what is refused, and what is merely declined', () => {
   })
 
   test('read_canvas says which registered modules are not on the kehikko, for exactly this tool', async () => {
-    const id = aCanvas([box('a.one', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.one', 0, 0, 6, 20)])
     const read = await call('read_canvas', { kehikko: id }, door())
     expect(read.text).toContain('registered on this computer and not on this kehikko (what place_modules can add): a.two (Two), a.three (Three), a.four (Four)')
   })
@@ -327,7 +327,7 @@ describe('what a placed module is for', () => {
       { id: 'a.two', name: 'Two', condition: 'ready' },
       { id: 'a.four', name: 'Four', condition: 'ready', summary: 'Other.' },
     ]
-    const id = aCanvas([box('a.four', 0, 0, 6, 10)])
+    const id = aCanvas([box('a.four', 0, 0, 6, 20)])
     const done = await call('place_modules', { kehikko: id, modules: ['a.one', 'a.two'] }, door())
     expect(done.failed).toBe(false)
     expect(done.text).toContain('for: "Runs sessions."')

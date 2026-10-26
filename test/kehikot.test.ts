@@ -30,6 +30,7 @@ import {
 } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { viewFile } from '../server/view.ts'
+import { FOLDED_ROWS } from '../src/host/columns.ts'
 
 /*
  * A project's kehikot in the project's own folder — the copy that travels.
@@ -76,8 +77,8 @@ const everything: Placement = {
   x: 3,
   y: 0,
   w: 5,
-  /* Folded, so drawn one row tall — as the page would have drawn it. */
-  h: 1,
+  /* Folded, so drawn at its header's height — as the page would have drawn it. */
+  h: FOLDED_ROWS,
   grow: true,
   pinned: true,
   prompt: 'read chapter two and say what is missing',
@@ -196,6 +197,7 @@ describe('the round trip: this computer, the file, another computer', () => {
        container is written as it would be drawn open: at its wish. */
     expect(text).toBe(`{
   "version": 2,
+  "rows": 56,
   "kehikot": [
     {
       "key": "writing",
@@ -364,6 +366,13 @@ describe('a file that will not read', () => {
     expect(parse('{')).toMatchObject({ ok: false })
     expect(parse('[]')).toMatchObject({ ok: false })
     expect(parse('{"version": 3, "kehikot": []}')).toMatchObject({ ok: false })
+    /* Rows finer than this host's, which only a newer host writes, said as that. */
+    const newer = parse('{"version": 2, "rows": 112, "kehikot": []}')
+    expect(newer).toMatchObject({ ok: false })
+    expect(!newer.ok && newer.why).toContain('newer Kehikot')
+    /* And a count it could not draw exactly. */
+    expect(parse('{"version": 2, "rows": 30, "kehikot": []}')).toMatchObject({ ok: false })
+    expect(parse('{"version": 2, "rows": 56, "kehikot": []}')).toMatchObject({ ok: true })
     /* A version-2 file with an epic on a kehikko is refused rather than
        quietly read: version 2 has no such field, so somebody wrote it there
        expecting it to mean something. */
@@ -408,7 +417,8 @@ describe('a file that will not read', () => {
       x: 0,
       y: 0,
       w: 12,
-      h: 30,
+      /* Version 1 counted in the old twenty-eight rows: thirty of them is sixty of these. */
+      h: 60,
       grow: false,
       pinned: false,
       prompt: '',
@@ -456,13 +466,14 @@ describe('a file that will not read', () => {
     )
     expect(syncProject(store, p)).toMatchObject({ outcome: 'read' })
     const placements = listCanvases(store)[0]!.placements
-    expect(placements.find((x) => x.i === 'kehikot.notes')).toMatchObject({ h: 12, collapsed: false, wish: 12 })
-    expect(placements.find((x) => x.i === 'kehikot.paper')).toMatchObject({ h: 1, collapsed: true, wish: 14 })
+    /* In the old rows, so doubled: the arrangement draws where it drew. */
+    expect(placements.find((x) => x.i === 'kehikot.notes')).toMatchObject({ h: 24, collapsed: false, wish: 24 })
+    expect(placements.find((x) => x.i === 'kehikot.paper')).toMatchObject({ y: 24, h: FOLDED_ROWS, collapsed: true, wish: 28 })
 
     /* And once written back, the file says `wish` and not `openH`. */
     keep(store, p.id)
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
-    expect(text).toContain('"wish":14')
+    expect(text).toContain('"wish":28')
     expect(text).not.toContain('openH')
   })
 })
@@ -627,6 +638,7 @@ describe('a version-1 file, where every kehikko had its own epic', () => {
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
     const raw = JSON.parse(text)
     expect(raw.version).toBe(2)
+    expect(raw.rows).toBe(56)
     expect('epic' in raw).toBe(false)
     expect(JSON.parse(readFileSync(viewFile(dir)!, 'utf8')).epic).toBe('modes-are-modules')
     expect(text).not.toContain('something-else')

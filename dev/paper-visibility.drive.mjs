@@ -488,10 +488,10 @@ try {
   if (!wide) throw new Error('the scratch host has no "Wide" kehikko in project-a')
   await send('PATCH', `/host/canvases/${wide.id}`, {
     placements: [
-      { i: 'kehikot.alpha', x: 0, y: 0, w: 4, h: 16 },
-      { i: 'kehikot.beta', x: 4, y: 0, w: 4, h: 16 },
-      { i: 'kehikot.gamma', x: 8, y: 0, w: 4, h: 16 },
-      { i: ID, x: 0, y: 16, w: 12, h: 12 },
+      { i: 'kehikot.alpha', x: 0, y: 0, w: 4, h: 32 },
+      { i: 'kehikot.beta', x: 4, y: 0, w: 4, h: 32 },
+      { i: 'kehikot.gamma', x: 8, y: 0, w: 4, h: 32 },
+      { i: ID, x: 0, y: 32, w: 12, h: 24 },
     ],
   })
   const paper = { origin: `http://127.0.0.1:${paperPort}`, project, epic, main }

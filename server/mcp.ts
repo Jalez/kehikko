@@ -18,7 +18,7 @@ import type { Edit } from './trackers/edit.ts'
 import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
 import type { FoldNote } from './wake.ts'
-import { place } from '../src/host/canvases.ts'
+import { COLUMNS, place } from '../src/host/canvases.ts'
 import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
@@ -130,8 +130,8 @@ import { releaseForAgents } from '../src/host/moduleReleases.ts'
  * `src/host/canvases.ts`: beside the last container if the bottom row has
  * room, else a new row under everything. One rule for both, so the agent's
  * container lands where the person's would have. But `place` asks for a fixed
- * ten rows wherever the arithmetic puts it, and the canvas is a fixed
- * twenty-eight-row budget: on a full column the PAGE would draw the new
+ * twenty rows (`NEW_H`) wherever the arithmetic puts it, and the canvas is a
+ * fixed fifty-six-row budget (`CANVAS_ROWS`): on a full column the PAGE would draw the new
  * container by taking rows from the ones above it — `granted` in `columns.ts`
  * — which is right for a person, who can see it happen, and is exactly the
  * taking-away this door does not do. So the arrangement is granted before
@@ -140,7 +140,7 @@ import { releaseForAgents } from '../src/host/moduleReleases.ts'
  * with a sentence — see `fittedIn`. What is written when it is allowed is
  * `place`'s rectangle with `h` cut to what the column grants, so that the
  * stored rectangle never claims more than will be drawn; the wish stays the
- * ten rows that were asked for, because a drawn height is never written into
+ * twenty rows that were asked for, because a drawn height is never written into
  * a wish.
  *
  * ## And one tool that reaches INTO a module: `press_item`
@@ -1650,7 +1650,7 @@ async function placeOn(
   const said = landed.map((l) => `${l.id} at column ${l.x}, row ${l.y}, ${l.w} wide and ${l.h} tall`).join('; ')
   return {
     text:
-      `Placed on kehikko ${canvas.id} (${canvas.name}), ${how}: ${said}.`
+      `Placed on kehikko ${canvas.id} (${canvas.name}), ${how}: ${said} (of ${COLUMNS} columns and ${CANVAS_ROWS} rows).`
       + (already.length
         ? ` ${already.join(', ')} ${already.length === 1 ? 'was' : 'were'} already there and left alone.`
         : '')
@@ -1970,7 +1970,7 @@ async function pressOn(
  *
  * `x`, `w` and `y` from `place` — the page's own rule, so the record is the
  * one the page would have written — and `h` from `granted`, so the stored
- * rectangle never claims more than will be drawn. `wish` stays the ten rows
+ * rectangle never claims more than will be drawn. `wish` stays the twenty rows
  * `place` gave it: that is what was asked for, and `columns.ts` is explicit
  * that a drawn height must never be written into a wish.
  */

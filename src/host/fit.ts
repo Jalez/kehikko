@@ -104,49 +104,105 @@
 /**
  * How many rows a canvas has. The mirror of twelve columns.
  *
- * Twenty-eight, and the number is chosen rather than derived, so here is what
- * chose it.
+ * Fifty-six: twenty-eight rows, each cut in two. The number is chosen rather than derived,
+ * so here is what chose it, both times.
  *
- * It is what the arrangements in this workspace ALREADY ARE. The three canvases
- * in the live database reach 28, 22 and 28 rows — `select canvas, max(y+h) from
- * placements group by canvas` — so adopting 28 as the count means not one
- * placement has to move. Every alternative considered required rewriting
- * somebody's canvases: a smaller count (twelve, to match the columns exactly,
- * which is prettier) would have meant scaling every `y` and `h` on every canvas
- * into it, on a live database, while the owner was working in it, with no way
- * back if the result read badly.
+ * ## Twenty-eight, first
  *
- * And 28 is not a coincidence. A row at the old nominal 24 pixels, with an
- * 8-pixel gap above each and below the last, makes 28 rows exactly 904 pixels —
- * which is the canvas height on the screen these arrangements were built on. So
- * the number is the honest restatement of what a canvas has been all along; it
- * has simply never been written down as a rule the layout could rely on.
+ * It was what the arrangements in this workspace ALREADY WERE. The three
+ * canvases in the live database reached 28, 22 and 28 rows, so adopting 28 as
+ * the count meant not one placement had to move. And 28 was not a coincidence:
+ * a row at the old nominal 24 pixels, with an 8-pixel gap above each and below
+ * the last, makes 28 rows exactly 904 pixels — the canvas height on the screen
+ * those arrangements were built on.
  *
- * Raising it is free and makes every row shorter. LOWERING it is a migration,
- * because an arrangement that already reaches row 28 would have to be moved.
+ * ## Then fifty-six, because twenty-eight left a band at the bottom
+ *
+ * The owner, later: "often times kehikko leaves some empty space at the bottom
+ * to which you can't expand to. I think it's because the rows are so few and
+ * tall that if there's not enough space to expand one more row it will leave a
+ * gap at the bottom." Two things made that band, and both were here.
+ *
+ *   - The row height was FLOORED to whole pixels, so up to a pixel a row — up
+ *     to twenty-seven pixels on a canvas of twenty-eight — was left under the
+ *     last row, at every window height that did not divide evenly. That is
+ *     `rowHeightFor`'s to fix, and it does: see there.
+ *   - A row was a step of thirty-odd pixels, so a resize moved a container's
+ *     bottom edge in steps that size and a module's request for a height was
+ *     rounded UP to the next one. Halving the row halves the step.
+ *
+ * Why two and not three. A row is drawn with an 8-pixel gap under it, so a
+ * canvas of N rows spends N+1 gaps on air whatever the room. At fifty-six that
+ * is 456 pixels, and a row on the 904-pixel canvas is 8 pixels: a step of 16.
+ * At eighty-four it would be 680 pixels of air — more than most of a laptop's
+ * canvas — and the floor below would have nowhere to be, because the old
+ * floor's step of 20 pixels divided in three is less than a gap. Fifty-six is
+ * the finest count at which every height a canvas has ever drawn, the floor
+ * included, is still drawn exactly.
+ *
+ * And exactly is the point of a multiple. A container `h` rows tall at the
+ * top of row `y` on a canvas of 28 is, to the pixel, a container `2h` rows tall
+ * at row `2y` on a canvas of 56 — the air between two half-rows is the same
+ * 8 pixels the old row spent inside itself, and with the row height no longer
+ * floored the arithmetic is exact (`test/fit.test.ts` holds it to that). So
+ * the move is a migration that nobody can see: every `y`, `h` and `wish`
+ * stored in 28ths is doubled once, and every arrangement draws where it drew.
+ * The migration is that doubling, applied by the database
+ * (`placements.rows` in `server/canvases.ts`), by the project's file (a
+ * `kehikot.json` with no `"rows": 56` at its top, in `server/kehikot.ts`) and
+ * by a layout file (version 1 → 2 in `src/host/layouts.ts`). Each says which
+ * rows it counts in, so nothing is doubled twice.
+ *
+ * The things that are COUNTS of rows doubled with it, for the same reason: the
+ * folded height (`FOLDED_ROWS`, two), the least a neighbour is squeezed to
+ * (`SQUEEZED_ROWS`, six), a new container (`NEW_H`, twenty) and the least gap
+ * a new one is shaped into (`GAP_MIN_H`, twelve). Each is the same pixels it
+ * always was.
+ *
+ * Raising it again is the same migration; LOWERING it moves an arrangement that
+ * reaches the bottom, and is not free.
  */
-export const CANVAS_ROWS = 28
+export const CANVAS_ROWS = 56
+
+/**
+ * How many rows a canvas had before it had `CANVAS_ROWS`: what a database row
+ * without a row count, a `kehikot.json` without `rows` and a layout file of
+ * version 1 were all written in.
+ */
+export const ROWS_BEFORE = 28
+
+/**
+ * A count of the old rows, as a count of these. Exact: `CANVAS_ROWS` is a
+ * multiple of `ROWS_BEFORE`, and a container that drew at `y` and `h` in the
+ * old rows draws at `finer(y)` and `finer(h)` in these, to the pixel.
+ */
+export function finer(oldRows: number): number {
+  return oldRows * (CANVAS_ROWS / ROWS_BEFORE)
+}
 
 /**
  * The row height used before anything has been measured.
  *
- * Not a maximum any more — see the essay above on why the rows now fill the
- * height. It is the number the canvas draws with for the one frame between
- * mounting and the surface reporting how tall it is, and it is 24 because that
- * is what this canvas drew with for its whole life before any of this, so the
- * pre-measurement frame looks like the canvas rather than like a mistake.
+ * Not a maximum — see the essay above on why the rows fill the height. It is
+ * the number the canvas draws with for the one frame between mounting and the
+ * surface reporting how tall it is: 8, which is 56 rows on the 904-pixel canvas
+ * these arrangements were built on — the same canvas the old nominal 24 drew
+ * with 28 — so the pre-measurement frame looks like the canvas rather than like
+ * a mistake.
  */
-export const NOMINAL_ROW = 24
+export const NOMINAL_ROW = 8
 
 /**
  * The shortest a row may be squeezed to.
  *
- * Half the nominal, which is the point at which a folded container — one row,
- * holding a header — has visibly stopped being a thing you can press. Below
- * this, scrolling a correct-sized canvas is better than seeing all of a useless
- * one.
+ * Two pixels, which with its gap is a step of 10 — half the old floor's 12 and
+ * its gap, so two of these are exactly the row the old floor drew. That is the
+ * point at which a folded container — `FOLDED_ROWS` of them, holding a header —
+ * has visibly stopped being a thing you can press. Below it, scrolling a
+ * correct-sized canvas is better than seeing all of a useless one, and the
+ * canvas scrolls at the same 568 pixels it always did.
  */
-export const FLOOR_ROW = 12
+export const FLOOR_ROW = 2
 
 export interface Room {
   /** The height the canvas has to draw in, in pixels. `null` before it is measured. */
@@ -156,12 +212,25 @@ export interface Room {
 }
 
 /**
- * The row height to draw with: the room, divided into `rows` of them.
+ * The row height to draw with: the room, divided into `rows` of them, EXACTLY.
  *
  * Note what is NOT a parameter. Nothing about the arrangement — not the extent,
  * not the number of containers, not what any module asked for. That is the
  * whole of the fix, and a future parameter of that kind is the whole of the
  * regression.
+ *
+ * And note what the answer is not: a whole number. It used to be floored, on
+ * the argument that a row half a pixel too tall, times twenty-eight rows, is
+ * fourteen pixels of overflow. True, and the floor's own cost was the same
+ * pixels the other way — up to one a row left under the last row, a band at the
+ * bottom of the canvas nothing could be resized into. Neither is needed. The
+ * grid places each container at `round((row + gap) * y + gap)` and draws it
+ * `round(row * h + gap * (h - 1))` tall (`calcGridItemPosition` in
+ * react-grid-layout), rounding per container rather than accumulating, so a
+ * fractional row puts every edge within a pixel of where it belongs, and the
+ * bottom of the last row within a pixel of the bottom of the room less its gap —
+ * inside that gap, so it never overflows. The grid's own height is the same sum
+ * unrounded, which is the room again.
  */
 export function rowHeightFor(
   { room, gap }: Room,
@@ -177,12 +246,21 @@ export function rowHeightFor(
      how a fit ends up one gap too tall. */
   const air = gap * (rows + 1)
 
-  /* Floored rather than rounded: a row half a pixel too tall, times twenty-eight
-     rows, is fourteen pixels of overflow — which is the whole complaint,
-     arriving by the back door. */
-  const fits = Math.floor((room - air) / rows)
+  return Math.max(floor, (room - air) / rows)
+}
 
-  return Math.max(floor, fits)
+/**
+ * How many rows hold `px` pixels of a container, at the row height drawn —
+ * what a module's `kehikot.resize` asks for, as rows.
+ *
+ * The least that holds it, so a module is never given less than it asked for;
+ * and with a hair of tolerance, because the row height is fractional now and a
+ * request for exactly three rows' worth must not come out at 3.0000000001 and
+ * be rounded up to four. Bounded by the canvas: a request past it is "as much
+ * as there is".
+ */
+export function rowsHolding(px: number, rowHeight: number, gap: number, rows = CANVAS_ROWS): number {
+  return Math.min(rows, Math.max(1, Math.ceil((px + gap) / (rowHeight + gap) - 1e-6)))
 }
 
 /**

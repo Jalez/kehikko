@@ -64,7 +64,7 @@ describe('finding a module', () => {
 
 describe('a project’s kehikot.json', () => {
   test('serialize writes only what it was given', () => {
-    expect(serialize([])).toContain('"version": 2')
+    expect(serialize([])).toContain('"version": 2,\n  "rows": 56,')
   })
 })
 

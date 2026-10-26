@@ -10,6 +10,7 @@ import {
   type FilterChoice,
 } from 'kehikot-module-protocol'
 import { STORED_GROUPS } from '../src/host/filters.ts'
+import { CANVAS_ROWS, finer, ROWS_BEFORE } from '../src/host/fit.ts'
 import { partIdsIn } from '../src/host/parts.ts'
 /* The one rule for when a write leaves "All epics", shared with the page. */
 import { scopeAfter } from '../src/host/subject.ts'
@@ -614,6 +615,7 @@ export function open(file = databaseFile()): Database {
   /* Which version a container runs, as a tag; NULL is latest, which is what
      every container written before versions existed has been running. */
   add(db, 'placements', 'version', 'text')
+  finerRows(db)
   add(db, 'canvases', 'selection', 'text')
   /*
    * Which project a kehikko is in, added to databases written before projects
@@ -777,6 +779,42 @@ export function epicFromKehikot(db: Database, project: number): void {
     JSON.stringify(first ? refsFrom(first.selection) : []),
     project,
   )
+}
+
+/**
+ * Every placement in the rows a canvas has now, from the rows it had.
+ *
+ * A canvas was twenty-eight rows tall and is fifty-six (`fit.ts`, where the
+ * reason is), and a container `h` rows tall at row `y` in the old rows draws
+ * to the pixel where one `2h` tall at row `2y` draws in the new. So the move is
+ * a doubling of `y`, `h` and `wish` — `finer` — and nobody sees it happen.
+ *
+ * Which rows a placement is in is said on the row, in `placements.rows`, and
+ * not inferred. The column is added with a DEFAULT of the old count, which does
+ * two things at once: every row already in the table is marked as written in
+ * twenty-eighths — which it was — and so is every row a host from before this
+ * writes later, because its `insert` does not name the column and gets the
+ * default. This host names it on every write (`editCanvas`), with the count it
+ * writes in. So a row is doubled exactly when it says it is in the old rows,
+ * once, and then says it is not: opening the database again finds nothing to
+ * do, and a database an older host wrote into in between — the app downgraded
+ * for an afternoon — has just the rows that host wrote moved, and no others.
+ *
+ * `open_h` is left as it is. Nothing here reads it; it is kept for a host from
+ * before `wish`, which counts in the old rows anyway.
+ *
+ * A database does not decide the layout of a project with a `kehikot.json` —
+ * the file wins on the next sync — and the file is moved the same way on the
+ * way in (`server/kehikot.ts`), so the two agree. This is what makes the
+ * database agree before that sync, and is the whole of it for a kehikko in no
+ * project.
+ */
+export function finerRows(db: Database): void {
+  add(db, 'placements', 'rows', `integer not null default ${ROWS_BEFORE}`)
+  const scale = finer(1)
+  db.query(
+    'update placements set y = y * ?, h = h * ?, wish = case when wish is null then null else wish * ? end, rows = ? where rows = ?',
+  ).run(scale, scale, scale, CANVAS_ROWS, ROWS_BEFORE)
 }
 
 /**
@@ -1016,7 +1054,9 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        /* `rows` named, with the count this host counts in: a row that does
+           not say is one an older host wrote, in the old rows (`finerRows`). */
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, rows) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -1036,6 +1076,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           JSON.stringify(p.filters),
           p.refreshEvery,
           p.version,
+          CANVAS_ROWS,
         )
       }
     }

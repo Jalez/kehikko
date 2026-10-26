@@ -14,7 +14,7 @@ import { CANVAS_ROWS } from './fit.ts'
  * takes more width takes it from what is beside it, nothing overflows, and a
  * container in a different row is not consulted. Height should work the same
  * way, with the canvas height as the budget — which `fit.ts` has now made a
- * fixed twenty-eight rows, so there IS a budget to spend.
+ * fixed fifty-six rows, so there IS a budget to spend.
  *
  * Two earlier answers to the same complaint were wrong and are recorded in
  * `fit.ts`: shrinking every row on the canvas when any container grew (which
@@ -62,14 +62,16 @@ export interface Wished extends Box {
 /**
  * The least a container may be squeezed to by somebody else's growth.
  *
- * Three rows, and the number is a judgement about what a container still IS.
- * One row is the FOLDED height — a header and nothing under it — and folding is
+ * Six rows — three of the twenty-eight a canvas used to have, doubled with the
+ * rest when it was given fifty-six (`fit.ts`) — and the number is a judgement
+ * about what a container still IS. `FOLDED_ROWS` is the FOLDED height — a
+ * header and nothing under it — and folding is
  * a state a person chooses for a container they want out of the way. Inflicting
  * it on a neighbour because somebody dragged something else would be the host
  * folding a module nobody asked to fold, and it would look like the container
  * had crashed rather than been squeezed.
  *
- * Three rows is a header and something under it at every row height this canvas
+ * Six rows is a header and something under it at every row height this canvas
  * uses: 88 pixels on the screen these arrangements were built for, and 52 at
  * the floor, against a header of 32. It is deliberately not generous. A
  * neighbour that will not shrink is a growth that stops, and stopping is worse
@@ -79,33 +81,35 @@ export interface Wished extends Box {
  * A container ALREADY below this — a folded one — is not pushed further and is
  * not expanded either. It simply has nothing to give.
  */
-export const SQUEEZED_ROWS = 3
+export const SQUEEZED_ROWS = 6
 
 /**
  * The height of a folded container: a header and nothing under it.
  *
- * One, and the point of it is that nothing is reserved that is not drawn — see
+ * Two of the fifty-six — what one row of the old twenty-eight was, to the pixel
+ * (`fit.ts`) — and the point of it is that nothing is reserved that is not drawn — see
  * the essay on the folded container in `canvas/Container.tsx`, which is where
  * the two-row version was measured and rejected: the emptiness did not go away,
  * it moved outside the container, and a person folding something to reclaim
  * space got twenty-two pixels of nothing between it and its neighbour.
  *
  * It is a count and not a computed number of rows. A row is `room /
- * CANVAS_ROWS` — 24 pixels on the canvas these arrangements were built for, 34
- * on a tall monitor, 12 at the floor — and the header goes dense when folded,
- * which is a change to one CSS rule rather than to the grid. A folded container
- * is ONE of whatever a row is, in the same sense that a full-width container
- * is twelve columns. Making it depend on the drawn row height would put the
+ * CANVAS_ROWS` — 8 pixels on the canvas these arrangements were built for
+ * (two of them and the gap between are the 24 one old row was), about 13 on a
+ * tall monitor, 2 at the floor — and the header goes dense when folded, which is a change to one CSS
+ * rule rather than to the grid. A folded container is TWO of whatever a row
+ * is, in the same sense that a full-width container is twelve columns. Making it depend on the drawn row height would put the
  * arrangement back in the business of reading its own scale, which is the
  * loop `fit.ts` exists to keep shut.
  *
  * It lives here, beside `SQUEEZED_ROWS`, because the two are one judgement seen
- * from two sides: one row is what a container becomes when its owner folds it,
- * and three is the least it may be pushed to by anybody else. And it is what a
+ * from two sides: two rows are what a container becomes when its owner folds it,
+ * and six the least it may be pushed to by anybody else. Nothing is drawn
+ * shorter than a folded container, whatever the arithmetic says. And it is what a
  * DRAG is measured against: a corner pulled up to this height is a fold, and a
  * folded container's corner pulled past it is an unfold — see `dragged`.
  */
-export const FOLDED_ROWS = 1
+export const FOLDED_ROWS = 2
 
 /**
  * Do these two containers share a column?
@@ -228,15 +232,15 @@ export function below<T extends Box>(boxes: readonly T[], box: Box): T[] {
  * The floor is a limit on what OTHERS may take from a container, not a claim
  * on rows the column does not have. So when a container is unfolded into a
  * column whose mates are already at their floors, it is drawn at what is left
- * — down to one row — rather than at its floor with the bottom of the column
+ * — down to a folded container's height — rather than at its floor with the bottom of the column
  * pushed off the canvas. That is the same answer the old `unfolded()` gave
  * ("a column at its floor gives back nothing"), and it is the right way
  * round: a canvas that overflows is the bug this whole area started from,
  * and a container that came back short is a container a person can see the
  * reason for. The one arrangement in which floors are not honoured at all is
- * one whose floors alone do not fit — ten containers of three stacked in a
- * column of twelve — and there the rows run out from the top down, one row
- * each, until the rest fit. Nothing can make that arrangement fit; this only
+ * one whose floors alone do not fit — ten containers of six stacked in a
+ * column of twenty-four — and there the rows run out from the top down, a
+ * folded height each, until the rest fit. Nothing can make that arrangement fit; this only
  * decides that the canvas holds and the containers do not.
  *
  * ## Why the positions are recomputed here
@@ -286,12 +290,15 @@ export function granted(
   const placed = new Map<string, number>()
   for (const box of inGridOrder(boxes)) {
     const top = stacked(boxes, box, placed, heights)
-    /* What is left once everything under it has its floor. At least one row
-       whatever the arithmetic says — a container of no rows is a container
-       deleted — and never more than that, whatever the floor says: see the
-       essay above on why the budget wins. */
+    /* What is left once everything under it has its floor. At least a folded
+       container's height whatever the arithmetic says — a container of no rows
+       is a container deleted, and one shorter than its own folded header is
+       not one anybody can press — unless it wished for less, and never more
+       than that, whatever the floor says: see the essay above on why the
+       budget wins. */
     const room = rows - top - depth(box)
-    heights.set(box.i, Math.max(1, Math.min(wanted(box), room)))
+    const wish = wanted(box)
+    heights.set(box.i, Math.max(Math.min(wish, FOLDED_ROWS), Math.min(wish, room)))
     placed.set(box.i, top)
   }
   return heights
@@ -480,9 +487,9 @@ export function mostFor(
  *
  * ## A drag to the folded height IS a fold
  *
- * One row is the folded height — a header and nothing under it — and the
+ * `FOLDED_ROWS` is the folded height — a header and nothing under it — and the
  * SQUEEZED_ROWS essay is explicit that no neighbour is ever pushed there,
- * because one row is a state a person chooses. A person who has pulled a
+ * because that height is a state a person chooses. A person who has pulled a
  * container's corner all the way up to it has chosen it. Before this, the grid
  * took the height and the container stayed open: one row tall, drawing a
  * header and a sliver of a page, not folded, and — worse — with nothing
@@ -490,9 +497,9 @@ export function mostFor(
  * `collapsed` and LEAVES THE WISH ALONE, exactly as the fold control does, and
  * unfolding returns the container to the height it had before the drag.
  *
- * "One row or less" rather than "exactly one": the grid does not go below one,
- * but a rounded pixel measurement can, and a zero must read as a fold rather
- * than as a request for nothing.
+ * "The folded height or less" rather than "exactly it": the grid goes down to
+ * one row, which is less, and a rounded pixel measurement can go to zero, and
+ * either must read as a fold rather than as a request for nothing.
  *
  * ## And a drag out of it is an unfold
  *
@@ -550,7 +557,7 @@ export function onTopOf<T extends Box>(boxes: readonly T[], box: Box): T[] {
  *
  * The rows are the ones the containers on top of it can spare: each keeps its
  * floor (`SQUEEZED_ROWS`, or its own height if that is already smaller, which
- * is how a folded one keeps its single row). The least any of them can spare
+ * is how a folded one keeps its header's rows). The least any of them can spare
  * is the answer, since they all give the same number. A container with nothing
  * on top of it has no top edge to move: the grid compacts upward and would
  * not leave a gap, so the answer is 0.
@@ -567,7 +574,7 @@ export function mostUp(boxes: readonly Wished[], id: string, floor = SQUEEZED_RO
  * A top edge pulled to make a container `h` rows tall, its bottom edge fixed.
  *
  * Returns the height the container really gets (clamped to what the containers
- * on top of it can spare, and to a row), where its top edge `y` then is, and
+ * on top of it can spare, and to a folded height), where its top edge `y` then is, and
  * the new height of every container on top of it: a top edge is the boundary
  * between this container and what is above, so what one gains the other loses.
  * That is the mirror of `granted`, where a bottom edge takes from what is
@@ -592,7 +599,7 @@ export function topEdge(
   const given = new Map<string, number>()
   if (!box) return { h, y: 0, given }
   const over = onTopOf(boxes, box)
-  const grown = Math.max(1, Math.min(Math.round(h), box.h + mostUp(boxes, id, floor)))
+  const grown = Math.max(FOLDED_ROWS, Math.min(Math.round(h), box.h + mostUp(boxes, id, floor)))
   const d = grown - box.h
   if (over.length === 0) return { h: Math.min(grown, box.h), y: box.y, given }
   for (const one of over) if (!one.collapsed || d > 0) given.set(one.i, one.h - d)
