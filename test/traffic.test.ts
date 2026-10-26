@@ -19,7 +19,8 @@ import {
   untraced,
   type Unnumbered,
 } from '../server/traffic.ts'
-import { attribute, parseLsof, parseListeners, parseNettop, parsePs, ProcessSampler } from '../server/trafficProcesses.ts'
+import { parseLsof, parseListeners, parseNettop, parsePs, ProcessSampler } from '../server/trafficProcesses.ts'
+import { owners } from '../server/callers.ts'
 import { trackerReason } from '../server/trackers/reading.ts'
 
 const TOKEN = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'
@@ -184,7 +185,7 @@ describe('what modules note', () => {
 })
 
 describe('what this host receives', () => {
-  const from = { pageOrigins: ['http://127.0.0.1:4181'], portOwner: (port: number) => (port === 51000 ? 'kehikot.kanban' : null) }
+  const from = { pageOrigins: ['http://127.0.0.1:4181'], nameOf: (id: string) => (id === 'kehikot.kanban' ? 'Kanban' : id) }
   const ok = new Response('{}', { status: 200, headers: { 'content-length': '2' } })
 
   test('the page by its origin, with the route’s reason and no query values', () => {
@@ -212,13 +213,14 @@ describe('what this host receives', () => {
     expect(receivedRow(reading, ok, 5, 1, from, null)).toBeNull()
   })
 
-  test('a program: named in the query, else by the port the sampler saw, else nobody', () => {
+  test('a program: by the process at the other end, else named in the query, else closed before it could be named', () => {
     const named = new Request('http://127.0.0.1:4180/host/settings-pass?module=kehikot.kanban&pass=secret')
     expect(receivedRow(named, ok, 5, 1, from, null)).toMatchObject({ by: 'kehikot.kanban', via: 'server', path: `/host/settings-pass?module=${TRAFFIC_REDACTED}&pass=${TRAFFIC_REDACTED}` })
     const byPort = new Request('http://127.0.0.1:4180/host/is-project?path=/Users/me/secret-project')
-    expect(receivedRow(byPort, ok, 5, 1, from, { port: 51000 })).toMatchObject({ by: 'kehikot.kanban', via: 'server', reason: 'a module asks whether a folder is a project' })
-    expect(JSON.stringify(receivedRow(byPort, ok, 5, 1, from, { port: 51000 }))).not.toContain('secret-project')
-    expect(receivedRow(byPort, ok, 5, 1, from, { port: 1 })!.by).toBe('')
+    const found = { pid: 7, exe: 'bun', parent: 'sh', owner: 'kehikot.kanban' }
+    expect(receivedRow(byPort, ok, 5, 1, from, { port: 51000 }, found)).toMatchObject({ by: 'kehikot.kanban', via: 'server', reason: 'a module asks whether a folder is a project', caller: { kind: 'module', name: 'Kanban', how: 'process' } })
+    expect(JSON.stringify(receivedRow(byPort, ok, 5, 1, from, { port: 51000 }, found))).not.toContain('secret-project')
+    expect(receivedRow(byPort, ok, 5, 1, from, { port: 1 }, null)).toMatchObject({ by: '', caller: { kind: 'gone', name: 'A program that closed before it could be named', how: 'closed' } })
   })
 })
 
@@ -277,7 +279,7 @@ describe('the process sampler', () => {
   ].join('\n')
 
   test('a module’s group and everything under it is the module’s; the rest under the host is the host’s', () => {
-    const owner = attribute(parsePs(PS), [['kehikot.browser', 600]], 500)
+    const owner = owners(parsePs(PS), [{ module: 'kehikot.browser', pid: 600, group: true }], 500)
     expect(owner.get(600)).toBe('kehikot.browser')
     expect(owner.get(601)).toBe('kehikot.browser')
     expect(owner.get(700)).toBe('kehikot.browser')
@@ -327,7 +329,7 @@ describe('the process sampler', () => {
       record,
       self: 500,
       now: () => 1000,
-      roots: async () => [['kehikot.browser', 600]],
+      roots: async () => [{ module: 'kehikot.browser', pid: 600, group: true }],
       run: async (argv) => (argv[0] === 'ps' ? PS : argv[0] === 'nettop' ? NETTOP : null),
       name: async (address) => (address === '140.82.112.6' ? 'lb-140-82-112-6-iad.github.com' : null),
     })
@@ -352,7 +354,7 @@ describe('the process sampler', () => {
     const sampler = new ProcessSampler({
       record: new TrafficRecord(),
       self: 500,
-      roots: async () => [['kehikot.browser', 600]],
+      roots: async () => [{ module: 'kehikot.browser', pid: 600, group: true }],
       run: async (argv) => (argv[0] === 'ps' ? PS : argv[0] === 'lsof' ? ['p700', 'cGoogle Chrome', 'PTCP', 'n192.168.1.2:52000->140.82.112.6:443'].join('\n') : null),
       name: async () => null,
     })

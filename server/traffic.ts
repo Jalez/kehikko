@@ -9,6 +9,7 @@ import {
   trafficPath,
   trafficTarget,
   type TrafficBudget,
+  type TrafficCaller,
   type TrafficCache,
   type TrafficCall,
   type TrafficLimits,
@@ -18,6 +19,8 @@ import {
   type TrafficReadResult,
   type TrafficVia,
 } from 'kehikot-module-protocol'
+
+import { callerOf, isLoopback, remoteCaller, type Found } from './callers.ts'
 
 /**
  * The host's record of traffic (protocol 2.20.0): every call this host makes, every request it
@@ -347,6 +350,10 @@ export interface Tag {
   by?: string
   via?: TrafficVia
   reason?: string | null
+  /** Who asked, when the route knows better than the connection: an MCP call's place token names its session. */
+  caller?: TrafficCaller
+  /** A session's place ("Wide · methods"), when its MCP session is recorded but nothing else names it. */
+  place?: string
   /** Not recorded: the plumbing of traffic itself. */
   skip?: boolean
 }
@@ -358,17 +365,34 @@ export function tag(request: Request, said: Tag): void {
   tags.set(request, { ...(tags.get(request) ?? {}), ...said })
 }
 
+/** What the routes said about a request so far. */
+export const tagOf = (request: Request): Tag => tags.get(request) ?? {}
+
 export interface ReceivedFrom {
   /** The page's own origins: a request carrying one of these is this host's page. */
   pageOrigins: readonly string[]
-  /** Who holds this local port on this computer, when the process sampler knows: a module id or `kehikko`. */
-  portOwner?(port: number): string | null
+  /** The module whose page answers on this origin, or null: a module's page asking the host itself. */
+  moduleAt?(origin: string): string | null
+  /** A module's registered name ("Paper"); the id when it has none. */
+  nameOf?(module: string): string
+}
+
+const MODULE_ID = /^[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]$/
+
+/** Whether a request carries this host's page's origin (or is same-origin with no `Origin`). */
+export function fromThePage(request: Request, pageOrigins: readonly string[]): boolean {
+  const origin = request.headers.get('origin')
+  const site = request.headers.get('sec-fetch-site')
+  return (origin !== null && pageOrigins.includes(origin)) || (origin === null && (site === 'same-origin' || site === 'none'))
 }
 
 /**
- * The row for one request this host answered. Who asked: what the route said (`tag`), else this
- * host's own page by its `Origin`/`Sec-Fetch-Site`, else a module named in the query, else whoever
- * the sampler saw holding the client's port, else `''`.
+ * The row for one request this host answered, with who asked (protocol 2.25.0, `caller`): what the
+ * route said (`tag`: a module's server asking with its pass, an MCP call's place token), else this
+ * host's own page by its `Origin`/`Sec-Fetch-Site`, else a module's page by its origin, else another
+ * computer by its address, else the process at the other end of the connection (`found`, from
+ * `PeerLookup`; null when it had closed), else a module named in the query. `found` undefined: not
+ * looked up.
  */
 export function receivedRow(
   request: Request,
@@ -376,18 +400,51 @@ export function receivedRow(
   at: number,
   ms: number,
   from: ReceivedFrom,
-  client: { port: number } | null,
+  client: { address?: string; port: number } | null,
+  found?: Found | null,
 ): Unnumbered | null {
   const said = tags.get(request) ?? {}
   if (said.skip) return null
   const url = new URL(request.url)
   const origin = request.headers.get('origin')
-  const site = request.headers.get('sec-fetch-site')
-  const fromPage = (origin !== null && from.pageOrigins.includes(origin)) || (origin === null && (site === 'same-origin' || site === 'none'))
+  const fromPage = fromThePage(request, from.pageOrigins)
+  const nameOf = (id: string) => (id === TRAFFIC_HOST_BY ? 'Kehikot' : (from.nameOf?.(id) ?? id))
   const named = url.searchParams.get('module')
-  const byPort = !fromPage && client ? (from.portOwner?.(client.port) ?? null) : null
-  const by = said.by ?? (fromPage ? TRAFFIC_HOST_BY : named && /^[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]$/.test(named) ? named : byPort ?? '')
-  const via: TrafficVia = said.via ?? (fromPage ? 'page' : 'server')
+  const claimed = named && MODULE_ID.test(named) ? named : null
+  const pageOf = !fromPage && origin ? (from.moduleAt?.(origin) ?? null) : null
+  let by = ''
+  let via: TrafficVia = 'server'
+  let caller: TrafficCaller
+  if (said.caller) {
+    by = said.by ?? ''
+    via = said.via ?? 'process'
+    /* A session named by its token; the process, when the lookup already found it, says which. */
+    caller = found ? { ...said.caller, process: found.exe || undefined, parent: found.parent || undefined, pid: found.pid } : said.caller
+  } else if (said.by !== undefined && said.by !== '') {
+    by = said.by
+    via = said.via ?? (fromPage ? 'page' : 'server')
+    caller = { kind: by === TRAFFIC_HOST_BY ? 'host' : 'module', name: nameOf(by), how: fromPage || via === 'page' ? 'origin' : 'route' }
+  } else if (fromPage) {
+    by = TRAFFIC_HOST_BY
+    via = said.via ?? 'page'
+    caller = { kind: 'host', name: 'Kehikot', how: 'origin' }
+  } else if (pageOf) {
+    by = pageOf
+    via = 'page'
+    caller = { kind: 'module', name: nameOf(pageOf), how: 'origin' }
+  } else if (client?.address && !isLoopback(client.address)) {
+    caller = remoteCaller(client.address)
+  } else if (found) {
+    caller = callerOf(found, { module: nameOf, place: said.place ?? null })
+    by = found.owner ?? ''
+    via = caller.kind === 'module' || caller.kind === 'host' ? 'server' : 'process'
+  } else if (claimed) {
+    by = claimed
+    caller = { kind: 'module', name: nameOf(claimed), how: 'route' }
+  } else {
+    caller = callerOf(null, { module: nameOf })
+  }
+  if (said.via && !said.caller) via = said.via
   const reason = said.reason !== undefined ? said.reason : (ROUTE_REASONS[url.pathname] ?? null)
   const bytesIn = lengthOf(request.headers)
   const bytesOut = lengthOf(response.headers)
@@ -407,7 +464,21 @@ export function receivedRow(
     via,
     side: 'in',
     reported: 'host',
+    caller,
   }
+}
+
+/**
+ * Whether the process at the other end of a request's connection is worth looking up: nothing at
+ * the door names it (this host's page, a module's page, another computer) and the connection is on
+ * this computer.
+ */
+export function needsLookup(request: Request, from: ReceivedFrom, client: { address?: string; port: number } | null): boolean {
+  if (!client || !client.port) return false
+  if (client.address && !isLoopback(client.address)) return false
+  if (fromThePage(request, from.pageOrigins)) return false
+  const origin = request.headers.get('origin')
+  return !(origin && from.moduleAt?.(origin))
 }
 
 /* ------------------------------------------------------------------------ *

@@ -119,7 +119,8 @@ import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { releaseNotesDesk } from './releaseNotes.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
-import { because, noteFree, noteHeld, receivedRow, recordThisProcess, ROUTE_REASONS, tag, trafficDoor, TrafficRecord } from './traffic.ts'
+import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, ROUTE_REASONS, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
+import { PeerLookup, type Found, type Root } from './callers.ts'
 import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
@@ -941,29 +942,83 @@ const versionNursery = new Nursery()
 const sampler = new ProcessSampler({
   record: traffic,
   roots: async () => {
-    const roots: Array<readonly [string, number]> = []
-    for (const id of nursery.ids) {
-      const pid = nursery.pidOf(id)
-      if (pid) roots.push([id, pid])
-    }
-    for (const key of versionNursery.ids) {
-      const pid = versionNursery.pidOf(key)
-      if (pid) roots.push([key.split('@')[0]!, pid])
-    }
-    /* A module somebody started by hand: the process listening on its registered port. */
-    const held = new Set(roots.map(([id]) => id))
+    const roots: Root[] = startedRoots()
+    /* A module somebody started by hand: the process listening on its registered port, and what is under it. */
+    const held = new Set(roots.map((root) => root.module))
     const unheld = [...registered.values()].filter((one) => !held.has(one.id) && one.url)
     if (unheld.length) {
       const listening = parseListeners((await runQuiet(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])) ?? '')
       for (const one of unheld) {
         const port = portOfUrl(one.url!)
         const pid = port === null ? undefined : listening.get(port)
-        if (pid && pid !== process.pid) roots.push([one.id, pid])
+        if (pid && pid !== process.pid) roots.push({ module: one.id, pid, group: false })
       }
     }
     return roots
   },
 })
+
+/** Each module this host started, by the pid it started it as: the leader of the module's own process group. */
+function startedRoots(): Root[] {
+  const roots: Root[] = []
+  for (const id of nursery.ids) {
+    const pid = nursery.pidOf(id)
+    if (pid) roots.push({ module: id, pid, group: true })
+  }
+  for (const key of versionNursery.ids) {
+    const pid = versionNursery.pidOf(key)
+    if (pid) roots.push({ module: key.split('@')[0]!, pid, group: true })
+  }
+  return roots
+}
+
+/*
+ * Who sent each request this host receives, by the process at the other end of its connection
+ * (`callers.ts`): looked up as the request arrives, filed when it has been answered.
+ */
+const peers = new PeerLookup({
+  port: PORT,
+  started: startedRoots,
+  unstarted: () => {
+    const held = new Set(startedRoots().map((root) => root.module))
+    const out: Array<{ module: string; port: number }> = []
+    for (const one of registered.values()) {
+      const port = one.url && !held.has(one.id) ? portOfUrl(one.url) : null
+      if (port !== null) out.push({ module: one.id, port })
+    }
+    return out
+  },
+})
+
+/** What the record of what this host receives needs to know about this host: its page, the modules' pages, their names. */
+const receivedFrom: ReceivedFrom = {
+  pageOrigins: OWN.origins,
+  moduleAt: (origin) => {
+    for (const [id, url] of callers) {
+      try {
+        if (new URL(url).origin === origin) return id
+      } catch {
+        /* Not an address; not this one. */
+      }
+    }
+    return null
+  },
+  nameOf: (id) => knownName(id) ?? nameFromId(id),
+}
+
+/** A conversation's place as a person reads it in a caller's name: "Wide · methods". */
+function placeSaid(here: { canvas: { name: string } | null; key: string | null; epic: string | null }): string | null {
+  return [here.canvas?.name ?? here.key, here.epic].filter(Boolean).join(' · ').slice(0, LIMITS.TRAFFIC_CALLER) || null
+}
+
+/** The most the first request on an unnamed connection waits for its process to be found. */
+const HOLD_MS = 250
+
+/** How long a row a place token already named waits for its process, to say which it was; it is filed without it after. */
+const NAMED_MS = 500
+
+/** How long a row of what was received waits for its caller's process to be found before it is filed without it. */
+const FIND_MS = 3000
 
 /** The record of traffic, as `traffic.read` and `traffic.note` answer it. */
 const trafficReading = trafficDoor({
@@ -2872,9 +2927,27 @@ const server = Bun.serve({
   async fetch(request, srv) {
     const at = Date.now()
     const began = performance.now()
-    const heard = (response: Response) => {
-      const row = receivedRow(request, response, at, performance.now() - began, { pageOrigins: OWN.origins, portOwner: (port) => sampler.portOwner(port) }, srv.requestIP(request))
-      if (row) traffic.add(row)
+    /* Who is at the other end, looked up now, as it arrives: a short-lived program (curl) is gone soon after its answer. */
+    const client = srv.requestIP(request)
+    const fresh = client !== null && !peers.known(client.port)
+    const finding: Promise<Found | null> | null = needsLookup(request, receivedFrom, client) ? peers.find(client!.port).catch(() => null) : null
+    const heard = async (response: Response) => {
+      const ms = performance.now() - began
+      /*
+       * The one wait: the first request on a connection nothing else names — not the page, not a
+       * module's page, not a route, not a place token — is answered once its process is found (a
+       * few milliseconds, at most `HOLD_MS`), because a program that has its answer may exit before
+       * a lookup after it. A connection kept alive is looked up once; every other request never waits.
+       */
+      const said = tagOf(request)
+      if (finding && fresh && !said.caller && !said.by && !said.skip) await Promise.race([finding, new Promise((done) => setTimeout(done, HOLD_MS))])
+      void (async () => {
+        /* A session its token named is filed by its token, with its process if that is found soon. */
+        const named = tagOf(request).caller !== undefined
+        const found = finding ? await Promise.race([finding, new Promise<undefined>((done) => setTimeout(() => done(undefined), named ? NAMED_MS : FIND_MS))]) : client ? undefined : null
+        const row = receivedRow(request, response, at, ms, receivedFrom, client, found)
+        if (row) traffic.add(row)
+      })()
       return response
     }
     try {
@@ -2886,7 +2959,7 @@ const server = Bun.serve({
       const work = pressedRequest(request.method, asked) ? () => pressed(answer) : answer
       return heard(await because(ROUTE_REASONS[path] ?? (path.startsWith('/host/') ? `answering ${path}` : 'answering the page'), work))
     } catch (error) {
-      heard(new Response(null, { status: 500 }))
+      void heard(new Response(null, { status: 500 }))
       throw error
     }
   },
@@ -4330,6 +4403,11 @@ async function answerRequest(request: Request): Promise<Response> {
           db,
           ...(await (async () => {
             const { here, unrecorded } = await placeRoutes.resolve(url.searchParams.get(PLACE_PARAM), session)
+            /* Who is asking, for the record of traffic: a session its place token names is that module's, in that place. */
+            const place = here ? placeSaid(here) : null
+            if (here?.via === 'token' && here.module) {
+              tag(request, { by: here.module, via: 'process', caller: { kind: 'session', name: `${receivedFrom.nameOf!(here.module)} session${place ? ` on ${place}` : ''}`.slice(0, LIMITS.TRAFFIC_CALLER), how: 'token', ...(place ? { place } : {}) } })
+            } else if (place) tag(request, { place })
             return { here, unrecorded }
           })()),
           session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
