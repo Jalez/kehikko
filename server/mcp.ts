@@ -2067,8 +2067,8 @@ function markAt(
  * review, board column, (protocol 2.7.0) the reviewers, the person's roles,
  * the review threads and the last push, (2.8.0) the branches, the stack
  * and the last activity, (2.11.0) a GitLab issue's work item type and
- * (2.19.0) an issue's linked branches —
- * `#12 issue (task) open` — each only when the row has it.
+ * (2.19.0) an issue's linked branches, and (2.26.0) the work that is part
+ * of an issue — `#12 issue (task) open` — each only when the row has it.
  */
 export function trackerLine(row: TrackerRow): string {
   return `${row.ref} ${row.kind}${row.workItem ? ` (${row.workItem.replace(/_/g, ' ')})` : ''} ${row.state}${row.stateReason ? ` (${row.stateReason.toLowerCase()})` : ''}`
@@ -2082,7 +2082,22 @@ export function trackerLine(row: TrackerRow): string {
     + `${row.branches?.length ? ` linked branches:${row.branches.map((b) => b.name).join(',')}` : ''}`
     + `${row.stack ? ` stack:${row.stack.below ? `on ${row.stack.below}` : 'bottom'}${row.stack.above.length ? `,under ${row.stack.above.join('+')}` : ''}` : ''}`
     + `${row.lastActivity ? ` last:${row.lastActivity.kind} by ${row.lastActivity.login}${row.lastActivity.mine === true ? ' (me)' : row.lastActivity.mine === false ? ' (not me)' : ''} at ${row.lastActivity.at}` : ''}`
-    + ` — ${row.title}${row.links.length ? ` [${row.links.map((l) => `${l.relation} ${l.ref}`).join(', ')}]` : ''}`
+    + ` — ${row.title}${tiesOf(row)}`
+}
+
+/**
+ * A row's ties to other refs, in brackets: its closing links as the protocol
+ * words them (`closes #12`, `closed-by !7`), then the work that is only part of
+ * an issue (protocol 2.26.0) — `contributes to #12` on the change,
+ * `has contributions from !7` on the issue. Never one for the other.
+ */
+function tiesOf(row: TrackerRow): string {
+  const ties = [
+    ...row.links.map((l) => `${l.relation} ${l.ref}`),
+    ...(row.contributes ?? []).map((ref) => `contributes to ${ref}`),
+    ...(row.contributedBy?.length ? [`has contributions from ${row.contributedBy.join(', ')}`] : []),
+  ]
+  return ties.length ? ` [${ties.join(', ')}]` : ''
 }
 
 /**

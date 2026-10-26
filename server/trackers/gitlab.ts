@@ -16,6 +16,9 @@ import type { Runner } from '../feedback.ts'
 import {
   chunks,
   clip,
+  closingIssues,
+  contributedIssues,
+  contributesOf,
   instant,
   labelsOf,
   list,
@@ -30,6 +33,7 @@ import {
   str,
   trouble,
   who,
+  withContributors,
   withPeople,
   type Adapter,
   type BoardsRead,
@@ -55,21 +59,13 @@ import type { Source } from './sources.ts'
  */
 
 /**
- * The words in a merge request's description that say it is FOR an issue.
- * Prior art's pattern, unchanged: GitLab's own closing keywords, and the
- * "part of" / "implements" a stack's upper merge requests use, since GitLab's
- * `closed_by` ignores a merge request that targets a feature branch.
+ * The issues a merge request's description says it closes: GitLab's own
+ * closing keywords. "Part of" and "implements" are not among them since
+ * protocol 2.26.0 (Jalez/kehikko#187): they say the merge request is one part
+ * of the issue, and go in `contributes` (`contributedIssues` in `common.ts`).
  */
-const DECLARATION =
-  /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|part of|implements)\b[\s:]*((?:#\d+[\s,]*(?:and\s*)?)+)/gi
-
-export function declaredIssues(description: string | null | undefined): number[] {
-  const out = new Set<number>()
-  for (const m of (description ?? '').matchAll(DECLARATION)) {
-    for (const ref of m[1]!.matchAll(/#(\d+)/g)) out.add(Number(ref[1]))
-  }
-  return [...out]
-}
+export const declaredIssues = closingIssues
+export { contributedIssues }
 
 /** GitLab's pipeline status, in either case, as one of the protocol's words. */
 export function pipelineOf(status: unknown): PipelineState | undefined {
@@ -295,11 +291,13 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
      closed, so it reads as still open rather than as a guess. */
   const state = word === 'merged' ? 'merged' : word === 'closed' ? 'closed' : word === 'opened' || word === 'locked' ? 'open' : null
   if (!state) return null
-  const links = declaredIssues(str(r.description))
+  const description = str(r.description)
+  const links = declaredIssues(description)
     .map((n) => spell(source, 'issue', n))
     .filter((one): one is string => one !== null)
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closes' as const }))
+  const contributes = contributesOf(source, contributedIssues(description), links.map((l) => l.ref))
   const pipeline = pipelineOf(obj(r.headPipeline ?? r.head_pipeline).status)
   const approved = typeof r.approved === 'boolean' ? r.approved : undefined
   const draft = typeof r.draft === 'boolean' ? r.draft : typeof r.work_in_progress === 'boolean' ? r.work_in_progress : undefined
@@ -327,6 +325,7 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     closedAt: state === 'open' ? null : (instant(r.closed_at ?? r.closedAt) ?? undefined),
     mergedAt: state === 'merged' ? (instant(r.merged_at ?? r.mergedAt) ?? undefined) : null,
     links,
+    contributes,
     pipeline,
     /* GraphQL only (see "People" above): the REST list's `reviewers` say nobody's state. */
     reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy) : undefined,
@@ -345,9 +344,15 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
 /**
  * Give each issue the merge requests that declare it, and say it was closed by
  * a merge when one of them merged. A GitLab issue has no close reason, so this
- * is the only way `deriveDisposition` can call one done.
+ * is the only way `deriveDisposition` can call one done. The merge requests
+ * that are only part of it go in its `contributedBy`, and never make it
+ * `closedByMerge` (protocol 2.26.0).
  */
 export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
+  return withContributors(closedByDeclarers(rows))
+}
+
+function closedByDeclarers(rows: TrackerRow[]): TrackerRow[] {
   const by = new Map<string, TrackerRow[]>()
   for (const one of rows) {
     if (one.kind !== 'change') continue
