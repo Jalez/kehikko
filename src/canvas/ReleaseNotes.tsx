@@ -1,5 +1,6 @@
 import { ExternalLink, ScrollText } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
@@ -192,7 +193,7 @@ export function ReleaseNotesDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
           {reading.kind === 'reading' ? (
-            <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>
+            <Loading className="py-2" label="Reading the release notes…" />
           ) : reading.kind === 'failed' ? (
             <div className="py-2 text-xs" data-testid="release-notes-trouble">
               <p className="text-foreground">
@@ -407,7 +408,7 @@ export function ReleaseSections({
               </p>
             ) : null}
             {reading.kind === 'reading' ? (
-              <p className="text-muted-foreground py-2 text-xs">Reading the release notes…</p>
+              <Loading className="py-2" label="Reading the release notes…" />
             ) : reading.kind === 'failed' ? (
               allFailed ? null : (
                 <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">

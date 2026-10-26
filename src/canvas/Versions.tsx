@@ -1,5 +1,6 @@
 import { Check, Tag } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { fetchVersions, pinVersion, versionLabel, versionRows, type VersionListing } from '@/host/versions.ts'
@@ -154,7 +155,7 @@ export function VersionPicker({
             }
           />
         ) : trouble ? null : (
-          <p className="text-muted-foreground px-2 py-1.5 text-xs">Reading the versions of {name}…</p>
+          <Loading className="px-2 py-1.5" label={`Reading the versions of ${name}…`} />
         )}
         {trouble ? <p className="text-destructive px-2 py-1.5 text-xs">{trouble}</p> : null}
         {listing ? (

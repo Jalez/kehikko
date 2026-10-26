@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { Loading, Skeleton, useSlow } from '@/components/ui/loading.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { cachedFeedback, fetchFeedback, sendFeedback, type Listing, type Status } from '@/host/feedback.ts'
 import { Hint } from './Hint.tsx'
@@ -82,6 +83,15 @@ export interface FeedbackState {
   listing: Listing | null
   /** The one line said instead of, or under, the list: reading, a refusal, or that there is none yet. */
   line: string | null
+  /** The list is being read and there is nothing cached to show meanwhile. */
+  loading: boolean
+  /** Reading has gone on past `SLOW_AFTER_MS`. */
+  slow: boolean
+  /** Stop waiting for GitHub. */
+  cancel(): void
+  /** Reading stopped by the person: the list offers Try again. */
+  stopped: boolean
+  retry(): void
   /** The menu showing this opened or closed: read on the way in, stop reading on the way out. */
   opened(open: boolean): void
   writing: boolean
@@ -95,6 +105,7 @@ export function useFeedback(module: string): FeedbackState {
   const [loading, setLoading] = useState(false)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [writing, setWriting] = useState(false)
+  const [stopped, setStopped] = useState(false)
   const asking = useRef<AbortController | null>(null)
 
   /* Asked every time the menu opens: an issue's status changes on GitHub, not
@@ -105,6 +116,7 @@ export function useFeedback(module: string): FeedbackState {
     const stop = new AbortController()
     asking.current = stop
     setLoading(true)
+    setStopped(false)
     try {
       setListing(await fetchFeedback(module, stop.signal))
       setTrouble(null)
@@ -125,24 +137,32 @@ export function useFeedback(module: string): FeedbackState {
     },
     [load],
   )
+  const cancel = useCallback(() => {
+    asking.current?.abort()
+    setLoading(false)
+    setStopped(true)
+  }, [])
+  const retry = useCallback(() => void load(), [load])
+  const slow = useSlow(loading)
   const sent = useCallback(() => setListing(cachedFeedback(module)), [module])
 
   const line = trouble
     ? trouble
     : !listing
-      ? loading
-        ? 'reading GitHub…'
+      ? stopped
+        ? 'Stopped waiting for GitHub.'
         : null
       : listing.items.length === 0
         ? 'No feedback from you yet'
         : null
 
-  return { listing, line, opened, writing, write: setWriting, sent }
+  return { listing, line, loading: loading && !listing, slow, cancel, stopped, retry, opened, writing, write: setWriting, sent }
 }
 
 /** The list itself: what was sent, each with its status, and the way to send something new. */
 export function FeedbackRows({ feedback }: { feedback: FeedbackState }) {
   const { listing, line } = feedback
+  const waiting = feedback.loading
   return (
     <>
       <DropdownMenuLabel className="truncate">
@@ -160,9 +180,59 @@ export function FeedbackRows({ feedback }: { feedback: FeedbackState }) {
           <StatusBadge status={item.status} />
         </DropdownMenuItem>
       ))}
+      {waiting ? <FeedbackWaiting feedback={feedback} /> : null}
       {line ? <p className="text-muted-foreground px-2 py-1.5 text-xs">{line}</p> : null}
+      {feedback.stopped && !waiting ? (
+        <DropdownMenuItem
+          className="cursor-default text-xs"
+          onSelect={(event) => {
+            event.preventDefault()
+            feedback.retry()
+          }}
+        >
+          Try again
+        </DropdownMenuItem>
+      ) : null}
       <AddItem onAdd={() => feedback.write(true)}>new feedback…</AddItem>
     </>
+  )
+}
+
+/**
+ * While the list is first read: the app's spinner on top, and three rows the
+ * shape of feedback items pulsing under it, so the menu does not jump when the
+ * list lands. Past 8 s a quiet line says GitHub is slow, with a way out.
+ */
+function FeedbackWaiting({ feedback }: { feedback: FeedbackState }) {
+  return (
+    <div className="px-2 py-1.5" data-testid="feedback-loading">
+      <Loading label="Reading feedback from GitHub…" />
+      <div className="mt-2 space-y-2" aria-hidden>
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="flex items-center gap-2">
+            <Skeleton className="h-3 w-7 shrink-0" />
+            <Skeleton className="h-3 min-w-0 flex-1" />
+            <Skeleton className="h-4 w-10 shrink-0 rounded-full" />
+          </div>
+        ))}
+      </div>
+      {feedback.slow ? (
+        <p className="text-muted-foreground mt-2 text-xs" data-testid="feedback-slow">
+          Still reading — GitHub is slow to answer
+        </p>
+      ) : null}
+      {feedback.slow ? (
+        <DropdownMenuItem
+          className="cursor-default text-xs"
+          onSelect={(event) => {
+            event.preventDefault()
+            feedback.cancel()
+          }}
+        >
+          Cancel
+        </DropdownMenuItem>
+      ) : null}
+    </div>
   )
 }
 

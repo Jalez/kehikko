@@ -163,7 +163,10 @@ export function WhatsNewDialog({
                   </span>
                   <span className="text-muted-foreground pl-5.5 font-mono text-[11px] font-normal" data-preparing={item.preparing ? '' : undefined}>
                     {item.preparing ? (
-                      <span className="font-sans">Preparing…</span>
+                      <span className="inline-flex items-center gap-1 font-sans">
+                        <LoaderCircle className="size-3 shrink-0 motion-safe:animate-spin" aria-hidden />
+                        Preparing…
+                      </span>
                     ) : item.kind === 'note' ? (
                       <span className="font-sans">Kehikot</span>
                     ) : item.follows === 'main' || item.follows === 'ahead' ? (

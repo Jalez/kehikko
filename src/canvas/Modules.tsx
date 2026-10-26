@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Compass, Eye, MousePointerClick } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Compass, Eye, LoaderCircle, MousePointerClick } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -810,7 +810,14 @@ function InstallFromRepository({ onAdded }: { onAdded(): void }) {
           className="h-7 min-w-0 flex-1 text-xs"
         />
         <Button type="submit" variant="secondary" size="sm" className="h-7 shrink-0 px-2 text-xs" disabled={!typed.trim() || at !== 'idle'}>
-          {at === 'checking' ? 'Checking…' : 'Check'}
+          {at === 'checking' ? (
+            <>
+              <LoaderCircle className="size-3 motion-safe:animate-spin" aria-hidden />
+              Checking…
+            </>
+          ) : (
+            'Check'
+          )}
         </Button>
       </div>
       {checked ? <Found checked={checked} adding={at === 'adding'} onInstall={add} onCancel={reset} /> : null}
