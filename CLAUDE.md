@@ -57,7 +57,7 @@
   helpers.
 - Environment: `KEHIKOT_FRAME_DB`, `KEHIKOT_MODULES_DIR`, `KEHIKOT_VERSIONS_DIR`,
   `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_APP_PROTOCOLS_CACHE`,
-  `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LAYOUTS_DIR`, `KEHIKOT_ONBOARDING` (`off`: the introduction counts as seen), `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
+  `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LAYOUTS_DIR`, `KEHIKOT_SOUNDS_DIR`, `KEHIKOT_ONBOARDING` (`off`: the introduction counts as seen), `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
   `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
@@ -594,6 +594,16 @@
   words are `src/host/trackerNotices.ts`; the setting is `tracker-notices` in
   `settings`, changed only through `POST /host/settings` (`{ notices }`). Whether
   the person put an item away is read from the Inbox's record, never kept twice.
+- The chime is derived from that record, never kept beside it: `useInbox`'s
+  `notify` (what entered attention or done as news, minus a place that is on
+  screen) and a legacy notice line feed `useChime`, which collapses a burst to
+  one sound (most urgent kind wins: urgent, needs you, finished, notice) and
+  lets only the window used last play. The rules are `src/host/chime.ts`; the
+  choices (mute, a sound per kind, a sound per module, My chime) are the host's
+  `inbox-chime` setting through `POST /host/settings` (`{ chime }`), never
+  browser storage. The person's own clips are in `soundsDir()`
+  (`KEHIKOT_SOUNDS_DIR`), served only by id at `GET /host/sounds/<id>`; their
+  writes are in `PAGE_ONLY`. No MCP tool plays, mutes or picks a sound.
 - The Notifications module still receives the lines (`noticeFor`), and its own
   `.kehikot/notifications/notifications.json` is imported once and never written.
 

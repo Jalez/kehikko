@@ -16,6 +16,8 @@ import {
 import { noticesPatched } from '../src/host/trackerNotices.ts'
 import { readNotices, writeNotices } from './trackerNotices.ts'
 import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
+import { chimePatched } from '../src/host/chime.ts'
+import { readChime, writeChime } from './chime.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
 
 /**
@@ -228,6 +230,7 @@ export function settingsRoute(deps: SettingsDeps) {
     notices: readNotices(deps.db),
     modules: { keep: readKeepRunning(deps.db) },
     updates: { auto: readAutoUpdates(deps.db) },
+    chime: readChime(deps.db),
     skillsAt: deps.skillsAt(),
   })
 
@@ -238,7 +241,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; chime?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -261,6 +264,13 @@ export function settingsRoute(deps: SettingsDeps) {
         writeKeepRunning(deps.db, keep)
         deps.modulesChanged?.(keep)
       }
+      return json(answer())
+    }
+
+    if (body.chime !== undefined) {
+      const next = chimePatched(readChime(deps.db), body.chime)
+      if (!next) return json({ ok: false, why: 'That is not a change the Inbox chime takes.' }, 400)
+      writeChime(deps.db, next)
       return json(answer())
     }
 

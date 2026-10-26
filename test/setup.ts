@@ -44,6 +44,7 @@ import {
   keysDir,
   layoutsDir,
   logsDir,
+  soundsDir,
   modulesDir,
   myModulesFile,
   officialListFile,
@@ -75,6 +76,7 @@ const LOCATIONS: ReadonlyArray<{ variable: string; scratch: string; resolved: ()
   { variable: 'KEHIKOT_BROWSER_PROFILE', scratch: join(SCRATCH, 'browser-profile'), resolved: () => browserProfileDir() },
   { variable: 'KEHIKOT_KEYS_DIR', scratch: join(SCRATCH, 'keys'), resolved: () => keysDir() },
   { variable: 'KEHIKOT_FACTORY_DIR', scratch: join(SCRATCH, 'factory'), resolved: () => factoryDir() },
+  { variable: 'KEHIKOT_SOUNDS_DIR', scratch: join(SCRATCH, 'sounds'), resolved: () => soundsDir() },
   { variable: 'KEHIKOT_LAYOUTS_DIR', scratch: join(SCRATCH, 'layouts'), resolved: () => layoutsDir() },
   { variable: 'CLAUDE_CONFIG', scratch: join(SCRATCH, 'claude.json'), resolved: () => agentConfigFile() },
   /* Claude Code's personal skills, beside its config: the same variable moves both. */

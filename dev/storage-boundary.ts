@@ -139,6 +139,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: 'Application Support/Kehikot/layouts holds the person\'s own suggested layouts, for every project on this machine; a project\'s own layouts are in its .kehikot/host/layouts/ (host server/machineDirs.ts `layoutsDir`)',
   },
   {
+    id: 'my-sounds',
+    match: /KEHIKOT_SOUNDS_DIR/,
+    reason: 'Application Support/Kehikot/sounds holds the clips the person added for the Inbox chime, played on this machine for every project and never uploaded; only the host reads them, by id (host server/machineDirs.ts `soundsDir`)',
+  },
+  {
     id: 'keys',
     match: /KEHIKOT_KEYS_DIR|review-factory\.key/,
     reason: 'Application Support/Kehikot/keys holds per-install secrets one module presents to another — Review\'s Factory key, readable only by the user (host server/machineDirs.ts `keysDir`)',

@@ -1,3 +1,4 @@
+import type { ChimeSettings } from './chime.ts'
 import type { NoticeSettings } from './trackerNotices.ts'
 
 /**
@@ -296,7 +297,7 @@ export function chordSaid(mac: boolean): string {
 }
 
 /** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'project', 'modules', 'about'] as const
+export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'sounds', 'hook', 'project', 'modules', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
@@ -346,4 +347,6 @@ export interface SettingsAnswer {
   modules?: { keep: boolean }
   /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
   updates?: { auto: boolean }
+  /** The Inbox chime (`server/chime.ts`). Absent from an older host. */
+  chime?: ChimeSettings
 }

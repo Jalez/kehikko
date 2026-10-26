@@ -28,6 +28,7 @@ import {
 } from '@/host/inbox.ts'
 import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
+import { MuteChime } from './ChimeSettings.tsx'
 
 /**
  * The Inbox: ONE control in the bar and a panel opened on demand. No standing
@@ -459,6 +460,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
             </button>
           ))}
         </div>
+        <MuteChime className="size-6" />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
