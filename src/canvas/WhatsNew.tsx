@@ -255,7 +255,7 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
             {item.name}’s repository is not on GitHub, so there are no release notes to read here.
           </p>
         ) : (
-          <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings />
+          <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings={item.tags.length > 1} />
         )}
       </div>
     </>

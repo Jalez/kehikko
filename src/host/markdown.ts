@@ -257,3 +257,21 @@ export function whatsNew(body: string): string {
   const section = withoutFooter(lines.slice(start + 1, end)).join('\n').trim()
   return section || whole
 }
+
+/**
+ * Whether a paragraph's text is wholly one of the sentences `worksWithSaid`
+ * (`host/worksWith.ts`) writes: "Works with Kehikot 0.1.65 and later.", "Works
+ * with Kehikot 0.1.15 to 0.1.21 (0.1.22 moved to protocol 2).", "Needs a Kehikot
+ * newer than 0.1.41 (protocol 2.11 or later).". A dialog that draws that
+ * sentence as its own label leaves it out of the body, where the release
+ * workflow wrote it too. A whole paragraph only; a sentence inside other text
+ * is never touched.
+ */
+export function isBuiltFrom(text: string): boolean {
+  return /^Built from\b/i.test(text.trim())
+}
+
+export function isWorksWithSentence(text: string): boolean {
+  return /^(Works with (Kehikot \d+\.\d+\.\d+( and later| to \d+\.\d+\.\d+ \(\d+\.\d+\.\d+ moved to protocol \d+\))|this Kehikot and later)|Needs a Kehikot newer than \d+\.\d+\.\d+ \(protocol [\d.]+ or later\))\.?$/.test(text.trim())
+}
+
