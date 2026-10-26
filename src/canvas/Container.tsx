@@ -25,7 +25,10 @@ import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { BranchMark } from './Branch.tsx'
+import { fitFor, type HeaderFit } from '@/host/headerFit.ts'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
+import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
@@ -252,6 +255,27 @@ export function Container({
   onActivitySeen?(): void
 }) {
   const name = presence.name ?? presence.id
+  /* How much of the header's left side there is room for, from the header's own width
+     (`host/headerFit.ts`), kept as the container is resized. A change of class is one render. */
+  const grip = useRef<HTMLElement>(null)
+  const [fit, setFit] = useState<HeaderFit>(() => fitFor(null))
+  useLayoutEffect(() => {
+    const header = grip.current
+    if (!header) return
+    const measure = () => {
+      const next = fitFor(header.offsetWidth || null)
+      setFit((was) => (was.icon === next.icon && was.version === next.version && was.badgeText === next.badgeText ? was : next))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const watching = new ResizeObserver(measure)
+    watching.observe(header)
+    return () => watching.disconnect()
+  }, [])
+  const shownVersion = versionLabel(version ?? null, current ?? releaseShown(presence.source) ?? presence.module?.version ?? null)
+  /* The name is cut with an ellipsis when it must be, so its whole is in its title, with the
+     version once that has no room of its own. */
+  const nameTitle = fit.version ? name : `${name} · ${shownVersion}`
   const hasSettings = onSettings !== undefined && settingsOf(presence.module).length > 0
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* For the dot and the header's controls, which are the page's and are
@@ -410,6 +434,7 @@ export function Container({
        * work until the last few pixels.
        */}
       <header
+        ref={grip}
         data-dense={collapsed ? 'true' : undefined}
         className={
           collapsed
@@ -515,13 +540,13 @@ export function Container({
         {/* The module's icon, decorative beside its name (`ModuleIcon.tsx`). The
             first thing to go after the gaps: under 240 pixels the name keeps
             the room, and the folded row and the 200-pixel container hold. */}
-        <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5 @max-[240px]/container:hidden" />
+        {fit.icon ? <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5" /> : null}
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
-            <span className="min-w-[2ch] shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
+            <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
           </Hint>
         ) : (
-          <span className="min-w-[2ch] shrink-[0.05] truncate text-xs font-medium">{name}</span>
+          <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] truncate text-xs font-medium">{name}</span>
         )}
         {/*
          * The version, and the first thing to go when the container is narrow.
@@ -544,9 +569,10 @@ export function Container({
           current={current ?? releaseShown(presence.source) ?? presence.module?.version ?? null}
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
+          text={fit.version}
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
-        <BranchMark source={presence.source} />
+        <BranchMark source={presence.source} text={fit.badgeText} />
         <span className="flex-1" />
 
         {/*
