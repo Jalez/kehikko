@@ -194,10 +194,13 @@ export function WhatsNewDialog({
 
 /** One row's notes: its name and versions, then every release, newest first. */
 function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
+  const [date, setDate] = useState<string | null>(null)
   if (item.preparing) return <Preparing item={item} />
   const repo = item.kind === 'app' ? APP_REPO : item.repo
   const onMain = item.follows === 'main' || item.follows === 'ahead'
   const count = item.news ? releasesSaid(item.tags.length) : null
+  const single = item.tags.length === 1
+  const onDate = useCallback((_tag: string, said: string | null) => setDate(said), [])
   return (
     <>
       {/* `sm:pr-8`: the dialog's ✕ sits in this corner from 640 pixels up. */}
@@ -216,6 +219,7 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
                 {count}
               </Badge>
             ) : null}
+            {single && date ? <span data-testid="whats-new-date">{date}</span> : null}
             {!item.news ? (
               <Badge variant="outline" className="h-5 rounded-full px-2 text-[11px] font-normal">
                 installed
@@ -255,7 +259,7 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
             {item.name}’s repository is not on GitHub, so there are no release notes to read here.
           </p>
         ) : (
-          <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings />
+          <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings={!single} onDate={single ? onDate : undefined} />
         )}
       </div>
     </>
