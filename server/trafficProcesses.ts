@@ -1,7 +1,8 @@
 import { reverse } from 'node:dns/promises'
 
-import { LIMITS, TRAFFIC_HOST_BY, type TrafficConnection, type TrafficProcesses } from 'kehikot-module-protocol'
+import { LIMITS, type TrafficConnection, type TrafficProcesses } from 'kehikot-module-protocol'
 
+import { owners, type Root } from './callers.ts'
 import { untraced, type TrafficRecord } from './traffic.ts'
 
 /**
@@ -48,33 +49,6 @@ export function parsePs(text: string): Proc[] {
     if (match) out.push({ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), name: (match[4] ?? '').slice(0, LIMITS.TRAFFIC_KIND) })
   }
   return out
-}
-
-/**
- * Who each process belongs to: the members of each module's group and everything under them, then
- * this host's own process and everything under it that no module claimed.
- */
-export function attribute(procs: readonly Proc[], roots: ReadonlyArray<readonly [string, number]>, self: number): Map<number, string> {
-  const children = new Map<number, number[]>()
-  for (const proc of procs) children.set(proc.ppid, [...(children.get(proc.ppid) ?? []), proc.pid])
-  const owner = new Map<number, string>()
-  const claim = (pid: number, by: string) => {
-    const stack = [pid]
-    while (stack.length) {
-      const one = stack.pop()!
-      if (owner.has(one)) continue
-      owner.set(one, by)
-      stack.push(...(children.get(one) ?? []))
-    }
-  }
-  for (const [by, pid] of roots) {
-    /* The whole group the process leads or belongs to, and everything under it. */
-    const pgid = procs.find((proc) => proc.pid === pid)?.pgid ?? pid
-    for (const proc of procs) if (proc.pgid === pgid && proc.pid !== self) claim(proc.pid, by)
-    claim(pid, by)
-  }
-  claim(self, TRAFFIC_HOST_BY)
-  return owner
 }
 
 export interface Socket {
@@ -179,10 +153,10 @@ const UNKNOWN = (host: string) => host === '*' || host === '' || host === '0.0.0
 export interface SamplerDeps {
   record: TrafficRecord
   /**
-   * A process of each module: the pid this host started it as, or the process listening on its
-   * registered port. Its whole group, and everything under it, is the module's.
+   * A process of each module: the pid this host started it as (its whole group, and everything
+   * under it, is the module's), or the process listening on its registered port (what is under it).
    */
-  roots(): Promise<Array<readonly [string, number]>>
+  roots(): Promise<Root[]>
   /** Run a program and get what it printed, or null. */
   run?(argv: string[]): Promise<string | null>
   /** This host's own pid. */
@@ -225,8 +199,6 @@ export class ProcessSampler {
   /** Connections already seen, by a key of process and both ends, with when they were first seen. */
   #seen = new Map<string, number>()
   #names = new Map<string, string | null>()
-  /** Local port → who holds it, from the last look: who a request from a program came from. */
-  #ports = new Map<number, string>()
 
   constructor(deps: SamplerDeps) {
     this.#deps = deps
@@ -248,11 +220,6 @@ export class ProcessSampler {
     return { ...this.#last, on: this.#wantedUntil > this.#now() }
   }
 
-  /** Who held a local port at the last look, while looking. */
-  portOwner(port: number): string | null {
-    return this.#wantedUntil > this.#now() ? (this.#ports.get(port) ?? null) : null
-  }
-
   stop(): void {
     if (this.#timer) clearTimeout(this.#timer)
     this.#timer = null
@@ -264,7 +231,6 @@ export class ProcessSampler {
       this.#timer = null
       if (this.#wantedUntil <= this.#now()) {
         this.#seen.clear()
-        this.#ports.clear()
         return
       }
       void this.look().finally(() => {
@@ -285,7 +251,7 @@ export class ProcessSampler {
         this.#last = { on: true, bytes: false, at: this.#now(), why: 'This computer would not list its processes (ps), so connections cannot be told apart by module.', connections: [] }
         return this.#last
       }
-      const owner = attribute(parsePs(ps), await this.#deps.roots(), this.#deps.self ?? process.pid)
+      const owner = owners(parsePs(ps), await this.#deps.roots(), this.#deps.self ?? process.pid)
       const pids = [...owner.keys()].slice(0, PIDS_MAX)
       let bytes = true
       let why = ''
@@ -302,7 +268,6 @@ export class ProcessSampler {
       const now = this.#now()
       const connections: TrafficConnection[] = []
       const still = new Set<string>()
-      this.#ports.clear()
       let lookups = 0
       for (const socket of sockets) {
         const by = owner.get(socket.pid)
@@ -312,7 +277,6 @@ export class ProcessSampler {
         if (listening.has(`${socket.pid}:${socket.localPort}`)) continue
         if (socket.proto === 'udp' && UNKNOWN(socket.remoteHost) && !socket.bytesIn && !socket.bytesOut) continue
         const local = LOOPBACK(socket.remoteHost)
-        if (local) this.#ports.set(socket.localPort, by)
         /* This host's own process on this computer: every such call is already in the record, from `fetch`. */
         if (local && socket.pid === (this.#deps.self ?? process.pid)) continue
         const key = `${socket.pid}|${socket.proto}|${socket.localHost}:${socket.localPort}|${socket.remoteHost}:${socket.remotePort}`

@@ -18,6 +18,10 @@ const port = Number(portText)
 /* `STANDIN_TRAFFIC=<host origin>`: this one also reads the host's record of traffic, as the
    Monitor does (`traffic:read`), and hands it to a driver at `/traffic?since=<seq>`. */
 const trafficHost = process.env.STANDIN_TRAFFIC ?? null
+/* `STANDIN_PING=<host origin>`: this one's server also asks the host whether it is there every
+   second, as a module's server does (`dev/callers.drive.mjs`). */
+const pingHost = process.env.STANDIN_PING ?? null
+if (pingHost) setInterval(() => void fetch(`${pingHost}/host/hello`).catch(() => {}), 1000)
 
 const manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -71,7 +75,8 @@ Bun.serve({
     if (pass) return Response.json(pass.body, { status: pass.status })
     if (trafficHost && pathname === '/traffic') {
       const since = Number(url.searchParams.get('since')) || 0
-      return askHost('traffic.read', { since, limit: 5000 }, { module: id, env: { KEHIKOT_ORIGINS: trafficHost } }).then((read) =>
+      const sample = url.searchParams.get('sample') === '1'
+      return askHost('traffic.read', { since, limit: 5000, ...(sample ? { sample: true } : {}) }, { module: id, env: { KEHIKOT_ORIGINS: trafficHost } }).then((read) =>
         Response.json(read, { status: read.ok ? 200 : 502 }),
       )
     }
