@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { CONTENT_HOST, CONTENT_STEPS, LIMITS, contentSignalSchema, contentStamp, kehikotDir } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
-import { Contents, ContentWatch, folderSource, stepsAreKeptBy } from '../server/content.ts'
+import { CONTENT_QUIET_MS, Contents, ContentWatch, folderSource, stepsAreKeptBy } from '../server/content.ts'
 import { epicsDir, stateDir } from '../server/hostData.ts'
 import { Wakes, type News } from '../server/wake.ts'
 import { toWireContext, whileFrozen } from '../src/host/context.ts'
@@ -215,47 +215,97 @@ describe('a project’s .kehikot, watched', () => {
     for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
 
-  const QUIET = 40
-  const settle = () => new Promise((done) => setTimeout(done, QUIET * 8))
+  /* How long a test waits for the watcher before it says what it heard: a ceiling, not a pace,
+     inside the test runner's own five seconds. Every wait below ends when the watcher has spoken. */
+  const CEILING = 4000
 
-  /* A watcher takes a moment to arm; a write in the same tick as `watching` is
-     a write from before anybody was looking. */
-  async function project() {
+  /*
+   * What the watcher said, and two waits on it.
+   *
+   * `told()`: everything written before now has been told. The watcher's events arrive in the order
+   * the writes were made, and every announcement waits the same quiet time after its source's last
+   * event, so a write to a folder of its own — the mark — made after the writes a test is about is
+   * announced after every announcement they cause: when the mark is heard, the rest has been said,
+   * or never will be. Under load it waits longer, and a second announcement of a burst cannot
+   * arrive after the test has looked.
+   *
+   * `armed()`: the watcher hears writes. Bun's watcher on macOS restarts the stream it reads when
+   * any watcher in the process opens or closes, and a write in that moment is never reported —
+   * measured: about one in forty, right after `watch` and right after ANOTHER watcher closed. So a
+   * test first writes the mark, again each time it goes unheard, until it is heard; only then are
+   * the writes it is about made. That is waiting for the watcher to be live, not repeating what
+   * is asserted.
+   *
+   * The quiet time is the host's own (`CONTENT_QUIET_MS`). A shorter one in a test is shorter than
+   * the platform's batching: macOS hands a burst written in one moment over in two deliveries
+   * about 50 ms apart, and a 40 ms quiet made that two announcements.
+   */
+  async function project(folders: string[] = []) {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-content-')))
     made.push(root)
     const journeys = join(kehikotDir(root)!, 'journeys')
-    mkdirSync(journeys, { recursive: true })
-    mkdirSync(epicsDir(root), { recursive: true })
-    mkdirSync(stateDir(root), { recursive: true })
+    const mark = join(kehikotDir(root)!, 'mark')
+    /* Every folder a test writes in is there before the watcher is: a folder made while it
+       watches is a second thing to be told, on Linux a watch added after the fact. */
+    const more = folders.map((name) => join(kehikotDir(root)!, name))
+    for (const dir of [journeys, mark, epicsDir(root), stateDir(root), ...more]) mkdirSync(dir, { recursive: true })
     writeFileSync(join(epicsDir(root), 'x.json'), '{"title":"X"}\n')
     const heard: string[] = []
     let states = 0
+    let marks = 0
+    let written = 0
+    let marked = () => {}
     const watch = new ContentWatch({
-      changed: (_root, source, epic, said) => void heard.push(`${source} ${epic ?? '*'}${said?.steps ? ' steps' : ''}`),
+      changed: (_root, source, epic, said) => {
+        if (source === 'kehikot.mark') return void ((marks += 1), marked())
+        heard.push(`${source} ${epic ?? '*'}${said?.steps ? ' steps' : ''}`)
+      },
       stateChanged: () => void (states += 1),
-      quietMs: QUIET,
-      reportedMs: QUIET * 20,
     })
     watches.push(watch)
     watch.watching([root])
-    await settle()
-    return { root, journeys, heard, watch, states: () => states }
+    const markHeard = (within: number) =>
+      new Promise<boolean>((done) => {
+        const want = marks + 1
+        const late = setTimeout(() => done(false), within)
+        marked = () => {
+          if (marks < want) return
+          clearTimeout(late)
+          done(true)
+        }
+        writeFileSync(join(mark, 'mark.json'), `${(written += 1)}\n`)
+      })
+    const told = async () => {
+      if (!(await markHeard(CEILING))) throw new Error(`the watcher said nothing of the mark in ${CEILING} ms; heard ${JSON.stringify(heard)}`)
+    }
+    const armed = async () => {
+      const until = Date.now() + CEILING
+      while (!(await markHeard(CONTENT_QUIET_MS * 3))) {
+        if (Date.now() > until) throw new Error(`the watcher never heard a write in ${CEILING} ms`)
+      }
+    }
+    /* Armed, and whatever it reports of the folders made before it was (macOS tells of those too,
+       a moment late) is behind it. */
+    await armed()
+    await told()
+    heard.length = 0
+    states = 0
+    return { root, journeys, heard, watch, told, armed, states: () => states }
   }
 
   test('a module’s file written by its own server is announced as that module’s', async () => {
     const one = await project()
     writeFileSync(join(one.journeys, 'journeys.json'), '{"steps":[1]}\n')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual(['kehikot.journeys *'])
   })
 
   test('a module’s steps.json moving is said to be its steps (protocol 2.21.0)', async () => {
-    const one = await project()
+    const one = await project(['planner'])
     const planner = join(kehikotDir(one.root)!, 'planner')
-    mkdirSync(planner, { recursive: true })
     writeFileSync(join(planner, 'steps.json'), '{"epics":{}}\n')
     writeFileSync(join(planner, 'notes.json'), '{}\n')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual(['kehikot.planner * steps'])
   })
 
@@ -263,21 +313,21 @@ describe('a project’s .kehikot, watched', () => {
     const one = await project()
     for (let i = 0; i < 5; i += 1) writeFileSync(join(one.journeys, 'journeys.json'), `{"steps":[${i}]}\n`)
     writeFileSync(join(one.journeys, 'journeys.json.tmp'), 'half')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual(['kehikot.journeys *'])
   })
 
   test('an epic edited from outside is announced as the host’s, for that epic', async () => {
     const one = await project()
     writeFileSync(join(epicsDir(one.root), 'x.json'), '{"title":"X, rewritten"}\n')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual(['host x'])
   })
 
   test('an epic rewritten with what it already held says nothing', async () => {
     const one = await project()
     writeFileSync(join(epicsDir(one.root), 'x.json'), '{"title":"X"}\n')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual([])
   })
 
@@ -286,7 +336,7 @@ describe('a project’s .kehikot, watched', () => {
     const file = join(epicsDir(one.root), 'x.json')
     writeFileSync(file, '{"title":"Retitled by the host"}\n')
     one.watch.noted(one.root, file)
-    await settle()
+    await one.told()
     expect(one.heard).toEqual([])
   })
 
@@ -294,14 +344,14 @@ describe('a project’s .kehikot, watched', () => {
     const one = await project()
     writeFileSync(join(one.journeys, 'journeys.json'), '{"steps":[2]}\n')
     one.watch.reported(one.root, 'kehikot.journeys')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual([])
   })
 
   test('state rewritten from outside is the tracker’s news, not content', async () => {
     const one = await project()
     writeFileSync(join(stateDir(one.root), 'x.json'), '{"issues":{}}\n')
-    await settle()
+    await one.told()
     expect(one.states()).toBe(1)
     expect(one.heard).toEqual([])
   })
@@ -310,17 +360,24 @@ describe('a project’s .kehikot, watched', () => {
     const one = await project()
     writeFileSync(join(kehikotDir(one.root)!, 'host', 'tracker-reading.json'), '{}\n')
     writeFileSync(join(kehikotDir(one.root)!, 'host', 'dispositions.json'), '[]\n')
-    await settle()
+    await one.told()
     expect(one.heard).toEqual([])
     expect(one.states()).toBe(0)
   })
 
   test('a project nobody has open any more is not watched', async () => {
     const one = await project()
+    const open = await project()
     one.watch.watching([])
     expect(one.watch.roots).toEqual([])
+    /* Closing a watcher restarts the other's stream (see `armed`). */
+    await open.armed()
+    /* The same write in a project still open, in the same moment, is told: by then the closed
+       one would have been too. */
     writeFileSync(join(one.journeys, 'journeys.json'), '{"steps":[3]}\n')
-    await settle()
+    writeFileSync(join(open.journeys, 'journeys.json'), '{"steps":[3]}\n')
+    await open.told()
+    expect(open.heard).toEqual(['kehikot.journeys *'])
     expect(one.heard).toEqual([])
   })
 
