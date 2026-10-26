@@ -151,7 +151,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'keep-working',
     title: 'Switch projects — the others keep working',
-    body: 'Move to another project and the one you left carries on: its modules keep running and its Claude conversations keep at it. The Inbox tells you when one of them needs you.',
+    body: 'Move to another project and the one you left carries on: its modules keep running and its agents keep at it. The Inbox tells you when one of them needs you.',
     art: () => (
       <Art label="a project in front, another behind it still working, and a dot in the Inbox when it needs you">
         {/* Behind: the project you left, still busy. */}
@@ -187,13 +187,13 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'agents',
     title: 'Agents that know where they are',
-    body: 'Each kehikko has its own Claude conversation, already connected to its modules’ tools and skills. /kehikot-here tells it where it stands; /journey plans, /factory builds and /review-factory reviews.',
+    body: 'Put an agent module such as Claude on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. The skills follow what’s there: /journey with Journeys, /factory with Factory, /review-factory where Review and Factory both are.',
     art: () => (
-      <Art label="a Claude conversation connected to the modules beside it">
+      <Art label="an agent conversation connected to the modules beside it">
         <Pane x={16} y={12} w={132} h={126} header="fill-primary/30" />
         <rect x="26" y="28" width="92" height="16" rx="5" className="fill-muted stroke-border" strokeWidth="1" />
         <text x="32" y="39.5" className="fill-foreground font-mono" fontSize="9">
-          /kehikot-here
+          /journey
         </text>
         <rect x="27" y="29" width="90" height="14" rx="4" className="ia-uncover fill-muted" />
         <g className="ia-rise" style={after(1.6)}>
