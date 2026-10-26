@@ -199,6 +199,22 @@ const ANSWERS_WITHIN_MS = 6000
 const ASK_EVERY_MS = 300
 
 /**
+ * The longest wait between two asks, which widen from `ASK_EVERY_MS` by half each time (`nextAsk`).
+ *
+ * Every ask is a GET of the module's manifest, and the host waits up to `STARTING_FOR_MS` for a
+ * module it started. At a flat 300 ms a module that took five and a half seconds to start was asked
+ * twenty-nine times, nearly all of them refused — Monitor's record showed it for every module of a
+ * restart round, in bursts. Widening, the first second is asked as closely as before (a quick start
+ * is seen as quickly) and a slow one about once a second: a five-second start is nine asks.
+ */
+export const ASK_LONGEST_MS = 1000
+
+/** The wait after `wait`: half as long again, up to `ASK_LONGEST_MS`. */
+export function nextAsk(wait: number): number {
+  return Math.min(Math.round(wait * 1.5), ASK_LONGEST_MS)
+}
+
+/**
  * Wait for the module to answer its own well-known path.
  *
  * Polling rather than watching the process, because what a person wants to know
@@ -215,6 +231,7 @@ export async function answered(
      path was the second, until protocol 1.0.0 stopped serving it. */
   const paths = typeof wellKnown === 'string' ? [wellKnown] : wellKnown
   const until = Date.now() + within
+  let wait = ASK_EVERY_MS
   while (Date.now() < until) {
     try {
       for (const path of paths) {
@@ -227,7 +244,9 @@ export async function answered(
       /* Not up yet. Nothing here distinguishes "refused" from "still binding",
          and it does not need to: both mean ask again. */
     }
-    await new Promise((wake) => setTimeout(wake, ASK_EVERY_MS))
+    /* Widening, but never past the deadline: the last ask is still made at it. */
+    await new Promise((wake) => setTimeout(wake, Math.max(0, Math.min(wait, until - Date.now()))))
+    wait = nextAsk(wait)
   }
   return false
 }

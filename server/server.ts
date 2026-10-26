@@ -851,8 +851,8 @@ let sweeping: Promise<Swept> | null = null
  * already out may have read kept ones, so a fresh one waits for it and then asks.
  */
 function sweep(fresh = false): Promise<Swept> {
-  if (fresh) {
-    manifests.forgetAll()
+  /* `refresh` declines a press right behind another press: what that one read stands. */
+  if (fresh && manifests.refresh()) {
     if (sweeping) return sweeping.catch(() => null).then(() => sweep())
   }
   if (sweeping) return sweeping
@@ -1401,7 +1401,9 @@ function begin(id: string): void {
      beside it, never before it. See `releaseWait.ts`. */
   const place = installedPlace(id)
   if (place) void releases.started(place)
-  void untilAnswered(id, can.run.url)
+  /* Under its own reason: it is started from whatever request decided to start it (a page's
+     report, a page's read of the modules), and its asks were filed under that, as the page's. */
+  void because('the host waits for a module it started', () => untilAnswered(id, can.run.url))
 }
 
 /**
@@ -1805,7 +1807,7 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
     starting.delete(id)
     console.log(`kehikko: stopped ${id} — no open kehikko or project has had it for the grace period`)
     const url = registered.get(id)?.url
-    if (url) void whileStopped(id, url)
+    if (url) void because('the host waits for a module it stopped', () => whileStopped(id, url))
   }
 
   tether(standing)
@@ -2066,7 +2068,7 @@ setInterval(() => {
  * stale on it is asked again first, so a restart since that sweep is not
  * reported as old code. A module that states no build is left to the fallback.
  */
-async function judgeStaleness(): Promise<void> {
+async function judgeStaleness(press = false): Promise<void> {
   const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
   await Promise.all(
     presences.map(async (presence) => {
@@ -2078,7 +2080,11 @@ async function judgeStaleness(): Promise<void> {
       }
       let verdict = await behindCheckout(presence.module.name, presence.module.build, registration.dir)
       if (typeof verdict === 'string') {
-        const now = await look(registration)
+        /* Through the kept manifests: a restart this host made or saw (`run`, `ended`, `watch`) has
+           already forgotten what the sweep read, so a kept one IS the process running. Every
+           automatic check used to ask each module that was behind again — every module, between
+           an update landing and the restart. Check now asks afresh. */
+        const now = await manifests.read(registration, { fresh: press })
         verdict = now.module?.build ? await behindCheckout(now.module.name, now.module.build, registration.dir) : undefined
       }
       staleness.judged(presence.id, verdict)
@@ -2748,7 +2754,8 @@ async function answerRequest(request: Request): Promise<Response> {
     if (url.pathname === '/host/modules' && request.method === 'GET') {
       /* `fresh=1`: a person pressed something (look again, Start, an install), so every
          manifest is asked again; otherwise what `manifests` keeps stands. */
-      const view = await sweep(url.searchParams.get('fresh') === '1')
+      const press = url.searchParams.get('fresh') === '1'
+      const view = await sweep(press)
       /* And then act on it. A sweep is the only moment the host knows both what
          is running and what is wanted, so it is where a module on the open
          kehikko that nothing answers for gets started. Synchronous — it spawns
@@ -2758,7 +2765,9 @@ async function answerRequest(request: Request): Promise<Response> {
       govern(view.presences)
       const open = new Set(openness.every())
       pins.recordLatest(open, view.presences)
-      return json({ ...told(view), pins: await pins.views(open) })
+      /* The pinned versions' manifests are kept as the registered modules' are (`Pins`): this
+         answer is read on every look, and every look used to ask every running version. */
+      return json({ ...told(view), pins: await pins.views(open, press) })
     }
 
     /* A module's versions, for the picker in a container's header: its own
@@ -3537,7 +3546,7 @@ async function answerRequest(request: Request): Promise<Response> {
          this is nearly always instant; never waited for long. */
       if (fetch) await appProtocols.settled(4_000, runningApp)
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, quiet ? 'compare' : fetch, request.signal)))
-      await judgeStaleness()
+      await judgeStaleness(fetch && !quiet)
       return json({
         checked: new Date().toISOString(),
         checkouts: [...checkouts, ...unreadable],

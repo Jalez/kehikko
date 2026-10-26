@@ -78,6 +78,55 @@ describe('the manifest cache', () => {
   })
 })
 
+describe("a person's press", () => {
+  test('forgets every kept manifest, and a press right behind it reads what that one read', async () => {
+    const asked: string[] = []
+    let now = 1_000
+    const cache = new ManifestCache(
+      async (r) => {
+        asked.push(r.id)
+        return presence(r.id, true)
+      },
+      { now: () => now, floorMs: 2_000 },
+    )
+    await cache.read(registration('kehikot.a'))
+    expect(cache.refresh()).toBe(true)
+    await cache.read(registration('kehikot.a'))
+    /* Twenty presses in the next second and a half: none of them asks again. */
+    for (let i = 0; i < 20; i++) {
+      now += 75
+      expect(cache.refresh()).toBe(false)
+      await cache.read(registration('kehikot.a'))
+    }
+    expect(asked.length).toBe(2)
+    now += 2_000
+    expect(cache.refresh()).toBe(true)
+    await cache.read(registration('kehikot.a'))
+    expect(asked.length).toBe(3)
+  })
+})
+
+describe('keyOf', () => {
+  test('files two programs of one module apart', async () => {
+    const asked: string[] = []
+    const cache = new ManifestCache(
+      async (r) => {
+        asked.push(r.url)
+        return presence(r.id, true)
+      },
+      { keyOf: (r) => `${r.id} ${r.url}` },
+    )
+    for (let i = 0; i < 3; i++) {
+      await cache.read(registration('kehikot.a', 'http://127.0.0.1:5001'))
+      await cache.read(registration('kehikot.a', 'http://127.0.0.1:5002'))
+    }
+    expect(asked).toEqual(['http://127.0.0.1:5001', 'http://127.0.0.1:5002'])
+    cache.keepOnly(['kehikot.a http://127.0.0.1:5001'])
+    await cache.read(registration('kehikot.a', 'http://127.0.0.1:5002'))
+    expect(asked.length).toBe(3)
+  })
+})
+
 describe('the liveness probe', () => {
   test('any answer is reached, with the build its header names', async () => {
     const said = await probe('http://127.0.0.1:1/healthz', (async () =>

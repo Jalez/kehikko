@@ -17,6 +17,12 @@
  * With CHECK=1 it fails when a page load asks one of the host's page endpoints more than once (or
  * more than the `LOAD_ONCE` allowance, with its reason), when a module's manifest is fetched for the
  * page's own reports, or when the automatic update check runs `git fetch`.
+ *
+ * Then (MENUS=1, which CHECK=1 implies) it opens and closes the bar's menus one after another — the
+ * modules menu, its My modules section, Updates — and counts, for each, the manifests the host
+ * fetched and the page's `/host/modules` reads. Opening a menu is not a press: it reads what the host
+ * keeps, so with CHECK=1 a menu that makes the host fetch any manifest fails. Monitor once saw a
+ * burst of 29 fetches of every manifest in 5.5 s on the real app, "the page reads the modules".
  */
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -29,6 +35,10 @@ const PAGES = Number(process.env.PAGES ?? 2)
 const DURATION_MS = Number(process.env.DURATION_MS ?? 120_000)
 const CHECK = process.env.CHECK === '1'
 const MARKDOWN = process.env.MARKDOWN === '1'
+const MENUS = CHECK || process.env.MENUS === '1'
+/* How long each menu is held open, and how long after closing it is still counted. */
+const MENU_OPEN_MS = Number(process.env.MENU_OPEN_MS ?? 3_000)
+const MENU_AFTER_MS = Number(process.env.MENU_AFTER_MS ?? 2_000)
 /* What a page load is: the first this many ms after a page is opened. */
 const LOAD_MS = Number(process.env.LOAD_MS ?? 15_000)
 const MANIFEST = '/.well-known/kehikot-module.json'
@@ -123,7 +133,7 @@ function table(title, head, body) {
     for (const row of body) say(`  ${row.map((cell, i) => (i === 0 ? String(cell).padEnd(widths[i]) : String(cell).padStart(widths[i]))).join('  ')}`)
   }
 }
-const route = (row) => `${row.kind} ${row.path.split('?')[0]}${row.path.includes('fetch=1') ? '?fetch=1' : ''}`
+const route = (row) => `${row.kind} ${row.path.split('?')[0]}${row.path.includes('fetch=1') ? '?fetch=1' : ''}${row.path.includes('fresh=1') ? '?fresh=1' : ''}`
 
 /* ------------------------------------------------------------------ run */
 
@@ -221,6 +231,40 @@ try {
     const fetched = hostOut.filter((row) => row.kind === 'git fetch')
     if (fetched.length > 0) failures.push(`the automatic update check ran git fetch ${fetched.length} time(s); it compares with ls-remote`)
     else say('  ok   no git fetch on the automatic update check')
+  }
+
+  if (MENUS) {
+    /* One page, the menus opened on it one after another, each counted on its own. */
+    const one = (await context.pages()).at(-1)
+    await one.waitForSelector('[data-frame]', { state: 'attached', timeout: 30_000 })
+    await one.waitForTimeout(2_000)
+    const menus = [
+      ['the modules menu', async () => one.getByRole('button', { name: 'Kehikko modules' }).click()],
+      ['My modules', async () => {
+        await one.getByRole('button', { name: 'Kehikko modules' }).click()
+        await one.locator('section[aria-label="My modules"]').scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {})
+      }],
+      ['Updates', async () => one.locator('[data-testid="updates-indicator"]').click()],
+      ['the modules menu, again', async () => one.getByRole('button', { name: 'Kehikko modules' }).click()],
+    ]
+    const counts = []
+    for (const [name, open] of menus) {
+      await readRecord(gamma)
+      const from = Date.now()
+      await open()
+      await one.waitForTimeout(MENU_OPEN_MS)
+      await one.keyboard.press('Escape')
+      await one.waitForTimeout(MENU_AFTER_MS)
+      await readRecord(gamma)
+      const held = rows.filter((row) => row.at >= from)
+      const fetched = held.filter((row) => row.side === 'out' && row.by === 'kehikko' && row.path === MANIFEST)
+      const reads = held.filter((row) => row.side === 'in' && row.by === 'kehikko' && row.via === 'page' && row.path.split('?')[0] === '/host/modules')
+      const fresh = reads.filter((row) => row.path.includes('fresh=1'))
+      counts.push([name, fetched.length, reads.length, fresh.length])
+      if (CHECK && fetched.length > 0) failures.push(`opening ${name} made the host fetch ${fetched.length} manifest(s) (${count(fetched, (row) => row.reason ?? 'no reason given').map(([why, n]) => `${n} for "${why}"`).join(', ')}); opening a menu is not a press and reads what the host keeps`)
+      else if (CHECK) say(`  ok   opening ${name}: no manifest fetched`)
+    }
+    table(`The menus, each open ${MENU_OPEN_MS / 1000} s and counted ${MENU_AFTER_MS / 1000} s after it closed`, ['menu', 'manifests fetched', '/host/modules reads', 'of them fresh'], counts)
   }
 } catch (error) {
   failures.push(`the drive failed: ${error?.stack ?? error}`)

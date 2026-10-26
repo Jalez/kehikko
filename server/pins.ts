@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import { editCanvas, listCanvases, type Canvas } from './canvases.ts'
 import { readDataVersions, recordDataVersion, recordedFor, refusal } from './dataVersions.ts'
 import type { Presence } from './discover.ts'
+import { ManifestCache } from './manifests.ts'
 import { projectById } from './projects.ts'
 import type { Registration } from './registrations.ts'
 import { githubRepo } from './feedback.ts'
@@ -156,8 +157,20 @@ export function preparingLine(name: string, tag: string, instance: Instance | nu
 
 export class Pins {
   readonly #deps: PinsDeps
-  constructor(deps: PinsDeps) {
+  /**
+   * What each running version said, kept as the registered modules' manifests are
+   * (`manifests.ts`): `views` is asked on every page look, and asking every running version on each
+   * was every version's manifest fetched about every twenty seconds while anything was in flight.
+   * Filed by module and origin, since several versions of one module run at once; dropped when the
+   * version is no longer running, and asked afresh on a person's press.
+   */
+  readonly #seen: ManifestCache
+  constructor(deps: PinsDeps, options: { now?: () => number } = {}) {
     this.#deps = deps
+    this.#seen = new ManifestCache((registration) => deps.look(registration.id, registration.url), {
+      ...(options.now ? { now: options.now } : {}),
+      keyOf: (registration) => `${registration.id} ${registration.url}`,
+    })
   }
 
   #projectPath(canvas: Canvas): string | null {
@@ -402,10 +415,11 @@ export class Pins {
    * container on an open kehikko that is ready, the version's data format is
    * recorded for its project: that is the moment it is used.
    */
-  async views(open: ReadonlySet<number>): Promise<PinView[]> {
+  async views(open: ReadonlySet<number>, fresh = false): Promise<PinView[]> {
     const deps = this.#deps
     const canvases = listCanvases(deps.db)
     const asked = new Map<string, Promise<Presence>>()
+    const running = new Set<string>()
     const out: PinView[] = []
     for (const canvas of canvases) {
       const path = this.#projectPath(canvas)
@@ -425,7 +439,8 @@ export class Pins {
           continue
         }
         const key = instance.key
-        if (!asked.has(key)) asked.set(key, deps.look(p.i, instance.origin))
+        running.add(`${p.i} ${instance.origin}`)
+        if (!asked.has(key)) asked.set(key, this.#seen.read({ id: p.i, url: instance.origin, file: `version of ${p.i}` }, { fresh }))
         const presence = await asked.get(key)!
         if (presence.condition === 'incompatible') {
           deps.facts.set(p.i, tag, { dataVersion: 1, compatible: false, why: presence.line, version: null })
@@ -448,6 +463,8 @@ export class Pins {
         out.push({ ...base, state: 'ready', line: presence.line, presence: { ...presence, name: presence.name ?? name } })
       }
     }
+    /* A version that stopped is asked again when it next runs: its next process is another one. */
+    this.#seen.keepOnly(running)
     return out
   }
 

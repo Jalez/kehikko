@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { RUN_SCRIPT, start, startable } from '../server/launch.ts'
+import { answered, ASK_LONGEST_MS, nextAsk, RUN_SCRIPT, start, startable } from '../server/launch.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -210,4 +210,39 @@ describe('what a module the host started is given', () => {
       else process.env.KEHIKOT_ORIGINS = before.origins
     }
   })
+})
+
+/*
+ * Waiting for a started module asks its manifest at widening intervals (`nextAsk`): Monitor's
+ * record showed a module that took five and a half seconds to start asked twenty-nine times at a
+ * flat 300 ms, nearly all of them refused, for every module of a restart round.
+ */
+describe('waiting for a module to answer', () => {
+  test('the asks widen from 300 ms to one a second', () => {
+    const waits = [300]
+    while (waits.length < 8) waits.push(nextAsk(waits.at(-1)!))
+    expect(waits).toEqual([300, 450, 675, 1000, 1000, 1000, 1000, 1000])
+    expect(ASK_LONGEST_MS).toBe(1000)
+  })
+
+  test('a module that takes three seconds to come up is asked a handful of times, and seen', async () => {
+    const began = Date.now()
+    let asks = 0
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch() {
+        asks += 1
+        return Date.now() - began < 3_000 ? new Response('starting', { status: 503 }) : Response.json({ ok: true })
+      },
+    })
+    try {
+      expect(await answered(`http://127.0.0.1:${server.port}`, '/.well-known/kehikot-module.json', 10_000)).toBe(true)
+      /* At a flat 300 ms this was eleven. */
+      expect(asks).toBeLessThanOrEqual(7)
+      expect(Date.now() - began).toBeLessThan(4_200)
+    } finally {
+      server.stop(true)
+    }
+  }, 15_000)
 })
