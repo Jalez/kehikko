@@ -204,7 +204,7 @@ describe('the introduction', () => {
     /* It pitches; it does not explain controls — that is the tour's job. */
     const words = Intro.INTRO_SLIDES.map((one) => one.body).join(' ').toLowerCase()
     expect(words).not.toMatch(/drag|resize|from any corner|the gear/)
-    for (const said of ['keep running', 'design, research, development, review, learning', 'agent module such as claude', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
+    for (const said of ['keep running', 'design, research, development, review, learning', 'agent module such as claude or codex', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
     /* A module of your own: how one is made and where it is added. */
