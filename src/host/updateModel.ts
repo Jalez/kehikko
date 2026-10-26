@@ -1,4 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
+import { holdsShells, waitSaid, type AutoWait } from './autoUpdates.ts'
 import { fromSourceSaid, preparingSaid, type BuildTold } from './moduleBuilds.ts'
 import { releaseSaid, releaseVersion, type ModuleRelease } from './moduleReleases.ts'
 import { hasUpdate, isCheckout, runsReleases, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
@@ -23,6 +24,7 @@ import { hasUpdate, isCheckout, runsReleases, type Outcome, type Phase, type Pin
  * | `failed`    | `failed` + its error      | unreadable, unreachable, an update failed, or left on old code |
  * | `blocked`   | —                         | behind, but refused: uncommitted changes… |
  * | `pinned`    | —                         | containers are pinned to a tagged version |
+ * | `scheduled` | —                         | the switch takes it when it is off screen or stops (`autoUpdates.ts`) |
  */
 export type UpdateState =
   | 'unknown'
@@ -37,6 +39,8 @@ export type UpdateState =
   | 'pinned'
   /** The automatic check saw new commits on the remote of a checkout somebody edits, and fetched nothing. */
   | 'waiting'
+  /** "Keep modules up to date automatically" takes it once it is off screen or stops: nothing for a person to press. */
+  | 'scheduled'
 
 export interface UpdateRow {
   /** `app`, `host`, or the module's registration id. */
@@ -66,6 +70,10 @@ export interface UpdateRow {
   release?: ModuleRelease
   /** Its build did not finish, so it runs from source: the line that says so (`fromSourceSaid`). */
   fromSource?: string
+  /** Why the automatic update waits: "Terminal updates when its sessions end" (`waitSaid`). */
+  autoSaid?: string
+  /** That wait is a failed automatic update, said as a failure is. */
+  autoFailed?: boolean
 }
 
 /** What the server says about one module beyond its checkout. See `Check.progress` and `Check.stale`. */
@@ -78,6 +86,8 @@ export interface Told {
   kept?: boolean
   /** Its copy is being built, or its build did not finish (`moduleBuilds.ts`). */
   build?: BuildTold
+  /** Why "Keep modules up to date automatically" has not put its update in place yet (`autoUpdates.ts`). */
+  auto?: AutoWait
 }
 
 export const APP_ROW_ID = 'app'
@@ -160,6 +170,11 @@ export function moduleRow(
   if (phase) return { ...row, state: 'updating', activity: phase }
   /* Not a failure of anything a person did: it works, from source. Said beside whatever else is true. */
   if (told.build?.state === 'failed') row.fromSource = fromSourceSaid(reading.name)
+  /* Why the switch has not taken it yet, said beside whatever else is true. */
+  if (told.auto) {
+    row.autoSaid = waitSaid(reading.name, told.auto)
+    if (told.auto.until === 'retry') row.autoFailed = true
+  }
   if (outcome?.kind === 'failed') {
     return { ...row, state: 'failed', reason: outcome.why, retry: outcome.retry === true, ...(outcome.retry === true && outcome.kept === true ? { anyway: true } : {}) }
   }
@@ -181,6 +196,10 @@ export function moduleRow(
     }
   }
   if (hasUpdate(reading)) {
+    /* The switch puts it in place once it is off screen or stops: not a press waiting for anybody. */
+    if (reading.blocked === null && (told.auto?.until === 'off-screen' || told.auto?.until === 'stopped')) {
+      return { ...row, state: 'scheduled', reason: row.autoSaid ?? null }
+    }
     return reading.blocked === null ? { ...row, state: 'available' } : { ...row, state: 'blocked', reason: reading.blocked }
   }
   if (reading.fetchFailed) return { ...row, state: 'failed', reason: `GitHub could not be reached: ${reading.fetchFailed}` }
@@ -250,9 +269,8 @@ export const RESTART_ANYWAY = 'Restart now'
  * Codex is one: its sessions run in its own process (their per-run settings keep them off Codex's
  * background server), so a restart ends them; the next open of a place resumes its conversation.
  */
-const HOLDS_SHELLS = new Set(['terminal', 'claude', 'codex'])
 export function restartNowWord(id: string): string {
-  return HOLDS_SHELLS.has(id.replace(/^(kehikot|roadmap)\./, '')) ? 'Restart now (ends its shells)' : RESTART_ANYWAY
+  return holdsShells(id) ? 'Restart now (ends its shells)' : RESTART_ANYWAY
 }
 export const RESTART_ANYWAY_ARMED = 'Press again to restart'
 
@@ -353,6 +371,8 @@ export function stateText(row: UpdateRow): string {
       return `Not updated automatically: ${row.reason ?? 'no reason given'}`
     case 'waiting':
       return row.reason ?? 'New commits — Check now fetches them'
+    case 'scheduled':
+      return row.reason ?? 'Updates automatically'
     case 'pinned': {
       const pinned = row.reason ?? `Pinned${row.version ? ` to ${row.version}` : ''}`
       if (row.release && runsReleases(row)) return row.release.target ? `${pinned} · latest moves to ${releaseVersion(row.release.target)}` : pinned

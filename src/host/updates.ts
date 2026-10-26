@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { buildDetailsSchema, buildToldSchema, type BuildDetails, type BuildTold } from './moduleBuilds.ts'
 import type { ModuleRelease } from './moduleReleases.ts'
 import type { WorksWith } from './worksWith.ts'
+import type { AutoTold } from './autoUpdates.ts'
+import { forgetRead } from './hostRead.ts'
 
 /**
  * Whether the host and its modules are behind GitHub — the page's side of
@@ -22,6 +24,20 @@ import type { WorksWith } from './worksWith.ts'
 export const OPEN_UPDATES = 'kehikot:open-updates'
 export function openUpdates(module?: string): void {
   window.dispatchEvent(new CustomEvent<{ module: string | null }>(OPEN_UPDATES, { detail: { module: module ?? null } }))
+}
+
+/**
+ * The host said its automatic module updates moved (`{ updates: true }` on `/host/watch`): one
+ * began, finished or failed, or one now waits. The Updates menu and What's new read again.
+ */
+const UPDATES_CHANGED = 'kehikot:updates-changed'
+export function announceUpdatesChanged(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(UPDATES_CHANGED))
+}
+export function onUpdatesChanged(then: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener(UPDATES_CHANGED, then)
+  return () => window.removeEventListener(UPDATES_CHANGED, then)
 }
 
 /** The module an `OPEN_UPDATES` event asks to be shown, or null. */
@@ -117,6 +133,8 @@ export interface Check {
   protocol: string | null
   /** Installed copies being built, and the ones whose build did not finish (`moduleBuilds.ts`). Empty from an older host. */
   builds: Record<string, BuildTold>
+  /** "Keep modules up to date automatically": the switch, what waits and why, what it updated. Null from an older host. */
+  auto: AutoTold | null
 }
 
 export type Preview = 'page' | 'restart' | 'self' | 'kept'
@@ -154,6 +172,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: s
       protocol: z.string().nullable().default(null),
       /* One a later host words differently is dropped, not refused. */
       builds: z.record(z.string(), buildToldSchema).default({}).catch({}),
+      auto: autoToldSchema.nullable().default(null).catch(null),
     })
     .parse(await response.json())
   return {
@@ -168,7 +187,45 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: s
     kept: body.kept,
     protocol: body.protocol,
     builds: body.builds,
+    auto: body.auto,
   }
+}
+
+const autoWaitSchema = z.object({
+  until: z.enum(['off-screen', 'stopped', 'app', 'pinned', 'held', 'retry']),
+  target: z.string().nullable(),
+  detail: z.string().nullable(),
+  shells: z.boolean().optional(),
+  major: z.boolean().optional(),
+})
+
+/** Mirrors `AutoTold` in `autoUpdates.ts`. A wait a later host words differently is dropped. */
+const autoToldSchema = z.object({
+  on: z.boolean(),
+  waiting: z.record(z.string(), autoWaitSchema.nullable().catch(null)).transform((all) =>
+    Object.fromEntries(Object.entries(all).filter((one): one is [string, z.infer<typeof autoWaitSchema>] => one[1] !== null)),
+  ),
+  updated: z
+    .array(z.object({ id: z.string(), name: z.string(), from: z.string().nullable(), to: z.string(), at: z.string(), major: z.boolean() }))
+    .default([]),
+}) satisfies z.ZodType<AutoTold, z.ZodTypeDef, unknown>
+
+/**
+ * Turn "Keep modules up to date automatically" on or off — the same setting as
+ * Settings › Modules (`POST /host/settings`, `{ updates: { auto } }`). The
+ * switch as the host has it afterwards, or an error with its sentence.
+ */
+export async function postAutoUpdates(auto: boolean): Promise<boolean> {
+  const response = await globalThis.fetch('/host/settings', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ updates: { auto } }),
+  })
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; why?: string; updates?: { auto?: unknown } } | null
+  if (!response.ok || !body?.ok) throw new Error(body?.why ?? 'The host did not take that change.')
+  /* Settings reads its own answer afresh next time it opens. */
+  forgetRead('settings')
+  return typeof body.updates?.auto === 'boolean' ? body.updates.auto : auto
 }
 
 /**

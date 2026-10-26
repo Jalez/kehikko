@@ -1,4 +1,4 @@
-import { ExternalLink, GitBranch, LoaderCircle, Newspaper } from 'lucide-react'
+import { ExternalLink, GitBranch, LoaderCircle, Newspaper, RefreshCw, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -27,6 +27,7 @@ import {
   postWhatsNew,
   rangeSaid,
   releasesSaid,
+  NOTES,
   type NewsItem,
   type WhatsNewAnswer,
 } from '@/host/whatsNew.ts'
@@ -36,6 +37,7 @@ import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { ReleaseSections } from './ReleaseNotes.tsx'
 import { compareVersions } from '@/host/worksWith.ts'
+import { onUpdatesChanged } from '@/host/updates.ts'
 
 /**
  * "What's new in Kehikot": after the app or its modules update, one dialog
@@ -141,10 +143,17 @@ export function WhatsNewDialog({
                   <span className="flex w-full min-w-0 items-center gap-2">
                     {item.kind === 'app' ? (
                       <KehikkoMark working={false} className="size-3.5 shrink-0" />
+                    ) : item.kind === 'note' ? (
+                      <RefreshCw className="size-3.5 shrink-0" aria-hidden />
                     ) : (
                       <ModuleIcon id={item.id} name={item.name} />
                     )}
                     <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                    {item.major ? (
+                      <Badge variant="outline" className="h-4 rounded-full border-amber-500/60 px-1.5 text-[10px] font-normal text-amber-700 dark:text-amber-300" data-major>
+                        major
+                      </Badge>
+                    ) : null}
                     {item.news && item.tags.length > 1 ? (
                       <Badge variant="secondary" className="h-4 rounded-full px-1.5 text-[10px] font-normal tabular-nums max-sm:hidden" data-count>
                         {item.tags.length}
@@ -153,7 +162,15 @@ export function WhatsNewDialog({
                     ) : null}
                   </span>
                   <span className="text-muted-foreground pl-5.5 font-mono text-[11px] font-normal" data-preparing={item.preparing ? '' : undefined}>
-                    {item.preparing ? <span className="font-sans">Preparing…</span> : item.follows === 'main' || item.follows === 'ahead' ? `main · ${item.to}` : rangeSaid(item)}
+                    {item.preparing ? (
+                      <span className="font-sans">Preparing…</span>
+                    ) : item.kind === 'note' ? (
+                      <span className="font-sans">Kehikot</span>
+                    ) : item.follows === 'main' || item.follows === 'ahead' ? (
+                      `main · ${item.to}`
+                    ) : (
+                      rangeSaid(item)
+                    )}
                   </span>
                 </TabsTrigger>
               ))}
@@ -196,6 +213,7 @@ export function WhatsNewDialog({
 function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
   const [date, setDate] = useState<string | null>(null)
   if (item.preparing) return <Preparing item={item} />
+  if (item.kind === 'note') return <NotePane item={item} />
   const repo = item.kind === 'app' ? APP_REPO : item.repo
   const onMain = item.follows === 'main' || item.follows === 'ahead'
   const count = item.news ? releasesSaid(item.tags.length) : null
@@ -242,6 +260,23 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
         ) : null}
       </header>
       <Separator className="my-3" />
+      {item.major ? (
+        /* A new major version is the update most likely to look or work differently: said first. */
+        <div className="mb-3 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3" data-testid="whats-new-major">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden />
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium">A major update: {rangeSaid(item)}</p>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              {item.name} moved to a new major version{item.auto ? ' automatically' : ''}. It may look or work differently; its notes below say what changed.
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {item.auto && !item.major ? (
+        <p className="text-muted-foreground mb-2 text-xs" data-testid="whats-new-auto">
+          Updated automatically.
+        </p>
+      ) : null}
       <div className="min-w-0 text-sm">
         {onMain ? (
           <div className="bg-muted/50 flex items-start gap-3 rounded-lg px-4 py-3" data-testid="whats-new-main">
@@ -261,6 +296,25 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
         ) : (
           <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings={!single} onDate={single ? onDate : undefined} />
         )}
+      </div>
+    </>
+  )
+}
+
+/** One of Kehikot's own announcements (`NOTES`): told once, in a sentence or two. */
+function NotePane({ item }: { item: NewsItem }) {
+  const note = 'note' in item.ack ? NOTES[item.ack.note] : undefined
+  return (
+    <>
+      <header className="flex min-w-0 items-start gap-2 sm:pr-8">
+        <h3 className="flex items-center gap-2 text-base font-semibold">
+          <RefreshCw className="size-4" aria-hidden />
+          {item.name}
+        </h3>
+      </header>
+      <Separator className="my-3" />
+      <div className="space-y-3" data-testid="whats-new-note">
+        <p className="text-sm leading-relaxed">{note?.body}</p>
       </div>
     </>
   )
@@ -510,6 +564,9 @@ function Host({
     [],
   )
 
+  /* The host updated a module by itself, or began to (`server/autoUpdates.ts`): the notice reads again. */
+  useEffect(() => onUpdatesChanged(() => void tell.current()), [])
+
   useEffect(
     () =>
       onShowChanged((on) => {
@@ -544,7 +601,7 @@ function Host({
           const answer = await read()
           if (!answer || !alive.current) return
           if (answer.record) setShow(answer.record.show)
-          const all = itemsOf(answer.record ? answer : { ...answer, record: { app, modules: {}, show: true } }, true)
+          const all = itemsOf(answer.record ? answer : { ...answer, record: { app, modules: {}, show: true, told: Object.keys(NOTES) } }, true)
           allRef.current = true
           setItems(openRef.current ? mergeItems(itemsRef.current, all) : all)
           setOpen(true)
