@@ -50,6 +50,7 @@ import {
   type SkillState,
   type ToolState,
 } from '@/host/agentSettings.ts'
+import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
@@ -102,6 +103,7 @@ type Change =
   | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
   | { modules: { keep: boolean } }
+  | { updates: { auto: boolean } }
 
 /**
  * The settings, read once per page load whoever asks (the one-time question, the introduction),
@@ -491,8 +493,21 @@ export function SettingsBody({
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : key === 'modules' ? (
-                  /* Only while it is shown: listing asks every module, and each form asks its own. */
-                  shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null
+                  <>
+                    {answer?.updates ? (
+                      /* Machine-wide, like the rest of this window; mirrored at the top of the Updates menu. */
+                      <div data-auto-updates-setting className="divide-y rounded-lg border px-4">
+                        <SettingRow
+                          label={AUTO_UPDATES.label}
+                          description={AUTO_UPDATES.description}
+                          checked={answer.updates.auto}
+                          onChange={(auto) => onChange({ updates: { auto } })}
+                        />
+                      </div>
+                    ) : null}
+                    {/* Only while it is shown: listing asks every module, and each form asks its own. */}
+                    {shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null}
+                  </>
                 ) : answer ? (
                   <Section which={key} answer={answer} onChange={onChange} />
                 ) : !trouble ? (

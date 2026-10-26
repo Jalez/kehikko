@@ -6,6 +6,7 @@ import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS } from './fit.ts'
+import { announceUpdatesChanged } from './updates.ts'
 
 /**
  * The page's side of the canvases.
@@ -563,6 +564,9 @@ export function watchCanvases(
          not understand rather than news it half-understands. */
       if ((parsed as { registry?: unknown })?.registry === true) looked?.()
       if ((parsed as { projects?: unknown })?.projects === true) relisted?.()
+      /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
+         menu and What's new read again, each on its own (`onUpdatesChanged`). */
+      if ((parsed as { updates?: unknown })?.updates === true) announceUpdatesChanged()
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
       const inbox = (parsed as { inbox?: unknown })?.inbox

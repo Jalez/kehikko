@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { hostRead } from './hostRead.ts'
 import { compareReleases, isRelease, releasesNewestFirst, releaseVersion, type Follows } from './moduleReleases.ts'
 import { compareVersions } from './worksWith.ts'
+import { AUTO_UPDATES_ANNOUNCED, AUTO_UPDATES_NOTE, isMajor } from './autoUpdates.ts'
 
 /**
  * "What's new" after an update: Kehikot and every module, in one dialog.
@@ -54,6 +55,13 @@ export const recordSchema = z.object({
   modules: z.record(z.string(), positionSchema).catch({}).default({}),
   /** "Show What's new after updates". */
   show: z.boolean().catch(true).default(true),
+  /**
+   * The announcements already told (`NOTES`): "Modules now update themselves",
+   * said once. A record from before this has none, so an install that had
+   * modules before the switch is told; a first run records them all, so a new
+   * install is not.
+   */
+  told: z.array(z.string().max(64)).max(64).optional().catch(undefined),
 })
 export type WhatsNewRecord = z.infer<typeof recordSchema>
 
@@ -78,6 +86,15 @@ export interface WhatsNewAnswer {
   modules: InstalledModule[]
   /** Modules an update is running on right now: "Preparing…" rows until it has finished. */
   updating: string[]
+  /** The announcements due (`NOTES`): told once, then acknowledged into `record.told`. Absent from an older host. */
+  notes?: string[]
+  /** Modules "Keep modules up to date automatically" updated since the host started. Absent from an older host. */
+  auto?: string[]
+}
+
+/** What each announcement says. Only ever the host's own words. */
+export const NOTES: Record<string, { title: string; body: string }> = {
+  [AUTO_UPDATES_NOTE]: AUTO_UPDATES_ANNOUNCED,
 }
 
 export const editSchema = z.union([
@@ -85,7 +102,11 @@ export const editSchema = z.union([
   z
     .object({
       acknowledge: z
-        .object({ app: z.string().max(64).optional(), modules: z.record(z.string().max(200), positionSchema).optional() })
+        .object({
+          app: z.string().max(64).optional(),
+          modules: z.record(z.string().max(200), positionSchema).optional(),
+          told: z.array(z.string().max(64)).max(64).optional(),
+        })
         .strict(),
     })
     .strict(),
@@ -115,17 +136,26 @@ function forward(was: Position | undefined, next: Position): Position {
  * and each module the first time it is installed. Nothing it knows is moved.
  */
 export function baselined(record: WhatsNewRecord | null, app: string | null, here: Readonly<Record<string, Position>>): WhatsNewRecord {
-  if (!record) return { app, modules: { ...here }, show: true }
+  /* A new install is not told what was new before it existed. */
+  if (!record) return { app, modules: { ...here }, show: true, told: Object.keys(NOTES) }
   const modules = { ...record.modules }
   for (const [id, position] of Object.entries(here)) if (!Object.hasOwn(modules, id)) modules[id] = position
   return { ...record, app: record.app ?? app, modules }
 }
 
 /** What was shown, acknowledged: never moving anything backwards. */
-export function acknowledged(record: WhatsNewRecord, ack: { app?: string; modules?: Readonly<Record<string, Position>> }): WhatsNewRecord {
+export function acknowledged(record: WhatsNewRecord, ack: { app?: string; modules?: Readonly<Record<string, Position>>; told?: readonly string[] }): WhatsNewRecord {
   const modules = { ...record.modules }
   for (const [id, position] of Object.entries(ack.modules ?? {})) modules[id] = forward(modules[id], position)
-  return { ...record, app: ack.app ? laterApp(record.app, ack.app) : record.app, modules }
+  const more = (ack.told ?? []).filter((one) => Object.hasOwn(NOTES, one))
+  const told = more.length ? [...new Set([...(record.told ?? []), ...more])] : record.told
+  return { ...record, app: ack.app ? laterApp(record.app, ack.app) : record.app, modules, ...(told ? { told } : {}) }
+}
+
+/** The announcements a record has not been told yet; `on` is whether what they announce still holds. */
+export function notesDue(record: WhatsNewRecord | null, on: { [note: string]: boolean }): string[] {
+  if (!record) return []
+  return Object.keys(NOTES).filter((note) => on[note] === true && !(record.told ?? []).includes(note))
 }
 
 /**
@@ -167,7 +197,8 @@ export function moved(ack: Position | undefined, position: Position): boolean {
 /** One row of the dialog: Kehikot, or one module. */
 export interface NewsItem {
   id: string
-  kind: 'app' | 'module'
+  /** `note`: one of the host's own announcements (`NOTES`), told once. */
+  kind: 'app' | 'module' | 'note'
   name: string
   repo: string | null
   /** "0.1.41", "1.5.0", "main"; null when not known (shown on demand). */
@@ -176,15 +207,24 @@ export interface NewsItem {
   to: string
   /** The releases whose notes are shown, newest first; empty for a copy following main. */
   tags: string[]
-  follows: Follows | 'app'
+  follows: Follows | 'app' | 'note'
   /** "Works with Kehikot …" by tag. */
   works: Record<string, string>
   /** What "Got it" records for it. */
-  ack: { app: string } | { module: Position }
+  ack: { app: string } | { module: Position } | { note: string }
   /** Whether this is news, rather than what is installed shown on demand. */
   news: boolean
   /** An update is still running on it: a "Preparing…" row, never acknowledged. */
   preparing: boolean
+  /** A module that moved to a new major version (1.x → 2.0): said prominently. */
+  major?: boolean
+  /** "Keep modules up to date automatically" made this update, not a press. */
+  auto?: boolean
+}
+
+/** The id of an announcement's row. */
+export function noteItemId(note: string): string {
+  return `note:${note}`
 }
 
 /** "1.5.0 → 1.6.0", "0.1.43", "following main". */
@@ -254,6 +294,25 @@ export function newsItems(input: {
       })
     }
   }
+  for (const note of answer.notes ?? []) {
+    const said = NOTES[note]
+    if (!said || !record) continue
+    items.push({
+      id: noteItemId(note),
+      kind: 'note',
+      name: said.title,
+      repo: null,
+      from: null,
+      to: '',
+      tags: [],
+      follows: 'note',
+      works: {},
+      ack: { note },
+      news: true,
+      preparing: false,
+    })
+  }
+  const automatic = new Set(answer.auto ?? [])
   const later: NewsItem[] = []
   for (const one of answer.modules) {
     const ack = record?.modules[one.id]
@@ -275,6 +334,8 @@ export function newsItems(input: {
       ack: { module: one.position },
       news,
       preparing,
+      ...(news && !onMain && !preparing && ack?.release && isMajor(ack.release, one.position.release!) ? { major: true } : {}),
+      ...(news && automatic.has(one.id) ? { auto: true } : {}),
     }
     ;(news ? items : later).push(item)
   }
@@ -305,9 +366,11 @@ export function headerSaid(items: readonly NewsItem[]): string {
   const app = items.find((one) => one.kind === 'app')
   const modules = items.filter((one) => one.kind === 'module' && one.news && !one.preparing).length
   const preparing = items.filter((one) => one.preparing).length
+  const majors = items.filter((one) => one.major).length
   const parts: string[] = []
   if (app) parts.push(app.from ? `${app.from} → ${app.to}` : app.to)
   if (modules) parts.push(`${modulesSaid(modules)} updated`)
+  if (majors) parts.push(`${majors} major`)
   if (preparing) parts.push(`${preparing} preparing`)
   if (!parts.length) parts.push('Kehikot and your modules, as installed')
   return parts.join(' · ')
@@ -325,18 +388,29 @@ export function noticeSaid(items: readonly NewsItem[]): { text: string; label: s
   const app = news.find((one) => one.kind === 'app')
   const modules = news.filter((one) => one.kind === 'module').length
   const preparing = news.filter((one) => one.preparing).length
-  const text = app ? `What’s new in ${app.to}` : `What’s new · ${modulesSaid(modules)}`
-  const what = [app ? `Kehikot ${app.to}` : null, modules ? modulesSaid(modules) : null].filter(Boolean).join(' and ')
+  const notes = news.filter((one) => one.kind === 'note')
+  const majors = news.filter((one) => one.major)
+  /* A major version is the one thing named in the bar: it is the update most likely to look different. */
+  const text = app
+    ? `What’s new in ${app.to}`
+    : modules === 1 && majors.length === 1
+      ? `What’s new · ${majors[0]!.name} ${majors[0]!.to}`
+      : modules
+        ? `What’s new · ${modulesSaid(modules)}`
+        : 'What’s new'
+  const what = [app ? `Kehikot ${app.to}` : null, modules ? modulesSaid(modules) : null, ...notes.map((one) => one.name.toLowerCase())].filter(Boolean).join(' and ')
   const still = preparing ? `, ${preparing} still preparing` : ''
-  return { text, label: `What’s new: ${what}${still} — press to read` }
+  const major = majors.length ? `; ${majors.map((one) => `${one.name} ${one.to}`).join(', ')} ${majors.length === 1 ? 'is a major update' : 'are major updates'}` : ''
+  return { text, label: `What’s new: ${what}${still}${major} — press to read` }
 }
 
 /** What "Got it" sends: every row shown, but a "Preparing…" one, whose copy is still moving. */
-export function ackFor(items: readonly NewsItem[]): { app?: string; modules?: Record<string, Position> } {
-  const ack: { app?: string; modules?: Record<string, Position> } = {}
+export function ackFor(items: readonly NewsItem[]): { app?: string; modules?: Record<string, Position>; told?: string[] } {
+  const ack: { app?: string; modules?: Record<string, Position>; told?: string[] } = {}
   for (const one of items) {
     if (one.preparing) continue
     if ('app' in one.ack) ack.app = one.ack.app
+    else if ('note' in one.ack) (ack.told ??= []).push(one.ack.note)
     else (ack.modules ??= {})[one.id] = one.ack.module
   }
   return ack
@@ -357,7 +431,13 @@ export async function fetchWhatsNew(signal?: AbortSignal, fresh = true): Promise
         /* An older host has no such route: nothing is shown by itself. */
         if (!response.ok) return null
         const body = (await response.json()) as WhatsNewAnswer
-        return { record: body.record ? recordSchema.parse(body.record) : null, modules: body.modules ?? [], updating: body.updating ?? [] }
+        return {
+          record: body.record ? recordSchema.parse(body.record) : null,
+          modules: body.modules ?? [],
+          updating: body.updating ?? [],
+          notes: Array.isArray(body.notes) ? body.notes.filter((one) => typeof one === 'string') : [],
+          auto: Array.isArray(body.auto) ? body.auto.filter((one) => typeof one === 'string') : [],
+        }
       },
       { signal, fresh, keep: false },
     )

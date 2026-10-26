@@ -75,6 +75,8 @@ import {
 import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
+import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
+import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
@@ -140,7 +142,7 @@ import { readShelves, saveLayout } from './layouts.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
-import { editSchema as whatsNewEditSchema, type Position } from '../src/host/whatsNew.ts'
+import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
 import type { ModuleRelease } from '../src/host/moduleReleases.ts'
 import pkg from '../package.json' with { type: 'json' }
 
@@ -848,6 +850,12 @@ async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
  */
 let sweeping: Promise<Swept> | null = null
 /**
+ * At host start, with "Keep modules up to date automatically" on, an installed copy is not started
+ * until its own tags were read (`bootAutoUpdates`, on the first sweep): `booting` until then.
+ */
+let booting = readAutoUpdates(db)
+let bootRead = false
+/**
  * `fresh`: every manifest asked again, not read from `manifests` — for a person's press. A sweep
  * already out may have read kept ones, so a fresh one waits for it and then asks.
  */
@@ -862,6 +870,8 @@ function sweep(fresh = false): Promise<Swept> {
     seen = running
   })
   sweeping = running
+  /* The first sweep is also when "Keep modules up to date automatically" reads the copies (`bootAutoUpdates`). */
+  if (booting && !bootRead) void bootAutoUpdates(running)
   return running
 }
 
@@ -1292,7 +1302,7 @@ function doing(id: string): Doing {
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
     /* Its copy is being put on a newer release, or built: started after. */
-    levelling: releases.applying(id) || builds.busy(id),
+    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id),
   }
 }
 
@@ -1331,6 +1341,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
   for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
   staleness.forgetAllBut(here)
   releases.forgetAllBut(here)
+  auto.forgetAllBut(here)
   builds.forgetAllBut(here)
   for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
 
@@ -1389,6 +1400,10 @@ function begin(id: string): void {
   /* A newer release is being put in place while it is stopped (`whileStopped`);
      started when that is done. */
   if (releases.applying(id)) return
+  /* "Keep modules up to date automatically" is putting a newer release in
+     place, or has one queued (`autoUpdates.ts`); started when that is done.
+     At host start, an installed copy waits until its own tags were read. */
+  if (auto.pending(id) || (booting && isInstalledId(id))) return
   /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
      a module, so the start waits for that one build. Started when it ends. */
   if (builds.busy(id)) return
@@ -1447,7 +1462,12 @@ async function untilAnswered(id: string, url: string): Promise<void> {
  * the copy stays as it is and the log says why.
  */
 const releases = new ReleaseWaits({
-  check: async (place) => foundIn(await readCheckout(place, true)),
+  check: async (place) => {
+    const reading = await readCheckout(place, true)
+    /* The same reading decides "Keep modules up to date automatically": no check of its own. */
+    void auto.found([reading])
+    return foundIn(reading)
+  },
   apply: (place) => level(place),
   log: (line) => console.log(line),
 })
@@ -1461,6 +1481,99 @@ function isInstalled(dir: string): boolean {
 function installedPlace(id: string): Place | null {
   const dir = registered.get(id)?.dir
   return dir && isInstalled(dir) ? { id, name: knownName(id) ?? id, dir, releases: follower, build: buildPlace } : null
+}
+
+/** Whether a registered module is an installed copy. */
+function isInstalledId(id: string): boolean {
+  const dir = registered.get(id)?.dir
+  return !!dir && isInstalled(dir)
+}
+
+/**
+ * "Keep modules up to date automatically" (`autoUpdates.ts`). Handed what the
+ * checks that already run read; puts an update in place through the same
+ * `updateModule` a press runs, so the restart rules are a press's. What it
+ * waits for — off screen, stopped — is decided again whenever `act` runs.
+ */
+const auto = new AutoUpdates({
+  on: () => readAutoUpdates(db),
+  facts(id) {
+    const registration = registered.get(id)
+    if (!registration) return null
+    return {
+      name: knownName(id) ?? id,
+      installed: isInstalledId(id),
+      pinned: pinSummary(listCanvases(db))[id]?.versions ?? [],
+      running: nursery.holds(id) || answeredBy.has(id),
+      onScreen: neededNow().has(id),
+      holdsShells: holdsShells(id),
+      kept: registration.keep === true,
+      busy: progress.has(id) || inHand.has(id) || releases.applying(id) || builds.busy(id),
+    }
+  },
+  apply: (id) => applyAutomatically(id),
+  changed: () => wakes.updatesChanged(),
+  log: (line) => console.log(line),
+})
+
+/**
+ * One automatic update: re-read from the disk first — a press, or the release
+ * put in place when the module stopped, may already have taken it — then the
+ * press's own path, with its steps said as a press's are (`progress`), so the
+ * Updates menu and What's new show "Preparing…" while it runs.
+ */
+async function applyAutomatically(id: string): Promise<Applied> {
+  const place = installedPlace(id)
+  if (!place) return { ok: false, why: `${id} is not an installed module any more` }
+  if (progress.has(id) || releases.applying(id)) return { ok: 'skipped' }
+  const before = await readCheckout(place, false)
+  if ('error' in before) return { ok: false, why: before.error }
+  if (!hasUpdate(before)) return { ok: 'skipped' }
+  if (before.blocked) return { ok: false, why: before.blocked }
+  progress.set(id, 'updating')
+  wakes.updatesChanged()
+  try {
+    const said = (await updateModule(place, new AbortController().signal, (now) => progress.set(id, now))) as
+      | { error: string }
+      | { done: { checkout: Reading; module: ModuleOutcome } }
+    if ('error' in said) return { ok: false, why: said.error }
+    /* Moved, but it did not come back on the new code: said on its container; the next check finds nothing to retry. */
+    if (said.done.module.ran === 'failed') return { ok: false, why: said.done.module.why }
+    return { ok: true, checkout: said.done.checkout }
+  } finally {
+    progress.delete(id)
+  }
+}
+
+/**
+ * At host start, with the switch on: every installed copy whose own tags hold
+ * a newer release it can run — fetched by a check before the restart — is put
+ * on it before the module is first started, so "Restart to update" brings the
+ * modules along in the same restart. Nothing is asked of the network; a copy
+ * read takes a few git calls. Until each copy is read, it is not started
+ * (`booting`, at most `BOOT_READ_MS`).
+ */
+const BOOT_READ_MS = 8_000
+/** Called with the host's first sweep, whoever asked for it: no sweep of its own. */
+async function bootAutoUpdates(first: Promise<Swept>): Promise<void> {
+  if (!booting || bootRead) return
+  bootRead = true
+  try {
+    /* What answers now: a module kept running across the restart is running, and waits for its stop. */
+    const view = await first.catch(() => null)
+    if (!view) return
+    notice(view.presences, Date.now())
+    const places = [...registered.keys()].map((id) => installedPlace(id)).filter((place): place is Place => place !== null)
+    if (!places.length) return
+    const read = Promise.all(places.map((place) => readCheckout(place, false).catch(() => null)))
+    const readings = await Promise.race([read, new Promise<null>((done) => setTimeout(() => done(null), BOOT_READ_MS).unref?.())])
+    /* Queued synchronously: from here `auto.pending` holds each one back. */
+    if (readings) void auto.found(readings.filter((one): one is Reading => one !== null))
+  } finally {
+    booting = false
+    /* What was held back starts now, decided from the sweep in hand: nothing is asked again. */
+    if (seen) void seen.then((view) => govern(view.presences)).catch(() => null)
+  }
 }
 
 /**
@@ -1610,6 +1723,8 @@ async function whileStopped(id: string, url: string): Promise<void> {
   try {
     await gone(url, WELL_KNOWN)
     if (nursery.holds(id)) return
+    /* The automatic update has it in hand (`autoUpdates.ts`), and builds it as it goes. */
+    if (auto.pending(id) || progress.has(id)) return
     /* A waiting release builds the copy as it is put in place (`update`);
        a build put off while it ran happens now. */
     if (releases.waiting(id) !== null) await releases.apply(place)
@@ -1784,6 +1899,10 @@ function notice(presences: readonly Presence[], now: number): void {
 
 /** The same decision, from standings the caller already gathered. */
 function act(standing: readonly Standing[], now: number, mayStart: boolean): void {
+  /* An automatic update that waited for its module to be off screen or stopped
+     may go now — decided before anything is started, so a module it takes is
+     held back (`auto.pending`) rather than started on the old release. */
+  void auto.moved()
   if (mayStart) {
     for (const id of toStart(standing)) begin(id)
     /* The rest of the open project, in the background: nothing while the
@@ -2429,6 +2548,8 @@ const settingsDesk = settingsRoute({
       .then((view) => govern(view.presences))
       .catch(() => null)
   },
+  /* On: what the last checks found is decided again, now. Off: nothing waits. */
+  updatesChanged: (on) => void auto.turned(on),
   skillsAt: () => claudeSkillsDir(),
 })
 
@@ -3027,7 +3148,9 @@ async function answerRequest(request: Request): Promise<Response> {
           }),
         ),
       )
-      return json({ record, modules, updating: [...progress.keys()] })
+      /* Told once: that modules now update themselves, while they do (`autoUpdates.ts`). */
+      const notes = notesDue(record, { [AUTO_UPDATES_NOTE]: readAutoUpdates(db) })
+      return json({ record, modules, updating: [...progress.keys()], notes, auto: [...new Set(auto.said().updated.map((one) => one.id))] })
     }
     if (url.pathname === '/host/whats-new' && request.method === 'POST') {
       const edit = whatsNewEditSchema.safeParse(await request.json().catch(() => null))
@@ -3567,6 +3690,9 @@ async function answerRequest(request: Request): Promise<Response> {
          this is nearly always instant; never waited for long. */
       if (fetch) await appProtocols.settled(4_000, runningApp)
       const checkouts = await Promise.all(places.map((place) => readCheckout(place, quiet ? 'compare' : fetch, request.signal)))
+      /* A check: "Keep modules up to date automatically" takes what it found (`autoUpdates.ts`).
+         Queued before the answer, so the answer already says what waits. Never awaited. */
+      if (fetch) void auto.found(checkouts)
       await judgeStaleness(fetch && !quiet)
       return json({
         checked: new Date().toISOString(),
@@ -3595,6 +3721,8 @@ async function answerRequest(request: Request): Promise<Response> {
         /* Installed copies being built ("Preparing Terminal…"), and the ones
            whose build did not finish and run from source. See `moduleBuilds.ts`. */
         builds: builds.said(),
+        /* "Keep modules up to date automatically": the switch, what waits and why, and what it updated. */
+        auto: auto.said(),
       })
     }
 
@@ -3669,6 +3797,8 @@ async function answerRequest(request: Request): Promise<Response> {
             try {
               phase('updating')
               say(place.id === 'host' ? await updateHost(place, request.signal, phase) : await updateModule(place, request.signal, phase))
+              /* A press took it: whatever the switch had read or was waiting for is out of date. */
+              if (place.id !== 'host') auto.settled(place.id)
             } catch (error) {
               say({ error: (error as Error).message })
             } finally {
@@ -4253,6 +4383,7 @@ async function answerRequest(request: Request): Promise<Response> {
 /* The agent sync's first run, after the server is up and never awaited: it
    sweeps, and does nothing at all before the one-time question was answered. */
 agentSync.poke()
+
 
 console.log(`the canvas is at http://127.0.0.1:${server.port}`)
 console.log(`registrations are read from ${registryDir()}`)

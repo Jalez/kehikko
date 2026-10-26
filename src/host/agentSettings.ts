@@ -344,4 +344,6 @@ export interface SettingsAnswer {
   notices?: NoticeSettings
   /** "Keep this project's modules running" (`server/keepRunning.ts`). Absent from an older host. */
   modules?: { keep: boolean }
+  /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
+  updates?: { auto: boolean }
 }

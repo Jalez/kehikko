@@ -2,6 +2,9 @@ import { CloudDownload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
+import { AUTO_UPDATES, doneSaid, type AutoTold } from '@/host/autoUpdates.ts'
 import { cn } from '@/lib/utils'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
@@ -16,7 +19,9 @@ import {
   isCheckout,
   LeftRunning,
   offersAppRestart,
+  onUpdatesChanged,
   OPEN_UPDATES,
+  postAutoUpdates,
   requestRestart,
   restartModule,
   runsReleases,
@@ -444,6 +449,23 @@ export function Updates({
     }
   }, [])
 
+  /* The host's automatic updates moved (one began, ended, or now waits): read
+     again, without asking GitHub. */
+  useEffect(() => onUpdatesChanged(() => void reread()), [reread])
+
+  /** "Keep modules up to date automatically", from the top of the panel: the same setting as Settings › Modules. */
+  const [autoTrouble, setAutoTrouble] = useState<string | null>(null)
+  const setAuto = async (on: boolean) => {
+    setAutoTrouble(null)
+    setCheck((was) => (was?.auto ? { ...was, auto: { ...was.auto, on } } : was))
+    try {
+      await postAutoUpdates(on)
+    } catch (error) {
+      setAutoTrouble((error as Error).message)
+    }
+    void reread()
+  }
+
   /* An update this page is not running is still running on the server — it
      was started before a reload, or the panel was closed over it. Ask until it
      is done; this ends by itself. */
@@ -529,7 +551,13 @@ export function Updates({
   }
 
   const pins = check?.pins ?? {}
-  const count = check ? waiting(check.checkouts, pins) : 0
+  /* What the switch puts in place by itself once the module is off screen or stops is not counted as waiting for a press. */
+  const scheduled = new Set(
+    Object.entries(check?.auto?.on ? check.auto.waiting : {})
+      .filter(([, wait]) => wait.until === 'off-screen' || wait.until === 'stopped')
+      .map(([id]) => id),
+  )
+  const count = check ? waiting(check.checkouts.filter((one) => !scheduled.has(one.id)), pins) : 0
   const checkouts = check?.checkouts ?? []
   const updating = phase.kind === 'updating' ? phase : null
   const current = updating ? (updating.ids[updating.at] ?? null) : null
@@ -541,6 +569,8 @@ export function Updates({
   for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
   /* An installed copy being built, or whose build did not finish (`moduleBuilds.ts`). */
   for (const [id, build] of Object.entries(check?.builds ?? {})) if (id !== current) told[id] = { ...told[id], build }
+  /* Why the switch has not put a module's update in place yet: "Terminal updates when its sessions end". */
+  for (const [id, wait] of Object.entries(check?.auto?.waiting ?? {})) if (id !== current) told[id] = { ...told[id], auto: wait }
   /* Only on a module something is already said about: being kept is not news. */
   for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
   const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
@@ -627,6 +657,7 @@ export function Updates({
           <p className="text-muted-foreground text-xs" data-testid="updates-status">
             {status}
           </p>
+          {check?.auto ? <AutoToggle on={check.auto.on} onChange={(on) => void setAuto(on)} trouble={autoTrouble} /> : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -708,6 +739,8 @@ export function Updates({
                   </div>
                 )
               })}
+
+              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} /> : null}
 
               {(attention.length > 0 || asked !== null) && level.length > 0 ? (
                 <div className="text-muted-foreground text-xs" data-testid="updates-level">
@@ -963,6 +996,11 @@ function Row({
           {row.reason}
         </p>
       ) : null}
+      {row.autoSaid ? (
+        <p className={row.autoFailed ? 'text-destructive pt-1' : 'text-foreground pt-1'} data-testid="updates-auto-waiting" data-until={row.autoFailed ? 'retry' : undefined}>
+          {row.autoSaid}
+        </p>
+      ) : null}
       {releases ? (
         one.fetchFailed ? <p className="text-muted-foreground pt-1">
           {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `Its releases could not be read: ${one.fetchFailed}`}
@@ -1061,6 +1099,48 @@ function Row({
         <p className="text-muted-foreground pt-1.5">Not updated automatically: {one.blocked}.</p>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * "Keep modules up to date automatically", at the top of the panel: the same
+ * machine-wide setting as Settings › Modules. Off is exactly the panel as it
+ * was before the switch: every update waits for a press.
+ */
+export function AutoToggle({ on, onChange, trouble = null }: { on: boolean; onChange(on: boolean): void; trouble?: string | null }) {
+  return (
+    <div className="pt-2" data-testid="updates-auto">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor="updates-auto-switch" className="text-xs font-normal">
+          {AUTO_UPDATES.short}
+        </Label>
+        <Switch id="updates-auto-switch" checked={on} onCheckedChange={onChange} aria-label={AUTO_UPDATES.label} data-testid="updates-auto-switch" />
+      </div>
+      {trouble ? <p className="text-destructive pt-1 text-xs">{trouble}</p> : null}
+    </div>
+  )
+}
+
+/** The updates the switch made since the host started, newest first: "Journeys 1.5.0 → 1.6.0 · 4 minutes ago". */
+export function UpdatedAutomatically({ updated, now }: { updated: AutoTold['updated']; now: Date }) {
+  return (
+    <section aria-label="Updated automatically" className="rounded-md border px-3 py-2 text-xs" data-testid="updates-auto-updated">
+      <p className="text-muted-foreground pb-1">Updated automatically</p>
+      <ul className="space-y-0.5">
+        {updated.map((one) => (
+          <li key={`${one.id}-${one.at}`} className="flex items-center gap-2" data-testid="updates-auto-row" data-module={one.id}>
+            <ModuleIcon id={one.id} name={one.name} className="text-muted-foreground size-3" />
+            <span className="min-w-0 flex-1 truncate">{doneSaid(one)}</span>
+            {one.major ? (
+              <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-major>
+                major update
+              </span>
+            ) : null}
+            <span className="text-muted-foreground shrink-0 text-[11px]">{ago(new Date(one.at), now)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

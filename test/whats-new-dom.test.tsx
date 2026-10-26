@@ -228,7 +228,7 @@ describe.skipIf(!inChild)('the notice in the bar', () => {
     expect(notice()).toBeNull()
     expect(dialog()).toBeNull()
     expect(host.posts).toEqual([{ baseline: { app: '0.1.43' } }])
-    expect(host.record).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true })
+    expect(host.record).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true, told: ['auto-updates'] })
   })
 
   test('nothing new: no notice', async () => {

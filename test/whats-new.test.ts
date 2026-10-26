@@ -44,7 +44,7 @@ const module = (id: string, name: string, position: Position, range: string[] = 
 describe('what counts as new', () => {
   test('the first run records what is here and shows nothing', () => {
     const first = baselined(null, '0.1.43', { 'kehikot.journeys': at('v1.6.0') })
-    expect(first).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true })
+    expect(first).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true, told: ['auto-updates'] })
     const answer: WhatsNewAnswer = { record: null, modules: [module('kehikot.journeys', 'Journeys', at('v1.6.0'))], updating: [] }
     expect(newsItems({ answer, app: '0.1.43', appTags: null })).toEqual([])
   })
@@ -217,7 +217,7 @@ describe('the record in frame.sqlite', () => {
     const db = fresh()
     expect(readWhatsNew(db)).toBeNull()
     await editWhatsNew(db, { baseline: { app: '0.1.43' } }, here)
-    expect(readWhatsNew(db)).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true })
+    expect(readWhatsNew(db)).toEqual({ app: '0.1.43', modules: { 'kehikot.journeys': at('v1.6.0') }, show: true, told: ['auto-updates'] })
   })
 
   test('the setting is kept, and turning it back on keeps what was acknowledged', async () => {

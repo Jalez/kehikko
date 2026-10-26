@@ -290,6 +290,34 @@
   `startOfRun` of the module's log); only for a module the host did not start
   is it the stamp on disk (`seen: 'disk'`).
 
+## Modules keep themselves up to date
+
+- "Keep modules up to date automatically": machine-wide, `module-updates` in
+  `settings` (`server/autoUpdates.ts`), on by default for new and existing
+  installs; `{ updates: { auto } }` on `POST /host/settings`, shown in
+  Settings › Modules and at the top of the Updates menu. Off is exactly the
+  behaviour before it. The rule (`decide`) and every word are
+  `src/host/autoUpdates.ts`; test the table there.
+- No check of its own: `AutoUpdates.found` is handed what the existing checks
+  read (`GET /host/updates?fetch=1`, quiet or Check now, and the check beside a
+  start in `releaseWait.ts`). Never add a check or a timer for it.
+- It applies through `updateModule` (the press's path: `update()`, install,
+  build, restart rules), one at a time, with `progress` set so the menu and
+  What's new show "Preparing…". Not running → now; running off screen → now
+  (restarted); running on screen → when off screen (`moved`, from `act`) or at
+  the next start; `holdsShells` (Terminal, Claude, Codex) or `keep` and running
+  → when it stops. Never: pinned containers, only releases needing a newer
+  Kehikot (`needsNewer`), a checkout somebody edits, a copy following `main`,
+  one `update` refuses. A failure waits for the next check (`RETRY_AFTER_MS`).
+  A major jump is applied and marked (`major`), never asked.
+- At host start, with the switch on, the first sweep reads every installed
+  copy's own tags (`bootAutoUpdates`; no network) and puts waiting releases in
+  place before those modules first start, so the app's "Restart to update"
+  brings them along. `auto.pending` holds a queued module back in `begin`.
+- `{ updates: true }` on `/host/watch` (`wakes.updatesChanged`) tells pages to
+  re-read the menu and What's new. What's new tells an install from before the
+  switch once (`NOTES`, `record.told`; a first run records them as told).
+
 ## Switching kehikot is warm
 
 - A module on the open kehikko is NEEDED; one on another kehikko of a project a

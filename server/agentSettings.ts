@@ -16,6 +16,7 @@ import {
 import { noticesPatched } from '../src/host/trackerNotices.ts'
 import { readNotices, writeNotices } from './trackerNotices.ts'
 import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
+import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -200,6 +201,8 @@ export interface SettingsDeps {
   noticesChanged?(): void
   /** "Keep this project's modules running" changed: decide again what runs. */
   modulesChanged?(keep: boolean): void
+  /** "Keep modules up to date automatically" changed (`autoUpdates.ts`). */
+  updatesChanged?(auto: boolean): void
   skillsAt(): string
   hook?(): StartHook
 }
@@ -209,7 +212,8 @@ export interface SettingsDeps {
  *
  * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
  * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
- * `keepRunning.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
+ * `keepRunning.ts`), "Keep modules up to date automatically" (`{ updates: { auto } }`,
+ * `autoUpdates.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
  * what a module's own Tools and Skills windows send, so two windows each
@@ -223,6 +227,7 @@ export function settingsRoute(deps: SettingsDeps) {
     hook: (deps.hook ?? (() => startHook()))(),
     notices: readNotices(deps.db),
     modules: { keep: readKeepRunning(deps.db) },
+    updates: { auto: readAutoUpdates(deps.db) },
     skillsAt: deps.skillsAt(),
   })
 
@@ -233,7 +238,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -255,6 +260,16 @@ export function settingsRoute(deps: SettingsDeps) {
       if (keep !== readKeepRunning(deps.db)) {
         writeKeepRunning(deps.db, keep)
         deps.modulesChanged?.(keep)
+      }
+      return json(answer())
+    }
+
+    if (body.updates !== undefined) {
+      const auto = autoUpdatesChange(body.updates)
+      if (auto === null) return json({ ok: false, why: 'A change of the module updates is { auto: true } or { auto: false }.' }, 400)
+      if (auto !== readAutoUpdates(deps.db)) {
+        writeAutoUpdates(deps.db, auto)
+        deps.updatesChanged?.(auto)
       }
       return json(answer())
     }

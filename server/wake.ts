@@ -121,6 +121,10 @@ export type News =
      project was found again where its folder went ("Locate…", or adding the
      moved folder). Carries nothing; the page re-reads `/host/projects`. */
   | { projects: true }
+  /* The tenth kind: an automatic module update began, ended or now waits for
+     something (`autoUpdates.ts`). Carries nothing; the page re-reads
+     `/host/updates` (without asking GitHub) and What's new. */
+  | { updates: true }
 
 /**
  * One item of a module's header to press, handed to the page that has the
@@ -292,6 +296,15 @@ export class Wakes {
    */
   registryChanged(): void {
     this.#tell({ registry: true })
+  }
+
+  /**
+   * Say that what the automatic module updates did or wait for changed: one
+   * began, finished or failed, or one now waits to be off screen. Sent by
+   * `AutoUpdates` only, never on a tick.
+   */
+  updatesChanged(): void {
+    this.#tell({ updates: true })
   }
 
   /**
