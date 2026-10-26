@@ -8,6 +8,7 @@ import {
   agentStanding,
   declared,
   focusAfter,
+  focusIsInModule,
   INLINE_OPTIONS,
   menusOf,
   nested,
@@ -156,9 +157,19 @@ describe('the kind of an item decides its menu', () => {
 
   test('after a menu closes: the module has the keyboard after a press that was sent, the trigger otherwise', () => {
     /* Escape; a press sent; a press not taken; focus already gone to a module's page. */
-    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map(focusAfter)).toEqual([
+    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map((closing) => focusAfter(closing))).toEqual([
       'trigger', 'module', 'trigger', 'nowhere',
     ])
+  })
+
+  test('focus found in a module’s page is never pulled back, however the menu came to close', () => {
+    /* Chromium blurs the menu's content before the window: the menu closes as a plain dismissal. */
+    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map((closing) => focusAfter(closing, true))).toEqual([
+      'nowhere', 'nowhere', 'nowhere', 'nowhere',
+    ])
+    expect(focusIsInModule({ tagName: 'IFRAME' } as Element)).toBe(true)
+    expect(focusIsInModule({ tagName: 'BUTTON' } as Element)).toBe(false)
+    expect(focusIsInModule(null)).toBe(false)
   })
 })
 

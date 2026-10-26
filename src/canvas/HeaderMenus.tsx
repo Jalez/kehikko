@@ -82,7 +82,7 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
-import { focusAfter, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
+import { focusAfter, focusIsInModule, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
@@ -726,7 +726,7 @@ function Menu({
         className="max-w-64 min-w-44"
         data-menu-content={which}
         onCloseAutoFocus={(event) => {
-          const to = focusAfter(rows.closing.current)
+          const to = focusAfter(rows.closing.current, focusIsInModule(document.activeElement))
           rows.closing.current = 'dismissed'
           if (to === 'trigger') return returning(quiet)
           /* Not Radix's return to the trigger: the module has the keyboard, or is given it. */
@@ -1254,7 +1254,7 @@ export function FrameMenu({
           onCloseAutoFocus={(event) => {
             /* The host's own rows open a dialog or act in this document: focus
                returns to the trigger, quietly — unless it has gone to a module. */
-            const to = focusAfter(closing.current)
+            const to = focusAfter(closing.current, focusIsInModule(document.activeElement))
             closing.current = 'dismissed'
             if (to === 'trigger') returning(quiet)
             else event.preventDefault()
