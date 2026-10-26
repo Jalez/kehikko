@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -532,7 +533,7 @@ export function SettingsBody({
                 ) : answer ? (
                   <Section which={key} answer={answer} onChange={onChange} />
                 ) : !trouble ? (
-                  <p className="text-muted-foreground text-sm">Reading the settings…</p>
+                  <Loading className="text-sm" label="Reading the settings…" />
                 ) : null}
               </TabsContent>
             ))}
@@ -901,7 +902,7 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
   const wanted = typed.trim()
   const unchanged = base !== null && wanted === (base.set ?? '')
   const inForce = base === null
-    ? 'Reading…'
+    ? <Loading label="Reading…" />
     : base.set
       ? `${base.set} is set for this project.${base.origin && base.origin !== base.set ? ` Origin’s default is ${base.origin}.` : ''}`
       : base.origin

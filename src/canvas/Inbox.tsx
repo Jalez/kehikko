@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { ActivityState } from 'kehikot-module-protocol'
 
@@ -590,7 +591,9 @@ export function InboxPanel({ view }: { view: InboxView }) {
             {earlierOpen ? (
               <ul data-inbox-earlier="">
                 {log === null ? (
-                  <li className="text-muted-foreground px-2 py-1 text-[11px]">Reading…</li>
+                  <li className="px-2 py-1">
+                    <Loading className="text-[11px]" iconClassName="size-3" label="Reading…" />
+                  </li>
                 ) : log.rows.length === 0 ? (
                   <li className="text-muted-foreground px-2 py-1 text-[11px]">
                     {scope === 'here' ? 'Nothing earlier on this kehikko.' : 'Nothing earlier.'}
@@ -605,7 +608,9 @@ export function InboxPanel({ view }: { view: InboxView }) {
                       className="text-muted-foreground hover:text-foreground text-[11px] underline underline-offset-2"
                       onClick={loadMore}
                     >
-                      {more ? 'Reading…' : `show ${Math.min(PAGE, log.total - log.rows.length)} more`}
+                      {more ? (
+                        <Loading className="inline-flex text-[11px]" iconClassName="size-3" label="Reading…" />
+                      ) : `show ${Math.min(PAGE, log.total - log.rows.length)} more`}
                     </button>
                   </li>
                 ) : null}
