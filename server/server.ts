@@ -75,6 +75,7 @@ import {
 import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
+import { soundsRoute } from './chime.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
@@ -2659,6 +2660,8 @@ const settingsDesk = settingsRoute({
   skillsAt: () => claudeSkillsDir(),
 })
 
+const soundsDesk = soundsRoute({ db })
+
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
@@ -4059,6 +4062,9 @@ async function answerRequest(request: Request): Promise<Response> {
     /* The app-wide agent settings. `agentSettings.ts`; the POST is PAGE_ONLY. */
     const settingsAnswer = await settingsDesk(request, url)
     if (settingsAnswer) return settingsAnswer
+    /* The Inbox chime's own sounds. `chime.ts`; every write is PAGE_ONLY. */
+    const soundsAnswer = await soundsDesk(request, url)
+    if (soundsAnswer) return soundsAnswer
 
     /*
      * What one module's door offers, and what the agent has been told about it.

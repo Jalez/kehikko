@@ -363,6 +363,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/whats-new': 'what’s new',
   '/host/onboarding': 'the introduction and the tour',
   '/host/settings': 'settings',
+  '/host/sounds': 'the Inbox chime’s own sounds',
   '/host/module-settings': 'a module’s settings',
   '/host/storage': 'the storage overview',
   '/mcp': 'an agent asks Kehikot',

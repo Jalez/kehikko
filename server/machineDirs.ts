@@ -179,6 +179,16 @@ export function keysDir(env: Env = process.env, platform: string = process.platf
 }
 
 /**
+ * The person's own Inbox sounds (`sounds/<id>.<ext>`, `server/chime.ts`): short
+ * clips they added for the chime, played on this machine for every project, so
+ * they are the machine's and never a project's. Only this host reads or writes
+ * them, by id. `KEHIKOT_SOUNDS_DIR` overrides it (tests, scratch hosts).
+ */
+export function soundsDir(env: Env = process.env, platform: string = process.platform): string {
+  return env.KEHIKOT_SOUNDS_DIR || join(machineDir(env, platform), 'sounds')
+}
+
+/**
  * Factory's per-author re-review rules (`factory/author-rules.json`,
  * kehikko-factory): a person's rule for when an author's work is ready for
  * another look holds in every project, so it is the machine's, not one

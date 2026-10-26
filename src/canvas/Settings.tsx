@@ -12,6 +12,7 @@ import {
   Plug,
   Search,
   Sparkles,
+  Volume2,
   type LucideIcon,
 } from 'lucide-react'
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
@@ -52,6 +53,7 @@ import {
 } from '@/host/agentSettings.ts'
 import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
 import { isGitReason } from '@/host/gitSaid.ts'
+import { adoptChime } from '@/host/chimeStore.ts'
 import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
@@ -64,6 +66,7 @@ import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { ChimePanel, type ModuleRef } from './ChimeSettings.tsx'
 import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
@@ -116,6 +119,7 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
       const response = await fetch('/host/settings', { cache: 'no-store' })
       const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
       if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'The host would not say its settings.')
+      adoptChime(body.chime)
       return body
     },
     { signal, fresh },
@@ -130,6 +134,7 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   })
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
   if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'The host did not take that change.')
+  adoptChime(body.chime)
   if (body.status) keepRead('settings', body)
   else forgetRead('settings')
   return body
@@ -200,7 +205,8 @@ export function AgentSettingsHost({
   load = fetchSettings,
   save = postSettings,
   project = null,
-}: { load?: typeof fetchSettings; save?: typeof postSettings; project?: SettingsProject | null } = {}) {
+  modules = [],
+}: { load?: typeof fetchSettings; save?: typeof postSettings; project?: SettingsProject | null; modules?: readonly ModuleRef[] } = {}) {
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState<SettingsSection>('agents')
   const [question, setQuestion] = useState(false)
@@ -247,7 +253,7 @@ export function AgentSettingsHost({
           setQuestion(false)
         }}
       />
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} />
+      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} />
     </>
   )
 }
@@ -335,6 +341,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
   notices: { title: 'Tracker notices', icon: Bell },
+  sounds: { title: 'Inbox sounds', icon: Volume2 },
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
   modules: { title: 'Modules', icon: Blocks },
@@ -350,6 +357,7 @@ export function SettingsDialog({
   onSection: setGiven,
   project = null,
   baseBranch = BASE_BRANCH_DOOR,
+  modules = [],
 }: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -361,6 +369,7 @@ export function SettingsDialog({
   /** The open project; the Project section is shown only with one. */
   project?: SettingsProject | null
   baseBranch?: BaseBranchDoor
+  modules?: readonly ModuleRef[]
 }) {
   const { answer, trouble, busy, saved, read, change } = useAgentSettings(open, load, save)
   const [own, setOwn] = useState<SettingsSection>('agents')
@@ -391,6 +400,7 @@ export function SettingsDialog({
           onClose={() => onOpenChange(false)}
           project={project}
           baseBranch={baseBranch}
+          modules={modules}
         />
       </DialogContent>
     </Dialog>
@@ -410,6 +420,7 @@ export function SettingsBody({
   project = null,
   baseBranch = BASE_BRANCH_DOOR,
   modulesApi,
+  modules = [],
 }: {
   answer: SettingsAnswer | null
   trouble?: string | null
@@ -424,6 +435,8 @@ export function SettingsBody({
   baseBranch?: BaseBranchDoor
   /** How Settings › Modules asks the host; for tests. */
   modulesApi?: SettingsApi
+  /** The modules the host knows, for a sound of one module's own. */
+  modules?: readonly ModuleRef[]
 }) {
   const sections = SETTINGS_SECTIONS.filter((one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project))
   const shown = sections.includes(section) ? section : 'agents'
@@ -492,6 +505,14 @@ export function SettingsBody({
                   <About onClose={onClose} />
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
+                ) : key === 'sounds' ? (
+                  <>
+                    <Heading id="sounds" lead="A sound when something new arrives in the Inbox, for each kind of thing. Kept on this computer for every project.">
+                      Inbox sounds
+                    </Heading>
+                    {/* Only while it is shown, like Modules: every section is mounted, and this one has controls of its own. */}
+                    {shown === 'sounds' ? <ChimePanel modules={modules} /> : null}
+                  </>
                 ) : key === 'modules' ? (
                   <>
                     {answer?.updates ? (
