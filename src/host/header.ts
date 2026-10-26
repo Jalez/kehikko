@@ -61,6 +61,25 @@ export function withdrawn(held: Headers, id: string): Headers {
   return rest
 }
 
+/**
+ * What a posting of the open kehikko's headers says (`POST /host/headers`), as one word to compare
+ * with the last one this page made — or `NOTHING_POSTED` when it says only that nothing is declared
+ * and nothing pointed at, which is what the server already holds for a page that has posted
+ * nothing at all.
+ *
+ * A fresh page's map is empty until its modules greet. The page posts a moment after the last
+ * change (`HEADERS_SETTLE_MS` in `App.tsx`), and on a machine where the modules take longer than
+ * that moment to greet, the first posting was that empty map, followed by the real one: two
+ * postings per load, the first telling the server nothing it did not hold. Compared against what
+ * was last said, it is not made.
+ */
+export const NOTHING_POSTED = ''
+
+export function headerPosting(kehikko: number, declaredHere: string, location: string | null, address: string | null): string {
+  if (declaredHere === '[]' && !location && !address) return NOTHING_POSTED
+  return JSON.stringify([kehikko, declaredHere, location, address])
+}
+
 /* ------------------------------------------------------------------ *
  * The menus
  * ------------------------------------------------------------------ */

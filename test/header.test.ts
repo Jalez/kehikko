@@ -9,11 +9,13 @@ import {
   declared,
   focusAfter,
   focusIsInModule,
+  headerPosting,
   INLINE_OPTIONS,
   menusOf,
   nested,
   NO_HEADER,
   NO_HEADERS,
+  NOTHING_POSTED,
   notStanding,
   pressing,
   staysOpen,
@@ -280,5 +282,25 @@ describe('pinned runs (protocol 1.6.0)', () => {
     const { menusOf } = await import('../src/host/header.ts')
     const run = menusOf(items).find((menu) => menu.menu === 'run')!
     expect(run.groups.flatMap((group) => group.items.map((item) => item.id))).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+  })
+})
+
+describe('what the page posts of the open kehikko’s headers', () => {
+  test('an empty map with nothing pointed at says what a page that posted nothing already said', () => {
+    expect(headerPosting(1, '[]', null, null)).toBe(NOTHING_POSTED)
+    expect(headerPosting(2, '[]', null, null)).toBe(NOTHING_POSTED)
+  })
+
+  test('anything declared or pointed at is said, and differs by kehikko', () => {
+    const map = JSON.stringify([['kehikot.alpha', [{ kind: 'toggle', id: 'flag', label: 'Flag', checked: false }]]])
+    expect(headerPosting(1, map, null, null)).not.toBe(NOTHING_POSTED)
+    expect(headerPosting(1, map, null, null)).not.toBe(headerPosting(2, map, null, null))
+    expect(headerPosting(1, '[]', '{"file":"a.ts"}', null)).not.toBe(NOTHING_POSTED)
+    expect(headerPosting(1, '[]', null, '{"url":"https://example.org"}')).not.toBe(NOTHING_POSTED)
+  })
+
+  test('a map emptied after it held something is a change, so it is said', () => {
+    const map = JSON.stringify([['kehikot.alpha', []]])
+    expect(headerPosting(1, map, null, null)).not.toBe(headerPosting(1, '[]', null, null))
   })
 })
