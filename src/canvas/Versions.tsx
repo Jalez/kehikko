@@ -37,6 +37,8 @@ export function VersionPicker({
   current,
   protocol = null,
   onPicked,
+  text = true,
+  tight = false,
 }: {
   module: string
   name: string
@@ -50,6 +52,14 @@ export function VersionPicker({
   protocol?: string | null
   /** After a pin or unpin went through: the page re-reads the canvas and the modules. */
   onPicked(): void
+  /**
+   * Whether there is room for the version's words (`host/headerFit.ts`). Without, a pinned
+   * container keeps its amber tag icon and an unpinned one is not drawn; the whole is in the
+   * tooltip, the button's name and the container name's title.
+   */
+  text?: boolean
+  /** No room even for the amber border of a pinned version's icon: the bare icon. */
+  tight?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [listing, setListing] = useState<VersionListing | null>(null)
@@ -108,14 +118,16 @@ export function VersionPicker({
             data-pinned={pinned ? 'true' : 'false'}
             aria-label={pinned ? `${name}: pinned to ${pinned}` : `${name}: latest${current ? ` (${current})` : ''}`}
             onMouseDown={(event) => event.stopPropagation()}
-            className={
+            className={`pointer-events-auto cursor-default items-center gap-0.5 overflow-hidden font-mono text-[10px] ${
+              text || pinned ? 'inline-flex' : 'hidden'
+            } ${text ? (pinned ? 'max-w-[16ch] min-w-[7ch] shrink-[20]' : 'max-w-[12ch] min-w-[7ch] shrink-[20]') : 'shrink-0'} ${
               pinned
-                ? 'pointer-events-auto inline-flex min-w-5 shrink-[20] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-                : 'text-muted-foreground hover:text-foreground pointer-events-auto flex min-w-5 shrink-[20] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
-            }
+                ? `text-amber-700 dark:text-amber-300${tight && !text ? '' : ' rounded border border-amber-500/50 bg-amber-500/10 px-1'}`
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            {pinned ? <Tag className="size-2.5 shrink-0" /> : null}
-            <span data-testid="version-label" className="min-w-[9ch] truncate @max-[300px]/container:hidden">{label}</span>
+            {pinned ? <Tag className="size-2.5 shrink-0" aria-hidden /> : null}
+            {text ? <span data-testid="version-label" className="min-w-0 truncate">{label}</span> : null}
           </button>
         </PopoverTrigger>
       </Hint>

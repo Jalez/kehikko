@@ -34,13 +34,17 @@ describe('when a branch is worth a person’s attention', () => {
 })
 
 describe('the mark in the header', () => {
-  const draw = (source: Source | null) => renderToStaticMarkup(<TooltipProvider><BranchMark source={source} /></TooltipProvider>)
+  const draw = (source: Source | null, more: { text?: boolean; quiet?: boolean } = {}) =>
+    renderToStaticMarkup(<TooltipProvider><BranchMark source={source} {...more} /></TooltipProvider>)
 
-  test('quiet on main, and gone with the version when the container is narrow', () => {
+  test('quiet on main, its words its icon when the container is narrow, and gone at the narrowest', () => {
     const html = draw(plain)
     expect(html).toContain('data-off-main="false"')
     expect(html).toContain('>main<')
-    expect(html).toContain('@max-[300px]/container:hidden')
+    expect(html).toContain('text-muted-foreground')
+    expect(draw(plain, { text: false })).not.toContain('branch-label')
+    expect(draw(plain, { text: false })).toContain('<svg')
+    expect(draw(plain, { text: false, quiet: false })).toBe('')
   })
 
   test('marked anywhere else, at every width, with the reason as its label', () => {

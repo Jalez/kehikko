@@ -25,7 +25,10 @@ import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { BranchMark } from './Branch.tsx'
+import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
+import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
@@ -252,6 +255,34 @@ export function Container({
   onActivitySeen?(): void
 }) {
   const name = presence.name ?? presence.id
+  /* How much of the header's left side there is room for (`host/headerFit.ts`): what the header's
+     width allows, less the steps taken because the name was crowded. Kept as the container is
+     resized; steps are taken in a layout effect, so none is ever painted. */
+  const grip = useRef<HTMLElement>(null)
+  const [width, setWidth] = useState<number | null>(null)
+  const [steps, setSteps] = useState(0)
+  useLayoutEffect(() => {
+    const header = grip.current
+    if (!header) return
+    const measure = () => setWidth((was) => (header.offsetWidth || null) === was ? was : header.offsetWidth || null)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const watching = new ResizeObserver(measure)
+    watching.observe(header)
+    return () => watching.disconnect()
+  }, [])
+  const fit = stepDown(fitFor(width), steps)
+  /* What is drawn changes with the words, the width and the source: start from the most again. */
+  const content = `${name}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
+  useLayoutEffect(() => setSteps(0), [width, content])
+  useLayoutEffect(() => {
+    const label = grip.current?.querySelector<HTMLElement>('[data-testid="header-name"]')
+    if (label && steps < STEPS && crowded(label.clientWidth, label.scrollWidth)) setSteps(steps + 1)
+  }, [steps, width, content])
+  const shownVersion = versionLabel(version ?? null, current ?? releaseShown(presence.source) ?? presence.module?.version ?? null)
+  /* The name is cut with an ellipsis when it must be, so its whole is in its title, with the
+     version once that has no room of its own. */
+  const nameTitle = fit.version ? name : `${name} · ${shownVersion}`
   const hasSettings = onSettings !== undefined && settingsOf(presence.module).length > 0
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* For the dot and the header's controls, which are the page's and are
@@ -410,6 +441,7 @@ export function Container({
        * work until the last few pixels.
        */}
       <header
+        ref={grip}
         data-dense={collapsed ? 'true' : undefined}
         className={
           collapsed
@@ -515,13 +547,13 @@ export function Container({
         {/* The module's icon, decorative beside its name (`ModuleIcon.tsx`). The
             first thing to go after the gaps: under 240 pixels the name keeps
             the room, and the folded row and the 200-pixel container hold. */}
-        <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5 @max-[240px]/container:hidden" />
+        {fit.icon ? <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5" /> : null}
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
-            <span className="min-w-[2ch] shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
+            <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
           </Hint>
         ) : (
-          <span className="min-w-[2ch] shrink-[0.05] truncate text-xs font-medium">{name}</span>
+          <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] truncate text-xs font-medium">{name}</span>
         )}
         {/*
          * The version, and the first thing to go when the container is narrow.
@@ -544,10 +576,12 @@ export function Container({
           current={current ?? releaseShown(presence.source) ?? presence.module?.version ?? null}
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
+          text={fit.version}
+          tight={!fit.icon}
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
-        <BranchMark source={presence.source} />
-        <span className="flex-1" />
+        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} tight={!fit.icon} />
+        <span className="-mx-1 flex-1" />
 
         {/*
          * The module's own menus: View, Go and Run, from what it declared.

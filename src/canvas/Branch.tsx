@@ -8,14 +8,15 @@ import { Hint } from './Hint.tsx'
  * version.
  *
  * Quiet in the plain case — `main` level with its branch, or a release; clean; the registered folder —
- * styled like the version beside it and gone with it when the container is
- * narrow. Anything else is the amber chip a pinned version uses, kept at every
+ * styled like the version beside it. `tight`, with no room even for its border, draws the bare icon. Its words give way to its icon first when the
+ * container is narrow (`host/headerFit.ts`). Anything else is the amber chip a pinned version uses, kept at every
  * width, because a module running something other than what was merged is
  * exactly what a person needs to notice. The tooltip says the folder and why.
  */
-export function BranchMark({ source }: { source: Source | null | undefined }) {
+export function BranchMark({ source, text = true, quiet = true, tight = false }: { source: Source | null | undefined; text?: boolean; quiet?: boolean; tight?: boolean }) {
   if (!source) return null
   const marked = offMain(source).length > 0
+  if (!marked && !quiet) return null
   const hint = sourceHint(source)
   return (
     <Hint label={hint} side="bottom" align="start">
@@ -23,14 +24,17 @@ export function BranchMark({ source }: { source: Source | null | undefined }) {
         data-testid="branch-mark"
         data-off-main={marked ? 'true' : 'false'}
         aria-label={hint}
-        className={
+        data-text={text ? 'true' : 'false'}
+        className={`inline-flex cursor-default items-center gap-0.5 overflow-hidden font-mono text-[10px] ${
+          text ? 'max-w-[18ch] min-w-[9ch] shrink-[50]' : 'shrink-0'
+        } ${
           marked
-            ? 'inline-flex min-w-5 shrink-[50] cursor-default items-center gap-0.5 rounded border border-amber-500/50 bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300'
-            : 'text-muted-foreground flex min-w-5 shrink-[50] cursor-default items-center font-mono text-[10px] @max-[300px]/container:hidden'
-        }
+            ? `text-amber-700 dark:text-amber-300${tight && !text ? '' : ' rounded border border-amber-500/50 bg-amber-500/10 px-1'}`
+            : `text-muted-foreground${tight && !text ? '' : ' px-0.5'}`
+        }`}
       >
-        {marked ? <GitBranch className="size-2.5 shrink-0" aria-hidden /> : null}
-        <span data-testid="branch-label" className="min-w-0 truncate @max-[220px]/container:hidden">{branchWord(source)}</span>
+        <GitBranch className="size-2.5 shrink-0" aria-hidden />
+        {text ? <span data-testid="branch-label" className="min-w-0 truncate">{branchWord(source)}</span> : null}
       </span>
     </Hint>
   )

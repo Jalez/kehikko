@@ -31,19 +31,18 @@ describe('the version and the branch in a header', () => {
     ['quiet branch', branch({ ...source, branch: 'main' })],
     ['marked branch', branch(source)],
   ] as const) {
-    test(`${name}: shrinks, with a truncating label`, () => {
+    test(`${name}: shrinks to a floor, with a truncating label and a cap, clipping what is left rather than spilling it over its neighbour`, () => {
       expect(html).not.toMatch(/^<[^>]*\sclass="[^"]*\bshrink-0\b/)
-      expect(html).toMatch(/min-w-5 shrink-\[\d+\]/)
-      expect(html).toMatch(/min-w-(0|\[9ch\]) truncate/)
-    })
+      expect(html).toMatch(/shrink-\[\d+\]/)
+      expect(html).toMatch(/max-w-\[\d+ch\] min-w-\[\d+ch\]/)
+      expect(html).toContain('overflow-hidden')
+      expect(html).toMatch(/min-w-0 truncate/)
+      })
   }
 
-  test('the branch gives way before the version, which keeps nine characters, and the labels before the chips', () => {
+  test('the branch gives way before the version, and both before the name', () => {
     expect(branch(source)).toContain('shrink-[50]')
     expect(version('v1.2.3')).toContain('shrink-[20]')
-    expect(version('v1.2.3')).toContain('min-w-[9ch] truncate')
-    expect(version('v1.2.3')).toContain('@max-[300px]/container:hidden')
-    expect(branch(source)).toContain('@max-[220px]/container:hidden')
   })
 
   test('the version is marked as a chip, which the folded header does not square to eighteen pixels', () => {
