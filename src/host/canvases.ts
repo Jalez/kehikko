@@ -786,22 +786,27 @@ export function inProject(canvases: readonly Canvas[], project: number | null): 
   return canvases.filter((canvas) => canvas.project === project)
 }
 
-/** The grid is twelve columns wide, and a new container takes half of it. */
+/**
+ * The grid is twelve columns wide, and a new container takes half of it, and
+ * twenty of the fifty-six rows — the ten of twenty-eight it always took, in the
+ * finer rows (`fit.ts`).
+ */
 export const COLUMNS = 12
 const NEW_W = 6
-const NEW_H = 10
+export const NEW_H = 20
 /**
  * The least a container is shaped down to when only a smaller gap exists: four
- * columns by six rows. Four of twelve columns is a third of the canvas, the
- * narrowest at which a module's header (title, version and its menus) and a
- * line of content still sit side by side; six rows is twice `SQUEEZED_ROWS`, the
- * least a neighbour may be pushed to, so a shaped container is a header and a
- * readable body and never one that looks as if it had been squeezed. The repo has
+ * columns by twelve rows (six of the twenty-eight a canvas used to have). Four
+ * of twelve columns is a third of the canvas, the narrowest at which a module's
+ * header (title, version and its menus) and a line of content still sit side by
+ * side; twelve rows is twice `SQUEEZED_ROWS`, the least a neighbour may be
+ * pushed to, so a shaped container is a header and a readable body and never
+ * one that looks as if it had been squeezed. The repo has
  * no per-module minimum size (the grid is given no `minW` or `minH`); this is the
  * host's own floor for a placement it chooses, and a person can still resize.
  */
 export const GAP_MIN_W = 4
-export const GAP_MIN_H = 6
+export const GAP_MIN_H = 12
 
 /**
  * Where a module goes when it is put on the canvas: the first free space that
@@ -810,7 +815,7 @@ export const GAP_MIN_H = 6
  * The canvas is scanned left to right, top to bottom, over the grid as it is
  * DRAWN (`arranged`: wishes granted, vertical compaction applied), and the
  * container takes the first free rectangle that holds the usual six columns by
- * ten rows. Failing that, the first gap in reading order that holds at least
+ * twenty rows. Failing that, the first gap in reading order that holds at least
  * `GAP_MIN_W` by `GAP_MIN_H` is taken at that gap's size, capped at the usual
  * one; a full-size gap anywhere is preferred to a shaped one. Failing that, the
  * old rule: beside the last container on the bottom row if it has room, else on

@@ -3,6 +3,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.tsx'
+import { CANVAS_ROWS } from '@/host/fit.ts'
 import { BUILT_IN_LAYOUTS } from '@/host/layouts.ts'
 import { KehikkoMark } from './Mark.tsx'
 
@@ -344,11 +345,11 @@ export function pillRow(names: readonly string[]): { x: number; width: number }[
 function WaysArt() {
   const layouts = WAYS.map((id) => BUILT_IN_LAYOUTS.find((one) => one.id === id)!)
   const pills = pillRow(layouts.map((one) => one.name)).map((pill, i) => ({ ...pill, layout: layouts[i]! }))
-  /* The canvas the schematics are drawn on: 12 columns by 28 rows into 190 by 100. */
+  /* The canvas the schematics are drawn on: 12 columns by `CANVAS_ROWS` into 190 by 100. */
   const X = 65
   const Y = 12
   const cw = 190 / 12
-  const rh = 100 / 28
+  const rh = 100 / CANVAS_ROWS
   return (
     <Art label="design, research, development, review and learning, each with its own layout">
       <rect x={X - 4} y={Y - 4} width="198" height="108" rx="6" className="fill-background stroke-border" strokeWidth="1.25" />

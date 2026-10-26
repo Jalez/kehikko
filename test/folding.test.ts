@@ -81,10 +81,10 @@ function aCanvas(placements: Given[], watched = true): number {
 const placementsNow = (id: number) => listCanvases(db).find((c) => c.id === id)!.placements
 const one = (id: number, module: string) => placementsNow(id).find((p) => p.i === module)!
 
-/** One column: a.one over a.two, which wants twenty rows and is squeezed to ten. */
+/** One column: a.one over a.two, which wants forty rows and is squeezed to twenty. */
 const squeezed = (): Given[] => [
-  { i: 'a.one', x: 0, y: 0, w: 6, h: 18, wish: 18 },
-  { i: 'a.two', x: 0, y: 18, w: 6, h: 10, wish: 20, prompt: 'read this', selected: true },
+  { i: 'a.one', x: 0, y: 0, w: 6, h: 36, wish: 36 },
+  { i: 'a.two', x: 0, y: 36, w: 6, h: 20, wish: 40, prompt: 'read this', selected: true },
 ]
 
 describe('folding a container', () => {
@@ -96,7 +96,7 @@ describe('folding a container', () => {
 
     expect(one(id, 'a.one')).toEqual({ ...before[0]!, collapsed: true, h: FOLDED_ROWS })
     /* Drawn up against the header above it, which is where the grid puts it. */
-    expect(one(id, 'a.two')).toEqual({ ...before[1]!, h: 20, y: FOLDED_ROWS })
+    expect(one(id, 'a.two')).toEqual({ ...before[1]!, h: 40, y: FOLDED_ROWS })
     expect(done.text).toContain('folded a.one.')
     expect(done.text).toContain('a.one (One) — folded to its header')
   })
@@ -109,12 +109,12 @@ describe('folding a container', () => {
     const before = placementsNow(byThePage)
     const expected = [
       { ...before[0]!, collapsed: true, h: FOLDED_ROWS },
-      { ...before[1]!, h: 20, y: FOLDED_ROWS },
+      { ...before[1]!, h: 40, y: FOLDED_ROWS },
     ]
 
     /* The page stores its press and then what the grid made of it; the door
        has no grid, and stores both at once. */
-    expect(pressed(before, 'a.one', true)).toEqual([expected[0]!, { ...expected[1]!, y: 18 }])
+    expect(pressed(before, 'a.one', true)).toEqual([expected[0]!, { ...expected[1]!, y: 36 }])
     editCanvas(db, byThePage, { placements: laid(pressed(before, 'a.one', true)) })
     await call('fold_modules', { kehikko: byTheDoor, fold: ['a.one'] }, door())
 
@@ -123,7 +123,7 @@ describe('folding a container', () => {
   })
 
   test('what the person does while the modules are being looked at is not overwritten', async () => {
-    const id = aCanvas([...squeezed(), { i: 'a.three', x: 6, y: 0, w: 6, h: 10, wish: 10 }])
+    const id = aCanvas([...squeezed(), { i: 'a.three', x: 6, y: 0, w: 6, h: 20, wish: 20 }])
     let looked!: (sightings: Sighting[]) => void
     const looking = new Promise<Sighting[]>((resolve) => {
       looked = resolve
@@ -143,7 +143,7 @@ describe('folding a container', () => {
     editCanvas(db, id, {
       placements: placementsNow(id)
         .filter((p) => p.i !== 'a.three')
-        .map((p) => (p.i === 'a.two' ? { ...p, x: 6, y: 0, w: 4, h: 12, wish: 12 } : p)),
+        .map((p) => (p.i === 'a.two' ? { ...p, x: 6, y: 0, w: 4, h: 24, wish: 24 } : p)),
     })
     const theirs = placementsNow(id)
     looked(seen)
@@ -153,7 +153,7 @@ describe('folding a container', () => {
     expect(sweeps).toBe(1)
     expect(placementsNow(id)).toEqual(theirs)
     expect(one(id, 'a.one').collapsed).toBe(true)
-    expect(one(id, 'a.two')).toMatchObject({ x: 6, y: 0, w: 4, h: 12, wish: 12 })
+    expect(one(id, 'a.two')).toMatchObject({ x: 6, y: 0, w: 4, h: 24, wish: 24 })
     expect(placementsNow(id).some((p) => p.i === 'a.three')).toBe(false)
   })
 
@@ -192,28 +192,28 @@ describe('folding a container', () => {
 describe('unfolding a container', () => {
   test('it comes back at the height its owner chose', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 14, collapsed: true },
-      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 28, collapsed: true },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 20, wish: 20 },
     ])
     const done = await call('fold_modules', { kehikko: id, unfold: ['a.one'] }, door())
     expect(done.failed).toBe(false)
-    expect(one(id, 'a.one')).toMatchObject({ collapsed: false, h: 14, wish: 14 })
-    expect(one(id, 'a.two')).toMatchObject({ h: 10, wish: 10 })
+    expect(one(id, 'a.one')).toMatchObject({ collapsed: false, h: 28, wish: 28 })
+    expect(one(id, 'a.two')).toMatchObject({ h: 20, wish: 20 })
     expect(done.text).not.toContain('rows it asks for')
   })
 
   test('into a full column it comes back short, says so, and nobody’s wish is rewritten', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: 26, wish: 26 },
-      { i: 'a.two', x: 0, y: 26, w: 6, h: FOLDED_ROWS, wish: 10, collapsed: true },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 52, wish: 52 },
+      { i: 'a.two', x: 0, y: 52, w: 6, h: FOLDED_ROWS, wish: 20, collapsed: true },
     ])
     const done = await call('fold_modules', { kehikko: id, unfold: ['a.two'] }, door())
     expect(done.failed).toBe(false)
 
     const now = placementsNow(id)
-    expect(one(id, 'a.two')).toMatchObject({ collapsed: false, h: SQUEEZED_ROWS, wish: 10 })
-    expect(one(id, 'a.one')).toMatchObject({ h: CANVAS_ROWS - SQUEEZED_ROWS, wish: 26, x: 0, y: 0, w: 6 })
-    expect(done.text).toContain(`a.two is drawn at ${SQUEEZED_ROWS} of the 10 rows it asks for`)
+    expect(one(id, 'a.two')).toMatchObject({ collapsed: false, h: SQUEEZED_ROWS, wish: 20 })
+    expect(one(id, 'a.one')).toMatchObject({ h: CANVAS_ROWS - SQUEEZED_ROWS, wish: 52, x: 0, y: 0, w: 6 })
+    expect(done.text).toContain(`a.two is drawn at ${SQUEEZED_ROWS} of the 20 rows it asks for`)
 
     const heights = granted(now)
     const above = tops(now)
@@ -227,21 +227,21 @@ describe('unfolding a container', () => {
 describe('folding and unfolding in one call', () => {
   test('room is made and the module wanted is brought into view', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: 27, wish: 27 },
-      { i: 'a.two', x: 0, y: 27, w: 6, h: FOLDED_ROWS, wish: 20, collapsed: true },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 54, wish: 54 },
+      { i: 'a.two', x: 0, y: 54, w: 6, h: FOLDED_ROWS, wish: 40, collapsed: true },
     ])
     const done = await call('fold_modules', { kehikko: id, fold: ['a.one'], unfold: ['a.two'] }, door())
     expect(done.failed).toBe(false)
-    expect(one(id, 'a.one')).toMatchObject({ collapsed: true, h: FOLDED_ROWS, wish: 27 })
-    expect(one(id, 'a.two')).toMatchObject({ collapsed: false, h: 20, wish: 20 })
+    expect(one(id, 'a.one')).toMatchObject({ collapsed: true, h: FOLDED_ROWS, wish: 54 })
+    expect(one(id, 'a.two')).toMatchObject({ collapsed: false, h: 40, wish: 40 })
     expect(done.text).toContain('fold_modules with unfold: ["a.one"], fold: ["a.two"].')
     expect(woken).toEqual([id])
   })
 
   test('a container already as asked is left alone, and left out of the way back', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 12, collapsed: true },
-      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 24, collapsed: true },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 20, wish: 20 },
     ])
     const done = await call('fold_modules', { kehikko: id, fold: ['a.one', 'a.two'] }, door())
     expect(done.failed).toBe(false)
@@ -307,9 +307,9 @@ describe('a fold is seen and signed', () => {
 
   test('the page is told who, and only about the containers the call changed', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 12, collapsed: true },
-      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
-      { i: 'a.three', x: 0, y: 12, w: 6, h: FOLDED_ROWS, wish: 8, collapsed: true },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: FOLDED_ROWS, wish: 24, collapsed: true },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 20, wish: 20 },
+      { i: 'a.three', x: 0, y: 24, w: 6, h: FOLDED_ROWS, wish: 16, collapsed: true },
     ])
     const heard: unknown[] = []
     wakes.listen((news) => heard.push(news))
@@ -323,8 +323,8 @@ describe('a fold is seen and signed', () => {
 
   test('the door’s write is `folded`, the one function a press and a module’s request go through', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: 27, wish: 27 },
-      { i: 'a.two', x: 0, y: 27, w: 6, h: FOLDED_ROWS, wish: 20, collapsed: true },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 54, wish: 54 },
+      { i: 'a.two', x: 0, y: 54, w: 6, h: FOLDED_ROWS, wish: 40, collapsed: true },
     ])
     const expected = laid(folded(placementsNow(id), { fold: ['a.one'], unfold: ['a.two'] }))
     await call('fold_modules', { kehikko: id, fold: ['a.one'], unfold: ['a.two'] }, door())
@@ -352,14 +352,14 @@ describe('a fold leaves the page nothing of its own to save', () => {
 
   test('what is under a folded container is stored drawn up against it, and back down on unfold', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: 10, wish: 10 },
-      { i: 'a.two', x: 6, y: 0, w: 6, h: 10, wish: 10 },
-      { i: 'a.three', x: 0, y: 10, w: 6, h: 10, wish: 10 },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 20, wish: 20 },
+      { i: 'a.two', x: 6, y: 0, w: 6, h: 20, wish: 20 },
+      { i: 'a.three', x: 0, y: 20, w: 6, h: 20, wish: 20 },
     ])
     const before = placementsNow(id)
     await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
     settled(id)
-    expect(one(id, 'a.three')).toMatchObject({ x: 0, y: FOLDED_ROWS, w: 6, h: 10, wish: 10 })
+    expect(one(id, 'a.three')).toMatchObject({ x: 0, y: FOLDED_ROWS, w: 6, h: 20, wish: 20 })
     expect(one(id, 'a.two')).toEqual(before.find((p) => p.i === 'a.two')!)
 
     await call('fold_modules', { kehikko: id, unfold: ['a.one'] }, door())
@@ -369,8 +369,8 @@ describe('a fold leaves the page nothing of its own to save', () => {
 
   test('a selection made straight after a fold is still there once the page has caught up', async () => {
     const id = aCanvas([
-      { i: 'a.one', x: 0, y: 0, w: 6, h: 10, wish: 10 },
-      { i: 'a.three', x: 0, y: 10, w: 6, h: 10, wish: 10 },
+      { i: 'a.one', x: 0, y: 0, w: 6, h: 20, wish: 20 },
+      { i: 'a.three', x: 0, y: 20, w: 6, h: 20, wish: 20 },
     ])
     await call('fold_modules', { kehikko: id, fold: ['a.one'] }, door())
     const read = placementsNow(id)

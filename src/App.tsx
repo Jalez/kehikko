@@ -117,7 +117,7 @@ import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
-import { CANVAS_ROWS, rowHeightFor } from './host/fit.ts'
+import { CANVAS_ROWS, rowHeightFor, rowsHolding } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
@@ -548,7 +548,7 @@ export function App() {
   /*
    * How tall a row is DRAWN: the room, divided into `CANVAS_ROWS` of them.
    *
-   * A canvas is twelve columns wide and twenty-eight rows tall, and both are
+   * A canvas is twelve columns wide and fifty-six rows tall, and both are
    * COUNTS rather than pixel sizes. That is the whole of it, and `fit.ts` has
    * the argument — including the two versions of this that were wrong: one that
    * shrank every container on the canvas whenever any container grew, and one
@@ -2189,7 +2189,7 @@ export function App() {
    * drawn height closed a loop — shorter rows, more rows for the same pixels, a
    * taller arrangement, shorter rows again. The loop needed the row height to
    * depend on the arrangement, and it no longer does; it depends on the window
-   * and a constant. With that gone, using the nominal 24 would be plainly wrong:
+   * and a constant. With that gone, using the nominal row would be plainly wrong:
    * on a small window a module asking for 300 pixels would be given rows that
    * draw 160, ask again, and be refused for asking for what it did not get.
    */
@@ -2207,7 +2207,7 @@ export function App() {
          `redrawn`; this is only the conversion. Bounded by the canvas, because
          a wish past it is simply "as much as there is" and a wish of ten
          thousand rows is not a height anybody chose. */
-      const rowsFor = (wanted: number) => Math.min(CANVAS_ROWS, Math.ceil((wanted + MARGIN[1]) / (rowHeight + MARGIN[1])))
+      const rowsFor = (wanted: number) => rowsHolding(wanted, rowHeight, MARGIN[1])
 
       /*
        * A collapsed container does not grow, and the request is not thrown away.
@@ -4128,7 +4128,7 @@ export function App() {
            * `cols` and `maxRows` are the same kind of statement: the axis has a
            * fixed number of divisions and nothing may exceed them. That is what
            * makes a column's width `room / 12` regardless of the content, and
-           * with this it is what makes a row's height `room / 28` regardless of
+           * with this it is what makes a row's height `room / 56` regardless of
            * the content — which is the whole of the fix in `fit.ts`.
            *
            * Verified in the library rather than assumed: `maxRows` reaches

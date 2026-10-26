@@ -113,7 +113,17 @@ export function useRects(): {
      * whatever a horizontal scrollbar takes. On a canvas that has just
      * overflowed, those are exactly the pixels in dispute.
      */
-    setRoom((was) => (was === surface.clientHeight ? was : surface.clientHeight))
+    /*
+     * And never more than the box really has. `clientHeight` is a whole number
+     * ROUNDED from the layout's fraction, so a surface 822.6 pixels tall says
+     * 823 — and now that the rows fill the room exactly (`fit.ts`), a grid
+     * drawn into 823 is four tenths of a pixel taller than the box it is in,
+     * which is a scrollbar on a canvas that fits. The rect's own height is the
+     * fraction; floored, it is the room whenever no scrollbar has taken some
+     * of it first, and `clientHeight` is the room when one has.
+     */
+    const room = base.height > 0 ? Math.min(surface.clientHeight, Math.floor(base.height)) : surface.clientHeight
+    setRoom((was) => (was === room ? was : room))
     /* And the width, for the same reason and from the same box: `clientWidth`
        is what is left beside a vertical scrollbar, which is what a column is a
        twelfth of. */

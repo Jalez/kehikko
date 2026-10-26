@@ -4,7 +4,7 @@ import { createRef } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { CornerHandle, cornerHandle } from '../src/canvas/CornerHandle.tsx'
-import { SQUEEZED_ROWS, mostUp, onTopOf, redrawn, topEdge, type Wished } from '../src/host/columns.ts'
+import { FOLDED_ROWS, SQUEEZED_ROWS, mostUp, onTopOf, redrawn, topEdge, type Wished } from '../src/host/columns.ts'
 import { cornerOf } from '../src/host/corners.ts'
 
 /**
@@ -21,89 +21,89 @@ const box = (i: string, x: number, y: number, w: number, h: number, extra: Parti
 })
 
 describe('a top edge pulled up', () => {
-  const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10), box('side', 6, 0, 6, 28)]
+  const column = [box('a', 0, 0, 6, 16), box('b', 0, 16, 6, 20), box('side', 6, 0, 6, 56)]
 
   test('keeps the bottom edge and takes the rows from the container on top', () => {
-    const pull = topEdge(column, 'b', 14)
-    expect(pull.h).toBe(14)
-    expect(pull.y).toBe(4)
-    expect(pull.y + pull.h).toBe(8 + 10)
-    expect(pull.given.get('a')).toBe(4)
+    const pull = topEdge(column, 'b', 28)
+    expect(pull.h).toBe(28)
+    expect(pull.y).toBe(8)
+    expect(pull.y + pull.h).toBe(16 + 20)
+    expect(pull.given.get('a')).toBe(8)
     expect(pull.given.has('side')).toBe(false)
   })
 
   test('stops where the container on top is at its floor', () => {
-    const pull = topEdge(column, 'b', 40)
-    expect(mostUp(column, 'b')).toBe(8 - SQUEEZED_ROWS)
-    expect(pull.h).toBe(10 + 8 - SQUEEZED_ROWS)
+    const pull = topEdge(column, 'b', 80)
+    expect(mostUp(column, 'b')).toBe(16 - SQUEEZED_ROWS)
+    expect(pull.h).toBe(20 + 16 - SQUEEZED_ROWS)
     expect(pull.given.get('a')).toBe(SQUEEZED_ROWS)
     expect(pull.y).toBe(SQUEEZED_ROWS)
   })
 
   test('a container with nothing on top has no top edge to raise', () => {
     expect(mostUp(column, 'a')).toBe(0)
-    const pull = topEdge(column, 'a', 12)
-    expect(pull.h).toBe(8)
+    const pull = topEdge(column, 'a', 24)
+    expect(pull.h).toBe(16)
     expect(pull.y).toBe(0)
     expect(pull.given.size).toBe(0)
   })
 
   test('a folded container on top has nothing to spare', () => {
-    const folded = [box('a', 0, 0, 6, 1, { wish: 8, collapsed: true }), box('b', 0, 1, 6, 10)]
+    const folded = [box('a', 0, 0, 6, 2, { wish: 16, collapsed: true }), box('b', 0, 2, 6, 20)]
     expect(mostUp(folded, 'b')).toBe(0)
-    expect(topEdge(folded, 'b', 20).h).toBe(10)
+    expect(topEdge(folded, 'b', 40).h).toBe(20)
   })
 
   test('every container flush on top gives the same rows', () => {
-    const wide = [box('a', 0, 0, 3, 8), box('c', 3, 0, 3, 6), box('b', 0, 8, 6, 8)]
+    const wide = [box('a', 0, 0, 3, 16), box('c', 3, 0, 3, 12), box('b', 0, 16, 6, 16)]
     expect(onTopOf(wide, wide[2]!).map((one) => one.i)).toEqual(['a'])
-    const flush = [box('a', 0, 0, 3, 8), box('c', 3, 0, 3, 8), box('b', 0, 8, 6, 8)]
-    expect(topEdge(flush, 'b', 11).given).toEqual(new Map([['a', 5], ['c', 5]]))
+    const flush = [box('a', 0, 0, 3, 16), box('c', 3, 0, 3, 16), box('b', 0, 16, 6, 16)]
+    expect(topEdge(flush, 'b', 22).given).toEqual(new Map([['a', 10], ['c', 10]]))
   })
 })
 
 describe('a top edge pushed down', () => {
-  const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
+  const column = [box('a', 0, 0, 6, 16), box('b', 0, 16, 6, 20)]
 
   test('gives the rows to the container on top, bottom edge fixed', () => {
-    const pull = topEdge(column, 'b', 6)
-    expect(pull.h).toBe(6)
-    expect(pull.y).toBe(12)
-    expect(pull.y + pull.h).toBe(18)
-    expect(pull.given.get('a')).toBe(12)
+    const pull = topEdge(column, 'b', 12)
+    expect(pull.h).toBe(12)
+    expect(pull.y).toBe(24)
+    expect(pull.y + pull.h).toBe(36)
+    expect(pull.given.get('a')).toBe(24)
   })
 
-  test('never below one row, which is a fold', () => {
-    expect(topEdge(column, 'b', -5).h).toBe(1)
-    expect(topEdge(column, 'b', 0).h).toBe(1)
+  test('never below the folded height, which is a fold', () => {
+    expect(topEdge(column, 'b', -5).h).toBe(FOLDED_ROWS)
+    expect(topEdge(column, 'b', 0).h).toBe(FOLDED_ROWS)
   })
 
   test('without anything on top it shortens in place and the grid settles it back', () => {
-    const alone = [box('a', 0, 0, 6, 10)]
-    const pull = topEdge(alone, 'a', 4)
-    expect(pull).toMatchObject({ h: 4, y: 0 })
+    const alone = [box('a', 0, 0, 6, 20)]
+    const pull = topEdge(alone, 'a', 8)
+    expect(pull).toMatchObject({ h: 8, y: 0 })
   })
 })
 
 describe('a top edge at rest', () => {
   test('changes nothing, and what it gives is what the arrangement already draws', () => {
-    const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
-    const pull = topEdge(column, 'b', 10)
-    expect(pull).toMatchObject({ h: 10, y: 8 })
-    expect(pull.given.get('a')).toBe(8)
+    const column = [box('a', 0, 0, 6, 16), box('b', 0, 16, 6, 20)]
+    const pull = topEdge(column, 'b', 20)
+    expect(pull).toMatchObject({ h: 20, y: 16 })
+    expect(pull.given.get('a')).toBe(16)
     const settled = column.map((one) => (pull.given.has(one.i) ? { ...one, wish: pull.given.get(one.i)! } : one))
     expect(redrawn(settled)).toEqual(settled)
   })
 
   test('after a pull the stored arrangement is the one the wishes draw, so the release writes it once', () => {
-    const column = [box('a', 0, 0, 6, 8), box('b', 0, 8, 6, 10)]
-    const pull = topEdge(column, 'b', 14)
+    const column = [box('a', 0, 0, 6, 16), box('b', 0, 16, 6, 20)]
+    const pull = topEdge(column, 'b', 28)
     const written = [
       { ...column[0]!, h: pull.given.get('a')!, wish: pull.given.get('a')! },
       { ...column[1]!, y: pull.y, h: pull.h, wish: pull.h },
     ]
     expect(redrawn(written)).toEqual(written)
-    expect(written.reduce((rows, one) => Math.max(rows, one.y + one.h), 0)).toBe(18)
+    expect(written.reduce((rows, one) => Math.max(rows, one.y + one.h), 0)).toBe(36)
   })
 })
 

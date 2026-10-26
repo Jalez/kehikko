@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { Window } from 'happy-dom'
 
 import type { Framing } from '@/canvas/Frames.tsx'
-import { arranged, type Wished } from '@/host/columns.ts'
+import { arranged, FOLDED_ROWS, type Wished } from '@/host/columns.ts'
 import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
   ask,
@@ -325,12 +325,12 @@ describe('the layout the grid is handed', () => {
     again.forEach((one, index) => expect(one).toBe(drawn[index]!))
   })
 
-  test('a column that cannot pay every wish is drawn within the canvas, and a fold is one row', () => {
+  test('a column that cannot pay every wish is drawn within the canvas, and a fold is its header', () => {
     const stored = [box('a', 0, 0, 12, 4, CANVAS_ROWS), box('b', 0, 4, 12, 4, CANVAS_ROWS), box('c', 0, 8, 12, 9, 9, true)]
     const drawn = arranged(stored)
     const bottom = Math.max(...drawn.map((one) => one.y + one.h))
     expect(bottom).toBeLessThanOrEqual(CANVAS_ROWS)
-    expect(drawn.find((one) => one.i === 'c')?.h).toBe(1)
+    expect(drawn.find((one) => one.i === 'c')?.h).toBe(FOLDED_ROWS)
   })
 
   test('an arrangement already settled comes back as the same objects', () => {

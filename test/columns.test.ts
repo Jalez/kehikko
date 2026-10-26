@@ -40,7 +40,7 @@ const box = (i: string, x: number, y: number, w: number, h: number): Wished => (
   collapsed: false,
 })
 
-/** A folded container: one row on the canvas, and a height to come back to. */
+/** A folded container: its header on the canvas, and a height to come back to. */
 const folded = (i: string, x: number, y: number, w: number, wish: number): Wished => ({
   i,
   x,
@@ -53,28 +53,28 @@ const folded = (i: string, x: number, y: number, w: number, wish: number): Wishe
 
 /* The real kehikko this was built against, so the cases below are an
    arrangement somebody actually has rather than one invented to pass. Three
-   visual columns: 0-3, 3-8, 8-12. The two one-row containers at the bottom of
+   visual columns: 0-3, 3-8, 8-12, in fifty-sixths. The two short containers at the bottom of
    the left column are folded ones. */
 const canvas10: Wished[] = [
-  box('checklist', 0, 0, 3, 18),
-  box('paper', 3, 0, 5, 28),
-  box('notes', 8, 0, 4, 8),
-  box('learning', 8, 8, 4, 10),
-  folded('notifications', 0, 18, 3, 6),
-  box('terminal', 8, 18, 4, 10),
-  folded('explorer', 0, 19, 3, 6),
+  box('checklist', 0, 0, 3, 36),
+  box('paper', 3, 0, 5, 56),
+  box('notes', 8, 0, 4, 16),
+  box('learning', 8, 16, 4, 20),
+  folded('notifications', 0, 36, 3, 12),
+  box('terminal', 8, 36, 4, 20),
+  folded('explorer', 0, 38, 3, 12),
 ]
 
 /* And the one with a full-width container under two narrower ones, which is
    what proves that "column" cannot mean "lane". */
 const canvas1: Wished[] = [
-  box('references', 0, 0, 6, 10),
-  box('orchestrator', 6, 0, 6, 16),
-  box('journeys', 0, 10, 6, 16),
-  box('tests', 6, 16, 6, 10),
-  folded('diff', 0, 26, 5, 8),
-  folded('checklist', 5, 26, 7, 8),
-  folded('paper', 0, 27, 12, 20),
+  box('references', 0, 0, 6, 20),
+  box('orchestrator', 6, 0, 6, 32),
+  box('journeys', 0, 20, 6, 32),
+  box('tests', 6, 32, 6, 20),
+  folded('diff', 0, 52, 5, 16),
+  folded('checklist', 5, 52, 7, 16),
+  folded('paper', 0, 54, 12, 40),
 ]
 
 const find = (boxes: readonly Wished[], i: string) => boxes.find((one) => one.i === i)!
@@ -142,7 +142,7 @@ describe('who is under whom', () => {
      make room for it. Here `a` has just been given twelve rows and `b` is
      still where it was, at row one. */
   test('a neighbour that the grid has not moved yet is still below', () => {
-    const boxes = [box('a', 0, 0, 6, 12), box('b', 0, 1, 6, 10)]
+    const boxes = [box('a', 0, 0, 6, 24), box('b', 0, 2, 6, 20)]
     expect(below(boxes, find(boxes, 'a')).map((one) => one.i)).toEqual(['b'])
   })
 })
@@ -154,9 +154,9 @@ describe('what a wish is granted', () => {
    * much `notes` wishes.
    */
   test('takes nothing from another column', () => {
-    const heights = wishing(canvas10, 'notes', { wish: 14 })
-    expect(heights.get('checklist')).toBe(18)
-    expect(heights.get('paper')).toBe(28)
+    const heights = wishing(canvas10, 'notes', { wish: 28 })
+    expect(heights.get('checklist')).toBe(36)
+    expect(heights.get('paper')).toBe(56)
     expect(heights.get('explorer')).toBe(FOLDED_ROWS)
     expect(heights.get('notifications')).toBe(FOLDED_ROWS)
   })
@@ -172,23 +172,23 @@ describe('what a wish is granted', () => {
     }
   })
 
-  /* The right column is full — 8 + 10 + 10 is 28 — so there is no free space
+  /* The right column is full — 16 + 20 + 20 is 56 — every row — so there is no free space
      and somebody has to make room. Rows are handed out from the top of the
-     column down: `notes` takes its twelve, `learning` is offered what leaves
-     `terminal` its floor and keeps its ten, and `terminal` gets the six that
+     column down: `notes` takes its twenty-four, `learning` is offered what leaves
+     `terminal` its floor and keeps its twenty, and `terminal` gets the twelve that
      are left. */
   test('takes it from the column below, the bottom making room first', () => {
-    const heights = wishing(canvas10, 'notes', { wish: 12 })
-    expect(heights.get('notes')).toBe(12)
-    expect(heights.get('learning')).toBe(10)
-    expect(heights.get('terminal')).toBe(6)
+    const heights = wishing(canvas10, 'notes', { wish: 24 })
+    expect(heights.get('notes')).toBe(24)
+    expect(heights.get('learning')).toBe(20)
+    expect(heights.get('terminal')).toBe(12)
   })
 
   /* Free space belongs to nobody, so it is spent before anybody is asked. The
-     left column of this canvas uses twenty of twenty-eight rows. */
+     left column of this canvas uses forty of fifty-six rows. */
   test('spends the free rows under the column before anybody makes room', () => {
-    const heights = wishing(canvas10, 'checklist', { wish: 24 })
-    expect(heights.get('checklist')).toBe(24)
+    const heights = wishing(canvas10, 'checklist', { wish: 48 })
+    expect(heights.get('checklist')).toBe(48)
     for (const one of canvas10) {
       if (one.i !== 'checklist') expect(heights.get(one.i)).toBe(one.h)
     }
@@ -204,8 +204,8 @@ describe('what a wish is granted', () => {
     const heights = wishing(canvas10, 'notes', { wish: CANVAS_ROWS })
     expect(heights.get('learning')).toBe(SQUEEZED_ROWS)
     expect(heights.get('terminal')).toBe(SQUEEZED_ROWS)
-    /* And the wish is cut to what leaves them there: 28 - 3 - 3. */
-    expect(heights.get('notes')).toBe(22)
+    /* And the wish is cut to what leaves them there: 56 - 6 - 6. */
+    expect(heights.get('notes')).toBe(44)
   })
 
   /* A folded container has nothing to give and is not pushed further down.
@@ -220,20 +220,20 @@ describe('what a wish is granted', () => {
   /* A container that asked for less than the floor is drawn at what it asked.
      The floor is what somebody ELSE may push you to, not a height you are owed. */
   test('a wish under the floor is drawn at the wish', () => {
-    const boxes = [box('a', 0, 0, 6, 10), box('b', 0, 10, 6, 2)]
-    expect(granted(boxes).get('b')).toBe(2)
+    const boxes = [box('a', 0, 0, 6, 20), box('b', 0, 20, 6, 4)]
+    expect(granted(boxes).get('b')).toBe(4)
     /* And it is not squeezed below it either when the column fills. */
-    expect(wishing(boxes, 'a', { wish: CANVAS_ROWS }).get('b')).toBe(2)
+    expect(wishing(boxes, 'a', { wish: CANVAS_ROWS }).get('b')).toBe(4)
   })
 
   /*
    * When nobody can make room, the growth does not happen — the same answer as
    * dragging a container past column twelve, and it should feel the same.
-   * `paper` is already the full twenty-eight rows of its column.
+   * `paper` is already the full fifty-six rows of its column.
    */
   test('a wish past what the column has is cut to what it has', () => {
-    expect(wishing(canvas10, 'paper', { wish: 40 }).get('paper')).toBe(CANVAS_ROWS)
-    expect(wishing(canvas10, 'terminal', { wish: 20 }).get('terminal')).toBe(10)
+    expect(wishing(canvas10, 'paper', { wish: 80 }).get('paper')).toBe(CANVAS_ROWS)
+    expect(wishing(canvas10, 'terminal', { wish: 40 }).get('terminal')).toBe(20)
   })
 
   /* And the sum is exactly conserved wherever the column was already full,
@@ -242,7 +242,7 @@ describe('what a wish is granted', () => {
   test('a full column makes room for every row it grants', () => {
     const column = ['notes', 'learning', 'terminal']
     const was = column.reduce((total, i) => total + find(canvas10, i).h, 0)
-    const heights = wishing(canvas10, 'notes', { wish: 16 })
+    const heights = wishing(canvas10, 'notes', { wish: 32 })
     const now = column.reduce((total, i) => total + heights.get(i)!, 0)
     expect(was).toBe(CANVAS_ROWS)
     expect(now).toBe(CANVAS_ROWS)
@@ -252,10 +252,10 @@ describe('what a wish is granted', () => {
      — already at their wishes — are not inflated to fill them. A wish is the
      most a container is ever drawn at. */
   test('shrinking inflates nobody past their wish', () => {
-    const heights = wishing(canvas10, 'notes', { wish: 4 })
-    expect(heights.get('notes')).toBe(4)
-    expect(heights.get('learning')).toBe(10)
-    expect(heights.get('terminal')).toBe(10)
+    const heights = wishing(canvas10, 'notes', { wish: 8 })
+    expect(heights.get('notes')).toBe(8)
+    expect(heights.get('learning')).toBe(20)
+    expect(heights.get('terminal')).toBe(20)
   })
 
   /*
@@ -264,13 +264,13 @@ describe('what a wish is granted', () => {
    * same heights come back. Without this, every render would be a gesture.
    */
   test('is the same answer whatever was drawn before', () => {
-    const squeezed = drawn(canvas10, wishing(canvas10, 'notes', { wish: 20 }))
+    const squeezed = drawn(canvas10, wishing(canvas10, 'notes', { wish: 40 }))
     const again = granted(squeezed.map((one) => ({ ...one, wish: find(canvas10, one.i).wish })))
     for (const one of canvas10) expect(again.get(one.i)).toBe(one.h)
   })
 
   test('and a container that is not there is not an error', () => {
-    expect(wishing(canvas10, 'nothing.at.all', { wish: 20 })).toEqual(granted(canvas10))
+    expect(wishing(canvas10, 'nothing.at.all', { wish: 40 })).toEqual(granted(canvas10))
   })
 })
 
@@ -282,82 +282,82 @@ describe('what a wish is granted', () => {
  * the affected module doesn't 'get back its height' so to speak."
  */
 describe('the height a fold gave away', () => {
-  /* A over B, sharing a column, full: A asked for ten and B for eighteen. */
-  const rest = [box('a', 0, 0, 6, 10), box('b', 0, 10, 6, 18)]
+  /* A over B, sharing a column, full: A asked for twenty and B for thirty-six. */
+  const rest = [box('a', 0, 0, 6, 20), box('b', 0, 20, 6, 36)]
 
   test('B is squeezed to make room for A, and A folding gives it back', () => {
-    /* A grows to twenty. B has to make room: eighteen becomes eight. */
-    const grown = drawn(rest, wishing(rest, 'a', { wish: 20 })).map((one) =>
-      one.i === 'a' ? { ...one, wish: 20 } : one,
+    /* A grows to forty. B has to make room: thirty-six becomes sixteen. */
+    const grown = drawn(rest, wishing(rest, 'a', { wish: 40 })).map((one) =>
+      one.i === 'a' ? { ...one, wish: 40 } : one,
     )
-    expect(find(grown, 'a')).toMatchObject({ h: 20, wish: 20 })
-    expect(find(grown, 'b')).toMatchObject({ h: 8, wish: 18 })
+    expect(find(grown, 'a')).toMatchObject({ h: 40, wish: 40 })
+    expect(find(grown, 'b')).toMatchObject({ h: 16, wish: 36 })
 
     /* A folds. Its wish is untouched — folding is a state — and B, whose wish
-       never changed, is back at eighteen because the column has room. */
+       never changed, is back at thirty-six because the column has room. */
     const heights = wishing(grown, 'a', { collapsed: true })
     expect(heights.get('a')).toBe(FOLDED_ROWS)
-    expect(heights.get('b')).toBe(18)
+    expect(heights.get('b')).toBe(36)
   })
 
   test('and A unfolding takes it again, exactly as before', () => {
-    const grown = drawn(rest, wishing(rest, 'a', { wish: 20 })).map((one) =>
-      one.i === 'a' ? { ...one, wish: 20 } : one,
+    const grown = drawn(rest, wishing(rest, 'a', { wish: 40 })).map((one) =>
+      one.i === 'a' ? { ...one, wish: 40 } : one,
     )
     const shut = drawn(
       grown.map((one) => (one.i === 'a' ? { ...one, collapsed: true } : one)),
       wishing(grown, 'a', { collapsed: true }),
     )
     const heights = wishing(shut, 'a', { collapsed: false })
-    expect(heights.get('a')).toBe(20)
-    expect(heights.get('b')).toBe(8)
+    expect(heights.get('a')).toBe(40)
+    expect(heights.get('b')).toBe(16)
   })
 
   /* Unfolding is growth, and growth is bought from the column. A column that
      filled up while the container was folded gives back less than was asked,
      and the canvas still fits. Explicit rows and floor, so the arithmetic is
-     readable: a canvas of twelve with a floor of three, `b` at eleven can only
-     make room down to three, so `a` asking for twelve gets nine. */
+     readable: a canvas of twenty-four with a floor of six, `b` at twenty-two can
+     only make room down to six, so `a` asking for twenty-four gets eighteen. */
   test('a column that filled up in the meantime gives back less than was asked', () => {
-    const boxes = [folded('a', 0, 0, 6, 12), box('b', 0, 1, 6, 11)]
-    const heights = wishing(boxes, 'a', { collapsed: false }, 12, 3)
-    expect(heights.get('a')).toBe(9)
-    expect(heights.get('b')).toBe(3)
+    const boxes = [folded('a', 0, 0, 6, 24), box('b', 0, 2, 6, 22)]
+    const heights = wishing(boxes, 'a', { collapsed: false }, 24, 6)
+    expect(heights.get('a')).toBe(18)
+    expect(heights.get('b')).toBe(6)
   })
 
   /* And a column with nothing left to give hands back nothing, rather than
      taking rows that do not exist. The floor is a limit on what others may
      take from a container, not a claim on rows the column does not have: `a`
-     comes back one row tall and open, and the canvas does not overflow. */
+     comes back at a folded height and open, and the canvas does not overflow. */
   test('a column at its floor gives back nothing', () => {
     const boxes = [
-      folded('a', 0, 0, 6, 9),
-      box('b', 0, 1, 6, 3),
-      box('c', 0, 4, 6, 3),
-      box('d', 0, 7, 6, 3),
-      box('e', 0, 10, 6, 2),
+      folded('a', 0, 0, 6, 18),
+      box('b', 0, 2, 6, 6),
+      box('c', 0, 8, 6, 6),
+      box('d', 0, 14, 6, 6),
+      box('e', 0, 20, 6, 4),
     ]
-    expect(wishing(boxes, 'a', { collapsed: false }, 12, 3).get('a')).toBe(FOLDED_ROWS)
+    expect(wishing(boxes, 'a', { collapsed: false }, 24, 6).get('a')).toBe(FOLDED_ROWS)
   })
 
   /* Unfolding and dragging to the same height must end in the same
      arrangement, or the two controls disagree about what a column can hold. */
   test('unfolding agrees with dragging to the same height', () => {
-    const shut = [folded('a', 0, 0, 6, 11), box('b', 0, 1, 6, 18)]
-    const open = [box('a', 0, 0, 6, 1), box('b', 0, 1, 6, 18)]
-    expect([...wishing(shut, 'a', { collapsed: false })]).toEqual([...wishing(open, 'a', { wish: 11 })])
+    const shut = [folded('a', 0, 0, 6, 22), box('b', 0, 2, 6, 36)]
+    const open = [box('a', 0, 0, 6, 2), box('b', 0, 2, 6, 36)]
+    expect([...wishing(shut, 'a', { collapsed: false })]).toEqual([...wishing(open, 'a', { wish: 22 })])
   })
 
   /* Both folded, both unfolded: the arrangement they built comes back. */
   test('fold both, unfold both, and it is the arrangement they built', () => {
-    const grown = drawn(rest, wishing(rest, 'a', { wish: 20 })).map((one) =>
-      one.i === 'a' ? { ...one, wish: 20 } : one,
+    const grown = drawn(rest, wishing(rest, 'a', { wish: 40 })).map((one) =>
+      one.i === 'a' ? { ...one, wish: 40 } : one,
     )
     const shut = grown.map((one) => ({ ...one, collapsed: true, h: FOLDED_ROWS }))
     expect([...granted(shut).values()]).toEqual([FOLDED_ROWS, FOLDED_ROWS])
     const open = shut.map((one) => ({ ...one, collapsed: false }))
-    expect(granted(open).get('a')).toBe(20)
-    expect(granted(open).get('b')).toBe(8)
+    expect(granted(open).get('a')).toBe(40)
+    expect(granted(open).get('b')).toBe(16)
   })
 })
 
@@ -366,7 +366,7 @@ describe('the height a fold gave away', () => {
  * make against the two real canvases, and a column that cannot grant them all.
  */
 describe('whatever is wished, the canvas holds', () => {
-  const wishes = [1, 2, 3, 5, 9, 14, 20, 27, CANVAS_ROWS, CANVAS_ROWS + 10]
+  const wishes = [1, 2, 3, 6, 10, 18, 28, 40, 54, CANVAS_ROWS, CANVAS_ROWS + 10]
 
   /* The property that was actually broken, twice: unfolding could push the
      arrangement past its rows, and the fix for that lost track of what a
@@ -408,17 +408,17 @@ describe('whatever is wished, the canvas holds', () => {
     }
   })
 
-  /* And a column nobody can fit. Nothing can make ten floors of three fit in
-     twelve rows; what is decided is that the CANVAS holds — the rows run out
-     from the top down, a row each, until the rest fit — rather than the
+  /* And a column nobody can fit. Nothing can make ten floors of six fit in
+     twenty-four rows; what is decided is that the CANVAS holds — the rows run out
+     from the top down, a folded height each, until the rest fit — rather than the
      bottom of the column being pushed off it. */
   test('a column whose floors alone do not fit still stays on the canvas', () => {
-    const boxes = Array.from({ length: 10 }, (_, n) => box(`c${n}`, 0, n * 3, 6, 3))
-    const heights = granted(boxes, 12, 3)
-    const placed = tops(boxes, 12, 3)
-    for (const one of boxes) expect(placed.get(one.i)! + heights.get(one.i)!).toBeLessThanOrEqual(12)
-    expect(heights.get('c9')).toBe(3)
-    expect(heights.get('c0')).toBe(1)
+    const boxes = Array.from({ length: 10 }, (_, n) => box(`c${n}`, 0, n * 6, 6, 6))
+    const heights = granted(boxes, 24, 6)
+    const placed = tops(boxes, 24, 6)
+    for (const one of boxes) expect(placed.get(one.i)! + heights.get(one.i)!).toBeLessThanOrEqual(24)
+    expect(heights.get('c9')).toBe(6)
+    expect(heights.get('c0')).toBe(FOLDED_ROWS)
   })
 })
 
@@ -438,12 +438,12 @@ describe('how tall a container is allowed to become', () => {
   })
 
   test('a container whose column has nothing spare may not grow at all', () => {
-    expect(mostFor(canvas10, 'paper')).toBe(28)
-    expect(mostFor(canvas10, 'terminal')).toBe(10)
+    expect(mostFor(canvas10, 'paper')).toBe(56)
+    expect(mostFor(canvas10, 'terminal')).toBe(20)
   })
 
   test('and one with free space below it may grow into it', () => {
-    expect(mostFor(canvas10, 'checklist')).toBe(26)
+    expect(mostFor(canvas10, 'checklist')).toBe(52)
   })
 
   /* Never smaller than what is drawn. A `maxH` below an item's own `h` is a
@@ -475,21 +475,22 @@ describe('how tall a container is allowed to become', () => {
  * view (like it obviously should)."
  */
 describe('a hand on the corner', () => {
-  const open = { h: 14, wish: 14, collapsed: false }
-  const shut = { h: FOLDED_ROWS, wish: 14, collapsed: true }
+  const open = { h: 28, wish: 28, collapsed: false }
+  const shut = { h: FOLDED_ROWS, wish: 28, collapsed: true }
 
-  test('dragged to one row is a fold, and remembers what to come back to', () => {
-    expect(dragged(open, 1)).toEqual({ wish: 14, collapsed: true })
+  test('dragged to the folded height or one row is a fold, and remembers what to come back to', () => {
+    expect(dragged(open, FOLDED_ROWS)).toEqual({ wish: 28, collapsed: true })
+    expect(dragged(open, 1)).toEqual({ wish: 28, collapsed: true })
   })
 
   /* The grid does not go below one row, but a rounded measurement can, and a
      zero is a fold rather than a request for nothing. */
   test('dragged to less than one row is a fold too', () => {
-    expect(dragged(open, 0)).toEqual({ wish: 14, collapsed: true })
+    expect(dragged(open, 0)).toEqual({ wish: 28, collapsed: true })
   })
 
   test('and dragged back out of the fold opens it, at the height it was dragged to', () => {
-    expect(dragged(shut, 6)).toEqual({ wish: 6, collapsed: false })
+    expect(dragged(shut, 12)).toEqual({ wish: 12, collapsed: false })
   })
 
   /* Nobody drags precisely; the smallest movement that changes the height is
@@ -499,43 +500,43 @@ describe('a hand on the corner', () => {
   })
 
   test('dragged taller while open is simply a new wish', () => {
-    expect(dragged(open, 20)).toEqual({ wish: 20, collapsed: false })
+    expect(dragged(open, 40)).toEqual({ wish: 40, collapsed: false })
   })
 
   /* This is the common case, not an edge: react-grid-layout reports the whole
      layout on every gesture, and a corner pressed and let go without moving is
      not a choice. Neither writes the wish. */
   test('a drag that ends where it started says nothing', () => {
-    expect(dragged(open, 14)).toEqual({ wish: 14, collapsed: false })
-    expect(dragged(shut, FOLDED_ROWS)).toEqual({ wish: 14, collapsed: true })
+    expect(dragged(open, 28)).toEqual({ wish: 28, collapsed: false })
+    expect(dragged(shut, FOLDED_ROWS)).toEqual({ wish: 28, collapsed: true })
   })
 
-  /* The invariant. A container drawn at eight because a neighbour took its
-     rows still wishes for eighteen, and releasing its corner at eight must not
+  /* The invariant. A container drawn at sixteen because a neighbour took its
+     rows still wishes for thirty-six, and releasing its corner at sixteen must not
      turn the squeeze into a choice. */
   test('a squeezed container released at its drawn height keeps its wish', () => {
-    expect(dragged({ h: 8, wish: 18, collapsed: false }, 8)).toEqual({ wish: 18, collapsed: false })
+    expect(dragged({ h: 16, wish: 36, collapsed: false }, 16)).toEqual({ wish: 36, collapsed: false })
   })
 
   /* The whole first report, as arithmetic: drag A to one row, and B — which
      was making room for it — gets its height back; drag A back out, and B
      makes room again, subject to the budget. */
   test('dragging A to one row folds it and gives B its height back, and dragging out takes it again', () => {
-    const at = [box('a', 0, 0, 6, 10), box('b', 0, 10, 6, 18)]
-    const rest = drawn(at, wishing(at, 'a', { wish: 20 })).map((one) =>
-      one.i === 'a' ? { ...one, wish: 20 } : one,
+    const at = [box('a', 0, 0, 6, 20), box('b', 0, 20, 6, 36)]
+    const rest = drawn(at, wishing(at, 'a', { wish: 40 })).map((one) =>
+      one.i === 'a' ? { ...one, wish: 40 } : one,
     )
-    const toOne = dragged(find(rest, 'a'), 1)
-    expect(toOne).toEqual({ wish: 20, collapsed: true })
+    const toOne = dragged(find(rest, 'a'), FOLDED_ROWS)
+    expect(toOne).toEqual({ wish: 40, collapsed: true })
     const shutHeights = wishing(rest, 'a', toOne)
     expect(shutHeights.get('a')).toBe(FOLDED_ROWS)
-    expect(shutHeights.get('b')).toBe(18)
+    expect(shutHeights.get('b')).toBe(36)
 
     const shut = drawn(rest, shutHeights).map((one) => (one.i === 'a' ? { ...one, ...toOne } : one))
-    const back = dragged(find(shut, 'a'), 20)
-    expect(back).toEqual({ wish: 20, collapsed: false })
+    const back = dragged(find(shut, 'a'), 40)
+    expect(back).toEqual({ wish: 40, collapsed: false })
     const openHeights = wishing(shut, 'a', back)
-    expect(openHeights.get('a')).toBe(20)
-    expect(openHeights.get('b')).toBe(8)
+    expect(openHeights.get('a')).toBe(40)
+    expect(openHeights.get('b')).toBe(16)
   })
 })

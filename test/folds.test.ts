@@ -5,6 +5,7 @@ import { foldResult } from 'kehikot-module-protocol'
 import { makeAsk, type CanvasControls } from '../src/host/ask.ts'
 import { ANSWERED_BY_THE_VIEW, unanswered } from '../src/host/division.ts'
 import { asked, foldHint, foldNoteIn, noted, reread, signedBy, standing } from '../src/host/folds.ts'
+import { FOLDED_ROWS } from '../src/host/columns.ts'
 import { Writer } from '../src/host/writer.ts'
 
 /*
@@ -145,15 +146,15 @@ describe('the page reads again only after its own writes have landed', () => {
 })
 
 describe('a re-read after a wake, when the person’s own hand crossed it', () => {
-  const box = (i: string, y: number, collapsed = false) => ({ i, x: 0, y, w: 6, h: collapsed ? 1 : 8, wish: 8, collapsed })
+  const box = (i: string, y: number, collapsed = false) => ({ i, x: 0, y, w: 6, h: collapsed ? FOLDED_ROWS : 16, wish: 16, collapsed })
   const canvas = (id: number, placements: ReturnType<typeof box>[]) => ({ id, placements })
   const note = { by: 'an agent', fold: ['a.one'], unfold: [] }
   const state = (c: { placements: { i: string; collapsed: boolean }[] }) =>
     Object.fromEntries(c.placements.map((p) => [p.i, p.collapsed]))
 
   test('with nothing of theirs in the way, what was read is what is shown and nothing is written', () => {
-    const was = [canvas(1, [box('a.one', 0), box('a.two', 8)])]
-    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 8)])]
+    const was = [canvas(1, [box('a.one', 0), box('a.two', 16)])]
+    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 16)])]
     const next = reread(was, found, new Set(), { kehikko: 1, note, saved: false })
     expect(next.canvases).toEqual(found)
     expect(next.write).toBeNull()
@@ -161,8 +162,8 @@ describe('a re-read after a wake, when the person’s own hand crossed it', () =
 
   test('a press made while the read was out stands, and the door’s fold is put onto it', () => {
     /* The person folded a.two; the read, made before that was saved, has the agent's a.one. */
-    const was = [canvas(1, [box('a.one', 0), box('a.two', 8, true)])]
-    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 8)])]
+    const was = [canvas(1, [box('a.one', 0), box('a.two', 16, true)])]
+    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 16)])]
     const next = reread(was, found, new Set([1]), { kehikko: 1, note, saved: false })
     expect(state(next.canvases[0]!)).toEqual({ 'a.one': true, 'a.two': true })
     expect(next.write?.kehikko).toBe(1)
@@ -171,22 +172,22 @@ describe('a re-read after a wake, when the person’s own hand crossed it', () =
 
   test('an unsaved change sent ahead of the read took the fold with it, and it is put back', () => {
     /* Their arrangement was saved over the door's, so the read is theirs: a.two folded, a.one not. */
-    const found = [canvas(1, [box('a.one', 0), box('a.two', 8, true)])]
+    const found = [canvas(1, [box('a.one', 0), box('a.two', 16, true)])]
     const next = reread(found, found, new Set(), { kehikko: 1, note, saved: true })
     expect(state(next.canvases[0]!)).toEqual({ 'a.one': true, 'a.two': true })
     expect(next.write).not.toBeNull()
   })
 
   test('a drag of theirs is kept whole: only the fold is added', () => {
-    const was = [canvas(1, [{ ...box('a.one', 0), x: 6, w: 4 }, box('a.two', 8)])]
-    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 8)])]
+    const was = [canvas(1, [{ ...box('a.one', 0), x: 6, w: 4 }, box('a.two', 16)])]
+    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 16)])]
     const next = reread(was, found, new Set([1]), { kehikko: 1, note, saved: false })
-    expect(next.canvases[0]!.placements[0]).toMatchObject({ i: 'a.one', x: 6, w: 4, wish: 8, collapsed: true })
+    expect(next.canvases[0]!.placements[0]).toMatchObject({ i: 'a.one', x: 6, w: 4, wish: 16, collapsed: true })
   })
 
   test('a container they took off meanwhile is not brought back', () => {
     const was = [canvas(1, [box('a.two', 0)])]
-    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 8)])]
+    const found = [canvas(1, [box('a.one', 0, true), box('a.two', 16)])]
     const next = reread(was, found, new Set([1]), { kehikko: 1, note, saved: false })
     expect(next.canvases[0]!.placements.map((p) => p.i)).toEqual(['a.two'])
     expect(next.write).toBeNull()
@@ -209,11 +210,11 @@ describe('a re-read after a wake, when the person’s own hand crossed it', () =
  * by `asked`, answered through `makeAsk`.
  */
 describe('a module asks the host to fold or unfold', () => {
-  const box = (i: string, y: number, collapsed = false) => ({ i, x: 0, y, w: 4, h: collapsed ? 1 : 8, wish: 8, collapsed })
+  const box = (i: string, y: number, collapsed = false) => ({ i, x: 0, y, w: 4, h: collapsed ? FOLDED_ROWS : 16, wish: 16, collapsed })
   const SLIDES = 'kehikot.slides'
   const PAPER = 'kehikot.paper'
   const NOTES = 'kehikot.notes'
-  const here = [box(SLIDES, 0), box(PAPER, 8), box(NOTES, 16, true)]
+  const here = [box(SLIDES, 0), box(PAPER, 16), box(NOTES, 32, true)]
 
   test('it folds and unfolds what was named, and says exactly what it changed', () => {
     const out = asked(here, SLIDES, { fold: [PAPER], unfold: [NOTES] }, null)

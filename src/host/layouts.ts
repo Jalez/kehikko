@@ -2,6 +2,7 @@ import { LIMITS, MODULE_ID, REFRESH_EVERY_MAX } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import { COLUMNS, type Placement } from './canvases.ts'
+import { finer } from './fit.ts'
 
 /**
  * Suggested layouts: a kehikko to start from instead of an empty one.
@@ -60,7 +61,8 @@ export interface Layout {
 }
 
 /**
- * Ours. The first five are the five ways of working the introduction names —
+ * Ours, in the rows a canvas has now — fifty-six (`fit.ts`). The first five
+ * are the five ways of working the introduction names —
  * Design, Research, Development, Review, Learning — in that order; then the
  * rest. "Development" was "Build software" (same modules): one layout for the
  * one way of working, not two names for it.
@@ -72,11 +74,11 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Design',
     summary: 'The thing you are shaping, live in a browser, with your notes, its issues and Claude beside it.',
     containers: [
-      { module: 'kehikot.browser', x: 0, y: 0, w: 7, h: 18 },
-      { module: 'kehikot.flows', x: 0, y: 18, w: 7, h: 10, optional: true },
-      { module: 'kehikot.claude', x: 7, y: 0, w: 5, h: 14 },
-      { module: 'kehikot.notes', x: 7, y: 14, w: 5, h: 7 },
-      { module: 'kehikot.references', x: 7, y: 21, w: 5, h: 7 },
+      { module: 'kehikot.browser', x: 0, y: 0, w: 7, h: 36 },
+      { module: 'kehikot.flows', x: 0, y: 36, w: 7, h: 20, optional: true },
+      { module: 'kehikot.claude', x: 7, y: 0, w: 5, h: 28 },
+      { module: 'kehikot.notes', x: 7, y: 28, w: 5, h: 14 },
+      { module: 'kehikot.references', x: 7, y: 42, w: 5, h: 14 },
     ],
   },
   {
@@ -85,12 +87,12 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Research',
     summary: 'Read and write with your sources at hand: the paper, what it cites, your notes, the web and Claude.',
     containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 28 },
-      { module: 'kehikot.browser', x: 5, y: 0, w: 4, h: 16 },
-      { module: 'kehikot.notes', x: 5, y: 16, w: 4, h: 12 },
-      { module: 'kehikot.citations', x: 9, y: 0, w: 3, h: 9 },
-      { module: 'kehikot.references', x: 9, y: 9, w: 3, h: 9 },
-      { module: 'kehikot.claude', x: 9, y: 18, w: 3, h: 10 },
+      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
+      { module: 'kehikot.browser', x: 5, y: 0, w: 4, h: 32 },
+      { module: 'kehikot.notes', x: 5, y: 32, w: 4, h: 24 },
+      { module: 'kehikot.citations', x: 9, y: 0, w: 3, h: 18 },
+      { module: 'kehikot.references', x: 9, y: 18, w: 3, h: 18 },
+      { module: 'kehikot.claude', x: 9, y: 36, w: 3, h: 20 },
     ],
   },
   {
@@ -99,12 +101,12 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Development',
     summary: 'Plan the work, build it with Claude, and review and ship the changes.',
     containers: [
-      { module: 'kehikot.journeys', x: 0, y: 0, w: 4, h: 10 },
-      { module: 'kehikot.references', x: 0, y: 10, w: 4, h: 9 },
-      { module: 'kehikot.checklist', x: 0, y: 19, w: 4, h: 9 },
-      { module: 'kehikot.claude', x: 4, y: 0, w: 5, h: 28 },
-      { module: 'kehikot.review', x: 9, y: 0, w: 3, h: 14 },
-      { module: 'kehikot.factory', x: 9, y: 14, w: 3, h: 14 },
+      { module: 'kehikot.journeys', x: 0, y: 0, w: 4, h: 20 },
+      { module: 'kehikot.references', x: 0, y: 20, w: 4, h: 18 },
+      { module: 'kehikot.checklist', x: 0, y: 38, w: 4, h: 18 },
+      { module: 'kehikot.claude', x: 4, y: 0, w: 5, h: 56 },
+      { module: 'kehikot.review', x: 9, y: 0, w: 3, h: 28 },
+      { module: 'kehikot.factory', x: 9, y: 28, w: 3, h: 28 },
     ],
   },
   {
@@ -113,12 +115,12 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Review',
     summary: 'Go through a change line by line, hold it to its checklist, and try it in a real browser.',
     containers: [
-      { module: 'kehikot.references', x: 0, y: 0, w: 3, h: 14 },
-      { module: 'kehikot.checklist', x: 0, y: 14, w: 3, h: 14 },
-      { module: 'kehikot.diff', x: 3, y: 0, w: 5, h: 16 },
-      { module: 'kehikot.review', x: 3, y: 16, w: 5, h: 12 },
-      { module: 'kehikot.browser', x: 8, y: 0, w: 4, h: 16 },
-      { module: 'kehikot.claude', x: 8, y: 16, w: 4, h: 12 },
+      { module: 'kehikot.references', x: 0, y: 0, w: 3, h: 28 },
+      { module: 'kehikot.checklist', x: 0, y: 28, w: 3, h: 28 },
+      { module: 'kehikot.diff', x: 3, y: 0, w: 5, h: 32 },
+      { module: 'kehikot.review', x: 3, y: 32, w: 5, h: 24 },
+      { module: 'kehikot.browser', x: 8, y: 0, w: 4, h: 32 },
+      { module: 'kehikot.claude', x: 8, y: 32, w: 4, h: 24 },
     ],
   },
   {
@@ -127,11 +129,11 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Learning',
     summary: 'Read a paper with questions on what you read, your notes and slides, and Claude to explain.',
     containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 28 },
-      { module: 'kehikot.learning', x: 5, y: 0, w: 4, h: 15 },
-      { module: 'kehikot.notes', x: 5, y: 15, w: 4, h: 13 },
-      { module: 'kehikot.slides', x: 9, y: 0, w: 3, h: 12 },
-      { module: 'kehikot.claude', x: 9, y: 12, w: 3, h: 16 },
+      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
+      { module: 'kehikot.learning', x: 5, y: 0, w: 4, h: 30 },
+      { module: 'kehikot.notes', x: 5, y: 30, w: 4, h: 26 },
+      { module: 'kehikot.slides', x: 9, y: 0, w: 3, h: 24 },
+      { module: 'kehikot.claude', x: 9, y: 24, w: 3, h: 32 },
     ],
   },
   {
@@ -140,11 +142,11 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Write a paper',
     summary: 'The paper as prose, what it cites, and the work it reports on.',
     containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 6, h: 28 },
-      { module: 'kehikot.citations', x: 6, y: 0, w: 3, h: 14 },
-      { module: 'kehikot.references', x: 6, y: 14, w: 3, h: 14 },
-      { module: 'kehikot.claude', x: 9, y: 0, w: 3, h: 18 },
-      { module: 'kehikot.journeys', x: 9, y: 18, w: 3, h: 10 },
+      { module: 'kehikot.paper', x: 0, y: 0, w: 6, h: 56 },
+      { module: 'kehikot.citations', x: 6, y: 0, w: 3, h: 28 },
+      { module: 'kehikot.references', x: 6, y: 28, w: 3, h: 28 },
+      { module: 'kehikot.claude', x: 9, y: 0, w: 3, h: 36 },
+      { module: 'kehikot.journeys', x: 9, y: 36, w: 3, h: 20 },
     ],
   },
   {
@@ -153,10 +155,10 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Plan an epic',
     summary: 'What has to become true, the issues behind it, and what is left to check.',
     containers: [
-      { module: 'kehikot.journeys', x: 0, y: 0, w: 6, h: 28 },
-      { module: 'kehikot.flows', x: 6, y: 0, w: 6, h: 12, optional: true },
-      { module: 'kehikot.references', x: 6, y: 12, w: 6, h: 8 },
-      { module: 'kehikot.checklist', x: 6, y: 20, w: 6, h: 8 },
+      { module: 'kehikot.journeys', x: 0, y: 0, w: 6, h: 56 },
+      { module: 'kehikot.flows', x: 6, y: 0, w: 6, h: 24, optional: true },
+      { module: 'kehikot.references', x: 6, y: 24, w: 6, h: 16 },
+      { module: 'kehikot.checklist', x: 6, y: 40, w: 6, h: 16 },
     ],
   },
   {
@@ -165,8 +167,8 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     name: 'Start simple',
     summary: 'Claude beside the project’s issues and pull requests. Add more as you need them.',
     containers: [
-      { module: 'kehikot.claude', x: 0, y: 0, w: 7, h: 28 },
-      { module: 'kehikot.references', x: 7, y: 0, w: 5, h: 28 },
+      { module: 'kehikot.claude', x: 0, y: 0, w: 7, h: 56 },
+      { module: 'kehikot.references', x: 7, y: 0, w: 5, h: 56 },
     ],
   },
 ]
@@ -199,14 +201,35 @@ export const layoutContainerSchema = z.object({
   refreshEvery: z.number().max(REFRESH_EVERY_MAX).nullable().optional(),
 })
 
+/**
+ * The version a layout file is written as. 2 is 1 counted in the rows a canvas
+ * has now: a version 1 file's `y` and `h` are in the old twenty-eight rows, and
+ * are doubled as it is read (`layoutFromFile`) — the same move, for the same
+ * reason, as a `kehikot.json` without `rows` (`server/kehikot.ts`). A host from
+ * before reads a version 2 file as "not a layout" and leaves it off its shelf,
+ * which is better than offering it at twice its height; it never writes a
+ * layout file it did not make, so nothing is lost.
+ */
+export const LAYOUT_VERSION = 2
+
 /** A layout as it is kept in a file, on the project's shelf or the person's. */
 export const layoutFileSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(LAYOUT_VERSION)]),
   name: z.string().trim().min(1).max(NAME_MAX),
   summary: z.string().max(SUMMARY_MAX).default(''),
   containers: z.array(layoutContainerSchema).min(1).max(64),
 })
 export type LayoutFile = z.infer<typeof layoutFileSchema>
+
+/** A layout file as read, in the rows a canvas has now, whichever version wrote it. */
+export function layoutFromFile(file: LayoutFile): LayoutFile {
+  if (file.version === LAYOUT_VERSION) return file
+  return {
+    ...file,
+    version: LAYOUT_VERSION,
+    containers: file.containers.map((c) => ({ ...c, y: finer(c.y), h: finer(c.h) })),
+  }
+}
 
 /**
  * The file's slug for a layout's name: lowercase words joined by dashes, or
@@ -231,7 +254,7 @@ export function slugFor(name: string): string | null {
 export function layoutText(file: LayoutFile): string {
   const lines = [
     '{',
-    '  "version": 1,',
+    `  "version": ${LAYOUT_VERSION},`,
     `  "name": ${JSON.stringify(file.name)},`,
     `  "summary": ${JSON.stringify(file.summary)},`,
     '  "containers": [',

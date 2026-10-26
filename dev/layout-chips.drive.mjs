@@ -29,7 +29,7 @@ const pw = await import('playwright-core')
 const failures = []
 const say = (line) => console.log(line)
 
-const container = (module, i) => ({ module, x: (i % 4) * 3, y: Math.floor(i / 4) * 7, w: 3, h: 7 })
+const container = (module, i) => ({ module, x: (i % 4) * 3, y: Math.floor(i / 4) * 14, w: 3, h: 14 })
 const MANY = Array.from({ length: 14 }, (_, i) => `kehikot.module-${i + 1}`)
 const LONG = [
   'kehikot.the-very-long-named-module-that-keeps-going',

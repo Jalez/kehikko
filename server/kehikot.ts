@@ -24,6 +24,7 @@ import { makeUnderRoot, projectRootExists, sayMissing } from './projectRoot.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 import { hostPath } from './hostData.ts'
 import { laid, redrawn } from '../src/host/columns.ts'
+import { CANVAS_ROWS, ROWS_BEFORE } from '../src/host/fit.ts'
 import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView, type View } from './view.ts'
 
 /**
@@ -189,6 +190,31 @@ import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView
  * every kehikko, which is how switching kehikko used to switch the epic; a
  * version-1 file still reads, and is written back as version 2 straight away.
  *
+ * ## And the rows it counts in, said at the top
+ *
+ * `"rows": 56`, beside the version. A canvas was twenty-eight rows tall and is
+ * fifty-six (`fit.ts`), and a file's `y`, `h` and `wish` are counts of rows, so
+ * a file has to say which rows. Absent — every file written before — means
+ * twenty-eight, and such a file is read doubled (`inRows`), which draws every
+ * container exactly where it drew. It is NOT written back on the read —
+ * opening a project makes no diff in it — but in fifty-sixths, saying so, on
+ * the first change anybody makes, like the legacy personal fields below.
+ *
+ * This is the one addition here that an older host cannot read, and that is
+ * the point of it. A host from before the finer rows reading fifty-sixths as
+ * twenty-eighths would draw every container twice as tall, clipped at the
+ * bottom, and write what it drew over the file on its next drag — a teammate's
+ * layout destroyed by opening it. Its schema is strict, so it refuses the file
+ * instead, with its own sentence ("the top level has a field this host does
+ * not know (rows) — is the file from a newer Kehikot?"), keeps working from its
+ * own database, and never writes the file until it reads again (see "When it
+ * will not read"); updating it is the fix. A field rather than version 3
+ * because that sentence is the right one, where a version would be refused as
+ * "Invalid literal value, expected 2" — and because the next change to the
+ * count is a different number here, not another shape. A file in more rows
+ * than this host has, which only a newer host could write, is refused with a
+ * sentence that says so (`parse`).
+ *
  * Until the split into `view.json`, version 2 also carried the project's
  * `epic`, `scope`, `parts` and `selection` at the top and `collapsed`,
  * `selected` and `filters` on every container. They are no longer written —
@@ -221,6 +247,33 @@ const FILE_NAME = 'kehikot'
 
 /** What is written at the top of the file, so a reader — or a later version — knows which shape this is. */
 const VERSION = 2
+
+/**
+ * A file's kehikko in the rows a canvas has now. Exact, because `rows` is
+ * held to a divisor of `CANVAS_ROWS` by the schema; only the vertical numbers,
+ * since columns did not change.
+ */
+function inRows<K extends { containers: FileContainer[] }>(kehikko: K, rows: number): K {
+  if (rows === CANVAS_ROWS) return kehikko
+  const by = CANVAS_ROWS / rows
+  return {
+    ...kehikko,
+    containers: kehikko.containers.map((c) => ({
+      ...c,
+      y: c.y * by,
+      h: c.h * by,
+      wish: c.wish === null ? null : c.wish * by,
+      ...(c.openH === undefined || c.openH === null ? {} : { openH: c.openH * by }),
+    })),
+  }
+}
+
+/* What `rows` may say: a count this host can draw exactly — the old one, or its own. */
+const rowsSchema = z
+  .number()
+  .int()
+  .refine((rows) => rows === ROWS_BEFORE || rows === CANVAS_ROWS, `is not ${ROWS_BEFORE} or ${CANVAS_ROWS}, the rows a canvas has been`)
+  .optional()
 
 /**
  * Every field of a placement that goes in the shared file — the layout.
@@ -419,6 +472,8 @@ function keysOnce(file: { kehikot: { key: string }[] }, ctx: z.RefinementCtx): v
 const fileSchema = z
   .object({
     version: z.literal(VERSION),
+    /* The rows the containers are counted in; absent is the old 28. */
+    rows: rowsSchema,
     /* The four legacy personal fields — read, never written. See "The shape
        of the file". Absent is "this file says nothing about it". */
     epic: epicSchema.optional(),
@@ -536,7 +591,7 @@ const NO_SUBJECT: Subject = { epic: null, parts: [], selection: [] }
  * is JSON and nothing here escapes a string by hand.
  */
 export function serialize(canvases: readonly Canvas[]): string {
-  const lines: string[] = ['{', `  "version": ${VERSION},`, '  "kehikot": [']
+  const lines: string[] = ['{', `  "version": ${VERSION},`, `  "rows": ${CANVAS_ROWS},`, '  "kehikot": [']
   canvases.forEach((canvas, index) => {
     const containers = shared(canvas.placements).map(toContainer)
     lines.push('    {')
@@ -645,7 +700,8 @@ export function parse(text: string): Parsed {
       const kehikot = old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko)
       return {
         ok: true,
-        kehikot: kehikot.map(layoutOf),
+        /* Version 1 is from before the finer rows: twenty-eighths. */
+        kehikot: kehikot.map(layoutOf).map((k) => inRows(k, ROWS_BEFORE)),
         legacy: {
           /* Version 1 is from before parts: the whole epic. */
           subject: first ? { epic: first.epic, parts: [], selection: first.selection } : NO_SUBJECT,
@@ -656,12 +712,23 @@ export function parse(text: string): Parsed {
     }
     return { ok: false, why: said(old.error) }
   }
+  /* In rows finer than this host's, which only a newer host writes: refused
+     in words, since the schema's own sentence would be about a number. */
+  const rows = (raw as { rows?: unknown } | null)?.rows
+  if (typeof rows === 'number' && Number.isInteger(rows) && rows > CANVAS_ROWS) {
+    return {
+      ok: false,
+      why: `its containers are counted in ${rows} rows, which a newer Kehikot writes; this one has ${CANVAS_ROWS}, so update it to open this file`,
+    }
+  }
 
   const read = fileSchema.safeParse(raw)
   if (read.success) {
+    /* Absent is every file written before the finer rows: twenty-eighths. */
+    const counted = read.data.rows ?? ROWS_BEFORE
     return {
       ok: true,
-      kehikot: read.data.kehikot.map(layoutOf),
+      kehikot: read.data.kehikot.map(layoutOf).map((k) => inRows(k, counted)),
       legacy: carriesPersonal(read.data)
         ? { subject: subjectFrom(read.data), kehikot: containersFrom(read.data.kehikot) }
         : null,

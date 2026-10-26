@@ -135,6 +135,16 @@ brings an older layout there when it starts, adopts or adds a project
 (`server/hostData.ts`): a legacy `<project>/data/epics` or `data/state` is moved.
 It never overwrites, and leaves both and logs both paths if both exist.
 
+**A kehikko is twelve columns by fifty-six rows** (`CANVAS_ROWS` in
+`src/host/fit.ts`), and the rows fill the canvas's height exactly at every
+window size. It was twenty-eight rows before. A `kehikot.json` says
+`"rows": 56` at its top and a layout file is version 2; a `kehikot.json`
+without `rows`, a layout file of version 1 and a database row without
+`placements.rows` count in twenty-eighths and are doubled as they are read,
+which draws every container where it drew. A host from before refuses a
+`kehikot.json` that says `rows` ("is the file from a newer Kehikot?"), and so
+never writes over it.
+
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a
 reason: the module registry and canvases cache under

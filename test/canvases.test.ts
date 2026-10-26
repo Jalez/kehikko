@@ -319,12 +319,14 @@ describe('a database written before a column existed still opens', () => {
     const after = open(file)
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 10, selected: false, filters: {}, refreshEvery: null, version: null })
+    /* Ten of the old twenty-eight rows is twenty of the fifty-six (`finerRows`). */
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null })
 
-    /* And opening it a second time is not an error. */
+    /* And opening it a second time is not an error, and moves nothing again. */
     after.close()
     const again = open(file)
     expect(listCanvases(again)[0]?.placements[0]?.grow).toBe(false)
+    expect(listCanvases(again)[0]?.placements[0]).toMatchObject({ h: 20, wish: 20 })
     again.close()
     rmSync(file, { force: true })
     rmSync(`${file}-wal`, { force: true })
