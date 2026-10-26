@@ -98,9 +98,12 @@ import { chosen, remembered, sameChoice, settle as settleFilters } from './host/
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
+import { useChime } from './canvas/useChime.ts'
+import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
-import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Scope } from './host/inbox.ts'
+import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
+import { placeOpened } from './host/activity.ts'
 import { fetchLog } from './host/inboxClient.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
@@ -3367,20 +3370,34 @@ export function App() {
      forwards. See `noticeFor`. */
   const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
+  const chime = useChime()
   const inbox = useInbox({
     project: projectId,
     projects: inboxProjects,
     alive: activityAlive,
     at: activityAt,
     nameOf: moduleName,
-    notify: (entry, project) => noticeRef.current(entry, project),
+    notify: (entry, project) => {
+      noticeRef.current(entry, project)
+      /* The same news, as a sound: `useInbox` has already left out what is on screen. */
+      const kind = kindOf(entry)
+      if (kind) chime.offer(kind, entry.module)
+    },
   })
   activityRef.current = inbox.receive
   inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
   legacyNoticeRef.current = (from, payload) => {
     const parsed = schemaFor('kehikot.notifications@1')?.safeParse(payload)
     if (!parsed?.success) return
-    inbox.notice(from, parsed.data as NoticeLine, kehikkoRef.current?.key)
+    const line = parsed.data as NoticeLine
+    const where = {
+      epic: line.place?.epic ?? line.epic,
+      ...(line.place?.parts?.length ? { parts: [...line.place.parts] } : {}),
+      kehikko: line.place?.kehikko ?? kehikkoRef.current?.key,
+    }
+    /* A line about a place that is open on screen is not chimed for, like an item. */
+    if (!placeOpened(where as Place, activityAt)) chime.offer(line.level === 'attention' ? 'attention' : 'notice', from)
+    inbox.notice(from, line, kehikkoRef.current?.key)
   }
   const activityNames = useMemo<Namer>(
     () => ({
@@ -4535,7 +4552,7 @@ export function App() {
           question while it is unanswered. Opened from the projects menu, a
           module's Tools or Skills window, and the sync's lines in the Inbox.
           Its Project section is the open project's own. */}
-      <AgentSettingsHost project={project} />
+      <AgentSettingsHost project={project} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id })) ?? []} />
 
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}

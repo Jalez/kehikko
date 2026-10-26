@@ -33,6 +33,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'github.ts: mkdirSync(dirname(deps.file), { recursive: true })': 'the GitHub answers cache, in the machine directory (githubCacheFile)',
   'githubAccount.ts: mkdirSync(dirname(deps.file), { recursive: true })': "what Kehikot spent of its share of the person's GitHub limit, in the machine directory (githubAccountFile)",
   'myModules.ts: mkdirSync(dirname(file), { recursive: true })': 'the My modules list, in the machine directory',
+  'chime.ts: mkdirSync(dir, { recursive: true })': "the person's own Inbox sounds, in the machine directory (soundsDir)",
   'layouts.ts: mkdirSync(dir, { recursive: true })': "the person's own layouts, in the machine directory (layoutsDir)",
   'server.ts: mkdirSync(registry, { recursive: true })': 'the module registry',
   'skills.ts: mkdirSync(root, { recursive: true })': "Claude Code's skills directory (~/.claude/skills)",
