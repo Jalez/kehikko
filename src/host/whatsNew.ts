@@ -115,6 +115,43 @@ export const editSchema = z.union([
 ])
 export type WhatsNewEdit = z.infer<typeof editSchema>
 
+/** The id a module has now: one spelled `roadmap.<name>` before the rename is `kehikot.<name>`. */
+export const idOf = (id: string): string => (id.startsWith('roadmap.') ? `kehikot.${id.slice('roadmap.'.length)}` : id)
+
+/** The later of two positions: a release over `main`, a newer release over an older one. */
+function later(a: Position, b: Position): Position {
+  if (a.release && b.release) return compareReleases(b.release, a.release) > 0 ? b : a
+  return a.release ? a : b.release ? b : a
+}
+
+/**
+ * The record with one row per module: a row kept under an old spelling of an
+ * id is folded into the row for the id it is now, never moving anything
+ * backwards. Idempotent; a record that is already one row each comes back as
+ * the same object.
+ */
+export function tidied(record: WhatsNewRecord): WhatsNewRecord {
+  if (!Object.keys(record.modules).some((id) => idOf(id) !== id)) return record
+  const modules: Record<string, Position> = {}
+  for (const [id, position] of Object.entries(record.modules)) {
+    const now = idOf(id)
+    modules[now] = Object.hasOwn(modules, now) ? later(modules[now]!, position) : position
+  }
+  return { ...record, modules }
+}
+
+/** One entry per module id, wherever the entries came from; the later position is what is installed. */
+export function oneEach(modules: readonly InstalledModule[]): InstalledModule[] {
+  const byId = new Map<string, InstalledModule>()
+  for (const one of modules) {
+    const id = idOf(one.id)
+    const held = byId.get(id)
+    if (!held) byId.set(id, id === one.id ? one : { ...one, id })
+    else if (later(held.position, one.position) !== held.position) byId.set(id, { ...one, id })
+  }
+  return [...byId.values()]
+}
+
 /** The later of two app versions, either of which may be missing. */
 function laterApp(a: string | null | undefined, b: string | null | undefined): string | null {
   if (!a) return b ?? null
@@ -270,7 +307,7 @@ export function newsItems(input: {
   all?: boolean
 }): NewsItem[] {
   const { answer, app } = input
-  const record = answer.record
+  const record = answer.record ? tidied(answer.record) : answer.record
   const failed = input.failed ?? new Set<string>()
   const updating = new Set(answer.updating)
   const items: NewsItem[] = []
@@ -314,7 +351,7 @@ export function newsItems(input: {
   }
   const automatic = new Set(answer.auto ?? [])
   const later: NewsItem[] = []
-  for (const one of answer.modules) {
+  for (const one of oneEach(answer.modules)) {
     const ack = record?.modules[one.id]
     const preparing = updating.has(one.id)
     const news = !!record && (preparing || (!failed.has(one.id) && moved(ack, one.position)))
@@ -356,7 +393,8 @@ export function mergeItems(shown: readonly NewsItem[], next: readonly NewsItem[]
     return [{ ...fresh, from: one.from ?? fresh.from, tags: [...new Set([...fresh.tags, ...one.tags])].sort((a, b) => (isRelease(a) && isRelease(b) ? compareReleases(b, a) : 0)), news: one.news || fresh.news }]
   })
   for (const one of next) if (!shown.some((was) => was.id === one.id)) merged.push(one)
-  return merged
+  /* One row per id, whatever either side held. */
+  return merged.filter((one, at) => merged.findIndex((other) => other.id === one.id) === at)
 }
 
 const modulesSaid = (count: number) => `${count} module${count === 1 ? '' : 's'}`

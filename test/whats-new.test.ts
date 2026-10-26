@@ -16,6 +16,7 @@ import {
   noticeSaid,
   rangeFor,
   rangeSaid,
+  tidied,
   type InstalledModule,
   type Position,
   type WhatsNewAnswer,
@@ -202,6 +203,49 @@ describe('acknowledging', () => {
     expect(editSchema.safeParse({ read: { module: 'a', from: null, to: 'v1.0.0' } }).success).toBe(true)
     expect(editSchema.safeParse({ show: false, app: '1' }).success).toBe(false)
     expect(editSchema.safeParse({ acknowledge: { app: '0.1.43', extra: 1 } }).success).toBe(false)
+  })
+})
+
+describe('one entry per module', () => {
+  /* Monitor was a "My module" while its repository was private, then was listed; the host's answer, the dialog's
+     rows and the record must each name it once. */
+  const mine = module('kehikot.monitor', 'Monitor', at('v0.3.0'), ['v0.3.0'], { repo: 'Jalez/kehikko-monitor' })
+  const listed = module('kehikot.monitor', 'Monitor', at('v0.2.0'), [], { repo: 'Jalez/kehikko-monitor' })
+
+  test('a module in the answer twice is one item, at the installed (later) position', () => {
+    const answer: WhatsNewAnswer = { record: record({ app: '0.1.43', modules: { 'kehikot.monitor': at('v0.1.0') } }), modules: [listed, mine], updating: [] }
+    const items = newsItems({ answer, app: '0.1.43', appTags: null })
+    expect(items.map((one) => one.id)).toEqual(['kehikot.monitor'])
+    expect(items[0]!.to).toBe('0.3.0')
+    expect(noticeSaid(items)!.text).toBe('What’s new · 1 module')
+    expect(newsItems({ answer, app: '0.1.43', appTags: null, all: true }).filter((one) => one.id === 'kehikot.monitor')).toHaveLength(1)
+    expect(Object.keys(ackFor(items).modules!)).toEqual(['kehikot.monitor'])
+  })
+
+  test('a record holding both spellings of an id is one row, and tidying it again changes nothing', () => {
+    const both = record({ app: '0.1.43', modules: { 'roadmap.monitor': at('v0.1.0'), 'kehikot.monitor': at('v0.2.0') } })
+    const once = tidied(both)
+    expect(once.modules).toEqual({ 'kehikot.monitor': at('v0.2.0') })
+    expect(tidied(once)).toBe(once)
+    const answer: WhatsNewAnswer = { record: both, modules: [mine], updating: [] }
+    const items = newsItems({ answer, app: '0.1.43', appTags: null })
+    expect(items.map((one) => one.id)).toEqual(['kehikot.monitor'])
+    expect(items[0]!.from).toBe('0.2.0')
+  })
+
+  test('the stored record is tidied on read, once', () => {
+    const db = new Database(':memory:')
+    ensureWhatsNew(db)
+    db.query('insert into settings (key, value) values (?, ?)').run('whats-new', JSON.stringify(record({ modules: { 'roadmap.monitor': at('v0.1.0'), 'kehikot.monitor': at('v0.2.0') } })))
+    expect(readWhatsNew(db)!.modules).toEqual({ 'kehikot.monitor': at('v0.2.0') })
+    const stored = db.query<{ value: string }, []>("select value from settings where key = 'whats-new'").get()!.value
+    expect(JSON.parse(stored).modules).toEqual({ 'kehikot.monitor': at('v0.2.0') })
+    expect(readWhatsNew(db)!.modules).toEqual({ 'kehikot.monitor': at('v0.2.0') })
+  })
+
+  test('rows merged into a dialog never repeat an id', () => {
+    const row = newsItems({ answer: { record: record({ app: '0.1.43', modules: { 'kehikot.monitor': at('v0.1.0') } }), modules: [mine], updating: [] }, app: '0.1.43', appTags: null })[0]!
+    expect(mergeItems([row, row], [row]).map((one) => one.id)).toEqual(['kehikot.monitor'])
   })
 })
 
