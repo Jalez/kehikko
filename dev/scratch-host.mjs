@@ -33,11 +33,12 @@ const BUN = process.env.BUN ?? 'bun'
  *
  * So a port is taken from below every system's ephemeral range (Linux starts at 32768, macOS at
  * 49152), and claimed by creating a file named for it, exclusively, in one directory every drive
- * on this machine shares — whatever its TMPDIR. The file holds the claiming process's pid; a
+ * on this machine shares — whatever its TMPDIR (`KEHIKOT_SCRATCH_PORTS`, or `/tmp/kehikko-scratch-ports`;
+ * `dev/bee-browser-tests.sh` keeps it under `~/kehikko-ci/`). The file holds the claiming process's pid; a
  * claim whose process is gone is stale and taken over. A claimed port must also be free to bind.
  * The claims are dropped in `stop`.
  */
-const PORTS_DIR = '/tmp/kehikko-scratch-ports'
+const PORTS_DIR = process.env.KEHIKOT_SCRATCH_PORTS ?? '/tmp/kehikko-scratch-ports'
 const PORTS_FROM = 20000
 const PORTS_SPAN = 10000
 const claimed = []

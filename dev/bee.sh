@@ -35,6 +35,8 @@ mkdir -p "$CI/tmp" "$CI/runs"
 export BUN_INSTALL="$CI/bun"
 export BUN_INSTALL_CACHE_DIR="$CI/bun-cache"
 export PLAYWRIGHT_BROWSERS_PATH="$CI/ms-playwright"
+# Where scratch hosts claim their ports (`dev/scratch-host.mjs`): one place for every run at once.
+export KEHIKOT_SCRATCH_PORTS="$CI/ports"
 export PATH="$BUN_INSTALL/bin:$PATH"
 # WSLg hands every session a display (DISPLAY, WAYLAND_DISPLAY) backed by the
 # Windows GPU. A headless Chromium that sees it stops painting for seconds to
