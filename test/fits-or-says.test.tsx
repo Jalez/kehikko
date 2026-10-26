@@ -92,7 +92,7 @@ describe('discovery', () => {
     const { look } = await import('../server/discover.ts')
     const newer = manifest({
       declares: { protocol: '>=2 <3', uses: ['traffic:read', 'traffic:replay'], storage: true },
-      build: { version: '0.2.0', commit: null, started: '2026-10-26T00:00:00.000Z', protocol: '2.23.0' },
+      build: { version: '0.2.0', commit: null, started: '2026-10-26T00:00:00.000Z', protocol: '2.99.0' },
     })
     const presence = await look(registration, serving(newer))
     expect(presence.condition).toBe('incompatible')
@@ -101,7 +101,7 @@ describe('discovery', () => {
       title: 'Monitor needs a newer Kehikot',
       line: 'It uses traffic:replay, which this Kehikot does not know.',
       action: 'Update Kehikot',
-      since: '2.23.0',
+      since: '2.99.0',
     })
     expect(presence.line).toBe(presence.fit!.line)
     expect(presence.module).toBeUndefined()

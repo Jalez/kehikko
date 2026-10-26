@@ -316,3 +316,40 @@ describe('a conversation nobody started from a place', () => {
     ])
   })
 })
+
+describe('to a module that installs skills for its own agent, the skills kept for every conversation (protocol 2.23.0)', () => {
+  const kept = [{ module: 'kehikko', name: 'kehikot-module', version: '1', origin: 'http://127.0.0.1:4180' }]
+  const deskWith = (asking: string[]) =>
+    placeDesk({
+      modules: async () => [
+        ...about,
+        { id: 'kehikot.codex', name: 'Codex', skills: [{ name: 'kehikot-here' }], manifest: { declares: { agentSessions: { loadsSkills: true, installsSkills: true } } } },
+        { id: 'kehikot.claude', name: 'Claude', skills: [{ name: 'kehikot-here' }], manifest: { declares: { agentSessions: { loadsSkills: true } } } },
+      ],
+      everywhere: async (asker) => {
+        asking.push(asker)
+        return kept
+      },
+      db,
+      inbox,
+      hostUrl: () => 'http://127.0.0.1:4180/mcp',
+      doors: async () => [],
+      known: () => new Map(),
+      open: () => null,
+      changed: () => {},
+      originOf: async () => null,
+      fetch: module,
+    })
+  const issueAs = (one: ReturnType<typeof placeDesk>, asker: string) =>
+    one.route(new Request('http://127.0.0.1:4180/host/place', { method: 'POST', body: JSON.stringify({ module: asker, token: TOKEN_A, project: folder, kehikko: canvas.key }) }), new URL('http://127.0.0.1:4180/host/place'))
+
+  test('Codex is told them; Claude, whose skills the host installs itself, is not', async () => {
+    const asking: string[] = []
+    const one = deskWith(asking)
+    const codex = (await (await issueAs(one, 'kehikot.codex'))!.json()) as { everywhere?: unknown }
+    expect(codex.everywhere).toEqual(kept)
+    const claude = (await (await issueAs(one, 'kehikot.claude'))!.json()) as { everywhere?: unknown }
+    expect(claude.everywhere).toBeUndefined()
+    expect(asking).toEqual(['kehikot.codex'])
+  })
+})

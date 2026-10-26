@@ -642,3 +642,38 @@ describe('the settings', () => {
     expect(startHook(at).on).toBeNull()
   })
 })
+
+describe('a module that installs skills for its own agent (protocol 2.23.0)', () => {
+  const codex = (more: Partial<ModuleSeen> = {}) => mod('kehikot.codex', 8100, { door: null, skills: [skill('kehikot-here')], installs: true, ...more })
+
+  test('its skills are never installed for Claude Code, whatever the settings: they are its module’s to keep', async () => {
+    const at = setup([codex()], ON, fakeClaude(), { 'kehikot-here': skillText('kehikot-here') })
+    const ran = await syncOnce(at.deps)
+    expect(existsSync(join(at.root, 'kehikot-here'))).toBe(false)
+    expect(at.told).toEqual([])
+    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'kehikot-here', state: 'agent', agent: 'Codex installs this skill itself, where its own agent reads skills, so Kehikot does not install it for Claude Code' }])
+    expect(skillsSaid(ran.status)).toBe('0 installed, 1 kept by its module')
+  })
+
+  test('Claude’s own skill of the same name is not its, and is left alone', async () => {
+    const at = setup([mod('kehikot.claude', 8010, { skills: [skill('kehikot-here')] }), codex()], ON, fakeClaude(), { 'kehikot-here': skillText('kehikot-here') })
+    const ran = await syncOnce(at.deps)
+    expect(JSON.parse(readFileSync(join(at.root, 'kehikot-here', MARKER), 'utf8')).module).toBe('kehikot.claude')
+    expect(ran.status.modules[1]!.skills[0]!.state).toBe('agent')
+    expect(ran.status.problems).toEqual([])
+  })
+
+  test('an untouched copy an older host put in Claude Code is taken away; one the person changed is left', async () => {
+    const table = { 'kehikot-here': skillText('kehikot-here'), other: skillText('other') }
+    const before = setup([codex({ installs: false, skills: [skill('kehikot-here'), skill('other')] })], ON, fakeClaude(), table)
+    await syncOnce(before.deps)
+    expect(existsSync(join(before.root, 'kehikot-here', 'SKILL.md'))).toBe(true)
+    writeFileSync(join(before.root, 'other', 'SKILL.md'), 'mine')
+    before.state.seen = [codex({ skills: [skill('kehikot-here'), skill('other')] })]
+    const ran = await syncOnce(before.deps)
+    expect(existsSync(join(before.root, 'kehikot-here'))).toBe(false)
+    expect(before.told.at(-1)).toContain('Removed the /kehikot-here skill from Claude Code. Codex installs this skill itself')
+    expect(readFileSync(join(before.root, 'other', 'SKILL.md'), 'utf8')).toBe('mine')
+    expect(ran.status.modules[0]!.skills.map((one) => one.state)).toEqual(['agent', 'edited'])
+  })
+})

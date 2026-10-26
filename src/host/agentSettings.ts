@@ -138,6 +138,7 @@ export const FIRST_QUESTION = {
   writes: [
     'Claude Code’s user-wide MCP server list, through the claude command (claude mcp add --scope user). Only entries Kehikot adds are ever changed or removed.',
     'Folders under ~/.claude/skills/<name>, one per skill. A skill you changed, or a name another skill already has, is left alone.',
+    'An agent module that installs skills itself, such as Codex, keeps the same skills where its agent reads them, under the same rules.',
   ],
   after: 'Each change is one line in the Inbox. You can change this any time in Settings, and leave single modules out there.',
   keep: 'Save',
@@ -175,7 +176,7 @@ export const TOOL_STATE_SAYS: Record<ToolState, string> = {
 }
 
 /** Where one skill stands; the Skills window's statuses plus the two the sync adds. */
-export type SkillState = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'excepted' | 'failed' | 'bound'
+export type SkillState = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'excepted' | 'failed' | 'bound' | 'agent'
 
 export const SKILL_STATE_SAYS: Record<SkillState, string> = {
   absent: 'Not installed',
@@ -186,6 +187,7 @@ export const SKILL_STATE_SAYS: Record<SkillState, string> = {
   excepted: 'Left to you',
   failed: 'Failed, trying again',
   bound: 'On a kehikko only',
+  agent: 'Kept by its module',
 }
 
 export interface ModuleSync {
@@ -197,7 +199,7 @@ export interface ModuleSync {
    * `bound`, for a kehikko-bound skill (protocol 2.12.0): where it works, in words (`boundSays`),
    * whatever its state. Such a skill is never installed for every conversation.
    */
-  skills: { name: string; state: SkillState; bound?: string }[]
+  skills: { name: string; state: SkillState; bound?: string; agent?: string }[]
   /** Whether it was answering, so its door and skills could be read. */
   answering: boolean
 }
@@ -250,6 +252,7 @@ export function skillsSaid(status: SyncStatus): string {
   if (by('taken')) parts.push(`${by('taken')} name taken`)
   if (by('failed')) parts.push(`${by('failed')} failed`)
   if (by('bound')) parts.push(`${by('bound')} only on a kehikko`)
+  if (by('agent')) parts.push(`${by('agent')} kept by ${by('agent') === 1 ? 'its module' : 'their modules'}`)
   return parts.join(', ')
 }
 

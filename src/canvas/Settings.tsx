@@ -1200,6 +1200,7 @@ const SKILL_TONE: Record<SkillState, Tone> = {
   taken: 'warn',
   failed: 'bad',
   bound: 'quiet',
+  agent: 'quiet',
 }
 
 /** One module's row in a "Which modules" list: its statuses as chips, and any longer sentences under them. */
@@ -1216,12 +1217,12 @@ interface RowData {
  * a sentence of its own instead — where it works — since it is never installed
  * for every conversation; one the person changed keeps its chip too.
  */
-function skillChips(skills: readonly { name: string; state: SkillState; bound?: string }[]): Pick<RowData, 'chips' | 'notes'> {
+function skillChips(skills: readonly { name: string; state: SkillState; bound?: string; agent?: string }[]): Pick<RowData, 'chips' | 'notes'> {
   return {
     chips: skills
-      .filter((skill) => skill.state !== 'bound')
+      .filter((skill) => skill.state !== 'bound' && skill.state !== 'agent')
       .map((skill) => ({ text: `/${skill.name} · ${SKILL_STATE_SAYS[skill.state]}`, tone: SKILL_TONE[skill.state] })),
-    notes: skills.flatMap((skill) => (skill.bound ? [`/${skill.name} · ${skill.bound}`] : [])),
+    notes: skills.flatMap((skill) => (skill.bound ? [`/${skill.name} · ${skill.bound}`] : skill.agent ? [`${skill.name} · ${skill.agent}`] : [])),
   }
 }
 

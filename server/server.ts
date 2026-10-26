@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
@@ -10,7 +10,7 @@ import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
-import { providesHere, skillLoaders } from '../src/host/providers.ts'
+import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
@@ -97,9 +97,10 @@ import {
   type NoDoor,
 } from './register.ts'
 import { toolsAt } from './tools.ts'
-import { claudeSkillsDir, skillsRoute } from './skills.ts'
+import { claudeSkillsDir, everywhereFor, skillsRoute } from './skills.ts'
 import { ownSkillAt, ownSkillDeclarations, withHost } from './ownSkills.ts'
-import { ensureSettings, forgetMade, recordMade, settingsRoute } from './agentSettings.ts'
+import { ensureSettings, forgetMade, readSettings, recordMade, settingsRoute } from './agentSettings.ts'
+import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
@@ -2343,6 +2344,7 @@ const skillDesk = skillsRoute({
       name: presence.module.name,
       origin: registration.url,
       skills: presence.module.declares.skills ?? [],
+      installs: installsSkills(presence.module),
     }
   },
 })
@@ -2381,6 +2383,7 @@ function seenOf(presences: readonly Presence[]): ModuleSeen[] {
         refusal,
         origin: registered.get(presence.id)?.url ?? '',
         skills: presence.module?.declares.skills ?? [],
+        installs: presence.module ? installsSkills(presence.module) : false,
       }
     }),
   ]
@@ -2466,6 +2469,24 @@ const placeRoutes = placeDesk({
       /* What a skill's needs are matched against (protocol 2.21.0). */
       ...(presence.module ? { manifest: presence.module } : {}),
     })),
+  /* What the Settings sync keeps installed for every conversation, told to a module that installs skills for its own agent (2.23.0). */
+  everywhere: async (asker) => {
+    const settings = readSettings(db)
+    const presences = (await (seen ?? sweep())).presences
+    return everywhereFor(
+      asker,
+      [
+        { id: HOST_ID, origin: ownOrigin, skills: ownSkillDeclarations(), agent: false },
+        ...presences.map((presence) => ({
+          id: presence.id,
+          origin: registered.get(presence.id)?.url ?? '',
+          skills: presence.module?.declares.skills ?? [],
+          agent: presence.module ? loadsSkillsHere(presence.module) || installsSkills(presence.module) : false,
+        })),
+      ],
+      (module) => automatic(settings, 'skills', module),
+    )
+  },
   known: () => agentKnows(),
   open: () => {
     const open = openness.open()
