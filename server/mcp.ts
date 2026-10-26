@@ -201,6 +201,12 @@ export interface Sighting {
   guidance?: string
   /** Which scopes it can show (protocol 2.9.0): `project` is "All epics". Absent is one epic at a time. */
   scopes?: readonly ('epic' | 'project')[]
+  /**
+   * It and this Kehikot do not fit (protocol 2.22.0, `fitOf`), in the
+   * protocol's words: "Monitor needs a newer Kehikot. It uses the call log,
+   * added in protocol 2.20." The container shows that in place of its page.
+   */
+  fit?: string
 }
 
 /**
@@ -606,7 +612,9 @@ function canvasText(
           ? 'no registration on this computer — the container stays, drawn as missing, so the layout survives a machine that lacks the module'
           : sighting.condition === 'ready'
             ? null
-            : `not answering (${sighting.condition})`,
+            : sighting.fit
+              ? `does not fit this Kehikot, and its container says so in place of its page: ${sighting.fit}`
+              : `not answering (${sighting.condition})`,
       ].filter((mark): mark is string => mark !== null)
       const name = sighting?.name && sighting.name !== p.i ? ` (${sighting.name})` : ''
       lines.push(`  ${p.i}${name}${marks.length ? ` — ${marks.join(', ')}` : ''}`)

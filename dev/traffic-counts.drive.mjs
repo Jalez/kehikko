@@ -8,7 +8,7 @@
  * not there, so nothing leaves this computer.
  *
  *     node dev/traffic-counts.drive.mjs                       # 2 pages, 2 minutes, the tables
- *     PAGES=1 DURATION_MS=20000 CHECK=1 node dev/traffic-counts.drive.mjs   # what `bun test` runs
+ *     PAGES=1 DURATION_MS=20000 CHECK=1 node dev/traffic-counts.drive.mjs   # what the test runs, on bee
  *     MARKDOWN=1 node dev/traffic-counts.drive.mjs            # the tables as Markdown
  *
  * Before the count, one page is opened and closed so a fresh host's first-run questions are

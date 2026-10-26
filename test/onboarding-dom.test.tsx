@@ -204,11 +204,16 @@ describe('the introduction', () => {
     /* It pitches; it does not explain controls — that is the tour's job. */
     const words = Intro.INTRO_SLIDES.map((one) => one.body).join(' ').toLowerCase()
     expect(words).not.toMatch(/drag|resize|from any corner|the gear/)
-    for (const said of ['keep running', 'design, research, development, review, learning', '/kehikot-here', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
+    for (const said of ['keep running', 'design, research, development, review, learning', 'agent module such as claude or codex', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
+    /* A module of your own: how one is made and where it is added. */
+    expect(Intro.INTRO_SLIDES.find((one) => one.id === 'modules')?.body).toContain(
+      'Need something that isn’t there? Ask your agent to build it with /kehikot-module, starting from the module template, and add it from My modules.',
+    )
     for (const id of Intro.INTRO_SLIDES.slice(1).map((one) => one.id)) {
       await press(document.querySelector('[data-intro-next]'))
+      if (id === 'modules') expect(dialog()?.textContent).toContain('add it from My modules')
       expect(dialog()?.getAttribute('data-intro')).toBe(id)
       expect(document.querySelector('[data-intro-picture]')).not.toBeNull()
     }

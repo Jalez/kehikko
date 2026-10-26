@@ -8,11 +8,14 @@ import {
   agentStanding,
   declared,
   focusAfter,
+  focusIsInModule,
+  headerPosting,
   INLINE_OPTIONS,
   menusOf,
   nested,
   NO_HEADER,
   NO_HEADERS,
+  NOTHING_POSTED,
   notStanding,
   pressing,
   staysOpen,
@@ -156,9 +159,19 @@ describe('the kind of an item decides its menu', () => {
 
   test('after a menu closes: the module has the keyboard after a press that was sent, the trigger otherwise', () => {
     /* Escape; a press sent; a press not taken; focus already gone to a module's page. */
-    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map(focusAfter)).toEqual([
+    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map((closing) => focusAfter(closing))).toEqual([
       'trigger', 'module', 'trigger', 'nowhere',
     ])
+  })
+
+  test('focus found in a module’s page is never pulled back, however the menu came to close', () => {
+    /* Chromium blurs the menu's content before the window: the menu closes as a plain dismissal. */
+    expect((['dismissed', 'pressed', 'refused', 'away'] as const).map((closing) => focusAfter(closing, true))).toEqual([
+      'nowhere', 'nowhere', 'nowhere', 'nowhere',
+    ])
+    expect(focusIsInModule({ tagName: 'IFRAME' } as Element)).toBe(true)
+    expect(focusIsInModule({ tagName: 'BUTTON' } as Element)).toBe(false)
+    expect(focusIsInModule(null)).toBe(false)
   })
 })
 
@@ -269,5 +282,25 @@ describe('pinned runs (protocol 1.6.0)', () => {
     const { menusOf } = await import('../src/host/header.ts')
     const run = menusOf(items).find((menu) => menu.menu === 'run')!
     expect(run.groups.flatMap((group) => group.items.map((item) => item.id))).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+  })
+})
+
+describe('what the page posts of the open kehikko’s headers', () => {
+  test('an empty map with nothing pointed at says what a page that posted nothing already said', () => {
+    expect(headerPosting(1, '[]', null, null)).toBe(NOTHING_POSTED)
+    expect(headerPosting(2, '[]', null, null)).toBe(NOTHING_POSTED)
+  })
+
+  test('anything declared or pointed at is said, and differs by kehikko', () => {
+    const map = JSON.stringify([['kehikot.alpha', [{ kind: 'toggle', id: 'flag', label: 'Flag', checked: false }]]])
+    expect(headerPosting(1, map, null, null)).not.toBe(NOTHING_POSTED)
+    expect(headerPosting(1, map, null, null)).not.toBe(headerPosting(2, map, null, null))
+    expect(headerPosting(1, '[]', '{"file":"a.ts"}', null)).not.toBe(NOTHING_POSTED)
+    expect(headerPosting(1, '[]', null, '{"url":"https://example.org"}')).not.toBe(NOTHING_POSTED)
+  })
+
+  test('a map emptied after it held something is a change, so it is said', () => {
+    const map = JSON.stringify([['kehikot.alpha', []]])
+    expect(headerPosting(1, map, null, null)).not.toBe(headerPosting(1, '[]', null, null))
   })
 })

@@ -1,5 +1,7 @@
-import { expect, test } from 'bun:test'
+import { expect } from 'bun:test'
 import { join } from 'node:path'
+
+import { browserTest } from './browser-gate.ts'
 
 /*
  * The module lists on the layout picker's cards stay inside their cards — in
@@ -11,9 +13,10 @@ import { join } from 'node:path'
  * with an ellipsis on purpose, which must itself lie inside its card).
  *
  * It needs Playwright's browsers in Playwright's own cache. Missing, it fails
- * and says the command that installs them — it does not skip.
+ * and says the command that installs them. It runs on bee only
+ * (`dev/bee-browser-tests.sh`; `test/browser-gate.ts`).
  */
-test('no template overflows its card or the dialog, in WebKit and Chromium', () => {
+browserTest('no template overflows its card or the dialog, in WebKit and Chromium', () => {
   const root = join(import.meta.dir, '..')
   const run = Bun.spawnSync([process.env.NODE ?? 'node', join(root, 'dev/layout-chips.drive.mjs')], {
     cwd: root,

@@ -1,6 +1,8 @@
 import {
   LIMITS,
+  METHODS,
   SERVER_ASK_PATH,
+  SERVER_METHODS,
   SERVER_PASS_PATH,
   needsProject,
   serverAskSchema,
@@ -100,6 +102,20 @@ export function serverAskDesk(deps: ServerAskDeps) {
       raw = JSON.parse(text)
     } catch {
       return reply({ ok: false, error: 'A question is a JSON object: module, pass, project, method, params.' }, 400)
+    }
+    /* A method this host does not know at all is newer than it (protocol
+       2.22.0): a call it is too old for, not a malformed question. One it
+       knows and answers only to a page (`parts.set`) stays a 400 below. Said
+       before the pass is checked: it names nothing about the module or a
+       project. */
+    const named = typeof raw === 'object' && raw !== null ? (raw as { method?: unknown }).method : undefined
+    if (typeof named === 'string' && named.length <= LIMITS.METHOD && !Object.hasOwn(METHODS, named) && !(SERVER_METHODS as readonly string[]).includes(named)) {
+      return reply({
+        ok: false,
+        reason: 'unknown-method',
+        declined: 'host-too-old',
+        error: 'This host’s server does not answer that method. A newer Kehikot may.',
+      })
     }
     const asked = serverAskSchema.safeParse(raw)
     if (!asked.success) {

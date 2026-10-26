@@ -6,8 +6,8 @@
  *     node dev/whats-new-notice.drive.mjs
  *     SHOTS=/tmp/shots node dev/whats-new-notice.drive.mjs   # and screenshots
  *
- * `bun test` runs it (`test/whats-new-notice.test.ts`). Exits 0 when every
- * check passes.
+ * `test/whats-new-notice.test.ts` runs it on bee (`dev/bee-browser-tests.sh`).
+ * Exits 0 when every check passes.
  *
  * The update is simulated: the host's record says Kehikot 0.1.60 was the last
  * acknowledged, and the page is told by a stand-in desktop shell

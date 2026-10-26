@@ -1,5 +1,7 @@
-import { expect, test } from 'bun:test'
+import { expect } from 'bun:test'
 import { join } from 'node:path'
+
+import { browserTest } from './browser-gate.ts'
 
 /*
  * A page load asks each of the host's page endpoints once, and the host asks no module for its
@@ -10,7 +12,7 @@ import { join } from 'node:path'
  * manifest re-read every few seconds for "the page says what it has open", and `git fetch` on every
  * checkout on every automatic update check. It needs Playwright's Chromium.
  */
-test('a page load asks each page endpoint once, and no manifest is fetched for its reports', () => {
+browserTest('a page load asks each page endpoint once, and no manifest is fetched for its reports', () => {
   const root = join(import.meta.dir, '..')
   const run = Bun.spawnSync([process.env.NODE ?? 'node', join(root, 'dev/traffic-counts.drive.mjs')], {
     cwd: root,

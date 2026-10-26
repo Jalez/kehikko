@@ -216,6 +216,10 @@ export function builtFrom(presence: Presence): { version: string; protocol: stri
 export function attention(presence: Presence): string | null {
   if (presence.condition === 'ready') return null
   if (presence.condition === 'incompatible') {
+    /* The protocol says which side is behind, in its own words (`fitSaid`):
+       "Monitor needs a newer Kehikot. It uses the call log, added in protocol
+       2.20." The same sentence the container shows in place of the page. */
+    if (presence.fit) return `${presence.fit.title}. ${presence.fit.line}`
     const newer = presence.protocols && presence.protocols.module !== null && presence.protocols.module > presence.protocols.host
     return `${presence.line} ${newer ? 'Update Kehikot to use it.' : 'Update the module to use it.'}`
   }

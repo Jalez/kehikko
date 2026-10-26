@@ -145,6 +145,18 @@ export interface Presence {
   remedy?: true
   protocols?: { host: number; module: number | null; range: string }
   /**
+   * On an `incompatible` module, which side is behind and the protocol's words
+   * for it (`fitSaid`, protocol 2.22.0): drawn in the container in place of the
+   * page, and on the module's row. See `Presence.fit` in `server/discover.ts`.
+   */
+  fit?: {
+    kind: 'host-too-old' | 'module-too-old'
+    title: string
+    line: string
+    action: string
+    since: string | null
+  }
+  /**
    * Whatever this host is keeping for the module, or null when it keeps
    * nothing.
    *

@@ -61,6 +61,25 @@ export function withdrawn(held: Headers, id: string): Headers {
   return rest
 }
 
+/**
+ * What a posting of the open kehikko's headers says (`POST /host/headers`), as one word to compare
+ * with the last one this page made — or `NOTHING_POSTED` when it says only that nothing is declared
+ * and nothing pointed at, which is what the server already holds for a page that has posted
+ * nothing at all.
+ *
+ * A fresh page's map is empty until its modules greet. The page posts a moment after the last
+ * change (`HEADERS_SETTLE_MS` in `App.tsx`), and on a machine where the modules take longer than
+ * that moment to greet, the first posting was that empty map, followed by the real one: two
+ * postings per load, the first telling the server nothing it did not hold. Compared against what
+ * was last said, it is not made.
+ */
+export const NOTHING_POSTED = ''
+
+export function headerPosting(kehikko: number, declaredHere: string, location: string | null, address: string | null): string {
+  if (declaredHere === '[]' && !location && !address) return NOTHING_POSTED
+  return JSON.stringify([kehikko, declaredHere, location, address])
+}
+
 /* ------------------------------------------------------------------ *
  * The menus
  * ------------------------------------------------------------------ */
@@ -205,15 +224,28 @@ export type FocusAfter = 'trigger' | 'module' | 'nowhere'
  * - A press that was NOT taken leaves focus on the trigger, which is where
  *   the reason is said. Nothing happened in the module to go and look at.
  * - A menu closed because focus already went to a module is not answered by
- *   pulling focus back out of it.
+ *   pulling focus back out of it. That is judged by where focus IS when the
+ *   menu has closed (`focusIsInModule`), not only by having heard the window
+ *   blur: the content's own blur comes first and closes the menu.
  *
  * A toggle and a switch do not close the menu (`staysOpen`), so they are
  * never the reason one closed: after setting two of them, Escape is the
  * first case.
  */
-export function focusAfter(closing: Closing): FocusAfter {
+export function focusAfter(closing: Closing, inModule = false): FocusAfter {
+  /* Focus is in a module's page already, whatever closed the menu: in Chromium
+     the menu's own content blurs a moment BEFORE the window does, so the menu
+     can be closed as an ordinary dismissal first and the "away" is never
+     heard. The page holding the keyboard is the fact; the trigger does not
+     take it back. */
+  if (inModule) return 'nowhere'
   if (closing === 'pressed') return 'module'
   return closing === 'away' ? 'nowhere' : 'trigger'
+}
+
+/** Whether the keyboard is in a module's page now: the host's active element is the frame that holds it. */
+export function focusIsInModule(active: Element | null): boolean {
+  return active?.tagName === 'IFRAME'
 }
 
 /* ------------------------------------------------------------------ *

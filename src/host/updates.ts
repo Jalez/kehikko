@@ -14,11 +14,21 @@ import type { WorksWith } from './worksWith.ts'
 /**
  * Asks the updates panel in the header to open and check now. For a press
  * somewhere else whose remedy is an update — a container whose module's
- * manifest this host refused (`Start.tsx`). The panel listens (`Updates.tsx`).
+ * manifest this host refused (`Start.tsx`), or that does not fit this Kehikot
+ * ("Update Kehikot", "Update <Module>"). With a module's id the panel also
+ * brings that module's row into view, listed even when it is up to date. The
+ * panel listens (`Updates.tsx`).
  */
 export const OPEN_UPDATES = 'kehikot:open-updates'
-export function openUpdates(): void {
-  window.dispatchEvent(new Event(OPEN_UPDATES))
+export function openUpdates(module?: string): void {
+  window.dispatchEvent(new CustomEvent<{ module: string | null }>(OPEN_UPDATES, { detail: { module: module ?? null } }))
+}
+
+/** The module an `OPEN_UPDATES` event asks to be shown, or null. */
+export function askedModule(event: Event): string | null {
+  const detail = (event as CustomEvent<unknown>).detail
+  const module = typeof detail === 'object' && detail !== null ? (detail as { module?: unknown }).module : null
+  return typeof module === 'string' && module ? module : null
 }
 
 const incomingSchema = z.object({ hash: z.string(), subject: z.string() })

@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'reac
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { parseMarkdown, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
+import { isBuiltFrom, isWorksWithSentence, parseMarkdown, plainText, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
 import { releaseNotesTitle, releaseVersion } from '@/host/moduleReleases.ts'
 import {
   fetchNotes,
@@ -340,6 +340,7 @@ export function ReleaseSections({
   load = fetchNotes,
   oneTrouble = false,
   headings = tags.length > 1,
+  onDate,
 }: {
   repo: string
   name: string
@@ -352,6 +353,8 @@ export function ReleaseSections({
   oneTrouble?: boolean
   /** A heading with the version and date over each release. */
   headings?: boolean
+  /** Told the date of a release once it is read: for a caller that draws it elsewhere. */
+  onDate?(tag: string, date: string | null): void
 }) {
   const [readings, setReadings] = useState<Record<string, Reading>>({})
   const key = tags.join(',')
@@ -373,6 +376,10 @@ export function ReleaseSections({
     }
     return () => abort.abort()
   }, [open, repo, key, load])
+
+  useEffect(() => {
+    for (const [tag, reading] of Object.entries(readings)) if (reading.kind === 'read') onDate?.(tag, releaseDate(reading.release.publishedAt))
+  }, [readings, onDate])
 
   const failures = tags.map((tag) => readings[tag]).filter((one): one is Extract<Reading, { kind: 'failed' }> => one?.kind === 'failed' && !one.missing)
   const allFailed = oneTrouble && tags.length > 0 && failures.length === tags.length
@@ -408,7 +415,8 @@ export function ReleaseSections({
                 </p>
               )
             ) : whatsNew(reading.release.body) ? (
-              <Markdown source={whatsNew(reading.release.body)} />
+              /* The label above is the works-with sentence: the body does not say it again. */
+              <Markdown source={whatsNew(reading.release.body)} withoutWorksWith={Object.hasOwn(works, tag)} />
             ) : (
               <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
             )}
@@ -420,8 +428,11 @@ export function ReleaseSections({
 }
 
 /** Release notes drawn from the safe subset. Every leaf is a string child; nothing is set as HTML. */
-export function Markdown({ source }: { source: string }) {
-  const blocks = parseMarkdown(source)
+export function Markdown({ source, withoutWorksWith = false }: { source: string; withoutWorksWith?: boolean }) {
+  const blocks = parseMarkdown(source).filter(
+    (block) =>
+      !(withoutWorksWith && ((block.kind === 'paragraph' && isWorksWithSentence(plainText(block.children))) || (block.kind === 'small' && isBuiltFrom(plainText(block.children))))),
+  )
   return <div className="release-notes space-y-2 pb-3 leading-relaxed">{blocks.map((block, i) => drawBlock(block, i))}</div>
 }
 

@@ -4208,6 +4208,8 @@ async function answerRequest(request: Request): Promise<Response> {
               guidance: presence.module?.guidance || undefined,
               /* Whether it can show "All epics" (protocol 2.9.0); absent is one epic at a time. */
               scopes: presence.module?.declares?.scopes,
+              /* It and this Kehikot do not fit (protocol 2.22.0): the protocol's words for which side is behind. */
+              ...(presence.fit ? { fit: `${presence.fit.title}. ${presence.fit.line}` } : {}),
             })),
         },
         { name: HOST_ID, version: HOST_VERSION },

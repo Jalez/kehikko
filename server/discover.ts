@@ -1,10 +1,12 @@
 import {
   buildStamp,
+  fitOf,
+  fitSaid,
   LIMITS,
   manifestSchema,
+  PACKAGE_VERSION,
   PROTOCOL,
   readBuild,
-  speaks,
   WELL_KNOWN,
   type Build,
   type Manifest,
@@ -150,6 +152,36 @@ export interface Presence {
   remedy?: true
   /** Both numbers, whenever the host had both. The reason `incompatible` is legible. */
   protocols?: { host: number; module: number | null; range: string }
+  /**
+   * Set on an `incompatible` module, when the protocol (`fitOf`, 2.22.0) says
+   * which side is behind: `host-too-old` — the module needs a newer Kehikot —
+   * or `module-too-old`. `title`, `line` and `action` are the protocol's words
+   * (`fitSaid`); `line` is the presence's `line` too. The container draws them
+   * in place of the page, the modules list marks the row with them, and
+   * `read_canvas` says them. All text: the module's name is in them as written.
+   */
+  fit?: PresenceFit
+}
+
+/** What the host says about a module that does not fit it. See `Presence.fit`. */
+export interface PresenceFit {
+  kind: 'host-too-old' | 'module-too-old'
+  title: string
+  line: string
+  action: string
+  /** The protocol package version that has what the module needs; null when nothing can say. */
+  since: string | null
+}
+
+/**
+ * Whether a served manifest fits this host, from the raw JSON (so a
+ * declaration this host's schema would strip still counts). Null when it fits.
+ */
+export function fitFor(raw: unknown, name: string): PresenceFit | null {
+  const fit = fitOf(raw, { version: PACKAGE_VERSION, protocol: PROTOCOL })
+  const said = fitSaid(fit, name)
+  if (fit.fit === 'fits' || !said) return null
+  return { kind: fit.fit, ...said, since: fit.fit === 'host-too-old' ? fit.since : null }
 }
 
 /** A manifest the host will honour, with every URL resolved and re-checked. */
@@ -365,6 +397,29 @@ export async function look(
        protocol's sentence (for a missing parts declaration, the whole of
        `partsDeclaration`) is carried as written — it says what to add. */
     if (typeof raw === 'object' && raw !== null && (raw as { id?: unknown }).id === id) {
+      /* A module built with a newer protocol can serve a manifest this host's
+         schema refuses (a 2.21 skill need on a 2.20 host was one). When the
+         protocol says the host is the one behind, that is the thing to say. */
+      const named = (raw as { name?: unknown }).name
+      const fit = fitFor(raw, typeof named === 'string' && named.trim() ? named.trim().slice(0, LIMITS.NAME) : id)
+      if (fit?.kind === 'host-too-old') {
+        const protocol = (raw as { protocol?: unknown }).protocol
+        const declared = (raw as { declares?: { protocol?: unknown } }).declares?.protocol
+        return {
+          id,
+          at,
+          condition: 'incompatible',
+          reached: true,
+          name: typeof named === 'string' && named.trim() ? named.trim().slice(0, LIMITS.NAME) : id,
+          line: fit.line,
+          protocols: {
+            host: PROTOCOL,
+            module: typeof protocol === 'number' ? protocol : null,
+            range: typeof declared === 'string' ? declared.slice(0, LIMITS.RANGE) : `>=${PROTOCOL}`,
+          },
+          fit,
+        }
+      }
       const why = (first?.message ?? 'malformed').replace(/\.$/, '')
       return {
         id,
@@ -390,12 +445,15 @@ export async function look(
   const range = manifest.declares.protocol
   const tags = tagsOf(manifest)
 
-  /* Two comparisons, not one, and the protocol package says why in `speaks`:
-     a permissive range from a module that says it was built against protocol 9
-     is not an argument for anything. The range says what the module can speak;
-     `manifest.protocol` says what it was built against. Both have to include
-     this host. */
-  if (manifest.protocol > PROTOCOL) {
+  /* Whether the module and this host fit (`fitOf`, protocol 2.22.0): the
+     protocol number and range — both have to include this host, since a
+     permissive range from a module built against protocol 9 is not an argument
+     for anything — and then what the manifest's declarations need against this
+     host's protocol package. Worked out from the raw JSON, so a declaration
+     this host's schema strips still counts. Said in the protocol's words, which
+     name the side that is behind. */
+  const fit = fitFor(raw, manifest.name)
+  if (fit) {
     return {
       id,
       at,
@@ -405,23 +463,9 @@ export async function look(
       summary: manifest.summary,
       tags,
       icon: moduleIconFor(manifest.icon, null),
-      line: `${manifest.name} was built against protocol ${manifest.protocol}. This host speaks protocol ${PROTOCOL}.`,
+      line: fit.line,
       protocols: { host: PROTOCOL, module: manifest.protocol, range },
-    }
-  }
-
-  if (!speaks(range, PROTOCOL)) {
-    return {
-      id,
-      at,
-      condition: 'incompatible',
-      reached: true,
-      name: manifest.name,
-      summary: manifest.summary,
-      tags,
-      icon: moduleIconFor(manifest.icon, null),
-      line: `${manifest.name} speaks protocol ${range}. This host speaks protocol ${PROTOCOL}.`,
-      protocols: { host: PROTOCOL, module: manifest.protocol, range },
+      fit,
     }
   }
 

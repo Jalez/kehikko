@@ -104,6 +104,7 @@ describe('a module row', () => {
     expect(kept.reason).toBe("Terminal was updated, but it's kept running so your open shells aren't cut off. Restart it when you're ready; restarting ends the shells running in it.")
     expect(restartNowWord('kehikot.terminal')).toBe('Restart now (ends its shells)')
     expect(restartNowWord('kehikot.claude')).toBe('Restart now (ends its shells)')
+    expect(restartNowWord('kehikot.codex')).toBe('Restart now (ends its shells)')
     expect(restartNowWord('kehikot.notes')).toBe('Restart now')
   })
 
