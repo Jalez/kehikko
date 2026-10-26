@@ -1,5 +1,6 @@
 import { FileJson, Lock, Plus, Settings as Gear, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
@@ -124,7 +125,7 @@ export function ModuleSettingsForm({
     [api, module, project],
   )
 
-  if (answer === null) return <p className="text-muted-foreground text-sm">Reading the settings…</p>
+  if (answer === null) return <Loading className="text-sm" label="Reading the settings…" />
   if (!answer.ok) return <p className="text-muted-foreground text-sm" data-settings-why>{answer.why}</p>
 
   const openFile = async () => {
@@ -478,7 +479,7 @@ export function ModulesSettings({ api = HOST_SETTINGS_API, project }: { api?: Se
   }, [api])
 
   if (why) return <p className="text-muted-foreground text-sm">{why}</p>
-  if (!modules) return <p className="text-muted-foreground text-sm">Reading the modules…</p>
+  if (!modules) return <Loading className="text-sm" label="Reading the modules…" />
   return (
     <div className="flex min-w-0 flex-col gap-4" data-settings-modules>
       <p className="text-muted-foreground text-xs leading-relaxed">

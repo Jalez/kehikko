@@ -1,5 +1,6 @@
 import { CloudDownload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Label } from '@/components/ui/label.tsx'
@@ -865,9 +866,13 @@ export function AppRow({
         <span className="text-muted-foreground shrink-0 font-mono text-[11px]">{row.current}</span>
         {running && onNotes ? <NotesButton version={running.version} onShow={(opener) => onNotes(running.version, opener)} /> : null}
       </div>
-      <p className={row.state === 'failed' ? 'text-destructive pt-1' : row.state === 'uptodate' || row.state === 'unknown' ? 'text-muted-foreground pt-1' : 'text-foreground pt-1'}>
-        {stateText(row)}
-      </p>
+      {row.state === 'checking' ? (
+        <Loading className="pt-1 text-xs" label={stateText(row)} />
+      ) : (
+        <p className={row.state === 'failed' ? 'text-destructive pt-1' : row.state === 'uptodate' || row.state === 'unknown' ? 'text-muted-foreground pt-1' : 'text-foreground pt-1'}>
+          {stateText(row)}
+        </p>
+      )}
       {row.state === 'updating' && row.activity === 'downloading' ? (
         <div
           className="bg-muted mt-1.5 h-1 overflow-hidden rounded-full"

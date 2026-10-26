@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 
 import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
@@ -154,7 +155,7 @@ export function SkillsDialog({
             </ul>
           </div>
         ) : asking ? (
-          <p className="text-muted-foreground text-sm">Asking {name} what it offers…</p>
+          <Loading className="text-sm" label={`Asking ${name} what it offers…`} />
         ) : null}
       </DialogContent>
     </Dialog>
