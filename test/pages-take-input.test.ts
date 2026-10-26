@@ -1,5 +1,7 @@
-import { expect, test } from 'bun:test'
+import { expect } from 'bun:test'
 import { join } from 'node:path'
+
+import { browserTest } from './browser-gate.ts'
 
 /*
  * Module pages take clicks, typing and the wheel — in WebKit, the desktop
@@ -10,13 +12,14 @@ import { join } from 'node:path'
  * over the pages took every click, and every test passed, because no test
  * pressed inside a page the way a hand does. `dev/pages-take-input.drive.mjs`
  * does, with a real pointer and keyboard on a scratch host of its own, and
- * this runs it on every `bun test` so it is not a probe somebody has to
- * remember. About half a minute.
+ * this runs it on bee with the other browser tests, so it is not a probe
+ * somebody has to remember. A minute and a half on bee.
  *
  * It needs Playwright's browsers in Playwright's own cache. Missing, it fails
- * and says the command that installs them — it does not skip.
+ * and says the command that installs them. It runs on bee only
+ * (`dev/bee-browser-tests.sh`; `test/browser-gate.ts`).
  */
-test('every module page takes the pointer, the keyboard and the wheel, in WebKit and Chromium', () => {
+browserTest('every module page takes the pointer, the keyboard and the wheel, in WebKit and Chromium', () => {
   const root = join(import.meta.dir, '..')
   const run = Bun.spawnSync([process.env.NODE ?? 'node', join(root, 'dev/pages-take-input.drive.mjs')], {
     cwd: root,

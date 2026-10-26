@@ -1,5 +1,7 @@
-import { expect, test } from 'bun:test'
+import { expect } from 'bun:test'
 import { join } from 'node:path'
+
+import { browserTest } from './browser-gate.ts'
 
 /*
  * "What's new" waits in the bar: in WebKit, the desktop app's engine, with a
@@ -8,10 +10,10 @@ import { join } from 'node:path'
  * never answering — while focus is in a module's page, every key typed there
  * reaches it, the dialog never opens by itself, and pressing the notice opens
  * it and acknowledges. `dev/whats-new-notice.drive.mjs` is the drive; this
- * runs it on every `bun test`. It needs Playwright's WebKit; missing, it
- * fails and says the command that installs it.
+ * runs it on bee (`dev/bee-browser-tests.sh`). It needs Playwright's WebKit;
+ * missing, it fails and says the command that installs it.
  */
-test('the notice waits in the bar and typing in a module goes on, in WebKit', () => {
+browserTest('the notice waits in the bar and typing in a module goes on, in WebKit', () => {
   const root = join(import.meta.dir, '..')
   const run = Bun.spawnSync([process.env.NODE ?? 'node', join(root, 'dev/whats-new-notice.drive.mjs')], {
     cwd: root,
