@@ -11,6 +11,7 @@ import {
   type TrafficBudget,
   type TrafficCache,
   type TrafficCall,
+  type TrafficLimits,
   type TrafficNote,
   type TrafficNoteResult,
   type TrafficProcesses,
@@ -251,6 +252,21 @@ export function noteFree(record: TrafficRecord, address: string, cache: TrafficC
   record.add(hostCall({ at: now(), ms: 0, kind, ...trafficTarget(address), cache, ok: cache !== 'refused' }))
 }
 
+/**
+ * A program run held back by a budget, so it never went out: filed as `refused`, its reason the
+ * sentence why ("held: Kehikot's share of your GitHub limit is used until 11:00"), then the reason
+ * the work was given, as far as both fit.
+ */
+export function noteHeld(record: TrafficRecord, argv: readonly string[], why: string, now: () => number = Date.now): void {
+  if (quietNow()) return
+  const said = trafficCommand(argv)
+  if (!said) return
+  const outer = reasonNow()
+  const full = `held: ${why}${outer ? ` · ${outer}` : ''}`
+  const reason = full.length > LIMITS.TRAFFIC_REASON ? `${full.slice(0, LIMITS.TRAFFIC_REASON - 1)}…` : full
+  record.add(hostCall({ at: now(), ms: 0, reason, kind: said.kind, host: said.host, path: said.path, cache: 'refused', ok: false }))
+}
+
 /* ------------------------------------------------------------------------ *
  * What modules note.
  * ------------------------------------------------------------------------ */
@@ -406,12 +422,18 @@ export interface TrafficDoor {
 export function trafficDoor(deps: {
   record: TrafficRecord
   budgets(): TrafficBudget[]
+  /** Each forge's budgets, separately (protocol 2.24.0). */
+  limits?(): TrafficLimits
+  /** Somebody reads the record: a Monitor is open (`githubAccount.watch`). */
+  read?(): void
   /** Ask the sampler to look (for a while), and what it last saw. */
   processes(wanted: boolean): TrafficProcesses | null
 }): TrafficDoor {
   return {
     read({ since, limit, sample }) {
-      return { ...deps.record.read(since, limit), budgets: deps.budgets(), processes: sample ? deps.processes(true) : null }
+      deps.read?.()
+      const limits = deps.limits?.()
+      return { ...deps.record.read(since, limit), budgets: deps.budgets(), processes: sample ? deps.processes(true) : null, ...(limits ? { limits } : {}) }
     },
     note: (module, via, calls) => takeNotes(deps.record, module, via, calls),
   }
