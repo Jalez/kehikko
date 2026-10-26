@@ -18,7 +18,12 @@ export const BROWSER_TESTS = process.env.KEHIKOT_BROWSER_TESTS === '1'
 
 export const SKIPPED = 'skipped: a browser test, run on bee with dev/bee-browser-tests.sh <ref>'
 
-export function browserTest(name: string, run: () => void | Promise<void>, timeout: number) {
-  if (BROWSER_TESTS) test(name, run, timeout)
-  else test.skip(`${name} (${SKIPPED})`, run)
+/**
+ * `needs`, when it is a sentence, skips the test there too, saying it: for a browser test that
+ * only means something when it is told what to drive (`test/paper-visibility.test.ts`, which
+ * drives a module checked out at a ref it is given).
+ */
+export function browserTest(name: string, run: () => void | Promise<void>, timeout: number, needs: string | null = null) {
+  if (BROWSER_TESTS && needs === null) test(name, run, timeout)
+  else test.skip(`${name} (${BROWSER_TESTS ? `skipped: ${needs}` : SKIPPED})`, run)
 }
