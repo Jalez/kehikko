@@ -18,7 +18,7 @@ import type { InstalledModule, Position, WhatsNewEdit, WhatsNewRecord } from '..
  */
 
 const inChild = process.env.WHATS_NEW_DOM === '1'
-const TESTS = 19
+const TESTS = 20
 
 if (!inChild) {
   test('"What\'s new", rendered in a process of its own', () => {
@@ -569,6 +569,20 @@ describe.skipIf(!inChild)('the dialog', () => {
     await until(() => dialog() !== null)
     expect(items()).toEqual(['kehikot', 'kehikot.journeys'])
     expect(document.querySelector('[data-testid="whats-new-range"]')!.textContent).toBe('0.1.43')
+  })
+
+  test('a module the host reports twice (a My modules install that is also listed) is one row', async () => {
+    start({ app: '0.1.43', modules: { 'kehikot.monitor': at('v0.2.0') }, show: true }, [
+      copy('kehikot.monitor', 'Monitor', 'v0.3.0', ['v0.2.0', 'v0.3.0']),
+      copy('kehikot.monitor', 'Monitor', 'v0.3.0', ['v0.2.0', 'v0.3.0']),
+    ])
+    await render(<Host />)
+    await openFromNotice()
+    expect(items()).toEqual(['kehikot.monitor'])
+    expect(document.querySelectorAll('[data-whats-new] [role="tab"]')).toHaveLength(1)
+    act(() => Rules.openWhatsNew())
+    await tick(100)
+    expect(items().filter((one) => one === 'kehikot.monitor')).toHaveLength(1)
   })
 
   test('keyboard: the list is a tab list the arrows walk, Escape closes and acknowledges', async () => {

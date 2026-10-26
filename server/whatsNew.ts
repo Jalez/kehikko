@@ -8,6 +8,7 @@ import {
   baselined,
   rangeFor,
   recordSchema,
+  tidied,
   type InstalledModule,
   type Position,
   type WhatsNewEdit,
@@ -41,7 +42,12 @@ export function ensureWhatsNew(db: Database): void {
 export function readWhatsNew(db: Database): WhatsNewRecord | null {
   try {
     const row = db.query<{ value: string }, [string]>('select value from settings where key = ?').get(KEY)
-    return row ? recordSchema.parse(JSON.parse(row.value)) : null
+    if (!row) return null
+    const read = recordSchema.parse(JSON.parse(row.value))
+    /* One row per module id; a stale second row is folded in, once, and kept so. */
+    const clean = tidied(read)
+    if (clean !== read) write(db, clean)
+    return clean
   } catch {
     return null
   }
