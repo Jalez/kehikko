@@ -245,8 +245,12 @@ export function appNotes(row: UpdateRow): { version: string; label: string; pend
 
 /** What the kept module's second restart button says on its two presses (it was "Restart anyway"). The second is the one that stops the module. */
 export const RESTART_ANYWAY = 'Restart now'
-/** The modules that hold a terminal: restarting one ends the shells in it, and the button says so. */
-const HOLDS_SHELLS = new Set(['terminal', 'claude'])
+/**
+ * The modules that hold a terminal: restarting one ends the shells in it, and the button says so.
+ * Codex is one: its sessions run in its own process (their per-run settings keep them off Codex's
+ * background server), so a restart ends them; the next open of a place resumes its conversation.
+ */
+const HOLDS_SHELLS = new Set(['terminal', 'claude', 'codex'])
 export function restartNowWord(id: string): string {
   return HOLDS_SHELLS.has(id.replace(/^(kehikot|roadmap)\./, '')) ? 'Restart now (ends its shells)' : RESTART_ANYWAY
 }
