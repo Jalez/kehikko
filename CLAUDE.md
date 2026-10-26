@@ -907,7 +907,8 @@
   That is a steady load. A COLD start — six modules the host starts, some slow — is
   `dev/cold-start.drive.mjs` (plain HTTP, the page's requests made as `App.tsx` makes
   them; `test/cold-start.test.ts`) and `dev/cold-start-page.drive.mjs` (the real page,
-  on bee): a manifest at most once besides its start wait, `/host/modules` at most
+  on bee): besides its start wait, a manifest at most once before the page arrives
+  (the first sweep) and once after (the page's first look), `/host/modules` at most
   twice, no row of Kehikot's own without a reason. Change the page's start-up and
   change the plain drive's `aPage` with it.
 

@@ -4,7 +4,8 @@
  * holds them back while it reads their tags — some of them slow to come up (`DELAYS`, seconds before
  * each one serves), and a page arriving at the kehikko that has them. Counted from the host's own
  * record of traffic (`traffic.read`, the Monitor's door) from the moment the host started until
- * WINDOW_MS after the page arrived.
+ * WINDOW_MS after the page arrived. The record's reader stands in for a Monitor open from the start:
+ * its first read is the host's first sweep, which finds every module not running yet.
  *
  * No browser: the page's start-up requests are made here the way `src/App.tsx` makes them, in its
  * order — its first look (`GET /host/modules`) beside its other first reads, then, once the kehikot
@@ -23,7 +24,8 @@
  * Monitor once showed, in the fifteen minutes after the app started (0.1.72): the page asking
  * `/host/modules` 33 times in 9.1 s; every module's manifest fetched 28 times in 9.5 s; and 578 of
  * Kehikot's own 1261 calls filed under "no reason given". With CHECK=1 this fails when a module's
- * manifest is fetched more than once outside the host's own wait for it, when the page asks
+ * manifest is fetched, besides the host's own wait for it, more than once before the page arrives
+ * (the reader's first sweep) or more than once after (the page's first look), when the page asks
  * `/host/modules` more than twice, or when any row of the host's own (made or received) has no
  * reason.
  */
@@ -201,7 +203,10 @@ export async function coldStart({ check = false, page: drivePage = null } = {}) 
       const asked = inWindow.filter((row) => row.side === 'out' && row.path === MANIFEST && String(row.host).endsWith(`:${one.port}`))
       const by = new Map()
       for (const row of asked) by.set(reasonOf(row), (by.get(reasonOf(row)) ?? 0) + 1)
-      return { ...one, asked: asked.length, waited: by.get(WAITS) ?? 0, by }
+      /* Before the page arrived, only the record's reader (the Monitor's stand-in) had asked anything:
+         the host's first sweep, finding each module not running. */
+      const before = asked.filter((row) => row.at < arrived && row.reason !== WAITS).length
+      return { ...one, asked: asked.length, waited: by.get(WAITS) ?? 0, before, by }
     })
     const modulesAsked = inWindow.filter((row) => row.side === 'in' && row.path.split('?')[0] === '/host/modules' && row.caller?.kind === 'host')
     /* Kehikot's own: what the host made, and what its page asked of it. */
@@ -216,7 +221,7 @@ export async function coldStart({ check = false, page: drivePage = null } = {}) 
 
     console.log(`a cold start with ${slow.length} modules the host starts (${DELAYS.join(', ')} s before each serves), first ${WINDOW_MS / 1000} s after the page arrived`)
     for (const one of perModule) {
-      console.log(`  ${one.id} (${one.delay} s): its manifest fetched ${one.asked} times, ${one.waited} of them by the host's wait`)
+      console.log(`  ${one.id} (${one.delay} s): its manifest fetched ${one.asked} times, ${one.waited} of them by the host's wait, ${one.before} before the page arrived`)
       for (const [why, n] of [...one.by].sort((a, b) => b[1] - a[1])) console.log(`      ${String(n).padStart(3)}  ${why}`)
     }
     console.log(`  the page asked /host/modules ${modulesAsked.length} times`)
@@ -234,7 +239,10 @@ export async function coldStart({ check = false, page: drivePage = null } = {}) 
     if (check) {
       for (const one of perModule) {
         if (one.waited === 0) failures.push(`${one.id}: nothing was filed under "${WAITS}"`)
-        if (one.asked - one.waited > 1) failures.push(`${one.id}: its manifest was fetched ${one.asked - one.waited} times besides the host's wait; at most once`)
+        /* The page's first look may find it not started yet; after that, the wait alone asks. */
+        const after = one.asked - one.waited - one.before
+        if (after > 1) failures.push(`${one.id}: its manifest was fetched ${after} times after the page arrived besides the host's wait; at most once`)
+        if (one.before > 1) failures.push(`${one.id}: its manifest was fetched ${one.before} times before the page arrived; at most once`)
       }
       if (modulesAsked.length > 2) failures.push(`the page asked /host/modules ${modulesAsked.length} times; at most twice`)
       if (unreasoned.length) failures.push(`${unreasoned.length} of Kehikot's own rows had no reason: ${[...unreasonedBy.keys()].join('; ')}`)
