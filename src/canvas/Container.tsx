@@ -577,10 +577,11 @@ export function Container({
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
           text={fit.version}
+          tight={!fit.icon}
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
-        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} />
-        <span className="flex-1" />
+        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} tight={!fit.icon} />
+        <span className="-mx-1 flex-1" />
 
         {/*
          * The module's own menus: View, Go and Run, from what it declared.

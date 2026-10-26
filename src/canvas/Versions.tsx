@@ -38,6 +38,7 @@ export function VersionPicker({
   protocol = null,
   onPicked,
   text = true,
+  tight = false,
 }: {
   module: string
   name: string
@@ -57,6 +58,8 @@ export function VersionPicker({
    * tooltip, the button's name and the container name's title.
    */
   text?: boolean
+  /** No room even for the amber border of a pinned version's icon: the bare icon. */
+  tight?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [listing, setListing] = useState<VersionListing | null>(null)
@@ -115,12 +118,12 @@ export function VersionPicker({
             data-pinned={pinned ? 'true' : 'false'}
             aria-label={pinned ? `${name}: pinned to ${pinned}` : `${name}: latest${current ? ` (${current})` : ''}`}
             onMouseDown={(event) => event.stopPropagation()}
-            className={`pointer-events-auto inline-flex shrink-[20] cursor-default items-center gap-0.5 overflow-hidden font-mono text-[10px] ${
-              text ? (pinned ? 'max-w-[16ch] min-w-[7ch]' : 'max-w-[12ch] min-w-[7ch]') : 'min-w-[18px]'
-            } ${
+            className={`pointer-events-auto cursor-default items-center gap-0.5 overflow-hidden font-mono text-[10px] ${
+              text || pinned ? 'inline-flex' : 'hidden'
+            } ${text ? (pinned ? 'max-w-[16ch] min-w-[7ch] shrink-[20]' : 'max-w-[12ch] min-w-[7ch] shrink-[20]') : 'shrink-0'} ${
               pinned
-                ? 'rounded border border-amber-500/50 bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300'
-                : `text-muted-foreground hover:text-foreground${text ? '' : ' hidden'}`
+                ? `text-amber-700 dark:text-amber-300${tight && !text ? '' : ' rounded border border-amber-500/50 bg-amber-500/10 px-1'}`
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {pinned ? <Tag className="size-2.5 shrink-0" aria-hidden /> : null}
