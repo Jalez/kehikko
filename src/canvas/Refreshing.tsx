@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Loading } from '@/components/ui/loading.tsx'
 import { RefreshCw } from 'lucide-react'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN } from 'kehikot-module-protocol'
 
@@ -109,7 +110,7 @@ export function RefreshButton({
             {/* Turning while the module says it is reading. The module is the
                 only side that knows: this host posted a message into a frame
                 and has no idea whether anything is happening. */}
-            <RefreshCw className={state.busy ? 'size-3 animate-spin' : 'size-3'} />
+            <RefreshCw className={state.busy ? 'size-3 motion-safe:animate-spin' : 'size-3'} />
           </Button>
         </DropdownMenuTrigger>
       </Hint>
@@ -131,7 +132,7 @@ export function RefreshButton({
           disabled={state.busy}
           onSelect={() => onRefresh()}
         >
-          {state.busy ? 'reading…' : 'Refresh now'}
+          {state.busy ? <Loading className="text-xs" iconClassName="size-3" label="reading…" /> : 'Refresh now'}
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />

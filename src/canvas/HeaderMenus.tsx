@@ -623,7 +623,7 @@ function PinnedRun({ item, rows, word }: { item: RunItem; rows: Pressable; word:
         }}
       >
         {busy ? (
-          <LoaderCircle className="size-3 animate-spin" aria-hidden />
+          <LoaderCircle className="size-3 motion-safe:animate-spin" aria-hidden />
         ) : failed ? (
           <TriangleAlert className="size-3" aria-hidden />
         ) : Drawn ? (
@@ -711,7 +711,7 @@ function Menu({
                 ) : null}
               </>
             ) : busy ? (
-              <LoaderCircle className="size-3 animate-spin" aria-hidden />
+              <LoaderCircle className="size-3 motion-safe:animate-spin" aria-hidden />
             ) : failed ? (
               <TriangleAlert className="text-destructive size-3" aria-hidden />
             ) : (
@@ -1032,7 +1032,7 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-2">
             {busy ? (
-              <LoaderCircle className="size-3.5 animate-spin" aria-label="running" />
+              <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-label="running" />
             ) : item.state === 'failed' ? (
               <TriangleAlert className="text-destructive size-3.5" aria-label="failed" />
             ) : item.icon !== undefined && HEADER_ICONS.has(item.icon) ? (

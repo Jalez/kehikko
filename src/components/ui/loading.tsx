@@ -25,13 +25,13 @@ export function Loading({
   children?: ReactNode
 }) {
   return (
-    <div role="status" aria-live="polite" data-loading className={cn('text-muted-foreground flex min-w-0 items-start gap-2 text-xs', className)}>
+    <span role="status" aria-live="polite" data-loading className={cn('text-muted-foreground flex min-w-0 items-start gap-2 text-xs', className)}>
       <LoaderCircle className={cn('mt-px shrink-0 motion-safe:animate-spin', iconClassName ?? 'size-3.5')} aria-hidden />
-      <div className="min-w-0 break-words">
+      <span className="min-w-0 break-words">
         <span>{label}</span>
         {children}
-      </div>
-    </div>
+      </span>
+    </span>
   )
 }
 
