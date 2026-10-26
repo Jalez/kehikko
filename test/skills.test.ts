@@ -17,6 +17,7 @@ import {
   statusOf,
   syncSkill,
   type SkillsOf,
+  everywhereFor,
 } from '../server/skills.ts'
 import { lineDiff, pressFor, removable, skillsSaying, whyNot, type SkillRow } from '../src/host/skills.ts'
 
@@ -330,5 +331,56 @@ describe('the routes', () => {
     expect(ask({})!.status).toBe(403)
     expect(ask({ origin: 'http://127.0.0.1:7999' })!.status).toBe(403)
     expect(ask({ origin: 'null' })!.status).toBe(403)
+  })
+})
+
+describe('a module that installs skills for its own agent (protocol 2.23.0)', () => {
+  const CODEX = 'kehikot.codex'
+  const lookup = async (): Promise<SkillsOf> => ({ ok: true, module: CODEX, name: 'Codex', origin: ORIGIN, skills: [skill('kehikot-here')], installs: true })
+
+  test('the dialog shows its skill, kept by its module, with no press', async () => {
+    const root = freshRoot()
+    const found = (await lookup()) as Extract<SkillsOf, { ok: true }>
+    const [row] = await skillRows(found, root, serving({ 'kehikot-here': text('kehikot-here') }).fetcher)
+    expect(row!.status).toBe('agent')
+    expect(row!.says).toBe('Kept by its module')
+    expect(row!.agent).toBe('Codex installs this skill itself, where its own agent reads skills, so Kehikot does not install it for Claude Code')
+    expect(row!.text).toBe(text('kehikot-here'))
+    expect(pressFor(row!)).toBeNull()
+    expect(whyNot(row!)).toBe(`${row!.agent}.`)
+  })
+
+  test('a press to install it for Claude Code is refused, and nothing is written', async () => {
+    const root = freshRoot()
+    const module = serving({ 'kehikot-here': text('kehikot-here') })
+    const route = skillsRoute({ lookup, fetcher: module.fetcher, root: () => root })
+    const reply = await route(new Request('http://x/host/skills', { method: 'POST', body: JSON.stringify({ module: CODEX, name: 'kehikot-here', press: 'install', sha256: sha256(text('kehikot-here')) }) }), new URL('http://x/host/skills'))
+    expect(reply!.status).toBe(409)
+    expect(((await reply!.json()) as { why: string }).why).toContain('is written for that agent')
+    expect(existsSync(join(root, 'kehikot-here'))).toBe(false)
+  })
+})
+
+describe('the skills kept for every conversation, as told to an agent module (protocol 2.23.0)', () => {
+  const seen = [
+    { id: 'kehikko', origin: 'http://127.0.0.1:4171', skills: [skill('kehikot-module')], agent: false },
+    { id: 'kehikot.journeys', origin: 'http://127.0.0.1:8040/', skills: [skill('journey'), { ...skill('flow-roadmap'), needs: [{ provides: 'steps' }] }], agent: false },
+    { id: 'kehikot.claude', origin: 'http://127.0.0.1:8010', skills: [skill('kehikot-here')], agent: true },
+    { id: 'kehikot.codex', origin: 'http://127.0.0.1:8100', skills: [skill('kehikot-here')], agent: true },
+    { id: 'kehikot.left', origin: 'http://127.0.0.1:8200', skills: [skill('left')], agent: false },
+    { id: 'kehikot.asleep', origin: '', skills: [skill('asleep')], agent: false },
+  ]
+  const all = (id: string) => id !== 'kehikot.left'
+
+  test('the host’s own and every automatic module’s, never kehikko-bound, never another agent module’s', () => {
+    expect(everywhereFor('kehikot.codex', seen, all)).toEqual([
+      { module: 'kehikko', name: 'kehikot-module', version: '1', origin: 'http://127.0.0.1:4171' },
+      { module: 'kehikot.journeys', name: 'journey', version: '1', origin: 'http://127.0.0.1:8040' },
+      { module: 'kehikot.codex', name: 'kehikot-here', version: '1', origin: 'http://127.0.0.1:8100' },
+    ])
+  })
+
+  test('nothing when the settings keep nothing installed', () => {
+    expect(everywhereFor('kehikot.codex', seen, () => false)).toEqual([])
   })
 })

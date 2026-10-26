@@ -28,7 +28,7 @@ import {
   recordMade,
   type Made,
 } from './agentSettings.ts'
-import { boundSays, nameFromId } from '../src/host/skills.ts'
+import { agentSays, boundSays, nameFromId } from '../src/host/skills.ts'
 import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
 import { awarenessAt, connect, disconnect, repoint, runClaude, type Door, type Ran, type Runner } from './register.ts'
 import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSkill, thisRegistry } from './skills.ts'
@@ -102,6 +102,11 @@ export interface ModuleSeen {
   /** The registration's origin, where its skills are fetched. */
   origin: string
   skills: readonly ModuleSkill[]
+  /**
+   * It installs skills itself, for its own agent (protocol 2.23.0, `installsSkills`): its skills are
+   * never installed for Claude Code, and are told to it as `everywhere` instead.
+   */
+  installs?: boolean
 }
 
 export interface SyncDeps {
@@ -280,6 +285,28 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
     for (const skill of one.skills) {
       const local = readLocal(root, skill.name, one.id)
       const where = `${root}/${skill.name}`
+      /* Written for the agent its module runs, and installed there by that module: never here. One
+         an older host put here is taken away when untouched, like a kehikko-bound one; one the
+         person changed is theirs. */
+      if (one.installs) {
+        const agent = agentSays(one.name)
+        if (local.kind === 'edited') {
+          out.push({ name: skill.name, state: 'edited', agent })
+          continue
+        }
+        if (local.kind === 'ours') {
+          const done = syncSkill(root, one.id, skill, 'remove')
+          if (!done.ok) {
+            transient = true
+            problems.push(`The /${skill.name} skill from ${one.name} is in Claude Code and could not be removed: ${done.why}`)
+            out.push({ name: skill.name, state: 'failed', agent })
+            continue
+          }
+          tell(`Removed the /${skill.name} skill from Claude Code. ${agent}`)
+        }
+        out.push({ name: skill.name, state: 'agent', agent })
+        continue
+      }
       if (isKehikkoBound(skill)) {
         out.push(boundFor(one, skill, local, where))
         continue

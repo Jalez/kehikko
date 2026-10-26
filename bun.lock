@@ -19,7 +19,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "driver.js": "1.9.0",
-        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.22.0",
+        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.23.0",
         "lucide-react": "^0.544.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -397,7 +397,7 @@
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
-    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#c8603b19aaf7f9cd4916489b5ef89c459761ca58", { "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "zod": "^3.23.8" }, "optionalPeers": ["react"], "bin": { "kehikot-create": "./bin/create.ts", "kehikot-check-parts": "./bin/check-parts.ts", "kehikot-check-door": "./bin/check-door.ts" } }, "c8603b19aaf7f9cd4916489b5ef89c459761ca58"],
+    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#c4382e30ec68323d1645434df3fe8341fc9fae8a", { "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "zod": "^3.23.8" }, "optionalPeers": ["react"], "bin": { "kehikot-create": "./bin/create.ts", "kehikot-check-parts": "./bin/check-parts.ts", "kehikot-check-door": "./bin/check-door.ts" } }, "c4382e30ec68323d1645434df3fe8341fc9fae8a"],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 

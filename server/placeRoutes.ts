@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { isKehikkoBound, missingNeeds, type ModuleSkill } from 'kehikot-module-protocol'
+import { installsSkills, isKehikkoBound, missingNeeds, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
@@ -43,7 +43,9 @@ import { doorName } from './register.ts'
  *    records says it issued a token, in a project, and gets every Kehikot door
  *    the session should have with the token on its URL (`placeDoorsSchema`),
  *    and beside them the modules on that kehikko (`modulesOn`), so the session
- *    can be told what it has around it from its first turn. A program's: a
+ *    can be told what it has around it from its first turn — and, to a module that installs
+ *    skills for its own agent (2.23.0), `everywhere`: the skills the person keeps in every
+ *    conversation (`everywhereFor` in skills.ts). A program's: a
  *    token grants nothing a call could not do by naming the place
  *    (`doorPlaces.ts`), and asking again with the same token is how a module
  *    learns that the kehikko changed.
@@ -154,6 +156,11 @@ export interface PlaceDeps {
   doors(): Promise<DoorSeen[]>
   /** Every registered module, as the last sweep saw it: what a session is told of the ones on its kehikko. */
   modules?(): Promise<ModuleAbout[]>
+  /**
+   * The skills this host keeps for every conversation, as said to `asker` (`everywhereFor` in
+   * skills.ts, protocol 2.23.0). Asked only for a module that installs skills itself.
+   */
+  everywhere?(asker: string): Promise<EverywhereSkill[]>
   /** What the person's agent config holds (`agentKnows`). */
   known(): Map<string, unknown>
   /** The kehikko a page has open, or null. */
@@ -321,7 +328,9 @@ export function placeDesk(deps: PlaceDeps) {
       const about = deps.modules ? await deps.modules() : undefined
       const asker = about?.find((one) => one.id === module)
       const modules = about ? modulesOn(canvas, about, doors, loadsSkillsHere({ ...(asker?.manifest ?? {}), id: module })) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}) })
+      /* A module that installs skills for its own agent is told which ones the person keeps in every conversation (2.23.0). */
+      const everywhere = deps.everywhere && asker?.manifest && installsSkills(asker.manifest) ? await deps.everywhere(module) : undefined
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(everywhere ? { everywhere } : {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {

@@ -37,8 +37,11 @@ export const BUILD_A_MODULE_GUIDE = 'https://github.com/Jalez/kehikko-protocol/b
  *   which is where it stays: a module that runs agent sessions and loads skills (protocol 2.21.0,
  *   `declares.agentSessions`) loads it into a conversation whose kehikko meets its needs. Never
  *   installed user-wide.
+ * - `agent`: offered by a module that installs skills itself, for the agent it runs (protocol
+ *   2.23.0, `declares.agentSessions.installsSkills`): written for that agent, so never installed
+ *   for Claude Code here. The module keeps it where its agent reads skills.
  */
-export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'bound'
+export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'bound' | 'agent'
 
 export const SKILL_STATUS_SAYS: Record<SkillStatus, string> = {
   absent: 'Not installed',
@@ -47,6 +50,15 @@ export const SKILL_STATUS_SAYS: Record<SkillStatus, string> = {
   edited: 'Changed by you',
   taken: 'Name taken',
   bound: 'On a kehikko only',
+  agent: 'Kept by its module',
+}
+
+/**
+ * Where a skill of a module that installs skills itself (protocol 2.23.0) is, in words: that module
+ * keeps it for its own agent, and Kehikot does not install it for Claude Code.
+ */
+export function agentSays(name: string): string {
+  return `${name} installs this skill itself, where its own agent reads skills, so Kehikot does not install it for Claude Code`
 }
 
 /** "Review", "Review and Factory", "Browser, Review and Factory". */
@@ -102,11 +114,16 @@ export interface SkillRow {
    * the modules that run agent sessions and load skills, by name. Absent: said generally.
    */
   loaded?: string
+  /**
+   * For a skill of a module that installs skills itself (protocol 2.23.0): that it does, in words
+   * (`agentSays`). Never installed for Claude Code, so a row with this offers no Install and no Update.
+   */
+  agent?: string
 }
 
 /** The one press a row offers, if any. */
-export function pressFor(row: Pick<SkillRow, 'status' | 'text' | 'bound'>): 'install' | 'update' | null {
-  if (row.bound) return null
+export function pressFor(row: Pick<SkillRow, 'status' | 'text' | 'bound' | 'agent'>): 'install' | 'update' | null {
+  if (row.bound || row.agent) return null
   if (row.status === 'absent' && row.text !== null) return 'install'
   if (row.status === 'outdated' && row.text !== null) return 'update'
   return null
@@ -117,6 +134,7 @@ export const removable = (row: Pick<SkillRow, 'status'>) => row.status === 'inst
 
 /** What the row says under the name when nothing can be pressed for it. */
 export function whyNot(row: SkillRow): string | null {
+  if (row.agent && row.status === 'agent') return `${row.agent}.`
   if (row.bound) {
     if (row.status === 'edited') {
       return `${row.path} is in every conversation, and you changed it, so Kehikot leaves it there. ${row.bound}; to have it only there, move or delete that folder yourself.`

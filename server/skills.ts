@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { isKehikkoBound, isSkillName, LIMITS, skillPath, skillTextIssue, type ModuleSkill } from 'kehikot-module-protocol'
+import { isKehikkoBound, isSkillName, LIMITS, skillPath, skillTextIssue, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { machineDir, modulesDir } from './machineDirs.ts'
-import { boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
+import { agentSays, boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
 import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
 
 /**
@@ -42,6 +42,11 @@ import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
  * `declares.agentSessions`; `providers.ts`) loads such a skill into a
  * conversation whose kehikko meets its needs. Removing an untouched install of one is
  * allowed as for any skill, and the Settings sync does it (`agentSync.ts`).
+ *
+ * A module that installs skills itself (protocol 2.23.0, `declares.agentSessions.installsSkills`:
+ * Codex) declares skills written for ITS agent. None of them is installed or updated here, by a
+ * press or by the sync (`agentRefusal`); the module keeps them where its agent reads skills, and
+ * this host tells it which ones the person keeps for every conversation (`everywhereFor`).
  */
 
 type Env = Record<string, string | undefined>
@@ -257,6 +262,37 @@ export function boundRefusal(module: string, skill: ModuleSkill, nameOf: (id: st
   }
 }
 
+/** The refusal for installing or updating, for Claude Code, a skill of a module that installs skills itself. */
+export function agentRefusal(name: string, skill: Pick<ModuleSkill, 'name'>): Done {
+  return { ok: false, status: 409, why: `${agentSays(name)}: /${skill.name} is written for that agent.` }
+}
+
+/**
+ * The skills this host keeps for every conversation, as `everywhere` says them to a module that
+ * installs skills itself (protocol 2.23.0, `POST /host/place`): every skill the Settings sync keeps
+ * installed — Kehikot's own and each module's whose skills are automatic (`automatic`), not
+ * kehikko-bound — except the skills of a module that runs agent sessions other than `asker`, which
+ * are written for that module's own agent (Claude's `/kehikot-here`). The asker's own are in it:
+ * they are for its agent. Each with the origin its text is served at. Pure.
+ */
+export function everywhereFor(
+  asker: string,
+  seen: readonly { id: string; origin: string; skills: readonly ModuleSkill[]; agent: boolean }[],
+  isAutomatic: (module: string) => boolean,
+): EverywhereSkill[] {
+  const out: EverywhereSkill[] = []
+  const names = new Set<string>()
+  for (const one of seen) {
+    if ((one.agent && one.id !== asker) || !one.origin || !isAutomatic(one.id)) continue
+    for (const skill of one.skills) {
+      if (isKehikkoBound(skill) || names.has(skill.name)) continue
+      names.add(skill.name)
+      out.push({ module: one.id, name: skill.name, version: skill.version, origin: new URL(one.origin).origin })
+    }
+  }
+  return out.slice(0, LIMITS.EVERYWHERE_SKILLS)
+}
+
 /** Install a skill that is not there yet. `text` is what the module served and the person was shown. */
 export function installSkill(root: string, module: string, skill: ModuleSkill, text: string): Done {
   if (isKehikkoBound(skill)) return boundRefusal(module, skill)
@@ -339,7 +375,15 @@ export function syncSkill(
 
 /** What the routes need to know about a module: found from the registry, never from the request. */
 export type SkillsOf =
-  | { ok: true; module: string; name: string; origin: string; skills: ModuleSkill[] }
+  | {
+      ok: true
+      module: string
+      name: string
+      origin: string
+      skills: ModuleSkill[]
+      /** It installs skills itself, for its own agent (protocol 2.23.0): none is installed here. */
+      installs?: boolean
+    }
   | { ok: false; why: string; status: number }
 
 export interface SkillDeps {
@@ -373,8 +417,11 @@ export async function skillRows(
       const fetched = await fetchSkillText(found.origin, skill.name, fetcher)
       const local = readLocal(root, skill.name, found.module)
       const bound = isKehikkoBound(skill) ? boundSays(found.module, skill.needs ?? [], nameOf) : null
-      /* A kehikko-bound skill that is not Kehikot's install here is where it belongs: not installed for every conversation. */
-      const status: SkillStatus = bound && (local.kind === 'absent' || local.kind === 'taken') ? 'bound' : statusOf(local, fetched.ok ? fetched.text : null)
+      const agent = found.installs ? agentSays(found.name) : null
+      /* A kehikko-bound skill that is not Kehikot's install here is where it belongs: not installed for every conversation.
+         A skill of a module that installs its own is where it belongs, too: with that module. */
+      const elsewhere = local.kind === 'absent' || local.kind === 'taken'
+      const status: SkillStatus = agent && elsewhere ? 'agent' : bound && elsewhere ? 'bound' : statusOf(local, fetched.ok ? fetched.text : null)
       return {
         name: skill.name,
         summary: skill.summary,
@@ -387,8 +434,9 @@ export async function skillRows(
         unreadable: fetched.ok ? null : fetched.why,
         installedText: status === 'outdated' || status === 'edited' || status === 'taken' ? local.text : null,
         path: join(root, skill.name),
-        ...(local.who && status !== 'bound' ? { who: local.who } : {}),
+        ...(local.who && status !== 'bound' && status !== 'agent' ? { who: local.who } : {}),
         ...(bound ? { bound, loaded } : {}),
+        ...(agent ? { agent } : {}),
       }
     }),
   )
@@ -446,6 +494,10 @@ export function skillsRoute(deps: SkillDeps) {
 
     const skill = found.skills.find((one) => one.name === name)
     if (!skill) return json({ ok: false, why: `${found.name} does not offer a skill called ${name}.` }, 404)
+    if (found.installs) {
+      const refused = agentRefusal(found.name, skill) as Extract<Done, { ok: false }>
+      return json(refused, refused.status)
+    }
     if (isKehikkoBound(skill)) {
       const refused = boundRefusal(module, skill, nameOf, loaded()) as Extract<Done, { ok: false }>
       return json(refused, refused.status)

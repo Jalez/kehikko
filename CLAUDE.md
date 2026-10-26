@@ -828,3 +828,17 @@
   says `waiting` until Check now.
 - `dev/traffic-counts.drive.mjs` counts it from the record of traffic;
   `test/traffic-counts.test.ts` (on bee) fails a page load that asks an endpoint twice.
+
+## Skills for an agent other than Claude Code
+
+- A module that installs skills itself (`declares.agentSessions.installsSkills`, protocol 2.23.0:
+  Codex) declares skills written for ITS agent. None is installed or updated in
+  `~/.claude/skills` — not by a press (`agentRefusal` in `server/skills.ts`), not by the Settings
+  sync (`skillsFor` in `server/agentSync.ts`, which removes an untouched one an older host put
+  there). The Skills window and Settings say `agent` ("Kept by its module", `agentSays`).
+- Such a module is told, in the answer to `POST /host/place`, `everywhere`: the skills the Settings
+  sync keeps installed for every conversation (`everywhereFor`: the host's own and each automatic
+  module's, never kehikko-bound, never another agent module's), each with its origin. It keeps
+  them where its own agent reads skills. The host never writes an agent's folder other than Claude
+  Code's.
+

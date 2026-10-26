@@ -160,6 +160,11 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
     reason: '~/.claude* is Claude Code\'s own configuration, read (and hooks installed) where Claude looks for it',
   },
   {
+    id: 'agent-skills',
+    match: /['"`]\.agents['"`]\s*,\s*['"`]skills['"`]|\.agents\/skills/,
+    reason: '~/.agents/skills is where Codex reads a person\'s skills user-wide (it has no folder for one session): the Codex module installs Kehikot\'s skills there, each folder carrying its marker, and never writes one it did not mark (kehikko-codex agentSkills.ts)',
+  },
+  {
     id: 'launchd',
     match: /Library['"`]?\s*,\s*['"`]Logs|Library\/Logs/,
     reason: '~/Library/Logs/Kehikot is where macOS keeps the output of the modules the host starts (host server/machineDirs.ts `logsDir`)',
