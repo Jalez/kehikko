@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { COLUMNS } from '@/host/canvases.ts'
-import { CANVAS_ROWS } from '@/host/fit.ts'
+import { CANVAS_ROWS, finer } from '@/host/fit.ts'
 import {
   availability,
   availabilitySaid,
@@ -52,16 +52,19 @@ export function LayoutPreview({
 }) {
   const state = new Map(available?.map((one) => [one.module, one]) ?? [])
   const rows = Math.max(CANVAS_ROWS, ...containers.map((c) => c.y + c.h))
+  /* Four units a row when a canvas had twenty-eight; the same picture in the
+     finer rows, so its insets and header stripe keep their proportions. */
+  const perRow = 4 / finer(1)
   return (
     <svg
-      viewBox={`0 0 ${COLUMNS * 10} ${rows * 4}`}
+      viewBox={`0 0 ${COLUMNS * 10} ${rows * perRow}`}
       preserveAspectRatio="none"
       className={className}
       role="img"
       aria-label={containers.length ? `${containers.length} containers` : 'an empty kehikko'}
       data-layout-preview=""
     >
-      <rect x="0" y="0" width={COLUMNS * 10} height={rows * 4} rx="3" className="fill-muted/40" />
+      <rect x="0" y="0" width={COLUMNS * 10} height={rows * perRow} rx="3" className="fill-muted/40" />
       {containers.map((c) => {
         const one = state.get(c.module)
         const absent = one && one.state !== 'here'
@@ -69,9 +72,9 @@ export function LayoutPreview({
           <g key={c.module}>
             <rect
               x={c.x * 10 + 1.5}
-              y={c.y * 4 + 1.5}
+              y={c.y * perRow + 1.5}
               width={c.w * 10 - 3}
-              height={c.h * 4 - 3}
+              height={c.h * perRow - 3}
               rx="2.5"
               className={absent ? 'fill-background stroke-muted-foreground/60' : 'fill-card stroke-border'}
               strokeDasharray={absent ? '3 2' : undefined}
@@ -80,7 +83,7 @@ export function LayoutPreview({
               data-preview-module={c.module}
               data-preview-state={one?.state}
             />
-            <rect x={c.x * 10 + 1.5} y={c.y * 4 + 1.5} width={c.w * 10 - 3} height="4" rx="2" className={absent ? 'fill-transparent' : 'fill-primary/25'} />
+            <rect x={c.x * 10 + 1.5} y={c.y * perRow + 1.5} width={c.w * 10 - 3} height="4" rx="2" className={absent ? 'fill-transparent' : 'fill-primary/25'} />
           </g>
         )
       })}
