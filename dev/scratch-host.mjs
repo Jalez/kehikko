@@ -97,7 +97,8 @@ function release(port) {
   if (at >= 0) claimed.splice(at, 1)
   rmSync(file, { force: true })
 }
-const freePort = () => claimPorts(1)
+/** One port, claimed as the host's are: for a module a drive starts itself (`modules` below). */
+export const freePort = () => claimPorts(1)
 /* The page is the API's port plus one (`server.ts`), so both are claimed together. */
 const pairOfPorts = () => claimPorts(2)
 
@@ -120,14 +121,19 @@ process.on('exit', stop)
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(130))
 
 /* What the last `bootHost` started, for a drive that needs more than the page's URL. */
-export const scratch = { api: 0, page: 0, root: '', modules: [] }
+export const scratch = { api: 0, page: 0, root: '', modules: [], extra: [] }
 
 /**
- * `env` is added to every process's environment. `traffic: true` makes the third stand-in (Gamma) a reader of the host's record of traffic, as
+ * `env` is added to every process's environment. `modules` adds real modules beside the stand-ins:
+ * an async function called once the ports are claimed and before the host starts, with
+ * `{ root, origins, env, start }` — the scratch directory, the origins the host's page answers on,
+ * the environment every process here gets (every location scratch), and `start(cmd, args, log, { cwd, env })`,
+ * which runs a process that `stop` stops by its pid. It answers `[{ id, name, port }]`, each registered
+ * as the stand-ins are (`keep`, so the host never stops it) and waited for at `/healthz`. `traffic: true` makes the third stand-in (Gamma) a reader of the host's record of traffic, as
  * the Monitor is: it declares `traffic:read` and answers `GET /traffic?since=<seq>` with
  * `traffic.read` (`test/fixtures/standin/server.ts`).
  */
-export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {} } = {}) {
+export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {}, modules: others = null } = {}) {
   ROOT = realpathSync(mkdtempSync(join(tmpdir(), `${name}-`)))
   for (const dir of ['home', 'project-a', 'project-b', 'modules', 'versions', 'installed', 'logs', 'claude']) mkdirSync(at(dir), { recursive: true })
   writeFileSync(at('project-a/README.md'), 'a\n')
@@ -163,9 +169,9 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
     KEHIKKO_RESTART_FILE: at('restart'),
     ...more,
   }
-  const run = (cmd, args, log, extra = {}) => {
+  const run = (cmd, args, log, extra = {}, cwd = HOST) => {
     const out = openSync(at(log), 'a')
-    const child = spawn(cmd, args, { cwd: HOST, env: { ...env, ...extra }, stdio: ['ignore', out, out] })
+    const child = spawn(cmd, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', out, out] })
     child.log = log
     children.push(child)
     return child
@@ -182,7 +188,9 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
     const reads = traffic && id === 'kehikot.gamma'
     run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`, reads ? { STANDIN_TRAFFIC: `http://127.0.0.1:${api}` } : {})
   }
-  Object.assign(scratch, { api, page, root: ROOT, modules })
+  const extra = others ? await others({ root: ROOT, origins, env: { ...env }, start: (cmd, args, log, { cwd = HOST, env: own = {} } = {}) => run(cmd, args, log, own, cwd) }) : []
+  for (const { id, port } of extra) writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))
+  Object.assign(scratch, { api, page, root: ROOT, modules, extra })
   if (sidecar) run(sidecar, [], 'api.log')
   else {
     run(BUN, ['run', 'server/server.ts'], 'api.log')
@@ -207,7 +215,7 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
     throw new Error(`nothing answered at ${url} in 90 s; logs in ${ROOT} (KEEP=1 keeps them)`)
   }
   await answers(`http://127.0.0.1:${api}/host/health`)
-  for (const { port } of modules) await answers(`http://127.0.0.1:${port}/healthz`)
+  for (const { port } of [...modules, ...extra]) await answers(`http://127.0.0.1:${port}/healthz`)
   await answers(`http://127.0.0.1:${page}/`)
 
   const send = async (method, path, body) => {

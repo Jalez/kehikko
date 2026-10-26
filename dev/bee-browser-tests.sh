@@ -23,6 +23,9 @@
 #   BEE_TIMEOUT=s   give up after this many seconds (default 1800)
 #   BEE_REPO=url    fetch from here instead of Jalez/kehikko
 #   BEE_OUT=dir     where failures are copied (default $TMPDIR/kehikko-bee)
+#   BEE_ENV='A=x B=y'  set these for the tests on bee: what a test is told to drive, e.g.
+#                   BEE_ENV='PAPER_REF=quieter' for `test/paper-visibility.test.ts`. Names in
+#                   capitals, values of letters, digits and `._/:@+-`; never one this script sets.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/bee.sh"
@@ -35,6 +38,15 @@ for file in "$@"; do
   [[ "$file" =~ ^test/[A-Za-z0-9._/-]+$ ]] || { echo "not a test file: $file" >&2; exit 2; }
 done
 repo="${BEE_REPO:-https://github.com/Jalez/kehikko.git}"
+pass=()
+for pair in ${BEE_ENV:-}; do
+  [[ "$pair" =~ ^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+-]*)$ ]] || { echo "BEE_ENV: not NAME=value: $pair" >&2; exit 2; }
+  case "${BASH_REMATCH[1]}" in
+    HOME|TMPDIR|PATH|CI|RUN|KEEP|SHOTS|BUN_*|PLAYWRIGHT_*|GIT_CONFIG_*|KEHIKOT_BROWSER_TESTS|KEHIKOT_SCRATCH_PORTS|DISPLAY|WAYLAND_DISPLAY)
+      echo "BEE_ENV may not set ${BASH_REMATCH[1]}: this script sets it" >&2; exit 2 ;;
+  esac
+  pass+=("$pair")
+done
 
 # The sha, so the run directory says what was tested.
 if [[ "$ref" =~ ^[0-9a-f]{7,40}$ ]]; then
@@ -44,7 +56,7 @@ else
   [ -n "$sha" ] || { echo "$ref is not on $repo; push it first" >&2; exit 2; }
 fi
 run_id="${sha:0:12}-$(date +%Y%m%d-%H%M%S)-$$"
-echo "bee: $ref ($sha) in ~/kehikko-ci/runs/$run_id"
+echo "bee: $ref ($sha) in ~/kehikko-ci/runs/$run_id${BEE_ENV:+ with $BEE_ENV}"
 
 remote() {
   bee_preamble
@@ -52,6 +64,9 @@ remote() {
     "$run_id" "$ref" "$sha" "$repo" "${BEE_FULL:-0}" "${BEE_TIMEOUT:-1800}"
   printf 'FILES=('
   [ "$#" -gt 0 ] && printf '%q ' "$@"
+  printf ')\n'
+  printf 'PASS=('
+  [ "${#pass[@]}" -gt 0 ] && printf '%q ' "${pass[@]}"
   printf ')\n'
   cat <<'EOF'
 RUN="$CI/runs/$RUN_ID"
@@ -92,6 +107,7 @@ if [ "${#FILES[@]}" -eq 0 ] && [ "$FULL" != 1 ]; then
 fi
 echo "bee: bun test ${FILES[*]:-(the whole suite)}"
 
+[ "${#PASS[@]}" -gt 0 ] && export "${PASS[@]}"
 set +e
 KEHIKOT_BROWSER_TESTS=1 KEEP=1 SHOTS="$RUN/artifacts/shots" \
   timeout -k 30 "$LIMIT" bun test "${FILES[@]}" 2>&1 | tee "$RUN/run.log"
