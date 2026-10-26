@@ -247,7 +247,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'modules',
     title: 'Modules that keep up, and modules of your own',
-    body: 'Every module updates from its releases, and you can read what is new before you take it. Your own private modules sit right beside the official ones.',
+    body: 'Every module updates from its releases, and you can read what is new before you take it. Your own private modules sit right beside the official ones. Need something that isn’t there? Ask your agent to build it with /kehikot-module, starting from the module template, and add it from My modules.',
     art: () => (
       <Art label="a module moving to its newer release beside a private module of your own">
         <Pane x={24} y={20} w={150} h={110} header="fill-primary/30" />

@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b23 pass/)
+    expect(out).toMatch(/\b24 pass/)
   }, 60_000)
 }
 
@@ -323,6 +323,23 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]?.textContent).toContain('kehikot.source')
     expect([...rows[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Update')).toBe(true)
+  })
+
+  test('"Update <Module>" opens the panel at that module’s row, listed and focused even when it is up to date', async () => {
+    const { openUpdates } = await import('../src/host/updates.ts')
+    answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('host', 0), checkout('kehikot.source', 0)]) : {})
+    await mount()
+
+    await act(async () => openUpdates('kehikot.source'))
+    await settle()
+
+    expect(panels()).toHaveLength(1)
+    const row = document.querySelector<HTMLElement>('[data-updates-id="kehikot.source"]')
+    expect(row).not.toBeNull()
+    expect(document.querySelector('[data-testid="updates-level"]')?.textContent).toContain('kehikot.source')
+    expect(document.activeElement).toBe(row)
+    /* Marked by a ring, and by focus — not by colour alone. */
+    expect(row!.className).toContain('ring-2')
   })
 
   test('nothing needing attention is one calm sentence and Check now', async () => {

@@ -71,7 +71,13 @@ const NAMED = new Set<string>([...HOST_MESSAGES, ...MODULE_MESSAGES])
 /** What the host does with a question, wherever it is answered. */
 export type Answer =
   | { ok: true; data: unknown }
-  | { ok: false; reason: 'unknown-module' | 'unknown-method' | 'failed'; error: string }
+  | {
+      ok: false
+      reason: 'unknown-module' | 'unknown-method' | 'failed'
+      error: string
+      /** Protocol 2.22.0: the method is newer than this host (`declinedFields`). Posted as it is. */
+      declined?: 'host-too-old'
+    }
 
 export type Ask = (method: string, params: unknown) => Promise<Answer>
 
@@ -606,6 +612,7 @@ export class Conversation {
               ok: false,
               reason: answer.reason,
               error: answer.error,
+              ...(answer.declined === 'host-too-old' ? { declined: 'host-too-old' as const } : {}),
             },
         )
       })

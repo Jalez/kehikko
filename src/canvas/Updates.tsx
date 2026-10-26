@@ -2,12 +2,14 @@ import { CloudDownload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { cn } from '@/lib/utils'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import {
   ago,
   applyUpdate,
   armRestartAnyway,
+  askedModule,
   confirmRestartAnyway,
   fetchUpdates,
   hasUpdate,
@@ -208,6 +210,8 @@ export function Updates({
   const [armingId, setArmingId] = useState<string | null>(null)
   /** The level checkouts are listed, not just counted. */
   const [showLevel, setShowLevel] = useState(false)
+  /** The module a press elsewhere asked to see ("Update <Module>"): its row is shown and brought into view. */
+  const [asked, setAsked] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
@@ -366,6 +370,7 @@ export function Updates({
          job that carries on unseen is a job nobody can see finish. */
       cancel()
       setArmed(null)
+      setAsked(null)
       setOpen(false)
     }
   }
@@ -374,9 +379,12 @@ export function Updates({
      opens and checks out loud, whatever the age of the last check — somebody
      has just been told to update something. */
   useEffect(() => {
-    const onAsked = () => {
+    const onAsked = (event: Event) => {
+      const module = askedModule(event)
       setOpen(true)
-      setShowLevel(false)
+      setAsked(module)
+      /* A module asked for by name is shown even when it is up to date. */
+      setShowLevel(module !== null)
       void run(true)
     }
     window.addEventListener(OPEN_UPDATES, onAsked)
@@ -543,6 +551,16 @@ export function Updates({
     .filter(Boolean)
     .join(' · ')
   const { attention, level } = triage(checkouts, outcomes, new Set(Object.keys(told)))
+
+  /* The row a press elsewhere asked for, once it is drawn: brought into view
+     and given focus, so "Update <Module>" lands on that module's Update. */
+  const askedDrawn = asked !== null && [...attention, ...level].some((one) => one.id === asked)
+  useEffect(() => {
+    if (!open || !askedDrawn || asked === null) return
+    const row = document.querySelector<HTMLElement>(`[data-updates-id="${CSS.escape(asked)}"]`)
+    row?.scrollIntoView?.({ block: 'nearest' })
+    row?.focus({ preventScroll: true })
+  }, [open, askedDrawn, asked, showLevel])
   const ready = attention.filter((one): one is Checkout => isCheckout(one) && hasUpdate(one) && one.blocked === null)
   const endsAll = previewAll(ready.map((one) => ({ name: one.name, preview: check?.previews[one.id] })))
   const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
@@ -655,8 +673,13 @@ export function Updates({
               {attention.map((one) => {
                 const outcome = outcomes[one.id] ?? null
                 return (
-                  <Row
+                  <div
                     key={one.id}
+                    data-updates-id={one.id}
+                    tabIndex={asked === one.id ? -1 : undefined}
+                    className={asked === one.id ? 'ring-ring rounded-md ring-2 outline-none' : undefined}
+                  >
+                  <Row
                     row={moduleRow(
                       one,
                       outcome,
@@ -682,10 +705,11 @@ export function Updates({
                     onNotes={(release, opener) => showModuleNotes(one.id, one.name, release, opener)}
                     have={{ app: app?.current ?? null, protocol: check?.protocol ?? null }}
                   />
+                  </div>
                 )
               })}
 
-              {attention.length > 0 && level.length > 0 ? (
+              {(attention.length > 0 || asked !== null) && level.length > 0 ? (
                 <div className="text-muted-foreground text-xs" data-testid="updates-level">
                   <div className="flex items-center gap-2 px-1">
                     <span className="flex-1">
@@ -703,7 +727,12 @@ export function Updates({
                   {showLevel ? (
                     <ul className="mt-1 space-y-0.5 px-1">
                       {level.map((one) => (
-                        <li key={one.id} className="flex items-center gap-2">
+                        <li
+                          key={one.id}
+                          data-updates-id={one.id}
+                          tabIndex={asked === one.id ? -1 : undefined}
+                          className={cn('flex items-center gap-2', asked === one.id && 'ring-ring rounded-sm ring-2 outline-none')}
+                        >
                           <ModuleIcon id={one.id} name={one.name} className="text-muted-foreground size-3" />
                           <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
                           {Object.hasOwn(pins, one.id) ? (
