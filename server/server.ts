@@ -1301,8 +1301,8 @@ function doing(id: string): Doing {
     /* Read only for a start still in flight: it is a file read. */
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
-    /* Its copy is being put on a newer release, or built: started after. */
-    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id),
+    /* Its copy is being put on a newer release, or built, or read at host start for one: started after. */
+    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || (booting && isInstalledId(id)),
   }
 }
 
@@ -4383,7 +4383,6 @@ async function answerRequest(request: Request): Promise<Response> {
 /* The agent sync's first run, after the server is up and never awaited: it
    sweeps, and does nothing at all before the one-time question was answered. */
 agentSync.poke()
-
 
 console.log(`the canvas is at http://127.0.0.1:${server.port}`)
 console.log(`registrations are read from ${registryDir()}`)
