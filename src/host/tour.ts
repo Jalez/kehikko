@@ -229,6 +229,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
+    id: 'scope',
+    kind: 'show',
+    example: 'header',
+    frames: [
+      {
+        selectors: ['[data-tour-example] [data-testid="header-scope"]'],
+        title: 'What it belongs to',
+        body: 'Its scope: This computer, Project, Epic, Part or Kehikko. Press it to see the scopes the module can work at, and pick one.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
     id: 'frame',
     kind: 'show',
     example: 'header',

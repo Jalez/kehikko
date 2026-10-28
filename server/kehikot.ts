@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { LIMITS, MODULE_ID, PART_ID, REFRESH_EVERY_MAX } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, MODULE_SCOPES, PART_ID, REFRESH_EVERY_MAX } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import {
@@ -87,8 +87,8 @@ import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView
  *   - A kehikko's `key` (its identity — see `Canvas.key`) and `name`.
  *   - Every placement's LAYOUT: `module` (stored as `i` — the grid library's
  *     word — and written here under a name a person can read), `x`, `y`, `w`,
- *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `wish`, `refreshEvery`
- *     and `version`. A module id is the one thing about a module that IS the
+ *     `h`, `grow`, `pinned`, `prompt`, `promptFor`, `wish`, `refreshEvery`,
+ *     `version` and `scope` (the last two only when set). A module id is the one thing about a module that IS the
  *     same on every machine, so a container keyed by it means the same thing
  *     there as here.
  *   - The order of the kehikot within the project, as the order of the list.
@@ -298,6 +298,7 @@ export const PORTABLE_PLACEMENT_FIELDS = [
   'wish',
   'refreshEvery',
   'version',
+  'scope',
 ] as const satisfies readonly (keyof Placement)[]
 
 /** And the ones that are one person's, written to `view.json` (`server/view.ts`). */
@@ -416,6 +417,15 @@ const containerSchema = z
       .refine(isVersionTag, 'is not a version tag such as v1.2.0')
       .nullable()
       .optional(),
+    /* The scope the person picked for this container (protocol 2.29.0):
+       SHARED, because it says what the container shows, like the arrangement.
+       Written only when it is not the module's default, so a file with no
+       picks is still one an older host (whose schema is strict) can read; one
+       with a pick is refused by such a host ("field this host does not know
+       (scope)"), the break accepted for `connections`. A word that is not a
+       scope is refused with the file, like any other malformed field; one the
+       module does not list reads as its default where it is used. */
+    scope: z.enum(MODULE_SCOPES).nullable().optional(),
   })
   .strict()
 
@@ -523,6 +533,7 @@ function toContainer(p: Placement): FileContainer {
     wish: p.wish,
     refreshEvery: p.refreshEvery,
     ...(p.version ? { version: p.version } : {}),
+    ...(p.scope ? { scope: p.scope } : {}),
   }
 }
 
@@ -555,6 +566,7 @@ function fromContainer(c: FileContainer, view: ContainerView = AT_REST): Placeme
     filters: view.filters,
     refreshEvery: c.refreshEvery,
     version: c.version ?? null,
+    scope: c.scope ?? null,
   }
 }
 

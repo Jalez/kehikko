@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ScopeChip } from './Scope.tsx'
 import { ArrowDownLeft, ArrowUpRight, Compass, Eye, LoaderCircle, MousePointerClick } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -159,7 +160,7 @@ export function ModuleList({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by name, what it does, or category"
+          placeholder="Search by name, what it does, category or scope"
           aria-label="search modules"
           className="h-7 text-xs"
         />
@@ -382,6 +383,8 @@ function ModuleRow({
         <div className="flex items-center gap-2">
           <ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />
           <span className="truncate text-sm font-medium">{row.name}</span>
+          {/* What its content belongs to (protocol 2.29.0): its default scope, the line and the others in the tooltip. */}
+          {row.scope ? <ScopeChip scope={row.scope} /> : null}
           {word ? (
             <Badge variant="outline" className="text-muted-foreground shrink-0">
               {word}

@@ -1,4 +1,5 @@
 import type { OfficialModule } from './official.ts'
+import { scopeOfContainer, type ContainerScope } from './scope.ts'
 import type { Presence } from './registry.ts'
 
 /**
@@ -56,6 +57,12 @@ interface Line {
   summary: string
   tags: readonly string[]
   placed: boolean
+  /**
+   * What its content belongs to (protocol 2.29.0), from its manifest: the
+   * default first. Absent for a module not installed, whose manifest has not
+   * been read. Searched by name, so "this computer" or "part" finds it.
+   */
+  scope?: ContainerScope
 }
 
 /** A module registered on this machine. */
@@ -120,6 +127,7 @@ export function rowsOf(
       summary: presence.summary || presence.module?.summary || entry?.summary || '',
       tags: tags.length ? tags : (entry?.tags ?? []),
       placed: placed.has(presence.id),
+      ...(presence.module ? { scope: scopeOfContainer(presence.module, null) } : {}),
       presence,
       official: official ? listed.has(presence.id) : null,
       ...(entry?.from ? { elsewhere: { listed: said(entry), from: entry.from } } : {}),
@@ -142,10 +150,11 @@ const said = (entry: Pick<OfficialModule, 'repo' | 'host'>) => (!entry.host || e
  * id — so "code review" narrows rather than widens, and the shelf's own heading
  * finds what is under it.
  */
-export function matches(row: Pick<Row, 'id' | 'name' | 'summary' | 'tags'>, query: string): boolean {
+export function matches(row: Pick<Row, 'id' | 'name' | 'summary' | 'tags'> & { scope?: ContainerScope }, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return true
-  const text = [row.name, row.summary, row.id, shelfOf(row.tags), ...row.tags].join('\n').toLowerCase()
+  const scopes = row.scope?.supported.map((one) => one.name) ?? []
+  const text = [row.name, row.summary, row.id, shelfOf(row.tags), ...row.tags, ...scopes].join('\n').toLowerCase()
   return words.every((word) => text.includes(word))
 }
 
@@ -159,7 +168,7 @@ export interface Section<R> {
  * per shelf. Each row appears once, and on a shelf what is installed comes
  * before what could be.
  */
-export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed'> & { kind?: Row['kind'] }>(
+export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed' | 'scope'> & { kind?: Row['kind'] }>(
   rows: readonly R[],
   query = '',
 ): Section<R>[] {

@@ -23,6 +23,9 @@ import { modeFor, type MenuMode } from './HeaderMenus.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { ConnectionsTab, type ConnectionsProps } from './Connections.tsx'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
+import type { ModuleScope } from 'kehikot-module-protocol'
+import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
+import { ScopeControl, ScopeIcon } from './Scope.tsx'
 
 /**
  * A module's settings, drawn from what it declared (`declares.settings`, protocol 2.15.0) and
@@ -387,6 +390,7 @@ export function ModuleSettingsDialog({
   api,
   hasSettings = true,
   connections = null,
+  scope = null,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -401,6 +405,12 @@ export function ModuleSettingsDialog({
    * tab. Null, there is no kehikko open, and no tab.
    */
   connections?: ConnectionsProps | null
+  /**
+   * The container's scope on the open kehikko (protocol 2.29.0): drawn beside the title and as the
+   * "Scope" control at the top, above both tabs. `onPick` is the person's pick among the scopes the
+   * module lists; absent, the control is read-only. Null: no container of it is open, nothing drawn.
+   */
+  scope?: { value: ContainerScope; onPick?(scope: ModuleScope): void } | null
 }) {
   const tabs = [...(hasSettings ? (['settings'] as const) : []), ...(connections ? (['connections'] as const) : [])]
   const [tab, setTab] = useState<string>(tabs[0] ?? 'settings')
@@ -412,6 +422,13 @@ export function ModuleSettingsDialog({
           <DialogTitle className="flex items-center gap-2 text-sm">
             <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
             {settingsHint(name)}
+            {scope ? (
+              <span data-testid="settings-scope" data-scope={scope.value.active} title={scopeTooltip(scope.value)} className="text-muted-foreground mr-6 ml-auto inline-flex shrink-0 items-center gap-1 rounded border px-1 text-[10px] font-normal">
+                <ScopeIcon scope={scope.value.active} />
+                {scope.value.name}
+                <span className="sr-only"> scope ({scope.value.isDefault ? 'default' : 'changed'})</span>
+              </span>
+            ) : null}
           </DialogTitle>
           <DialogDescription className="text-xs">
             {shown === 'settings'
@@ -419,6 +436,7 @@ export function ModuleSettingsDialog({
               : `How ${name} and the other modules on this kehikko affect each other.`}
           </DialogDescription>
         </DialogHeader>
+        {scope ? <ScopeControl module={module} scope={scope.value} onPick={scope.onPick} /> : null}
         <Tabs value={shown} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
           {tabs.length > 1 ? (
             <TabsList aria-label={`${name} settings sections`} className="w-full">
@@ -440,7 +458,7 @@ export function ModuleSettingsDialog({
               {open && shown === 'connections' ? <ConnectionsTab module={module} {...connections} /> : null}
             </TabsContent>
           ) : null}
-          {!tabs.length ? <p className="text-muted-foreground text-xs">{name} has no settings, and no kehikko is open.</p> : null}
+          {!tabs.length && !scope ? <p className="text-muted-foreground text-xs">{name} has no settings, and no kehikko is open.</p> : null}
         </Tabs>
       </DialogContent>
     </Dialog>

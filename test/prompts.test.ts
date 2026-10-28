@@ -26,6 +26,7 @@ const container = (i: string, at: [number, number], prompt = '', promptFor: stri
   filters: {},
   refreshEvery: null,
   version: null,
+  scope: null,
 })
 
 describe('nothing aimed at a module is null, not an empty string', () => {

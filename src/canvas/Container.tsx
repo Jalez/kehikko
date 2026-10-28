@@ -26,6 +26,8 @@ import { Hint } from './Hint.tsx'
 import { foldHint } from '../host/folds.ts'
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
+import type { ContainerScope } from '@/host/scope.ts'
+import { ScopeLabel } from './Scope.tsx'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
@@ -98,6 +100,7 @@ export function Container({
   onSettings,
   onStarted,
   onRemove,
+  scope = null,
   kehikko,
   epic,
   oneEpic = false,
@@ -231,6 +234,12 @@ export function Container({
    * and in the Frame menu always. See `ModuleSettings.tsx`.
    */
   onSettings?(): void
+  /**
+   * The container's scope (protocol 2.29.0): a label on the left of the header, the first thing to
+   * give way to its icon (`host/headerFit.ts`), and a row in the Frame menu at every width. Absent or
+   * null while the module's manifest has not been read.
+   */
+  scope?: ContainerScope | null
   /** Look again, after this module has been started. */
   onStarted(): void
   onRemove(): void
@@ -273,7 +282,7 @@ export function Container({
   }, [])
   const fit = stepDown(fitFor(width), steps)
   /* What is drawn changes with the words, the width and the source: start from the most again. */
-  const content = `${name}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
+  const content = `${name}\u0000${scope ? `${scope.active}:${scope.isDefault}` : ''}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
   useLayoutEffect(() => setSteps(0), [width, content])
   useLayoutEffect(() => {
     const label = grip.current?.querySelector<HTMLElement>('[data-testid="header-name"]')
@@ -583,6 +592,10 @@ export function Container({
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
         <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} tight={!fit.icon} />
+        {/* What the module's content belongs to (protocol 2.29.0): the scope in use, the first thing
+            to give way to its icon. A press opens the settings window, where the person picks it;
+            its tooltip says the scope, default or changed, and the module's line. */}
+        {scope ? <ScopeLabel scope={scope} text={fit.scopeText} onOpen={onSettings} /> : null}
         <span className="-mx-1 flex-1" />
 
         {/*
@@ -746,6 +759,7 @@ export function Container({
           onPrompts={onPrompts}
           kehikko={kehikko}
           epic={epic}
+          scope={scope}
         />
 
         {/*

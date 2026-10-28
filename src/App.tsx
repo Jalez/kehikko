@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own, type ModuleScope } from 'kehikot-module-protocol'
 import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
@@ -96,7 +96,7 @@ import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, typ
 import { settingsOf } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
-import { coveredForScope } from './host/scope.ts'
+import { coveredForScope, scopeOfContainer, scopeToKeep, scopeToTell, type ContainerScope } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
@@ -2825,6 +2825,8 @@ export function App() {
           refreshEvery: before?.refreshEvery ?? null,
           /* And the version: a drag is not a choice of which version runs. */
           version: before?.version ?? null,
+          /* And the scope: a drag is not a choice of what the container shows. */
+          scope: before?.scope ?? null,
         }
       })
       /*
@@ -3210,6 +3212,12 @@ export function App() {
     for (const presence of registry?.presences ?? []) map.set(presence.id, presence.name ?? presence.id)
     return map
   }, [registry])
+  /* And what each one's content belongs to (protocol 2.29.0), at its default: for the layout cards. */
+  const registeredScopes = useMemo(() => {
+    const map = new Map<string, ContainerScope>()
+    for (const presence of registry?.presences ?? []) if (presence.module) map.set(presence.id, scopeOfContainer(presence.module, null))
+    return map
+  }, [registry])
 
   /**
    * One item of a module's header, chosen in its container's menus.
@@ -3222,6 +3230,36 @@ export function App() {
    * the module said: taken, or not and why, and the menus say the why.
    */
   const byIdRef = useRef(byId)
+
+  /**
+   * The person's pick of a container's scope (protocol 2.29.0), from its
+   * settings window: one of the scopes its module lists, kept with the
+   * container's arrangement and shared in `kehikot.json` — but only when it is
+   * not the module's default (`scopeToKeep`), so an arrangement on defaults
+   * writes nothing new. The module is told in `context.scope` (`scopeToTell`).
+   * Only the person picks: no MCP tool reaches this.
+   */
+  const onScope = useCallback(
+    (id: string, picked: ModuleScope) => {
+      const placements = open?.placements ?? []
+      const container = placements.find((p) => p.i === id)
+      const module = byId.get(id)?.module
+      if (!container || !module) return
+      const kept = scopeToKeep(module, picked)
+      if (kept === (container.scope ?? null)) return
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, scope: kept } : p)) })
+    },
+    [change, open?.placements, byId],
+  )
+
+  /* The scope of the container whose settings window is open, and the pick (protocol 2.29.0). */
+  const settingsScope = useMemo(() => {
+    const module = settingsFor ? byId.get(settingsFor)?.module : undefined
+    const container = settingsFor ? open?.placements.find((p) => p.i === settingsFor) : undefined
+    if (!settingsFor || !module || !container) return null
+    return { value: scopeOfContainer(module, container.scope), onPick: (picked: ModuleScope) => onScope(settingsFor, picked) }
+  }, [settingsFor, byId, open?.placements, onScope])
+
   byIdRef.current = byId
   const onPressItem = useCallback(
     (id: string, press: Pressing): Promise<Pressed> =>
@@ -4011,8 +4049,16 @@ export function App() {
                container draws the sentence and the page is hidden under it —
                kept, as a folded page is, so it is all still there when an epic
                is picked again. See `host/scope.ts`. */
-            !coveredForScope(about.scope, module, placements.find((p) => p.i === id)?.pinned ?? false),
+            !coveredForScope(about.scope, module, placements.find((p) => p.i === id)?.pinned ?? false, placements.find((p) => p.i === id)?.scope ?? null),
           state: byId.get(id)?.state ?? null,
+          /* The container's scope (protocol 2.29.0): the person's pick among its
+             module's, or its default, and `project` on "All epics" for one at
+             Epic or Part. A pinned container is not moved by "All epics". */
+          scope: scopeToTell(
+            scopeOfContainer(module, placements.find((p) => p.i === id)?.scope ?? null).active,
+            about.scope === 'project',
+            placements.find((p) => p.i === id)?.pinned ?? false,
+          ),
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
@@ -4577,11 +4623,12 @@ export function App() {
                   onTools={() => setToolsFor(presence.id)}
                   onSkills={() => setSkillsFor(presence.id)}
                   onSettings={() => setSettingsFor(presence.id)}
+                  scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
                   onStarted={() => void look(true)}
                   onRemove={() => onUnplace(presence.id)}
                   kehikko={open?.name ?? null}
                   epic={about.epic}
-                  oneEpic={!waiting && coveredForScope(about.scope, presence.module, placement.pinned)}
+                  oneEpic={!waiting && coveredForScope(about.scope, presence.module, placement.pinned, placement.scope)}
                   canvas={open?.id ?? null}
                   version={placement.version ?? null}
                   current={waiting ? null : (presence.module?.version ?? null)}
@@ -4763,6 +4810,7 @@ export function App() {
           project={project ? { id: project.id, name: project.name } : null}
           hasSettings={settingsOf(byId.get(settingsFor)?.module).length > 0}
           connections={open ? { sides: connectionSides, setting: open.connections, onChange: onConnections } : null}
+          scope={settingsScope}
         />
       ) : null}
 
@@ -4779,6 +4827,7 @@ export function App() {
         project={projectId}
         open={open}
         registered={registeredNames}
+        scopes={registeredScopes}
         onMade={onMade}
         onFill={(placements) => change({ placements })}
         onInstalled={() => void look(true)}

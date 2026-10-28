@@ -1,4 +1,5 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { scopeOfContainer } from '../src/host/scope.ts'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 
@@ -199,11 +200,16 @@ describe('the introduction', () => {
     expect(Intro.INTRO_SLIDES[0]!.title).toBe('Welcome to Kehikot')
     expect(dialog()?.getAttribute('data-intro')).toBe('welcome')
     expect(dialog()?.textContent).toContain('Welcome to Kehikot')
-    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'yours'])
+    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'scope', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'yours'])
     expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(Intro.INTRO_SLIDES.length)
     /* It pitches; it does not explain controls — that is the tour's job. */
     const words = Intro.INTRO_SLIDES.map((one) => one.body).join(' ').toLowerCase()
     expect(words).not.toMatch(/drag|resize|from any corner|the gear/)
+    /* Scope, as a term: what a module's content belongs to, its five names, and that it shows on the module. */
+    const scoped = Intro.INTRO_SLIDES.find((one) => one.id === 'scope')!
+    expect(scoped.title).toBe('Every module says what it belongs to')
+    for (const name of ['This computer', 'Project', 'Epic', 'Part', 'Kehikko']) expect(scoped.body).toContain(name)
+    expect(scoped.body).toContain('shows its scope on top')
     for (const said of ['keep running', 'design, research, development, review, learning', 'agent module such as claude or codex', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
@@ -239,7 +245,7 @@ describe('the introduction', () => {
       await render(host())
       await act(async () => onboarding.openIntro())
       expect(document.querySelector('[data-intro]')?.getAttribute('data-motion')).toBe('still')
-      for (let i = 0; i < 3; i++) await press(document.querySelector('[data-intro-next]'))
+      for (let i = 0; i < 4; i++) await press(document.querySelector('[data-intro-next]'))
       expect(document.querySelector('[data-intro]')?.getAttribute('data-intro')).toBe('ways')
       expect([...document.querySelectorAll('[data-way]')].map((one) => one.getAttribute('data-way'))).toEqual([...Intro.WAYS])
       /* The first way stands for all five when still. */
@@ -345,7 +351,7 @@ function add(html: string): HTMLElement {
 }
 
 const CONTAINER =
-  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
+  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-testid="header-scope">s</button><button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
   ['nw', 'ne', 'sw', 'se'].map((c) => `<span class="react-resizable-handle react-resizable-handle-${c} corner-handle"></span>`).join('') +
   '</div>'
 
@@ -442,9 +448,9 @@ describe('the tour waits for the person', () => {
     one.start(null)
     const ids = () => rec.views.map((view) => view.key.split(':')[0])
     expect(one.step).toBe('header')
-    for (let i = 0; i < 7; i++) rec.last!.onNext()
-    expect(ids()).toEqual(['header', 'frame', 'menus', 'corners', 'inbox', 'updates', 'settings', 'help'])
-    expect(rec.last).toMatchObject({ next: 'Done', progress: '8 of 8', back: true })
+    for (let i = 0; i < 8; i++) rec.last!.onNext()
+    expect(ids()).toEqual(['header', 'scope', 'frame', 'menus', 'corners', 'inbox', 'updates', 'settings', 'help'])
+    expect(rec.last).toMatchObject({ next: 'Done', progress: '9 of 9', back: true })
     rec.last!.onBack()
     expect(one.step).toBe('settings')
     rec.last!.onNext()
@@ -683,6 +689,7 @@ describe('the tour in the app', () => {
             onRemove={nothing}
             kehikko="writing"
             epic={null}
+            scope={scopeOfContainer({ modes: [{ id: 'paper', scope: 'epic', scopeSays: 'the open epic’s paper' }] }, null)}
           />
         </div>
       </>,
@@ -888,9 +895,12 @@ describe('the tour and container headers', () => {
       expect(HIDDEN()).toBe(false)
       expect(rec.last?.note).toBe(tour.HEADERS_NOTE)
       rec.last!.onNext()
-      expect(stepOf(rec)).toBe('frame')
+      expect(stepOf(rec)).toBe('scope')
       expect(HIDDEN()).toBe(false)
       expect(rec.last?.note).toBeUndefined()
+      rec.last!.onNext()
+      expect(stepOf(rec)).toBe('frame')
+      expect(HIDDEN()).toBe(false)
       rec.last!.onNext()
       rec.last!.onNext()
       expect(stepOf(rec)).toBe('corners')
@@ -904,7 +914,7 @@ describe('the tour and container headers', () => {
       /* Finishing. */
       one.start('header')
       expect(HIDDEN()).toBe(false)
-      for (let i = 0; i < 7; i++) rec.last!.onNext()
+      for (let i = 0; i < 8; i++) rec.last!.onNext()
       expect(HIDDEN()).toBe(true)
       rec.last!.onNext()
       expect(one.running).toBe('idle')

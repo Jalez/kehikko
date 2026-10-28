@@ -41,16 +41,16 @@ describe('a canvas is a name and an arrangement', () => {
     const made = createCanvas(db, 'the wire')
     editCanvas(db, made.id, {
       placements: [
-        { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null, version: null },
-        { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null },
+        { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null, version: null, scope: null },
+        { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null, scope: null },
       ],
     })
 
     const [canvas] = listCanvases(db)
     expect(canvas?.name).toBe('the wire')
     expect(canvas?.placements).toEqual([
-      { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null, version: null },
-      { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null },
+      { i: 'kehikot.mapmaker', x: 0, y: 0, w: 5, h: 12, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 12, selected: false, filters: {}, refreshEvery: null, version: null, scope: null },
+      { i: 'kehikot.references', x: 5, y: 0, w: 7, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null, scope: null },
     ])
   })
 
@@ -133,7 +133,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: -5, y: 0, w: 0, h: 1e9 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 400, selected: false, filters: {}, refreshEvery: null, version: null })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 400, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 400, selected: false, filters: {}, refreshEvery: null, version: null, scope: null })
   })
 
   test('a number that is not one does not become NaN in the database', () => {
@@ -141,7 +141,7 @@ describe('what arrives over HTTP is not what is written', () => {
     editCanvas(db, made.id, {
       placements: [{ i: 'a.one', x: 'over there', y: null, w: undefined, h: 5 } as never],
     })
-    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 5, selected: false, filters: {}, refreshEvery: null, version: null })
+    expect(listCanvases(db)[0]?.placements[0]).toEqual({ i: 'a.one', x: 0, y: 0, w: 1, h: 5, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 5, selected: false, filters: {}, refreshEvery: null, version: null, scope: null })
   })
 })
 
@@ -157,7 +157,7 @@ describe('following the module’s height is a property of one container', () =>
     editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: true }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(true)
 
-    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 10, selected: false, filters: {}, refreshEvery: null, version: null }] })
+    editCanvas(db, made.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 10, selected: false, filters: {}, refreshEvery: null, version: null, scope: null }] })
     expect(listCanvases(db)[0]?.placements[0]?.grow).toBe(false)
   })
 
@@ -177,7 +177,7 @@ describe('following the module’s height is a property of one container', () =>
     const one = createCanvas(db, 'one')
     const two = createCanvas(db, 'two')
     editCanvas(db, one.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: true }] })
-    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 10, selected: false, filters: {}, refreshEvery: null, version: null }] })
+    editCanvas(db, two.id, { placements: [{ i: 'a.shared', x: 0, y: 0, w: 6, h: 10, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 10, selected: false, filters: {}, refreshEvery: null, version: null, scope: null }] })
 
     const canvases = listCanvases(db)
     expect(canvases[0]?.placements[0]?.grow).toBe(true)
@@ -320,7 +320,7 @@ describe('a database written before a column existed still opens', () => {
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
     /* Ten of the old twenty-eight rows is twenty of the fifty-six (`finerRows`). */
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null })
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null, scope: null })
 
     /* And opening it a second time is not an error, and moves nothing again. */
     after.close()
@@ -512,6 +512,7 @@ describe('a container folded down to its header', () => {
       filters: {},
       refreshEvery: null,
       version: null,
+      scope: null,
     })
   })
 

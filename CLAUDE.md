@@ -517,6 +517,24 @@
   of this host changes a setting: an agent changes a non-`personOnly` one at
   the module's own door.
 
+## A module's scope
+
+- What a module's content belongs to (protocol 2.29.0): This computer, Project,
+  Epic, Part or Kehikko. The module lists the scopes it can work at as `modes`,
+  its default first. Every rule is in `src/host/scope.ts` (`scopeOfContainer`,
+  `scopeToKeep`, `scopeToTell`, `coveredForScope`); `src/canvas/Scope.tsx` only
+  draws it (header label, modules-menu chip, the settings window's control).
+- The person picks among the module's own scopes, per container, in its settings
+  window. The pick is `scope` on the placement, shared in `kehikot.json`, and
+  written only when it is not the default (an older host's strict schema refuses
+  the field). The module is told in `context.scope`. Agents read it in
+  `read_canvas`; no MCP tool changes it. Never offer a scope the module does not
+  list, and never add a second switch for it: a module's own "this epic / all
+  epics" toggle is this setting.
+- In the header the scope is the first thing to give way (`scopeText` in
+  `src/host/headerFit.ts`), to its icon, which keeps the tooltip; it is also a
+  row in the Frame menu at every width.
+
 ## What a module may ask
 
 - Every method is held to the capability the protocol files it under

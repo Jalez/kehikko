@@ -590,12 +590,18 @@ export function whileFrozen(
      step narrower — and a container pinned on "the posting seam" that widened
      when somebody cleared the bar would not have been held at all. `...held`
      below keeps the parts it was pinned with. */
-  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten && !rebased) return null
+  /* The container's scope passes a pin for the filter's reason (protocol
+     2.29.0): the person picked it for THIS container, in its own settings, while
+     looking at it. A pinned container's scope is never moved by the canvas going
+     to "All epics" (`scopeToTell`), so a change here is always that pick. */
+  const rescoped = (held.scope ?? 'epic') !== (told.scope ?? 'epic')
+  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten && !rebased && !rescoped) return null
   const { baseBranch: _held, ...frozen } = held
   return {
     ...(sameProject ? frozen : held),
     theme: told.theme,
     filters: told.filters,
+    ...(rescoped ? { scope: told.scope } : {}),
     ...(sameProject
       ? {
           project: told.project,
