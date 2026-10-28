@@ -153,8 +153,8 @@ describe('the fit check', () => {
     partless: 'Runs are this computer’s.',
     declares: { uses: ['view:navigate'], navigates: ['project', 'show'] },
   }
-  test('this host is 2.28 and fits a module that goes to other projects', () => {
-    expect(PACKAGE_VERSION).toBe('2.28.0')
+  test('this host is 2.28 or later and fits a module that goes to other projects', () => {
+    expect(Bun.semver.order(PACKAGE_VERSION, '2.28.0')).toBeGreaterThanOrEqual(0)
     expect(fitOf(manifest).fit).toBe('fits')
   })
   test('a host before 2.28 is too old for it', () => {

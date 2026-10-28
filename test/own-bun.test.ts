@@ -1,10 +1,10 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 import type { Startable } from '../server/launch.ts'
-import { withOwnBun } from '../server/moduleBuilds.ts'
+import { buildBun, withOwnBun } from '../server/moduleBuilds.ts'
 import { readCheckout, update } from '../server/updates.ts'
 import { SourceMaterialiser } from '../server/versionRuns.ts'
 
@@ -35,6 +35,19 @@ describe('a module start', () => {
   test('an installed copy has the own-Bun shim first on its PATH', () => {
     const got = withOwnBun(ready, true, () => OWN)
     expect(got.ok && got.run.env).toEqual(OWN.env)
+  })
+  test('names in KEHIKOT_HOST_PATH exactly the folders it put first on the PATH', () => {
+    const host = join(root, 'Kehikot.app', 'kehikko-host')
+    mkdirSync(join(root, 'Kehikot.app'), { recursive: true })
+    writeFileSync(host, '#!/bin/sh\n')
+    const got = withOwnBun(ready, true, () => buildBun(host, '/usr/bin:/bin'))
+    const env = got.ok ? got.run.env! : {}
+    const named = env.KEHIKOT_HOST_PATH!.split(delimiter)
+    expect(named).toHaveLength(1)
+    expect(env.PATH).toBe([...named, '/usr/bin', '/bin'].join(delimiter))
+    expect(env.BUN_BE_BUN).toBe('1')
+    expect(realpathSync(join(named[0]!, 'bun'))).toBe(realpathSync(host))
+    rmSync(named[0]!, { recursive: true, force: true })
   })
   test('a checkout is left as it is', () => {
     expect(withOwnBun(ready, false, () => OWN)).toBe(ready)

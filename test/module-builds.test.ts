@@ -543,12 +543,13 @@ describe('the Bun it is built with', () => {
   })
 
   test("a host that is bun builds with itself; a compiled one puts a bun that is itself first on the build's path", () => {
-    expect(buildBun('/opt/bun/bin/bun', '/usr/bin')).toEqual({ bun: '/opt/bun/bin/bun', env: { PATH: '/opt/bun/bin:/usr/bin' } })
+    expect(buildBun('/opt/bun/bin/bun', '/usr/bin')).toEqual({ bun: '/opt/bun/bin/bun', env: { PATH: '/opt/bun/bin:/usr/bin', KEHIKOT_HOST_PATH: '/opt/bun/bin' } })
     const compiled = buildBun('/Applications/Kehikot.app/Contents/MacOS/kehikko-host', '/usr/bin')
     expect(compiled.bun).toBe('/Applications/Kehikot.app/Contents/MacOS/kehikko-host')
     expect(compiled.env.BUN_BE_BUN).toBe('1')
     expect(compiled.env.PATH?.endsWith(':/usr/bin')).toBe(true)
     const shim = compiled.env.PATH!.split(':')[0]!
+    expect(compiled.env.KEHIKOT_HOST_PATH).toBe(shim)
     expect(readlinkSync(join(shim, 'bun'))).toBe('/Applications/Kehikot.app/Contents/MacOS/kehikko-host')
     rmSync(shim, { recursive: true, force: true })
   })
