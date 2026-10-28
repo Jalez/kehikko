@@ -213,8 +213,8 @@ export function ConnectionsTab({ module, sides, setting, onChange }: { module: s
   return (
     <div className="flex min-w-0 flex-col gap-3" data-connections-tab={all ? 'all' : module}>
       <p className="text-muted-foreground text-xs leading-relaxed">
-        What {all ? 'the modules here' : mine.name} {all ? 'provide' : 'provides'} to each other on this kehikko, read from what each module says it does. A switch
-        changes only this kehikko, travels with the project, and is the person’s alone: no agent can change it.
+        {all ? 'What the modules on this kehikko provide each other' : `What ${mine.name} provides the other modules on this kehikko, and what it takes from them`},
+        read from what each module says it does. A switch changes only this kehikko, travels with the project, and is yours alone: no agent can change it.
       </p>
       <div>
         <Button variant="link" size="sm" className="h-auto px-0 text-xs" data-see-all onClick={() => setAll(!all)}>
