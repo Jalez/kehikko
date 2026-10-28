@@ -17,6 +17,9 @@ import {
   confirmRestartAnyway,
   fetchUpdates,
   hasUpdate,
+skippedAfter,
+unfetchedCount,
+updateSets,
   isCheckout,
   LeftRunning,
   offersAppRestart,
@@ -361,6 +364,7 @@ export function Updates({
          for, and forgetting it here took the restart button away with it. */
       setOutcomes((was) => Object.fromEntries(Object.entries(was).filter(([, outcome]) => awaitsRestart(outcome))))
       setShowLevel(false)
+      setSkipped([])
       /* Opening shows what is known. A check older than the focus threshold
          is refreshed out loud; a fresh one is not asked again, so opening the
          menu to press "Restart to update" does not first wait on git. */
@@ -398,12 +402,28 @@ export function Updates({
   }, [run])
 
   /** One or several checkouts, one after another; a cancel stops the rest. */
-  const updateAll = async (ids: string[]) => {
+  const updateAll = async (readyIds: string[], unfetchedIds: string[] = []) => {
     if (busy.current) return
     busy.current = true
     const abort = new AbortController()
     controller.current = abort
     setNotice(null)
+    setSkipped([])
+    let ids = readyIds
+    if (unfetchedIds.length > 0) {
+      /* Checkouts somebody edits are fetched only by a press: this is it, the same fetch as Check now. */
+      setPhase({ kind: 'checking' })
+      try {
+        const found = await fetchUpdates(true, abort.signal, appVersion.current)
+        setCheck(found)
+        const wanted = new Set([...readyIds, ...unfetchedIds])
+        const { ready: taken } = updateSets(found.checkouts)
+        ids = taken.filter((one) => wanted.has(one.id)).map((one) => one.id)
+        setSkipped(skippedAfter(found.checkouts, found.pins))
+      } catch (error) {
+        if (!abort.signal.aborted) setNotice(`GitHub could not be asked, so the local checkouts were not fetched: ${(error as Error).message}`)
+      }
+    }
     for (const [at, id] of ids.entries()) {
       if (abort.signal.aborted) break
       setPhase({ kind: 'updating', ids, at, reached: 'updating' })
@@ -436,6 +456,7 @@ export function Updates({
     setPhase({ kind: 'idle' })
   }
 
+  const [skipped, setSkipped] = useState<{ id: string; name: string; why: string }[]>([])
   const replace = (reading: Reading) =>
     setCheck((was) =>
       was ? { ...was, checkouts: was.checkouts.map((one) => (one.id === reading.id ? reading : one)) } : was,
@@ -560,6 +581,7 @@ export function Updates({
   )
   const count = check ? waiting(check.checkouts.filter((one) => !scheduled.has(one.id)), pins) : 0
   const checkouts = check?.checkouts ?? []
+  const unfetched = unfetchedCount(checkouts, pins)
   const updating = phase.kind === 'updating' ? phase : null
   const current = updating ? (updating.ids[updating.at] ?? null) : null
   /* What the server says beyond the checkouts. An update this page is running
@@ -578,7 +600,7 @@ export function Updates({
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
   const checking = phase.kind === 'checking' || quietly || appOne?.state === 'checking'
-  const label = [tooltipFor(check, failed, count, now, checking && !open), appOne ? `Kehikot app ${appOne.current}: ${stateText(appOne).toLowerCase()}` : null]
+  const label = [tooltipFor(check, failed, count, now, checking && !open, unfetched), appOne ? `Kehikot app ${appOne.current}: ${stateText(appOne).toLowerCase()}` : null]
     .filter(Boolean)
     .join(' · ')
   const { attention, level } = triage(checkouts, outcomes, new Set(Object.keys(told)))
@@ -592,7 +614,10 @@ export function Updates({
     row?.scrollIntoView?.({ block: 'nearest' })
     row?.focus({ preventScroll: true })
   }, [open, askedDrawn, asked, showLevel])
-  const ready = attention.filter((one): one is Checkout => isCheckout(one) && hasUpdate(one) && one.blocked === null)
+  const sets = updateSets(attention)
+  const ready = sets.ready
+  const unfetchedOnes = sets.unfetched
+  const everything = ready.length + unfetchedOnes.length
   const endsAll = previewAll(ready.map((one) => ({ name: one.name, preview: check?.previews[one.id] })))
   const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
   const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
@@ -602,7 +627,7 @@ export function Updates({
       ? 'Asking GitHub what is new for the host and each module…'
       : updating
         ? `${updating.reached === 'restarting' ? 'Restarting' : updating.reached === 'preparing' ? 'Preparing' : 'Updating'} ${nameOf(checkouts, current ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
-        : summaryOf(check, lastFailed, count)
+        : summaryOf(check, lastFailed, count, unfetched)
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -798,6 +823,18 @@ export function Updates({
                   {endsAll}
                 </p>
               ) : null}
+              {skipped.length > 0 && !updating ? (
+                <div className="text-foreground px-1 text-xs" data-testid="updates-skipped">
+                  <p className="font-medium">Not updated:</p>
+                  <ul className="space-y-0.5">
+                    {skipped.map((one) => (
+                      <li key={one.id} data-testid="updates-skipped-item" data-id={one.id}>
+                        {one.name} — {one.why}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Button
                   variant="ghost"
@@ -821,9 +858,9 @@ export function Updates({
                 >
                   What’s new
                 </Button>
-                {ready.length > 1 && !updating ? (
-                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id))}>
-                    Update all ({ready.length})
+                {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
+                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
+                    Update all ({everything})
                   </Button>
                 ) : null}
               </div>
@@ -1213,17 +1250,23 @@ function nameOf(checkouts: readonly Reading[], id: string): string {
   return checkouts.find((one) => one.id === id)?.name ?? id
 }
 
-export function summaryOf(check: Check | null, failed: { why: string } | null, count: number): string {
+export function summaryOf(check: Check | null, failed: { why: string } | null, count: number, unfetched = 0): string {
   if (failed) return 'The last check did not finish.'
   if (!check) return 'Not checked yet.'
-  if (count === 0) return 'Everything is up to date with GitHub.'
+  if (count === 0 && unfetched === 0) return 'Everything is up to date with GitHub.'
+  if (count === 0) return `${unfetchedSaid(unfetched)} Update all fetches ${unfetched === 1 ? 'it' : 'them'}.`
   const updating = check.checkouts.filter((one): one is Checkout => isCheckout(one) && !Object.hasOwn(check.pins, one.id) && hasUpdate(one))
   const releases = updating.filter(runsReleases).length
   if (releases > 0) {
     const n = updating.length
-    return `${n} update${n === 1 ? '' : 's'} waiting${releases === n ? ` — ${n === 1 ? 'a new release' : 'new releases'}` : ''}.`
+    return `${n} update${n === 1 ? '' : 's'} waiting${releases === n ? ` — ${n === 1 ? 'a new release' : 'new releases'}` : ''}.${unfetched ? ` ${unfetchedSaid(unfetched)}` : ''}`
   }
-  return `${count} new commit${count === 1 ? '' : 's'} across ${updating.length} repositor${updating.length === 1 ? 'y' : 'ies'}.`
+  return `${count} new commit${count === 1 ? '' : 's'} across ${updating.length} repositor${updating.length === 1 ? 'y' : 'ies'}.${unfetched ? ` ${unfetchedSaid(unfetched)}` : ''}`
+}
+
+/** Checkouts the automatic check saw move and fetched nothing of: never "up to date". */
+function unfetchedSaid(n: number): string {
+  return `${n} local checkout${n === 1 ? ' has' : 's have'} new commits not fetched yet.`
 }
 
 export function tooltipFor(
@@ -1232,6 +1275,7 @@ export function tooltipFor(
   count: number,
   now: Date,
   checking: boolean,
+  unfetched = 0,
 ): string {
   if (checking) return 'checking for updates…'
   if (failed && (!check || failed.at > check.checked)) {
@@ -1239,5 +1283,7 @@ export function tooltipFor(
   }
   if (!check) return 'not checked for updates yet — press to check now'
   const when = `last checked for updates ${ago(check.checked, now)} (${check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
-  return count ? `${when} — ${count} new commit${count === 1 ? '' : 's'} waiting` : `${when} — everything is up to date`
+  const fetch = unfetched ? `${unfetched} local checkout${unfetched === 1 ? ' has' : 's have'} new commits not fetched yet` : ''
+  if (count) return `${when} — ${count} new commit${count === 1 ? '' : 's'} waiting${fetch ? `, ${fetch}` : ''}`
+  return fetch ? `${when} — ${fetch}` : `${when} — everything is up to date`
 }
