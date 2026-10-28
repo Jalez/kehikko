@@ -5,7 +5,7 @@
  */
 import { applyTheme, connect } from 'kehikot-module-protocol/client'
 
-const { id, origins, jump } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null } }).__standin
+const { id, origins, jump, activity } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null; activity: unknown[] | null } }).__standin
 let flag = false
 let presses = 0
 
@@ -62,4 +62,9 @@ document.getElementById('jump')?.addEventListener('click', () => {
       document.getElementById('jumped')!.textContent = String(error)
     },
   )
+})
+
+/* The report: a press says what is going on (`activity.set`), so the Inbox has news. */
+document.getElementById('report')?.addEventListener('click', () => {
+  if (activity) void connection.request('activity.set', { items: activity })
 })
