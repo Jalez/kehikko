@@ -446,6 +446,50 @@ export function waiting(checkouts: readonly Reading[], pins: Readonly<Record<str
   }, 0)
 }
 
+/**
+ * What "Update all" works over. `ready` can be fast-forwarded now. `unfetched` are checkouts
+ * somebody edits that the automatic check saw move and fetched nothing of (`waiting`): "Update all"
+ * fetches them first, as Check now does, then updates the ones that can be. `blocked` are behind
+ * but refused (uncommitted changes, commits of their own).
+ */
+export function updateSets(checkouts: readonly Reading[]): { ready: Checkout[]; unfetched: Checkout[]; blocked: Checkout[] } {
+  const found = checkouts.filter(isCheckout)
+  return {
+    ready: found.filter((one) => hasUpdate(one) && one.blocked === null),
+    unfetched: found.filter((one) => !hasUpdate(one) && one.waiting === true),
+    blocked: found.filter((one) => hasUpdate(one) && one.blocked !== null),
+  }
+}
+
+/** The words for "local checkout not fetched", the reason a waiting checkout gives. */
+export const NOT_FETCHED = 'local checkout not fetched — press Check now'
+
+/**
+ * Why a checkout was left as it is after "Update all", or null when there is nothing to say (it is
+ * level, or it has an update that can be taken).
+ */
+export function skipReason(one: Checkout): string | null {
+  if (hasUpdate(one)) return one.blocked
+  if (one.waiting !== true) return null
+  if (one.fetchFailed !== null) return `${NOT_FETCHED} (GitHub could not be reached: ${one.fetchFailed})`
+  /* "already up to date" is only the zero behind of a checkout that was not fetched. */
+  return one.blocked !== null && one.blocked !== 'already up to date' ? `${one.blocked}; ${NOT_FETCHED}` : NOT_FETCHED
+}
+
+/** Every module "Update all" left as it was, with why: pinned modules are not waiting for it. */
+export function skippedAfter(checkouts: readonly Reading[], pins: Readonly<Record<string, PinCount>> = {}): { id: string; name: string; why: string }[] {
+  return checkouts.flatMap((one) => {
+    if (!isCheckout(one) || Object.hasOwn(pins, one.id)) return []
+    const why = skipReason(one)
+    return why === null ? [] : [{ id: one.id, name: one.name, why }]
+  })
+}
+
+/** How many modules have new commits on their remote that nothing has fetched. */
+export function unfetchedCount(checkouts: readonly Reading[], pins: Readonly<Record<string, PinCount>> = {}): number {
+  return checkouts.filter((one) => isCheckout(one) && !Object.hasOwn(pins, one.id) && !hasUpdate(one) && one.waiting === true).length
+}
+
 /** "just now", "4 minutes ago", "2 hours ago", or a date. */
 export function ago(then: Date, now: Date): string {
   const seconds = Math.max(0, Math.round((now.getTime() - then.getTime()) / 1000))
