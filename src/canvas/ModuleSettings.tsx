@@ -423,7 +423,7 @@ export function ModuleSettingsDialog({
             <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
             {settingsHint(name)}
             {scope ? (
-              <span data-testid="settings-scope" data-scope={scope.value.active} title={scopeTooltip(scope.value)} className="text-muted-foreground ml-auto inline-flex items-center gap-1 rounded border px-1 text-[10px] font-normal">
+              <span data-testid="settings-scope" data-scope={scope.value.active} title={scopeTooltip(scope.value)} className="text-muted-foreground mr-6 ml-auto inline-flex shrink-0 items-center gap-1 rounded border px-1 text-[10px] font-normal">
                 <ScopeIcon scope={scope.value.active} />
                 {scope.value.name}
                 <span className="sr-only"> scope ({scope.value.isDefault ? 'default' : 'changed'})</span>
