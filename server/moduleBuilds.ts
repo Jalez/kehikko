@@ -5,6 +5,7 @@ import { basename, delimiter, dirname, join } from 'node:path'
 
 import type { Startable } from './launch.ts'
 import { readiness, STAMP_FILE } from 'kehikot-module-protocol/build'
+import { HOST_PATH_ENV } from 'kehikot-module-protocol/serve'
 
 
 /**
@@ -481,11 +482,16 @@ export async function whyNoBuilds(onPath: () => Promise<string | null>, own: str
  * compiled binary, which is Bun when `BUN_BE_BUN=1` is set; a `bun` that is
  * that binary goes first on the build's `PATH`, so a script that says `bun
  * run build.ts` runs on it too, and not on whatever the person has.
+ *
+ * The folder put first is named in `KEHIKOT_HOST_PATH` (`HOST_PATH_ENV`), so
+ * a module can take it off again for what it starts on the person's behalf
+ * (`personEnv` in the protocol's `/serve`): a session or a shell that
+ * inherits it without `BUN_BE_BUN` would boot this host on every `bun`.
  */
 const shims = new Map<string, string>()
 export function buildBun(execPath: string = process.execPath, path: string = process.env.PATH ?? ''): { bun: string; env: Record<string, string> } {
   if (/^bun(\.exe)?$/.test(basename(execPath))) {
-    return { bun: execPath, env: { PATH: [dirname(execPath), path].filter(Boolean).join(delimiter) } }
+    return { bun: execPath, env: { PATH: [dirname(execPath), path].filter(Boolean).join(delimiter), [HOST_PATH_ENV]: dirname(execPath) } }
   }
   let shim = shims.get(execPath)
   if (!shim) {
@@ -494,7 +500,7 @@ export function buildBun(execPath: string = process.execPath, path: string = pro
     symlinkSync(execPath, join(shim, 'bun'))
     shims.set(execPath, shim)
   }
-  return { bun: execPath, env: { BUN_BE_BUN: '1', PATH: [shim, path].filter(Boolean).join(delimiter) } }
+  return { bun: execPath, env: { BUN_BE_BUN: '1', PATH: [shim, path].filter(Boolean).join(delimiter), [HOST_PATH_ENV]: shim } }
 }
 
 /**

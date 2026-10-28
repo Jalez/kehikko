@@ -26,7 +26,8 @@ export interface FramedModule {
   icon: string | null
   health: string | null
   mcp: { url: string; transport: string; about: string; as?: string } | null
-  modes: { id: string; label: string; scope: 'epic' | 'global' }[]
+  /** `global` from a host before 2.29.0; the five words of `MODULE_SCOPES` from one after. */
+  modes: { id: string; label: string; scope: 'epic' | 'global' | 'machine' | 'project' | 'part' | 'kehikko'; scopeSays?: string }[]
   extensions: { emits: string[]; consumes: string[] }
   /**
    * The context kinds this module says it reacts to.
