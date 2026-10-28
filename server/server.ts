@@ -2686,6 +2686,8 @@ const inboxRoutes = inboxDesk({
     kehikot: new Set(listCanvases(db).filter((one) => one.project === project).map((one) => one.key)),
     epics: epicSlugs(projectById(db, project)?.path),
   }),
+  /* What a module's items may name as an event: its manifest's, as last seen. */
+  eventsOf: (module) => lastPresences.get(module)?.module?.events,
   changed: (project, rev) => wakes.inboxChanged(project, rev),
 })
 

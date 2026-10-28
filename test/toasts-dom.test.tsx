@@ -7,7 +7,7 @@ import type { Entry } from '../src/host/inbox.ts'
 /* The Inbox toast, rendered, in a process of its own (see `chime-dom.test.tsx`). */
 
 const inChild = process.env.TOAST_DOM === '1'
-const TESTS = 8
+const TESTS = 9
 
 if (!inChild) {
   test('the toast, rendered in a process of their own', () => {
@@ -125,6 +125,20 @@ describe.skipIf(!inChild)('the Inbox toast, rendered', () => {
     expect(card!.querySelector('[data-toast-place]')!.textContent).toBe('Wide · methods')
     expect(card!.querySelector('[data-toast-open]')!.textContent).toBe('Open')
     expect(card!.querySelector('[data-toast-dismiss]')!.textContent).toContain('Dismiss')
+  })
+
+  test('a named event heads the toast by its own words, as text, with the kind’s icon', async () => {
+    await mount()
+    await arrive(['Protocol audit', 'done', { named: { id: 'research-complete', says: 'Research complete' } }])
+    const [card] = cards()
+    expect(card!.getAttribute('data-inbox-toast')).toBe('done')
+    const word = card!.querySelector('[data-toast-kind]')!
+    expect(word.textContent).toBe('Research complete')
+    expect(word.hasAttribute('data-toast-event')).toBe(true)
+    expect(card!.getAttribute('aria-label')).toBe('Research complete: Protocol audit')
+    expect(card!.querySelector('svg')).not.toBeNull()
+    await arrive(['Plain', 'done'])
+    expect(cards()[1]!.querySelector('[data-toast-kind]')!.textContent).toBe('Finished')
   })
 
   test('a label is text: markup in it is not rendered', async () => {

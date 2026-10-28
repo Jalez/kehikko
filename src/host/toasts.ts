@@ -33,6 +33,12 @@ export const toastMs = (kind: Kind): number => (kind === 'urgent' || kind === 'a
 export interface Toast {
   id: number
   kind: Kind
+  /**
+   * The module's name for what this is (protocol 2.31.0): the head item's
+   * declared event, "Research complete". Shown in place of the kind's word;
+   * absent for an item that names none.
+   */
+  says?: string
   /** The module's registered name. */
   by: string
   label: string
@@ -68,13 +74,16 @@ export function toastOf(id: number, batch: readonly Arrival[]): Toast | null {
   for (const arrival of batch) {
     const kind = arrivalKind(arrival)
     if (kind === null) continue
-    if (head === null || URGENCY[kind] > URGENCY[head.kind]) head = { arrival, kind }
+    /* Of equally urgent ones, a named event heads, as it is the one the chime plays. */
+    const named = arrival.entry.named && !head?.arrival.entry.named
+    if (head === null || URGENCY[kind] > URGENCY[head.kind] || (URGENCY[kind] === URGENCY[head.kind] && named)) head = { arrival, kind }
   }
   if (!head) return null
   const count = batch.filter((one) => arrivalKind(one) !== null).length
   return {
     id,
     kind: head.kind,
+    ...(head.arrival.entry.named ? { says: head.arrival.entry.named.says } : {}),
     by: head.arrival.by,
     label: head.arrival.entry.label,
     place: head.arrival.place,
@@ -91,6 +100,9 @@ export const withToast = (shown: readonly Toast[], next: Toast): Toast[] => [...
 export const countWords = (count: number): string => `${count} new in the Inbox`
 
 export const kindLabel = (kind: Kind): string => KIND_WORDS[kind].label
+
+/** The word a toast heads with: the event's own name when it has one, else the kind's. */
+export const toastWord = (toast: Pick<Toast, 'kind' | 'says'>): string => toast.says ?? kindLabel(toast.kind)
 
 /**
  * Arrivals in, at most one batch out per window: the first opens a short

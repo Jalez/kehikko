@@ -656,6 +656,11 @@
   new write here gets the same. No MCP tool may see, dismiss or forget.
 - The host names no module and no vendor: the by-line is the module's registered
   name, the label is its claim. Never colour alone; no standing rows.
+- A module's named event (protocol 2.31.0, `events` in its manifest, `event` on an
+  item) is a case of a state, never a kind of its own: `applyList` keeps it as
+  `named` only when the manifest declares it for the item's state. Its sound is
+  `chimeFor` in `src/host/chime.ts` (the person's choice, else
+  `DEFAULT_EVENT_SOUNDS`, else the kind's); the host names no module there.
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
 - Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts

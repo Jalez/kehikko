@@ -749,6 +749,7 @@ function activityText(row: ActivityRow): string {
   const words = { attention: 'needs your attention', working: 'working', done: 'finished' }[row.state]
   return (
     `activity: ${quoted(row.name ?? row.module)} says ${quoted(row.label)} — ${words}` +
+    (row.event ? ` (event ${row.event.id}: ${quoted(row.event.says)})` : '') +
     (row.place ? ` — at ${row.place}` : ' — the project, no place') +
     (row.priority === 'urgent' ? ' — URGENT' : row.priority === 'low' ? ' — low priority' : '') +
     (row.state === 'done' ? (row.seen ? ' [seen]' : ' [not seen yet]') : '') +
@@ -937,7 +938,8 @@ function tools() {
         + 'words in quotes are the module’s. scope "here" (the default) is this kehikko plus whatever does not say '
         + 'which kehikko it belongs to; "everywhere" is the whole project, which is how to see what is going on '
         + 'in other kehikot, epics and parts. earlier is how many earlier lines to list (0 to 100, default 10). '
-        + 'Read-only: nothing an agent can do marks anything seen or puts it away — that is the person’s.',
+        + 'A line whose module named the case says "(event <id>: \"<what the module calls it>\")", e.g. a finished '
+        + 'session that was research. Read-only: nothing an agent can do marks anything seen or puts it away — that is the person’s.',
       annotations: { title: 'Read the inbox', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: {
         type: 'object',

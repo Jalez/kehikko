@@ -11,7 +11,7 @@ import { DEFAULT_CHIME, chimePatched, withoutFile, fellBackWords, type ChimeSett
  */
 
 const inChild = process.env.CHIME_DOM === '1'
-const TESTS = 9
+const TESTS = 11
 
 if (!inChild) {
   test('the chime, rendered in a process of their own', () => {
@@ -218,6 +218,39 @@ describe.skipIf(!inChild)('the chime, rendered', () => {
     await click(byLabel(el, 'Remove the sound for Claude, Needs you'))
     await settle()
     expect(host.modules).toEqual({})
+  })
+
+  test('each declared event has a picker under its module, by its own words; the research chime by default, played as written', async () => {
+    const modules = [
+      { id: 'kehikot.claude', name: 'Claude', events: [{ id: 'research-complete', says: 'Research complete', state: 'done' as const }] },
+      { id: 'kehikot.tests', name: 'Tests' },
+    ]
+    const el = await mount(<Panels.ChimePanel modules={modules} />)
+    const section = el.querySelector('[data-chime-events]')!
+    expect([...section.querySelectorAll('[data-chime-event-module]')].map((one) => one.getAttribute('data-chime-event-module'))).toEqual(['kehikot.claude'])
+    const row = section.querySelector('[data-chime-event="research-complete"]')!
+    expect(row.querySelector('label')!.textContent).toBe('Research complete')
+    expect(row.textContent).toContain('A kind of “Finished”.')
+    const pick = row.querySelector<HTMLSelectElement>('select')!
+    expect(pick.value).toBe('preset:research')
+    expect([...pick.options].map((one) => one.textContent)).toContain('Same as Finished')
+    /* As written: all four notes of the research chime, not the Finished form's two. */
+    await click(byLabel(el, 'Preview Claude Research complete'))
+    expect(started).toHaveLength(4)
+    started.length = 0
+    await choose(pick, 'preset:bell')
+    expect(posts.at(-1)).toEqual({ url: '/host/settings', body: { chime: { events: { 'kehikot.claude': { 'research-complete': { type: 'preset', id: 'bell' } } } } } })
+    expect(host.events['kehikot.claude']?.['research-complete']).toEqual({ type: 'preset', id: 'bell' })
+    await choose(pick, 'kind')
+    expect(host.events['kehikot.claude']?.['research-complete']).toEqual({ type: 'kind' })
+    /* Same as Finished: the Finished sound in its soft form. */
+    await click(byLabel(el, 'Preview Claude Research complete'))
+    expect(started).toHaveLength(2)
+  })
+
+  test('no module declares an event: no events section', async () => {
+    const el = await mount(<Panels.ChimePanel modules={[{ id: 'kehikot.claude', name: 'Claude' }]} />)
+    expect(el.querySelector('[data-chime-events]')).toBeNull()
   })
 
   test('the chime maker: slots of the scale only, kept as My chime, and previewed', async () => {

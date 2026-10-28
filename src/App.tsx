@@ -3588,7 +3588,7 @@ export function App() {
       noticeRef.current(entry, project)
       /* The same news, as a sound: `useInbox` has already left out what is on screen. */
       const kind = kindOf(entry)
-      if (kind) chime.offer(kind, entry.module)
+      if (kind) chime.offer(kind, entry.module, entry.named?.id)
       /* And as a toast: the same news, so the same decision. */
       toastRef.current(entry, project)
     },
@@ -4818,7 +4818,7 @@ export function App() {
           question while it is unanswered. Opened from the projects menu, a
           module's Tools or Skills window, and the sync's lines in the Inbox.
           Its Project section is the open project's own. */}
-      <AgentSettingsHost project={project} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id })) ?? []} />
+      <AgentSettingsHost project={project} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id, ...(p.module?.events?.length ? { events: p.module.events } : {}) })) ?? []} />
 
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}

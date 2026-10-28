@@ -294,7 +294,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
         data={entry.state}
         dot={entry.state}
         by={byLine(entry)}
-        state={STATE_WORDS[entry.state]}
+        state={entry.named?.says ?? STATE_WORDS[entry.state]}
         label={entry.label}
         {...(entry.detail ? { detail: entry.detail } : {})}
         place={place}
@@ -556,7 +556,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
                       data={`elsewhere-${entry.state}`}
                       dot={entry.state}
                       by={byLine(entry)}
-                      state={STATE_WORDS[entry.state]}
+                      state={entry.named?.says ?? STATE_WORDS[entry.state]}
                       label={entry.label}
                       {...(entry.detail ? { detail: entry.detail } : {})}
                       place={where ? `${project.name} · ${where}` : project.name}

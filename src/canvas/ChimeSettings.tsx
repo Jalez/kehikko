@@ -9,6 +9,10 @@ import { Switch } from '@/components/ui/switch.tsx'
 import {
   choiceOf,
   durationMs,
+  eventChoiceOf,
+  eventDefault,
+  eventSoundOfChoice,
+  kindOf,
   FILE_LIMITS,
   KIND_WORDS,
   KINDS,
@@ -38,7 +42,8 @@ import { addSound, postChime, removeSound, renameSound, setMuted, setToast, useC
  * which is also the gesture WebKit wants before it lets a page make sound.
  */
 
-export type ModuleRef = { id: string; name: string }
+/** A module as the panel knows it: its id, its registered name, and the Inbox events it declares (protocol 2.31.0). */
+export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done' }[] }
 
 const said = (error: unknown): string => (error instanceof Error ? error.message : 'That did not work.')
 
@@ -151,6 +156,7 @@ export function ChimePanel({ modules = [] }: { modules?: readonly ModuleRef[] })
         </ul>
       </section>
 
+      <Events settings={settings} modules={modules} run={run} />
       <Mine settings={settings} setNote={setNote} />
       <Overrides settings={settings} modules={modules} run={run} />
       <Maker settings={settings} run={run} />
@@ -333,6 +339,77 @@ function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: st
           ))}
         </ul>
       ) : null}
+    </section>
+  )
+}
+
+/**
+ * A sound for each event a module declares (protocol 2.31.0), grouped by the
+ * module's registered name and named by the event's own `says` — as text.
+ * Nothing set plays the host's sound for that event id, else the kind's;
+ * "Same as …" chooses the kind's. Drawn only when some module declares one.
+ */
+function Events({ settings, modules, run }: { settings: ChimeSettings; modules: readonly ModuleRef[]; run(work: Promise<unknown>): void }) {
+  const id = useId()
+  const declaring = modules.filter((one) => one.events?.length)
+  if (!declaring.length) return null
+  return (
+    <section className="flex min-w-0 flex-col gap-2" aria-labelledby={`${id}-events`} data-chime-events>
+      <h4 id={`${id}-events`} className="text-sm font-medium">
+        A sound for each event
+      </h4>
+      <p className="text-muted-foreground text-xs leading-relaxed">
+        Some modules name what they tell you, like “Research complete”. Each can have its own sound, played as written; otherwise it plays its kind’s.
+      </p>
+      {declaring.map((module) => (
+        <div key={module.id} className="flex min-w-0 flex-col gap-1" data-chime-event-module={module.id}>
+          <p className="text-muted-foreground text-xs font-medium">{module.name}</p>
+          <ul className="divide-y rounded-lg border px-4">
+            {module.events!.map((event) => {
+              const kind = kindOf({ state: event.state, priority: 'normal', origin: 'activity' }) ?? 'done'
+              const chosen = settings.events[module.id]?.[event.id] ?? eventDefault(event.id)
+              const playing = chosen.type === 'kind' ? settings.sounds[kind] : chosen
+              const field = `${id}-${module.id}-${event.id}`
+              return (
+                <li key={event.id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 py-3" data-chime-event={event.id}>
+                  <div className="min-w-32 flex-1 space-y-0.5">
+                    <Label htmlFor={field} className="text-sm">
+                      {event.says}
+                    </Label>
+                    <p className="text-muted-foreground text-xs">A kind of “{KIND_WORDS[kind].label}”.</p>
+                  </div>
+                  <div className="w-44 shrink-0">
+                    <NativeSelect
+                      id={field}
+                      value={eventChoiceOf(chosen)}
+                      onChange={(change) => {
+                        const sound = eventSoundOfChoice(change.target.value)
+                        if (sound) run(postChime({ events: { [module.id]: { [event.id]: sound } } }))
+                      }}
+                    >
+                      <optgroup label="Its kind">
+                        <NativeSelectOption value="kind">Same as {KIND_WORDS[kind].label}</NativeSelectOption>
+                      </optgroup>
+                      <Options settings={settings} />
+                    </NativeSelect>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 gap-1.5"
+                    aria-label={`Preview ${module.name} ${event.says}`}
+                    onClick={() => void playSound(playing, kind, settings, chosen.type !== 'kind')}
+                  >
+                    <Play className="size-3.5" aria-hidden />
+                    Preview
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
     </section>
   )
 }
