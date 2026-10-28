@@ -22,6 +22,11 @@ const trafficHost = process.env.STANDIN_TRAFFIC ?? null
    second, as a module's server does (`dev/callers.drive.mjs`). */
 const pingHost = process.env.STANDIN_PING ?? null
 if (pingHost) setInterval(() => void fetch(`${pingHost}/host/hello`).catch(() => {}), 1000)
+/* `STANDIN_JUMP=<view.goto params as JSON>`: this one has a "jump" button that asks the host for that
+   move (protocol 2.28.0, `view.goto { project, show }`), as Test runs' does. `STANDIN_SHOWS=1`: this one
+   says it shows agent sessions, and draws the `context.show` it is told (`dev/cross-project-jump.drive.mjs`). */
+const jump = process.env.STANDIN_JUMP ? (JSON.parse(process.env.STANDIN_JUMP) as Record<string, unknown>) : null
+const shows = process.env.STANDIN_SHOWS === '1'
 
 const manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -38,7 +43,14 @@ const manifest = manifestSchema.parse({
   extensions: { emits: [], consumes: [] },
   reacts: [],
   partless: 'A stand-in for a test: it holds nothing of a part.',
-  declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: trafficHost ? ['traffic:read'] : [], storage: true, prompt: false },
+  ...(shows ? { shows: ['agent-session'] } : {}),
+  declares: {
+    protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
+    uses: [...(trafficHost ? ['traffic:read'] : []), ...(jump ? ['view:navigate'] : [])],
+    storage: true,
+    prompt: false,
+    ...(jump ? { navigates: ['project', 'show'] } : {}),
+  },
   health: '/healthz',
 })
 
@@ -58,10 +70,10 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</t
   #list div { height: 24px }
 </style></head><body>
 <div style="padding:6px"><input id="field" placeholder="type here" autocomplete="off"> <button id="press">press</button>
-<span id="pressed">0</span> <span id="greeted">not greeted</span></div>
+<span id="pressed">0</span> <span id="greeted">not greeted</span>${jump ? ' <button id="jump">jump</button> <span id="jumped"></span>' : ''}</div>
 <div id="told" style="font:600 22px system-ui;padding:2px 6px">…</div>
 <div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
-<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))} }</script>
+<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)} }</script>
 <script type="module">${script}</script></body></html>`
 
 Bun.serve({

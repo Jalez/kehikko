@@ -218,7 +218,7 @@ export function ModuleFrame({
           canvasRef.current.activity?.(from, items) ?? { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' },
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
-        goto: (call) => canvasRef.current.goto(call),
+        goto: (call, from) => canvasRef.current.goto(call, from),
       },
       /* Held to what the manifest asks for, as the registry last read it. */
       (capability) => usesRef.current.includes(capability)),
