@@ -19,6 +19,7 @@ import type { Ran, Runner } from '../server/versions.ts'
 const slides: Official = { id: 'kehikot.slides', name: 'Slides', repo: 'Jalez/kehikko-slides', port: 7990, summary: 'Decks.', tags: ['writing'] }
 const notes: Official = { id: 'kehikot.notes', name: 'Notes', repo: 'Jalez/kehikko-notes', port: 7940, summary: 'Notes.', tags: ['reading'] }
 
+const OWN = { bun: '/host/own-bun', env: { BUN_BE_BUN: '1', PATH: '/shim:/usr/bin' } }
 const scratch: string[] = []
 afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
@@ -33,13 +34,13 @@ function world(
   scratch.push(base)
   const root = join(base, 'installed')
   const registry = join(base, 'modules')
-  const calls: { argv: readonly string[]; cwd?: string }[] = []
+  const calls: { argv: readonly string[]; cwd?: string; env?: Record<string, string> }[] = []
   const woken: string[] = []
   let release: () => void = () => {}
   const held = new Promise<void>((done) => (release = done))
   let hold = false
   const run: Runner = async (argv, options) => {
-    calls.push({ argv, cwd: options?.cwd })
+    calls.push({ argv, cwd: options?.cwd, env: options?.env })
     if (hold) await held
     const ran = answers(argv)
     /* A clone that worked leaves a directory, as git does. */
@@ -51,6 +52,7 @@ function world(
     run,
     root,
     registry,
+    bun: () => OWN,
     registered: async () => [
       ...registered,
       ...(existsSync(registry) ? readdirSync(registry).map((name) => ({ id: name.replace(/\.json$/, ''), port: null })) : []),
@@ -134,7 +136,7 @@ describe('installing an official module', () => {
     )
     await desk.install('kehikot.slides')
     expect((await settled(desk, 'kehikot.slides')).installed).toBe(true)
-    expect(order).toEqual(['git clone', `settle kehikot.slides ${join(root, 'kehikot.slides')}`, 'bun install'])
+    expect(order).toEqual(['git clone', `settle kehikot.slides ${join(root, 'kehikot.slides')}`, '/host/own-bun install'])
     expect(calls).toHaveLength(2)
   })
 
@@ -155,9 +157,12 @@ describe('installing an official module', () => {
     const dir = join(root, 'kehikot.slides')
     expect(calls.map((call) => call.argv.join(' '))).toEqual([
       `git clone --quiet https://github.com/Jalez/kehikko-slides.git ${dir}`,
-      'bun install --frozen-lockfile',
+      '/host/own-bun install --frozen-lockfile',
     ])
     expect(calls[1]!.cwd).toBe(dir)
+    /* Kehikot's own Bun and its env, never the `bun` on the PATH. */
+    expect(calls[1]!.env).toEqual(OWN.env)
+    expect(calls.some((call) => call.argv[0] === 'bun')).toBe(false)
 
     /* A registration the host's own reader accepts, naming the checkout. */
     const read = readRegistration('kehikot.slides.json', readFileSync(join(registry, 'kehikot.slides.json'), 'utf8'))
@@ -213,14 +218,14 @@ describe('installing an official module', () => {
   test('a failed dependency install is kept as a sentence, and the next press reuses the clone', async () => {
     let installs = 0
     const { desk, calls, root } = world((argv) => {
-      if (argv[0] === 'bun') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
+      if (argv[1] === 'install') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
       if (argv.includes('get-url')) return { ok: true, out: 'https://github.com/Jalez/kehikko-slides.git' }
       return { ok: true, out: '' }
     })
     await desk.install('kehikot.slides')
     expect((await settled(desk, 'kehikot.slides')).install).toEqual({
       state: 'failed',
-      why: 'Slides was cloned, and its dependencies could not be installed: lockfile is frozen',
+      why: expect.stringContaining(`could not be installed with Kehikot's own Bun ${Bun.version}`),
     })
     await desk.install('kehikot.slides')
     expect((await settled(desk, 'kehikot.slides')).installed).toBe(true)
@@ -231,7 +236,7 @@ describe('installing an official module', () => {
   test('a clone left by a failed attempt is brought up to date before it is installed again', async () => {
     let installs = 0
     const { desk, calls, root } = world((argv) => {
-      if (argv[0] === 'bun') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
+      if (argv[1] === 'install') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
       if (argv.includes('get-url')) return { ok: true, out: 'https://github.com/Jalez/kehikko-slides.git' }
       return { ok: true, out: '' }
     })
@@ -244,12 +249,12 @@ describe('installing an official module', () => {
     /* The fix for a repository that would not install arrives as a commit, so
        the pull has to come BEFORE the second install, not merely happen. */
     expect(pull).toBeGreaterThan(-1)
-    expect(pull).toBeLessThan(said.lastIndexOf('bun install --frozen-lockfile'))
+    expect(pull).toBeLessThan(said.lastIndexOf('/host/own-bun install --frozen-lockfile'))
   })
 
   test('a clone that cannot be updated is still tried, and the failure says both things', async () => {
     const { desk } = world((argv) => {
-      if (argv[0] === 'bun') return { ok: false, why: 'lockfile is frozen' }
+      if (argv[1] === 'install') return { ok: false, why: 'lockfile is frozen' }
       if (argv.includes('get-url')) return { ok: true, out: 'https://github.com/Jalez/kehikko-slides.git' }
       if (argv.includes('pull')) return { ok: false, why: 'could not resolve host github.com' }
       return { ok: true, out: '' }
@@ -259,7 +264,7 @@ describe('installing an official module', () => {
     await desk.install('kehikot.slides')
     expect((await settled(desk, 'kehikot.slides')).install).toEqual({
       state: 'failed',
-      why: 'Slides was cloned, and its dependencies could not be installed: lockfile is frozen — and the clone, left by an earlier attempt, could not be brought up to date first: could not resolve host github.com',
+      why: `Slides was cloned, and its dependencies could not be installed with Kehikot's own Bun ${Bun.version} (bun install --frozen-lockfile; the lockfile is not rewritten): lockfile is frozen — and the clone, left by an earlier attempt, could not be brought up to date first: could not resolve host github.com`,
     })
   })
 
@@ -270,7 +275,7 @@ describe('installing an official module', () => {
     await desk.install('kehikot.slides')
     const row = await settled(desk, 'kehikot.slides')
     expect(row.install?.state).toBe('failed')
-    expect(calls.some((call) => call.argv[1] === 'clone' || call.argv[0] === 'bun')).toBe(false)
+    expect(calls.some((call) => call.argv[1] === 'clone' || call.argv[1] === 'install')).toBe(false)
     expect(readFileSync(join(root, 'kehikot.slides', 'mine.txt'), 'utf8')).toBe('kept')
   })
 })

@@ -5,7 +5,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
-import { markInstalled } from './moduleBuilds.ts'
+import { buildBun, markInstalled } from './moduleBuilds.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
 import type { Runner } from './versions.ts'
@@ -115,6 +115,10 @@ export interface Deps {
    * leaves the module to run from source. Without it nothing is built.
    */
   build?(copy: { id: string; name: string; dir: string }): Promise<unknown>
+  /** The Bun an install runs with: this host's own (`buildBun`), never the `bun` on the person's PATH. */
+  bun?: typeof buildBun
+  /** One line of the host's log: the full output of an install that failed. */
+  log?(line: string): void
 }
 
 const CLONE_TIMEOUT_MS = 5 * 60_000
@@ -258,10 +262,15 @@ export function installDesk(deps: Deps) {
     }
 
     step('installing')
-    const installed = await deps.run(['bun', 'install', '--frozen-lockfile'], { cwd: dir, timeoutMs: INSTALL_TIMEOUT_MS })
+    /* Kehikot's own Bun, as the builds use: the modules' lockfiles are written
+       by it, and another Bun on the person's PATH may read the same lockfile as
+       needing changes. Frozen stays frozen; a mismatch is told, not papered over. */
+    const own = (deps.bun ?? buildBun)()
+    const installed = await deps.run([own.bun, 'install', '--frozen-lockfile'], { cwd: dir, env: own.env, timeoutMs: INSTALL_TIMEOUT_MS })
     if (!installed.ok) {
       const old = stale ? ` — and the clone, left by an earlier attempt, could not be brought up to date first: ${stale}` : ''
-      throw new Error(`${entry.name} was cloned, and its dependencies could not be installed: ${installed.why}${old}`)
+      deps.log?.(`kehikko: ${entry.id}: bun install --frozen-lockfile failed in ${dir} with Bun ${Bun.version}: ${installed.why}`)
+      throw new Error(`${entry.name} was cloned, and its dependencies could not be installed with Kehikot's own Bun ${Bun.version} (bun install --frozen-lockfile; the lockfile is not rewritten): ${installed.why}${old}`)
     }
     /* As the module's run.sh marks an install of its own, so its first start does not install again. */
     markInstalled(dir)

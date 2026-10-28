@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
 import { because } from './traffic.ts'
-import { adoptedReadyBuilt, markInstalled, type Built } from './moduleBuilds.ts'
+import { adoptedReadyBuilt, buildBun, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -417,6 +417,8 @@ export interface UpdateHooks {
   installing?(): void
   /** The copy is being built (`Place.build`): "Preparing Terminal…". */
   preparing?(): void
+  /** The Bun an installed copy's install runs with; `buildBun` when not given. */
+  bun?: typeof buildBun
 }
 
 export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHooks = {}): Promise<Updating> {
@@ -457,14 +459,26 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
        its run.sh would: a rewritten lockfile is a change to a tracked file,
        which no build is stamped from and which the next update must refuse. */
     const installedCopy = place.build !== undefined
-    const child = Bun.spawn(['bun', 'install', ...(installedCopy ? ['--frozen-lockfile'] : [])], { cwd: place.dir, stdout: 'ignore', stderr: 'pipe', env: process.env })
+    /* An installed copy installs with the host's own Bun (the one that builds
+       it); a checkout somebody edits keeps the toolchain on their PATH. */
+    const own = installedCopy ? (hooks.bun ?? buildBun)() : null
+    const child = Bun.spawn([own ? own.bun : 'bun', 'install', ...(installedCopy ? ['--frozen-lockfile'] : [])], {
+      cwd: place.dir,
+      stdout: 'ignore',
+      stderr: 'pipe',
+      env: own ? { ...process.env, ...own.env } : process.env,
+    })
     const err = await new Response(child.stderr).text()
     const code = await child.exited
     if (code === 0) {
       installed = true
       /* And marked as its run.sh marks one, so its next start does not install again. */
       if (installedCopy) markInstalled(place.dir)
-    } else installFailed = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
+    } else {
+      const said = err.trim().split('\n').slice(-2).join(' ') || 'bun install failed'
+      installFailed = installedCopy ? `${said} (Kehikot's own Bun ${Bun.version}, bun install --frozen-lockfile; the lockfile is not rewritten)` : said
+      if (installedCopy) console.log(`kehikko: ${place.id}: bun install --frozen-lockfile failed in ${place.dir} with Bun ${Bun.version}:\n${err.trim()}`)
+    }
   }
 
   /* An installed copy is built for the commit it is on now, after its

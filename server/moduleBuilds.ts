@@ -3,6 +3,7 @@ import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, r
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 
+import type { Startable } from './launch.ts'
 import { readiness, STAMP_FILE } from 'kehikot-module-protocol/build'
 
 
@@ -494,6 +495,17 @@ export function buildBun(execPath: string = process.execPath, path: string = pro
     shims.set(execPath, shim)
   }
   return { bun: execPath, env: { BUN_BE_BUN: '1', PATH: [shim, path].filter(Boolean).join(delimiter) } }
+}
+
+/**
+ * A start's environment: for an installed copy, the host's own Bun first on
+ * the PATH its `run.sh` is given (and `BUN_BE_BUN` when that Bun is the
+ * compiled host), so the `bun install` and `bun run` in it are the Bun that
+ * wrote its lockfile. A checkout somebody edits is returned as it was.
+ */
+export function withOwnBun(can: Startable, installed: boolean, own: typeof buildBun = buildBun): Startable {
+  if (!can.ok || !installed) return can
+  return { ok: true, run: { ...can.run, env: { ...own().env, ...(can.run.env ?? {}) } } }
 }
 
 const BUILD_MARK = '--- kehikko built this at '
