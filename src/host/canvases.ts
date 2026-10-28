@@ -1,3 +1,4 @@
+import { settingIn, type ConnectionsSetting } from './connections.ts'
 import { z } from 'zod'
 import { LIMITS, MODULE_ID, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
@@ -211,6 +212,12 @@ const canvasSchema = z.object({
    */
   project: z.number().int().nullable(),
   placements: z.array(placementSchema).max(64),
+  /**
+   * The connections between its modules the person switched off or chose a provider for
+   * (`host/connections.ts`). Read through `settingIn`, so an older server — which sends none —
+   * and a setting that will not read are both automatic.
+   */
+  connections: z.unknown().optional().transform((value) => settingIn(value)),
 })
 export type Canvas = z.infer<typeof canvasSchema>
 
@@ -282,6 +289,20 @@ export async function editCanvas(id: number, edit: CanvasEdit): Promise<Canvas> 
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(edit),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z.object({ canvas: canvasSchema }).parse(await response.json()).canvas
+}
+
+/**
+ * The person's switches of how the open kehikko's modules affect each other: the whole setting, to
+ * `POST /host/connections` (`PAGE_ONLY`). Never through `editCanvas`: no program may make this.
+ */
+export async function saveConnections(id: number, connections: ConnectionsSetting): Promise<Canvas> {
+  const response = await fetch('/host/connections', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kehikko: id, connections }),
   })
   if (!response.ok) throw new Error(await reason(response))
   return z.object({ canvas: canvasSchema }).parse(await response.json()).canvas

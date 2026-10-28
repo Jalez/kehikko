@@ -209,7 +209,7 @@ describe('a shared kehikot.json from an older project', () => {
         collapsed: false, wish: 33, selected: false, filters: {}, refreshEvery: null, version: null,
       },
     ]
-    const text = serialize([{ id: 1, key: 'odd', name: 'odd', project: null, placements }])
+    const text = serialize([{ id: 1, key: 'odd', name: 'odd', project: null, placements, connections: { off: [], only: [] } }])
     const read = parse(text)
     expect(read.ok && read.kehikot[0]!.containers[0]).toMatchObject({ y: 3, h: 33, wish: 33 })
   })

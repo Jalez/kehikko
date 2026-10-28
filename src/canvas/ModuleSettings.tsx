@@ -21,6 +21,8 @@ import {
 } from '@/host/moduleSettings.ts'
 import { modeFor, type MenuMode } from './HeaderMenus.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { ConnectionsTab, type ConnectionsProps } from './Connections.tsx'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
 
 /**
  * A module's settings, drawn from what it declared (`declares.settings`, protocol 2.15.0) and
@@ -383,6 +385,8 @@ export function ModuleSettingsDialog({
   name,
   project,
   api,
+  hasSettings = true,
+  connections = null,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -390,22 +394,54 @@ export function ModuleSettingsDialog({
   name: string
   project: SettingsProject | null
   api?: SettingsApi
+  /** Whether the module declared settings: the "Settings" tab is drawn only then. */
+  hasSettings?: boolean
+  /**
+   * The module's connections on the open kehikko (`host/connections.ts`): the "Providers & Consumers"
+   * tab. Null, there is no kehikko open, and no tab.
+   */
+  connections?: ConnectionsProps | null
 }) {
+  const tabs = [...(hasSettings ? (['settings'] as const) : []), ...(connections ? (['connections'] as const) : [])]
+  const [tab, setTab] = useState<string>(tabs[0] ?? 'settings')
+  const shown = (tabs as readonly string[]).includes(tab) ? tab : (tabs[0] ?? 'settings')
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(720px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden sm:max-w-lg" data-module-settings-dialog={module}>
+      <DialogContent className="flex max-h-[min(720px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden sm:max-w-xl" data-module-settings-dialog={module}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
             {settingsHint(name)}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {project ? `For ${project.name}. ` : ''}Each change is saved by {name} as you make it.
+            {shown === 'settings'
+              ? `${project ? `For ${project.name}. ` : ''}Each change is saved by ${name} as you make it.`
+              : `How ${name} and the other modules on this kehikko affect each other.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto pr-1">
-          {open ? <ModuleSettingsForm module={module} project={project?.id ?? null} api={api} onOpened={() => onOpenChange(false)} /> : null}
-        </div>
+        <Tabs value={shown} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
+          {tabs.length > 1 ? (
+            <TabsList aria-label={`${name} settings sections`} className="w-full">
+              <TabsTrigger value="settings" data-tab="settings" className="text-xs">
+                Settings
+              </TabsTrigger>
+              <TabsTrigger value="connections" data-tab="connections" className="text-xs">
+                Providers &amp; Consumers
+              </TabsTrigger>
+            </TabsList>
+          ) : null}
+          {hasSettings ? (
+            <TabsContent value="settings" className="min-h-0 overflow-y-auto pr-1">
+              {open && shown === 'settings' ? <ModuleSettingsForm module={module} project={project?.id ?? null} api={api} onOpened={() => onOpenChange(false)} /> : null}
+            </TabsContent>
+          ) : null}
+          {connections ? (
+            <TabsContent value="connections" className="min-h-0 overflow-y-auto pr-1">
+              {open && shown === 'connections' ? <ConnectionsTab module={module} {...connections} /> : null}
+            </TabsContent>
+          ) : null}
+          {!tabs.length ? <p className="text-muted-foreground text-xs">{name} has no settings, and no kehikko is open.</p> : null}
+        </Tabs>
       </DialogContent>
     </Dialog>
   )

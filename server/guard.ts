@@ -105,6 +105,9 @@ export interface Refusal {
  *    (`moduleSettings.ts`). `/set` mints the pass that makes a change the
  *    person's, so a program reaching it could change a person-only setting;
  *    the reads go with it. An agent reads at the door's `module_settings`.
+ *  - `/host/connections` — the person's switches of how a kehikko's modules
+ *    affect each other (`src/host/connections.ts`). An agent reads them in
+ *    `read_canvas`; only the person changes them.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -137,6 +140,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/list',
   '/host/module-settings/set',
   '/host/module-settings/file',
+  '/host/connections',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

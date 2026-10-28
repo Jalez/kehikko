@@ -370,16 +370,24 @@ describe('the gear in the header', () => {
     expect(opened).toBe(2)
   })
 
-  test('a module without settings gets no button, no "⋯" row and no Frame row, at any width', async () => {
-    for (const [width, collapsed] of [[380, false], [280, false], [200, false], [380, true], [200, true]] as const) {
-      await header(width, collapsed, false, () => {})
-      expect(gear()).toBeNull()
-      expect(document.querySelector('[data-settings-place]')).toBeNull()
-      const frame = await openMenu('frame')
-      expect(frame!.querySelector('[data-frame="settings"]')).toBeNull()
+  test('a module that declared no settings still gets the gear, the "⋯" row and the Frame row: its window has Providers & Consumers', async () => {
+    for (const [width, collapsed] of [[380, false], [280, false], [380, true]] as const) {
+      let opened = 0
+      await header(width, collapsed, false, () => (opened += 1))
+      expect(gear(), `${width} ${collapsed ? 'folded' : 'unfolded'}`).not.toBeNull()
+      expect(gear()!.getAttribute('aria-label')).toBe('Factory settings')
+      await act(async () => gear()!.click())
+      expect(opened).toBe(1)
       act(() => unmount?.())
       unmount = null
       document.body.innerHTML = ''
     }
+    await header(200, true, false, () => {})
+    expect(gear()).toBeNull()
+    const frame = await openMenu('frame')
+    expect(frame!.querySelector('[data-frame="settings"]')!.textContent).toBe('Settings…')
+    act(() => unmount?.())
+    unmount = null
+    document.body.innerHTML = ''
   })
 })

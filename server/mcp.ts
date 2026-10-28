@@ -1,3 +1,4 @@
+import { connectionsOf, connectionsText, type ConnectionModule } from '../src/host/connections.ts'
 import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
@@ -207,6 +208,11 @@ export interface Sighting {
    * added in protocol 2.20." The container shows that in place of its page.
    */
   fit?: string
+  /**
+   * The manifest as the sweep last read it, for the connections between the modules on a kehikko
+   * (`src/host/connections.ts`). Absent for a module that is not answering.
+   */
+  manifest?: ConnectionModule
 }
 
 /**
@@ -667,6 +673,15 @@ function canvasText(
     for (const line of earlier) lines.push(line)
   }
 
+  /* How the modules here affect each other, as their manifests say, and which of those the person
+     switched off for this kehikko. Read only: no tool here changes them (`src/host/connections.ts`). */
+  if (canvas.placements.length) {
+    const order = [...canvas.placements].sort((a, b) => a.y - b.y || a.x - b.x)
+    const modules = order.map((p) => ({ id: p.i, name: known.get(p.i)?.name ?? p.i, manifest: known.get(p.i)?.manifest ?? null }))
+    lines.push('')
+    for (const line of connectionsText(connectionsOf(modules, canvas.connections))) lines.push(line)
+  }
+
   /* And what is registered here and NOT on this kehikko, because that is the
      list `place_modules` takes from. An agent told only what is arranged would
      have to guess at module ids to add, and a guessed id is refused. */
@@ -873,7 +888,9 @@ function tools() {
       description:
         'What is arranged on a kehikko: which containers are on it, which of them have been picked out as '
         + 'targets, the project folder it is standing in, and the epic it is about — and which registered modules '
-        + 'are NOT on it, which is what place_modules can add. A kehikko is one person’s workspace — several '
+        + 'are NOT on it, which is what place_modules can add — and how its modules affect each other (who follows '
+        + 'whose passage, who shows whose pages, whose tools an agent session is handed), each connection on or '
+        + 'switched off by the person for this kehikko. Only the person switches them. A kehikko is one person’s workspace — several '
         + 'programs side by side around one piece of work — so this is what somebody has in front of them right '
         + 'now. Read it before acting on "the selected module", and read it again if you have been working a '
         + 'while, because a person can tick and untick while you work.',

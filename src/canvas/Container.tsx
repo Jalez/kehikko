@@ -19,7 +19,7 @@ import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
 import { SettingsButton } from './ModuleSettings.tsx'
-import { settingsHint, settingsOf } from '@/host/moduleSettings.ts'
+import { settingsHint } from '@/host/moduleSettings.ts'
 import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
@@ -283,7 +283,9 @@ export function Container({
   /* The name is cut with an ellipsis when it must be, so its whole is in its title, with the
      version once that has no room of its own. */
   const nameTitle = fit.version ? name : `${name} · ${shownVersion}`
-  const hasSettings = onSettings !== undefined && settingsOf(presence.module).length > 0
+  /* Every module has the gear: its window holds its declared settings, when it has any, and always
+     its Providers & Consumers (`ModuleSettingsDialog`). */
+  const hasSettings = onSettings !== undefined
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */

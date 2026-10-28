@@ -16,6 +16,7 @@ import { partIdsIn } from '../src/host/parts.ts'
 import { scopeAfter } from '../src/host/subject.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
+import { AUTOMATIC, settingIn, tidy, type ConnectionsSetting } from '../src/host/connections.ts'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -368,6 +369,13 @@ export interface Canvas {
    */
   project: number | null
   placements: Placement[]
+  /**
+   * Which connections between its modules the person switched off, or whose provider they chose
+   * (`src/host/connections.ts`). The kehikko's, like its arrangement: it says how this kehikko
+   * works, so it is in `kehikot.json` and travels. Automatic (`{ off: [], only: [] }`) for every
+   * kehikko nobody changed.
+   */
+  connections: ConnectionsSetting
 }
 
 /**
@@ -411,6 +419,8 @@ export interface CanvasEdit {
   /** Which project this kehikko is in, as an id. Moving one between projects is a real edit. */
   project?: number | null
   placements?: PlacementInput[]
+  /** The connections switched off or chosen; the whole setting, replaced. */
+  connections?: ConnectionsSetting
 }
 
 /**
@@ -617,6 +627,8 @@ export function open(file = databaseFile()): Database {
   add(db, 'placements', 'version', 'text')
   finerRows(db)
   add(db, 'canvases', 'selection', 'text')
+  /* The connections switched off on a kehikko (`src/host/connections.ts`), as JSON; empty is automatic. */
+  add(db, 'canvases', 'connections', "text not null default ''")
   /*
    * Which project a kehikko is in, added to databases written before projects
    * existed. Every canvas in one of those has NULL here until `adopt()` files
@@ -882,9 +894,9 @@ export function listCanvases(db: Database): Canvas[] {
    */
   const rows = db
     .query<
-      { id: number; key: string; name: string; project: number | null },
+      { id: number; key: string; name: string; project: number | null; connections: string },
       []
-    >('select id, key, name, project_id as project from canvases order by rank, id')
+    >('select id, key, name, project_id as project, connections from canvases order by rank, id')
     .all()
 
   const placements = db
@@ -962,6 +974,7 @@ export function listCanvases(db: Database): Canvas[] {
   return rows.map((row) => ({
     ...row,
     placements: byCanvas.get(row.id) ?? [],
+    connections: settingIn(row.connections),
   }))
 }
 
@@ -982,7 +995,7 @@ export function createCanvas(db: Database, name?: string, project: number | null
     )
     .get(clean, project, identity)
   if (!row) throw new Error('the canvas was not written')
-  return { id: row.id, key: identity, name: clean, project, placements: [] }
+  return { id: row.id, key: identity, name: clean, project, placements: [], connections: AUTOMATIC }
 }
 
 /**
@@ -1048,6 +1061,13 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
          having turned this from a name into a key. */
       db.query('update canvases set project_id = ? where id = ?').run(
         typeof edit.project === 'number' && Number.isInteger(edit.project) ? edit.project : null,
+        id,
+      )
+    }
+    if (edit.connections !== undefined) {
+      const setting = tidy(edit.connections)
+      db.query('update canvases set connections = ? where id = ?').run(
+        setting.off.length || setting.only.length ? JSON.stringify(setting) : '',
         id,
       )
     }

@@ -25,6 +25,7 @@ import { isVersionTag, TAG_MAX } from './versions.ts'
 import { hostPath } from './hostData.ts'
 import { laid, redrawn } from '../src/host/columns.ts'
 import { CANVAS_ROWS, ROWS_BEFORE } from '../src/host/fit.ts'
+import { AUTOMATIC, connectionsSettingSchema, isAutomatic, settingIn, tidy } from '../src/host/connections.ts'
 import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView, type View } from './view.ts'
 
 /**
@@ -315,7 +316,7 @@ const everyPlacementFieldIsPlaced: [UnplacedPlacementField] extends [never] ? tr
 void everyPlacementFieldIsPlaced
 
 /** The fields of a canvas that go in the file, in the order they are written. */
-export const PORTABLE_CANVAS_FIELDS = ['key', 'name'] as const satisfies readonly (keyof Canvas)[]
+export const PORTABLE_CANVAS_FIELDS = ['key', 'name', 'connections'] as const satisfies readonly (keyof Canvas)[]
 
 /**
  * What a project is about — every field of it is personal since the split: it
@@ -428,6 +429,12 @@ const kehikkoFields = {
   key: z.string().regex(KEY, 'is not a key: lowercase letters, digits and dashes'),
   name: z.string().trim().min(1).max(NAME_MAX),
   containers: z.array(containerSchema).max(64).default([]),
+  /* The connections between its modules the person switched off or chose a provider for
+     (`src/host/connections.ts`). SHARED: it says how this kehikko works, like the arrangement, so
+     it travels. Written only when the person changed something, so a kehikko on automatic is a file
+     an older host still reads; one that carries it is refused by a host before it ("field this
+     host does not know (connections)"), the break accepted for `rows`. */
+  connections: connectionsSettingSchema.optional(),
 }
 
 /* One container per module, said once for both versions of a kehikko. */
@@ -597,6 +604,8 @@ export function serialize(canvases: readonly Canvas[]): string {
     lines.push('    {')
     lines.push(`      "key": ${JSON.stringify(canvas.key)},`)
     lines.push(`      "name": ${JSON.stringify(canvas.name)},`)
+    /* Only when the person changed one: automatic is no line, so it is no diff and no break. */
+    if (!isAutomatic(canvas.connections)) lines.push(`      "connections": ${JSON.stringify(tidy(canvas.connections))},`)
     if (containers.length === 0) {
       lines.push('      "containers": []')
     } else {
@@ -893,9 +902,10 @@ export function syncProject(db: Database, project: { id: number; path: string })
       }
       ids.push(row.id)
       const placements = asPlacements(kehikko, view)
-      const wanted = { ...row, name: kehikko.name, placements }
+      const connections = kehikko.connections ? settingIn(kehikko.connections) : AUTOMATIC
+      const wanted = { ...row, name: kehikko.name, placements, connections }
       if (same(row, wanted)) continue
-      editCanvas(db, row.id, { name: kehikko.name, placements })
+      editCanvas(db, row.id, { name: kehikko.name, placements, connections })
       changed = true
     }
     for (const gone of byKey.values()) {

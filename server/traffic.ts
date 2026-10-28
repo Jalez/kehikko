@@ -316,6 +316,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/modules': 'the page reads the modules',
   '/host/quiet': 'the page asks whether modules are quiet',
   '/host/canvases': 'the page reads or saves the kehikot',
+  '/host/connections': 'the person switches how a kehikko’s modules affect each other',
   '/host/subject': 'the page says which epic is open',
   '/host/parts': 'the page edits an epic’s parts',
   '/host/layouts': 'the page’s suggested layouts',

@@ -110,6 +110,7 @@ export interface Framing {
 export function Frames({
   framings,
   context,
+  contextsFor,
   canvas,
   bus,
   presses,
@@ -121,6 +122,11 @@ export function Frames({
 }: {
   framings: readonly Framing[]
   context: ModuleContext
+  /**
+   * A context of its own for a module the person switched a connection off into, on the open
+   * kehikko (`receiverContext`, `host/connectionContext.ts`). Every other frame is sent `context`.
+   */
+  contextsFor?: Readonly<Record<string, ModuleContext>>
   canvas: CanvasControls
   /**
    * The one bus every frame on this page joins.
@@ -225,7 +231,7 @@ export function Frames({
         >
           <ModuleFrame
             module={module}
-            context={context}
+            context={contextsFor?.[module.id] ?? context}
             canvas={canvas}
             bus={bus}
             presses={presses}
