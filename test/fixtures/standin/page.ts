@@ -64,7 +64,7 @@ document.getElementById('jump')?.addEventListener('click', () => {
   )
 })
 
-/* The report: a press says what is going on (`activity.set`), so the Inbox has news. */
+/* The report: a press says what is going on (`activity.set`), so the Inbox has news (stamped now: the first list is a baseline unless it says it is newer than the page). */
 document.getElementById('report')?.addEventListener('click', () => {
-  if (activity) void connection.request('activity.set', { items: activity })
+  if (activity) void connection.request('activity.set', { items: (activity as object[]).map((item) => ({ ...item, since: Date.now() })) })
 })
