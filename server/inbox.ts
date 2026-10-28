@@ -18,6 +18,8 @@ import {
   isSeen,
   logRows,
   noticeEntry,
+  placeGone,
+  retire,
   rowKey,
   type Closing,
   type Entry,
@@ -26,6 +28,7 @@ import {
   type NoticeLine,
   type Origin,
   type Place,
+  type Present,
   type Priority,
   type Scope,
 } from '../src/host/inbox.ts'
@@ -81,7 +84,7 @@ interface ItemRow {
 
 const STATES = new Set<string>(['working', 'attention', 'done'])
 const PRIORITIES = new Set<string>(['urgent', 'normal', 'low'])
-const HOWS = new Set<string>(['listed', 'silent', 'notice', 'imported'])
+const HOWS = new Set<string>(['listed', 'silent', 'unreported', 'gone', 'notice', 'imported'])
 const ORIGINS = new Set<string>(['activity', 'notice', 'imported'])
 
 function parseJson<T>(text: string | null, fallback: T): T {
@@ -313,15 +316,19 @@ export class Inbox {
    * One module's whole list, as it is now.
    *
    * `silent` is a module that stopped answering: whatever it had open closes,
-   * as `how: 'silent'`. An empty list is the same thing said in the module's
-   * own words (`how: 'listed'`).
+   * as `how: 'silent'`. `unreported` is a module whose new page did not say
+   * its list again in its grace: the same, as `how: 'unreported'`. An empty
+   * list is the same thing said in the module's own words (`how: 'listed'`).
+   *
+   * `present` is what is still in the project: an item naming a kehikko or an
+   * epic that is gone is not held, and one held for it closes as `gone`.
    */
   report(
     project: number,
     module: string,
     name: string,
     items: readonly ActivityItem[],
-    options: { silent?: boolean; loadedAt?: number } = {},
+    options: { silent?: boolean; unreported?: boolean; loadedAt?: number; present?: Present | null } = {},
   ): Reported {
     const id = module
     const now = this.clock()
@@ -329,9 +336,12 @@ export class Inbox {
       const have = this.#entries(project, id)
       const seen = this.#pending(project, 'pending-seen')
       const told = this.#pending(project, 'pending-told')
-      const applied = applyList(have, id, name, options.silent ? [] : items, {
+      const quiet = options.silent || options.unreported
+      const present = options.present ?? null
+      const applied = applyList(have, id, name, quiet ? [] : items, {
         now,
-        how: options.silent ? 'silent' : 'listed',
+        how: options.silent ? 'silent' : options.unreported ? 'unreported' : 'listed',
+        ...(present ? { gone: (place: Place | undefined) => placeGone(place, present) } : {}),
         ...(options.loadedAt !== undefined ? { loadedAt: options.loadedAt } : {}),
         told: (module, itemId, state) => told[`${module}\u0000${itemId}\u0000${state}`],
       })
@@ -355,6 +365,21 @@ export class Inbox {
       if (applied.puts.length) this.#trim(project)
       const rev = applied.puts.length ? this.#bump(project) : this.rev(project)
       return { rev, open: this.open(project), earlier: this.snapshot(project).earlier, news: applied.news }
+    })
+    return run()
+  }
+
+  /**
+   * Close what nothing will ever report again: the open entries of a module
+   * that is no longer installed, and of a kehikko or an epic the project no
+   * longer has (`retire` in `src/host/inbox.ts`), as `how: 'gone'`. Kept in the
+   * log like any closing. Answers how many closed.
+   */
+  retire(project: number, present: Present): { retired: number; rev: number } {
+    const run = this.db.transaction(() => {
+      const closing = retire(this.open(project), present, this.clock())
+      for (const entry of closing) this.#write(project, entry)
+      return { retired: closing.length, rev: closing.length ? this.#bump(project) : this.rev(project) }
     })
     return run()
   }

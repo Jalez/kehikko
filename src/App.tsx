@@ -3371,6 +3371,8 @@ export function App() {
   const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
   const chime = useChime()
+  /* A module's page answered a greeting: it is a new page, whose list the Inbox waits for. */
+  const inboxGreetedRef = useRef<(module: string) => void>(() => undefined)
   const inbox = useInbox({
     project: projectId,
     projects: inboxProjects,
@@ -3385,6 +3387,7 @@ export function App() {
     },
   })
   activityRef.current = inbox.receive
+  inboxGreetedRef.current = inbox.greeted
   inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
   legacyNoticeRef.current = (from, payload) => {
     const parsed = schemaFor('kehikot.notifications@1')?.safeParse(payload)
@@ -3912,6 +3915,7 @@ export function App() {
     (id: string): ConversationWatcher => ({
       ready: (_protocol, build) => {
         covers.answered(id)
+        inboxGreetedRef.current(id)
         setLive((was) => ({
           ...was,
           [id]: {

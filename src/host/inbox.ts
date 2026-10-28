@@ -18,6 +18,25 @@ import { placeOpened, placeSplit, type Namer, type Where } from './activity.ts'
  * is the open entries; "Earlier" is the closed ones and the states an open
  * one has left.
  *
+ * ## Nothing outlives the module's word for it
+ *
+ * What a module said is held only while the module would still say it. Each
+ * way it can stop saying it closes the entry, and `how` says which:
+ *
+ *  - `listed`: its latest whole list does not have it.
+ *  - `silent`: the module stopped answering, or is on no kehikko of the project.
+ *  - `unreported`: the module's page started again (a restart, an update, a
+ *    reload of either page) and did not say it again within
+ *    `REREPORT_GRACE_MS`. A list is the word of the page that sent it; a new
+ *    page that never sends one has said nothing, and what the old one said is
+ *    not carried over as if it had (`unreportedAfter`).
+ *  - `gone`: its module is no longer installed, or its place — the kehikko or
+ *    the epic it names — is no longer in the project (`retire`, `Present`). A
+ *    list naming a gone place is not held at all.
+ *
+ * The host's own items (`isHostModule`) are closed by the host's own lists
+ * and are never taken for a module that went away.
+ *
  * Nothing here names a module or a vendor. The by-line is the module's own
  * name as the host knows it; what an item says is the module's claim.
  *
@@ -42,7 +61,24 @@ export type Place = NonNullable<ActivityItem['place']>
 
 /** How an entry came to close, or where it came from. */
 export type Origin = 'activity' | 'notice' | 'imported'
-export type Closing = 'listed' | 'silent' | 'notice' | 'imported'
+export type Closing = 'listed' | 'silent' | 'unreported' | 'gone' | 'notice' | 'imported'
+
+/**
+ * The host's own lists — the place asks (`kehikko`), the tracker notices
+ * (`kehikko.trackers`), the settings lines (`kehikko.settings`). No container
+ * stands for them and no page sends them: they are never closed for a module
+ * that is not on the kehikko, not answering, or not registered.
+ */
+export const isHostModule = (module: string): boolean => module === 'kehikko' || module.startsWith('kehikko.')
+
+/**
+ * How long a module's new page has to say its list again before what the last
+ * page said closes as `unreported`. Long enough for a module whose list comes
+ * from its own server's feed (it connects after the greeting); a list that
+ * arrives later still reopens the entries, and without news when nothing about
+ * them changed.
+ */
+export const REREPORT_GRACE_MS = 20_000
 
 export interface Entry {
   module: string
@@ -95,8 +131,10 @@ const PRIORITY_RANK: Record<Priority, number> = { urgent: 0, normal: 1, low: 2 }
 
 export interface ListOptions {
   now: number
-  /** How an entry that is no longer listed closes. `silent` is a module that stopped answering. */
-  how?: 'listed' | 'silent'
+  /** How an entry that is no longer listed closes. `silent` is a module that stopped answering; `unreported` one whose new page did not say it again. */
+  how?: 'listed' | 'silent' | 'unreported'
+  /** Whether a place is no longer in the project: an item naming one is not held, and an open entry naming one closes as `gone`. */
+  gone?(place: Place | undefined): boolean
   /** When this page loaded: the first sight of a module is told only what is newer than that. */
   loadedAt?: number
   /** The `entered` of the last line told for (module, id, state) before the store held it. */
@@ -138,7 +176,9 @@ export function applyList(
   const out: Applied = { puts: [], moves: [], news: [] }
   const listed = new Set<string>()
 
+  const gone = options.gone
   for (const item of items) {
+    if (gone?.(item.place)) continue
     listed.add(item.id)
     const was = byId.get(item.id)
     const entered = item.since ?? (was && was.state === item.state ? was.entered : now)
@@ -188,9 +228,69 @@ export function applyList(
 
   for (const entry of have) {
     if (entry.closed !== null || listed.has(entry.id)) continue
-    out.puts.push({ ...entry, closed: now, how: options.how ?? 'listed' })
+    out.puts.push({ ...entry, closed: now, how: gone?.(entry.place) ? 'gone' : (options.how ?? 'listed') })
   }
   return out
+}
+
+/**
+ * What is still in the project, for `retire`. A field that is `null` is not
+ * known (a registry that could not be read, a project with no epics folder)
+ * and retires nothing.
+ */
+export interface Present {
+  /** The ids of the modules installed on this machine. */
+  modules: ReadonlySet<string> | null
+  /** The keys of the project's kehikot. */
+  kehikot: ReadonlySet<string> | null
+  /** The slugs of the project's epics. */
+  epics: ReadonlySet<string> | null
+}
+
+/** Whether a place names a kehikko or an epic the project no longer has. A place naming neither is never gone. */
+export function placeGone(place: Place | undefined, present: Pick<Present, 'kehikot' | 'epics'>): boolean {
+  if (!place) return false
+  if (place.kehikko !== undefined && present.kehikot !== null && present.kehikot.size > 0 && !present.kehikot.has(place.kehikko)) return true
+  if (place.epic !== undefined && place.epic !== '' && present.epics !== null && !present.epics.has(place.epic)) return true
+  return false
+}
+
+/**
+ * The open entries whose module or place is gone, closed as `gone`: a module
+ * that was uninstalled, a kehikko that was removed, an epic that was deleted.
+ * Nothing will ever report them again, so nothing would ever close them. The
+ * host's own items are judged by their place only.
+ */
+export function retire(entries: readonly Entry[], present: Present, now: number): Entry[] {
+  const out: Entry[] = []
+  for (const entry of entries) {
+    if (entry.closed !== null) continue
+    const moduleGone = present.modules !== null && !isHostModule(entry.module) && !present.modules.has(entry.module)
+    if (!moduleGone && !placeGone(entry.place, present)) continue
+    out.push({ ...entry, closed: now, how: 'gone' })
+  }
+  return out
+}
+
+/**
+ * The modules whose new page has had its grace and said nothing since it was
+ * greeted: what they had open closes as `unreported`. `greeted` is when each
+ * module's page last answered a greeting, `heard` when it last sent a list.
+ */
+export function unreportedAfter(
+  greeted: ReadonlyMap<string, number>,
+  heard: ReadonlyMap<string, number>,
+  now: number,
+  grace = REREPORT_GRACE_MS,
+): string[] {
+  const out: string[] = []
+  for (const [module, at] of greeted) {
+    if (isHostModule(module)) continue
+    if (now - at < grace) continue
+    if ((heard.get(module) ?? -Infinity) >= at) continue
+    out.push(module)
+  }
+  return out.sort()
 }
 
 /** What one `events.emit` line of `kehikot.notifications@1` says, after the protocol parsed it. */
@@ -455,6 +555,8 @@ export function closedWords(entry: Pick<Entry, 'state' | 'how' | 'origin'>): str
     return entry.state === 'attention' ? 'needed you' : 'finished'
   }
   if (entry.how === 'silent') return `stopped answering, was ${STATE_WORDS[entry.state]}`
+  if (entry.how === 'unreported') return `not said again after the module restarted, was ${STATE_WORDS[entry.state]}`
+  if (entry.how === 'gone') return `its module or place is gone, was ${STATE_WORDS[entry.state]}`
   if (entry.state === 'attention') return 'no longer needs you'
   if (entry.state === 'done') return 'finished'
   return 'stopped'
