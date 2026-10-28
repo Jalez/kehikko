@@ -210,8 +210,29 @@ async function drive(kind, browserType) {
         if (!text?.includes('Scope: This computer')) throw new Error(text ?? '')
         await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-frame-menu-220.png`), clip: await clipAround(page, MODULE, 260) })
         say(`ok   ${kind} ${scheme} 220px frame menu: "${text}"`)
+        /* The row opens the settings window: the Scope control at its top, the default marked. */
+        await row.click()
+        const control = page.locator('[data-testid="scope-control"]')
+        await control.waitFor({ timeout: 6000 })
+        const options = await control.locator('[data-scope-option]').allTextContents()
+        if (!options.some((one) => one.includes('This computer') && one.includes('(default)'))) throw new Error(`options: ${options.join(' | ')}`)
+        await page.locator('[data-module-settings-dialog]').screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-settings.png`) })
+        say(`ok   ${kind} ${scheme} settings window: ${options.length} scopes, the default marked`)
       } catch (error) {
-        failures.push(`${kind} ${scheme} 220px: the Frame menu has no scope row (${error.message})`)
+        failures.push(`${kind} ${scheme} 220px: the Frame menu's scope row or the settings window failed (${error.message})`)
+      }
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      /* The modules menu: every registered module's row has its scope. */
+      try {
+        await page.locator('button[aria-label="Kehikko modules"]').first().click()
+        const chip = page.locator('[data-testid="module-scope"]').first()
+        await chip.waitFor({ timeout: 6000 })
+        const popover = page.locator('[data-slot="popover-content"], [data-radix-popper-content-wrapper]').first()
+        await popover.screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-modules-menu.png`) })
+        say(`ok   ${kind} ${scheme} modules menu: ${await page.locator('[data-testid="module-scope"]').count()} rows say their scope`)
+      } catch (error) {
+        failures.push(`${kind} ${scheme}: the modules menu shows no scope (${error.message})`)
       }
       await page.keyboard.press('Escape')
     }
