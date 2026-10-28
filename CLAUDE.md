@@ -580,6 +580,14 @@
   `read_inbox` all read it. Do not add a second set of items, a seen set in
   browser storage, or a derived-notice set: a transition is a row in
   `inbox_moves`, and what was told is what the record already holds.
+- Nothing outlives the module's word for it (#195). An entry closes, and `how`
+  says why: `listed` (its latest whole list drops it), `silent` (not answering,
+  or on no kehikko of the project), `unreported` (its new page — restart,
+  update, reload — sent no list within `REREPORT_GRACE_MS` of its greeting;
+  `greeted` in `useInbox`), `gone` (`retire`: module not installed, or its
+  kehikko or epic no longer in the project; a list naming a gone place is not
+  held). The host's own lists (`isHostModule`: `kehikko`, `kehikko.*`) are
+  never closed for having no container.
 - The page posts a module's whole list (`/host/inbox/report`), a legacy notice
   (`/host/inbox/notice`) and the person's acts (`/host/inbox/act`: seen,
   dismiss, forget). All four POSTs are in `PAGE_ONLY` (`server/guard.ts`) — a

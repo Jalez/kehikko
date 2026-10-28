@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { Narrowing, Inbox } from './inbox.ts'
-import type { Scope } from '../src/host/inbox.ts'
+import type { Present, Scope } from '../src/host/inbox.ts'
 import { itemsIn } from './inbox.ts'
 
 /**
@@ -10,7 +10,13 @@ import { itemsIn } from './inbox.ts'
  *
  *  - `GET  /host/inbox?project=N` — the open entries and a revision.
  *  - `GET  /host/inbox/log?project=N&scope=&epic=&kehikko=&offset=&limit=` — Earlier, a page of it.
- *  - `POST /host/inbox/report` — one module's whole list, or that it went silent.
+ *  - `POST /host/inbox/report` — one module's whole list, or that it went
+ *    silent (`silent: true`), or that its new page did not say it again
+ *    (`unreported: true`).
+ *
+ * Every read and report first retires what nothing will report again: the
+ * entries of a module that is not installed, a kehikko or an epic that is gone
+ * (`present`, `Inbox.retire`).
  *  - `POST /host/inbox/notice` — one legacy `kehikot.notifications@1` line.
  *  - `POST /host/inbox/act` — see, dismiss, forget: the person's.
  *  - `POST /host/inbox/migrate` — what the page kept in its own storage, once.
@@ -31,6 +37,8 @@ export interface InboxDeps {
   pathOf(project: number): string | null | undefined
   /** The project's kehikot by key and name, for filing imported lines. */
   kehikotOf?(project: number): readonly { key: string; name: string }[]
+  /** What is still there for a project — installed modules, its kehikot, its epics — or null when not known. */
+  present?(project: number): Present | null
   /** Say that a project's inbox is not what the pages last read. */
   changed(project: number, rev: number): void
 }
@@ -80,6 +88,15 @@ export function inboxDesk(deps: InboxDeps) {
     if (done.imported) deps.changed(project, inbox.rev(project))
   }
 
+  /** What is still there, and the open entries of what is not closed, before the record is read or written. */
+  function present(project: number): Present | null {
+    const now = deps.present?.(project) ?? null
+    if (!now) return null
+    const out = inbox.retire(project, now)
+    if (out.retired) deps.changed(project, out.rev)
+    return now
+  }
+
   async function route(request: Request, url: URL): Promise<Response | null> {
     if (!url.pathname.startsWith('/host/inbox')) return null
     if (request.method === 'GET') {
@@ -89,6 +106,7 @@ export function inboxDesk(deps: InboxDeps) {
       }
       if (url.pathname === '/host/inbox') {
         opened(project)
+        present(project)
         return reply({ ok: true, ...inbox.snapshot(project) })
       }
       if (url.pathname === '/host/inbox/log') {
@@ -126,12 +144,19 @@ export function inboxDesk(deps: InboxDeps) {
     if (url.pathname === '/host/inbox/report') {
       if (module === null) return reply({ ok: false, why: 'A report names the module.' }, 400)
       const silent = body.silent === true
-      const items = silent ? [] : itemsIn(body.items)
+      const unreported = !silent && body.unreported === true
+      const items = silent || unreported ? [] : itemsIn(body.items)
       if (items === null) return reply({ ok: false, why: 'That is not a list of activity items the protocol takes.' }, 400)
       const loadedAt = typeof body.loadedAt === 'number' && Number.isFinite(body.loadedAt) ? body.loadedAt : undefined
       opened(project)
+      const now = present(project)
       const before = inbox.rev(project)
-      const out = inbox.report(project, module, name, items, { silent, ...(loadedAt !== undefined ? { loadedAt } : {}) })
+      const out = inbox.report(project, module, name, items, {
+        silent,
+        unreported,
+        present: now,
+        ...(loadedAt !== undefined ? { loadedAt } : {}),
+      })
       if (out.rev !== before) deps.changed(project, out.rev)
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier, news: out.news })
     }
