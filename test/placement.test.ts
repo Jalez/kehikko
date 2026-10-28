@@ -24,6 +24,7 @@ const canvas = (id: number, ...ids: string[]): Canvas => ({
   id,
   name: `canvas ${id}`,
   project: null,
+  connections: { off: [], only: [] },
   placements: ids.reduce<Canvas['placements']>((acc, i) => place(acc, i), []),
 })
 

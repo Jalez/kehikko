@@ -261,6 +261,12 @@ export interface CanvasControls {
    * folder out of its own table.
    */
   project(): number | null
+  /**
+   * What one module may be handed of an answer the server gave, on the open kehikko: the steps of a
+   * provider whose steps the person switched off for it there are left out (`stepsWithheld`,
+   * `host/connections.ts`). Absent, every answer goes as the server gave it.
+   */
+  withhold?(module: string, method: string, data: unknown): unknown
 }
 
 /**
@@ -308,6 +314,10 @@ export function makeAsk(
       const body = (await response.json()) as Answer
       if (typeof body !== 'object' || body === null || typeof (body as Answer).ok !== 'boolean') {
         return failed("The host's server answered something that is not an answer.")
+      }
+      if (body.ok && canvas.withhold) {
+        const data = canvas.withhold(moduleId, method, body.data)
+        return data === body.data ? body : { ok: true, data }
       }
       return body
     } catch {

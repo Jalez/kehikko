@@ -11,6 +11,7 @@ import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
+import { connectionsSettingSchema, type ConnectionModule } from '../src/host/connections.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
@@ -3760,6 +3761,24 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ deleted: body.slug })
     }
 
+    /*
+     * The person's switches of the connections between a kehikko's modules (`src/host/connections.ts`):
+     * the whole setting, held to its schema, written with the kehikko into `kehikot.json`. In
+     * `PAGE_ONLY`: the person decides how their modules affect each other, and no program — no agent,
+     * no module — may change it. A PATCH of the canvas does not carry it.
+     */
+    if (url.pathname === '/host/connections' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { kehikko?: unknown; connections?: unknown } | null
+      const read = connectionsSettingSchema.safeParse(body?.connections)
+      if (!body || typeof body.kehikko !== 'number' || !read.success) {
+        return json({ error: 'A change of connections names one kehikko and the whole setting: { off, only }.' }, 400)
+      }
+      const edited = editCanvas(db, body.kehikko, { connections: read.data })
+      if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)
+      keep(db, edited.project)
+      return json({ canvas: edited })
+    }
+
     const canvas = canvasId(url.pathname)
     if (canvas !== null) {
       if (request.method === 'PATCH') {
@@ -4509,6 +4528,8 @@ async function answerRequest(request: Request): Promise<Response> {
               scopes: presence.module?.declares?.scopes,
               /* It and this Kehikot do not fit (protocol 2.22.0): the protocol's words for which side is behind. */
               ...(presence.fit ? { fit: `${presence.fit.title}. ${presence.fit.line}` } : {}),
+              /* What the connections between the modules on a kehikko are read from (`src/host/connections.ts`). */
+              ...(presence.module ? { manifest: presence.module as ConnectionModule } : {}),
             })),
         },
         { name: HOST_ID, version: HOST_VERSION },

@@ -134,6 +134,13 @@ export class EventBus {
   constructor(private readonly now: () => number = () => Date.now()) {}
 
   /**
+   * Whether an event is held back from one receiver: the person switched that connection off on the
+   * kehikko it happened on (`delivered` in `host/connections.ts`). Set by the page; absent, nothing
+   * is held back. A held-back receiver is told nothing and not counted, as if it did not consume it.
+   */
+  holds: ((from: string, to: string, extension: string, kehikko: Kehikko | null) => boolean) | null = null
+
+  /**
    * A framed module, present and listening.
    *
    * Called when a conversation is created and again for nothing else: joining
@@ -234,6 +241,7 @@ export class EventBus {
     for (const [id, receiver] of this.receivers) {
       if (id === from) continue
       if (!receiver.consumes.includes(extension)) continue
+      if (this.holds?.(from, id, extension, kehikko)) continue
       /* One bad receiver must not stop the rest. A frame that has navigated
          away throws on post, and that is its own problem rather than the
          sender's — the sender is told how many heard it either way. */

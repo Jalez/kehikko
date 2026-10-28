@@ -502,8 +502,9 @@
   module's own folder.
 - Reached from the gear in a container's header (220 px and wider, folded or
   not; under 220 it is "Settings…" in the module's "⋯", `settingsPlaceFor`),
-  the Frame menu's "Settings…" (every width) and Settings › Modules. A module
-  that declared none gets none of the three.
+  the Frame menu's "Settings…" (every width) and Settings › Modules. Every
+  module on a kehikko has the gear and the Frame row, settings or not: its window
+  always has "Providers & Consumers" (see "Connections between modules").
 - A change is the person's only through a PASS: minted by `Passes.issue` in
   the desk's `set`, reached only by `POST /host/module-settings/set`
   (`PAGE_ONLY`, with `/host/module-settings`, `/list` and `/file`), one
@@ -539,6 +540,36 @@
 - A skill's `needs` are matched against the manifests on the kehikko
   (`missingNeeds` over `asRead`) in `modulesOn` (`server/placeRoutes.ts`).
   Kehikko-bound skills go only to a session posted by a module that loads skills.
+
+## Connections between modules
+
+- How the modules on a kehikko affect each other is DERIVED from their manifests, never written
+  by hand: `connectionsOf` in `src/host/connections.ts` (pure; page, server and file share it).
+  Kinds: passage, selection, location (A `*:set`, B `reacts`), address (A `address:open`, B
+  `reacts: address`), steps (A provides steps, B `steps:read`), extension (A emits, B consumes),
+  skill (B's skill `needs`, met by A), agent (B runs agent sessions, A has an MCP door), parts
+  (Kehikot's bar pick → B `reacts: parts`; A `parts:set` → B drawn only), tracker and inbox
+  (Kehikot as a node; drawn only). A connection is FROM what provides TO what takes it.
+- The person switches one off, or chooses which providers a consumer takes a kind from (`off`,
+  `only`), FOR ONE KEHIKKO. `delivered` is the one rule; every enforcement asks it, and an off
+  connection is as if the provider were not on the kehikko — never an error for the module:
+  - context fields: `receiverContext` (`src/host/connectionContext.ts`) gives that module a context
+    of its own (`contextsFor` in `App.tsx` → `Frames`); everyone else gets the shared one;
+  - extensions: `EventBus.holds`; addresses: `readersFor` before `handed` (no reader left → an
+    offer); steps: `CanvasControls.withhold` (`stepsWithheld`) on the page's answers;
+  - skills: `meetingSkill` in `modulesOn`; agents: `doorsHanded` in `POST /host/place`.
+  A module's SERVER asking (`/host/server-ask`) is not on a kehikko and is not held back.
+- Stored with the kehikko's arrangement: `connections` on a kehikko in `kehikot.json` (SHARED,
+  travels; `PORTABLE_CANVAS_FIELDS`), and `canvases.connections` in `frame.sqlite` as the cache.
+  Written only when not automatic, so an untouched kehikko is the same file; a host before this
+  refuses a file that carries it ("field this host does not know (connections)") — accepted, as for
+  `rows`.
+- Only the person changes them: `POST /host/connections` (`PAGE_ONLY`), never the canvas PATCH and
+  never an MCP tool. `read_canvas` lists each connection and whether it is on.
+- Drawn in each module's settings window (the header gear, now on EVERY module): the "Providers &
+  Consumers" tab (`src/canvas/Connections.tsx`), beside "Settings" when the module declared any;
+  "See all on this kehikko" lists every module, searchable. Words, never colour alone: an off
+  connection says "off" and its off sentence.
 
 ## A module's server asking (protocol 2.19.0)
 

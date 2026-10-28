@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { doorsHanded, meetingSkill } from '../src/host/connections.ts'
 import { installsSkills, isKehikkoBound, missingNeeds, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
@@ -108,7 +109,7 @@ const SUMMARY_MAX = 200
  * still listed — the container is there — by its id, with no door and no skills.
  */
 export function modulesOn(
-  canvas: Pick<Canvas, 'placements'> | null,
+  canvas: (Pick<Canvas, 'placements'> & Partial<Pick<Canvas, 'connections'>>) | null,
   about: readonly ModuleAbout[],
   doors: readonly { module: string; name: string }[],
   /** Whether the module the session is for loads kehikko-bound skills into it. */
@@ -131,7 +132,13 @@ export function modulesOn(
       summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX - 1)}…` : summary,
       door: doors.find((door) => door.module === p.i)?.name ?? null,
       skills: (one?.skills ?? [])
-        .filter((skill) => (loadsBound || !isKehikkoBound(skill)) && missingNeeds(skill, on).length === 0)
+        /* A need is met only by a module whose connection to this skill the person left on here
+           (`meetingSkill`, `src/host/connections.ts`): one switched off is as if it were not here. */
+        .filter(
+          (skill) =>
+            (loadsBound || !isKehikkoBound(skill)) &&
+            missingNeeds(skill, meetingSkill(canvas.connections, p.i, skill.name, on)).length === 0,
+        )
         .map((skill) => skill.name),
     })
   }
@@ -324,7 +331,9 @@ export function placeDesk(deps: PlaceDeps) {
       if (!issue(db, token, module, project.uid)) return reply({ ok: false, error: 'token is 22 to 64 URL-safe characters and module a module id.' }, 400)
       kept.delete(token)
       const canvas = kehikko === null ? null : (listCanvases(db).find((one) => one.project === project.id && one.key === kehikko) ?? null)
-      const doors = doorsFor({ token, canvas }, deps.hostUrl(), await deps.doors(), deps.known())
+      /* The doors of modules whose tools the person switched off for this agent module here are
+         not handed to its session (`doorsHanded`, `src/host/connections.ts`). */
+      const doors = doorsHanded(canvas?.connections, module, doorsFor({ token, canvas }, deps.hostUrl(), await deps.doors(), deps.known()))
       const about = deps.modules ? await deps.modules() : undefined
       const asker = about?.find((one) => one.id === module)
       const modules = about ? modulesOn(canvas, about, doors, loadsSkillsHere({ ...(asker?.manifest ?? {}), id: module })) : undefined

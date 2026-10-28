@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own } from 'kehikot-module-protocol'
-import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -38,6 +38,7 @@ import {
   chooseOpen,
   COLUMNS,
   editCanvas,
+  saveConnections,
   everyPlaced,
   framesKept,
   recentlyOpen,
@@ -88,6 +89,9 @@ import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
+import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
+import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
+import { settingsOf } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 import { coveredForScope } from './host/scope.ts'
@@ -1669,6 +1673,47 @@ export function App() {
   )
 
   /**
+   * What each module on the open kehikko is told when the person switched off a connection into it
+   * (`host/connections.ts`, `receiverContext`): a context of its own, only for those modules; every
+   * other frame is sent the shared one. By value, like the shared one.
+   */
+  const switches = open?.connections ?? null
+  const switchesKey = JSON.stringify(switches)
+  const contextsFor = useMemo<Readonly<Record<string, ModuleContext>>>(
+    () => {
+      if (!switches || (switches.off.length === 0 && switches.only.length === 0)) return {}
+      const placed = placedIds ? placedIds.split('\n') : []
+      const facts: ContextFacts = {
+        subject,
+        theme,
+        selection: picked ? picked.split('\n') : [],
+        selectedBy: projectId === null ? null : (selectedBy[projectId] ?? null),
+        kehikko,
+        said,
+        placed: [...placed, HOST_POINTS],
+        hostPoints: HOST_POINTS,
+        placements: open?.placements ?? [],
+        dispositions: marks,
+        tracker: { at: trackerAt, refreshing: trackerBusy },
+        content: rewritten,
+        parts: JSON.parse(narrowedTo) as EpicPart[],
+        location: codeLocation,
+        address: shownAddress,
+      }
+      const out: Record<string, ModuleContext> = {}
+      for (const id of placed) {
+        const own = receiverContext(facts, id, switches)
+        if (own) out[id] = own
+      }
+      return out
+    },
+    /* By value, for the shared context's reasons; the shared context is a dependency so a change
+       anything else made is a change here too. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [context, switchesKey, placedIds],
+  )
+
+  /**
    * The one event bus for this page.
    *
    * Built once and never rebuilt — it is the dependency of the effect that
@@ -1682,6 +1727,12 @@ export function App() {
    * causing re-renders, which is precisely what a loop of events does.
    */
   const bus = useMemo(() => new EventBus(), [])
+  /* The open kehikko's switches, read at the moment of a delivery: an event, a steps answer. */
+  const switchesRef = useRef(switches)
+  switchesRef.current = switches
+  /* An extension switched off from its sender to a receiver on this kehikko is not relayed to it
+     (`host/connections.ts`). */
+  bus.holds = (from, to, extension) => !delivered(switchesRef.current, 'extension', from, to, extension)
 
   /**
    * The frames a header control can press, for the one control that presses.
@@ -1919,7 +1970,8 @@ export function App() {
       ...(intent === undefined ? {} : { intent }),
       asker,
       at: new Date().toISOString(),
-      readers: readersOn(open.placements.map((p) => p.i), reactsOf),
+      /* Only the readers that take this asker's pages here (`readersFor`): with none, it is an offer. */
+      readers: readersFor(open.connections, 'by' in asker ? asker.by : null, readersOn(open.placements.map((p) => p.i), reactsOf)),
     })
     if (out.next !== addressesRef.current) {
       addressesRef.current = out.next
@@ -2109,6 +2161,11 @@ export function App() {
       fold: (from, call) => foldRef.current(from, call),
       goto: (call) => gotoRef.current(call),
       activity: (from, items) => activityRef.current(from, items),
+      /* The steps of a provider the person switched off for this module here are not handed to it. */
+      withhold: (module, method, data) =>
+        method === 'steps.list' || method === 'epic.get'
+          ? stepsWithheld(data, (provider) => delivered(switchesRef.current, 'steps', provider, module))
+          : data,
     }),
     [change, bus],
   )
@@ -3088,6 +3145,29 @@ export function App() {
     return map
   }, [registry])
 
+  /* How the modules on the open kehikko affect each other, from their manifests, and the person's
+     switches for it (`host/connections.ts`): the Providers & Consumers tab of each module's window. */
+  const connectionSides = useMemo(() => {
+    const order = [...(open?.placements ?? [])].sort((a, b) => a.y - b.y || a.x - b.x)
+    const modules = order.map((p) => {
+      const presence = byId.get(p.i)
+      return { id: p.i, name: presence?.name ?? presence?.module?.name ?? p.i, manifest: (presence?.module ?? null) as ConnectionModule | null }
+    })
+    return sidesOf(modules, connectionsOf(modules, open?.connections), open?.connections)
+  }, [open, byId])
+  const onConnections = useCallback(
+    (next: ConnectionsSetting) => {
+      const id = openId
+      if (id === null) return
+      const setting = tidy(next)
+      setCanvases((was) => was.map((canvas) => (canvas.id === id ? { ...canvas, connections: setting } : canvas)))
+      saveConnections(id, setting).catch((error: Error) =>
+        setTrouble(`The connections on this kehikko could not be saved: ${error.message}. What is on screen is unchanged; it is what is stored that is behind.`),
+      )
+    },
+    [openId],
+  )
+
   /* What is registered, id → name, for the layout picker's "will install". */
   const registeredNames = useMemo(() => {
     const map = new Map<string, string>()
@@ -3856,6 +3936,8 @@ export function App() {
      theirs the moment they are released, as they fade in. */
   const heldContext = useRef(context)
   if (!calm.pagesStill) heldContext.current = context
+  const heldContexts = useRef(contextsFor)
+  if (!calm.pagesStill) heldContexts.current = contextsFor
 
   /* Measure before the browser paints, not after. A canvas switch replaces
      every container in one commit, and a page positioned over where the last
@@ -4431,6 +4513,7 @@ export function App() {
         <Frames
           framings={drawnFramings}
           context={calm.pagesStill ? heldContext.current : context}
+          contextsFor={calm.pagesStill ? heldContexts.current : contextsFor}
           canvas={controls}
           bus={bus}
           presses={presses}
@@ -4541,7 +4624,8 @@ export function App() {
         />
       ) : null}
 
-      {/* A module's settings, drawn from what it declared and saved by the module (protocol 2.15.0). */}
+      {/* A module's settings window: what it declared, saved by the module (protocol 2.15.0), and its
+          Providers & Consumers on the open kehikko (`host/connections.ts`). */}
       {settingsFor ? (
         <ModuleSettingsDialog
           open
@@ -4549,6 +4633,8 @@ export function App() {
           module={settingsFor}
           name={byId.get(settingsFor)?.name ?? settingsFor}
           project={project ? { id: project.id, name: project.name } : null}
+          hasSettings={settingsOf(byId.get(settingsFor)?.module).length > 0}
+          connections={open ? { sides: connectionSides, setting: open.connections, onChange: onConnections } : null}
         />
       ) : null}
 
