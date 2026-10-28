@@ -8,6 +8,8 @@ import {
   REFRESH_EVERY_MAX,
   REFRESH_EVERY_MIN,
   type FilterChoice,
+  MODULE_SCOPES,
+  type ModuleScope,
 } from 'kehikot-module-protocol'
 import { STORED_GROUPS } from '../src/host/filters.ts'
 import { CANVAS_ROWS, finer, ROWS_BEFORE } from '../src/host/fit.ts'
@@ -290,6 +292,15 @@ export interface Placement {
    * never share a name in code.
    */
   version: string | null
+  /**
+   * The scope the person picked for this container (protocol 2.29.0): what its
+   * module's content belongs to, among the scopes the module lists. `null` is
+   * the module's default, which is every container before scopes existed. Kept
+   * only when it differs from the default (`scopeToKeep`), so an arrangement
+   * on defaults writes nothing new. A scope the module does not (or no longer)
+   * list reads as its default where it is used (`scopeOfContainer`).
+   */
+  scope: ModuleScope | null
 }
 
 export interface Canvas {
@@ -398,6 +409,7 @@ export type PlacementInput = Omit<
   | 'filters'
   | 'refreshEvery'
   | 'version'
+  | 'scope'
 > & {
   grow?: boolean
   pinned?: boolean
@@ -411,6 +423,8 @@ export type PlacementInput = Omit<
   refreshEvery?: number | null
   /** Absent or anything but a version tag means latest. */
   version?: string | null
+  /** Absent or anything but a scope word means the module's default. */
+  scope?: string | null
 }
 
 /** What a canvas may be changed to. Absent means unchanged; `null` means cleared. */
@@ -625,6 +639,9 @@ export function open(file = databaseFile()): Database {
   /* Which version a container runs, as a tag; NULL is latest, which is what
      every container written before versions existed has been running. */
   add(db, 'placements', 'version', 'text')
+  /* The scope the person picked for a container (protocol 2.29.0); NULL is the
+     module's default, which every container before scopes has been at. */
+  add(db, 'placements', 'scope', 'text')
   finerRows(db)
   add(db, 'canvases', 'selection', 'text')
   /* The connections switched off on a kehikko (`src/host/connections.ts`), as JSON; empty is automatic. */
@@ -918,10 +935,11 @@ export function listCanvases(db: Database): Canvas[] {
         filters: string
         refresh_every: number | null
         version: string | null
+        scope: string | null
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
     )
     .all()
 
@@ -939,6 +957,7 @@ export function listCanvases(db: Database): Canvas[] {
       filters,
       refresh_every: refreshEvery,
       version,
+      scope,
       ...rest
     } = row
     /* SQLite has no boolean. It comes back as 0 or 1 and is turned into one
@@ -965,6 +984,7 @@ export function listCanvases(db: Database): Canvas[] {
       /* Read through the same check as on the way in: a hand-edited row that
          is not a tag runs latest rather than something nobody can name. */
       version: isVersionTag(version) ? version : null,
+      scope: scopeIn(scope),
     }
     const list = byCanvas.get(canvas)
     if (list) list.push(placement)
@@ -1076,7 +1096,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
       const insert = db.query(
         /* `rows` named, with the count this host counts in: a row that does
            not say is one an older host wrote, in the old rows (`finerRows`). */
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, rows) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope, rows) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -1096,6 +1116,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           JSON.stringify(p.filters),
           p.refreshEvery,
           p.version,
+          p.scope,
           CANVAS_ROWS,
         )
       }
@@ -1548,9 +1569,18 @@ function cleaned(placements: PlacementInput[]): Placement[] {
          decided where a pin is MADE — `server/pins.ts` — and this only keeps
          a row from holding something that is not a version at all. */
       version: isVersionTag(p.version) ? p.version : null,
+      /* One of the protocol's scope words, or the default. Whether the module
+         lists it is the page's question (`scopeToKeep`), asked where the
+         manifest is; a word it does not list reads as its default anyway. */
+      scope: scopeIn(p.scope),
     })
   }
   return kept
+}
+
+/** A scope word as a row may hold one: one of `MODULE_SCOPES`, else null (the module's default). */
+export function scopeIn(word: unknown): ModuleScope | null {
+  return typeof word === 'string' && (MODULE_SCOPES as readonly string[]).includes(word) ? (word as ModuleScope) : null
 }
 
 /**

@@ -202,6 +202,7 @@ describe('a pin is kept with the container', () => {
     filters: {},
     refreshEvery: null,
     version: null,
+    scope: null,
   }
 
   test('in the database, and only a version tag', () => {

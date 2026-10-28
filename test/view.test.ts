@@ -49,6 +49,7 @@ const notes: Placement = {
   filters: {},
   refreshEvery: null,
   version: null,
+  scope: null,
 }
 const paper: Placement = { ...notes, i: 'kehikot.paper', y: 10, h: 12, wish: 12 }
 

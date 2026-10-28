@@ -150,6 +150,33 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
     ),
   },
   {
+    id: 'scope',
+    title: 'Every module says what it belongs to',
+    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. Test runs belong to this computer, your files to the project, a journey to its epic. Each module shows its scope on top, and one that can work at more than one lets you pick.',
+    art: () => (
+      <Art label="three modules, each with a small label on its header saying what its content belongs to">
+        {[
+          { x: 20, w: 88, label: 34 },
+          { x: 116, w: 88, label: 26 },
+          { x: 212, w: 88, label: 22 },
+        ].map((one, i) => (
+          <g key={one.x}>
+            <Pane x={one.x} y={22} w={one.w} h={112} style={after(0.15 * i)} />
+            {/* The scope label on the header: its icon and its name. */}
+            <g className="ia-pop" style={after(0.5 + 0.2 * i)}>
+              <rect x={one.x + one.w - one.label - 14} y="14" width={one.label + 10} height="14" rx="4" className={strong} strokeWidth="1" />
+              <circle cx={one.x + one.w - one.label - 8} cy="21" r="2.5" className="fill-primary" />
+              <rect x={one.x + one.w - one.label - 3} y="19" width={one.label - 4} height="4" rx="2" className="fill-foreground/55" />
+            </g>
+            <g className="ia-rise" style={after(0.3 + 0.15 * i)}>
+              <Rows x={one.x + 9} y={44} widths={[60, 44, 52, 66, 38, 56].map((w) => w - i * 4)} gap={13} />
+            </g>
+          </g>
+        ))}
+      </Art>
+    ),
+  },
+  {
     id: 'keep-working',
     title: 'Switch projects — the others keep working',
     body: 'Move to another project and the one you left carries on: its modules keep running and its agents keep at it. The Inbox tells you when one of them needs you.',

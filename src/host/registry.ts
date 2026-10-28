@@ -26,8 +26,12 @@ export interface FramedModule {
   icon: string | null
   health: string | null
   mcp: { url: string; transport: string; about: string; as?: string } | null
-  /** `global` from a host before 2.29.0; the five words of `MODULE_SCOPES` from one after. */
-  modes: { id: string; label: string; scope: 'epic' | 'global' | 'machine' | 'project' | 'part' | 'kehikko'; scopeSays?: string }[]
+  /**
+   * The scopes the module can work at, one mode each, its default first (protocol 2.29.0), with
+   * what it shows at each (`scopeSays`). `scope` is a string here: an older server sends `global`,
+   * which reads as `epic`. Read through `scopeOfContainer` (`host/scope.ts`), never directly.
+   */
+  modes: { id: string; label: string; scope: string; scopeSays?: string }[]
   extensions: { emits: string[]; consumes: string[] }
   /**
    * The context kinds this module says it reacts to.
@@ -57,7 +61,8 @@ export interface FramedModule {
     /**
      * Which scopes the module can show (protocol 2.9.0): `project` is "All
      * epics". Absent means one epic at a time — from an older module, and from
-     * an older server. Read through `showsProject`; see `host/scope.ts`.
+     * an older server. Deprecated since protocol 2.29.0 for a mode with `scope: 'project'`; read
+     * through `scopeOfContainer`; see `host/scope.ts`.
      */
     scopes?: ('epic' | 'project')[]
     /** The settings the module declared (protocol 2.15.0), drawn as one form. Absent: none. See `host/moduleSettings.ts`. */

@@ -55,6 +55,8 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
+import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
+import { ScopeIcon } from './Scope.tsx'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -1187,11 +1189,17 @@ export function FrameMenu({
   kehikko,
   epic,
   onSettings,
+  scope = null,
 }: {
   module: string
   name: string
   /** The module's settings (protocol 2.15.0): a "Settings…" row, at every width. Absent: the module declared none. */
   onSettings?(): void
+  /**
+   * The container's scope (protocol 2.29.0): a "Scope: Epic (default)" row at every width, so it is
+   * reachable where the header has only its icon. Opens the settings window, where it is picked.
+   */
+  scope?: ContainerScope | null
   /** What the sweep read of the agent's configuration for this module. `none` or absent: no door, no row. */
   agent: AgentAwareness | undefined
   onTools(): void
@@ -1263,6 +1271,13 @@ export function FrameMenu({
           <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
             {name}
           </DropdownMenuLabel>
+          {scope ? (
+            <DropdownMenuItem className={ROW} title={scopeTooltip(scope)} data-frame="scope" data-scope={scope.active} disabled={!onSettings} onSelect={onSettings}>
+              <ScopeIcon scope={scope.active} className="text-muted-foreground size-3.5" />
+              <span className="flex-1">Scope: {scope.name}</span>
+              <span className="text-muted-foreground text-[10px]">{scope.isDefault ? 'default' : 'changed'}</span>
+            </DropdownMenuItem>
+          ) : null}
           {onSettings ? (
             <DropdownMenuItem className={ROW} title={`${name} settings`} data-frame="settings" onSelect={onSettings}>
               <Settings className="text-muted-foreground size-3.5" />

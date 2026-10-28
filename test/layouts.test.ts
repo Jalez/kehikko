@@ -143,7 +143,7 @@ describe('the project’s layouts and the person’s own', () => {
     const canvas = createCanvas(store, 'writing', added.project.id)
     const notes: Placement = {
       i: 'kehikot.notes', x: 0, y: 0, w: 6, h: 1, grow: false, pinned: true, prompt: '', promptFor: null,
-      collapsed: true, wish: 12, selected: true, filters: { a: 'b' }, refreshEvery: null, version: 'v1.0.0',
+      collapsed: true, wish: 12, selected: true, filters: { a: 'b' }, refreshEvery: null, version: 'v1.0.0', scope: null,
     }
     editCanvas(store, canvas.id, { placements: [notes, { ...notes, i: 'kehikot.paper', x: 6, h: 14, wish: 14, collapsed: false, selected: false, filters: {} }] })
     return listCanvases(store)[0]!

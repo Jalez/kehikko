@@ -1,4 +1,6 @@
 import { Check, LayoutTemplate } from 'lucide-react'
+import { scopeRowTooltip, type ContainerScope } from '@/host/scope.ts'
+import { ScopeIcon } from './Scope.tsx'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -101,11 +103,14 @@ function LayoutCard({
   available,
   chosen,
   onChoose,
+  scopes,
 }: {
   layout: Layout
   available: readonly Available[]
   chosen: boolean
   onChoose(): void
+  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn on its chip. */
+  scopes?: ReadonlyMap<string, ContainerScope>
 }) {
   const said = availabilitySaid(available)
   const optional = available.filter((one) => one.optional && one.state !== 'here').map((one) => one.name)
@@ -136,9 +141,17 @@ function LayoutCard({
         <span className="text-muted-foreground flex min-w-0 max-w-full flex-col gap-0.5 text-[11px] leading-snug" data-layout-modules="">
           <ul className="m-0 flex min-w-0 max-w-full list-none flex-wrap gap-x-2 gap-y-0.5 p-0" data-layout-chips="">
             {shown.map((c) => (
-              <li key={c.module} title={c.name} className="inline-flex min-w-0 max-w-full items-center gap-0.5" data-layout-chip={c.module}>
+              <li
+                key={c.module}
+                title={scopes?.get(c.module) ? `${c.name} — ${scopeRowTooltip(scopes.get(c.module)!)}` : c.name}
+                className="inline-flex min-w-0 max-w-full items-center gap-0.5"
+                data-layout-chip={c.module}
+                data-scope={scopes?.get(c.module)?.active}
+              >
                 <ModuleIcon id={c.module} name={c.name} className="size-3 shrink-0" />
                 <span className="min-w-0 truncate">{c.name}</span>
+                {/* Its scope's icon (protocol 2.29.0); the scope's name is in the chip's title. */}
+                {scopes?.get(c.module) ? <ScopeIcon scope={scopes.get(c.module)!.active} className="size-2.5 opacity-70" /> : null}
               </li>
             ))}
             {hidden.length ? (
@@ -176,6 +189,8 @@ interface PickerProps {
   project: number | null
   /** What is registered here, id → name. */
   registered: ReadonlyMap<string, string>
+  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn on its chips. */
+  scopes?: ReadonlyMap<string, ContainerScope>
   /** Make the kehikko (mode `new`) or fill the open one (`fill`) with these containers. Resolves to a refusal or null. */
   onUse(layout: Layout, available: Available[], install: string[], name: string): Promise<string | null>
   /** Read for the cards; injectable for a test. */
@@ -197,7 +212,7 @@ async function officialList(): Promise<OfficialEntry[]> {
  */
 const loadShelves = (project: number | null) => fetchLayouts(project)
 
-export function LayoutPicker({ open, onOpenChange, mode, project, registered, onUse, load = loadShelves, loadOfficial = officialList }: PickerProps) {
+export function LayoutPicker({ open, onOpenChange, mode, project, registered, scopes, onUse, load = loadShelves, loadOfficial = officialList }: PickerProps) {
   const [shelves, setShelves] = useState<Shelves | null>(null)
   const [official, setOfficial] = useState<OfficialEntry[]>([])
   const [chosen, setChosen] = useState<Layout>(BLANK)
@@ -328,6 +343,7 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
                           available={availableOf(layout)}
                           chosen={chosen.from === layout.from && chosen.id === layout.id}
                           onChoose={() => setChosen(layout)}
+                          scopes={scopes}
                         />
                       ))}
                     </div>

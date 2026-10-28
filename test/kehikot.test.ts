@@ -89,6 +89,7 @@ const everything: Placement = {
   filters: { scope: 'chapter', kind: 'todo' },
   refreshEvery: 15,
   version: 'v1.2.0',
+  scope: null,
 }
 
 const another: Placement = {
@@ -107,6 +108,7 @@ const another: Placement = {
   filters: {},
   refreshEvery: null,
   version: null,
+  scope: null,
 }
 
 /** What a canvas looks like with everything that is local to one machine taken off. */

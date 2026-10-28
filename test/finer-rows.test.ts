@@ -206,7 +206,7 @@ describe('a shared kehikot.json from an older project', () => {
     const placements: Placement[] = [
       {
         i: 'kehikot.notes', x: 0, y: 3, w: 6, h: 33, grow: false, pinned: false, prompt: '', promptFor: null,
-        collapsed: false, wish: 33, selected: false, filters: {}, refreshEvery: null, version: null,
+        collapsed: false, wish: 33, selected: false, filters: {}, refreshEvery: null, version: null, scope: null,
       },
     ]
     const text = serialize([{ id: 1, key: 'odd', name: 'odd', project: null, placements, connections: { off: [], only: [] } }])

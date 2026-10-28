@@ -1,4 +1,4 @@
-import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
+import type { FilterChoice, ModuleContext, ModuleScope } from 'kehikot-module-protocol'
 import { useLayoutEffect, type CSSProperties } from 'react'
 
 import type { CanvasControls } from '@/host/ask.ts'
@@ -105,6 +105,12 @@ export interface Framing {
    * an option it does not currently have.
    */
   filters: FilterChoice
+  /**
+   * What this container is told in `context.scope` (protocol 2.29.0): its
+   * scope, the person's pick or its module's default, and `project` on "All
+   * epics" for one at Epic or Part. See `scopeToTell` in `host/scope.ts`.
+   */
+  scope: ModuleScope
 }
 
 export function Frames({
@@ -204,7 +210,7 @@ export function Frames({
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false} style={layer}>
-      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters }) => {
+      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters, scope }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -241,6 +247,7 @@ export function Frames({
             pinned={pinned}
             prompt={prompt}
             filters={filters}
+            scope={scope}
             away={away}
           />
         </div>

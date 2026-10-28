@@ -1,6 +1,6 @@
 import { settingIn, type ConnectionsSetting } from './connections.ts'
 import { z } from 'zod'
-import { LIMITS, MODULE_ID, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -21,7 +21,7 @@ import { registryIn, type RegistryView } from './registry.ts'
  * other with nothing failing in between.
  */
 
-const placementSchema = z.object({
+export const placementSchema = z.object({
   i: z.string().regex(MODULE_ID),
   x: z.number().int().min(0).max(200),
   y: z.number().int().min(0).max(10_000),
@@ -134,6 +134,14 @@ const placementSchema = z.object({
    * arrangement stored before versions existed runs latest, as it always did.
    */
   version: z.string().nullable().default(null),
+  /**
+   * The scope the person picked for this container (protocol 2.29.0), or `null`
+   * for its module's default. Kept only when it is not the default
+   * (`scopeToKeep` in `host/scope.ts`); see `scope` on `Placement` in
+   * `server/canvases.ts`. Any string reads here, and one the module does not
+   * list reads as its default where it is used (`scopeOfContainer`).
+   */
+  scope: z.enum(MODULE_SCOPES).nullable().catch(null).default(null),
 })
 
 /**
@@ -977,6 +985,8 @@ function fresh(id: string, at: Spot): Placement {
     /* Latest. A new container runs the module's own checkout until somebody
        picks a version in its header. */
     version: null,
+    /* Its module's default scope, until somebody picks another in its settings. */
+    scope: null,
   }
 }
 

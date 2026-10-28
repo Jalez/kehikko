@@ -249,6 +249,38 @@ describe('the door reports the scope', () => {
     expect(again.text).not.toContain('works on one epic at a time')
   })
 
+  test('read_canvas says each container’s scope (2.29.0): a project-scoped module is not covered, and a pick is said as changed', async () => {
+    const store = openDb(':memory:')
+    const p = project(store, folder())
+    const canvas = createCanvas(store, 'writing', p.id, 'writing')
+    editCanvas(store, canvas.id, {
+      placements: [
+        { i: 'a.files', x: 0, y: 0, w: 6, h: 10 },
+        { i: 'a.board', x: 6, y: 0, w: 6, h: 10, scope: 'project' },
+      ],
+    })
+    setSubject(store, p.id, { scope: 'project' })
+    const openness = new Openness()
+    openness.reported('page-a', canvas.id)
+    const seen: Sighting[] = [
+      { id: 'a.files', name: 'Files', condition: 'ready', modes: [{ id: 'files', scope: 'project', scopeSays: 'the files of this project' }] },
+      {
+        id: 'a.board',
+        name: 'Board',
+        condition: 'ready',
+        modes: [
+          { id: 'board', scope: 'epic', scopeSays: 'the open epic’s cards' },
+          { id: 'all', scope: 'project', scopeSays: 'every epic’s cards' },
+        ],
+      },
+    ]
+    const read = await call('read_canvas', {}, door(store, openness, seen))
+    expect(read.text).not.toMatch(/a\.(files|board) \([A-Za-z]+\) — works on one epic/)
+    expect(read.text).toContain('      scope: Project (default) — the files of this project')
+    expect(read.text).toContain('      scope: Project (changed by the person) — every epic’s cards; can also work for Epic (its default)')
+    expect(read.text).toContain('Only the person changes a scope; no tool here does.')
+  })
+
   test('my_place says the person is looking at all epics', async () => {
     const store = openDb(':memory:')
     const p = project(store, folder())

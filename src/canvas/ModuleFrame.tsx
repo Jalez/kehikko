@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { FilterChoice, ModuleContext } from 'kehikot-module-protocol'
+import type { FilterChoice, ModuleContext, ModuleScope } from 'kehikot-module-protocol'
 
 import { readableBy } from '@/host/context.ts'
 
@@ -55,6 +55,7 @@ export function ModuleFrame({
   pinned,
   prompt,
   filters,
+  scope,
   away = false,
 }: {
   module: FramedModule
@@ -101,6 +102,12 @@ export function ModuleFrame({
    * has to ride on the channel the host re-sends when the canvas moves.
    */
   filters: FilterChoice
+  /**
+   * What this container is told in `context.scope` (protocol 2.29.0): per
+   * container, like the pin and the filters, because two containers of one
+   * module can be at two scopes. Absent: the canvas's own. See `scopeToTell`.
+   */
+  scope?: ModuleScope
   /**
    * Its module is not on the open kehikko: the page is kept, hidden, and is
    * not told the open kehikko's context — see `whileAway`. Coming back sends
@@ -150,8 +157,9 @@ export function ModuleFrame({
       pinned,
       prompt,
       filters: JSON.parse(filtersKey) as FilterChoice,
+      ...(scope ? { scope } : {}),
     }),
-    [context, builtWith, pinned, prompt, filtersKey],
+    [context, builtWith, pinned, prompt, filtersKey, scope],
   )
 
   const contextRef = useRef(told)

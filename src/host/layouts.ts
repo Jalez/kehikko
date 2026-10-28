@@ -386,6 +386,8 @@ export function placementsFor(
       filters: {},
       refreshEvery: c.refreshEvery ?? null,
       version: null,
+      /* A layout is rectangles and prompts; each container starts at its module's default scope. */
+      scope: null,
     }))
 }
 
