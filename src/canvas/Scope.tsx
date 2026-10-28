@@ -41,6 +41,8 @@ export function ScopeLabel({ scope, text, onOpen }: { scope: ContainerScope; tex
       <button
         type="button"
         data-testid="header-scope"
+        /* A text chip: a folded (dense) header squares its other buttons to 18px, not this one (index.css). */
+        data-chip=""
         data-scope={scope.active}
         data-scope-default={scope.isDefault ? 'true' : 'false'}
         aria-label={said}
