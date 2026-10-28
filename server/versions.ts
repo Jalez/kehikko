@@ -141,7 +141,7 @@ export function tagsFromLsRemote(out: string): string[] {
 export type Ran = { ok: true; out: string } | { ok: false; why: string }
 
 /** Run a program with no terminal and no prompts. `cwd` defaults to this process's. */
-export type Runner = (argv: readonly string[], options?: { cwd?: string; timeoutMs?: number }) => Promise<Ran>
+export type Runner = (argv: readonly string[], options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<Ran>
 
 export const RUN_TIMEOUT_MS = 20_000
 
@@ -152,7 +152,7 @@ export const run: Runner = async (argv, options = {}) => {
   try {
     child = Bun.spawn([...argv], {
       cwd: options.cwd,
-      env: QUIET_ENV,
+      env: options.env ? { ...QUIET_ENV, ...options.env } : QUIET_ENV,
       stdout: 'pipe',
       stderr: 'pipe',
       stdin: 'ignore',

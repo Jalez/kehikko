@@ -40,7 +40,7 @@ import { createEpic, deleteEpic, editParts, epicSlugs, epicsIn, listEpics, retit
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, leaving, Nursery, setPageOrigins, start, startable, type Runnable, type Started } from './launch.ts'
+import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { sourceOf } from './source.ts'
 import { systemProcesses, takeOver } from './takeover.ts'
@@ -78,7 +78,7 @@ import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
-import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, type Copy } from './moduleBuilds.ts'
+import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -611,6 +611,7 @@ const installs = installDesk({
   releases: { settle: (place) => follower.settle(place) },
   /* And built at that release before it is registered (`moduleBuilds.ts`). */
   build: (copy) => builds.build(copy),
+  log: (line) => console.log(line),
 })
 
 /* "My modules": what the person installs from a repository that is on no
@@ -1554,6 +1555,11 @@ const releases = new ReleaseWaits({
   apply: (place) => level(place),
   log: (line) => console.log(line),
 })
+
+/** `startable`, with an installed copy given the host's own Bun first on its PATH; a checkout is left as it is. */
+function startable(registration: Registration | null): Startable {
+  return withOwnBun(startableAsIs(registration), !!registration?.dir && isInstalled(registration.dir))
+}
 
 /** An installed copy, under `installsDir`: the only kind that runs releases and is built here. Never a checkout somebody edits. */
 function isInstalled(dir: string): boolean {

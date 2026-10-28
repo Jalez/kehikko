@@ -284,6 +284,16 @@
   (`buildBun`). A ready-built module needs Bun `READY_BUILT_BUN` (1.4.0,
   `Bun.spawn({ terminal })`): `whyNoBuilds` checks this Bun and the `bun` on
   the `PATH` modules run with, and `build:sidecar` refuses an older Bun.
+- Every `bun install` the host runs for an installed copy (install, update,
+  auto-update and `ReleaseWaits.apply` through `update()`, My modules through
+  the same install, a pinned version's tree) uses `buildBun()`'s binary and env,
+  never the `bun` on the PATH: the modules' `bun.lock` is written by the host's
+  Bun, and another Bun can read it as "needs changes" and fail a frozen install.
+  A module START of an installed copy gets the same shim first on its PATH
+  (`withOwnBun`), so its `run.sh` installs and runs on that Bun too. A checkout
+  somebody edits keeps their toolchain. A frozen install that still fails says
+  which Bun and keeps the output in the log; it never falls back to a non-frozen
+  install.
 - The Updates menu says "Preparing Terminal…" while it builds and "Terminal
   runs from source; its build didn't finish (see log)" after a failure
   (`builds` on `/host/updates`, phase `preparing`); a module's details say

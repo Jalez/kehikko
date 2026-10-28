@@ -221,7 +221,7 @@ describe('adding a repository', () => {
     /* Every call that fetches or runs anything; the list reads the checkout's remote afterwards, to say where it is from. */
     expect(w.gitCalls.map((call) => call.argv.join(' ')).filter((one) => !one.endsWith('remote get-url origin'))).toEqual([
       `git clone --quiet https://github.com/jaakkorajalasol/kehikko-flows.git ${dir}`,
-      'bun install --frozen-lockfile',
+      `${process.execPath} install --frozen-lockfile`,
     ])
     expect(readRegistration('kehikot.flows.json', readFileSync(join(w.registry, 'kehikot.flows.json'), 'utf8'))).toEqual({
       ok: true,
@@ -336,7 +336,7 @@ describe('installing and updating through the shared path', () => {
     const w = world({
       answers: flowsRepo(),
       git: (argv) => {
-        if (argv[0] === 'bun') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
+        if (argv[1] === 'install') return ++installs === 1 ? { ok: false, why: 'lockfile is frozen' } : { ok: true, out: '' }
         if (argv.includes('get-url')) return { ok: true, out: 'git@github.com:jaakkorajalasol/kehikko-flows.git' }
         return { ok: true, out: '' }
       },
@@ -344,14 +344,14 @@ describe('installing and updating through the shared path', () => {
     await w.mine.add('jaakkorajalasol/kehikko-flows')
     expect((await settled(w, 'kehikot.flows')).install).toEqual({
       state: 'failed',
-      why: 'Flows was cloned, and its dependencies could not be installed: lockfile is frozen',
+      why: `Flows was cloned, and its dependencies could not be installed with Kehikot's own Bun ${Bun.version} (bun install --frozen-lockfile; the lockfile is not rewritten): lockfile is frozen`,
     })
     expect((await post(w, '/host/mine/install', { module: 'kehikot.flows' }))?.status).toBe(202)
     expect((await settled(w, 'kehikot.flows')).installed).toBe(true)
     const said = w.gitCalls.map((call) => call.argv.join(' '))
     const pull = said.indexOf(`git -C ${join(w.root, 'kehikot.flows')} pull --ff-only --quiet`)
     expect(pull).toBeGreaterThan(-1)
-    expect(pull).toBeLessThan(said.lastIndexOf('bun install --frozen-lockfile'))
+    expect(pull).toBeLessThan(said.lastIndexOf(`${process.execPath} install --frozen-lockfile`))
     expect(said.filter((one) => one.startsWith('git clone'))).toHaveLength(1)
   })
 

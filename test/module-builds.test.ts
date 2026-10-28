@@ -405,7 +405,7 @@ describe('built after an install', () => {
     })
     await desk.install(entry.id)
     for (let i = 0; i < 400 && !(await desk.list())[0]?.installed; i++) await new Promise((wake) => setTimeout(wake, 10))
-    expect(order).toEqual(['git clone --quiet', 'bun install --frozen-lockfile', 'build kehikot.thing (registered: false)'])
+    expect(order).toEqual(['git clone --quiet', `${process.execPath} install --frozen-lockfile`, 'build kehikot.thing (registered: false)'])
     const dir = join(installs, entry.id)
     expect(builtAt(dir, git(dir, 'rev-parse', 'HEAD'))).toBe(true)
     expect(readFileSync(join(logs, 'kehikot.thing.log'), 'utf8')).toContain('building ')
@@ -609,7 +609,7 @@ describe("the install marker run.sh reads", () => {
           writeFileSync(join(dir, 'bun.lock'), '{}')
         }
         /* What bun install leaves. */
-        if (argv[0] === 'bun') mkdirSync(join(options!.cwd!, 'node_modules'), { recursive: true })
+        if (argv[1] === 'install') mkdirSync(join(options!.cwd!, 'node_modules'), { recursive: true })
         return { ok: true, out: '' }
       },
       root: join(base, 'installed'),

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { MODULE_ID } from 'kehikot-module-protocol'
 
 import { GRACE_MS } from './lifecycle.ts'
+import { buildBun } from './moduleBuilds.ts'
 import { RUN_SCRIPT } from './launch.ts'
 import { isVersionTag, run, type Runner } from './versions.ts'
 
@@ -91,10 +92,12 @@ function safe(id: string, tag: string): boolean {
 export class SourceMaterialiser implements Materialiser {
   readonly #root: string
   readonly #run: Runner
+  readonly #bun: typeof buildBun
 
-  constructor(root: string, runner: Runner = run) {
+  constructor(root: string, runner: Runner = run, bun: typeof buildBun = buildBun) {
     this.#root = root
     this.#run = runner
+    this.#bun = bun
   }
 
   #module(id: string): string {
@@ -159,8 +162,11 @@ export class SourceMaterialiser implements Materialiser {
     step('installing')
     if (existsSync(join(dir, 'package.json'))) {
       const frozen = existsSync(join(dir, 'bun.lock')) || existsSync(join(dir, 'bun.lockb'))
-      const installed = await this.#run(['bun', 'install', ...(frozen ? ['--frozen-lockfile'] : [])], {
+      /* The host's own Bun, as an installed copy's install: not the one on the PATH. */
+      const own = this.#bun()
+      const installed = await this.#run([own.bun, 'install', ...(frozen ? ['--frozen-lockfile'] : [])], {
         cwd: dir,
+        env: own.env,
         timeoutMs: INSTALL_TIMEOUT_MS,
       })
       if (!installed.ok) return { ok: false, why: `bun install failed in ${tag}: ${installed.why}` }
