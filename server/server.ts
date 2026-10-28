@@ -36,7 +36,7 @@ import { baseBranchOf, setBaseBranch } from './baseBranch.ts'
 import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectAt, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
-import { createEpic, deleteEpic, editParts, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
+import { createEpic, deleteEpic, editParts, epicSlugs, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type Presence } from './discover.ts'
 import { ManifestCache, probe } from './manifests.ts'
@@ -2672,6 +2672,13 @@ const inboxRoutes = inboxDesk({
   inbox,
   pathOf: (project) => projectById(db, project)?.path,
   kehikotOf: (project) => listCanvases(db).filter((one) => one.project === project).map((one) => ({ key: one.key, name: one.name })),
+  /* What an entry's module and place are checked against: what is installed (as of the last
+     sweep; nothing before one), the project's kehikot and its epics. */
+  present: (project) => ({
+    modules: lastRegistry,
+    kehikot: new Set(listCanvases(db).filter((one) => one.project === project).map((one) => one.key)),
+    epics: epicSlugs(projectById(db, project)?.path),
+  }),
   changed: (project, rev) => wakes.inboxChanged(project, rev),
 })
 

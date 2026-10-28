@@ -157,6 +157,26 @@ export interface EpicSummary {
  * make the other ten unreachable — and skipping is safe here because the caller
  * is being told what exists, not being told nothing exists.
  */
+/**
+ * The slugs of a project's epics, by their files alone: what the Inbox asks to
+ * tell an epic that was deleted from one it cannot read. Null when the project
+ * keeps no epics folder, or it cannot be listed — which says nothing about
+ * which epics there are.
+ */
+export function epicSlugs(root: string | null | undefined): Set<string> | null {
+  if (!epicsIn(root)) return null
+  try {
+    return new Set(
+      readdirSync(epicsDir(root!))
+        .filter((file) => file.endsWith('.json'))
+        .map((file) => file.slice(0, -'.json'.length))
+        .filter((slug) => SLUG.test(slug)),
+    )
+  } catch {
+    return null
+  }
+}
+
 export function listEpics(dir: string): EpicSummary[] {
   const epics: EpicSummary[] = []
   let files: string[]

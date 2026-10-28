@@ -71,6 +71,8 @@ export async function postReport(body: {
   name: string
   items: readonly ActivityItem[]
   silent?: boolean
+  /** The module's new page did not say its list again in its grace. */
+  unreported?: boolean
   loadedAt: number
 }): Promise<(Snapshot & { news: Entry[] }) | null> {
   const got = (await post('/host/inbox/report', body)) as (Snapshot & { news?: Entry[]; ok?: boolean }) | null

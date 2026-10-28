@@ -3,11 +3,14 @@ import type { ActivityItem } from 'kehikot-module-protocol'
 
 import { clearStored, placeOpened, storedFor, type Where } from '@/host/activity.ts'
 import {
+  REREPORT_GRACE_MS,
   applyList,
+  isHostModule,
   isLive,
   isOpen,
   isSeen,
   rowKey,
+  unreportedAfter,
   type Entry,
   type NoticeLine,
 } from '@/host/inbox.ts'
@@ -109,6 +112,16 @@ export const DROP_GRACE_MS = 6000
  * silent — a server that died must not leave `working` standing — and they
  * stay in the log.
  *
+ * The host's own items (`isHostModule`: the place asks, the tracker notices)
+ * have no container and are never closed for that.
+ *
+ * `greeted(module)` is told when a module's page answers a greeting — a page
+ * that is new: the host page loaded, the module restarted or was updated, its
+ * frame reloaded. That page's list is the module's word from then on. If it
+ * sends none within `rereportMs`, what the record holds open for the module
+ * (in the open project and wherever else it holds some) closes as
+ * `unreported`: a dot must not stand on what a page that is gone once said.
+ *
  * `at` is where the person is. A `done` item is seen when they ARRIVE at its
  * place (a change of epic, parts or kehikko) or press it; one that finishes
  * while its place is already open stays green until one of those.
@@ -139,9 +152,11 @@ export function useInbox(options: {
   at: Where
   nameOf: (module: string) => string
   graceMs?: number
+  /** How long a module's new page has to say its list again. */
+  rereportMs?: number
   notify?: (entry: Entry, project: number) => void
 }) {
-  const { project, alive, at, graceMs = DROP_GRACE_MS } = options
+  const { project, alive, at, graceMs = DROP_GRACE_MS, rereportMs = REREPORT_GRACE_MS } = options
   const projects = options.projects ?? NO_PROJECTS
   const projectsRef = useRef(projects)
   projectsRef.current = projects
@@ -309,8 +324,13 @@ export function useInbox(options: {
    * open project's, and is declined, with the reason, when none is open. One
    * that tags its items is filed by project (see the top).
    */
+  /** When each module's page last answered a greeting, and when it last sent a list. */
+  const greetedAt = useRef(new Map<string, number>())
+  const heardAt = useRef(new Map<string, number>())
+
   const receive = useCallback(
     (from: string, list: ActivityItem[]) => {
+      heardAt.current.set(from, Date.now())
       const open = projectRef.current
       if (!list.some((item) => item.project !== undefined)) {
         if (open === null) {
@@ -410,7 +430,7 @@ export function useInbox(options: {
   useEffect(() => {
     const id = project
     if (!alive || id === null || !modules) return
-    const gone = modules.split('\u0001').filter((module) => !alive.has(module))
+    const gone = modules.split('\u0001').filter((module) => !alive.has(module) && !isHostModule(module))
     if (!gone.length) return
     const close = () => {
       for (const module of gone) {
@@ -431,6 +451,42 @@ export function useInbox(options: {
     const timer = setTimeout(close, graceMs)
     return () => clearTimeout(timer)
   }, [alive, modules, project, graceMs, adopt, queue, setSnap])
+
+  /* A module's new page that has not said its list again: what the old one said closes. */
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
+  useEffect(() => () => {
+    for (const timer of timers.current) clearTimeout(timer)
+    timers.current.clear()
+  }, [])
+  const greeted = useCallback(
+    (module: string) => {
+      if (isHostModule(module)) return
+      greetedAt.current.set(module, Date.now())
+      const timer = setTimeout(() => {
+        timers.current.delete(timer)
+        if (!unreportedAfter(greetedAt.current, heardAt.current, Date.now(), rereportMs).includes(module)) return
+        greetedAt.current.delete(module)
+        const where = [
+          ...new Set([
+            ...(projectRef.current === null ? [] : [projectRef.current]),
+            ...projectsHolding(snapsRef.current, module),
+          ]),
+        ].filter((id) => snapsRef.current[id]?.open.some((one) => one.module === module && isOpen(one)))
+        for (const id of where) {
+          sent.current.delete(`${id}\u0000${module}`)
+          setSnap(id, (was) => {
+            const base = was ?? { rev: 0, open: [], earlier: 0 }
+            return { rev: base.rev, earlier: base.earlier, open: base.open.filter((one) => one.module !== module) }
+          })
+          void queue(() =>
+            postReport({ project: id, module, name: nameRef.current(module), items: [], unreported: true, loadedAt: loadedAt.current }),
+          ).then((got) => adopt(id, got))
+        }
+      }, rereportMs)
+      timers.current.add(timer)
+    },
+    [rereportMs, adopt, queue, setSnap],
+  )
 
   /* Arriving. The first value is where the page opened, not an arrival. */
   const here = `${at.epic ?? ''}|${[...at.parts].sort().join(',')}|${at.kehikko ?? ''}`
@@ -460,5 +516,5 @@ export function useInbox(options: {
     [projects, project, snaps],
   )
 
-  return { open, live, others, rev, earlier, receive, notice, see, dismiss, act, refresh }
+  return { open, live, others, rev, earlier, receive, greeted, notice, see, dismiss, act, refresh }
 }
