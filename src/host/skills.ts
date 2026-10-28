@@ -207,4 +207,4 @@ export function skillsSaying(skills: readonly { name: string }[] | undefined, na
 
 /** Said in the window before and after a press, like the Tools window's sentence. */
 export const NEXT_SESSION_SKILLS =
-  'A skill applies to Claude Code sessions started after it is installed. A session that is already running will not see it, or an update to it.'
+  'A skill applies to Claude Code sessions started after it is installed. In a session that is already running, type /reload-skills to pick it up, or an update to it.'
