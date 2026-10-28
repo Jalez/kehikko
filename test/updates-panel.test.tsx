@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b24 pass/)
+    expect(out).toMatch(/\b25 pass/)
   }, 60_000)
 }
 
@@ -800,5 +800,45 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(posts.includes('/host/restart')).toBe(false)
     expect(panels()).toHaveLength(1)
     expect(text()).toContain('quit and reopen Kehikot')
+  })
+  test('"Update all" fetches a waiting local checkout, updates it, and lists what it could not update with why', async () => {
+    const posts: string[] = []
+    let fetched = false
+    const wait = checkout('local', 0, { waiting: true })
+    const moved = checkout('local', 1)
+    answer = async (url, init) => {
+      if (init?.method === 'POST') {
+        posts.push(String(JSON.parse(String(init.body)).id))
+        const id = JSON.parse(String(init.body)).id as string
+        const after = id === 'local' ? checkout('local', 0) : checkout(id, 0)
+        return new Response(`${JSON.stringify({ done: { ok: true, checkout: after, changed: [], installed: false, installFailed: null, lockfileReset: false, module: { ran: 'idle' } } })}\n`, { status: 200 })
+      }
+      if (url.startsWith('/host/updates')) {
+        if (url.includes('fetch=1') && !url.includes('quiet=1')) fetched = true
+        return check(
+          fetched
+            ? [moved, checkout('ready', 1), checkout('mine', 1, { dirty: true, blocked: 'there are uncommitted changes; commit or stash them first' }), checkout('stuck', 0, { waiting: true })]
+            : [wait, checkout('ready', 1), checkout('mine', 1, { dirty: true, blocked: 'there are uncommitted changes; commit or stash them first' }), checkout('stuck', 0, { waiting: true })],
+        )
+      }
+      return {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    fetched = false
+    /* Before the press the summary does not say "up to date". */
+    const all = [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Update all')) as HTMLButtonElement
+    expect(all.textContent).toBe('Update all (3)')
+    await act(async () => all.click())
+    await settle()
+    await settle()
+    expect(fetched).toBe(true)
+    expect(posts.sort()).toEqual(['local', 'ready'])
+    const skipped = [...document.querySelectorAll('[data-testid="updates-skipped-item"]')].map((li) => li.textContent)
+    expect(skipped).toEqual([
+      'mine — there are uncommitted changes; commit or stash them first',
+      'stuck — local checkout not fetched — press Check now',
+    ])
   })
 })
