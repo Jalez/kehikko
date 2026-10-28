@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { Burst, playsHere, soundFor, type Kind, type Peer } from '@/host/chime.ts'
+import { Burst, chimeFor, playsHere, type Kind, type Peer } from '@/host/chime.ts'
 import { playSound, unlockOnGesture } from '@/host/chimePlayer.ts'
 import { adoptChime, chimeNow } from '@/host/chimeStore.ts'
 import { fetchSettings } from './Settings.tsx'
@@ -10,7 +10,7 @@ const HEARTBEAT_MS = 20_000
 
 /**
  * The page's chime: events in (`offer`), at most one sound out. Four rules
- * live in `host/chime.ts` — the burst, the kinds, the module's own sound and
+ * live in `host/chime.ts` — the burst, the kinds, the module's and the event's own sound and
  * which window plays — and this only wires them to the page:
  *
  *  - the settings are read through `fetchSettings`, which the page already
@@ -19,17 +19,18 @@ const HEARTBEAT_MS = 20_000
  *  - windows of this app tell each other, over a BroadcastChannel (no storage),
  *    when they last had the focus, and only the most recent plays.
  */
-export function useChime(): { offer(kind: Kind, module?: string): void; plays(): boolean } {
+export function useChime(): { offer(kind: Kind, module?: string, event?: string): void; plays(): boolean } {
   const burst = useRef<Burst | null>(null)
   const self = useRef<Peer>({ id: Math.random().toString(36).slice(2, 10), focusedAt: 0, heardAt: 0 })
   const others = useRef(new Map<string, Peer>())
 
   if (!burst.current) {
-    burst.current = new Burst((kind, module) => {
+    burst.current = new Burst((kind, module, event) => {
       const settings = chimeNow()
       if (!settings.on) return
       if (!plays()) return
-      void playSound(soundFor(settings, kind, module), kind, settings)
+      const { sound, asWritten } = chimeFor(settings, kind, module, event)
+      void playSound(sound, kind, settings, asWritten)
     })
   }
 
@@ -94,5 +95,5 @@ export function useChime(): { offer(kind: Kind, module?: string): void; plays():
 
   /* Whether this is the window that plays: the toast asks the same question. */
   const plays = () => playsHere(self.current, [...others.current.values()], Date.now())
-  return { offer: (kind, module) => burst.current?.offer(kind, module), plays }
+  return { offer: (kind, module, event) => burst.current?.offer(kind, module, event), plays }
 }

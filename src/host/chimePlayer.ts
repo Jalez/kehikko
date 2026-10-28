@@ -121,9 +121,10 @@ async function playFile(id: string): Promise<void> {
 
 /**
  * Play one sound for a kind. Never throws; resolves when it has been started.
- * A file that is not among the settings' files plays nothing.
+ * A file that is not among the settings' files plays nothing. `asWritten` plays
+ * a tune as written whatever the kind: an event's own sound.
  */
-export async function playSound(sound: Sound, kind: Kind, settings: ChimeSettings): Promise<void> {
+export async function playSound(sound: Sound, kind: Kind, settings: ChimeSettings, asWritten = false): Promise<void> {
   try {
     if (sound.type === 'none') return
     if (sound.type === 'file') {
@@ -133,7 +134,7 @@ export async function playSound(sound: Sound, kind: Kind, settings: ChimeSetting
     const tune = sound.type === 'custom' ? settings.custom : presetOf(sound.id)?.tune
     if (!tune) return
     const ctx = audio()
-    if (ctx) schedule(ctx, tuneFor(tune, kind))
+    if (ctx) schedule(ctx, asWritten ? tune : tuneFor(tune, kind))
   } catch {
     /* blocked or unsupported: silence */
   }

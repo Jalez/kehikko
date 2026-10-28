@@ -51,6 +51,11 @@ export interface FramedModule {
    * `context.show` only to a container whose module says the subject. Absent: nothing.
    */
   shows?: string[]
+  /**
+   * The Inbox events the module declares (protocol 2.31.0): Settings lists each
+   * under the module, by its `says`, for a sound of its own. Absent: none.
+   */
+  events?: { id: string; says: string; state: 'working' | 'attention' | 'done' }[]
   /** `skills` (protocol 2.5.0): the Claude Code skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string

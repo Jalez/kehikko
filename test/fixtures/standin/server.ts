@@ -29,6 +29,8 @@ const jump = process.env.STANDIN_JUMP ? (JSON.parse(process.env.STANDIN_JUMP) as
 const shows = process.env.STANDIN_SHOWS === '1'
 /* `STANDIN_ACTIVITY=<items as JSON>`: a "report" button says these (`activity.set`), for the Inbox toast's drive. */
 const activity = process.env.STANDIN_ACTIVITY ? (JSON.parse(process.env.STANDIN_ACTIVITY) as unknown[]) : null
+/* `STANDIN_EVENTS=<events as JSON>`: the Inbox events this one declares (protocol 2.31.0), for the events drive. */
+const events = process.env.STANDIN_EVENTS ? (JSON.parse(process.env.STANDIN_EVENTS) as unknown[]) : null
 
 const manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -46,6 +48,7 @@ const manifest = manifestSchema.parse({
   reacts: [],
   partless: 'A stand-in for a test: it holds nothing of a part.',
   ...(shows ? { shows: ['agent-session'] } : {}),
+  ...(events ? { events } : {}),
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: [...(trafficHost ? ['traffic:read'] : []), ...(activity ? ['activity:report'] : []), ...(jump ? ['view:navigate'] : [])],

@@ -222,6 +222,8 @@ export interface FramedModule {
   reacts: Manifest['reacts']
   /** What the module can be asked to show (protocol 2.28.0): who is told `context.show`. Absent: nothing. */
   shows?: string[]
+  /** The Inbox events the module declares (protocol 2.31.0): what an item's `event` is held to, and what Settings lists. Absent: none. */
+  events?: { id: string; says: string; state: 'working' | 'attention' | 'done' }[]
   declares: Manifest['declares']
   /**
    * What the server answering now is built from: its version, the commit it
@@ -574,6 +576,7 @@ export async function look(
       extensions: manifest.extensions,
       reacts: manifest.reacts,
       ...(manifest.shows?.length ? { shows: [...manifest.shows] } : {}),
+      ...(manifest.events?.length ? { events: manifest.events.map((one) => ({ ...one })) } : {}),
       declares: manifest.declares,
       build: manifest.build ?? null,
     },

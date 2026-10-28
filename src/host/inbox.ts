@@ -1,4 +1,4 @@
-import { worstActivity, type ActivityItem, type ActivityState } from 'kehikot-module-protocol'
+import { declaredEvent, worstActivity, type ActivityItem, type ActivityState, type InboxEvent } from 'kehikot-module-protocol'
 
 import { placeOpened, placeSplit, type Namer, type Where } from './activity.ts'
 
@@ -80,6 +80,11 @@ export const isHostModule = (module: string): boolean => module === 'kehikko' ||
  */
 export const REREPORT_GRACE_MS = 20_000
 
+export interface EntryEvent {
+  id: string
+  says: string
+}
+
 export interface Entry {
   module: string
   /** What the host knew the module as when it last said anything: the by-line's word. */
@@ -92,6 +97,15 @@ export interface Entry {
   priority: Priority
   refs: string[]
   group?: string
+  /**
+   * The module's named event this item is (protocol 2.31.0; `named` because
+   * an item's `event` is the bare id the module sent): its id and what
+   * the module calls it, "Research complete". Only one the module's manifest
+   * declares for the item's state (`declaredEvent`); anything else is dropped
+   * and the item is an ordinary item of its state. Still one of the states:
+   * an event names a case, it is not a kind of its own.
+   */
+  named?: EntryEvent
   /** When it entered `state`: the module's own `since`, else when the host first held it there. */
   entered: number
   /** When it was first reported. */
@@ -139,6 +153,8 @@ export interface ListOptions {
   loadedAt?: number
   /** The `entered` of the last line told for (module, id, state) before the store held it. */
   told?(module: string, id: string, state: ActivityState): number | undefined
+  /** The events the module's manifest declares (protocol 2.31.0): what an item's `event` is held to. */
+  events?: readonly InboxEvent[]
 }
 
 export interface Applied {
@@ -182,6 +198,7 @@ export function applyList(
     listed.add(item.id)
     const was = byId.get(item.id)
     const entered = item.since ?? (was && was.state === item.state ? was.entered : now)
+    const event = declaredEvent(options.events, item)
     const next: Entry = {
       module,
       name,
@@ -193,6 +210,7 @@ export function applyList(
       priority: item.priority ?? 'normal',
       refs: item.refs ? [...item.refs] : [],
       ...(item.group ? { group: item.group } : {}),
+      ...(event ? { named: { id: event.id, says: event.says } } : {}),
       entered,
       opened: was?.opened ?? now,
       closed: null,
@@ -210,6 +228,8 @@ export function applyList(
       was.detail !== next.detail ||
       was.priority !== next.priority ||
       was.group !== next.group ||
+      was.named?.id !== next.named?.id ||
+      was.named?.says !== next.named?.says ||
       !sameList(was.refs, next.refs) ||
       !samePlace(was.place, next.place)
     if (!changed) continue

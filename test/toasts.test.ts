@@ -80,7 +80,7 @@ describe('the setting', () => {
   test('the page tells the toast from the same news as the chime, and agents have no door to it', async () => {
     const app = await Bun.file(new URL('../src/App.tsx', import.meta.url)).text()
     const notify = app.slice(app.indexOf('notify: (entry, project) =>'))
-    expect(notify.slice(0, 700)).toMatch(/chime\.offer\(kind, entry\.module\)[\s\S]*toastRef\.current\(entry, project\)/)
+    expect(notify.slice(0, 700)).toMatch(/chime\.offer\(kind, entry\.module, entry\.named\?\.id\)[\s\S]*toastRef\.current\(entry, project\)/)
     const mcp = await Bun.file(new URL('../server/mcp.ts', import.meta.url)).text()
     expect(mcp.toLowerCase()).not.toContain('toast')
   })

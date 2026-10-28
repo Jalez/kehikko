@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { InboxEvent } from 'kehikot-module-protocol'
 
 import type { Narrowing, Inbox } from './inbox.ts'
 import type { Present, Scope } from '../src/host/inbox.ts'
@@ -39,6 +40,12 @@ export interface InboxDeps {
   kehikotOf?(project: number): readonly { key: string; name: string }[]
   /** What is still there for a project — installed modules, its kehikot, its epics — or null when not known. */
   present?(project: number): Present | null
+  /**
+   * The Inbox events a module's manifest declares (protocol 2.31.0), from the
+   * last sighting of it: what an item's `event` is held to. None known, none
+   * held: the item is an ordinary item of its state.
+   */
+  eventsOf?(module: string): readonly InboxEvent[] | undefined
   /** Say that a project's inbox is not what the pages last read. */
   changed(project: number, rev: number): void
 }
@@ -155,6 +162,7 @@ export function inboxDesk(deps: InboxDeps) {
         silent,
         unreported,
         present: now,
+        events: deps.eventsOf?.(module) ?? [],
         ...(loadedAt !== undefined ? { loadedAt } : {}),
       })
       if (out.rev !== before) deps.changed(project, out.rev)

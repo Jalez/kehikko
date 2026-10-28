@@ -23,6 +23,16 @@ import type { Entry } from './inbox.ts'
  * `attention` (it needs you), `done` and `notice`. A burst plays the most
  * urgent kind that arrived in it, in that order.
  *
+ * ## Named events
+ *
+ * A module may name a case of a state (protocol 2.31.0, the entry's `named`):
+ * "Research complete" is a `done`. It is still that kind — it wins a burst as
+ * a `done` does — but the person can give it a sound of its own, per module
+ * and event (`events`). An event with none set plays its kind's sound, except
+ * where the host ships one for that event's id (`DEFAULT_EVENT_SOUNDS`); "Same
+ * as the kind" (`{ type: 'kind' }`) says so explicitly. An event's own sound
+ * plays as written, not in its kind's softer form.
+ *
  * ## Where it is kept
  *
  * Machine-wide, in the host's settings (`server/chime.ts`, key `inbox-chime`),
@@ -139,6 +149,8 @@ export const PRESETS: readonly Preset[] = [
   { id: 'twotone', name: 'Two-tone', tune: { notes: [79, 72], tempo: 100, wave: 'sine', volume: 0.7 } },
   { id: 'rising', name: 'Rising', tune: { notes: [60, 64, 67, 72], tempo: 160, wave: 'square', volume: 0.45 } },
   { id: 'playful', name: 'Playful', tune: { notes: [72, 76, 72, 79, 84], tempo: 200, wave: 'triangle', volume: 0.7 } },
+  /* A question, then its answer: up a fifth, a step back, then the octave. Made for "Research complete". */
+  { id: 'research', name: 'Research complete', tune: { notes: [69, 76, 72, 81], tempo: 180, wave: 'sine', volume: 0.75 } },
 ]
 export const presetOf = (id: string): Preset | undefined => PRESETS.find((one) => one.id === id)
 
@@ -150,6 +162,18 @@ export type Sound =
   | { type: 'custom' }
   | { type: 'file'; id: string }
   | { type: 'none' }
+
+/** What an event can play: a sound, or its kind's (`kind`). */
+export type EventSound = Sound | { type: 'kind' }
+
+/**
+ * The sounds the host gives an event id before the person chooses one. Keyed
+ * by the event's id alone, for whichever module declares it: the host names
+ * no module.
+ */
+export const DEFAULT_EVENT_SOUNDS: Readonly<Record<string, Sound>> = {
+  'research-complete': { type: 'preset', id: 'research' },
+}
 
 export interface SoundFile {
   id: string
@@ -171,6 +195,8 @@ export interface ChimeSettings {
   sounds: Record<Kind, Sound>
   /** Per module (its id), a sound for some kinds in place of the kind's. */
   modules: Record<string, Partial<Record<Kind, Sound>>>
+  /** Per module (its id), a sound for some of its declared events (by event id), in place of the kind's. */
+  events: Record<string, Record<string, EventSound>>
   custom: Tune
   files: SoundFile[]
 }
@@ -187,6 +213,7 @@ export const DEFAULT_CHIME: ChimeSettings = {
   toast: true,
   sounds: DEFAULT_SOUNDS,
   modules: {},
+  events: {},
   custom: DEFAULT_TUNE,
   files: [],
 }
@@ -205,6 +232,15 @@ export function validSound(value: unknown, files: readonly SoundFile[]): Sound |
 }
 
 const MODULE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/i
+/** The protocol's `EVENT_ID`, at its length. */
+const EVENT_ID = /^(?=.{1,40}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+const EVENTS_MAX = 16
+
+/** One event's sound as written: a sound, or `kind`. `null` when it is neither. */
+export function validEventSound(value: unknown, files: readonly SoundFile[]): EventSound | null {
+  if (typeof value === 'object' && value !== null && (value as Record<string, unknown>).type === 'kind') return { type: 'kind' }
+  return validSound(value, files)
+}
 
 export function validFile(value: unknown): SoundFile | null {
   if (typeof value !== 'object' || value === null) return null
@@ -235,18 +271,31 @@ export function chimeFrom(stored: unknown): ChimeSettings {
     }
     if (Object.keys(set).length) modules[module] = set
   }
+  const events: ChimeSettings['events'] = {}
+  const named = typeof row.events === 'object' && row.events !== null ? (row.events as Record<string, unknown>) : {}
+  for (const [module, each] of Object.entries(named).slice(0, MODULES_MAX)) {
+    if (!MODULE_ID.test(module) || typeof each !== 'object' || each === null) continue
+    const set: Record<string, EventSound> = {}
+    for (const [event, value] of Object.entries(each).slice(0, EVENTS_MAX)) {
+      const sound = EVENT_ID.test(event) ? validEventSound(value, files) : null
+      if (sound) set[event] = sound
+    }
+    if (Object.keys(set).length) events[module] = set
+  }
   return {
     on: typeof row.on === 'boolean' ? row.on : true,
     toast: typeof row.toast === 'boolean' ? row.toast : true,
     sounds,
     modules,
+    events,
     custom: validTune(row.custom) ?? DEFAULT_TUNE,
     files,
   }
 }
 
 /**
- * A change from the page: any subset of `{ on, toast, sounds, custom, modules }`.
+ * A change from the page: any subset of `{ on, toast, sounds, custom, modules, events }`.
+ * `events[module][event]` is a sound, `{ type: 'kind' }`, or `null` for the default.
  * `sounds` and `modules[id]` take a few kinds at a time; a module's kind set to
  * `null` removes the override, and a module with `{}` is dropped. `null` for
  * anything that is not a change — a bad sound, a tune off the scale, an
@@ -255,7 +304,7 @@ export function chimeFrom(stored: unknown): ChimeSettings {
 export function chimePatched(was: ChimeSettings, change: unknown): ChimeSettings | null {
   if (typeof change !== 'object' || change === null || Array.isArray(change)) return null
   const body = change as Record<string, unknown>
-  const next: ChimeSettings = { ...was, sounds: { ...was.sounds }, modules: { ...was.modules } }
+  const next: ChimeSettings = { ...was, sounds: { ...was.sounds }, modules: { ...was.modules }, events: { ...was.events } }
   let touched = false
   if (body.on !== undefined) {
     if (typeof body.on !== 'boolean') return null
@@ -304,6 +353,28 @@ export function chimePatched(was: ChimeSettings, change: unknown): ChimeSettings
     if (Object.keys(next.modules).length > MODULES_MAX) return null
     touched = true
   }
+  if (body.events !== undefined) {
+    if (typeof body.events !== 'object' || body.events === null || Array.isArray(body.events)) return null
+    for (const [module, each] of Object.entries(body.events)) {
+      if (!MODULE_ID.test(module) || typeof each !== 'object' || each === null || Array.isArray(each)) return null
+      const set = { ...(next.events[module] ?? {}) }
+      for (const [event, value] of Object.entries(each)) {
+        if (!EVENT_ID.test(event)) return null
+        if (value === null) {
+          delete set[event]
+          continue
+        }
+        const sound = validEventSound(value, was.files)
+        if (!sound) return null
+        set[event] = sound
+      }
+      if (Object.keys(set).length > EVENTS_MAX) return null
+      if (Object.keys(set).length) next.events[module] = set
+      else delete next.events[module]
+    }
+    if (Object.keys(next.events).length > MODULES_MAX) return null
+    touched = true
+  }
   return touched ? next : null
 }
 
@@ -316,6 +387,30 @@ export function soundFor(settings: ChimeSettings, kind: Kind, module?: string): 
   if (asked.type === 'file' && !settings.files.some((one) => one.id === asked.id)) return DEFAULT_SOUNDS[kind]
   return asked
 }
+
+/**
+ * An event's own sound, or `null` for its kind's: what the person chose for
+ * the module's event, else what the host gives that event id, else nothing.
+ * `kind`, a file that is gone, or My chime never made are the kind's.
+ */
+export function eventSoundFor(settings: ChimeSettings, module: string | undefined, event: string | undefined): Sound | null {
+  if (!event) return null
+  const chosen = module ? settings.events[module]?.[event] : undefined
+  const asked = chosen ?? (Object.hasOwn(DEFAULT_EVENT_SOUNDS, event) ? DEFAULT_EVENT_SOUNDS[event] : undefined)
+  if (!asked || asked.type === 'kind') return null
+  if (asked.type === 'file' && !settings.files.some((one) => one.id === asked.id)) return null
+  return asked
+}
+
+/** What plays for an arrival: its event's own sound as written, else its kind's in the kind's form. */
+export function chimeFor(settings: ChimeSettings, kind: Kind, module?: string, event?: string): { sound: Sound; asWritten: boolean } {
+  const own = eventSoundFor(settings, module, event)
+  return own ? { sound: own, asWritten: true } : { sound: soundFor(settings, kind, module), asWritten: false }
+}
+
+/** What an event plays when nothing is chosen for it, for the picker to say. */
+export const eventDefault = (event: string): EventSound =>
+  Object.hasOwn(DEFAULT_EVENT_SOUNDS, event) ? (DEFAULT_EVENT_SOUNDS[event] as Sound) : { type: 'kind' }
 
 /**
  * Take a file out of what uses it: every kind and module that played it goes back to the kind's default
@@ -343,7 +438,16 @@ export function withoutFile(settings: ChimeSettings, id: string): { settings: Ch
     }
     if (Object.keys(kept).length) modules[module] = kept
   }
-  return { settings: { ...settings, sounds, modules, files: settings.files.filter((one) => one.id !== id) }, fellBack, modules: [...new Set(touched)] }
+  const events: ChimeSettings['events'] = {}
+  for (const [module, set] of Object.entries(settings.events)) {
+    const kept: Record<string, EventSound> = {}
+    for (const [event, sound] of Object.entries(set)) {
+      if (uses(sound as Sound)) touched.push(module)
+      else kept[event] = sound
+    }
+    if (Object.keys(kept).length) events[module] = kept
+  }
+  return { settings: { ...settings, sounds, modules, events, files: settings.files.filter((one) => one.id !== id) }, fellBack, modules: [...new Set(touched)] }
 }
 
 /** The sentence that says what a removal changed; empty when nothing used the sound. */
@@ -378,11 +482,12 @@ export const BURST = { collectMs: 350, quietMs: 3000 }
 export class Burst {
   #kind: Kind | null = null
   #module: string | undefined
+  #event: string | undefined
   #waiting = false
   #quietUntil = -Infinity
   readonly #options: Required<BurstOptions>
   constructor(
-    private readonly play: (kind: Kind, module?: string) => void,
+    private readonly play: (kind: Kind, module?: string, event?: string) => void,
     options: BurstOptions = {},
   ) {
     this.#options = {
@@ -393,12 +498,14 @@ export class Burst {
     }
   }
 
-  offer(kind: Kind, module?: string): void {
+  /** `event` is the arrival's named event, if any: of two equally urgent, a named one is heard. */
+  offer(kind: Kind, module?: string, event?: string): void {
     const at = this.#options.now()
     if (!this.#waiting && at < this.#quietUntil) return
-    if (this.#kind === null || URGENCY[kind] > URGENCY[this.#kind]) {
+    if (this.#kind === null || URGENCY[kind] > URGENCY[this.#kind] || (URGENCY[kind] === URGENCY[this.#kind] && event && !this.#event)) {
       this.#kind = kind
       this.#module = module
+      this.#event = event
     }
     if (this.#waiting) return
     this.#waiting = true
@@ -408,12 +515,14 @@ export class Burst {
   #fire(): void {
     const kind = this.#kind
     const module = this.#module
+    const event = this.#event
     this.#kind = null
     this.#module = undefined
+    this.#event = undefined
     this.#waiting = false
     if (kind === null) return
     this.#quietUntil = this.#options.now() + this.#options.quietMs
-    this.play(kind, module)
+    this.play(kind, module, event)
   }
 }
 
@@ -451,6 +560,13 @@ export function playsHere(self: Peer, others: readonly Peer[], now: number): boo
 /** A sound as the value of a picker option: `preset:bell`, `custom`, `file:<id>`, `none`. */
 export const choiceOf = (sound: Sound): string =>
   sound.type === 'preset' ? `preset:${sound.id}` : sound.type === 'file' ? `file:${sound.id}` : sound.type
+
+/** An event picker's value: a sound's, or `kind` for "Same as the kind". */
+export const eventChoiceOf = (sound: EventSound): string => (sound.type === 'kind' ? 'kind' : choiceOf(sound))
+
+export function eventSoundOfChoice(value: string): EventSound | null {
+  return value === 'kind' ? { type: 'kind' } : soundOfChoice(value)
+}
 
 export function soundOfChoice(value: string): Sound | null {
   if (value === 'none' || value === 'custom') return { type: value }

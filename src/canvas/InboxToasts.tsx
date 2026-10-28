@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Kind } from '@/host/chime.ts'
-import { countWords, kindLabel, toastMs, withToast, type Toast } from '@/host/toasts.ts'
+import { countWords, toastMs, toastWord, withToast, type Toast } from '@/host/toasts.ts'
 
 /**
  * The Inbox toast, drawn: bottom right, a polite live region, at most three.
@@ -48,7 +48,7 @@ function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast:
   return (
     <div
       role="group"
-      aria-label={`${kindLabel(toast.kind)}: ${toast.label}`}
+      aria-label={`${toastWord(toast)}: ${toast.label}`}
       data-inbox-toast={toast.kind}
       data-count={toast.count}
       className="bg-popover text-popover-foreground pointer-events-auto flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-lg border p-3 shadow-lg"
@@ -64,7 +64,9 @@ function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast:
     >
       <div className="flex items-center gap-2 text-xs font-medium">
         <Icon className="size-4 shrink-0" aria-hidden />
-        <span data-toast-kind>{kindLabel(toast.kind)}</span>
+        <span data-toast-kind data-toast-event={toast.says ? '' : undefined}>
+          {toastWord(toast)}
+        </span>
         {toast.count > 1 ? (
           <span className="text-muted-foreground" data-toast-count>
             {countWords(toast.count)}

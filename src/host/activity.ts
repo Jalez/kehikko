@@ -229,6 +229,8 @@ export interface ActivityRow {
   seen: boolean
   /** The module's own sense of how pressing it is, when it said so. */
   priority?: 'urgent' | 'normal' | 'low'
+  /** The module's named event (protocol 2.31.0), when it declared the one the item names. */
+  event?: { id: string; says: string }
   /** When it entered its state, in ms since the epoch. */
   entered?: number
 }

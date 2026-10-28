@@ -6,6 +6,7 @@ import {
   within,
   type ActivityItem,
   type ActivityState,
+  type InboxEvent,
 } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
@@ -23,6 +24,7 @@ import {
   rowKey,
   type Closing,
   type Entry,
+  type EntryEvent,
   type LogRow,
   type Move,
   type NoticeLine,
@@ -73,6 +75,7 @@ interface ItemRow {
   priority: string
   refs: string
   grp: string | null
+  event: string | null
   entered: number
   opened: number
   closed: number | null
@@ -96,6 +99,14 @@ function parseJson<T>(text: string | null, fallback: T): T {
   }
 }
 
+/** The stored event (protocol 2.31.0), read leniently: anything not an `{ id, says }` is no event. */
+function eventOf(text: string | null): { named?: EntryEvent } {
+  const value = parseJson<unknown>(text, null)
+  if (typeof value !== 'object' || value === null) return {}
+  const { id, says } = value as Record<string, unknown>
+  return typeof id === 'string' && id && typeof says === 'string' && says ? { named: { id, says } } : {}
+}
+
 function toEntry(row: ItemRow): Entry {
   const place = parseJson<Place | null>(row.place, null)
   const refs = parseJson<unknown>(row.refs, [])
@@ -110,6 +121,7 @@ function toEntry(row: ItemRow): Entry {
     priority: (PRIORITIES.has(row.priority) ? row.priority : 'normal') as Priority,
     refs: Array.isArray(refs) ? refs.filter((one): one is string => typeof one === 'string') : [],
     ...(row.grp ? { group: row.grp } : {}),
+    ...eventOf(row.event),
     entered: row.entered,
     opened: row.opened,
     closed: row.closed,
@@ -274,12 +286,12 @@ export class Inbox {
     this.db
       .query(
         `insert into inbox_items
-           (project, module, id, name, state, label, detail, place, priority, refs, grp,
+           (project, module, id, name, state, label, detail, place, priority, refs, grp, event,
             entered, opened, closed, how, seen, dismissed, origin, touched)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict (project, module, id) do update set
            name = excluded.name, state = excluded.state, label = excluded.label, detail = excluded.detail,
-           place = excluded.place, priority = excluded.priority, refs = excluded.refs, grp = excluded.grp,
+           place = excluded.place, priority = excluded.priority, refs = excluded.refs, grp = excluded.grp, event = excluded.event,
            entered = excluded.entered, closed = excluded.closed, how = excluded.how,
            seen = excluded.seen, dismissed = excluded.dismissed, touched = excluded.touched`,
       )
@@ -295,6 +307,7 @@ export class Inbox {
         entry.priority,
         JSON.stringify(entry.refs),
         entry.group ?? null,
+        entry.named ? JSON.stringify(entry.named) : null,
         entry.entered,
         entry.opened,
         entry.closed,
@@ -328,7 +341,7 @@ export class Inbox {
     module: string,
     name: string,
     items: readonly ActivityItem[],
-    options: { silent?: boolean; unreported?: boolean; loadedAt?: number; present?: Present | null } = {},
+    options: { silent?: boolean; unreported?: boolean; loadedAt?: number; present?: Present | null; events?: readonly InboxEvent[] } = {},
   ): Reported {
     const id = module
     const now = this.clock()
@@ -344,6 +357,7 @@ export class Inbox {
         ...(present ? { gone: (place: Place | undefined) => placeGone(place, present) } : {}),
         ...(options.loadedAt !== undefined ? { loadedAt: options.loadedAt } : {}),
         told: (module, itemId, state) => told[`${module}\u0000${itemId}\u0000${state}`],
+        ...(options.events ? { events: options.events } : {}),
       })
       let usedSeen = false
       for (const entry of applied.puts) {
@@ -713,6 +727,9 @@ export function ensureInbox(db: Database): void {
       primary key (project, key)
     );
   `)
+  /* The module's named event (protocol 2.31.0), as `{ id, says }` JSON: added to a store from before it. */
+  const columns = db.query<{ name: string }, []>('pragma table_info(inbox_items)').all()
+  if (!columns.some((one) => one.name === 'event')) db.exec('alter table inbox_items add column event text')
 }
 
 /** A list of items read off a request body: refused whole when the protocol would refuse it. */
