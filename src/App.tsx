@@ -105,10 +105,13 @@ import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
 import { useChime } from './canvas/useChime.ts'
+import { useToasts } from './canvas/useToasts.ts'
+import { InboxToasts } from './canvas/InboxToasts.tsx'
+import { placeWords } from './host/toasts.ts'
 import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
-import { nextOf, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
+import { nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
 import { placeOpened } from './host/activity.ts'
 import { fetchLog } from './host/inboxClient.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
@@ -3532,6 +3535,9 @@ export function App() {
   const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
   const chime = useChime()
+  const toasts = useToasts(chime.plays)
+  /* The toast's words for an item; the names are resolved when it is shown, not kept. */
+  const toastRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   /* A module's page answered a greeting: it is a new page, whose list the Inbox waits for. */
   const inboxGreetedRef = useRef<(module: string) => void>(() => undefined)
   const inbox = useInbox({
@@ -3545,6 +3551,8 @@ export function App() {
       /* The same news, as a sound: `useInbox` has already left out what is on screen. */
       const kind = kindOf(entry)
       if (kind) chime.offer(kind, entry.module)
+      /* And as a toast: the same news, so the same decision. */
+      toastRef.current(entry, project)
     },
   })
   activityRef.current = inbox.receive
@@ -3560,7 +3568,13 @@ export function App() {
       kehikko: line.place?.kehikko ?? kehikkoRef.current?.key,
     }
     /* A line about a place that is open on screen is not chimed for, like an item. */
-    if (!placeOpened(where as Place, activityAt)) chime.offer(line.level === 'attention' ? 'attention' : 'notice', from)
+    if (!placeOpened(where as Place, activityAt)) {
+      chime.offer(line.level === 'attention' ? 'attention' : 'notice', from)
+      if (projectRef.current !== null) {
+        const { entry } = noticeEntry(from, moduleName(from), line, `toast-${Date.now()}`, Date.now(), kehikkoRef.current?.key)
+        toastRef.current(entry, projectRef.current)
+      }
+    }
     inbox.notice(from, line, kehikkoRef.current?.key)
   }
   const activityNames = useMemo<Namer>(
@@ -3577,6 +3591,15 @@ export function App() {
     }),
     [held, here],
   )
+  toastRef.current = (entry, project) => {
+    const elsewhere = project !== projectRef.current ? (projects.find((one) => one.id === project)?.name ?? 'another project') : null
+    toasts.offer({
+      entry,
+      project,
+      by: moduleName(entry.module),
+      place: placeWords(entry, activityNames, elsewhere),
+    })
+  }
   noticeRef.current = (entry, project) => {
     /* Another project's: its names are not this page's to read, so the line says the project instead. */
     const elsewhere = project !== projectRef.current ? (projects.find((one) => one.id === project)?.name ?? 'another project') : null
@@ -4626,6 +4649,16 @@ export function App() {
         <div ref={calm.outgoingRef} aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-[1]" style={layerStyle(calm.outgoing)} />
         {calm.slow ? <Arranging /> : null}
       </main>
+
+      {/* A brief glimpse of what just arrived in the Inbox; the Inbox keeps it all. */}
+      <InboxToasts
+        toasts={toasts.toasts}
+        onClose={toasts.close}
+        onOpen={(toast) => {
+          toasts.close(toast.id)
+          goToEntry(toast.entry, toast.project)
+        }}
+      />
 
       {/* A module asked to show a page and nothing here shows pages: the person
           chooses. Nothing is opened before a press. See `AddressOffer.tsx`. */}

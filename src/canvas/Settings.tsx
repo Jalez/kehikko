@@ -342,7 +342,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
   notices: { title: 'Tracker notices', icon: Bell },
-  sounds: { title: 'Inbox sounds', icon: Volume2 },
+  sounds: { title: 'Inbox notifications', icon: Volume2 },
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
   modules: { title: 'Modules', icon: Blocks },
@@ -508,8 +508,8 @@ export function SettingsBody({
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : key === 'sounds' ? (
                   <>
-                    <Heading id="sounds" lead="A sound when something new arrives in the Inbox, for each kind of thing. Kept on this computer for every project.">
-                      Inbox sounds
+                    <Heading id="sounds" lead="A sound and a toast when something new arrives in the Inbox. Kept on this computer for every project.">
+                      Inbox notifications
                     </Heading>
                     {/* Only while it is shown, like Modules: every section is mounted, and this one has controls of its own. */}
                     {shown === 'sounds' ? <ChimePanel modules={modules} /> : null}

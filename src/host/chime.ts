@@ -166,6 +166,8 @@ export const FILE_ID = /^[0-9a-f]{16}$/
 export interface ChimeSettings {
   /** Not muted. */
   on: boolean
+  /** Show a toast for a new Inbox item (`host/toasts.ts`). A switch of its own: muting the sound does not touch it. */
+  toast: boolean
   sounds: Record<Kind, Sound>
   /** Per module (its id), a sound for some kinds in place of the kind's. */
   modules: Record<string, Partial<Record<Kind, Sound>>>
@@ -182,6 +184,7 @@ export const DEFAULT_SOUNDS: Record<Kind, Sound> = {
 
 export const DEFAULT_CHIME: ChimeSettings = {
   on: true,
+  toast: true,
   sounds: DEFAULT_SOUNDS,
   modules: {},
   custom: DEFAULT_TUNE,
@@ -234,6 +237,7 @@ export function chimeFrom(stored: unknown): ChimeSettings {
   }
   return {
     on: typeof row.on === 'boolean' ? row.on : true,
+    toast: typeof row.toast === 'boolean' ? row.toast : true,
     sounds,
     modules,
     custom: validTune(row.custom) ?? DEFAULT_TUNE,
@@ -242,7 +246,7 @@ export function chimeFrom(stored: unknown): ChimeSettings {
 }
 
 /**
- * A change from the page: any subset of `{ on, sounds, custom, modules }`.
+ * A change from the page: any subset of `{ on, toast, sounds, custom, modules }`.
  * `sounds` and `modules[id]` take a few kinds at a time; a module's kind set to
  * `null` removes the override, and a module with `{}` is dropped. `null` for
  * anything that is not a change — a bad sound, a tune off the scale, an
@@ -256,6 +260,11 @@ export function chimePatched(was: ChimeSettings, change: unknown): ChimeSettings
   if (body.on !== undefined) {
     if (typeof body.on !== 'boolean') return null
     next.on = body.on
+    touched = true
+  }
+  if (body.toast !== undefined) {
+    if (typeof body.toast !== 'boolean') return null
+    next.toast = body.toast
     touched = true
   }
   if (body.sounds !== undefined) {

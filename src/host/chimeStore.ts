@@ -67,6 +67,18 @@ export async function setMuted(muted: boolean): Promise<void> {
   }
 }
 
+/** Show or hide the toast for new Inbox items; the copy changes at once and goes back if the host does not take it. */
+export async function setToast(on: boolean): Promise<void> {
+  const was = held
+  setChime({ ...held, toast: on })
+  try {
+    await postChime({ toast: on })
+  } catch (error) {
+    setChime(was)
+    throw error
+  }
+}
+
 /** Add a clip: its bytes, as the page decoded them, and how long they are. */
 export async function addSound(name: string, bytes: ArrayBuffer, seconds: number): Promise<{ id: string }> {
   let binary = ''

@@ -28,10 +28,10 @@ import {
 } from '@/host/chime.ts'
 import { audio, forgetClip, playSound } from '@/host/chimePlayer.ts'
 import { Hint } from './Hint.tsx'
-import { addSound, postChime, removeSound, renameSound, setMuted, useChimeSettings } from '@/host/chimeStore.ts'
+import { addSound, postChime, removeSound, renameSound, setMuted, setToast, useChimeSettings } from '@/host/chimeStore.ts'
 
 /**
- * Settings › Inbox sounds: the mute switch, a sound for each kind of thing that
+ * Settings › Inbox notifications: the mute switch, the toast switch, a sound for each kind of thing that
  * can arrive in the Inbox, the person's own clips, a sound for one module, and
  * the chime maker. The choices are the host's (`server/chime.ts`); this draws
  * them and sends each change through `postChime`. Every ▶ plays on the press,
@@ -106,6 +106,17 @@ export function ChimePanel({ modules = [] }: { modules?: readonly ModuleRef[] })
             </p>
           </div>
           <Switch id={`${labelId}-on`} checked={settings.on} onCheckedChange={(on) => run(setMuted(!on))} className="mt-0.5" />
+        </div>
+        <div className="flex min-w-0 items-start justify-between gap-4 py-3.5" data-toast-setting>
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor={`${labelId}-toast`} className="text-sm leading-snug">
+              Show a toast for new Inbox items
+            </Label>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              {settings.toast ? 'On.' : 'Off.'} A brief note at the bottom right, never for a place you are looking at; a burst is one toast that says how many. Everything stays in the Inbox. Separate from the sound.
+            </p>
+          </div>
+          <Switch id={`${labelId}-toast`} checked={settings.toast} onCheckedChange={(on) => run(setToast(on))} className="mt-0.5" />
         </div>
       </div>
 

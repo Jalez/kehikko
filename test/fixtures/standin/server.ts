@@ -27,6 +27,8 @@ if (pingHost) setInterval(() => void fetch(`${pingHost}/host/hello`).catch(() =>
    says it shows agent sessions, and draws the `context.show` it is told (`dev/cross-project-jump.drive.mjs`). */
 const jump = process.env.STANDIN_JUMP ? (JSON.parse(process.env.STANDIN_JUMP) as Record<string, unknown>) : null
 const shows = process.env.STANDIN_SHOWS === '1'
+/* `STANDIN_ACTIVITY=<items as JSON>`: a "report" button says these (`activity.set`), for the Inbox toast's drive. */
+const activity = process.env.STANDIN_ACTIVITY ? (JSON.parse(process.env.STANDIN_ACTIVITY) as unknown[]) : null
 
 const manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
@@ -46,7 +48,7 @@ const manifest = manifestSchema.parse({
   ...(shows ? { shows: ['agent-session'] } : {}),
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: [...(trafficHost ? ['traffic:read'] : []), ...(jump ? ['view:navigate'] : [])],
+    uses: [...(trafficHost ? ['traffic:read'] : []), ...(activity ? ['activity:report'] : []), ...(jump ? ['view:navigate'] : [])],
     storage: true,
     prompt: false,
     ...(jump ? { navigates: ['project', 'show'] } : {}),
@@ -70,10 +72,10 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</t
   #list div { height: 24px }
 </style></head><body>
 <div style="padding:6px"><input id="field" placeholder="type here" autocomplete="off"> <button id="press">press</button>
-<span id="pressed">0</span> <span id="greeted">not greeted</span>${jump ? ' <button id="jump">jump</button> <span id="jumped"></span>' : ''}</div>
+<span id="pressed">0</span> <span id="greeted">not greeted</span>${jump ? ' <button id="jump">jump</button> <span id="jumped"></span>' : ''}${activity ? ' <button id="report">report</button>' : ''}</div>
 <div id="told" style="font:600 22px system-ui;padding:2px 6px">…</div>
 <div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
-<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)} }</script>
+<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)}, activity: ${json(activity)} }</script>
 <script type="module">${script}</script></body></html>`
 
 Bun.serve({

@@ -19,7 +19,7 @@ const HEARTBEAT_MS = 20_000
  *  - windows of this app tell each other, over a BroadcastChannel (no storage),
  *    when they last had the focus, and only the most recent plays.
  */
-export function useChime(): { offer(kind: Kind, module?: string): void } {
+export function useChime(): { offer(kind: Kind, module?: string): void; plays(): boolean } {
   const burst = useRef<Burst | null>(null)
   const self = useRef<Peer>({ id: Math.random().toString(36).slice(2, 10), focusedAt: 0, heardAt: 0 })
   const others = useRef(new Map<string, Peer>())
@@ -28,7 +28,7 @@ export function useChime(): { offer(kind: Kind, module?: string): void } {
     burst.current = new Burst((kind, module) => {
       const settings = chimeNow()
       if (!settings.on) return
-      if (!playsHere(self.current, [...others.current.values()], Date.now())) return
+      if (!plays()) return
       void playSound(soundFor(settings, kind, module), kind, settings)
     })
   }
@@ -92,5 +92,7 @@ export function useChime(): { offer(kind: Kind, module?: string): void } {
     }
   }, [])
 
-  return { offer: (kind, module) => burst.current?.offer(kind, module) }
+  /* Whether this is the window that plays: the toast asks the same question. */
+  const plays = () => playsHere(self.current, [...others.current.values()], Date.now())
+  return { offer: (kind, module) => burst.current?.offer(kind, module), plays }
 }
