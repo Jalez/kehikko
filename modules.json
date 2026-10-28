@@ -24,6 +24,7 @@
     { "id": "kehikot.factory", "name": "Factory", "repo": "Jalez/kehikko-factory", "port": 8040, "icon": "lucide:factory", "tags": ["agents", "review", "code"], "summary": "A software factory on your kehikko: spec, review angles chosen per change, a build in its own worktree, counter-arguments and a judge.", "protocol": "2.21.0" },
     { "id": "kehikot.kanban", "name": "Kanban", "repo": "Jalez/kehikko-kanban", "port": 8060, "icon": "lucide:kanban", "tags": ["planning", "review"], "summary": "The open epic’s issues, pull requests and merge requests as a board: To do, In progress, In review and Done.", "protocol": "2.19.0" },
     { "id": "kehikot.monitor", "name": "Monitor", "repo": "Jalez/kehikko-monitor", "port": 8070, "icon": "lucide:activity", "tags": ["code", "agents"], "summary": "The calls Kehikot and its modules make and receive on this computer, live: who, what, where and why — and which ones repeat.", "protocol": "2.25.0" },
-    { "id": "kehikot.codex", "name": "Codex", "repo": "Jalez/kehikko-codex", "port": 8100, "icon": "lucide:bot", "tags": ["agents", "code"], "summary": "A terminal holding the Codex session that belongs to this epic, these parts and this kehikko.", "protocol": "2.23.0" }
+    { "id": "kehikot.codex", "name": "Codex", "repo": "Jalez/kehikko-codex", "port": 8100, "icon": "lucide:bot", "tags": ["agents", "code"], "summary": "A terminal holding the Codex session that belongs to this epic, these parts and this kehikko.", "protocol": "2.23.0" },
+    { "id": "kehikot.queue", "name": "Test runs", "repo": "Jalez/kehikko-queue", "port": 8110, "tags": ["tests", "agents"], "summary": "One queue for the heavy test runs every session on this computer asks for, started when there is room." }
   ]
 }
