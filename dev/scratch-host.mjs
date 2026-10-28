@@ -135,7 +135,7 @@ export const scratch = { api: 0, page: 0, root: '', modules: [], extra: [] }
  * once the stand-ins are registered and before the host starts, for registrations of modules the
  * HOST is to start (`dev/cold-start.drive.mjs`): nothing waits for those.
  */
-export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {}, modules: others = null, before = null } = {}) {
+export async function bootHost(name = 'kehikko-drive', { traffic = false, env: more = {}, modules: others = null, before = null, standin = null } = {}) {
   ROOT = realpathSync(mkdtempSync(join(tmpdir(), `${name}-`)))
   for (const dir of ['home', 'project-a', 'project-b', 'modules', 'versions', 'installed', 'logs', 'claude']) mkdirSync(at(dir), { recursive: true })
   writeFileSync(at('project-a/README.md'), 'a\n')
@@ -188,7 +188,11 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
     modules.push({ id, name, port })
     writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))
     const reads = traffic && id === 'kehikot.gamma'
-    run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`, reads ? { STANDIN_TRAFFIC: `http://127.0.0.1:${api}` } : {})
+    /* `standin(id, at)`: more environment for one stand-in (`STANDIN_JUMP`, `STANDIN_SHOWS`; see its server). */
+    run(BUN, [join(HOST, 'test/fixtures/standin/server.ts'), id, name, String(port), origins.join(' ')], `${name}.log`, {
+      ...(reads ? { STANDIN_TRAFFIC: `http://127.0.0.1:${api}` } : {}),
+      ...(standin?.(id, at) ?? {}),
+    })
   }
   const extra = others ? await others({ root: ROOT, origins, env: { ...env }, start: (cmd, args, log, { cwd = HOST, env: own = {} } = {}) => run(cmd, args, log, own, cwd) }) : []
   for (const { id, port } of extra) writeFileSync(at(`modules/${id}.json`), JSON.stringify({ url: `http://127.0.0.1:${port}`, keep: true }))

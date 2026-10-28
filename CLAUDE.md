@@ -867,6 +867,25 @@
   switch, a load or a module's height. The grid is TOLD its width (`useRects`);
   do not bring back `WidthProvider`, which renders every new grid at 1280 px.
 
+## A module's jump into another project (protocol 2.28.0)
+
+- `view.goto { project, show }`: every rule is `src/host/navigate.ts` (`planJump`; its table is
+  `test/navigate.test.ts`); `App.tsx` carries it out with `onProject` (the person's own switch, the
+  calm switch) and then the in-project goto (`gotoHere`) once that project's epics are read
+  (`jumping`, `goElsewhere`'s rule). The answer waits for the arrival, at most `ARRIVAL_WAIT_MS`.
+- Answered only for a module whose manifest says it (`declares.navigates`). A project is found by
+  its id, else its folder now; one the host does not hold is `declined` with a sentence naming no
+  project. Never list the projects to a module.
+- A switch of project is a PERSON's: only from a container on the kehikko on screen, with the page
+  focused, and never within `AGENT_PRESS_HOLD_MS` of an agent's press handed to that module
+  (`agentPressedAt`, noted in `orderedRef` before the press is sent). No MCP tool switches project;
+  do not add one, and do not let `press_item` around this.
+- `context.show` goes only to the containers on the kehikko the move ended on whose manifests say
+  `shows` the subject (`showReceivers`, through `contextsFor`). In memory by kehikko id, like an
+  address; never stored. The host names no module.
+- `dev/cross-project-jump.drive.mjs` (`test/cross-project-jump.test.ts`, on bee) presses it in a
+  stand-in's page (`STANDIN_JUMP`, `STANDIN_SHOWS`).
+
 ## The record of traffic (protocol 2.20.0)
 
 - ONE record of the calls this host makes and receives, the calls modules note

@@ -31,7 +31,7 @@ import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
 import { Followed } from './canvas/Followed.tsx'
 import { WentTo } from './canvas/WentTo.tsx'
-import type { CanvasControls, Folded } from './host/ask.ts'
+import type { CanvasControls, Folded, GotoAnswer, GotoCall } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
 import {
@@ -85,6 +85,8 @@ import {
 import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
+import { ARRIVAL_WAIT_MS, NAVIGATE_SAYS, planJump, showReceivers, shownBy, type HeldShow } from '@/host/navigate.ts'
+import { navigatesOf, type ShowingManifest } from 'kehikot-module-protocol'
 import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
@@ -360,6 +362,9 @@ function showLanded(modules: readonly string[]): void {
 
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
+  /* What a `view.goto { show }` asked to have shown, and the kehikko it is for:
+     in memory only, like an address — asking is a request made once. */
+  const [shownTo, setShownTo] = useState<HeldShow | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [looking, setLooking] = useState(true)
   const [canvases, setCanvases] = useState<Canvas[]>([])
@@ -1679,9 +1684,21 @@ export function App() {
    */
   const switches = open?.connections ?? null
   const switchesKey = JSON.stringify(switches)
+  /* Who is told `context.show` (protocol 2.28.0): the containers on the kehikko it is for whose
+     manifests say they show its subject (`showReceivers`), by value. */
+  const showTold = showReceivers(shownTo, open?.id ?? null, placedIds ? placedIds.split('\n') : [], (id) =>
+    registry?.presences.find((one) => one.id === id)?.module as ShowingManifest | undefined,
+  ).join('\n')
+  const showKey = showTold ? JSON.stringify(shownTo?.show) : ''
   const contextsFor = useMemo<Readonly<Record<string, ModuleContext>>>(
     () => {
-      if (!switches || (switches.off.length === 0 && switches.only.length === 0)) return {}
+      const told = showTold ? showTold.split('\n') : []
+      const withShow = (out: Record<string, ModuleContext>) => {
+        if (shownTo === null) return out
+        for (const id of told) out[id] = { ...(out[id] ?? context), show: shownTo.show }
+        return out
+      }
+      if (!switches || (switches.off.length === 0 && switches.only.length === 0)) return withShow({})
       const placed = placedIds ? placedIds.split('\n') : []
       const facts: ContextFacts = {
         subject,
@@ -1705,12 +1722,12 @@ export function App() {
         const own = receiverContext(facts, id, switches)
         if (own) out[id] = own
       }
-      return out
+      return withShow(out)
     },
     /* By value, for the shared context's reasons; the shared context is a dependency so a change
        anything else made is a change here too. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [context, switchesKey, placedIds],
+    [context, switchesKey, placedIds, showTold, showKey],
   )
 
   /**
@@ -2074,6 +2091,22 @@ export function App() {
     epic: null,
     why: 'This host is not ready to move yet.',
   }))
+  /* The move within the open project alone, for the Inbox's press and for the
+     arrival of a switch of project; assigned with `gotoRef`. */
+  const gotoHereRef = useRef<(call: GotoCall, from?: string) => GotoAnswer>(() => ({
+    outcome: 'declined',
+    epic: null,
+    why: 'This host is not ready to move yet.',
+  }))
+  /* A `view.goto` waiting for the project it switched to (protocol 2.28.0). */
+  const jumping = useRef<{
+    project: number
+    call: GotoCall
+    from: string | undefined
+    cleared: boolean
+    timer: number
+    resolve: (answer: GotoAnswer) => void
+  } | null>(null)
 
   /* `activity.set`, answered by the lists held further down (`useActivity`);
      through a ref for the reason `gotoRef` is one. */
@@ -2159,7 +2192,7 @@ export function App() {
          fold anything there, and its name is what the control then says.
          Through a ref — see `foldRef`. */
       fold: (from, call) => foldRef.current(from, call),
-      goto: (call) => gotoRef.current(call),
+      goto: (call, from) => gotoRef.current(call, from),
       activity: (from, items) => activityRef.current(from, items),
       /* The steps of a provider the person switched off for this module here are not handed to it. */
       withhold: (module, method, data) =>
@@ -3228,6 +3261,8 @@ export function App() {
   const openRef = useRef(open)
   openRef.current = open
   const made = useRef<string[]>([])
+  /* When an agent's press was last handed to each module (protocol 2.28.0, `host/navigate.ts`). */
+  const agentPressedAt = useRef(new Map<string, number>())
   orderedRef.current = (order) => {
     /* A page mid-reconnect has two streams for a moment and hears an order on
        both. One press. */
@@ -3245,6 +3280,9 @@ export function App() {
             : !items
               ? `${order.module} has declared no header on the page, so there is nothing to press.`
               : agentRefusal(items, press, order.module)
+      /* Noted before the press reaches the module: what it asks next is an agent's doing, and may
+         not switch project (`personsPressRefusal`). */
+      if (!refused) agentPressedAt.current.set(order.module, Date.now())
       const came: Pressed = refused ? { ok: false, why: refused } : await onPressItem(order.module, press)
       if (came.ok) {
         const label = items?.find((item) => item.id === order.item)?.label ?? order.item
@@ -3301,7 +3339,10 @@ export function App() {
     }),
     [projectId, project?.home, projects, about.epic, about.scope, about.parts.length, here],
   )
-  gotoRef.current = ({ epic, parts, kehikko: key }) => {
+  /* The move within the open project: what `view.goto` always did, and what
+     the Inbox's press uses. With a `show` (2.28.0), the show is handed to the
+     kehikko the move ended on once it moved. */
+  const gotoHere = ({ epic, parts, kehikko: key, show }: GotoCall, from?: string): GotoAnswer => {
     const now = about.epic
     const row = held?.epics.find((one) => one.slug === epic)
     if (held === null) {
@@ -3321,7 +3362,47 @@ export function App() {
     changeSubjectRef.current({ epic, selection: [], ...(parts ? { parts: [...new Set(parts)] } : {}) })
     const id = projectRef.current
     if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
+    const landed = canvas?.id ?? openId
+    if (show && landed !== null) setShownTo({ kehikko: landed, show: shownBy(show, from, new Date()) })
     return { outcome: 'moved', epic, why: '' }
+  }
+  gotoHereRef.current = gotoHere
+
+  /**
+   * `view.goto`, as a module asks it (protocol 2.28.0 adds `project` and
+   * `show`; `host/navigate.ts` holds every rule). Another project is switched
+   * to as the person's own switch does (`onProject`, the calm switch), and the
+   * rest of the call is gone to there once its epics are read; the answer waits
+   * for that.
+   */
+  gotoRef.current = (call, from) => {
+    const decline = (why: string): GotoAnswer => ({ outcome: 'declined', epic: about.epic, why })
+    const presence = from ? byIdRef.current.get(from) : undefined
+    const plan = planJump(call, {
+      name: presence?.name ?? presence?.module?.name ?? from ?? 'This module',
+      navigates: navigatesOf(presence?.module as ShowingManifest | undefined),
+      projects,
+      open: projectId,
+      press: {
+        onScreen: from !== undefined && (open?.placements ?? []).some((placement) => placement.i === from),
+        focused: document.visibilityState === 'visible' && document.hasFocus(),
+        agentPressedAt: from ? (agentPressedAt.current.get(from) ?? null) : null,
+        now: Date.now(),
+      },
+    })
+    if (plan.kind === 'decline') return decline(plan.why)
+    if (plan.kind === 'here') return gotoHere(plan.call, from)
+    const { project: target, call: rest } = plan
+    return new Promise<GotoAnswer>((resolve) => {
+      jumping.current?.resolve(decline(NAVIGATE_SAYS.notArrived(target.name)))
+      const timer = window.setTimeout(() => {
+        if (jumping.current?.timer !== timer) return
+        jumping.current = null
+        resolve({ outcome: 'declined', epic: null, why: NAVIGATE_SAYS.notArrived(target.name) })
+      }, ARRIVAL_WAIT_MS)
+      jumping.current = { project: target.id, call: rest, from, cleared: false, timer, resolve }
+      onProject(target.id)
+    })
   }
 
   const placements = useMemo(() => open?.placements ?? [], [open?.placements])
@@ -3576,7 +3657,7 @@ export function App() {
       const target = here.find((one) => one.key === key)
       if (target) setOpenId(target.id)
     },
-    goto: (call) => gotoRef.current(call),
+    goto: (call) => gotoHereRef.current(call),
     highlight: flashContainer,
   })
   const goToEntry = useCallback(
@@ -3605,6 +3686,20 @@ export function App() {
     goElsewhere.current = null
     placeGo.go(pending.entry, pending.project)
   }, [projectId, held, placeGo.go])
+  /* A module's `view.goto` into another project, gone to once that project's
+     epics are read there — `goElsewhere`'s rule. */
+  useEffect(() => {
+    const pending = jumping.current
+    if (!pending || pending.project !== projectId) return
+    if (held === null) {
+      pending.cleared = true
+      return
+    }
+    if (!pending.cleared) return
+    jumping.current = null
+    window.clearTimeout(pending.timer)
+    pending.resolve(gotoHereRef.current(pending.call, pending.from))
+  }, [projectId, held])
   /* Which scope the Inbox shows. The default is everywhere: what is going on in
      other kehikot, parts and epics is the point, one press from "This kehikko".
      Only a person who narrowed it is remembered, per project, in this browser. */

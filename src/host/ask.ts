@@ -11,6 +11,7 @@ import {
   type Passage,
   type ProjectPickResult,
   type Showing,
+  type ShowAsk,
 } from 'kehikot-module-protocol'
 import type { Emitted } from './events.ts'
 
@@ -91,6 +92,24 @@ const params = new Map<string, (typeof methodParams)[keyof typeof methodParams]>
   Object.entries(methodParams),
 )
 
+/**
+ * A `view.goto` the canvas checks before it moves. `project` and `show` (protocol 2.28.0): another
+ * project to stand in first, and one thing to be shown where the move ends; see `host/navigate.ts`.
+ * A switch of project is answered once the project's epics are read there, hence the promise.
+ */
+export interface GotoCall {
+  epic: string
+  parts?: string[]
+  kehikko?: string
+  project?: string
+  show?: ShowAsk
+}
+export interface GotoAnswer {
+  outcome: 'moved' | 'declined' | 'no-such-target'
+  epic: string | null
+  why: string
+}
+
 /** What the canvas can do when a module asks it to move. */
 export interface CanvasControls {
   /** Make this the canvas's subject, and tell every module. */
@@ -103,11 +122,7 @@ export interface CanvasControls {
    * `no-such-target` and nothing is changed. The person's arrangement is never
    * changed beyond switching to a kehikko and picking parts.
    */
-  goto(call: { epic: string; parts?: string[]; kehikko?: string }): {
-    outcome: 'moved' | 'declined' | 'no-such-target'
-    epic: string | null
-    why: string
-  }
+  goto(call: GotoCall, from?: string): GotoAnswer | Promise<GotoAnswer>
   /**
    * Make this the canvas's selection, and tell every module.
    *
@@ -540,13 +555,26 @@ function answerInTheView(
     return out.ok ? succeeded(method, { delivered: out.delivered }) : failed(out.error)
   }
 
-  const target = parsed.data as { epic?: string; step?: number; ref?: string; parts?: string[]; kehikko?: string }
+  const target = parsed.data as { epic?: string; step?: number; ref?: string; parts?: string[]; kehikko?: string; project?: string; show?: ShowAsk }
 
   /* With `parts` or `kehikko` (always with an epic: the protocol's schema
      refuses them alone) the canvas has more to check than an epic, and says
-     what came of it. A host before 1.4.0 strips both and takes the epic only. */
-  if (target.epic && (target.parts !== undefined || target.kehikko !== undefined)) {
-    return succeeded(method, canvas.goto({ epic: target.epic, parts: target.parts, kehikko: target.kehikko }))
+     what came of it. A host before 1.4.0 strips both and takes the epic only.
+     `project` and `show` (2.28.0) go the same way, with who asked: the canvas
+     holds them to the module's `declares.navigates` and a person's press. */
+  const further = target.parts !== undefined || target.kehikko !== undefined || target.project !== undefined || target.show !== undefined
+  if (target.epic && further) {
+    const went = canvas.goto(
+      {
+        epic: target.epic,
+        ...(target.parts !== undefined ? { parts: target.parts } : {}),
+        ...(target.kehikko !== undefined ? { kehikko: target.kehikko } : {}),
+        ...(target.project !== undefined ? { project: target.project } : {}),
+        ...(target.show !== undefined ? { show: target.show } : {}),
+      },
+      moduleId,
+    )
+    return went instanceof Promise ? went.then((answer) => succeeded(method, answer)) : succeeded(method, went)
   }
 
   /*

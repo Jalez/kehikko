@@ -41,6 +41,11 @@ export interface FramedModule {
    * The page never gates on it. It is drawn, and only drawn.
    */
   reacts?: string[]
+  /**
+   * What the module can be asked to show (protocol 2.28.0, `shows`): the page tells
+   * `context.show` only to a container whose module says the subject. Absent: nothing.
+   */
+  shows?: string[]
   /** `skills` (protocol 2.5.0): the Claude Code skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string
@@ -56,6 +61,8 @@ export interface FramedModule {
     scopes?: ('epic' | 'project')[]
     /** The settings the module declared (protocol 2.15.0), drawn as one form. Absent: none. See `host/moduleSettings.ts`. */
     settings?: SettingField[]
+    /** What its `view.goto` carries (protocol 2.28.0): `project`, `show`. Absent: neither. See `host/navigate.ts`. */
+    navigates?: string[]
   }
   /**
    * What the server answering now is built from: version, commit, when its
