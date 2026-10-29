@@ -1,0 +1,33 @@
+# Every pull request says, in its "## Release note" section, the one line the
+# app's release page will carry for it, or `none`. Kehikot's app is released
+# automatically from those lines (Jalez/kehikko-desktop, auto-release.yml), so
+# this checks the section is there and keeps the host's rule: no module and no
+# vendor names (dev/module-agnostic.ts).
+#
+# Read-only, no secrets: the pull request's own code runs only to read its
+# modules.json and checker. Editing the description re-runs it.
+name: release note
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  release-note:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            dev
+            modules.json
+          sparse-checkout-cone-mode: false
+
+      - uses: Jalez/kehikko-desktop/.github/actions/release-note@main
+        with:
+          body: ${{ github.event.pull_request.body }}
+          host-dir: .

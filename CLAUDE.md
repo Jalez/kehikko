@@ -258,7 +258,29 @@
   `module_versions`.
 - What reaches the app is what is RELEASED (what is merged to main, for a
   module with no release yet); the host itself reaches people only through a
-  desktop release (kehikko-desktop: bump the version, push a `vX.Y.Z` tag).
+  desktop release, which is automatic (next section).
+
+## How the host reaches the app (automatic releases)
+
+- Nobody bumps, writes notes or tags by hand. Every host pull request carries a
+  `## Release note` section (`.github/pull_request_template.md`): one line for
+  the app's release page (`**Short bold lead.** One plain sentence.`), or
+  `none` when nothing changes for the person. The `release note` check
+  (`.github/workflows/release-note.yml`) fails a PR without it, or whose line
+  names a module or a vendor.
+- kehikko-desktop's `auto-release.yml` runs hourly from its `main`: it compares
+  this repository's `main` with the commit the latest app release was built from
+  ("Built from Jalez/kehikko@…"), collects the release-note lines of the PRs
+  merged in between (skipping `none`), checks them with `dev/module-agnostic.ts`
+  as it is at that commit, and when any are left tags the next patch version
+  and builds the app from exactly that commit.
+- A line refused there fails the release and opens one issue in
+  kehikko-desktop. Fix the line by editing the merged PR's description, then
+  close the issue; the next hourly run tries again.
+- `dev/module-agnostic.ts` is the one list of names the host never says
+  (`modules.json`, the unlisted modules, the vendors) and the matcher; the
+  source scan in `test/module-agnostic-text.test.ts` imports it. Change it
+  there, never in a copy.
 
 ## Which Kehikot a release works with
 
