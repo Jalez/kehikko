@@ -90,6 +90,19 @@ export function releasesNewestFirst(tags: readonly string[]): string[] {
 }
 
 /**
+ * The releases an update moved through, newest first: every release among
+ * `tags` after `from` up to and including `to`. When the list has none of them
+ * (unread, or the move was off `main`), the release it arrived at alone.
+ */
+export function releasesMoved(from: string | null, to: string, tags: readonly string[]): string[] {
+  const arrived = to.startsWith('v') ? to : `v${to}`
+  const left = from === null ? null : from.startsWith('v') ? from : `v${from}`
+  if (!isRelease(arrived)) return []
+  const among = releasesNewestFirst(tags).filter((tag) => compareReleases(tag, arrived) <= 0 && (left === null || !isRelease(left) || compareReleases(tag, left) > 0))
+  return among.length ? among : [arrived]
+}
+
+/**
  * What the Updates menu says beside a module's name:
  *
  * - "1.5.0 → 1.6.0" (or "main → 1.6.0" for a copy leaving `main`),

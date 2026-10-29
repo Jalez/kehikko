@@ -11,7 +11,7 @@ import { DEFAULT_SETTINGS, type SettingsAnswer } from '../src/host/agentSettings
  */
 
 const inChild = process.env.AUTO_UPDATES_DOM === '1'
-const TESTS = 5
+const TESTS = 9
 
 if (!inChild) {
   test('automatic module updates, rendered in a process of their own', () => {
@@ -216,6 +216,79 @@ describe.skipIf(!inChild)('the Updates menu', () => {
     expect(document.querySelector('[data-testid="updates-auto-switch"]')!.getAttribute('aria-checked')).toBe('false')
     expect(waits()).toEqual([])
     expect([...document.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Update')).toBe(true)
+  })
+})
+
+describe.skipIf(!inChild)('"Updated automatically" › changelog', () => {
+  const tag = (t: string, body: string) => ({ repo: 'o/journeys', tag: t, name: t, body, url: `https://x/${t}`, publishedAt: null, prerelease: false })
+  const summaries = ['v1.7.0', 'v1.6.0', 'v1.5.1', 'v1.5.0', 'v1.4.0'].map((t) => ({ ...tag(t, ''), body: undefined }))
+
+  function serve(opts: { repo?: string | null; notes?: 'ok' | 'down' } = {}) {
+    const { repo = 'o/journeys', notes = 'ok' } = opts
+    const asked: string[] = []
+    answer = async (url) => {
+      if (url.startsWith('/host/updates'))
+        return checkWith({ on: true, waiting: {}, updated: [{ id: 'kehikot.journeys', name: 'Journeys', from: '1.5.0', to: '1.6.0', at: new Date().toISOString(), major: false }] }, [
+          copy('kehikot.journeys', 'Journeys', { behind: 0, release: release({ installed: 'v1.6.0', target: null, repo }) }),
+        ])
+      if (url.startsWith('/host/releases')) return { releases: summaries }
+      if (url.startsWith('/host/release-notes')) {
+        const t = new URL(url, 'http://x').searchParams.get('tag')!
+        asked.push(t)
+        if (notes === 'down') return new Response(JSON.stringify({ error: 'GitHub could not be reached — offline.' }), { status: 502, headers: { 'content-type': 'application/json' } })
+        return tag(t, `### What's new\n- change in ${t}`)
+      }
+      return {}
+    }
+    return asked
+  }
+  const open = async () => {
+    const host = await mount()
+    await press(host)
+    await settle()
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="updates-auto-changelog"]')!
+    await act(async () => button.click())
+    await settle()
+    return button
+  }
+
+  test('the button is named for the module, and is a real button (keyboard reachable)', async () => {
+    serve()
+    const host = await mount()
+    await press(host)
+    await settle()
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="updates-auto-changelog"]')!
+    expect(button.getAttribute('aria-label')).toBe('What changed in Journeys')
+    expect(button.tagName).toBe('BUTTON')
+    expect(button.disabled).toBe(false)
+    expect(button.closest('[data-testid="updates-auto-row"]')?.getAttribute('data-module')).toBe('kehikot.journeys')
+  })
+
+  test('it opens the modal for that module and the version range it moved through, newest first', async () => {
+    const asked = serve()
+    await open()
+    const modal = document.querySelector('[data-testid="release-notes"]')!
+    expect(modal.textContent).toContain("What's new in Journeys 1.5.1 → 1.6.0")
+    expect([...modal.querySelectorAll('[data-testid="release-notes-release"]')].map((one) => one.getAttribute('data-tag'))).toEqual(['v1.6.0', 'v1.5.1'])
+    expect(modal.textContent).toContain('change in v1.5.1')
+    expect(modal.textContent).toContain('change in v1.6.0')
+    expect(asked.sort()).toEqual(['v1.5.1', 'v1.6.0'])
+    expect(modal.textContent).not.toContain('v1.7.0')
+    expect(modal.textContent).not.toContain('v1.5.0 ')
+  })
+
+  test('notes that cannot be read are said in a sentence, with the modal still open', async () => {
+    serve({ notes: 'down' })
+    await open()
+    const modal = document.querySelector('[data-testid="release-notes"]')!
+    expect(modal.querySelector('[data-testid="release-notes-offline"]')?.textContent).toContain('could not be read')
+  })
+
+  test('with no repository to read from, it says so and the button still opens', async () => {
+    serve({ repo: null })
+    const button = await open()
+    expect(button.disabled).toBe(false)
+    expect(document.querySelector('[data-testid="release-notes-trouble"]')?.textContent).toContain('could not be read')
   })
 })
 
