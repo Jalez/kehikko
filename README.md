@@ -77,6 +77,8 @@ first question to its first release.
 This repository is the source of the Kehikot workbench. To use Kehikot,
 download the app from
 [kehikko-desktop](https://github.com/Jalez/kehikko-desktop/releases/latest).
+To help build it, read [CONTRIBUTING.md](CONTRIBUTING.md); to report a
+security problem, [SECURITY.md](SECURITY.md).
 
 ---
 
