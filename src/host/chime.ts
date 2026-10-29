@@ -1,3 +1,5 @@
+import { eventSoundOf } from 'kehikot-module-protocol'
+
 import type { Entry } from './inbox.ts'
 
 /**
@@ -28,9 +30,9 @@ import type { Entry } from './inbox.ts'
  * A module may name a case of a state (protocol 2.31.0, the entry's `named`):
  * "Research complete" is a `done`. It is still that kind — it wins a burst as
  * a `done` does — but the person can give it a sound of its own, per module
- * and event (`events`). An event with none set plays its kind's sound, except
- * where the host ships one for that event's id (`DEFAULT_EVENT_SOUNDS`); "Same
- * as the kind" (`{ type: 'kind' }`) says so explicitly. An event's own sound
+ * and event (`events`). An event with none set plays the built-in sound its
+ * module's manifest names for it (protocol 2.33.0, `events[].sound`,
+ * `declaredSound`), else its kind's; "Same as the kind" (`{ type: 'kind' }`) says so explicitly. An event's own sound
  * plays as written, not in its kind's softer form.
  *
  * ## Where it is kept
@@ -150,7 +152,7 @@ export const PRESETS: readonly Preset[] = [
   { id: 'rising', name: 'Rising', tune: { notes: [60, 64, 67, 72], tempo: 160, wave: 'square', volume: 0.45 } },
   { id: 'playful', name: 'Playful', tune: { notes: [72, 76, 72, 79, 84], tempo: 200, wave: 'triangle', volume: 0.7 } },
   /* A question, then its answer: up a fifth, a step back, then the octave. A built-in like the
-     others, for any kind or event; it is also the default of the event ids in `DEFAULT_EVENT_SOUNDS`. */
+     others, for any kind or event; a module may name it as an event's own sound (`declaredSound`). */
   { id: 'answer', name: 'Answer', tune: { notes: [69, 76, 72, 81], tempo: 180, wave: 'sine', volume: 0.75 } },
 ]
 /**
@@ -177,20 +179,6 @@ export type Sound =
 
 /** What an event can play: a sound, or its kind's (`kind`). */
 export type EventSound = Sound | { type: 'kind' }
-
-/**
- * The sounds the host gives an event id before the person chooses one.
- *
- * Keyed by the event's id alone, for whichever module declares it — an agent
- * module of any vendor that declares `research-complete` gets the same sound —
- * so the host names no module. The sound is a generic built-in ("Answer"),
- * listed with the others for any kind or event. The protocol's `events` entry
- * has no field for a module to choose its own default yet; when it does, this
- * table goes and the module's choice is read instead.
- */
-export const DEFAULT_EVENT_SOUNDS: Readonly<Record<string, Sound>> = {
-  'research-complete': { type: 'preset', id: 'answer' },
-}
 
 export interface SoundFile {
   id: string
@@ -406,28 +394,37 @@ export function soundFor(settings: ChimeSettings, kind: Kind, module?: string): 
 }
 
 /**
+ * The built-in sound a module's manifest names for one of its events (protocol 2.33.0,
+ * `events[].sound`), as a sound, or `null`: absent, or a key this host has no sound for, plays the
+ * kind's. The host keeps no table of event ids: the module picks (`eventSoundOf`).
+ */
+export function declaredSound(key: string | null | undefined): Sound | null {
+  const id = eventSoundOf({ sound: key ?? undefined }, (one) => presetOf(one) !== undefined)
+  return id ? { type: 'preset', id: presetId(id) } : null
+}
+
+/**
  * An event's own sound, or `null` for its kind's: what the person chose for
- * the module's event, else what the host gives that event id, else nothing.
+ * the module's event, else the sound its manifest names (`declared`, a key), else nothing.
  * `kind`, a file that is gone, or My chime never made are the kind's.
  */
-export function eventSoundFor(settings: ChimeSettings, module: string | undefined, event: string | undefined): Sound | null {
+export function eventSoundFor(settings: ChimeSettings, module: string | undefined, event: string | undefined, declared?: string | null): Sound | null {
   if (!event) return null
   const chosen = module ? settings.events[module]?.[event] : undefined
-  const asked = chosen ?? (Object.hasOwn(DEFAULT_EVENT_SOUNDS, event) ? DEFAULT_EVENT_SOUNDS[event] : undefined)
+  const asked = chosen ?? declaredSound(declared) ?? undefined
   if (!asked || asked.type === 'kind') return null
   if (asked.type === 'file' && !settings.files.some((one) => one.id === asked.id)) return null
   return asked
 }
 
 /** What plays for an arrival: its event's own sound as written, else its kind's in the kind's form. */
-export function chimeFor(settings: ChimeSettings, kind: Kind, module?: string, event?: string): { sound: Sound; asWritten: boolean } {
-  const own = eventSoundFor(settings, module, event)
+export function chimeFor(settings: ChimeSettings, kind: Kind, module?: string, event?: string, declared?: string | null): { sound: Sound; asWritten: boolean } {
+  const own = eventSoundFor(settings, module, event, declared)
   return own ? { sound: own, asWritten: true } : { sound: soundFor(settings, kind, module), asWritten: false }
 }
 
-/** What an event plays when nothing is chosen for it, for the picker to say. */
-export const eventDefault = (event: string): EventSound =>
-  Object.hasOwn(DEFAULT_EVENT_SOUNDS, event) ? (DEFAULT_EVENT_SOUNDS[event] as Sound) : { type: 'kind' }
+/** What an event plays when nothing is chosen for it, for the picker to say: the sound its manifest names (`declared`), else its kind's. */
+export const eventDefault = (declared?: string | null): EventSound => declaredSound(declared) ?? { type: 'kind' }
 
 /**
  * Take a file out of what uses it: every kind and module that played it goes back to the kind's default

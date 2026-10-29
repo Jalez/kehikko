@@ -1,5 +1,5 @@
 import type { AppUpdateStatus } from './appUpdate.ts'
-import { holdsShells, waitSaid, type AutoWait } from './autoUpdates.ts'
+import { waitSaid, type AutoWait } from './autoUpdates.ts'
 import { fromSourceSaid, preparingSaid, type BuildTold } from './moduleBuilds.ts'
 import { releaseSaid, releaseVersion, type ModuleRelease } from './moduleReleases.ts'
 import { hasUpdate, isCheckout, runsReleases, type Outcome, type Phase, type PinCount, type Preview, type Reading } from './updates.ts'
@@ -66,6 +66,8 @@ export interface UpdateRow {
   retryWord?: string
   /** It is running and its registration says to keep it, so the retry is refused: "Restart anyway" is offered beside it. */
   anyway?: boolean
+  /** A restart ends live shells or sessions in it: its "Restart now" says so (`restartNowWord`). */
+  holds?: boolean
   /** An installed module's releases: which it runs, and the one an update moves it to. See `moduleReleases.ts`. */
   release?: ModuleRelease
   /** Its build did not finish, so it runs from source: the line that says so (`fromSourceSaid`). */
@@ -84,6 +86,8 @@ export interface Told {
   older?: string
   /** It is running, and its registration says to keep it. */
   kept?: boolean
+  /** A restart ends live shells or sessions in it (`holdsShells`, from its manifest). */
+  holds?: boolean
   /** Its copy is being built, or its build did not finish (`moduleBuilds.ts`). */
   build?: BuildTold
   /** Why "Keep modules up to date automatically" has not put its update in place yet (`autoUpdates.ts`). */
@@ -175,6 +179,7 @@ export function moduleRow(
     row.autoSaid = waitSaid(reading.name, told.auto)
     if (told.auto.until === 'retry') row.autoFailed = true
   }
+  if (told.holds) row.holds = true
   if (outcome?.kind === 'failed') {
     return { ...row, state: 'failed', reason: outcome.why, retry: outcome.retry === true, ...(outcome.retry === true && outcome.kept === true ? { anyway: true } : {}) }
   }
@@ -264,12 +269,11 @@ export function appNotes(row: UpdateRow): { version: string; label: string; pend
 /** What the kept module's second restart button says on its two presses (it was "Restart anyway"). The second is the one that stops the module. */
 export const RESTART_ANYWAY = 'Restart now'
 /**
- * The modules that hold a terminal: restarting one ends the shells in it, and the button says so.
- * An agent module whose sessions run in its own process is one: a restart ends them; the next open
- * of a place resumes its conversation.
+ * A module whose manifest says it holds live sessions (`holdsShells`): restarting it ends the shells
+ * or agent sessions in it, and the button says so. The next open of a place resumes a conversation.
  */
-export function restartNowWord(id: string): string {
-  return holdsShells(id) ? 'Restart now (ends its shells)' : RESTART_ANYWAY
+export function restartNowWord(row: Pick<UpdateRow, 'holds'>): string {
+  return row.holds ? 'Restart now (ends its shells)' : RESTART_ANYWAY
 }
 export const RESTART_ANYWAY_ARMED = 'Press again to restart'
 

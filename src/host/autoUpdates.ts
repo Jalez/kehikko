@@ -1,3 +1,5 @@
+import { holdsLiveSessions } from 'kehikot-module-protocol'
+
 import { releaseVersion, type ModuleRelease } from './moduleReleases.ts'
 
 /**
@@ -121,7 +123,7 @@ export interface Candidate {
   running: boolean
   /** On a kehikko a live page has open. */
   onScreen: boolean
-  /** A terminal or agent module: a restart ends the shells or sessions in it. */
+  /** Its manifest says it holds live sessions (`holdsShells`): a restart ends the shells or sessions in it. */
   holdsShells: boolean
   /** Its registration says `keep`: this host never stops it. */
   kept: boolean
@@ -183,15 +185,26 @@ export function decide(c: Candidate): Decision {
 }
 
 /**
- * The modules that hold a terminal or an agent's sessions: restarting one ends
- * them. Shared with the Updates menu's "Restart now (ends its shells)".
+ * Compatibility, not a rule: the modules that held live sessions before a manifest could say so
+ * (protocol 2.33.0, `holds`). A copy of one of them released before it says nothing, and the
+ * update that brings the declaration must not be the restart that ends its sessions, so a module
+ * that says NOTHING about `holds` and has one of these ids is read as holding them.
  *
- * It names modules by id, as `ANSWERED_UNDECLARED` does, because no protocol
- * declaration says it yet; it is code, never text a person reads.
+ * Remove when every copy an app can still be running declares it: once the `modules.json` entries
+ * for these three give `protocol: "2.33.0"` or later, or a host release has shipped after their
+ * releases declaring `holds: ['live-sessions']` have been on `main` for a full update cycle.
  */
-const HOLDS_SHELLS = new Set(['terminal', 'claude', 'codex'])
-export function holdsShells(id: string): boolean {
-  return HOLDS_SHELLS.has(id.replace(/^(kehikot|roadmap)\./, ''))
+const HELD_SESSIONS_BEFORE_2_33: ReadonlySet<string> = new Set(['kehikot.terminal', 'kehikot.claude', 'kehikot.codex'])
+
+/**
+ * Whether restarting a module ends live shells or agent sessions in it: its manifest says
+ * `holds: ['live-sessions']` (protocol 2.33.0). Shared with the Updates menu's "Restart now (ends
+ * its shells)". `holds` absent (an older copy, or not read yet) falls back to
+ * `HELD_SESSIONS_BEFORE_2_33`; a manifest that says `holds` without the word holds nothing.
+ */
+export function holdsShells(module: { id: string; holds?: readonly string[] | null }): boolean {
+  if (holdsLiveSessions(module)) return true
+  return module.holds == null && HELD_SESSIONS_BEFORE_2_33.has(module.id)
 }
 
 /** The sentence for a module whose update waits: "Terminal updates when its sessions end". */

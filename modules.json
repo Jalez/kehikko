@@ -26,5 +26,94 @@
     { "id": "kehikot.monitor", "name": "Monitor", "repo": "Jalez/kehikko-monitor", "port": 8070, "icon": "lucide:activity", "tags": ["code", "agents"], "summary": "The calls Kehikot and its modules make and receive on this computer, live: who, what, where and why — and which ones repeat.", "protocol": "2.25.0" },
     { "id": "kehikot.codex", "name": "Codex", "repo": "Jalez/kehikko-codex", "port": 8100, "icon": "lucide:bot", "tags": ["agents", "code"], "summary": "A terminal holding the Codex session that belongs to this epic, these parts and this kehikko.", "protocol": "2.23.0" },
     { "id": "kehikot.queue", "name": "Test runs", "repo": "Jalez/kehikko-queue", "port": 8110, "icon": "lucide:timer", "tags": ["tests", "agents"], "summary": "One queue for the heavy test runs every session on this computer asks for, started when there is room." }
+  ],
+  "layouts": [
+    {
+      "id": "design", "version": 2, "name": "Design",
+      "summary": "The thing you are shaping, live in a browser, with your notes, its issues and your agent beside it.",
+      "containers": [
+        { "module": "kehikot.browser", "x": 0, "y": 0, "w": 7, "h": 36 },
+        { "module": "kehikot.flows", "x": 0, "y": 36, "w": 7, "h": 20, "optional": true },
+        { "module": "kehikot.claude", "x": 7, "y": 0, "w": 5, "h": 28 },
+        { "module": "kehikot.notes", "x": 7, "y": 28, "w": 5, "h": 14 },
+        { "module": "kehikot.references", "x": 7, "y": 42, "w": 5, "h": 14 }
+      ]
+    },
+    {
+      "id": "research", "version": 2, "name": "Research",
+      "summary": "Read and write with your sources at hand: the paper, what it cites, your notes, the web and your agent.",
+      "containers": [
+        { "module": "kehikot.paper", "x": 0, "y": 0, "w": 5, "h": 56 },
+        { "module": "kehikot.browser", "x": 5, "y": 0, "w": 4, "h": 32 },
+        { "module": "kehikot.notes", "x": 5, "y": 32, "w": 4, "h": 24 },
+        { "module": "kehikot.citations", "x": 9, "y": 0, "w": 3, "h": 18 },
+        { "module": "kehikot.references", "x": 9, "y": 18, "w": 3, "h": 18 },
+        { "module": "kehikot.claude", "x": 9, "y": 36, "w": 3, "h": 20 }
+      ]
+    },
+    {
+      "id": "development", "version": 2, "name": "Development",
+      "summary": "Plan the work, build it with your agent, and review and ship the changes.",
+      "containers": [
+        { "module": "kehikot.journeys", "x": 0, "y": 0, "w": 4, "h": 20 },
+        { "module": "kehikot.references", "x": 0, "y": 20, "w": 4, "h": 18 },
+        { "module": "kehikot.checklist", "x": 0, "y": 38, "w": 4, "h": 18 },
+        { "module": "kehikot.claude", "x": 4, "y": 0, "w": 5, "h": 56 },
+        { "module": "kehikot.review", "x": 9, "y": 0, "w": 3, "h": 28 },
+        { "module": "kehikot.factory", "x": 9, "y": 28, "w": 3, "h": 28 }
+      ]
+    },
+    {
+      "id": "review", "version": 2, "name": "Review",
+      "summary": "Go through a change line by line, hold it to its checklist, and try it in a real browser.",
+      "containers": [
+        { "module": "kehikot.references", "x": 0, "y": 0, "w": 3, "h": 28 },
+        { "module": "kehikot.checklist", "x": 0, "y": 28, "w": 3, "h": 28 },
+        { "module": "kehikot.diff", "x": 3, "y": 0, "w": 5, "h": 32 },
+        { "module": "kehikot.review", "x": 3, "y": 32, "w": 5, "h": 24 },
+        { "module": "kehikot.browser", "x": 8, "y": 0, "w": 4, "h": 32 },
+        { "module": "kehikot.claude", "x": 8, "y": 32, "w": 4, "h": 24 }
+      ]
+    },
+    {
+      "id": "learning", "version": 2, "name": "Learning",
+      "summary": "Read a paper with questions on what you read, your notes and slides, and your agent to explain.",
+      "containers": [
+        { "module": "kehikot.paper", "x": 0, "y": 0, "w": 5, "h": 56 },
+        { "module": "kehikot.learning", "x": 5, "y": 0, "w": 4, "h": 30 },
+        { "module": "kehikot.notes", "x": 5, "y": 30, "w": 4, "h": 26 },
+        { "module": "kehikot.slides", "x": 9, "y": 0, "w": 3, "h": 24 },
+        { "module": "kehikot.claude", "x": 9, "y": 24, "w": 3, "h": 32 }
+      ]
+    },
+    {
+      "id": "write-a-paper", "version": 2, "name": "Write a paper",
+      "summary": "The paper as prose, what it cites, and the work it reports on.",
+      "containers": [
+        { "module": "kehikot.paper", "x": 0, "y": 0, "w": 6, "h": 56 },
+        { "module": "kehikot.citations", "x": 6, "y": 0, "w": 3, "h": 28 },
+        { "module": "kehikot.references", "x": 6, "y": 28, "w": 3, "h": 28 },
+        { "module": "kehikot.claude", "x": 9, "y": 0, "w": 3, "h": 36 },
+        { "module": "kehikot.journeys", "x": 9, "y": 36, "w": 3, "h": 20 }
+      ]
+    },
+    {
+      "id": "plan-an-epic", "version": 2, "name": "Plan an epic",
+      "summary": "What has to become true, the issues behind it, and what is left to check.",
+      "containers": [
+        { "module": "kehikot.journeys", "x": 0, "y": 0, "w": 6, "h": 56 },
+        { "module": "kehikot.flows", "x": 6, "y": 0, "w": 6, "h": 24, "optional": true },
+        { "module": "kehikot.references", "x": 6, "y": 24, "w": 6, "h": 16 },
+        { "module": "kehikot.checklist", "x": 6, "y": 40, "w": 6, "h": 16 }
+      ]
+    },
+    {
+      "id": "start-simple", "version": 2, "name": "Start simple",
+      "summary": "Your agent beside the project’s issues and pull requests. Add more as you need them.",
+      "containers": [
+        { "module": "kehikot.claude", "x": 0, "y": 0, "w": 7, "h": 56 },
+        { "module": "kehikot.references", "x": 7, "y": 0, "w": 5, "h": 56 }
+      ]
+    }
   ]
 }

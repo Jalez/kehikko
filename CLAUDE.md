@@ -12,6 +12,12 @@
   module's name reaches the screen only from data (its registration,
   `modules.json`, its manifest). Comments that say which module does something
   say "a module" too, unless they document code that handles one by id.
+- Nor does CODE decide by a module's id: what a module is to the host (opens
+  files, holds live sessions, an event's sound, installs skills for its agent,
+  shows steps) is a manifest declaration. `test/module-agnostic-ids.test.ts`
+  fails on an official module id in any string in `server/` or `src/`; its
+  allowlist holds only compatibility fallbacks (each commented with when it
+  goes) and examples in MCP tool descriptions.
 - `test/module-agnostic-text.test.ts` scans every string, template and JSX text
   in `server/`, `src/host/`, `src/canvas/` and `src/App.tsx`, and
   `skills/*/SKILL.md`, for the names in `modules.json` and the vendors. A word
@@ -141,7 +147,10 @@
 
 ## Suggested layouts, the introduction and the tour
 
-- Layouts: built in (`BUILT_IN_LAYOUTS`, `src/host/layouts.ts`), the project's
+- Layouts: built in (data: `modules.json`'s `layouts`, read by
+  `readBuiltInLayouts` into `BUILT_IN_LAYOUTS`, and as published on `main` over
+  them by `officialSource.layouts()` — whole or not at all; never module ids in
+  code), the project's
   (`.kehikot/host/layouts/<slug>.json`, travels) and the person's own
   (`layoutsDir()`, `KEHIKOT_LAYOUTS_DIR`). Read and saved by
   `server/layouts.ts`; `POST /host/layouts` is in `PAGE_ONLY`. A layout naming
@@ -340,7 +349,8 @@
   build, restart rules), one at a time, with `progress` set so the menu and
   What's new show "Preparing…". Not running → now; running off screen → now
   (restarted); running on screen → when off screen (`moved`, from `act`) or at
-  the next start; `holdsShells` (Terminal, Claude, Codex) or `keep` and running
+  the next start; `holdsShells` (its manifest says `holds: ['live-sessions']`,
+  protocol 2.33.0; `HELD_SESSIONS_BEFORE_2_33` only for copies that say nothing) or `keep` and running
   → when it stops. Never: pinned containers, only releases needing a newer
   Kehikot (`needsNewer`), a checkout somebody edits, a copy following `main`,
   one `update` refuses. A failure waits for the next check (`RETRY_AFTER_MS`).
@@ -530,10 +540,11 @@
   (`src/canvas/ModuleSettings.tsx`; rules and words `src/host/moduleSettings.ts`)
   and reads and changes values at the module's door (`settings.get` /
   `settings.set`, `SETTINGS_PATH`) through `server/moduleSettings.ts`. Never
-  write into `.kehikot/<module>/`; "Open the file" only reads it (in the
-  Editor when one is on the kehikko — the host points the canvas at it as
-  `kehikko` — else in a read-only dialog), and only a file inside that
-  module's own folder.
+  write into `.kehikot/<module>/`; "Open the file" only reads it (in a module
+  whose manifest says `opens: ['file']`, protocol 2.33.0 — one on the kehikko,
+  else an answering one placed there for the press (`fileOpenerFor`); the host
+  points the canvas at it as `kehikko` — else in a read-only dialog), and only
+  a file inside that module's own folder.
 - Reached from the gear in a container's header (220 px and wider, folded or
   not; under 220 it is "Settings…" in the module's "⋯", `settingsPlaceFor`),
   the Frame menu's "Settings…" (every width) and Settings › Modules. Every
@@ -690,10 +701,10 @@
 - A module's named event (protocol 2.31.0, `events` in its manifest, `event` on an
   item) is a case of a state, never a kind of its own: `applyList` keeps it as
   `named` only when the manifest declares it for the item's state. Its sound is
-  `chimeFor` in `src/host/chime.ts` (the person's choice, else
-  `DEFAULT_EVENT_SOUNDS`, else the kind's); the host names no module there:
-  that table is keyed by event id for whichever module declares it, and its
-  sound is a generic built-in ("Answer", formerly `research`, still read).
+  `chimeFor` in `src/host/chime.ts` (the person's choice, else the built-in
+  sound the module's manifest names for the event — `events[].sound`, protocol
+  2.33.0, `declaredSound` — else the kind's). The host keeps no table of event
+  ids: the module picks ("Answer", formerly `research`, is still read).
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
 - Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts

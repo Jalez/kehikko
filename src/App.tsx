@@ -20,6 +20,7 @@ import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { forgetRead, hostRead } from './host/hostRead.ts'
+import { fileOpenerFor } from './host/fileOpener.ts'
 import { openLayouts } from './host/onboarding.ts'
 import { projectPicked } from './host/tour.ts'
 import { Button } from './components/ui/button.tsx'
@@ -326,8 +327,6 @@ const LONGEST_RETRY_MS = 30_000
 
 /** Who the host's own pointing is filed under in `said`: its id on the wire. */
 const HOST_POINTS = 'kehikko'
-/** The Editor module, which shows a file the canvas points at, and files under `.kehikot/` read-only. */
-const EDITOR_ID = 'kehikot.editor'
 
 /**
  * Ring the containers of these modules and bring the first into view.
@@ -1616,27 +1615,33 @@ export function App() {
   /* The latest pointing among the modules placed on the open kehikko — see
      `passageOn`. Switching kehikko changes who is placed, not what was said. */
   const placedIds = (open?.placements ?? []).map((p) => p.i).join('\n')
-  /* The host's own pointing counts too: "Open the file" in a module's settings points the Editor
+  /* The host's own pointing counts too: "Open the file" in a module's settings points a module that opens files
      at it (see below), and that is the host's word, not a module's. */
   const passage = useMemo(
     () => (placedIds ? passageOn(said, [...placedIds.split('\n'), HOST_POINTS]) : null),
     [said, placedIds],
   )
 
-  /* What a module's settings need of this page (protocol 2.15.0): "Open the file" in the Editor, read-only, when an Editor is on the open kehikko — the host points the
-     canvas at the file, as itself. Without one, the form shows the file in a dialog. */
+  /* What a module's settings need of this page (protocol 2.15.0): "Open the file" with a module that
+     opens files (protocol 2.33.0, `opens: ['file']`; `fileOpenerFor`) — one on the open kehikko, or
+     else an answering one, placed on it for that press. The host points the canvas at the file, as
+     itself. With none, the form shows the file in a dialog. */
+  const fileOpener = fileOpenerFor(placedIds ? placedIds.split('\n') : [], registry?.presences ?? [])
+  const fileOpenerPlaced = fileOpener?.placed ?? false
+  const fileOpenerId = fileOpener?.id ?? null
+  const onPlaceRef = useRef<(id: string) => void>(() => undefined)
   useEffect(() => {
-    const editor = placedIds.split('\n').includes(EDITOR_ID)
     setSettingsFileOpener(
-      editor
+      fileOpenerId
         ? (path) => {
+            if (!fileOpenerPlaced) onPlaceRef.current(fileOpenerId)
             setSaidRef.current((was) => pointed(was, HOST_POINTS, { path, page: null, from: null, to: null, quoted: '', section: null }))
             return true
           }
         : null,
     )
     return () => setSettingsFileOpener(null)
-  }, [placedIds])
+  }, [fileOpenerId, fileOpenerPlaced])
 
   /**
    * The passage as a VALUE, for the same reason `picked` is a joined string.
@@ -2234,6 +2239,7 @@ export function App() {
     (id: string) => change({ placements: place(open?.placements ?? [], id) }),
     [change, open?.placements],
   )
+  onPlaceRef.current = onPlace
 
   const onUnplace = useCallback(
     (id: string) => change({ placements: unplace(open?.placements ?? [], id) }),
@@ -3739,7 +3745,10 @@ export function App() {
      forwards. See `noticeFor`. */
   const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
-  const chime = useChime()
+  /* The sound a module's manifest names for one of its events (protocol 2.33.0), before the person chooses one. */
+  const chime = useChime((module, event) =>
+    event ? registry?.presences.find((p) => p.id === module)?.module?.events?.find((one) => one.id === event)?.sound : undefined,
+  )
   const toasts = useToasts(chime.plays)
   /* The toast's words for an item; the names are resolved when it is shown, not kept. */
   const toastRef = useRef<(entry: Entry, project: number) => void>(() => undefined)

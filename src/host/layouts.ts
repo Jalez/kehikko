@@ -1,6 +1,8 @@
 import { LIMITS, MODULE_ID, REFRESH_EVERY_MAX } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
+import listed from '../../modules.json'
+
 import { COLUMNS, type Placement } from './canvases.ts'
 import { finer } from './fit.ts'
 
@@ -9,8 +11,11 @@ import { finer } from './fit.ts'
  *
  * ## Three shelves
  *
- *   - BUILT IN — `BUILT_IN_LAYOUTS` below, from us, naming modules on the
- *     official list (`modules.json`).
+ *   - BUILT IN — ours, kept as DATA beside the official module list, in
+ *     `modules.json`'s `layouts` (`BUILT_IN_LAYOUTS`, `readBuiltInLayouts`), so
+ *     the app's code names no module. Like an entry of the list, a layout is
+ *     published by merging it to `main`: a host reads the published list's
+ *     `layouts` over the ones it was built with (`server/officialSource.ts`).
  *   - THE PROJECT'S — `<project>/.kehikot/host/layouts/<slug>.json`, so a
  *     layout somebody made for this project travels with it, like
  *     `kehikot.json` (`server/layouts.ts`).
@@ -59,119 +64,6 @@ export interface Layout {
   summary: string
   containers: LayoutContainer[]
 }
-
-/**
- * Ours, in the rows a canvas has now — fifty-six (`fit.ts`). The first five
- * are the five ways of working the introduction names —
- * Design, Research, Development, Review, Learning — in that order; then the
- * rest. "Development" was "Build software" (same modules): one layout for the
- * one way of working, not two names for it.
- */
-export const BUILT_IN_LAYOUTS: readonly Layout[] = [
-  {
-    id: 'design',
-    from: 'builtin',
-    name: 'Design',
-    summary: 'The thing you are shaping, live in a browser, with your notes, its issues and your agent beside it.',
-    containers: [
-      { module: 'kehikot.browser', x: 0, y: 0, w: 7, h: 36 },
-      { module: 'kehikot.flows', x: 0, y: 36, w: 7, h: 20, optional: true },
-      { module: 'kehikot.claude', x: 7, y: 0, w: 5, h: 28 },
-      { module: 'kehikot.notes', x: 7, y: 28, w: 5, h: 14 },
-      { module: 'kehikot.references', x: 7, y: 42, w: 5, h: 14 },
-    ],
-  },
-  {
-    id: 'research',
-    from: 'builtin',
-    name: 'Research',
-    summary: 'Read and write with your sources at hand: the paper, what it cites, your notes, the web and your agent.',
-    containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
-      { module: 'kehikot.browser', x: 5, y: 0, w: 4, h: 32 },
-      { module: 'kehikot.notes', x: 5, y: 32, w: 4, h: 24 },
-      { module: 'kehikot.citations', x: 9, y: 0, w: 3, h: 18 },
-      { module: 'kehikot.references', x: 9, y: 18, w: 3, h: 18 },
-      { module: 'kehikot.claude', x: 9, y: 36, w: 3, h: 20 },
-    ],
-  },
-  {
-    id: 'development',
-    from: 'builtin',
-    name: 'Development',
-    summary: 'Plan the work, build it with your agent, and review and ship the changes.',
-    containers: [
-      { module: 'kehikot.journeys', x: 0, y: 0, w: 4, h: 20 },
-      { module: 'kehikot.references', x: 0, y: 20, w: 4, h: 18 },
-      { module: 'kehikot.checklist', x: 0, y: 38, w: 4, h: 18 },
-      { module: 'kehikot.claude', x: 4, y: 0, w: 5, h: 56 },
-      { module: 'kehikot.review', x: 9, y: 0, w: 3, h: 28 },
-      { module: 'kehikot.factory', x: 9, y: 28, w: 3, h: 28 },
-    ],
-  },
-  {
-    id: 'review',
-    from: 'builtin',
-    name: 'Review',
-    summary: 'Go through a change line by line, hold it to its checklist, and try it in a real browser.',
-    containers: [
-      { module: 'kehikot.references', x: 0, y: 0, w: 3, h: 28 },
-      { module: 'kehikot.checklist', x: 0, y: 28, w: 3, h: 28 },
-      { module: 'kehikot.diff', x: 3, y: 0, w: 5, h: 32 },
-      { module: 'kehikot.review', x: 3, y: 32, w: 5, h: 24 },
-      { module: 'kehikot.browser', x: 8, y: 0, w: 4, h: 32 },
-      { module: 'kehikot.claude', x: 8, y: 32, w: 4, h: 24 },
-    ],
-  },
-  {
-    id: 'learning',
-    from: 'builtin',
-    name: 'Learning',
-    summary: 'Read a paper with questions on what you read, your notes and slides, and your agent to explain.',
-    containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
-      { module: 'kehikot.learning', x: 5, y: 0, w: 4, h: 30 },
-      { module: 'kehikot.notes', x: 5, y: 30, w: 4, h: 26 },
-      { module: 'kehikot.slides', x: 9, y: 0, w: 3, h: 24 },
-      { module: 'kehikot.claude', x: 9, y: 24, w: 3, h: 32 },
-    ],
-  },
-  {
-    id: 'write-a-paper',
-    from: 'builtin',
-    name: 'Write a paper',
-    summary: 'The paper as prose, what it cites, and the work it reports on.',
-    containers: [
-      { module: 'kehikot.paper', x: 0, y: 0, w: 6, h: 56 },
-      { module: 'kehikot.citations', x: 6, y: 0, w: 3, h: 28 },
-      { module: 'kehikot.references', x: 6, y: 28, w: 3, h: 28 },
-      { module: 'kehikot.claude', x: 9, y: 0, w: 3, h: 36 },
-      { module: 'kehikot.journeys', x: 9, y: 36, w: 3, h: 20 },
-    ],
-  },
-  {
-    id: 'plan-an-epic',
-    from: 'builtin',
-    name: 'Plan an epic',
-    summary: 'What has to become true, the issues behind it, and what is left to check.',
-    containers: [
-      { module: 'kehikot.journeys', x: 0, y: 0, w: 6, h: 56 },
-      { module: 'kehikot.flows', x: 6, y: 0, w: 6, h: 24, optional: true },
-      { module: 'kehikot.references', x: 6, y: 24, w: 6, h: 16 },
-      { module: 'kehikot.checklist', x: 6, y: 40, w: 6, h: 16 },
-    ],
-  },
-  {
-    id: 'start-simple',
-    from: 'builtin',
-    name: 'Start simple',
-    summary: 'Your agent beside the project’s issues and pull requests. Add more as you need them.',
-    containers: [
-      { module: 'kehikot.claude', x: 0, y: 0, w: 7, h: 56 },
-      { module: 'kehikot.references', x: 7, y: 0, w: 5, h: 56 },
-    ],
-  },
-]
 
 /** How many modules a card names before it says "+N more". */
 export const CHIPS_SHOWN = 4
@@ -230,6 +122,55 @@ export function layoutFromFile(file: LayoutFile): LayoutFile {
     containers: file.containers.map((c) => ({ ...c, y: finer(c.y), h: finer(c.h) })),
   }
 }
+
+/**
+ * One built-in layout as `modules.json` keeps it: an id, the layout file's fields, and `optional` on
+ * a container (used when its module is here, left out without a word when it is not).
+ */
+const builtInLayoutSchema = layoutFileSchema.extend({
+  id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(48),
+  containers: z.array(layoutContainerSchema.extend({ optional: z.boolean().optional() })).min(1).max(64),
+})
+
+/** How many built-in layouts a list may carry. */
+export const BUILT_IN_MAX = 32
+
+/**
+ * The built-in layouts a module list carries (`layouts` in `modules.json`, beside `modules`), in
+ * the rows a canvas has now, or null when the list has none or they do not read: a host then keeps
+ * the ones it has. Read whole: one layout that does not read drops them all, as one bad entry drops
+ * the module list (`readOfficial`). An id said twice is refused the same way. A host from before
+ * this field drops the key unread (`z.object` strips it), so publishing it breaks no app.
+ */
+export function readBuiltInLayouts(raw: unknown): Layout[] | null {
+  const parsed = z.object({ layouts: z.array(builtInLayoutSchema).min(1).max(BUILT_IN_MAX) }).safeParse(raw)
+  if (!parsed.success) return null
+  const ids = new Set(parsed.data.layouts.map((one) => one.id))
+  if (ids.size !== parsed.data.layouts.length) return null
+  return parsed.data.layouts.map((one) => {
+    const optional = new Map(one.containers.map((c, i) => [i, c.optional === true]))
+    const file = layoutFromFile({ version: one.version, name: one.name, summary: one.summary, containers: one.containers })
+    return {
+      id: one.id,
+      from: 'builtin' as const,
+      name: file.name,
+      summary: file.summary,
+      containers: file.containers.map((c, i) => ({ ...c, ...(optional.get(i) ? { optional: true } : {}) })),
+    }
+  })
+}
+
+/**
+ * The built-in layouts this host was built with: `modules.json`'s `layouts`. The first five are the
+ * five ways of working the introduction names — Design, Research, Development, Review, Learning —
+ * in that order; then the rest. Parsed where it is imported, so a list no host can use fails the
+ * start (and the tests), not the first open of the picker.
+ */
+export const BUILT_IN_LAYOUTS: readonly Layout[] = (() => {
+  const read = readBuiltInLayouts(listed)
+  if (!read) throw new Error('modules.json carries no built-in layouts this host can read')
+  return read
+})()
 
 /**
  * The file's slug for a layout's name: lowercase words joined by dashes, or

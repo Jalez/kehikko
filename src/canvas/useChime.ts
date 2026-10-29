@@ -19,7 +19,12 @@ const HEARTBEAT_MS = 20_000
  *  - windows of this app tell each other, over a BroadcastChannel (no storage),
  *    when they last had the focus, and only the most recent plays.
  */
-export function useChime(): { offer(kind: Kind, module?: string, event?: string): void; plays(): boolean } {
+export function useChime(
+  /** The built-in sound a module's manifest names for one of its events (protocol 2.33.0), read when it plays. */
+  soundOf?: (module: string | undefined, event: string | undefined) => string | undefined,
+): { offer(kind: Kind, module?: string, event?: string): void; plays(): boolean } {
+  const declared = useRef(soundOf)
+  declared.current = soundOf
   const burst = useRef<Burst | null>(null)
   const self = useRef<Peer>({ id: Math.random().toString(36).slice(2, 10), focusedAt: 0, heardAt: 0 })
   const others = useRef(new Map<string, Peer>())
@@ -29,7 +34,7 @@ export function useChime(): { offer(kind: Kind, module?: string, event?: string)
       const settings = chimeNow()
       if (!settings.on) return
       if (!plays()) return
-      const { sound, asWritten } = chimeFor(settings, kind, module, event)
+      const { sound, asWritten } = chimeFor(settings, kind, module, event, declared.current?.(module, event))
       void playSound(sound, kind, settings, asWritten)
     })
   }

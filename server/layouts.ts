@@ -76,11 +76,11 @@ export interface Shelves {
 }
 
 /** Every layout for a project (or none): ours, the project's and the person's. */
-export function readShelves(projectPath: string | null): Shelves {
+export function readShelves(projectPath: string | null, builtIn: readonly Layout[] = BUILT_IN_LAYOUTS): Shelves {
   const trouble: string[] = []
   const project = projectPath && projectRootExists(projectPath) ? shelf(projectLayoutsDir(projectPath), 'project', trouble) : []
   const mine = shelf(layoutsDir(), 'mine', trouble)
-  return { builtIn: BUILT_IN_LAYOUTS.map((one) => ({ ...one, containers: [...one.containers] })), project, mine, trouble }
+  return { builtIn: builtIn.map((one) => ({ ...one, containers: [...one.containers] })), project, mine, trouble }
 }
 
 export type Saved = { ok: true; layout: Layout; file: string } | { ok: false; why: string; status: 400 | 409 }

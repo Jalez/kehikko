@@ -43,7 +43,7 @@ import { addSound, postChime, removeSound, renameSound, setMuted, setToast, useC
  */
 
 /** A module as the panel knows it: its id, its registered name, and the Inbox events it declares (protocol 2.31.0). */
-export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done' }[] }
+export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[] }
 
 const said = (error: unknown): string => (error instanceof Error ? error.message : 'That did not work.')
 
@@ -346,7 +346,7 @@ function Mine({ settings, setNote }: { settings: ChimeSettings; setNote(note: st
 /**
  * A sound for each event a module declares (protocol 2.31.0), grouped by the
  * module's registered name and named by the event's own `says` — as text.
- * Nothing set plays the host's sound for that event id, else the kind's;
+ * Nothing set plays the sound the module's manifest names for it, else the kind's;
  * "Same as …" chooses the kind's. Drawn only when some module declares one.
  */
 function Events({ settings, modules, run }: { settings: ChimeSettings; modules: readonly ModuleRef[]; run(work: Promise<unknown>): void }) {
@@ -367,7 +367,7 @@ function Events({ settings, modules, run }: { settings: ChimeSettings; modules: 
           <ul className="divide-y rounded-lg border px-4">
             {module.events!.map((event) => {
               const kind = kindOf({ state: event.state, priority: 'normal', origin: 'activity' }) ?? 'done'
-              const chosen = settings.events[module.id]?.[event.id] ?? eventDefault(event.id)
+              const chosen = settings.events[module.id]?.[event.id] ?? eventDefault(event.sound)
               const playing = chosen.type === 'kind' ? settings.sounds[kind] : chosen
               const field = `${id}-${module.id}-${event.id}`
               return (

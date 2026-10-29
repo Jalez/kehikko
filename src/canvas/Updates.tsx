@@ -613,6 +613,8 @@ export function Updates({
   for (const [id, wait] of Object.entries(check?.auto?.waiting ?? {})) if (id !== current) told[id] = { ...told[id], auto: wait }
   /* Only on a module something is already said about: being kept is not news. */
   for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
+  /* Whether a restart ends its sessions: only said on a restart button, so only where one can be drawn. */
+  for (const id of check?.holds ?? []) if (Object.hasOwn(told, id) || outcomes[id]?.kind === 'failed') told[id] = { ...told[id], holds: true }
   const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
@@ -1139,7 +1141,7 @@ function Row({
               className={`mt-1.5 ml-1.5 h-6 px-2 text-xs ${armed !== null ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : ''}`}
               onClick={onAnyway}
             >
-              {armed !== null ? RESTART_ANYWAY_ARMED : restartNowWord(reading.id)}
+              {armed !== null ? RESTART_ANYWAY_ARMED : restartNowWord(row)}
             </Button>
           ) : null}
         </div>

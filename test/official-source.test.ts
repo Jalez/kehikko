@@ -18,6 +18,7 @@ import {
   RETRY_AFTER_MS,
 } from '../server/officialSource.ts'
 import type { Ran, Runner } from '../server/versions.ts'
+import { BUILT_IN_LAYOUTS, readBuiltInLayouts } from '../src/host/layouts.ts'
 import { staleLine } from '../src/host/official.ts'
 import { rowsOf } from '../src/host/moduleMenu.ts'
 import type { Presence } from '../src/host/registry.ts'
@@ -420,5 +421,42 @@ describe('what a changed list does to this machine', () => {
       'The official module list could not be refreshed, so the one read 3 hours ago is shown. Check the connection; it is asked again when this opens. It comes from github.com/Jalez/kehikko.',
     )
     expect(world(serving([]), { url: null }).source.standing().off).toBe(true)
+  })
+})
+
+/* The built-in layouts are data beside the module list (`layouts` in modules.json), published the same way. */
+describe('the built-in layouts, published with the list', () => {
+  const layout = { id: 'pair', version: 2, name: 'Pair', summary: 'Two side by side.', containers: [{ module: 'kehikot.slides', x: 0, y: 0, w: 6, h: 56 }, { module: 'kehikot.notes', x: 6, y: 0, w: 6, h: 56, optional: true }] }
+  const servingWith = (layouts: unknown): Answer => () => new Response(JSON.stringify({ modules: [slides], layouts }))
+
+  test('the host’s own come from modules.json, and are what it offers before any fetch', () => {
+    const { source } = world(serving([slides]), { url: null })
+    expect(source.layouts()).toBe(BUILT_IN_LAYOUTS)
+    expect(BUILT_IN_LAYOUTS.slice(0, 5).map((one) => one.id)).toEqual(['design', 'research', 'development', 'review', 'learning'])
+    expect(BUILT_IN_LAYOUTS.every((one) => one.from === 'builtin')).toBe(true)
+  })
+
+  test('a fetched list’s good layouts replace the host’s own whole, and survive a start with no network', async () => {
+    const one = world(servingWith([layout]))
+    await one.source.refresh()
+    expect(one.source.layouts().map((l) => l.id)).toEqual(['pair'])
+    expect(one.source.layouts()[0]!.containers[1]!.optional).toBe(true)
+    expect(one.source.layouts()[0]!.containers[0]!.optional).toBeUndefined()
+    const again = world(() => Promise.reject(new Error('offline')), { cache: one.cache })
+    expect(again.source.layouts().map((l) => l.id)).toEqual(['pair'])
+  })
+
+  test('a list without layouts, or with one that does not read, keeps the host’s own and still takes the modules', async () => {
+    for (const bad of [undefined, [], [{ ...layout, containers: [] }], [layout, layout], [{ ...layout, id: 'Not an id' }]]) {
+      const { source } = world(servingWith(bad))
+      await source.refresh()
+      expect(source.layouts()).toBe(BUILT_IN_LAYOUTS)
+      expect(source.fetched()?.map((m) => m.id)).toEqual(['kehikot.slides'])
+    }
+  })
+
+  test('a version 1 layout is read in the rows a canvas has now', () => {
+    const read = readBuiltInLayouts({ layouts: [{ ...layout, version: 1 }] })!
+    expect(read[0]!.containers[0]!.h).toBe(112)
   })
 })
