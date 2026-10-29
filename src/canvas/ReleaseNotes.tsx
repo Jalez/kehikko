@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { isBuiltFrom, isWorksWithSentence, parseMarkdown, plainText, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
-import { releaseNotesTitle, releaseVersion } from '@/host/moduleReleases.ts'
+import { releaseNotesTitle, releaseVersion, releasesMoved } from '@/host/moduleReleases.ts'
 import {
   fetchNotes,
+  fetchReleases,
   notesLabel,
   notesTitle,
   NotesTrouble,
@@ -510,4 +511,89 @@ function drawInline(nodes: readonly Inline[]): ReactNode {
         )
     }
   })
+}
+
+/**
+ * What changed in one module by one update: the notes of every release it
+ * moved through, `from` (left out) up to `to`, newest first. The list of
+ * releases is read when it opens; if it cannot be, the release it arrived at
+ * is shown alone, and a release whose notes cannot be read says so. With no
+ * repository there is nothing to read, and it says that in a sentence.
+ */
+export function MovedNotesDialog({
+  repo,
+  name,
+  from,
+  to,
+  open,
+  onOpenChange,
+  opener = null,
+  load = fetchNotes,
+  list = fetchReleases,
+}: {
+  repo: string | null
+  name: string
+  from: string | null
+  to: string
+  open: boolean
+  onOpenChange(open: boolean): void
+  opener?: HTMLElement | null
+  load?: typeof fetchNotes
+  list?: typeof fetchReleases
+}) {
+  const [tags, setTags] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!open || !repo) return
+    const abort = new AbortController()
+    list(repo, abort.signal).then(
+      (releases) => setTags(releasesMoved(from, to, releases.map((one) => one.tag))),
+      () => {
+        if (!abort.signal.aborted) setTags(releasesMoved(from, to, []))
+      },
+    )
+    return () => abort.abort()
+  }, [open, repo, from, to, list])
+  const title = tags ? releaseNotesTitle(name, tags) : `What changed in ${name}`
+  const page = repo ? releasePage(repo) : null
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex max-h-[min(40rem,85vh)] max-w-xl flex-col gap-3 p-0"
+        data-testid="release-notes"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          if (!opener || !opener.isConnected) return
+          opener.dataset.quietFocus = '1'
+          opener.focus()
+          delete opener.dataset.quietFocus
+        }}
+      >
+        <DialogHeader className="border-b px-5 pt-4 pb-3 pr-10">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {`${name} ${from ? releaseVersion(from) : 'main'} → ${releaseVersion(to)}`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
+          {!repo ? (
+            <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">
+              The release notes for this update could not be read: this module does not say where its releases are published.
+            </p>
+          ) : tags === null ? (
+            <Loading className="py-2" label="Reading the release notes…" />
+          ) : (
+            <ReleaseSections repo={repo} name={name} tags={tags} oneTrouble headings={tags.length > 1} />
+          )}
+        </div>
+        {page ? (
+          <div className="flex justify-end border-t px-5 py-3">
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid="release-notes-github" data-href={page} onClick={() => openExternal(page)}>
+              <ExternalLink className="size-3" />
+              Open on GitHub
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
 }

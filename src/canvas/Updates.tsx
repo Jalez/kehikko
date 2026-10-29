@@ -1,11 +1,12 @@
-import { CloudDownload } from 'lucide-react'
+import { CloudDownload, ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import { AUTO_UPDATES, doneSaid, type AutoTold } from '@/host/autoUpdates.ts'
+import { AUTO_UPDATES, changelogLabel, doneSaid, type AutoTold } from '@/host/autoUpdates.ts'
 import { cn } from '@/lib/utils'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
@@ -67,7 +68,7 @@ import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
-import { NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
+import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
@@ -238,7 +239,13 @@ export function Updates({
   const notes = useReleaseNotes()
   /* A module's "What's new": every release since the one it runs. */
   const moduleNotes = useModuleNotes()
-  const notesOpen = notes.open || moduleNotes.open
+  /* "Updated automatically" › changelog: what one update moved through. */
+  const [moved, setMoved] = useState<{ one: AutoTold['updated'][number]; repo: string | null; opener: HTMLElement } | null>(null)
+  const [movedOpen, setMovedOpen] = useState(false)
+  useEffect(() => {
+    if (moved) setMovedOpen(true)
+  }, [moved])
+  const notesOpen = notes.open || moduleNotes.open || movedOpen
   const showModuleNotes = (id: string, name: string, release: ModuleRelease, opener: HTMLElement) => {
     if (release.repo && release.notes.length) {
       /* Read here, they need not be told again after the update: "What's new" leaves them out. */
@@ -785,7 +792,7 @@ export function Updates({
                 )
               })}
 
-              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} /> : null}
+              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} onNotes={(one, opener) => setMoved({ one, repo: repoOf(checkouts, one.id), opener })} /> : null}
 
               {(attention.length > 0 || asked !== null) && level.length > 0 ? (
                 <div className="text-muted-foreground text-xs" data-testid="updates-level">
@@ -888,6 +895,9 @@ export function Updates({
         </div>
         {notes.dialog}
         {moduleNotes.dialog}
+        {moved ? (
+          <MovedNotesDialog key={`${moved.one.id}-${moved.one.at}`} repo={moved.repo} name={moved.one.name} from={moved.one.from} to={moved.one.to} open={movedOpen} onOpenChange={setMovedOpen} opener={moved.opener} />
+        ) : null}
       </PopoverContent>
     </Popover>
   )
@@ -1183,7 +1193,15 @@ export function AutoToggle({ on, onChange, trouble = null }: { on: boolean; onCh
 }
 
 /** The updates the switch made since the host started, newest first: "Journeys 1.5.0 → 1.6.0 · 4 minutes ago". */
-export function UpdatedAutomatically({ updated, now }: { updated: AutoTold['updated']; now: Date }) {
+export function UpdatedAutomatically({
+  updated,
+  now,
+  onNotes,
+}: {
+  updated: AutoTold['updated']
+  now: Date
+  onNotes?(one: AutoTold['updated'][number], opener: HTMLElement): void
+}) {
   return (
     <section aria-label="Updated automatically" className="rounded-md border px-3 py-2 text-xs" data-testid="updates-auto-updated">
       <p className="text-muted-foreground pb-1">Updated automatically</p>
@@ -1198,10 +1216,48 @@ export function UpdatedAutomatically({ updated, now }: { updated: AutoTold['upda
               </span>
             ) : null}
             <span className="text-muted-foreground shrink-0 text-[11px]">{ago(new Date(one.at), now)}</span>
+            <ChangelogButton name={one.name} disabled={!one.to || !onNotes} onShow={(opener) => onNotes?.(one, opener)} />
           </li>
         ))}
       </ul>
     </section>
+  )
+}
+
+/** Where a module's releases are published, from its checkout. */
+function repoOf(checkouts: readonly (Checkout | { id: string })[], id: string): string | null {
+  const one = checkouts.find((c) => c.id === id)
+  return one && 'release' in one ? (one.release?.repo ?? null) : null
+}
+
+/** The row's changelog icon: a scroll, "What changed in <name>", tooltip "Changelog". Shows notes and nothing else. */
+function ChangelogButton({ name, disabled, onShow }: { name: string; disabled: boolean; onShow(opener: HTMLElement): void }) {
+  const label = changelogLabel(name)
+  return (
+    <Tooltip disableHoverableContent>
+      <TooltipTrigger
+        asChild
+        onFocus={(event) => {
+          if ((event.currentTarget as HTMLElement).dataset.quietFocus) event.preventDefault()
+        }}
+      >
+        <button
+          type="button"
+          aria-label={label}
+          disabled={disabled}
+          data-testid="updates-auto-changelog"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onShow(event.currentTarget)
+          }}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring relative inline-flex size-4 shrink-0 cursor-default items-center justify-center rounded-sm outline-none after:absolute after:-inset-1 after:content-[''] focus-visible:ring-2 disabled:opacity-40"
+        >
+          <ScrollText className="size-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Changelog</TooltipContent>
+    </Tooltip>
   )
 }
 

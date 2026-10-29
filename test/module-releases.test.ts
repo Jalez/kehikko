@@ -479,3 +479,11 @@ describe('the container header', () => {
     expect(releaseShown({ ...source, branch: 'main', release: null })).toBeNull()
   })
 })
+
+test('releasesMoved: every release after from up to to, newest first; to alone when the list lacks them', async () => {
+  const { releasesMoved } = await import('../src/host/moduleReleases.ts')
+  const all = ['v1.4.0', 'v1.5.0', 'v1.5.1', 'v1.6.0', 'v1.7.0', 'v2.0.0-beta.1']
+  expect(releasesMoved('1.5.0', '1.6.0', all)).toEqual(['v1.6.0', 'v1.5.1'])
+  expect(releasesMoved(null, '1.6.0', all)).toEqual(['v1.6.0', 'v1.5.1', 'v1.5.0', 'v1.4.0'])
+  expect(releasesMoved('1.5.0', '1.6.0', [])).toEqual(['v1.6.0'])
+})

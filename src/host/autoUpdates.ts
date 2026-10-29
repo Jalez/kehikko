@@ -231,6 +231,11 @@ export function doneSaid(done: AutoDone): string {
   return `${done.name} ${done.from ?? 'main'} → ${done.to}`
 }
 
+/** The accessible name of a row's changelog button. Plain text from the module's registered name. */
+export function changelogLabel(name: string): string {
+  return `What changed in ${name}`
+}
+
 /** The announcement What's new makes once, to an install that had modules before the switch. */
 export const AUTO_UPDATES_NOTE = 'auto-updates'
 export const AUTO_UPDATES_ANNOUNCED = {
