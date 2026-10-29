@@ -7,14 +7,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { COLUMNS } from '@/host/canvases.ts'
-import { CANVAS_ROWS, finer } from '@/host/fit.ts'
+import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
   availability,
   availabilitySaid,
-  chipsOf,
   fetchLayouts,
   saveLayout,
   toInstall,
@@ -25,6 +23,7 @@ import {
   type Shelves,
 } from '@/host/layouts.ts'
 import type { LayoutsMode } from '@/host/onboarding.ts'
+import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 
 /**
@@ -42,59 +41,76 @@ import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 /** The blank kehikko, which is always the first card: a picker must never stand between a person and an empty canvas. */
 export const BLANK: Layout = { id: 'blank', from: 'builtin', name: 'Blank', summary: 'An empty kehikko. Put modules on it from Kehikko modules.', containers: [] }
 
-/** The rectangles of a layout as a small schematic, drawn with the theme's own colours. */
+function shortName(module: string, available: readonly Available[]): string {
+  return available.find((one) => one.module === module)?.name ?? module.replace(/^kehikot\./, '')
+}
+
+/**
+ * The rectangles of a layout as a picture, drawn with the theme's own colours. Each rectangle says
+ * which module is there — its icon and its name, in the 11px the card's text is — so the picture is
+ * the whole answer to "what is on it". An empty layout shows Kehikot's own mark.
+ *
+ * HTML rather than SVG: the picture stretches to its card, and stretched text is distorted text.
+ * Positions are fractions of the canvas, so the rectangles keep their proportions at any width.
+ */
 export function LayoutPreview({
   containers,
   available,
-  className = 'h-20 w-full',
+  scopes,
+  className = 'h-48 w-full',
 }: {
   containers: readonly LayoutContainer[]
   available?: readonly Available[]
+  /** What each module's content belongs to (protocol 2.29.0), by id: its icon is drawn after the name. */
+  scopes?: ReadonlyMap<string, ContainerScope>
   className?: string
 }) {
   const state = new Map(available?.map((one) => [one.module, one]) ?? [])
   const rows = Math.max(CANVAS_ROWS, ...containers.map((c) => c.y + c.h))
-  /* Four units a row when a canvas had twenty-eight; the same picture in the
-     finer rows, so its insets and header stripe keep their proportions. */
-  const perRow = 4 / finer(1)
   return (
-    <svg
-      viewBox={`0 0 ${COLUMNS * 10} ${rows * perRow}`}
-      preserveAspectRatio="none"
-      className={className}
+    <div
+      className={`bg-muted/40 relative overflow-hidden rounded-md ${className}`}
       role="img"
       aria-label={containers.length ? `${containers.length} containers` : 'an empty kehikko'}
       data-layout-preview=""
     >
-      <rect x="0" y="0" width={COLUMNS * 10} height={rows * perRow} rx="3" className="fill-muted/40" />
+      {containers.length === 0 ? (
+        <span className="text-muted-foreground absolute inset-0 flex items-center justify-center">
+          <KehikkoMark working={false} className="size-16" />
+        </span>
+      ) : null}
       {containers.map((c) => {
         const one = state.get(c.module)
         const absent = one && one.state !== 'here'
+        const name = shortName(c.module, available ?? [])
+        const scope = scopes?.get(c.module)
         return (
-          <g key={c.module}>
-            <rect
-              x={c.x * 10 + 1.5}
-              y={c.y * perRow + 1.5}
-              width={c.w * 10 - 3}
-              height={c.h * perRow - 3}
-              rx="2.5"
-              className={absent ? 'fill-background stroke-muted-foreground/60' : 'fill-card stroke-border'}
-              strokeDasharray={absent ? '3 2' : undefined}
-              strokeWidth="1"
-              vectorEffect="non-scaling-stroke"
-              data-preview-module={c.module}
-              data-preview-state={one?.state}
-            />
-            <rect x={c.x * 10 + 1.5} y={c.y * perRow + 1.5} width={c.w * 10 - 3} height="4" rx="2" className={absent ? 'fill-transparent' : 'fill-primary/25'} />
-          </g>
+          <div
+            key={c.module}
+            className="absolute p-0.5"
+            style={{ left: `${(c.x / COLUMNS) * 100}%`, top: `${(c.y / rows) * 100}%`, width: `${(c.w / COLUMNS) * 100}%`, height: `${(c.h / rows) * 100}%` }}
+            title={scope ? `${name} — ${scopeRowTooltip(scope)}` : name}
+            data-preview-module={c.module}
+            data-preview-state={one?.state}
+            data-scope={scope?.active}
+          >
+            <div
+              className={
+                'flex size-full min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-[5px] border p-0.5 text-center text-[11px] leading-tight ' +
+                (absent ? 'bg-background border-muted-foreground/60 border-dashed' : 'bg-card border-border')
+              }
+            >
+              <ModuleIcon id={c.module} name={name} className="size-4 shrink-0" />
+              <span className="flex max-w-full min-w-0 items-center gap-0.5">
+                <span className="min-w-0 truncate">{name}</span>
+                {scope ? <ScopeIcon scope={scope.active} className="size-2.5 shrink-0 opacity-70" /> : null}
+              </span>
+            </div>
+          </div>
         )
       })}
-    </svg>
+    </div>
   )
-}
-
-function shortName(module: string, available: readonly Available[]): string {
-  return available.find((one) => one.module === module)?.name ?? module.replace(/^kehikot\./, '')
 }
 
 /** One layout as a card: the picture, its name, what is on it and what using it would take. */
@@ -114,10 +130,6 @@ function LayoutCard({
 }) {
   const said = availabilitySaid(available)
   const optional = available.filter((one) => one.optional && one.state !== 'here').map((one) => one.name)
-  const chips = layout.containers
-    .filter((c) => !c.optional || available.find((one) => one.module === c.module)?.state === 'here')
-    .map((c) => ({ module: c.module, name: shortName(c.module, available) }))
-  const { shown, hidden } = chipsOf(chips)
   return (
     <button
       type="button"
@@ -129,7 +141,7 @@ function LayoutCard({
         (chosen ? 'border-primary ring-primary/40 ring-2' : 'hover:border-foreground/30')
       }
     >
-      <LayoutPreview containers={layout.containers} available={available} />
+      <LayoutPreview containers={layout.containers} available={available} scopes={scopes} />
       <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
         <span className="min-w-0 truncate" title={layout.name}>
           {layout.name}
@@ -137,39 +149,9 @@ function LayoutCard({
         {chosen ? <Check className="text-primary size-3.5" aria-hidden /> : null}
       </span>
       <span className="text-muted-foreground line-clamp-2 text-xs [overflow-wrap:anywhere] leading-snug">{layout.summary}</span>
-      {chips.length ? (
-        <span className="text-muted-foreground flex min-w-0 max-w-full flex-col gap-0.5 text-[11px] leading-snug" data-layout-modules="">
-          <ul className="m-0 flex min-w-0 max-w-full list-none flex-wrap gap-x-2 gap-y-0.5 p-0" data-layout-chips="">
-            {shown.map((c) => (
-              <li
-                key={c.module}
-                title={scopes?.get(c.module) ? `${c.name} — ${scopeRowTooltip(scopes.get(c.module)!)}` : c.name}
-                className="inline-flex min-w-0 max-w-full items-center gap-0.5"
-                data-layout-chip={c.module}
-                data-scope={scopes?.get(c.module)?.active}
-              >
-                <ModuleIcon id={c.module} name={c.name} className="size-3 shrink-0" />
-                <span className="min-w-0 truncate">{c.name}</span>
-                {/* Its scope's icon (protocol 2.29.0); the scope's name is in the chip's title. */}
-                {scopes?.get(c.module) ? <ScopeIcon scope={scopes.get(c.module)!.active} className="size-2.5 opacity-70" /> : null}
-              </li>
-            ))}
-            {hidden.length ? (
-              <li className="inline-flex min-w-0 max-w-full items-center" data-layout-more="">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="cursor-default underline decoration-dotted underline-offset-2">+{hidden.length} more</span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-64 [overflow-wrap:anywhere]">{hidden.map((c) => c.name).join(', ')}</TooltipContent>
-                </Tooltip>
-              </li>
-            ) : null}
-          </ul>
-          {optional.length ? (
-            <span className="min-w-0 [overflow-wrap:anywhere]" data-layout-optional="" title={optional.join(', ')}>
-              {optional.join(', ')} if installed
-            </span>
-          ) : null}
+      {optional.length ? (
+        <span className="text-muted-foreground min-w-0 text-[11px] leading-snug [overflow-wrap:anywhere]" data-layout-optional="" title={optional.join(', ')}>
+          {optional.join(', ')} if installed
         </span>
       ) : null}
       {said ? (
@@ -189,7 +171,7 @@ interface PickerProps {
   project: number | null
   /** What is registered here, id → name. */
   registered: ReadonlyMap<string, string>
-  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn on its chips. */
+  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn after its name in the picture. */
   scopes?: ReadonlyMap<string, ContainerScope>
   /** Make the kehikko (mode `new`) or fill the open one (`fill`) with these containers. Resolves to a refusal or null. */
   onUse(layout: Layout, available: Available[], install: string[], name: string): Promise<string | null>
