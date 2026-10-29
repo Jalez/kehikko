@@ -72,7 +72,7 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     id: 'design',
     from: 'builtin',
     name: 'Design',
-    summary: 'The thing you are shaping, live in a browser, with your notes, its issues and Claude beside it.',
+    summary: 'The thing you are shaping, live in a browser, with your notes, its issues and your agent beside it.',
     containers: [
       { module: 'kehikot.browser', x: 0, y: 0, w: 7, h: 36 },
       { module: 'kehikot.flows', x: 0, y: 36, w: 7, h: 20, optional: true },
@@ -85,7 +85,7 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     id: 'research',
     from: 'builtin',
     name: 'Research',
-    summary: 'Read and write with your sources at hand: the paper, what it cites, your notes, the web and Claude.',
+    summary: 'Read and write with your sources at hand: the paper, what it cites, your notes, the web and your agent.',
     containers: [
       { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
       { module: 'kehikot.browser', x: 5, y: 0, w: 4, h: 32 },
@@ -99,7 +99,7 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     id: 'development',
     from: 'builtin',
     name: 'Development',
-    summary: 'Plan the work, build it with Claude, and review and ship the changes.',
+    summary: 'Plan the work, build it with your agent, and review and ship the changes.',
     containers: [
       { module: 'kehikot.journeys', x: 0, y: 0, w: 4, h: 20 },
       { module: 'kehikot.references', x: 0, y: 20, w: 4, h: 18 },
@@ -127,7 +127,7 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     id: 'learning',
     from: 'builtin',
     name: 'Learning',
-    summary: 'Read a paper with questions on what you read, your notes and slides, and Claude to explain.',
+    summary: 'Read a paper with questions on what you read, your notes and slides, and your agent to explain.',
     containers: [
       { module: 'kehikot.paper', x: 0, y: 0, w: 5, h: 56 },
       { module: 'kehikot.learning', x: 5, y: 0, w: 4, h: 30 },
@@ -165,7 +165,7 @@ export const BUILT_IN_LAYOUTS: readonly Layout[] = [
     id: 'start-simple',
     from: 'builtin',
     name: 'Start simple',
-    summary: 'Claude beside the project’s issues and pull requests. Add more as you need them.',
+    summary: 'Your agent beside the project’s issues and pull requests. Add more as you need them.',
     containers: [
       { module: 'kehikot.claude', x: 0, y: 0, w: 7, h: 56 },
       { module: 'kehikot.references', x: 7, y: 0, w: 5, h: 56 },

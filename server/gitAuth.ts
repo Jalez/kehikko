@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
  * on. The host never prompts (`QUIET_ENV`: no terminal prompt, ssh in
  * BatchMode), so a passphrase-locked SSH key that is not in the agent or the
  * keychain fails at once with "Permission denied (publickey)". Kehikot never
- * collects a passphrase; it says what to run in Terminal instead, as text to
+ * collects a passphrase; it says what to run in a terminal instead, as text to
  * copy, never run for the person.
  *
  * One classifier for every caller that runs git against a remote.
@@ -130,8 +130,8 @@ export function explainGitFailure(
       kind: 'host-key',
       command: host ? `ssh-keygen -R ${host}` : null,
       said: changed
-        ? `${at} now presents a different SSH host key than the one this computer remembers. That is expected if the server was rebuilt, and a warning sign if it was not, so Kehikot does not accept it for you. If you trust the change, run ${host ? '`ssh-keygen -R ' + host + '`' : 'ssh-keygen -R <host>'} in Terminal, connect once with ssh to confirm the new key, then press Retry.`
-        : `This computer does not know ${at}'s SSH host key yet, and Kehikot does not accept one for you. In Terminal, run ${host ? '`ssh -T git@' + host + '`' : 'ssh once against the host'} and check the fingerprint it shows before answering yes, then press Retry.`,
+        ? `${at} now presents a different SSH host key than the one this computer remembers. That is expected if the server was rebuilt, and a warning sign if it was not, so Kehikot does not accept it for you. If you trust the change, run ${host ? '`ssh-keygen -R ' + host + '`' : 'ssh-keygen -R <host>'} in a terminal, connect once with ssh to confirm the new key, then press Retry.`
+        : `This computer does not know ${at}'s SSH host key yet, and Kehikot does not accept one for you. In a terminal, run ${host ? '`ssh -T git@' + host + '`' : 'ssh once against the host'} and check the fingerprint it shows before answering yes, then press Retry.`,
     }
   }
 
@@ -145,7 +145,7 @@ export function explainGitFailure(
       command,
       said:
         `Your SSH key is locked with a passphrase that isn't in your keychain, so Kehikot can't use it${wrong ? ' (the passphrase it tried was not right)' : ''}. ` +
-        `In Terminal, run \`${command}\` once, then press Retry. ${KEYCHAIN_HINT}` +
+        `In a terminal, run \`${command}\` once, then press Retry. ${KEYCHAIN_HINT}` +
         (host ? ` If the key is already loaded, ${host} may not have its public key on your account.` : ''),
     }
   }

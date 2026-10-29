@@ -272,7 +272,7 @@ export function agentRefusal(name: string, skill: Pick<ModuleSkill, 'name'>): Do
  * installs skills itself (protocol 2.23.0, `POST /host/place`): every skill the Settings sync keeps
  * installed — Kehikot's own and each module's whose skills are automatic (`automatic`), not
  * kehikko-bound — except the skills of a module that runs agent sessions other than `asker`, which
- * are written for that module's own agent (Claude's `/kehikot-here`). The asker's own are in it:
+ * are written for that module's own agent. The asker's own are in it:
  * they are for its agent. Each with the origin its text is served at. Pure.
  */
 export function everywhereFor(

@@ -18,8 +18,8 @@ import type { NoticeSettings } from './trackerNotices.ts'
  */
 
 /**
- * The agents Kehikot can set up. Claude Code is the only one built; the shape
- * is a map so another (Codex, say) is a key added here and a writer added on
+ * The agents Kehikot can set up. One is built; the shape is a map so another
+ * is a key added here and a writer added on
  * the server, not a new settings shape.
  */
 export interface Providers {
@@ -52,7 +52,11 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   asked: false,
 }
 
-/** The agents listed in Settings, in order. Only the built ones. */
+/**
+ * The agents listed in Settings, in order. Only the built ones. `name` is the
+ * one place a person reads which program is set up — it is data, like the
+ * official module list, and the sentences around it say "your agent".
+ */
 export const PROVIDERS: readonly { key: ProviderKey; name: string; says: string }[] = [
   {
     key: 'claudeCode',
@@ -61,7 +65,7 @@ export const PROVIDERS: readonly { key: ProviderKey; name: string; says: string 
   },
 ]
 
-export const MORE_AGENTS = 'More agents are coming. For now Kehikot sets up Claude Code only.'
+export const MORE_AGENTS = 'More agents are coming. For now Kehikot sets up the one listed here.'
 
 const EXCEPT_MAX = 500
 const ID_MAX = 64
@@ -135,11 +139,11 @@ export function automatic(settings: AgentSettings, kind: 'tools' | 'skills', mod
 
 export const FIRST_QUESTION = {
   title: 'Let Kehikot keep your agent set up?',
-  lead: 'Kehikot can connect every module’s tools to Claude Code and keep each module’s skills installed and up to date — once, for every module and every project — so you do not press Connect or Install for each one.',
+  lead: 'Kehikot can connect every module’s tools to your agent and keep each module’s skills installed and up to date — once, for every module and every project — so you do not press Connect or Install for each one.',
   writes: [
-    'Claude Code’s user-wide MCP server list, through the claude command (claude mcp add --scope user). Only entries Kehikot adds are ever changed or removed.',
+    'Your agent’s user-wide MCP server list, through its own command (claude mcp add --scope user). Only entries Kehikot adds are ever changed or removed.',
     'Folders under ~/.claude/skills/<name>, one per skill. A skill you changed, or a name another skill already has, is left alone.',
-    'An agent module that installs skills itself, such as Codex, keeps the same skills where its agent reads them, under the same rules.',
+    'An agent module that installs skills itself keeps the same skills where its agent reads them, under the same rules.',
   ],
   after: 'Each change is one line in the Inbox. You can change this any time in Settings, and leave single modules out there.',
   keep: 'Save',
@@ -321,7 +325,7 @@ export function onOpenSettings(then: (section: SettingsSection | null) => void):
 /* ---- the start hook, read only ---- */
 
 /**
- * Whether Claude Code reports sessions started outside Kehikot (the Claude
+ * Whether the agent reports sessions started outside Kehikot (an agent
  * module's SessionStart hook). `on` is null when the settings file could not
  * be read. The host never writes that file.
  */
@@ -331,7 +335,7 @@ export interface StartHook {
 }
 
 export const START_HOOK_WHERE =
-  'The Claude module turns it on: open Claude on a kehikko, and in its list of conversations press “Report them” beside “Sessions started outside Kehikot are not reported here.”'
+  'The agent module that offers it turns it on: open that module on a kehikko, and in its list of conversations press “Report them” beside “Sessions started outside Kehikot are not reported here.”'
 
 /** What `GET /host/settings` answers. */
 export interface SettingsAnswer {

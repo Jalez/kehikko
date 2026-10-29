@@ -220,8 +220,7 @@ export function keptNote(name: string): string {
 /**
  * The sentence for a module that was updated and that this host could not
  * restart. "May", because the host cannot see which code a running process
- * holds: a module whose Vite restarts in-process on a config change (Explorer,
- * Source) is on the new code with the same pid, and one whose dependencies
+ * holds: a module whose Vite restarts in-process on a config change is on the new code with the same pid, and one whose dependencies
  * moved is not. A build identity settles it — see `server/stale.ts`.
  */
 export function staleNote(why: string): string {
@@ -266,8 +265,8 @@ export function appNotes(row: UpdateRow): { version: string; label: string; pend
 export const RESTART_ANYWAY = 'Restart now'
 /**
  * The modules that hold a terminal: restarting one ends the shells in it, and the button says so.
- * Codex is one: its sessions run in its own process (their per-run settings keep them off Codex's
- * background server), so a restart ends them; the next open of a place resumes its conversation.
+ * An agent module whose sessions run in its own process is one: a restart ends them; the next open
+ * of a place resumes its conversation.
  */
 export function restartNowWord(id: string): string {
   return holdsShells(id) ? 'Restart now (ends its shells)' : RESTART_ANYWAY

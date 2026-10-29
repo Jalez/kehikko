@@ -83,7 +83,7 @@ export const BUILD_TIMEOUT_MS = 3 * 60_000
 
 /**
  * The oldest Bun a ready-built module runs on: `Bun.spawn({ terminal })`, which
- * Terminal and Claude serve their shells with. Also the oldest Bun the desktop
+ * modules that hold a terminal serve their shells with. Also the oldest Bun the desktop
  * app's host may be compiled with (`dev/build-sidecar.ts`).
  */
 export const READY_BUILT_BUN = '1.4.0'
@@ -367,7 +367,7 @@ export function isUnder(dir: string, root: string): boolean {
  * The marker a module's `run.sh` writes after an install that succeeded, and
  * reads before it starts: it installs again when the marker is missing or when
  * `bun.lock` or `package.json` is newer than it (`-nt`). The same file in
- * Terminal's, Claude's and the protocol template's `run.sh`, made with
+ * the protocol template's `run.sh`, and every module's built from it, made with
  * `touch` — so empty, and its age is all that is read.
  */
 export const INSTALLED_MARKER = join('node_modules', '.kehikot-installed')
@@ -423,7 +423,7 @@ export function hasBuildScript(dir: string): boolean {
  *  - a `build` script, and
  *  - a `run.sh` that checks the stamp (`dist/.kehikot-built`, `STAMP_FILE`) and
  *    serves the build when it names the commit: the protocol template's
- *    `run.sh`, which Terminal and Claude have.
+ *    `run.sh`, which modules built from it have.
  *
  * A module with only a `build` script has an older, unrelated one (a plain
  * `vite build`, its own production path); nothing would ever serve what it

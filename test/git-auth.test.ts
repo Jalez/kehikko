@@ -24,7 +24,7 @@ describe('the classifier', () => {
     expect(said.kind).toBe('ssh-key')
     expect(said.command).toBe('ssh-add --apple-use-keychain /Users/me/.ssh/id_work')
     expect(said.said).toContain("Your SSH key is locked with a passphrase that isn't in your keychain, so Kehikot can't use it.")
-    expect(said.said).toContain('In Terminal, run `ssh-add --apple-use-keychain /Users/me/.ssh/id_work` once, then press Retry.')
+    expect(said.said).toContain('In a terminal, run `ssh-add --apple-use-keychain /Users/me/.ssh/id_work` once, then press Retry.')
     expect(said.said).toContain('UseKeychain yes')
     expect(said.said).toContain('AddKeysToAgent yes')
   })

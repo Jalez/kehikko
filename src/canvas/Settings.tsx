@@ -578,7 +578,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
   const claude = settings.providers.claudeCode.enabled
-  const needsClaude = claude ? null : 'Turn on Claude Code under Agents first.'
+  const needsClaude = claude ? null : 'Turn on your agent under Agents first.'
 
   if (which === 'agents') {
     return (
@@ -588,7 +588,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
         </Heading>
         <Summary icon={Bot} title="Status">
           <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
-            <dt className="text-muted-foreground">Claude Code</dt>
+            <dt className="text-muted-foreground">{PROVIDERS[0]?.name ?? 'Agent'}</dt>
             <dd>{claude ? 'Set up by Kehikot' : 'Off — Kehikot sets nothing up'}</dd>
             <dt className="text-muted-foreground">Module tools</dt>
             <dd>{toolsSaid(status)}</dd>
@@ -633,7 +633,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
     const doors = status.modules.filter((one) => one.tools !== null)
     return (
       <>
-        <Heading id="tools" lead="Each module’s MCP tools, in Claude Code’s user-wide server list.">
+        <Heading id="tools" lead="Each module’s MCP tools, in your agent’s user-wide server list.">
           Module tools
         </Heading>
         <Summary icon={Plug} title="Status">
@@ -647,7 +647,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
         </Summary>
         <Rows>
           <SettingRow
-            label="Connect every module’s tools to Claude Code, and keep them connected"
+            label="Connect every module’s tools to your agent, and keep them connected"
             description={needsClaude ?? 'A new module is connected when it first runs, and re-pointed when it moves.'}
             checked={settings.tools.auto}
             disabled={!claude}
@@ -688,7 +688,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
     const offering = status.modules.filter((one) => one.id !== OWN_SKILLS_MODULE && one.skills.length > 0)
     return (
       <>
-        <Heading id="skills" lead="Kehikot’s own and each module’s Claude Code skills, in your personal skills folder.">
+        <Heading id="skills" lead="Kehikot’s own and each module’s agent skills, in your personal skills folder.">
           Skills
         </Heading>
         <Summary icon={Sparkles} title="Status">
@@ -745,7 +745,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
 
   return (
     <>
-      <Heading id="hook" lead="Whether Claude Code tells Kehikot about a session started somewhere else. Kehikot only reads this; it never writes the file.">
+      <Heading id="hook" lead="Whether your agent tells Kehikot about a session started somewhere else. Kehikot only reads this; it never writes the file.">
         Conversations started outside Kehikot
       </Heading>
       <Summary icon={MessagesSquare} title="Status">
@@ -756,7 +756,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
         </div>
         <p className="text-sm leading-relaxed" data-hook={hook.on === null ? 'unknown' : hook.on ? 'on' : 'off'}>
           {hook.on === true
-            ? 'Reported: when a Claude Code session starts anywhere — a terminal, an editor — the Claude module hears of it.'
+            ? 'Reported: when an agent session starts anywhere — a terminal, an editor — the agent module hears of it.'
             : hook.on === false
               ? 'Not reported: a session started in a terminal or an editor is not known to Kehikot until you attach it.'
               : `Kehikot could not read ${hook.file}, so it cannot say.`}
@@ -1033,7 +1033,7 @@ function About({ onClose }: { onClose(): void }) {
         <LinkRow
           icon={Hammer}
           label="Build your own module"
-          description="The guide to making a Kehikot module, from the first question to its first release. In Claude Code, /kehikot-module walks you through it."
+          description="The guide to making a Kehikot module, from the first question to its first release. In your agent, /kehikot-module walks you through it."
           onPress={() => openExternal(BUILD_A_MODULE_GUIDE)}
         />
         <LinkRow

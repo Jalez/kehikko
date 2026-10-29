@@ -10,13 +10,13 @@ import { notAnswering } from '@/host/reachable.ts'
 import { lineDiff, NEXT_SESSION_SKILLS, OWN_SKILLS_MODULE, pressFor, removable, whyNot, type SkillRow } from '@/host/skills.ts'
 
 /**
- * A module's Claude Code skills, and the person's presses on them (protocol 2.5.0).
+ * A module's agent skills, and the person's presses on them (protocol 2.5.0).
  *
  * The window belongs to the host for the Tools window's reasons (`Tools.tsx`):
  * a module's page is in a sandboxed frame, and what this changes is the
- * person's own Claude Code, which a module must never be handed a way to write.
+ * person's own agent configuration, which a module must never be handed a way to write.
  *
- * A skill is instructions for every Claude Code session on the machine, so
+ * A skill is instructions for every agent session on the machine, so
  * nothing is installed unread: Install and Update are offered only inside the
  * open text (for Update, a diff from what is installed, with the whole text a
  * press away), and the press carries the sha256 of exactly what was shown. The
@@ -112,7 +112,7 @@ export function SkillsDialog({
             Skills from {name}
           </DialogTitle>
           <DialogDescription>
-            Claude Code skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your own Claude Code for every project
+            Agent skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your agent’s personal skills folder for every project
             {answer ? (
               <>
                 {' '}

@@ -59,7 +59,7 @@
  * immediately and fell through to the honest shrug at the bottom, which is not
  * honest when the thing it declined to look at is where the fault was.
  *
- * That is not hypothetical either. References had an editing accident that left
+ * That is not hypothetical either. A module had an editing accident that left
  * `manifest.ts` with the same `export const` twice; esbuild refused to transform
  * it, and Vite answered `/manifest.ts` with 500 and an error-overlay document.
  * `src/app.tsx` imports that file, so the browser's module graph never

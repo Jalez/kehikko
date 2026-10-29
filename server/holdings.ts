@@ -1161,7 +1161,7 @@ export function sizeOf(parts: SizeParts): number {
 /**
  * What the number is made from, or `null` rather than a zero when there is
  * nothing to count, because a module is required to tell "no size given" from
- * "a size of none" — see the reading rules in Atlas, which say the same thing
+ * "a size of none" — the reading rules modules follow say the same thing
  * from the other end. A zero here would be this host asserting a fact it does
  * not have. `parts` is `partsHeld(...).length`, passed in so that the row and
  * the menu cannot count differently.

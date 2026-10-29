@@ -210,7 +210,9 @@ describe('the introduction', () => {
     expect(scoped.title).toBe('Every module says what it belongs to')
     for (const name of ['This computer', 'Project', 'Epic', 'Part', 'Kehikko']) expect(scoped.body).toContain(name)
     expect(scoped.body).toContain('shows its scope on top')
-    for (const said of ['keep running', 'design, research, development, review, learning', 'agent module such as claude or codex', '/journey', '/factory', '/review-factory', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
+    /* The host names no module and no vendor (`module-agnostic-text.test.ts`). */
+    expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs belong to/)
+    for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'each module brings its own', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
     /* A module of your own: how one is made and where it is added. */

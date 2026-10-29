@@ -132,8 +132,8 @@ import { releaseForAgents } from '../src/host/moduleReleases.ts'
  *
  * "Switching the kehikko or the epic" is on the far side of the line above,
  * and for an agent acting on its own it stays there. The person moved it for
- * one tool (#208): "I want to enable Claude to jump me to another
- * epic/part/project/kehikko." So `jump` moves the view when the person asks
+ * one tool (#208): they asked for an agent to be able to jump them to another
+ * epic, part, project or kehikko. So `jump` moves the view when the person asks
  * — or step by step through a walkthrough they started — and the rest of the
  * fold's argument is what makes it bearable: it changes no arrangement and no
  * data; it acts only on the page on screen; it is signed on the kehikko with
@@ -913,9 +913,9 @@ function tools() {
       description:
         'How much room Kehikot data takes on this machine: for every project this host knows, the size of its '
         + '.kehikot/ folder and of each module’s folder in it (named by module), the file count, the largest files and '
-        + 'when it last changed; the total per module across all projects (e.g. "Checklist: 2.4 MB across 3 projects"); '
-        + 'and Kehikot’s own machine data — its database, installed modules, prepared versions, the Browser module’s '
-        + 'profile and the logs. A project whose folder is gone is named and not measured. Measuring is bounded in '
+        + 'when it last changed; the total per module across all projects (e.g. "<module>: 2.4 MB across 3 projects"); '
+        + 'and Kehikot’s own machine data — its database, installed modules, prepared versions, the browser profile '
+        + 'modules share and the logs. A project whose folder is gone is named and not measured. Measuring is bounded in '
         + 'time and size, and a number it did not finish says "at least". Read-only: nothing here deletes anything — '
         + 'clearing a module’s data is that module’s own job. fresh: true measures again instead of answering from '
         + 'the last half minute.',
@@ -1046,8 +1046,8 @@ function tools() {
         + '("take me to the auth epic", "show me part 3", "open the Wide kehikko in project X"), or step by step during '
         + 'a walkthrough the person started; never on your own initiative otherwise. It goes as the person’s own '
         + 'pickers go (another project with the same calm switch), on the page on screen; with no Kehikot page open '
-        + 'nothing moves. A step walks every container on the kehikko to it (kehikot.goto): those that follow — '
-        + 'Journeys lights the step’s card — say so, and the answer names them. Names are resolved strictly: an '
+        + 'nothing moves. A step walks every container on the kehikko to it (kehikot.goto): every container '
+        + 'that follows a walk shows the step and says so, and the answer names them. Names are resolved strictly: an '
         + 'unknown project, kehikko, epic, part or step is refused with the ones that exist (read_canvas and my_place '
         + 'list what is here). The page marks the jump on the kehikko ("Jumped here by an agent") with Go back, which '
         + 'restores exactly where the person was — project, kehikko, epic, parts and step; tell the person where you '
@@ -1095,12 +1095,12 @@ function tools() {
     {
       name: 'open_address',
       description:
-        'Show a web page in the module on this kehikko that shows pages (the Browser): a design document, a deployed '
+        'Show a web page in the module on this kehikko that shows pages: a design document, a deployed '
         + 'preview, a dashboard, a pipeline log — anything that is not an issue or a merge request, which are opened '
         + 'by picking them. The address is https:, or http: to this machine (localhost, 127.0.0.1, [::1]); never '
         + 'another scheme, and never one with a user name or password in it. It is opened ONLY inside the canvas: '
         + 'with no module that shows pages on the kehikko it is refused, and nothing is opened in the person’s own '
-        + 'browser — place the Browser with place_modules first, or give the person the address. The page that has '
+        + 'browser — place a module that shows pages with place_modules first, or give the person the address. The page that has '
         + 'the kehikko open does it, so one nobody has open is refused. The person sees it arrive, and read_canvas '
         + 'says the last address. Nothing about the arrangement changes.',
       annotations: {
@@ -1277,8 +1277,8 @@ function tools() {
       description:
         'Say why a closed reference closed — done, wont-do, duplicate or superseded — in the project a kehikko is '
         + 'standing in, the same mark a person makes from a module. A tracker’s "closed" covers all four, and every '
-        + 'module showing the ref reads this mark over whatever the tracker implies: Journeys stops counting a '
-        + 'won’t-do step as delivered, References can hide it. One mark per ref; a new one replaces the old. Pass '
+        + 'module showing the ref reads this mark over whatever the tracker implies: a module that counts steps '
+        + 'stops counting a won’t-do step as delivered, a module that lists refs can hide it. One mark per ref; a new one replaces the old. Pass '
         + 'value: null to take a mark back. It is signed as yours (agent, through MCP) with the time, and the person '
         + 'sees it at once. Mark what you know — a ref you closed as done, a duplicate you found — not a guess.',
       inputSchema: {
@@ -1992,8 +1992,8 @@ const trimmedPath = (path: string) => (path.length > 1 ? path.replace(/\/+$/, ''
 /**
  * `jump`: the person's view moved where an agent asked — another project,
  * kehikko, epic, parts, a step, or any of them — and marked as the agent's
- * doing with one press back (#208, widened by the person: "I want to enable
- * Claude to jump me to another epic/part/project/kehikko").
+ * doing with one press back (#208, widened by the person to another epic,
+ * part, project or kehikko).
  *
  * The server resolves every name strictly and refuses an unknown one with
  * what exists, then hands the page on screen ids it can check again. The page

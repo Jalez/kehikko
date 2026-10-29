@@ -149,10 +149,22 @@ export const PRESETS: readonly Preset[] = [
   { id: 'twotone', name: 'Two-tone', tune: { notes: [79, 72], tempo: 100, wave: 'sine', volume: 0.7 } },
   { id: 'rising', name: 'Rising', tune: { notes: [60, 64, 67, 72], tempo: 160, wave: 'square', volume: 0.45 } },
   { id: 'playful', name: 'Playful', tune: { notes: [72, 76, 72, 79, 84], tempo: 200, wave: 'triangle', volume: 0.7 } },
-  /* A question, then its answer: up a fifth, a step back, then the octave. Made for "Research complete". */
-  { id: 'research', name: 'Research complete', tune: { notes: [69, 76, 72, 81], tempo: 180, wave: 'sine', volume: 0.75 } },
+  /* A question, then its answer: up a fifth, a step back, then the octave. A built-in like the
+     others, for any kind or event; it is also the default of the event ids in `DEFAULT_EVENT_SOUNDS`. */
+  { id: 'answer', name: 'Answer', tune: { notes: [69, 76, 72, 81], tempo: 180, wave: 'sine', volume: 0.75 } },
 ]
-export const presetOf = (id: string): Preset | undefined => PRESETS.find((one) => one.id === id)
+/**
+ * Built-in ids that were renamed, to what they are now: a sound saved under the
+ * old id is read as the new one. `research` was named after the one event it
+ * was made for; it is the generic "Answer" now.
+ */
+const FORMER_PRESETS: Readonly<Record<string, string>> = { research: 'answer' }
+/** A built-in id as it is now: a renamed one read as its new id. */
+export const presetId = (id: string): string => (Object.hasOwn(FORMER_PRESETS, id) ? FORMER_PRESETS[id]! : id)
+export const presetOf = (id: string): Preset | undefined => {
+  const now = presetId(id)
+  return PRESETS.find((one) => one.id === now)
+}
 
 /* ---- what a person chooses ---- */
 
@@ -167,12 +179,17 @@ export type Sound =
 export type EventSound = Sound | { type: 'kind' }
 
 /**
- * The sounds the host gives an event id before the person chooses one. Keyed
- * by the event's id alone, for whichever module declares it: the host names
- * no module.
+ * The sounds the host gives an event id before the person chooses one.
+ *
+ * Keyed by the event's id alone, for whichever module declares it — an agent
+ * module of any vendor that declares `research-complete` gets the same sound —
+ * so the host names no module. The sound is a generic built-in ("Answer"),
+ * listed with the others for any kind or event. The protocol's `events` entry
+ * has no field for a module to choose its own default yet; when it does, this
+ * table goes and the module's choice is read instead.
  */
 export const DEFAULT_EVENT_SOUNDS: Readonly<Record<string, Sound>> = {
-  'research-complete': { type: 'preset', id: 'research' },
+  'research-complete': { type: 'preset', id: 'answer' },
 }
 
 export interface SoundFile {
@@ -226,7 +243,7 @@ export function validSound(value: unknown, files: readonly SoundFile[]): Sound |
   const { type, id } = value as Record<string, unknown>
   if (type === 'none') return { type: 'none' }
   if (type === 'custom') return { type: 'custom' }
-  if (type === 'preset') return typeof id === 'string' && presetOf(id) ? { type: 'preset', id } : null
+  if (type === 'preset') return typeof id === 'string' && presetOf(id) ? { type: 'preset', id: presetId(id) } : null
   if (type === 'file') return typeof id === 'string' && files.some((one) => one.id === id) ? { type: 'file', id } : null
   return null
 }

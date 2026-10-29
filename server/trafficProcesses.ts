@@ -13,8 +13,8 @@ import { untraced, type TrafficRecord } from './traffic.ts'
  *
  * `nettop -L 1 -n -x -J bytes_in,bytes_out -p <pid>…` lists every socket of the named processes with
  * the bytes each carried since it opened, as a person (not root). `ps` gives the process tree, so a
- * module's group is everything under the pid this host started it as — its dev server, a Chrome the
- * Browser started, a `claude` the Claude module started — and a module somebody started by hand is
+ * module's group is everything under the pid this host started it as — its dev server, a browser or an
+ * agent session the module started — and a module somebody started by hand is
  * found by the port it listens on (`lsof … -sTCP:LISTEN`). What it cannot see: a connection that
  * opened and closed between two looks (a short `fetch` usually is one), what a connection carried
  * (it is encrypted, and only bytes are counted), and DNS, which macOS resolves in its own

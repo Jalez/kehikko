@@ -242,7 +242,7 @@ export function row(fields: Record<string, unknown>): TrackerRow | null {
 /**
  * Why a CLI failed, as a sentence somebody can act on.
  *
- * Every trouble is a different sentence — the rule References learned the hard
+ * Every trouble is a different sentence — the rule a module learned the hard
  * way: "could not read the tracker" over all of them sends somebody to check
  * their network when they are not logged in.
  */

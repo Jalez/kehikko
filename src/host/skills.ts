@@ -43,7 +43,7 @@ export const BUILD_A_MODULE_GUIDE = 'https://github.com/Jalez/kehikko-protocol/b
  *   installed user-wide.
  * - `agent`: offered by a module that installs skills itself, for the agent it runs (protocol
  *   2.23.0, `declares.agentSessions.installsSkills`): written for that agent, so never installed
- *   for Claude Code here. The module keeps it where its agent reads skills.
+ *   in the personal skills folder here. The module keeps it where its agent reads skills.
  */
 export type SkillStatus = 'absent' | 'installed' | 'outdated' | 'edited' | 'taken' | 'bound' | 'agent'
 
@@ -59,13 +59,13 @@ export const SKILL_STATUS_SAYS: Record<SkillStatus, string> = {
 
 /**
  * Where a skill of a module that installs skills itself (protocol 2.23.0) is, in words: that module
- * keeps it for its own agent, and Kehikot does not install it for Claude Code.
+ * keeps it for its own agent, and Kehikot does not install it in the personal skills folder.
  */
 export function agentSays(name: string): string {
-  return `${name} installs this skill itself, where its own agent reads skills, so Kehikot does not install it for Claude Code`
+  return `${name} installs this skill itself, where its own agent reads skills, so Kehikot does not install it in your personal skills folder`
 }
 
-/** "Review", "Review and Factory", "Browser, Review and Factory". */
+/** "A", "A and B", "A, B and C": module names joined for a sentence. */
 export function namesSaid(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
@@ -120,7 +120,7 @@ export interface SkillRow {
   loaded?: string
   /**
    * For a skill of a module that installs skills itself (protocol 2.23.0): that it does, in words
-   * (`agentSays`). Never installed for Claude Code, so a row with this offers no Install and no Update.
+   * (`agentSays`). Never installed in the personal skills folder, so a row with this offers no Install and no Update.
    */
   agent?: string
 }
@@ -205,10 +205,10 @@ export function skillsSaying(skills: readonly { name: string }[] | undefined, na
   const count = skills.length === 1 ? '1 skill' : `${skills.length} skills`
   return {
     state: `${count} offered`,
-    hint: `${name} offers ${count} for Claude Code. Open this to read them and to install, update or remove them in your own Claude Code.`,
+    hint: `${name} offers ${count} for your agent. Open this to read them and to install, update or remove them in your agent’s personal skills folder.`,
   }
 }
 
 /** Said in the window before and after a press, like the Tools window's sentence. */
 export const NEXT_SESSION_SKILLS =
-  'A skill applies to Claude Code sessions started after it is installed. In a session that is already running, type /reload-skills to pick it up, or an update to it.'
+  'A skill applies to agent sessions started after it is installed. In a session that is already running, type /reload-skills to pick it up, or an update to it.'

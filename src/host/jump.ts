@@ -3,8 +3,8 @@
  *
  * ## The jump (#208)
  *
- * The person asked for it: "I want to enable Claude to jump me to another
- * epic/part/project/kehikko." So the host's door has `jump { project?,
+ * The person asked for an agent to be able to jump them to another epic,
+ * part, project or kehikko. So the host's door has `jump { project?,
  * kehikko?, epic?, parts?, step? }` (`server/mcp.ts`), and this file holds
  * every rule the page keeps when it carries one out. What is left out stays
  * where the person is: a jump naming only a step turns the kehikko to that
@@ -29,15 +29,15 @@
  *
  * ## The walk to a step
  *
- * A step is a place on a module's own page — a journey's card, a paper's
- * section — and the host has no page with anchors of its own. What it has is
+ * A step is a place on a module's own page — a step's card, a section of a
+ * document — and the host has no page with anchors of its own. What it has is
  * the walk: `kehikot.goto { epic, step }`, posted to a framed module, which
  * answers whether it found that step. Turning the kehikko to a step is walking
  * every container on it there and hearing who found it; a module that does
  * not follow a walk answers "not found" (its client's backstop does it), so
  * "the containers that follow `kehikot.goto`" are the ones that said found.
- * A module's `view.goto { epic, step }` — a person's press on a step of the
- * journey's tree in Flows — walks every OTHER container the same way.
+ * A module's `view.goto { epic, step }` — a person's press on a step in a
+ * module that shows steps — walks every OTHER container the same way.
  *
  * The mark is the page's alone, like a fold's (`folds.ts`): never stored, gone
  * with a reload, with Go back, or once the person is somewhere else.
