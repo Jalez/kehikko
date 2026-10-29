@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   ago,
   applyUpdate,
+  cancelUpdate,
   armRestartAnyway,
   askedModule,
   confirmRestartAnyway,
@@ -136,8 +137,9 @@ import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
  * one — what is behind and what can be done about it. Everything slow in it —
  * the check and each update — can be cancelled, and Cancel closes the request,
  * which stops the git the server was running for it. `server/updates.ts` says
- * what a cancel can and cannot undo. Closing the panel cancels too: a job that
- * carries on unseen is a job nobody can see finish.
+ * what a cancel can and cannot undo. Closing the panel cancels a check, but never an
+ * update: the server runs that to its end, the header chip says "Updating…"
+ * and the reopened panel shows it. Cancel (`POST /host/updates/cancel`) is the only way to stop one.
  *
  * ## What the panel lists
  *
@@ -224,6 +226,8 @@ export function Updates({
   const [now, setNow] = useState(() => new Date())
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
+  /** The checkout whose update this page started and has not seen end: closing the panel leaves it running. */
+  const updateId = useRef<string | null>(null)
   /** The job in flight, so a press can stop a quiet check and wait it out. */
   const pending = useRef<Promise<void> | null>(null)
   /** The desktop app's updater: its last status, and the commands. Null outside the app. */
@@ -328,7 +332,15 @@ export function Updates({
     }
   }, [run])
 
-  const cancel = () => controller.current?.abort()
+  /**
+   * Cancel is the only thing that stops an update: it asks the server, which
+   * runs the update itself. Closing the panel or reloading the page does not.
+   * A check is the page's own request, so Cancel and closing still end that.
+   */
+  const cancel = () => {
+    if (updateId.current !== null) void cancelUpdate(updateId.current).catch(() => {})
+    controller.current?.abort()
+  }
 
   /* An arm nobody followed comes down by itself. */
   useEffect(() => {
@@ -376,9 +388,10 @@ export function Updates({
         })
       }
     } else {
-      /* Closing while something runs cancels it — a panel that closes on a
-         job that carries on unseen is a job nobody can see finish. */
-      cancel()
+      /* Closing cancels a check this page is waiting on, never an update: that
+         is the server's, the header chip and the reopened panel show it, and
+         only Cancel stops it. */
+      if (updateId.current === null) controller.current?.abort()
       setArmed(null)
       setAsked(null)
       setOpen(false)
@@ -428,8 +441,10 @@ export function Updates({
       if (abort.signal.aborted) break
       setPhase({ kind: 'updating', ids, at, reached: 'updating' })
       const since = Date.now()
+      updateId.current = id
       try {
-        const done = await applyUpdate(id, abort.signal, (reached) => setPhase({ kind: 'updating', ids, at, reached }))
+        /* No signal: the request is only where the page reads the update's steps. */
+        const done = await applyUpdate(id, undefined, (reached) => setPhase({ kind: 'updating', ids, at, reached }))
         await drawn(since, abort.signal, markMs)
         replace(done.checkout)
         const outcome = outcomeOf(id, done)
@@ -448,6 +463,8 @@ export function Updates({
         const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
         setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
         if (id !== 'host') pokeWhatsNew({ failed: id })
+      } finally {
+        updateId.current = null
       }
     }
     if (abort.signal.aborted) setNotice('Update cancelled. Anything not marked as updated was left as it was.')

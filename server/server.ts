@@ -1301,6 +1301,8 @@ const inHand = new Set<string>()
 
 /** What an update has reached, per checkout, for a page that was not there when it began. */
 const progress = new Map<string, UpdateStep>()
+/** The one way to stop a press's update before it merges: its own signal, never the request's (a closed page or panel is not a cancel). */
+const updateCancels = new Map<string, AbortController>()
 
 /** Which modules are running older code than their checkout. See `stale.ts`. */
 const staleness = new Staleness()
@@ -3927,6 +3929,16 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ ok: true })
     }
 
+    /* Cancel: the only way to stop an update a page started. Before the merge it
+       leaves the checkout as it was; after it, nothing is cancelled (`updates.ts`). */
+    if (url.pathname === '/host/updates/cancel' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+      if (!body || typeof body.id !== 'string') return json({ error: 'A cancel names one checkout.' }, 400)
+      const running = updateCancels.get(body.id)
+      running?.abort()
+      return json({ cancelled: running !== undefined })
+    }
+
     if (url.pathname === '/host/updates' && request.method === 'POST') {
       const body = (await request.json().catch(() => null)) as { id?: unknown } | null
       if (!body || typeof body.id !== 'string') return json({ error: 'An update names one checkout.' }, 400)
@@ -3937,6 +3949,10 @@ async function answerRequest(request: Request): Promise<Response> {
       /* An install and a restart outlast the idle timeout, and a line is only
          written when something changes. */
       server.timeout(request, 0)
+      /* The update is the server's, not the request's: it runs to its end when
+         the page closes the panel, reloads, or drops the connection. */
+      const own = new AbortController()
+      updateCancels.set(place.id, own)
       /* One JSON object per line: `{phase}` as the update moves, then `{done}`
          or `{error}`. It is finished whether or not anybody is still reading —
          see "Cancelling" in `updates.ts`. */
@@ -3957,13 +3973,14 @@ async function answerRequest(request: Request): Promise<Response> {
             }
             try {
               phase('updating')
-              say(place.id === 'host' ? await updateHost(place, request.signal, phase) : await updateModule(place, request.signal, phase))
+              say(place.id === 'host' ? await updateHost(place, own.signal, phase) : await updateModule(place, own.signal, phase))
               /* A press took it: whatever the switch had read or was waiting for is out of date. */
               if (place.id !== 'host') auto.settled(place.id)
             } catch (error) {
               say({ error: (error as Error).message })
             } finally {
               progress.delete(place.id)
+              updateCancels.delete(place.id)
               try {
                 controller.close()
               } catch {
