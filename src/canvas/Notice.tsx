@@ -1,3 +1,6 @@
+import { RotateCcw } from 'lucide-react'
+
+import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
 import type { noticeOf, Showing } from '@/host/standing.ts'
 import { ConditionPanel } from './Conditions.tsx'
@@ -19,11 +22,14 @@ export function ContainerNotice({
   notice,
   presence,
   onStarted,
+  onRestart,
 }: {
   showing: Extract<Showing, { kind: 'notice' }>
   notice: ReturnType<typeof noticeOf>
   presence: Pick<Presence, 'id' | 'at' | 'protocols'>
   onStarted(): void
+  /** Press the restart again, for a notice that says one did not bring the module back. */
+  onRestart?(): void
 }) {
   return (
     <ConditionPanel
@@ -47,6 +53,13 @@ export function ContainerNotice({
           somebody who would rather not wait for that has every right to say
           so now. */}
       {notice.offer === 'start' ? <Start module={presence.id} onStarted={onStarted} /> : null}
+      {/* A restart that did not bring it back: the reason is above, as text; this is the same press again. */}
+      {notice.offer === 'retry-restart' && onRestart ? (
+        <Button variant="secondary" size="sm" className="pointer-events-auto h-7 px-3 text-xs" onClick={onRestart}>
+          <RotateCcw className="size-3" />
+          Retry
+        </Button>
+      ) : null}
       {/* Running, and refused: an update changes that, a start does not. See `noticeOf`. */}
       {notice.offer === 'update' ? <Update /> : null}
       {/* Does not fit: "Update Kehikot", or "Update <Module>" at its row. See `noticeOf`. */}

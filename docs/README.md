@@ -515,7 +515,7 @@ on the right. The filter, clear and refresh buttons are unchanged.
   `file-down`, `file-text`, `folder`, `git-commit-horizontal`, `history`,
   `image`, `layout-list`, `link`, `list`, `list-tree`, `maximize`, `monitor`,
   `monitor-play`, `panel-left`, `pencil`, `play`, `presentation`, `printer`,
-  `refresh-cw`, `rows-3`, `save`, `scroll-text`, `search`, `settings`,
+  `refresh-cw`, `rotate-ccw`, `rows-3`, `save`, `scroll-text`, `search`, `settings`,
   `square`, `terminal`, `trash-2`, `upload`, `wrap-text`, `zap`. A run and a
   go or switch label draw one; a toggle's tick stands where its icon would.
 

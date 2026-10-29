@@ -104,6 +104,7 @@ import { chosen, remembered, sameChoice, settle as settleFilters } from './host/
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
+import { useRestarts } from './canvas/useRestarts.ts'
 import { useChime } from './canvas/useChime.ts'
 import { useToasts } from './canvas/useToasts.ts'
 import { InboxToasts } from './canvas/InboxToasts.tsx'
@@ -3578,6 +3579,8 @@ export function App() {
   const toastRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   /* A module's page answered a greeting: it is a new page, whose list the Inbox waits for. */
   const inboxGreetedRef = useRef<(module: string) => void>(() => undefined)
+  /* "Restart module" on a Run menu: one word per module while it is out, and a look when it is in. */
+  const restarts = useRestarts(useCallback(() => void look(true), [look]))
   const inbox = useInbox({
     project: projectId,
     projects: inboxProjects,
@@ -4044,7 +4047,7 @@ export function App() {
             !placements.find((p) => p.i === id)?.collapsed &&
             /* The same decision the container's body draws from, so a page
                and a cover are never both up, or neither. */
-            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId).kind === 'page' &&
+            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId, restarts.of(id)).kind === 'page' &&
             /* "All epics", and a module that works on one epic at a time: its
                container draws the sentence and the page is hidden under it —
                kept, as a folded page is, so it is all still there when an epic
@@ -4564,7 +4567,9 @@ export function App() {
                      module that has been framed and has not spoken, which
                      `condition` alone cannot express: discovery said `ready`
                      because the manifest read, not because the page answered. */
-                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found) }, askedFor === openId)}
+                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found) }, askedFor === openId, restarts.of(presence.id))}
+                  restart={restarts.of(presence.id)}
+                  onRestart={() => restarts.restart(presence.id)}
                   coverDetail={waiting ? presence.line : undefined}
                   fault={found?.fault ?? null}
                   body={body(presence.id)}

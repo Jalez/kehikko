@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
+import { RESTART_ITEM, withRestart, type RestartState } from '@/host/restartModule.ts'
 import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
 import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
@@ -28,7 +29,7 @@ import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
 import { ScopeLabel } from './Scope.tsx'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
@@ -82,6 +83,8 @@ export function Container({
   onKeyboard,
   surface,
   pressNote = null,
+  restart,
+  onRestart,
   filters,
   chosen,
   onChoose,
@@ -242,6 +245,13 @@ export function Container({
   scope?: ContainerScope | null
   /** Look again, after this module has been started. */
   onStarted(): void
+  /**
+   * Restart this module (`/host/restart-module`). Given, its Run menu ends with "Restart module" —
+   * disabled with a reason for a module this host does not start. Left out, no such row.
+   */
+  onRestart?(): void
+  /** What the page knows of a restart it asked for here. See `host/restartModule.ts`. */
+  restart?: RestartState
   onRemove(): void
   /** The open kehikko's name and epic, written under any feedback filed from here. */
   kehikko: string | null
@@ -296,6 +306,8 @@ export function Container({
      its Providers & Consumers (`ModuleSettingsDialog`). */
   const hasSettings = onSettings !== undefined
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
+  /* The module's own items, and the host's row after them: a module this host starts is the one `dir` names. */
+  const items = useMemo(() => (onRestart ? withRestart(header, restart, presence.dir !== undefined) : header), [header, restart, onRestart !== undefined, presence.dir])
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
   const condition: Presence['condition'] =
@@ -611,9 +623,9 @@ export function Container({
          */}
         {showing.kind === 'page' && !collapsed ? (
           <HeaderMenus
-            items={header}
+            items={items}
             name={name}
-            onPress={onPress}
+            onPress={(press) => (press.item === RESTART_ITEM && onRestart ? (onRestart(), Promise.resolve({ ok: true, why: '' })) : onPress(press))}
             onKeyboard={onKeyboard}
             surface={surface}
             note={pressNote}
@@ -886,7 +898,7 @@ export function Container({
 
         {showing.kind === 'notice' && notice ? (
           <div className="bg-card pointer-events-auto absolute inset-0">
-            <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} />
+            <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} onRestart={onRestart} />
           </div>
         ) : null}
       </div>
