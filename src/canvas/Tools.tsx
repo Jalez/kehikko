@@ -190,7 +190,7 @@ interface AtTheDoor {
 /**
  * The sentence that stops this feature from looking broken.
  *
- * Claude Code reads its MCP configuration when a session starts. Connecting a
+ * The agent reads its MCP configuration when a session starts. Connecting a
  * server mid-session does not add tools to that session — it applies to the
  * next one. Without this said on screen, the very first thing a person does
  * after pressing Connect is ask their agent to use a tool, be told it does not
@@ -199,7 +199,7 @@ interface AtTheDoor {
  * is shown before the press as well as after it.
  */
 const NEXT_SESSION =
-  'An agent that is already running will not see this. Claude Code reads its MCP configuration when a session starts, so a change here applies to the next session rather than to the one you have open.'
+  'An agent that is already running will not see this. An agent reads its MCP configuration when a session starts, so a change here applies to the next session rather than to the one you have open.'
 
 export function ToolsDialog({
   open,

@@ -268,7 +268,7 @@ async function measureMachine(at: Locations, modules: readonly Named[], walk: Wa
     { key: 'frame', label: 'Kehikot’s own database (kehikot, inbox, remembered names)', path: at.frame, tally: frameParts.length ? merged(frameParts) : null },
     await part('installed', 'Installed modules (their program code)', at.installed, true),
     await part('versions', 'Module versions prepared for pinning', at.versions, true),
-    await part('browser-profile', 'The Browser module’s profile (its logins and cache)', at.browserProfile),
+    await part('browser-profile', 'The browser profile modules share (its logins and cache)', at.browserProfile),
     await part('logs', 'Logs of the modules Kehikot starts', at.logs),
     await part('registry', 'The module registry', at.registry),
     await part('official-list', 'The official module list, as last read', at.officialList),

@@ -56,7 +56,7 @@ export interface FramedModule {
    * under the module, by its `says`, for a sound of its own. Absent: none.
    */
   events?: { id: string; says: string; state: 'working' | 'attention' | 'done' }[]
-  /** `skills` (protocol 2.5.0): the Claude Code skills the module offers; absent from older servers and modules. */
+  /** `skills` (protocol 2.5.0): the agent skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string
     uses: string[]

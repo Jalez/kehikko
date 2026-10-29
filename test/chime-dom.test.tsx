@@ -220,7 +220,7 @@ describe.skipIf(!inChild)('the chime, rendered', () => {
     expect(host.modules).toEqual({})
   })
 
-  test('each declared event has a picker under its module, by its own words; the research chime by default, played as written', async () => {
+  test('each declared event has a picker under its module, by its own words; the Answer chime by default, played as written', async () => {
     const modules = [
       { id: 'kehikot.claude', name: 'Claude', events: [{ id: 'research-complete', says: 'Research complete', state: 'done' as const }] },
       { id: 'kehikot.tests', name: 'Tests' },
@@ -232,9 +232,9 @@ describe.skipIf(!inChild)('the chime, rendered', () => {
     expect(row.querySelector('label')!.textContent).toBe('Research complete')
     expect(row.textContent).toContain('A kind of “Finished”.')
     const pick = row.querySelector<HTMLSelectElement>('select')!
-    expect(pick.value).toBe('preset:research')
+    expect(pick.value).toBe('preset:answer')
     expect([...pick.options].map((one) => one.textContent)).toContain('Same as Finished')
-    /* As written: all four notes of the research chime, not the Finished form's two. */
+    /* As written: all four notes of the Answer chime, not the Finished form's two. */
     await click(byLabel(el, 'Preview Claude Research complete'))
     expect(started).toHaveLength(4)
     started.length = 0

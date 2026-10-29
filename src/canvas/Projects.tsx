@@ -219,7 +219,7 @@ export function Projects({
            *
            * ## Why it exists at all
            *
-           * Nobody chose the old behaviour. Notes, checklist and journeys each
+           * Nobody chose the old behaviour. Several modules each
            * called `withKehikotIgnored` the first time they created their
            * folder, so the rule appeared in somebody's repository the first time
            * a module happened to save something — four programs with an opinion

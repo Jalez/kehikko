@@ -71,15 +71,15 @@ import { Hint } from './Hint.tsx'
  *
  * ## What it is CALLED, which is the half that was missing
  *
- * Its accessible name used to be "what Notifications shows". Every word of that
+ * Its accessible name used to be "what <module> shows". Every word of that
  * is true and the control was still, in practice, not there: the person who
  * owns this host was told a filter existed, went looking for one, and reported
  * it missing. It was in front of them. A row of seven unlabelled icons offers
  * no way in except by name, and nobody hunting for a filter searches for the
- * phrase "what Notifications shows" — the one word that would have found it
+ * phrase "what <module> shows" — the one word that would have found it
  * appeared nowhere on the screen, in any tooltip, or in any accessible name.
  *
- * So the name now begins with the word: "filter what Notifications shows". The
+ * So the name now begins with the word: "filter what <module> shows". The
  * module's name stays in it, because it is what distinguishes six otherwise
  * identical-looking icon buttons from each other when they are read out one
  * after another, and every other control in this header does the same.

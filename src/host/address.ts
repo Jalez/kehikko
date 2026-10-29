@@ -116,7 +116,7 @@ export function handed(was: Addresses, handing: Handing): Handed {
           outcome: 'declined',
           why:
             'Nothing on this kehikko shows pages, so the address was not opened anywhere. An agent may open an address only '
-            + 'in a module that shows pages on the kehikko (the Browser): place one with place_modules, or give the person the address.',
+            + 'in a module that shows pages on the kehikko: place one with place_modules, or give the person the address.',
         },
         offer: null,
       }

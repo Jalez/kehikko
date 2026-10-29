@@ -152,7 +152,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'scope',
     title: 'Every module says what it belongs to',
-    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. Test runs belong to this computer, your files to the project, a journey to its epic. Each module shows its scope on top, and one that can work at more than one lets you pick.',
+    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. A queue of test runs belongs to this computer, your files to the project, a plan to its epic. Each module shows its scope on top, and one that can work at more than one lets you pick.',
     art: () => (
       <Art label="three modules, each with a small label on its header saying what its content belongs to">
         {[
@@ -215,13 +215,13 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'agents',
     title: 'Agents that know where they are',
-    body: 'Put an agent module such as Claude or Codex on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. The skills follow what’s there: /journey with Journeys, /factory with Factory, /review-factory where Review and Factory both are.',
+    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. The skills follow what’s there: each module brings its own, and a skill that needs two modules arrives when both are on the kehikko.',
     art: () => (
       <Art label="an agent conversation connected to the modules beside it">
         <Pane x={16} y={12} w={132} h={126} header="fill-primary/30" />
         <rect x="26" y="28" width="92" height="16" rx="5" className="fill-muted stroke-border" strokeWidth="1" />
         <text x="32" y="39.5" className="fill-foreground font-mono" fontSize="9">
-          /journey
+          /kehikko-jump
         </text>
         <rect x="27" y="29" width="90" height="14" rx="4" className="ia-uncover fill-muted" />
         <g className="ia-rise" style={after(1.6)}>

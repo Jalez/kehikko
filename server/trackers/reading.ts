@@ -47,7 +47,7 @@ export function trackerReason(root: string, scope: Scope): string {
  * `<project>/.kehikot/host/tracker-reading.json`, spelled with `hostPath`
  * beside the project's other host files. It is a cache of what the trackers
  * said — nothing is lost by deleting it — so the host writes a `.gitignore`
- * line for it beside it, the way References marks its own cache.
+ * line for it beside it, the way a module marks its own cache.
  *
  * ## Never waits on a tracker to answer a module
  *
@@ -101,7 +101,7 @@ export function trackerReason(root: string, scope: Scope): string {
 
 const FILE_NAME = 'tracker-reading'
 const VERSION = 1
-/** How many of each kind a listed source's listing reads. References' number, measured there. */
+/** How many of each kind a listed source's listing reads. A module's number, measured there. */
 export const LIST_LIMIT = 400
 /** How long a project counts as looked at after its last question, for the schedule. */
 const LOOKED_AT_MS = 30 * 60_000

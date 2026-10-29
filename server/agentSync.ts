@@ -51,7 +51,7 @@ import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSki
  * ## What it touches, and what it never does
  *
  * Nothing at all before the one-time question was answered (`asked`), nor with
- * Claude Code switched off, nor for a module the person left out.
+ * the agent switched off, nor for a module the person left out.
  *
  * Tools: every answering module with an MCP door is connected at user scope
  * (`connect` in `register.ts`, the same `claude mcp add` the Tools window
@@ -104,7 +104,7 @@ export interface ModuleSeen {
   skills: readonly ModuleSkill[]
   /**
    * It installs skills itself, for its own agent (protocol 2.23.0, `installsSkills`): its skills are
-   * never installed for Claude Code, and are told to it as `everywhere` instead.
+   * never installed in the personal skills folder, and are told to it as `everywhere` instead.
    */
   installs?: boolean
 }
@@ -208,10 +208,10 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
       const ran = await disconnect(mine.name, run)
       if (ran.ok) {
         forgetMade(deps.db, mine.module)
-        tell(`Removed ${mine.title || mine.module}’s tools from Claude Code: the module is no longer installed`)
+        tell(`Removed ${mine.title || mine.module}’s tools from your agent: the module is no longer installed`)
       } else {
         transient = true
-        problems.push(`Could not remove ${mine.title || mine.module}’s tools (“${mine.name}”) from Claude Code: ${failed(ran)}`)
+        problems.push(`Could not remove ${mine.title || mine.module}’s tools (“${mine.name}”) from your agent: ${failed(ran)}`)
       }
     }
   }
@@ -248,21 +248,21 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
         return 'connected'
       }
       transient = true
-      problems.push(`Could not connect ${one.name}’s tools for Claude Code: ${failed(ran)}`)
+      problems.push(`Could not connect ${one.name}’s tools for your agent: ${failed(ran)}`)
       return 'failed'
     }
 
     if (aw.kind === 'renamed') {
       /* Points at this door under the name it had; renamed only when Kehikot made it. */
       if (mine?.name !== aw.as) return 'connected'
-      return did(await repoint(aw.as, door, run), `Renamed ${one.name}’s tools for Claude Code to “${door.as}”`, door.as)
+      return did(await repoint(aw.as, door, run), `Renamed ${one.name}’s tools for your agent to “${door.as}”`, door.as)
     }
     if (aw.kind === 'elsewhere') {
       if (mine && mine.name === aw.as && normal(mine.url) === normal(aw.pointsAt)) {
-        return did(await repoint(aw.as, door, run), `Re-pointed ${one.name}’s tools for Claude Code to its new address`, door.as)
+        return did(await repoint(aw.as, door, run), `Re-pointed ${one.name}’s tools for your agent to its new address`, door.as)
       }
       problems.push(
-        `Claude Code already has a server called “${aw.as}” pointing at ${aw.pointsAt}, and Kehikot did not add it, so ${one.name}’s tools were not connected. Re-point it from ${one.name}’s Tools window if it is meant to be this one.`,
+        `Your agent already has a server called “${aw.as}” pointing at ${aw.pointsAt}, and Kehikot did not add it, so ${one.name}’s tools were not connected. Re-point it from ${one.name}’s Tools window if it is meant to be this one.`,
       )
       return 'conflict'
     }
@@ -270,9 +270,9 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
       /* Kehikot's entry under an older name and address, both since changed: moved, not doubled. */
       const old = mine ? urlOf(known.get(mine.name)) : null
       if (mine && old && normal(old) === normal(mine.url)) {
-        return did(await repoint(mine.name, door, run), `Re-pointed ${one.name}’s tools for Claude Code to its new address`, door.as)
+        return did(await repoint(mine.name, door, run), `Re-pointed ${one.name}’s tools for your agent to its new address`, door.as)
       }
-      return did(await connect(door, run), `Connected ${one.name}’s tools for Claude Code`, door.as)
+      return did(await connect(door, run), `Connected ${one.name}’s tools for your agent`, door.as)
     }
     return null
   }
@@ -298,11 +298,11 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
           const done = syncSkill(root, one.id, skill, 'remove')
           if (!done.ok) {
             transient = true
-            problems.push(`The /${skill.name} skill from ${one.name} is in Claude Code and could not be removed: ${done.why}`)
+            problems.push(`The /${skill.name} skill from ${one.name} is in your agent’s skills folder and could not be removed: ${done.why}`)
             out.push({ name: skill.name, state: 'failed', agent })
             continue
           }
-          tell(`Removed the /${skill.name} skill from Claude Code. ${agent}`)
+          tell(`Removed the /${skill.name} skill from your agent’s skills folder. ${agent}`)
         }
         out.push({ name: skill.name, state: 'agent', agent })
         continue
@@ -343,7 +343,7 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
       const mode = local.kind === 'absent' ? 'install' : 'update'
       const done = syncSkill(root, one.id, skill, mode, fetched.text)
       if (done.ok) {
-        tell(`${mode === 'install' ? 'Installed' : 'Updated'} the /${skill.name} skill (Claude)`)
+        tell(`${mode === 'install' ? 'Installed' : 'Updated'} the /${skill.name} skill for your agent`)
         out.push({ name: skill.name, state: 'installed' })
       } else {
         transient = true
@@ -404,7 +404,7 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
  *
  * Only this host's own installs: a marker names the registry of the host that
  * wrote it, and a host with another registry (a scratch or dev one, sharing the
- * person's Claude config) has not seen that module uninstalled — its registry
+ * person's agent config) has not seen that module uninstalled — its registry
  * simply never held it. A marker from before the registry was recorded is
  * tidied only by a host on the machine's own registry, which is where every
  * such marker was written in practice.

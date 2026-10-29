@@ -732,8 +732,8 @@ export function open(file = databaseFile()): Database {
   /*
    * Where a project used to be: one row per path it was relinked away from,
    * with when. Nothing in this host reads a project by these; they are kept
-   * because a module may need them — Claude's transcripts, for one, are filed
-   * under `~/.claude/projects/<escaped path>`, the path the project had then.
+   * because a module may need them — an agent's transcripts, for one, may be
+   * filed under the path the project had then.
    */
   /*
    * Where a project's folder is, as macOS can find it again after a rename or

@@ -239,7 +239,7 @@ const DETAIL_MAX = 80
 const MESSAGE_MAX = 400
 
 /**
- * The line for a derived notice, in the format the Claude module sent for the
+ * The line for a derived notice, in the format an agent module sent for the
  * same two moments: the state in words, the label in quotes, the place in
  * words. Null when it cannot be filed — the format files every line under an
  * epic, and neither the item nor the open canvas names one.

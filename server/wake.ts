@@ -217,7 +217,7 @@ export interface JumpOrder {
  * that are open, and each marks the fold control with it until the person
  * presses it. See `src/host/folds.ts`.
  *
- * `by` is read in a sentence — "folded by an agent", "unfolded by Screenplay".
+ * `by` is read in a sentence — "folded by an agent", "unfolded by <module name>".
  */
 export interface FoldNote {
   by: string

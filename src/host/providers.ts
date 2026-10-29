@@ -67,7 +67,7 @@ export function skillLoaders(manifests: readonly ReadManifest[]): string[] {
   return manifests.filter(loadsSkillsHere).map((manifest) => manifest.id)
 }
 
-/** "Claude", "Claude or Codex", "Claude, Codex or Pi". */
+/** "A", "A or B", "A, B or C": module names joined for a sentence. */
 function orSaid(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
@@ -77,7 +77,7 @@ function orSaid(names: readonly string[]): string {
 export const LOADED_SOMEWHERE = 'where a module that runs agent sessions loads it'
 
 /**
- * Where a kehikko-bound skill is loaded, in words that follow `boundSays`: "where Claude loads it",
+ * Where a kehikko-bound skill is loaded, in words that follow `boundSays`: "where <module> loads it",
  * or, with no module that loads skills installed, that none does yet.
  */
 export function loadedWhere(loaderNames: readonly string[]): string {

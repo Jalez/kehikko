@@ -488,7 +488,7 @@ export function toWireContext(
  * The context the canvas builds is the OPEN kehikko's — its id and key, its
  * containers, the prompt and filters of ITS container for this module — and a
  * hidden page told that would believe it had moved to a kehikko it is not on.
- * A Claude session there would record the wrong place. So a frame that is away
+ * An agent session there would record the wrong place. So a frame that is away
  * keeps what it was last told on its own kehikko, and is sent nothing more
  * until it is on the open kehikko again, when the whole current context goes.
  *
@@ -560,7 +560,7 @@ export function whileFrozen(
   const refiltered = !sameChoice(held.filters, told.filters)
   /* Dispositions pass a pin when the pinned container is still in the
      project they are about. A mark is a verdict on the WORK, not on what this
-     container is looking at, so a pinned Journeys that went on counting a
+     container is looking at, so a pinned module that went on counting a
      won't-do step as delivered would be the frozen theme again. A container
      pinned on another project is not told this one's marks. */
   const sameProject = held.projectId && told.projectId ? held.projectId === told.projectId : held.projectPath === told.projectPath
@@ -573,7 +573,7 @@ export function whileFrozen(
   const relocated = sameProject && (held.projectPath !== told.projectPath || held.project !== told.project)
   const remarked = sameProject && JSON.stringify(held.dispositions) !== JSON.stringify(told.dispositions)
   /* The tracker signal passes a pin for the marks' reason: a reading is about
-     the work, and a pinned Journeys still showing yesterday's states after a
+     the work, and a pinned module still showing yesterday's states after a
      person pressed "Refresh all" would be the frozen theme again. */
   const reread = sameProject && JSON.stringify(held.tracker) !== JSON.stringify(told.tracker)
   /* And so does what changed in the material, for the same reason once more:

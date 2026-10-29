@@ -424,7 +424,7 @@ test('About: the version, the protocol, and the release notes and storage overvi
   expect(about.querySelector('[data-protocol]')!.textContent).toMatch(/^kehikot-module-protocol \d+\.\d+\.\d+$/)
   expect(about.querySelector('[data-version="host"]')!.textContent).toContain('host 0.1.99')
   expect(button('All release notesKehikot’s releases on GitHub, newest first.')).toBeTruthy()
-  expect(button('Build your own moduleThe guide to making a Kehikot module, from the first question to its first release. In Claude Code, /kehikot-module walks you through it.')).toBeTruthy()
+  expect(button('Build your own moduleThe guide to making a Kehikot module, from the first question to its first release. In your agent, /kehikot-module walks you through it.')).toBeTruthy()
   await act(async () => button('Storage overviewWhat every module’s data takes in every project, and Kehikot’s own.').click())
   await act(async () => new Promise((done) => setTimeout(done, 5)))
   expect(closed).toBe(1)

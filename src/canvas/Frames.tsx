@@ -196,8 +196,8 @@ export function Frames({
   useLayoutEffect(() => {
     const hidden = new Set(hiddenKey ? hiddenKey.split('\n') : [])
     giveBackFocus(document, hidden)
-    /* And when a hidden page takes the focus itself, later: measured, the
-       Claude module's terminal focuses itself 0.7 s after its kehikko was
+    /* And when a hidden page takes the focus itself, later: measured, an
+       agent module's terminal focuses itself 0.7 s after its kehikko was
        left, `inert` notwithstanding. The page sees only its own window lose
        the focus, with the iframe left as the active element. */
     const blurred = () => setTimeout(() => giveBackFocus(document, hidden), 0)

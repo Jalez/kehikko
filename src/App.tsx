@@ -571,7 +571,7 @@ export function App() {
      own container, and what this window shows is not the module's material anyway —
      it is what the AGENT has been told. See `Tools.tsx`. */
   const [toolsFor, setToolsFor] = useState<string | null>(null)
-  /* Whose Claude Code skills are open (protocol 2.5.0). See `Skills.tsx`. */
+  /* Whose agent skills are open (protocol 2.5.0). See `Skills.tsx`. */
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
   /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Frame menu. */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
@@ -1439,8 +1439,8 @@ export function App() {
    * all carrying the same selection.
    *
    * Nothing was visibly wrong, which is why it survived being written. Every
-   * module already ignores a context that tells it nothing new — Journeys keeps
-   * what it was standing on, References re-asks only when the epic changes —
+   * module already ignores a context that tells it nothing new — one keeps what
+   * it was standing on, another re-asks only when the epic changes —
    * so the cost was noise on the wire and re-renders nobody asked for. It is
    * still a host telling three programs something seventeen times, and the
    * first module to react to context arriving rather than to context CHANGING
@@ -2690,8 +2690,8 @@ export function App() {
    * `context.folded`, and its page goes on running.
    *
    * What changed it is the ask `selected` met before it (see `onSelect`): a
-   * NEIGHBOUR needs the fact. A module about to point Slides at slide 6 has
-   * to know whether Slides is in view, and one that unfolded it for a
+   * NEIGHBOUR needs the fact. A module about to point a neighbour at slide 6 has
+   * to know whether that neighbour is in view, and one that unfolded it for a
    * walk-through has to know whether a person has moved it since, before it
    * puts things back. So since protocol 1.1.0 every row of
    * `context.containers` says `folded` — to every frame alike, composed in
@@ -3394,15 +3394,15 @@ export function App() {
   const placeRef = useRef(placeNow)
   placeRef.current = placeNow
 
-  /** The containers on the open kehikko, but `except`, walked to a step: a person's press in Flows. */
+  /** The containers on the open kehikko, but `except`, walked to a step: a person's press on a step in a module that shows steps. */
   const turnHere = (target: { epic: string; step: number }, except?: string) => {
     const canvas = openRef.current
     if (!canvas) return Promise.resolve([])
     standingStep.current = { kehikko: canvas.id, epic: target.epic, step: target.step }
     return walkAll(presses, walkersOf(canvas.placements.map((placement) => placement.i), () => true, except), target)
   }
-  /* A module's `view.goto { epic, step }` — a person's press on a step of the
-     journey's tree in Flows: their own step, so an agent's mark goes. */
+  /* A module's `view.goto { epic, step }` — a person's press on a step in a module
+     that shows steps: their own step, so an agent's mark goes. */
   walkStepRef.current = (target, from) => {
     setJumpMark(null)
     void turnHere(target, from)
@@ -4975,7 +4975,7 @@ export function App() {
         />
       ) : null}
 
-      {/* A module's Claude Code skills, read and installed on the person's press. Asked when it opens. */}
+      {/* A module's agent skills, read and installed on the person's press. Asked when it opens. */}
       {skillsFor ? (
         <SkillsDialog
           open

@@ -179,11 +179,11 @@ export interface Counterpart {
 const SETS: Record<string, string> = {
   selection: 'selection:set',
   passage: 'passage:set',
-  /* A place in a change's code (protocol 2.13.0): Review points at the line a
-     comment is about, Source and Diff follow. The same pair as the passage. */
+  /* A place in a change's code (protocol 2.13.0): a module that reviews points at
+     the line a comment is about, modules that show code follow. The same pair as the passage. */
   location: 'location:set',
-  /* A web address handed to the canvas (protocol 2.16.0): Review, References and Flows hand one
-     over, and a module that shows pages (the Browser) opens it. */
+  /* A web address handed to the canvas (protocol 2.16.0): any module may hand one over,
+     and a module that shows pages opens it. */
   address: 'address:open',
   /* The third pair, and the one whose reaction has another end the registry
      cannot see: half of `context.containers` — which containers are picked
@@ -217,8 +217,8 @@ export interface Relationship {
    * Whether the host itself carries something between two named programs.
    *
    * True only of the event kinds. The user asked about both direct and indirect
-   * interaction and they must not look alike: "the host hands Checklist's
-   * notification to Notifications" and "this can move the canvas, which
+   * interaction and they must not look alike: "the host hands one module's
+   * notification to another" and "this can move the canvas, which
    * everything on it feels" are claims of different strength.
    */
   direct: boolean

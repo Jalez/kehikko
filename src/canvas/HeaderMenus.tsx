@@ -1206,7 +1206,7 @@ export function FrameMenu({
   agent: AgentAwareness | undefined
   onTools(): void
   /**
-   * The Claude Code skills the module's manifest offers (protocol 2.5.0). None or absent: no row.
+   * The agent skills the module's manifest offers (protocol 2.5.0). None or absent: no row.
    * A row beside Tools rather than a mark of its own on the header: the header is one row that has
    * to fit at 380, 280 and 200 pixels and folded, and this menu's trigger is on it at every one.
    */

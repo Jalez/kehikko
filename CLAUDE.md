@@ -1,5 +1,23 @@
 # Kehikko host — notes for agents
 
+## The app names no module and no vendor
+
+- The whole app is module agnostic and vendor agnostic, not only the Inbox:
+  no text a person or an agent reads — MCP door instructions and tool
+  descriptions, the skills the host ships, the intro and tour, settings,
+  notices, errors — names a specific module (Journeys, Flows, Factory, Test
+  runs…) or an agent vendor (Claude, Codex, OpenAI…). Modules come and go and
+  agent modules will come from more vendors. Say "a module that shows steps",
+  "every container that follows a walk", "an agent session", "your agent"; a
+  module's name reaches the screen only from data (its registration,
+  `modules.json`, its manifest). Comments that say which module does something
+  say "a module" too, unless they document code that handles one by id.
+- `test/module-agnostic-text.test.ts` scans every string, template and JSX text
+  in `server/`, `src/host/`, `src/canvas/` and `src/App.tsx`, and
+  `skills/*/SKILL.md`, for the names in `modules.json` and the vendors. A word
+  that is genuinely data goes in its `ALLOWED` list with a reason; never a
+  sentence.
+
 ## Where data lives
 
 - Project data goes **only** under `<project>/.kehikot/<module>/`, built with the
@@ -673,7 +691,9 @@
   item) is a case of a state, never a kind of its own: `applyList` keeps it as
   `named` only when the manifest declares it for the item's state. Its sound is
   `chimeFor` in `src/host/chime.ts` (the person's choice, else
-  `DEFAULT_EVENT_SOUNDS`, else the kind's); the host names no module there.
+  `DEFAULT_EVENT_SOUNDS`, else the kind's); the host names no module there:
+  that table is keyed by event id for whichever module declares it, and its
+  sound is a generic built-in ("Answer", formerly `research`, still read).
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
 - Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts

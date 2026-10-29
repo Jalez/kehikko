@@ -24,7 +24,7 @@ import { releaseVersion, type ModuleRelease } from './moduleReleases.ts'
  * | not running                                      | now                                         |
  * | running, not on the kehikko anybody has open     | now (restarted quietly; nobody is looking)  |
  * | running and on screen                            | when it is next off screen, or at restart   |
- * | holding live work (Terminal, Claude, Codex) or kept | when it next stops                       |
+ * | holding shells or agent sessions, or kept        | when it next stops                          |
  * | pinned in a container                            | never by itself: the pin is the person's    |
  * | only newer releases that need a newer Kehikot    | never: it waits for the app                 |
  * | a checkout somebody registered (not installed)   | never                                       |
@@ -80,7 +80,7 @@ export interface AutoWait {
    * `retry`. Null otherwise.
    */
   detail: string | null
-  /** For `stopped`: it holds shells (Terminal, Claude, Codex), rather than being kept. */
+  /** For `stopped`: it holds shells or agent sessions, rather than being kept. */
   shells?: boolean
   /** The move is to a new major version. */
   major?: boolean
@@ -121,7 +121,7 @@ export interface Candidate {
   running: boolean
   /** On a kehikko a live page has open. */
   onScreen: boolean
-  /** Terminal, Claude, Codex: a restart ends the shells or sessions in it. */
+  /** A terminal or agent module: a restart ends the shells or sessions in it. */
   holdsShells: boolean
   /** Its registration says `keep`: this host never stops it. */
   kept: boolean
@@ -185,6 +185,9 @@ export function decide(c: Candidate): Decision {
 /**
  * The modules that hold a terminal or an agent's sessions: restarting one ends
  * them. Shared with the Updates menu's "Restart now (ends its shells)".
+ *
+ * It names modules by id, as `ANSWERED_UNDECLARED` does, because no protocol
+ * declaration says it yet; it is code, never text a person reads.
  */
 const HOLDS_SHELLS = new Set(['terminal', 'claude', 'codex'])
 export function holdsShells(id: string): boolean {

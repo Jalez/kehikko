@@ -143,7 +143,7 @@ describe('tools, kept connected', () => {
       ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'browser', 'http://127.0.0.1:7801/mcp'],
       ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'notes', 'http://127.0.0.1:7802/mcp'],
     ])
-    expect(at.told).toEqual(['Connected Browser’s tools for Claude Code', 'Connected Notes’s tools for Claude Code'])
+    expect(at.told).toEqual(['Connected Browser’s tools for your agent', 'Connected Notes’s tools for your agent'])
     expect(madeEntries(at.db).map((one) => one.module)).toEqual(['kehikot.browser', 'kehikot.notes'])
     expect(ran.status.modules.map((one) => one.tools)).toEqual(['connected', 'connected', null, 'asleep'])
     expect(toolsSaid(ran.status)).toBe('2 connected, 1 not running')
@@ -172,7 +172,7 @@ describe('tools, kept connected', () => {
       ['mcp', 'remove', 'browser'],
       ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'browser', 'http://127.0.0.1:7811/mcp'],
     ])
-    expect(at.told).toEqual(['Re-pointed Browser’s tools for Claude Code to its new address'])
+    expect(at.told).toEqual(['Re-pointed Browser’s tools for your agent to its new address'])
     expect(madeEntries(at.db)[0]!.url).toBe('http://127.0.0.1:7811/mcp')
   })
 
@@ -206,7 +206,7 @@ describe('tools, kept connected', () => {
     recordMade(at.db, { module: 'kehikot.moved', name: 'moved', url: 'http://127.0.0.1:7851/mcp', title: 'Moved' })
     await syncOnce(at.deps)
     expect(at.claude.calls).toEqual([['mcp', 'remove', 'gone']])
-    expect(at.told).toEqual(['Removed Gone’s tools from Claude Code: the module is no longer installed'])
+    expect(at.told).toEqual(['Removed Gone’s tools from your agent: the module is no longer installed'])
     expect([...claude.known.keys()].sort()).toEqual(['moved', 'theirs'])
     expect(madeEntries(at.db)).toEqual([])
   })
@@ -217,7 +217,7 @@ describe('tools, kept connected', () => {
     const ran = await syncOnce(at.deps)
     expect(ran.transient).toBe(true)
     expect(ran.status.modules[0]!.tools).toBe('failed')
-    expect(at.troubles.at(-1)).toEqual(['Could not connect Browser’s tools for Claude Code: claude: command not found'])
+    expect(at.troubles.at(-1)).toEqual(['Could not connect Browser’s tools for your agent: claude: command not found'])
   })
 
   test('a refused door name is not connected', async () => {
@@ -234,13 +234,13 @@ describe('skills, kept installed and up to date', () => {
     const at = setup([mod('kehikot.claude', 7830, { door: null, skills: [skill('kehikot-here')] })], ON, fakeClaude(), table)
     await syncOnce(at.deps)
     expect(readFileSync(join(at.root, 'kehikot-here', 'SKILL.md'), 'utf8')).toBe(table['kehikot-here'])
-    expect(at.told).toEqual(['Installed the /kehikot-here skill (Claude)'])
+    expect(at.told).toEqual(['Installed the /kehikot-here skill for your agent'])
 
     at.table['kehikot-here'] = skillText('kehikot-here', 'Do it better.')
     at.deps.fetcher = serving(at.table)
     const ran = await syncOnce(at.deps)
     expect(readFileSync(join(at.root, 'kehikot-here', 'SKILL.md'), 'utf8')).toContain('Do it better.')
-    expect(at.told).toEqual(['Installed the /kehikot-here skill (Claude)', 'Updated the /kehikot-here skill (Claude)'])
+    expect(at.told).toEqual(['Installed the /kehikot-here skill for your agent', 'Updated the /kehikot-here skill for your agent'])
     expect(ran.status.modules[0]!.skills).toEqual([{ name: 'kehikot-here', state: 'installed' }])
   })
 
@@ -288,7 +288,7 @@ describe('kehikko-bound skills (protocol 2.12.0)', () => {
     const ran = await syncOnce(at.deps)
     expect(existsSync(join(at.root, 'review-factory'))).toBe(false)
     expect(existsSync(join(at.root, 'factory', 'SKILL.md'))).toBe(true)
-    expect(at.told).toEqual(['Installed the /factory skill (Claude)'])
+    expect(at.told).toEqual(['Installed the /factory skill for your agent'])
     expect(ran.status.modules[0]!.skills).toEqual([
       { name: 'factory', state: 'installed' },
       { name: 'review-factory', state: 'bound', bound: where },
@@ -353,7 +353,7 @@ describe('a module that is not running', () => {
     const at = setup([mod('kehikot.notes', 7802, { answering: false, version: null })])
     const ran = await syncOnce(at.deps)
     expect(at.claude.calls).toEqual([['mcp', 'add', '--scope', 'user', '--transport', 'http', 'notes', 'http://127.0.0.1:7802/mcp']])
-    expect(at.told).toEqual(['Connected Notes’s tools for Claude Code'])
+    expect(at.told).toEqual(['Connected Notes’s tools for your agent'])
     expect(madeEntries(at.db).map((one) => one.url)).toEqual(['http://127.0.0.1:7802/mcp'])
     const row = ran.status.modules[0]!
     expect(row).toMatchObject({ tools: 'connected', answering: false })
@@ -484,10 +484,10 @@ describe('the Inbox', () => {
 
   test('each change is one notice line, born done, by Kehikot', () => {
     const at = inboxed()
-    at.say.tell('Connected Browser’s tools for Claude Code')
+    at.say.tell('Connected Browser’s tools for your agent')
     const all = at.inbox.all(at.one)
     expect(all).toHaveLength(1)
-    expect(all[0]).toMatchObject({ module: SETTINGS_INBOX_MODULE, name: 'Kehikot', label: 'Connected Browser’s tools for Claude Code', state: 'done' })
+    expect(all[0]).toMatchObject({ module: SETTINGS_INBOX_MODULE, name: 'Kehikot', label: 'Connected Browser’s tools for your agent', state: 'done' })
     expect(at.inbox.all(at.two)).toEqual([])
   })
 
@@ -651,7 +651,7 @@ describe('a module that installs skills for its own agent (protocol 2.23.0)', ()
     const ran = await syncOnce(at.deps)
     expect(existsSync(join(at.root, 'kehikot-here'))).toBe(false)
     expect(at.told).toEqual([])
-    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'kehikot-here', state: 'agent', agent: 'Codex installs this skill itself, where its own agent reads skills, so Kehikot does not install it for Claude Code' }])
+    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'kehikot-here', state: 'agent', agent: 'Codex installs this skill itself, where its own agent reads skills, so Kehikot does not install it in your personal skills folder' }])
     expect(skillsSaid(ran.status)).toBe('0 installed, 1 kept by its module')
   })
 
@@ -672,7 +672,7 @@ describe('a module that installs skills for its own agent (protocol 2.23.0)', ()
     before.state.seen = [codex({ skills: [skill('kehikot-here'), skill('other')] })]
     const ran = await syncOnce(before.deps)
     expect(existsSync(join(before.root, 'kehikot-here'))).toBe(false)
-    expect(before.told.at(-1)).toContain('Removed the /kehikot-here skill from Claude Code. Codex installs this skill itself')
+    expect(before.told.at(-1)).toContain('Removed the /kehikot-here skill from your agent’s skills folder. Codex installs this skill itself')
     expect(readFileSync(join(before.root, 'other', 'SKILL.md'), 'utf8')).toBe('mine')
     expect(ran.status.modules[0]!.skills.map((one) => one.state)).toEqual(['agent', 'edited'])
   })

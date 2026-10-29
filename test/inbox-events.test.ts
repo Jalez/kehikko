@@ -115,10 +115,18 @@ describe('an event’s own sound', () => {
   const file = { id: '0123456789abcdef', name: 'ding.wav', ext: 'wav', bytes: 10, seconds: 1 }
   const settings = (more: Partial<ChimeSettings> = {}): ChimeSettings => ({ ...DEFAULT_CHIME, files: [file], ...more })
 
-  test('the host ships a research chime, and it is the default for research-complete', () => {
-    expect(presetOf('research')?.name).toBe('Research complete')
-    expect(DEFAULT_EVENT_SOUNDS['research-complete']).toEqual({ type: 'preset', id: 'research' })
-    expect(chimeFor(settings(), 'done', 'kehikot.claude', 'research-complete')).toEqual({ sound: { type: 'preset', id: 'research' }, asWritten: true })
+  test('the host ships a generic Answer chime, and it is the default for research-complete from any module', () => {
+    expect(presetOf('answer')?.name).toBe('Answer')
+    expect(DEFAULT_EVENT_SOUNDS['research-complete']).toEqual({ type: 'preset', id: 'answer' })
+    expect(chimeFor(settings(), 'done', 'kehikot.claude', 'research-complete')).toEqual({ sound: { type: 'preset', id: 'answer' }, asWritten: true })
+    expect(chimeFor(settings(), 'done', 'kehikot.other', 'research-complete')).toEqual({ sound: { type: 'preset', id: 'answer' }, asWritten: true })
+  })
+
+  test('a sound saved under the chime’s former id, research, is read as Answer', () => {
+    expect(presetOf('research')?.id).toBe('answer')
+    expect(chimeFrom({ events: { 'kehikot.claude': { 'research-complete': { type: 'preset', id: 'research' } } } }).events).toEqual({
+      'kehikot.claude': { 'research-complete': { type: 'preset', id: 'answer' } },
+    })
   })
 
   test('the event’s chosen sound is chosen over the kind’s and the module’s', () => {

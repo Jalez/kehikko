@@ -19,16 +19,16 @@ import { projectById, type Project } from './projects.ts'
  * takes a folder or the screen as a stand-in. There are two records, each with
  * one owner and its own key, so no two stores can disagree about one thing:
  *
- *  - **A conversation a module started** (Claude's, from a place): the module
- *    that keeps the conversation records owns them — `<project>/.kehikot/claude/places.json`
- *    for Claude — and hands the session a token on every Kehikot door's URL.
+ *  - **A conversation a module started** (an agent module's, from a place): the
+ *    module that keeps the conversation records owns them — in its own folder,
+ *    `<project>/.kehikot/<module>/` — and hands the session a token on every Kehikot door's URL.
  *    The host keeps only where to ASK about a token (`door_tokens`: the token,
  *    the module that issued it, the project's id), never the place. A call
  *    with the token is answered from the module's record as it is NOW
  *    (`RECORDED_PLACE_PATH` on the module), so a conversation moved to another
  *    place, or carried on under a new id, is answered right.
  *  - **A connection nothing started** — an agent the person opened elsewhere.
- *    Claude Code does not tell an MCP server which conversation is calling
+ *    The agent does not tell an MCP server which conversation is calling
  *    (measured on 2.1.304: no header, no `initialize` field, and
  *    `${CLAUDE_CODE_SESSION_ID}` in a config is not expanded to the session's
  *    own id). What the door CAN know is the MCP session it handed out at
@@ -95,7 +95,7 @@ export interface Recorded {
   epic: string | null
   parts: string[]
   kehikko: string | null
-  /** The conversation the record is about, when the record names one (a module's: Claude Code's session id). */
+  /** The conversation the record is about, when the record names one (a module's: the agent's session id). */
   conversation?: string | null
 }
 

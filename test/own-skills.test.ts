@@ -91,7 +91,7 @@ describe('Kehikot’s own skills', () => {
     ])
     expect(readFileSync(join(root, 'kehikot-module', 'SKILL.md'), 'utf8')).toBe(text('kehikot-module'))
     expect(readFileSync(join(root, 'kehikko-jump', 'SKILL.md'), 'utf8')).toBe(text('kehikko-jump'))
-    expect(told).toEqual(['Installed the /kehikot-module skill (Claude)', 'Installed the /kehikko-jump skill (Claude)'])
+    expect(told).toEqual(['Installed the /kehikot-module skill for your agent', 'Installed the /kehikko-jump skill for your agent'])
   })
 
   test('/kehikko-jump names the jump tool, pre-approves it and the read tools only, and says when to jump', () => {

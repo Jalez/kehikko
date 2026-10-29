@@ -126,7 +126,7 @@ export interface CanvasControls {
   /**
    * `view.goto { epic, step }`: once the epic is the subject, walk every OTHER
    * container on the open kehikko to that step (`kehikot.goto`) — a person's
-   * press on a step in Flows turning the whole kehikko. See `host/jump.ts`.
+   * press on a step in a module that shows steps turning the whole kehikko. See `host/jump.ts`.
    * Absent: the step is not walked, as before.
    */
   walkStep?(target: { epic: string; step: number }, from: string): void
@@ -252,7 +252,7 @@ export interface CanvasControls {
    * `from` out of the registration, as for `emit`, and it does two jobs: the
    * asker has to be on the kehikko that is open — a module acts only where it
    * is — and its NAME is what the fold control says until the person presses
-   * it ("folded by Slides"). A module that could name itself would be signing
+   * it ("folded by <module name>"). A module that could name itself would be signing
    * somebody else's name on a container that just shut.
    *
    * The canvas may decline: a drag is in hand, a dialog is open. See `asked`

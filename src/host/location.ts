@@ -15,9 +15,9 @@ import {
  * A module calls `location.set`; the canvas keeps the latest one for the kehikko
  * that is open, stamps who pointed (`by`, out of the registration, never the
  * frame's word) and when (`at`), and every container on that kehikko is told it
- * in `context.location`. Review points at the line a comment is about, Source
- * and Diff follow; "Comment on this line" in Source or Diff points back with
- * `intent: 'comment'`.
+ * in `context.location`. A module that reviews points at the line a comment is
+ * about, and modules that show code follow; "Comment on this line" in one of
+ * them points back with `intent: 'comment'`.
  *
  * ## It lives while its change is picked out
  *
