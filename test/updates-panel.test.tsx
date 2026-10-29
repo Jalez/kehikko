@@ -28,13 +28,15 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b25 pass/)
+    expect(out).toMatch(/\b28 pass/)
   }, 60_000)
 }
 
 type Json = Record<string, unknown>
 let answer: (url: string, init?: RequestInit) => Promise<Json | Response>
 let release: (() => void) | null = null
+/** Requests the page aborted, as a real fetch would have been cut off by it. */
+let aborted: string[] = []
 
 let React: typeof import('react')
 let act: typeof import('react').act
@@ -47,6 +49,7 @@ beforeAll(async () => {
   GlobalRegistrator.register()
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    init?.signal?.addEventListener('abort', () => aborted.push(String(url)))
     const body = await answer(String(url), init)
     if (body instanceof Response) return body
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -68,6 +71,7 @@ afterEach(() => {
   if (!inChild) return
   act(() => unmount?.())
   unmount = null
+  aborted = []
   document.body.innerHTML = ''
   delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 })
@@ -564,6 +568,61 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
     expect(text()).not.toContain('Restart it')
     expect(indicatorText()).toBe('')
+  })
+
+  /** Close the panel the way a click outside does: Radix dismisses on Escape the same way. */
+  async function closePanel() {
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    await settle()
+  }
+
+  test('closing the panel mid-update leaves it running: nothing is cancelled, and the chip shows the progress', async () => {
+    const { posts, stream } = await updating([{ phase: 'updating' }, { phase: 'installing' }, updatedLine({ ran: 'restarted' })])
+    await stream.next()
+    expect(running()).toContain('Updating…')
+    await closePanel()
+    expect(panels().length).toBe(0)
+    /* Nothing asked the server to stop, and the chip says what is going on. */
+    expect(posts.map((one) => one.url)).toEqual(['/host/updates'])
+    expect(aborted).toEqual([])
+    expect(indicatorText()).toBe('Updating a')
+    expect(document.querySelector('[data-testid="updates-indicator"]')?.getAttribute('data-busy')).toBe('true')
+    /* The stream goes on being read with the panel shut, and its end is taken. */
+    await stream.next()
+    expect(indicatorText()).toBe('Updating a')
+    await stream.next()
+    await settle()
+    expect(indicatorText()).toBe('')
+    expect(posts.map((one) => one.url)).toEqual(['/host/updates'])
+  })
+
+  test('reopening the panel over a running update shows its progress, and Cancel is the only way to stop it', async () => {
+    const { host, posts, stream } = await updating([{ phase: 'updating' }, { phase: 'installing' }, updatedLine({ ran: 'restarted' })])
+    await stream.next()
+    await closePanel()
+    await press(host)
+    await settle()
+    expect(panels().length).toBe(1)
+    expect(running()).toContain('Updating…')
+    expect(text()).toContain('Updating a')
+    expect(running()).toContain('Cancel')
+    await act(async () => {
+      ;[...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')?.click()
+    })
+    await settle()
+    expect(posts.map((one) => one.url)).toEqual(['/host/updates', '/host/updates/cancel'])
+    expect(posts[1]?.body).toEqual({ id: 'a' })
+  })
+
+  test('an update the server is running that this page did not start shows on the chip and in the panel after a reload', async () => {
+    answer = async (url) => (url.startsWith('/host/updates') ? { ...check([checkout('a', 1), checkout('b', 0)]), progress: { a: 'updating' } } : {})
+    const host = await mount()
+    await press(host)
+    await settle()
+    expect(indicatorText()).toBe('Updating a')
+    expect(running()).toContain('Updating…')
   })
 
   test('a page-only update, and one for a module nothing has open, say so and ask for nothing', async () => {

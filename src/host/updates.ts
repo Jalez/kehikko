@@ -332,6 +332,15 @@ export async function applyUpdate(id: string, signal?: AbortSignal, onPhase?: (p
   return ended
 }
 
+/** Ask the server to stop an update it is running. The only way one stops; before the merge it changes nothing. */
+export async function cancelUpdate(id: string): Promise<void> {
+  await fetch('/host/updates/cancel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+}
+
 /** Why a restart did not leave the module answering. `kept`: its registration says to keep it, and "Restart anyway" is the way on. */
 export interface NotRestarted {
   why: string

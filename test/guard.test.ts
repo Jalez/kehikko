@@ -216,7 +216,7 @@ describe('the door at /mcp', () => {
 describe('the routes that are the page’s alone', () => {
   const body = { ...JSON_TYPE, 'content-length': '2' }
 
-  test('are the restart of a kept module, the two header postings, the four inbox writes, the tracker edit, the base branch set, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, the agent settings, a layout saved, the introduction or tour marked, what is new acknowledged, a module’s settings read, changed or its file shown, and how a kehikko’s modules affect each other', () => {
+  test('are the restart of a kept module, the two header postings, the four inbox writes, the tracker edit, the base branch set, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, an update cancelled, the agent settings, a layout saved, the introduction or tour marked, what is new acknowledged, a module’s settings read, changed or its file shown, and how a kehikko’s modules affect each other', () => {
     expect([...PAGE_ONLY].sort()).toEqual([
       '/host/base-branch',
       '/host/connections',
@@ -248,6 +248,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/sounds/rename',
       '/host/storage',
       '/host/trackers',
+      '/host/updates/cancel',
       '/host/whats-new',
     ])
   })
