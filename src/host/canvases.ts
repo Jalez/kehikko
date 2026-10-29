@@ -1,6 +1,6 @@
 import { settingIn, type ConnectionsSetting } from './connections.ts'
 import { z } from 'zod'
-import { LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
+import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -9,6 +9,7 @@ import { arranged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { registryIn, type RegistryView } from './registry.ts'
+import type { Told } from './jump.ts'
 
 /**
  * The page's side of the canvases.
@@ -528,6 +529,12 @@ export function watchCanvases(
    * order like `ordered`, answered with `answerPress`.
    */
   addressed?: (order: AddressOrder) => void,
+  /**
+   * An agent asked the host's door to jump the view (`jump`), and the server
+   * picked THIS page, the one on screen — see `jump` in `server/wake.ts`.
+   * Answered with `answerPress`, with who was told of a step.
+   */
+  jumped?: (order: JumpOrder) => void,
 ): () => void {
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
@@ -631,6 +638,8 @@ export function watchCanvases(
       if (order) ordered?.(order)
       const asked = addressOrderIn((parsed as { address?: unknown })?.address)
       if (asked) addressed?.(asked)
+      const jump = jumpOrderIn((parsed as { jump?: unknown })?.jump)
+      if (jump) jumped?.(jump)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */
@@ -716,6 +725,44 @@ export function addressOrderIn(value: unknown, page: string = pageId()): Address
 }
 
 /**
+ * Where an agent asked to jump the view, as the server hands it to the page on
+ * screen. Anything absent is "stay where you are". `id` comes back with the
+ * answer, through `answerPress`.
+ */
+export interface JumpOrder {
+  id: string
+  project?: number
+  kehikko?: string
+  epic?: string
+  parts?: string[]
+  step?: number
+  title?: string
+}
+
+/** A jump order off the stream, or `null` for anything that is not one — and for one addressed to another page. */
+export function jumpOrderIn(value: unknown, page: string = pageId()): JumpOrder | null {
+  if (typeof value !== 'object' || value === null) return null
+  const said = value as Record<string, unknown>
+  if (said.page !== page) return null
+  if (typeof said.id !== 'string' || !said.id || said.id.length > 64) return null
+  if (said.project !== undefined && (typeof said.project !== 'number' || !Number.isInteger(said.project) || said.project <= 0)) return null
+  if (said.kehikko !== undefined && (typeof said.kehikko !== 'string' || !said.kehikko || said.kehikko.length > 64)) return null
+  if (said.epic !== undefined && (typeof said.epic !== 'string' || !EPIC_SLUG.test(said.epic))) return null
+  if (said.parts !== undefined && (!Array.isArray(said.parts) || said.parts.length > 64 || !said.parts.every((one) => typeof one === 'string' && one.length > 0 && one.length <= 64))) return null
+  if (said.step !== undefined && (typeof said.step !== 'number' || !Number.isInteger(said.step) || said.step < 1 || said.step > 999)) return null
+  const title = typeof said.title === 'string' && said.title.trim() && said.title.length <= LIMITS.TITLE ? said.title.trim() : undefined
+  return {
+    id: said.id,
+    ...(said.project !== undefined ? { project: said.project as number } : {}),
+    ...(said.kehikko !== undefined ? { kehikko: said.kehikko as string } : {}),
+    ...(said.epic !== undefined ? { epic: said.epic as string } : {}),
+    ...(said.parts !== undefined ? { parts: [...new Set(said.parts as string[])] } : {}),
+    ...(said.step !== undefined ? { step: said.step as number } : {}),
+    ...(title ? { title } : {}),
+  }
+}
+
+/**
  * Tell the server what each module on the open kehikko has declared for its
  * header.
  *
@@ -751,11 +798,11 @@ export function postHeaders(
 }
 
 /** Tell the server what became of a press it ordered: taken, or not and why. */
-export function answerPress(id: string, came: { ok: boolean; why: string }): Promise<void> {
+export function answerPress(id: string, came: { ok: boolean; why: string; told?: readonly Told[]; ignored?: boolean }): Promise<void> {
   return fetch('/host/pressed', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ page: pageId(), id, ok: came.ok, why: came.why }),
+    body: JSON.stringify({ page: pageId(), id, ok: came.ok, why: came.why, ...(came.told ? { told: came.told } : {}), ...(came.ignored ? { ignored: true } : {}) }),
   })
     .then(() => undefined)
     .catch(() => {

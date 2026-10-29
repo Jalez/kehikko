@@ -617,13 +617,15 @@ these tools:
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
 | `fold_modules` | fold containers to their headers or unfold them, on a kehikko a page has open; marked on the container as an agent's doing |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
+| `jump` | jump the person's view when they ask — `{ project?, kehikko?, epic?, parts?, step? }`, what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
 
 All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
 said or when two browser windows have two different ones open.
 
 The door can ADD and cannot take away: no tool removes, moves or resizes a
-container, switches the kehikko, or changes which epic is open. The arrangement
+container, and only `jump` moves the view — when the person asks for it, marked
+with Go back. The arrangement
 belongs to the person looking at it, and what an agent may add is what they
 can see arrive and take off with one press — a container, or an epic in the
 dropdown. `place_modules` refuses rather than squeeze a container somebody
@@ -648,6 +650,27 @@ gets an item pressed. `value` is the option's id for a switch or a go item,
 module took the press, not whether a run has finished; the container says
 "an agent pressed Compile" for a few seconds. The arrangement is never changed
 by it. `server/headers.ts` and `server/mcp.ts` have the argument.
+
+`jump` is how an agent takes the person somewhere when they ask ("take me to the
+auth epic", "show me part 3", "open the Wide kehikko in project X"), or step by
+step through a walkthrough they started; the `/kehikko-jump` skill Kehikot
+installs says when. Each of `project`, `kehikko`, `epic`, `parts` and `step` is
+optional, and what is left out stays where the person is: a step alone turns the
+kehikko to that step, parts alone are picked in the epic that is open, another
+project is gone to with the person's own calm switch and then to the kehikko,
+epic and parts in it. Names are resolved strictly (an id, a folder, an exact
+name or title) and an unknown one is refused with what exists. It acts only on
+the page on screen; with none, nothing moves. A step walks every container on
+the kehikko with `kehikot.goto`, and the answer names those that followed
+(Journeys lights the step's card) — the same walk a person's press on a step of
+the journey's tree in Flows makes, through `view.goto { epic, step }`. The page
+says "Jumped here by an agent" (or "Moved to step 7 (Cap the rate) by an agent")
+with **Go back**, which restores project, kehikko, epic, parts and step exactly;
+a second jump keeps the first place to go back to. A jump to where the person
+already is is ignored, jumps are at least 2.5 seconds apart, and each is one line
+in the host log. The conversation's own place (`my_place`) does not follow: it is
+what the conversation is about, and `set_my_place` moves it. `src/host/jump.ts`
+has the rules.
 
 A tool call is visible immediately on the page, without a refresh — the server
 says a kehikko changed, or a project's epics did, over `/host/watch` and the

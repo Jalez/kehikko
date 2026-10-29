@@ -85,9 +85,25 @@ describe('Kehikot’s own skills', () => {
     const told: string[] = []
     const deps = { db, modules: async () => [host()], known: () => new Map(), skillsRoot: () => root, fetcher: fromTheHost, tell: (line: string) => told.push(line), trouble: () => {} }
     const ran = await syncOnce(deps)
-    expect(ran.status.modules[0]!.skills).toEqual([{ name: 'kehikot-module', state: 'installed' }])
+    expect(ran.status.modules[0]!.skills).toEqual([
+      { name: 'kehikot-module', state: 'installed' },
+      { name: 'kehikko-jump', state: 'installed' },
+    ])
     expect(readFileSync(join(root, 'kehikot-module', 'SKILL.md'), 'utf8')).toBe(text('kehikot-module'))
-    expect(told).toEqual(['Installed the /kehikot-module skill (Claude)'])
+    expect(readFileSync(join(root, 'kehikko-jump', 'SKILL.md'), 'utf8')).toBe(text('kehikko-jump'))
+    expect(told).toEqual(['Installed the /kehikot-module skill (Claude)', 'Installed the /kehikko-jump skill (Claude)'])
+  })
+
+  test('/kehikko-jump names the jump tool, pre-approves it and the read tools only, and says when to jump', () => {
+    const skill = text('kehikko-jump')
+    const front = skill.split('---')[1]!
+    const allowed = /allowed-tools: (.*)/.exec(front)![1]!.split(/,\s*/)
+    expect(allowed).toContain('mcp__kehikko__jump')
+    expect(allowed.every((one) => /^mcp__kehikko__(jump|read_canvas|my_place|read_inbox)$/.test(one))).toBe(true)
+    expect(skill).toContain('Go back')
+    expect(skill).toContain('Resolve names first')
+    expect(skill).toContain('Never otherwise')
+    expect(skill).toContain('set_my_place')
   })
 
   test('are never tidied away as a gone module’s: the host is always in the registry the sync reads', async () => {

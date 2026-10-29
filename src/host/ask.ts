@@ -124,6 +124,13 @@ export interface CanvasControls {
    */
   goto(call: GotoCall, from?: string): GotoAnswer | Promise<GotoAnswer>
   /**
+   * `view.goto { epic, step }`: once the epic is the subject, walk every OTHER
+   * container on the open kehikko to that step (`kehikot.goto`) — a person's
+   * press on a step in Flows turning the whole kehikko. See `host/jump.ts`.
+   * Absent: the step is not walked, as before.
+   */
+  walkStep?(target: { epic: string; step: number }, from: string): void
+  /**
    * Make this the canvas's selection, and tell every module.
    *
    * The canvas does not check these refs against anything, and could not: it
@@ -587,6 +594,8 @@ function answerInTheView(
    */
   if (target.epic) {
     canvas.showEpic(target.epic)
+    /* With a step: the others are walked there, the way the asker went. */
+    if (target.step !== undefined) canvas.walkStep?.({ epic: target.epic, step: target.step }, moduleId)
     /* `moved`, and not `no-such-target`: the canvas moved its subject and told
        every module. It did NOT verify that an epic by that name exists, because
        this host holds no epics and has nothing to check against — and
@@ -596,7 +605,8 @@ function answerInTheView(
 
   /* `declined`, which is the honest word. The ask was well-formed and this host
      is a canvas: nothing is open in it, so there is no page with anchors for a
-     step or a reference to land on. A module told `no-such-target` would go
+     step or a reference to land on. (A step WITH its epic is walked to by the
+     other containers, above: the host names the epic it is a step of.) A module told `no-such-target` would go
      looking for a target that was never the problem. */
   return succeeded(method, {
     outcome: 'declined',

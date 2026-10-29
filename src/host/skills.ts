@@ -20,6 +20,10 @@ export const OWN_SKILLS = [
     name: 'kehikot-module',
     summary: 'Type /kehikot-module: build a module of your own, from the first question to its first release, step by step.',
   },
+  {
+    name: 'kehikko-jump',
+    summary: 'Lets your agent take you to a project, kehikko, epic, part or step when you ask, marked on the kehikko with Go back.',
+  },
 ] as const
 
 /** Where to read how a module is built: the guide in the protocol's repository. */

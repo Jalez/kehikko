@@ -121,6 +121,9 @@ export type News =
   /* The ninth kind, an order like `press`: an agent's `open_address`, for the
      one page that has the kehikko open. See `AddressOrder`. */
   | { address: AddressOrder }
+  /* An order like `press`: an agent's `jump`, for the one page on screen.
+     See `JumpOrder`. */
+  | { jump: JumpOrder }
   /* The eighth kind: the list of projects is not what a page last read — a
      project was found again where its folder went ("Locate…", or adding the
      moved folder). Carries nothing; the page re-reads `/host/projects`. */
@@ -178,6 +181,28 @@ export interface AddressOrder {
   page: string
   kehikko: number
   url: string
+  title?: string
+}
+
+/**
+ * Where an agent asked to jump the person's view (`jump`), handed to the page
+ * on screen: only that page can switch as the person's own pickers do, holds
+ * the frames to walk to a step, and knows where the person was to go back to.
+ * Every field left out is "stay where you are". Addressed and answered like
+ * `PressOrder`, through `/host/pressed`, with who was told of a step. See
+ * `src/host/jump.ts`.
+ */
+export interface JumpOrder {
+  id: string
+  page: string
+  /** The project's id in this host's database. */
+  project?: number
+  /** A kehikko of that project, by key. */
+  kehikko?: string
+  epic?: string
+  parts?: string[]
+  step?: number
+  /** The step's title, when the server could read it, for the mark. */
   title?: string
 }
 
@@ -246,6 +271,11 @@ export class Wakes {
   /** Hand one page an address an agent asked to have shown. The rule `press` keeps: that page's streams only. */
   address(order: AddressOrder): boolean {
     return this.#order(order.page, { address: order })
+  }
+
+  /** Hand one page an agent's jump. The rule `press` keeps: that page's streams only. */
+  jump(order: JumpOrder): boolean {
+    return this.#order(order.page, { jump: order })
   }
 
   #order(to: string, news: News): boolean {
