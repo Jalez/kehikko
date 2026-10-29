@@ -4,6 +4,8 @@ import { join, relative } from 'node:path'
 
 import ts from 'typescript'
 
+import { namesOf, officialNames as officialNamesOf, wordOf } from '../dev/module-agnostic'
+
 /**
  * The app is module agnostic and vendor agnostic: the host's own words — what
  * a person reads and what an agent is told — never name a specific module or
@@ -20,8 +22,8 @@ import ts from 'typescript'
  * fallback in `server/plans.ts`); they are kept generic by review.
  *
  * What counts: an official module's name from `modules.json`, a few more
- * module names that are not on that list, and the vendor names below, as a
- * whole capitalised word. Lowercase ids (`kehikot.claude`, `~/.claude`,
+ * module names that are not on that list, and the vendor names in
+ * `dev/module-agnostic.ts`, as a whole capitalised word. Lowercase ids (`kehikot.claude`, `~/.claude`,
  * `claude mcp add`) are code, not words, and pass. A module's name read from
  * data (a registration, `modules.json`, a manifest) is never in the source and
  * passes too: that is how the host says a module's name.
@@ -34,16 +36,9 @@ import ts from 'typescript'
 
 const ROOT = join(import.meta.dir, '..')
 
-/** Agent vendors and their programs. Never a word in the host's own text. */
-const VENDORS = ['Claude', 'Codex', 'OpenAI', 'Anthropic', 'Gemini', 'Copilot']
-
-/** Modules that are not on the official list but are known to exist; their names are no more the host's than the listed ones'. */
-const UNLISTED_MODULES = ['Flows', 'Screenplay', 'Journey']
-
-const official = (JSON.parse(readFileSync(join(ROOT, 'modules.json'), 'utf8')) as { modules?: { name: string }[] } | { name: string }[])
-const officialNames = (Array.isArray(official) ? official : (official.modules ?? [])).map((one) => one.name)
-
-const NAMES = [...new Set([...officialNames, ...UNLISTED_MODULES, ...VENDORS])]
+/* The names and the matcher live in `dev/module-agnostic.ts`, which the app's release notes are checked with too. */
+const officialNames = officialNamesOf(ROOT)
+const NAMES = namesOf(ROOT)
 
 /**
  * Words that are a module's name and also an ordinary word the host uses for
@@ -93,8 +88,6 @@ function textsOf(file: string): { text: string; line: number }[] {
   return out
 }
 
-const wordOf = (name: string) => new RegExp(`(?<![\\w.-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`)
-
 function slips(file: string, texts: { text: string; line: number }[]): string[] {
   const found: string[] = []
   for (const { text, line } of texts) {
@@ -119,6 +112,18 @@ describe('the host names no module and no vendor', () => {
     expect(wordOf('Claude').test('kehikot.claude')).toBe(false)
     expect(wordOf('Claude').test('~/.claude/skills')).toBe(false)
     expect(wordOf('Test runs').test('Test runs belong to this computer')).toBe(true)
+  })
+
+  test('as a command, it refuses release-note lines that name a module or a vendor, and passes the rest', async () => {
+    const run = async (text: string) => {
+      const child = Bun.spawn(['bun', join(ROOT, 'dev/module-agnostic.ts')], { stdin: new Blob([text]), stdout: 'pipe', stderr: 'pipe' })
+      return { code: await child.exited, err: await new Response(child.stderr).text() }
+    }
+    const bad = await run('- **Faster start.** The canvas opens sooner.\n- **Claude sessions.** Pick up where you left off.\n')
+    expect(bad.code).toBe(1)
+    expect(bad.err).toContain('stdin:2: "Claude"')
+    const good = await run('- **Faster start.** The canvas opens sooner.\n- Agents keep their place in `kehikot.claude`.\n')
+    expect(good.code).toBe(0)
   })
 
   test('no string, template or JSX text in the host sources', () => {

@@ -18,10 +18,12 @@ and a set of modules, each in its own repository:
    using it, and how you checked it.
 3. The maintainer reviews it, may ask for changes, and merges it.
 
-`main` is protected: changes reach it only through pull requests. Releases are
-made by the maintainer, by tagging `vX.Y.Z`. Please don't change the version
-number unless you're asked to; do add a line for your change to the notes if
-the repository keeps them (`notes/`).
+`main` is protected: changes reach it only through pull requests. Please don't
+change the version number unless you're asked to. In the host and the app, fill
+in the pull request's **Release note** section: one line on what the person
+using Kehikot notices, or `none`. The app is released automatically from those
+lines. A module keeps its notes in `notes/`; its release is tagged when the PR
+that bumps its version is merged.
 
 Why so careful: merging is publishing. The host's `modules.json` on `main` is
 read by every installed app, a module's release tag reaches every machine
