@@ -9,10 +9,12 @@ import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, methodParams, PACKA
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
-import { createEpic, editParts, readParts } from './holdings.ts'
+import { createEpic, editParts, epicsIn, listEpics, readParts, readStepsAnswer } from './holdings.ts'
+import type { Came } from './headers.ts'
+import { JUMP_SIGNED, paceRefusal, toldWords } from '../src/host/jump.ts'
 import { belongsWords, lookingAt, lookingWords, sameAsLooking, type Here, type Looking, type Unrecorded } from './doorPlaces.ts'
 import { keep } from './kehikot.ts'
-import { MISSING_SAID, projectById, type Project } from './projects.ts'
+import { listProjects, MISSING_SAID, projectById, type Project } from './projects.ts'
 import type { Inbox } from './inbox.ts'
 import { activityRowsFor, earlierLines, readInboxText } from './inboxText.ts'
 import { listingText, rolesOf, sourceName } from '../src/host/trackerSources.ts'
@@ -125,6 +127,19 @@ import { releaseForAgents } from '../src/host/moduleReleases.ts'
  *     was folded by an agent, so a person who unfolds it is not fought: there
  *     is nothing left to fold it again. The mark is the page's and is gone
  *     with the press or a reload; the arrangement's file never says who.
+ *
+ * ## Jumping the view, which the person asked for
+ *
+ * "Switching the kehikko or the epic" is on the far side of the line above,
+ * and for an agent acting on its own it stays there. The person moved it for
+ * one tool (#208): "I want to enable Claude to jump me to another
+ * epic/part/project/kehikko." So `jump` moves the view when the person asks
+ * — or step by step through a walkthrough they started — and the rest of the
+ * fold's argument is what makes it bearable: it changes no arrangement and no
+ * data; it acts only on the page on screen; it is signed on the kehikko with
+ * Go back, which restores the person's place exactly; and it is paced. It is
+ * the one door tool that switches project, kehikko or epic. See `jumpOn`
+ * below and `src/host/jump.ts`.
  *
  * ## Where a placed container goes, and when it does not go at all
  *
@@ -283,7 +298,22 @@ export interface Door {
      * listening page has it open.
      */
     openAddress?(kehikko: number, url: string, title?: string): Promise<Pressed | null>
+    /**
+     * An agent's `jump`, carried out by the page that has `kehikko` — the one
+     * on screen — open, which says what came of it and who followed a step.
+     * `null` when no listening page has it open. See `src/host/jump.ts`.
+     */
+    jump?(kehikko: number, ask: { project?: number; kehikko?: string; epic?: string; parts?: string[]; step?: number; title?: string }): Promise<Came | null>
   }
+  /**
+   * When an agent last jumped the view (key 0), for the pace `jump` keeps.
+   * Absent: the door's own, for the life of the process.
+   */
+  jumps?: Map<number, number>
+  /** One line for the host log. Absent: `console.info`. */
+  log?(line: string): void
+  /** The clock `jump`'s pace reads. Absent: `Date.now`. */
+  now?(): number
   /**
    * The Inbox: what the modules said they are doing, and what happened while
    * nobody was looking. Read-only here. See `server/inbox.ts`.
@@ -345,6 +375,7 @@ export const TOOL_NAMES = [
   'pin_version',
   'fold_modules',
   'press_item',
+  'jump',
   'open_address',
   'read_inbox',
   'my_place',
@@ -1008,6 +1039,60 @@ function tools() {
       },
     },
     {
+      name: 'jump',
+      description:
+        'Jump the person’s view: to another project, kehikko, epic, parts of the epic, or a step of it — any of '
+        + 'these, and what you leave out stays where the person is. Use it when the person asks to be taken somewhere '
+        + '("take me to the auth epic", "show me part 3", "open the Wide kehikko in project X"), or step by step during '
+        + 'a walkthrough the person started; never on your own initiative otherwise. It goes as the person’s own '
+        + 'pickers go (another project with the same calm switch), on the page on screen; with no Kehikot page open '
+        + 'nothing moves. A step walks every container on the kehikko to it (kehikot.goto): those that follow — '
+        + 'Journeys lights the step’s card — say so, and the answer names them. Names are resolved strictly: an '
+        + 'unknown project, kehikko, epic, part or step is refused with the ones that exist (read_canvas and my_place '
+        + 'list what is here). The page marks the jump on the kehikko ("Jumped here by an agent") with Go back, which '
+        + 'restores exactly where the person was — project, kehikko, epic, parts and step; tell the person where you '
+        + 'took them and that Go back undoes it. A jump to where the person already is is ignored, and jumps are at '
+        + 'least a few seconds apart. This conversation’s own place (my_place) does not follow the jump; call '
+        + 'set_my_place if it should. Changes no data and no arrangement.',
+      annotations: {
+        title: 'Jump the view',
+        /* It changes what the person sees, never any material. */
+        readOnlyHint: false,
+        destructiveHint: false,
+        /* The same jump twice is one: the second finds the person there and is ignored. */
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: {
+            type: 'string',
+            description: 'A project this host holds: its name, its folder or its id, as my_place and read_canvas print them. Left out: the project on screen.',
+          },
+          kehikko: {
+            type: 'string',
+            description: 'A kehikko of that project: its name or key, as read_canvas prints them. Left out: the one open there.',
+          },
+          epic: {
+            type: 'string',
+            description: 'An epic of that project, by slug (or its exact title). Left out: the epic open there.',
+          },
+          parts: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Parts of that epic to pick, by id or name; [] picks none (the whole epic). Left out: the parts picked there now, or none in another epic.',
+          },
+          step: {
+            type: 'integer',
+            minimum: 1,
+            description: 'A step of that epic, by its 1-based number as the journey numbers it. Left out: no step is walked to.',
+          },
+        },
+        required: [],
+      },
+    },
+    {
       name: 'open_address',
       description:
         'Show a web page in the module on this kehikko that shows pages (the Browser): a design document, a deployed '
@@ -1467,6 +1552,8 @@ export async function call(
     if (args.fresh !== undefined && typeof args.fresh !== 'boolean') return { text: 'storage takes fresh: true or false.', failed: true }
     return { text: storageText(await door.storage(args.fresh === true)), failed: false }
   }
+  /* The page on screen, wherever it is: it names no kehikko of its own. */
+  if (name === 'jump') return jumpOn(args, door)
   const where = decide(door, args)
   if (!where.ok) return { text: where.why, failed: true }
   if (name === 'module_settings') {
@@ -1888,6 +1975,193 @@ async function openAddressOn(
   if (!came.ok) return { text: `Not opened: ${came.why}`, failed: true }
   return {
     text: `Showed ${args.url} on kehikko ${canvas.id} (${canvas.name}), ${how}: ${came.why || 'the module that shows pages has it.'}`,
+    failed: false,
+  }
+}
+
+/** When an agent last jumped the view, for a door that brought no map of its own. One screen: one key. */
+const JUMPS = new Map<number, number>()
+/** How many names a refusal lists before it stops. */
+const LISTED = 30
+
+const listWords = (names: readonly string[]) =>
+  names.length ? `${names.slice(0, LISTED).join(', ')}${names.length > LISTED ? ', …' : ''}` : 'none'
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+const trimmedPath = (path: string) => (path.length > 1 ? path.replace(/\/+$/, '') : path)
+
+/**
+ * `jump`: the person's view moved where an agent asked — another project,
+ * kehikko, epic, parts, a step, or any of them — and marked as the agent's
+ * doing with one press back (#208, widened by the person: "I want to enable
+ * Claude to jump me to another epic/part/project/kehikko").
+ *
+ * The server resolves every name strictly and refuses an unknown one with
+ * what exists, then hands the page on screen ids it can check again. The page
+ * goes as the person's own pickers go (`planJump` and `goPlace` in
+ * `App.tsx`), marks it, and answers who followed a step. Paced here, before
+ * any page hears it; a jump to where the person already is is the page's to
+ * ignore. Logged in the host log, one line. The conversation's place is not
+ * moved: it is what the conversation is ABOUT, and the view is where the
+ * person is looking — `set_my_place` moves the first. See `src/host/jump.ts`.
+ */
+async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text: string; failed: boolean }> {
+  const refuse = (text: string) => ({ text: `${text} Nothing moved.`, failed: true })
+  const text = (value: unknown, name: string): string | undefined | null => {
+    if (value === undefined || value === null) return undefined
+    if (typeof value !== 'string' || !value.trim() || value.length > 512) return null
+    void name
+    return value.trim()
+  }
+  const askedProject = text(args.project, 'project')
+  const askedKehikko = text(args.kehikko, 'kehikko')
+  const askedEpic = text(args.epic, 'epic')
+  if (askedProject === null) return refuse('project, when given, is a project’s name, folder or id, as my_place prints it.')
+  if (askedKehikko === null) return refuse('kehikko, when given, is a kehikko’s name or key, as read_canvas prints it.')
+  if (askedEpic === null) return refuse('epic, when given, is an epic’s slug, e.g. "share-links".')
+  let askedParts: string[] | undefined
+  if (args.parts !== undefined && args.parts !== null) {
+    if (!Array.isArray(args.parts) || args.parts.length > 64 || !args.parts.every((one) => typeof one === 'string' && one.trim() && one.length <= 200)) {
+      return refuse('parts, when given, is a list of part ids or names of the epic, e.g. ["auth"]; [] picks none.')
+    }
+    askedParts = [...new Set((args.parts as string[]).map((one) => one.trim()))]
+  }
+  const step = args.step
+  if (step !== undefined && step !== null && (typeof step !== 'number' || !Number.isInteger(step) || step < 1 || step > 999)) {
+    return refuse('step, when given, is the step’s 1-based number in the epic’s steps, a whole number from 1, e.g. step: 7.')
+  }
+  if (askedProject === undefined && askedKehikko === undefined && askedEpic === undefined && askedParts === undefined && step == null) {
+    return refuse('jump needs somewhere to go: a project, kehikko, epic, parts or step — any of them, and what is left out stays.')
+  }
+
+  /* The page on screen, and only it. */
+  const which = door.which()
+  if (!which.ok) return refuse(`${which.why} jump moves the view of the page on screen.`)
+  const screen = listCanvases(door.db).find((c) => c.id === which.id)
+  if (!screen || screen.project === null) return refuse('The page on screen has no kehikko in a project open.')
+  const projects = listProjects(door.db)
+  const here = projects.find((one) => one.id === screen.project)
+  if (!here) return refuse('The project on screen is not one this host holds any more.')
+
+  /* Each name, strictly: an id, the folder, or the exact name — never a prefix or a guess. */
+  let project = here
+  if (askedProject !== undefined) {
+    const found =
+      projects.find((one) => one.uid === askedProject)
+      ?? projects.find((one) => trimmedPath(one.path) === trimmedPath(askedProject))
+      ?? (projects.filter((one) => same(one.name, askedProject)).length === 1 ? projects.find((one) => same(one.name, askedProject)) : undefined)
+    if (!found) {
+      const two = projects.filter((one) => same(one.name, askedProject)).length > 1
+      return refuse(
+        `${two ? `More than one project is called ${askedProject}; name it by its folder.` : `This host has no project ${askedProject}.`} Its projects: ${listWords(
+          projects.map((one) => `${one.name} (${one.path})`),
+        )}.`,
+      )
+    }
+    if (found.missing) return refuse(missingSaid(found))
+    project = found
+  }
+  const away = project.id !== here.id
+  const kehikot = listCanvases(door.db).filter((c) => c.project === project.id && c.key)
+  let kehikko: Canvas | undefined
+  if (askedKehikko !== undefined) {
+    kehikko =
+      kehikot.find((c) => c.key === askedKehikko)
+      ?? kehikot.find((c) => String(c.id) === askedKehikko)
+      ?? (kehikot.filter((c) => same(c.name, askedKehikko)).length === 1 ? kehikot.find((c) => same(c.name, askedKehikko)) : undefined)
+    if (!kehikko) {
+      return refuse(`${project.name} has no kehikko ${askedKehikko}. Its kehikot: ${listWords(kehikot.map((c) => `${c.name} (key ${c.key})`))}.`)
+    }
+  }
+
+  const subject = readSubject(door.db, project.id)
+  const dir = epicsIn(project.path)
+  const epics = dir ? listEpics(dir) : []
+  let epic: string | null = subject?.scope === 'project' ? null : (subject?.epic ?? null)
+  if (askedEpic !== undefined) {
+    const found = epics.find((one) => one.slug === askedEpic) ?? (epics.filter((one) => one.title && same(one.title, askedEpic)).length === 1 ? epics.find((one) => one.title && same(one.title, askedEpic)) : undefined)
+    if (!found) {
+      return refuse(`${project.name} has no epic ${askedEpic}. Its epics: ${listWords(epics.map((one) => (one.title ? `${one.slug} (${one.title})` : one.slug)))}.`)
+    }
+    epic = found.slug
+  }
+  if ((askedParts !== undefined || step != null) && epic === null) {
+    return refuse(
+      `${project.name} has ${subject?.scope === 'project' ? 'all epics' : 'no epic'} open, and parts and steps are an epic’s: name the epic too. Its epics: ${listWords(epics.map((one) => one.slug))}.`,
+    )
+  }
+
+  let parts: string[] | undefined
+  if (askedParts !== undefined && epic !== null) {
+    const held = (dir ? readParts(dir, epic) : null) ?? []
+    parts = []
+    const unknown: string[] = []
+    for (const one of askedParts) {
+      const found = held.find((part) => part.id === one) ?? held.find((part) => part.heading && same(part.heading, one))
+      if (found) parts.push(found.id)
+      else unknown.push(one)
+    }
+    if (unknown.length) {
+      return refuse(`${epic} has no part ${unknown.join(', ')}. Its parts: ${listWords(held.map((part) => (part.heading ? `${part.heading} (${part.id})` : part.id)))}.`)
+    }
+  }
+
+  let title: string | undefined
+  let unchecked = false
+  if (step != null && epic !== null) {
+    const said = dir ? readStepsAnswer(dir, epic) : null
+    const steps = said && Array.isArray(said.steps) ? (said.steps as { title?: unknown }[]) : null
+    if (steps) {
+      if (!steps.length) return refuse(`Nobody has written steps for ${epic} yet, so there is no step ${step}.`)
+      if ((step as number) > steps.length) {
+        const listed = steps.map((one, i) => `${i + 1} ${typeof one.title === 'string' ? one.title : ''}`.trim())
+        return refuse(`${epic} has ${steps.length} step${steps.length === 1 ? '' : 's'}, so there is no step ${step}. Its steps: ${listWords(listed)}.`)
+      }
+      const found = steps[(step as number) - 1]?.title
+      if (typeof found === 'string' && found.trim()) title = found.trim().slice(0, LIMITS.TITLE)
+    } else {
+      /* Kept where this host cannot read them — a paper's sections: walked anyway, and the containers say. */
+      unchecked = true
+    }
+  }
+
+  const jumps = door.jumps ?? JUMPS
+  const now = door.now ? door.now() : Date.now()
+  const tooSoon = paceRefusal(jumps.get(0), now)
+  if (tooSoon) return { text: tooSoon, failed: true }
+
+  if (!door.headers?.jump) return refuse('This host does not jump the view.')
+  const order = {
+    ...(away ? { project: project.id } : {}),
+    ...(kehikko?.key ? { kehikko: kehikko.key } : {}),
+    ...(askedEpic !== undefined && epic !== null ? { epic } : {}),
+    ...(parts !== undefined ? { parts } : {}),
+    ...(step != null ? { step: step as number } : {}),
+    ...(title ? { title } : {}),
+  }
+  const came = await door.headers.jump(screen.id, order)
+  if (!came) return refuse('The page on screen is not listening right now. If Kehikot is in front of the person, try again in a moment.')
+  if (!came.ok) return { text: `Nothing moved: ${came.why}`, failed: true }
+  if (came.ignored) return { text: `Ignored: ${came.why}`, failed: false }
+  jumps.set(0, now)
+
+  const where = [
+    away || askedProject !== undefined ? `project ${project.name}` : null,
+    kehikko ? `kehikko ${kehikko.name}` : null,
+    askedEpic !== undefined ? `epic ${epic}` : null,
+    parts !== undefined ? (parts.length ? `part${parts.length === 1 ? '' : 's'} ${parts.join(', ')}` : 'the whole epic (no parts picked)') : null,
+    step != null ? `step ${step}${title ? ` (${title})` : ''}` : null,
+  ].filter((one): one is string => one !== null)
+  ;(door.log ?? ((line: string) => console.info(line)))(`jump: an agent jumped the view to ${where.join(', ')}`)
+  const names = new Map((await door.seen()).map((one) => [one.id, one.name ?? one.id]))
+  const placed = door.here ? `${belongsWords(door.here)} It did not follow the jump; set_my_place moves it if this conversation is now about where you went.` : 'This conversation has no recorded place; set_my_place records one.'
+  return {
+    text:
+      `Jumped the view to ${where.join(', ')}.`
+      + (step != null ? ` ${toldWords(came.told ?? [], (id) => names.get(id) ?? id)}` : '')
+      + (unchecked ? ` ${epic}'s steps are kept where this host cannot read them, so step ${step} was not checked here; the containers said whether they have it.` : '')
+      + ` The page says "${step != null && where.length === 1 ? `Moved to step ${step}` : 'Jumped here'} by ${JUMP_SIGNED}" with Go back, which restores where the person was. Tell the person where you took them and that Go back undoes it.`
+      + ` ${placed}`
+      + ' No data and no arrangement changed.',
     failed: false,
   }
 }
@@ -2554,11 +2828,14 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'closed ref closed, folds a container to its header or '
         + 'unfolds it on a kehikko a page has open, and presses an item of a module’s header — a view switch, a '
         + 'toggle, a jump, a run — when the module has marked that item for agents, and shows a web page in the '
-        + 'module on the kehikko that shows pages (open_address; never outside the canvas). It can ADD, FOLD and PRESS; it '
-        + 'cannot remove, move, resize or reorder a container, switch the kehikko, or change which epic is open — '
-        + 'the arrangement belongs to the person looking at it. What this door adds is what they can see arrive and '
-        + 'take off with one press, what it folds or unfolds is marked on the container as an agent’s doing and put '
-        + 'back with one press, and what it presses is said on the container. read_canvas lists each container’s '
+        + 'module on the kehikko that shows pages (open_address; never outside the canvas), and jumps the person’s '
+        + 'view to another project, kehikko, epic, parts or step when they ask for it (jump; or step by step in a '
+        + 'walkthrough they started). It can ADD, FOLD, PRESS and JUMP; it '
+        + 'cannot remove, move, resize or reorder a container — the arrangement belongs to the person looking at it, '
+        + 'and it never jumps the view unasked. What this door adds is what they '
+        + 'can see arrive and take off with one press, what it folds or unfolds is marked on the container as an '
+        + 'agent’s doing and put back with one press, a jump is marked on the kehikko with Go back, which restores '
+        + 'exactly where the person was, and what it presses is said on the container. read_canvas lists each container’s '
         + 'header items and which of them an agent may press; where an item names a tool, the module’s own MCP door '
         + 'is the way to do that. A conversation belongs to a place — a project, an epic, its parts and a kehikko — '
         + 'which can differ from what the person is looking at: my_place says which, and every tool here answers about '

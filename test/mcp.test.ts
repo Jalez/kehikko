@@ -95,10 +95,13 @@ describe('the door says what it is and what it offers', () => {
        an epic's parts, through the writer the person's own picker uses —
        see `test/parts-of-the-epic.test.ts`. And one reads the host's Inbox —
        what needs the person, and what happened while they were away — and
-       marks nothing: seeing and dismissing are the person's. */
+       marks nothing: seeing and dismissing are the person's. And one jumps
+       the view, because the person asked for it (#208): marked with Go back,
+       which restores their place — see `test/jump.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
       'fold_modules',
+      'jump',
       'mark_disposition',
       'module_settings',
       'module_versions',

@@ -12,7 +12,8 @@ import { canShow, gotoProjectIsId, type SharedShow, type ShowAsk, type ShowingMa
  *   handed one project, never the list.
  * - A switch of project is a person's: only from a container on the kehikko in front of them, while
  *   the page has their focus (a click in a module's frame keeps it), and never from a module an
- *   agent's press reached a moment ago. No door tool reaches it.
+ *   agent's press reached a moment ago. An agent's switch is the door's `jump` alone, which the
+ *   person asked for and which is marked with Go back (`host/jump.ts`), never a module it pressed.
  * - `show` goes as `context.show` only to the containers on the kehikko the move ended on whose
  *   manifests say they show that subject.
  */

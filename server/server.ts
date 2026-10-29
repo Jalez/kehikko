@@ -2676,6 +2676,7 @@ const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
   sendAddress: (order) => wakes.address(order),
+  sendJump: (order) => wakes.jump(order),
 })
 
 const inboxRoutes = inboxDesk({

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { skillPath, skillTextIssue, type ModuleSkill } from 'kehikot-module-protocol'
 
+import kehikkoJump from '../skills/kehikko-jump/SKILL.md' with { type: 'text' }
 import kehikotModule from '../skills/kehikot-module/SKILL.md' with { type: 'text' }
 import { OWN_SKILLS, OWN_SKILLS_MODULE } from '../src/host/skills.ts'
 
@@ -21,7 +22,7 @@ import { OWN_SKILLS, OWN_SKILLS_MODULE } from '../src/host/skills.ts'
  * The version is the first twelve hex digits of the text's sha256.
  */
 
-const TEXTS: Readonly<Record<string, string>> = { 'kehikot-module': kehikotModule }
+const TEXTS: Readonly<Record<string, string>> = { 'kehikot-module': kehikotModule, 'kehikko-jump': kehikkoJump }
 
 const sha12 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12)
 

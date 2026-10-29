@@ -1,7 +1,18 @@
 import { headerItemsSchema, sharedAddressSchema, sharedLocationSchema, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
-import type { AddressOrder, PressOrder } from './wake.ts'
+import { toldIn, type Told } from '../src/host/jump.ts'
+import { ARRIVAL_WAIT_MS } from '../src/host/navigate.ts'
+import type { AddressOrder, JumpOrder, PressOrder } from './wake.ts'
+
+/**
+ * How long a `jump` waits for the page: a switch of project may take
+ * `ARRIVAL_WAIT_MS` to arrive, and a step is walked after that.
+ */
+export const JUMP_ANSWER_MS = ARRIVAL_WAIT_MS + 8000
+
+/** A page's answer to an order: a press's, and for a jump, who was told of a step (`jump`). */
+export type Came = Pressed & { told?: Told[]; ignored?: boolean }
 
 /**
  * What the modules on an open kehikko have declared for their headers, as
@@ -91,7 +102,7 @@ interface Posting {
 
 interface Waiting {
   page: string
-  resolve(came: Pressed): void
+  resolve(came: Came): void
   timer: ReturnType<typeof setTimeout>
 }
 
@@ -207,7 +218,26 @@ export class Headers {
     )
   }
 
-  #ask(page: string, send: (id: string) => boolean, late: string, waitMs: number): Promise<Pressed | null> {
+  /**
+   * Ask one page to jump the view where an agent asked, and wait for what
+   * came of it: the same road and the same answer as a press, with who was
+   * told of a step. `null` when the page went away before it could be asked.
+   */
+  jump(
+    page: string,
+    order: Omit<JumpOrder, 'id' | 'page'>,
+    send: (order: JumpOrder) => boolean,
+    waitMs = JUMP_ANSWER_MS,
+  ): Promise<Came | null> {
+    return this.#ask(
+      page,
+      (id) => send({ ...order, id, page }),
+      'The page on screen did not say in time what came of the jump, so it is not known where it ended. read_canvas and my_place say where the person is.',
+      waitMs,
+    )
+  }
+
+  #ask(page: string, send: (id: string) => boolean, late: string, waitMs: number): Promise<Came | null> {
     const id = crypto.randomUUID()
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -224,7 +254,7 @@ export class Headers {
   }
 
   /** A page's answer to an order. `false` when nobody was waiting on that id from that page. */
-  answered(page: string, id: string, came: Pressed): boolean {
+  answered(page: string, id: string, came: Came): boolean {
     const waiting = this.#waiting.get(id)
     if (!waiting || waiting.page !== page) return false
     clearTimeout(waiting.timer)
@@ -245,6 +275,8 @@ export interface HeadersDeps {
   send(order: PressOrder): boolean
   /** Write an address order to that page's streams (protocol 2.16.0). Absent: no agent may hand over an address. */
   sendAddress?(order: AddressOrder): boolean
+  /** Write a jump to that page's streams. Absent: no agent may jump the view. */
+  sendJump?(order: JumpOrder): boolean
   /** Override `PRESS_ANSWER_MS`, for a test. */
   waitMs?: number
 }
@@ -287,7 +319,11 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
       return reply({ ok: false, why: 'An answer to a press names the press, and says whether it was taken.' }, 400)
     }
     const why = typeof body.why === 'string' ? body.why.slice(0, 600) : ''
-    return reply({ ok: held.answered(body.page, body.id, { ok: body.ok, why }) })
+    /* Who a turn to a step told, when the answer is to one; anything that does not parse is none. */
+    const told = body.told === undefined ? null : toldIn(body.told)
+    /* `ignored`: a jump to where the person already is, left alone. */
+    const ignored = body.ignored === true
+    return reply({ ok: held.answered(body.page, body.id, { ok: body.ok, why, ...(told ? { told } : {}), ...(ignored ? { ignored } : {}) }) })
   }
 
   return {
@@ -313,6 +349,13 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         const send = deps.sendAddress
         if (!found || !send) return Promise.resolve(null)
         return held.openAddress(found.page, { kehikko, url, ...(title === undefined ? {} : { title }) }, send, deps.waitMs)
+      },
+      /* An agent's `jump`, handed to the page that has this kehikko (the one on screen) open. `null`: no such page. */
+      jump: (kehikko: number, ask: Omit<JumpOrder, 'id' | 'page'>): Promise<Came | null> => {
+        const found = held.on(kehikko, deps.hears)
+        const send = deps.sendJump
+        if (!found || !send) return Promise.resolve(null)
+        return held.jump(found.page, ask, send, deps.waitMs)
       },
       press: (kehikko: number, module: string, press: Pressing): Promise<Pressed | null> => {
         const found = held.on(kehikko, deps.hears)

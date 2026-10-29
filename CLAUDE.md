@@ -462,6 +462,19 @@
   Keep both. `/host/headers` and `/host/pressed` answer only this host's own
   page (`fromThePage` in `server/anyway.ts`); a new route a page posts state to
   gets the same check.
+- An agent may jump the person's view when the person asks for it (or step by
+  step through a walkthrough they started): `jump { project?, kehikko?, epic?,
+  parts?, step? }` (`server/mcp.ts`), the ONE door tool that switches project,
+  kehikko or epic. What it leaves out stays. The server resolves names strictly
+  and refuses an unknown one with what exists, paces jumps (`paceRefusal`) and
+  logs one line; the page on screen plans it again (`planJump`, which ignores a
+  jump to where the person is), goes as the person's own pickers go (`goPlace`
+  in `App.tsx`: `onProject`, the calm switch, then `gotoHere`), walks a step
+  (`kehikot.goto`) and marks it with Go back, which restores project, kehikko,
+  epic, parts and step exactly (`JumpMark.tsx`). It never moves `my_place`.
+  Every rule is in `src/host/jump.ts`. A module's `view.goto { epic, step }`
+  walks the other containers the same way. `/kehikko-jump` (`skills/`) is the
+  skill that says when to use it.
 - An order to a page (`Wakes.press`) goes to that page's streams only. Every
   other kind of news on `/host/watch` goes to everyone and says only that there
   is something to re-read — except where it carries the small thing itself
@@ -904,8 +917,9 @@
   project. Never list the projects to a module.
 - A switch of project is a PERSON's: only from a container on the kehikko on screen, with the page
   focused, and never within `AGENT_PRESS_HOLD_MS` of an agent's press handed to that module
-  (`agentPressedAt`, noted in `orderedRef` before the press is sent). No MCP tool switches project;
-  do not add one, and do not let `press_item` around this.
+  (`agentPressedAt`, noted in `orderedRef` before the press is sent). An agent switches project
+  only through the door's `jump`, which the person asked for and which is marked with Go back
+  (`src/host/jump.ts`); do not let `press_item` around that.
 - `context.show` goes only to the containers on the kehikko the move ended on whose manifests say
   `shows` the subject (`showReceivers`, through `contextsFor`). In memory by kehikko id, like an
   address; never stored. The host names no module.

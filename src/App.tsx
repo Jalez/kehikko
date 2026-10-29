@@ -58,7 +58,10 @@ import {
   type Placement,
   type AddressOrder,
   type PressOrder,
+  type JumpOrder,
 } from './host/canvases.ts'
+import { markAfter, markStands, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
+import { JumpMark } from './canvas/JumpMark.tsx'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
@@ -372,12 +375,25 @@ export function App() {
   const [trouble, setTrouble] = useState<string | null>(null)
   const [looking, setLooking] = useState(true)
   const [canvases, setCanvases] = useState<Canvas[]>([])
+  const canvasesRef = useRef(canvases)
+  canvasesRef.current = canvases
   /**
    * Who folded or unfolded which containers on the open kehikko, when it was
    * not the person: an agent at the host's door, or a module asking with
    * `view.fold`. See `host/folds.ts`.
    */
   const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
+  /**
+   * An agent's jump of the view (`jump`), with where the person was, and the
+   * step the open kehikko was last walked to. The page's alone; see
+   * `host/jump.ts`.
+   */
+  const [jumpMark, setJumpMark] = useState<JumpMarkShape | null>(null)
+  const jumpMarkRef = useRef(jumpMark)
+  jumpMarkRef.current = jumpMark
+  const standingStep = useRef<{ kehikko: number; epic: string; step: number } | null>(null)
+  /* An agent's jump into another project, carried on once that project's epics are read there. */
+  const agentArrival = useRef<{ project: number; cleared: boolean; timer: number; resolve(answer: GotoAnswer): void; apply(): GotoAnswer } | null>(null)
   const [openId, setOpenIdNow] = useState<number | null>(null)
   const openIdRef = useRef(openId)
   openIdRef.current = openId
@@ -497,6 +513,9 @@ export function App() {
      and the open kehikko are declared; `lookRef`'s arrangement, for its reason. */
   const orderedRef = useRef<((order: PressOrder) => void) | null>(null)
   const addressedRef = useRef<((order: AddressOrder) => void) | null>(null)
+  const jumpedRef = useRef<((order: JumpOrder) => void) | null>(null)
+  /* A module's `view.goto { epic, step }`: walk the others there. Assigned where the frames are. */
+  const walkStepRef = useRef<(target: { epic: string; step: number }, from: string) => void>(() => {})
   const repostRef = useRef<(() => void) | null>(null)
   /* The Inbox's page-side hook is called far below this; the stream and the
      emit above reach it through refs, for `orderedRef`'s reason. */
@@ -926,6 +945,8 @@ export function App() {
       () => void relistRef.current?.(),
       /* An agent's `open_address`, handed to this page to show. */
       (order) => addressedRef.current?.(order),
+      /* An agent's `jump`, handed to this page, the one on screen. */
+      (order) => jumpedRef.current?.(order),
     )
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
@@ -2128,6 +2149,8 @@ export function App() {
          module pointing at something that is not in front of them any more, and
          "nothing is selected" is a state they all have to handle anyway. */
       /* The project's epic, not this kehikko's: there is no kehikko's. */
+      /* Through a ref: the open kehikko and its frames are this render's. */
+      walkStep: (target, from) => walkStepRef.current(target, from),
       showEpic: (epic) => {
         changeSubjectRef.current({ epic, selection: [] })
         /* The selection went, so its setter goes with it: a row saying a
@@ -3351,6 +3374,149 @@ export function App() {
     void answerPress(order.id, out.outcome === 'shown' ? { ok: true, why: '' } : { ok: false, why: out.why })
   }
 
+  /**
+   * Where the person is now, as a jump moves it and Go back restores it. The
+   * step is the last one the open kehikko was walked to on this epic. Through
+   * a ref, so that a jump's later half — after a switch has arrived — reads
+   * the screen as it is then. See `host/jump.ts`.
+   */
+  const placeNow: ViewPlace | null =
+    projectId === null
+      ? null
+      : {
+          project: projectId,
+          kehikko: open?.key ?? null,
+          epic: about.epic,
+          ...(about.scope === 'project' ? { scope: 'project' as const } : {}),
+          parts: [...about.parts],
+          step: standingStep.current && standingStep.current.kehikko === openId && standingStep.current.epic === about.epic ? standingStep.current.step : null,
+        }
+  const placeRef = useRef(placeNow)
+  placeRef.current = placeNow
+
+  /** The containers on the open kehikko, but `except`, walked to a step: a person's press in Flows. */
+  const turnHere = (target: { epic: string; step: number }, except?: string) => {
+    const canvas = openRef.current
+    if (!canvas) return Promise.resolve([])
+    standingStep.current = { kehikko: canvas.id, epic: target.epic, step: target.step }
+    return walkAll(presses, walkersOf(canvas.placements.map((placement) => placement.i), () => true, except), target)
+  }
+  /* A module's `view.goto { epic, step }` — a person's press on a step of the
+     journey's tree in Flows: their own step, so an agent's mark goes. */
+  walkStepRef.current = (target, from) => {
+    setJumpMark(null)
+    void turnHere(target, from)
+  }
+
+  /** Whether the screen shows `target` (the step aside), polled while a switch settles. */
+  const untilThere = async (target: ViewPlace, ms = ARRIVAL_WAIT_MS): Promise<ViewPlace | null> => {
+    const until = Date.now() + ms
+    for (;;) {
+      const now = placeRef.current
+      if (now && sameView({ ...target, kehikko: target.kehikko ?? now.kehikko }, now)) return now
+      if (Date.now() > until) return null
+      await new Promise((done) => window.setTimeout(done, 100))
+    }
+  }
+
+  /**
+   * Go to a place as the person's own pickers go: another project with the
+   * calm switch (`onProject`), then the kehikko, epic and parts in it
+   * (`gotoHere`, or "All epics"), then the step walked once the frames there
+   * are up. Answers where it arrived and who was told of the step.
+   */
+  const goPlace = async (target: ViewPlace): Promise<{ ok: true; at: ViewPlace; told?: Told[] } | { ok: false; why: string }> => {
+    const start = placeRef.current
+    if (!start) return { ok: false, why: 'No project is open on this page, so nothing moved.' }
+    const apply = (): GotoAnswer => {
+      const now = placeRef.current
+      if (now && sameView({ ...target, kehikko: target.kehikko ?? now.kehikko }, now)) return { outcome: 'moved', epic: now.epic, why: '' }
+      if (target.scope === 'project' || target.epic === null) {
+        const canvas = target.kehikko === null ? null : inProject(canvasesRef.current, target.project).find((one) => one.key === target.kehikko)
+        if (canvas) setOpenId(canvas.id)
+        changeSubjectRef.current(target.scope === 'project' ? { scope: 'project' } : { epic: null })
+        return { outcome: 'moved', epic: null, why: '' }
+      }
+      return gotoHereRef.current({ epic: target.epic, parts: target.parts, ...(target.kehikko !== null ? { kehikko: target.kehikko } : {}) })
+    }
+    let went: GotoAnswer
+    if (target.project !== start.project) {
+      went = await new Promise<GotoAnswer>((resolve) => {
+        agentArrival.current?.resolve({ outcome: 'declined', epic: null, why: 'Another jump came first.' })
+        const name = projects.find((one) => one.id === target.project)?.name ?? 'that project'
+        const timer = window.setTimeout(() => {
+          if (agentArrival.current?.timer !== timer) return
+          agentArrival.current = null
+          resolve({ outcome: 'declined', epic: null, why: NAVIGATE_SAYS.notArrived(name) })
+        }, ARRIVAL_WAIT_MS)
+        agentArrival.current = { project: target.project, cleared: false, timer, resolve, apply }
+        onProject(target.project)
+      })
+    } else {
+      went = apply()
+    }
+    if (went.outcome !== 'moved') return { ok: false, why: went.why || 'It did not move.' }
+    const at = await untilThere(target)
+    if (!at) return { ok: false, why: 'The view did not arrive there in time.' }
+    if (target.step === null || target.epic === null) return { ok: true, at }
+    const epic = target.epic
+    const step = target.step
+    const told = await walkSoon(
+      presses,
+      () => {
+        const now = placeRef.current
+        const canvas = openRef.current
+        return now && canvas && sameView(now, at) ? canvas.placements.map((placement) => placement.i) : null
+      },
+      { epic, step },
+    )
+    const canvas = openRef.current
+    if (canvas) standingStep.current = { kehikko: canvas.id, epic, step }
+    return { ok: true, at: { ...at, step }, told }
+  }
+
+  /**
+   * An agent's `jump`, made by this page: planned from where the person is
+   * (`planJump` in `host/jump.ts`, which refuses what this page does not hold
+   * and ignores a jump to where they already are), gone to as the person's
+   * own pickers go, and marked with Go back. Answered like a press.
+   */
+  const jumpsMade = useRef<string[]>([])
+  jumpedRef.current = (order) => {
+    if (jumpsMade.current.includes(order.id)) return
+    jumpsMade.current = [...jumpsMade.current.slice(-31), order.id]
+    const before = placeRef.current
+    if (!before) {
+      void answerPress(order.id, { ok: false, why: 'No project is open on the page on screen.' })
+      return
+    }
+    const plan = planAgentJump(order, before, {
+      projects,
+      kehikotOf: (project) => inProject(canvasesRef.current, project).flatMap((one) => (one.key ? [{ key: one.key, name: one.name }] : [])),
+      subjectOf: (project) => subjectOf(subjects, project),
+    })
+    if (plan.kind !== 'go') {
+      void answerPress(order.id, plan.kind === 'ignored' ? { ok: true, ignored: true, why: plan.why } : { ok: false, why: plan.why })
+      return
+    }
+    void (async () => {
+      const came = await goPlace(plan.target)
+      if (!came.ok) {
+        await answerPress(order.id, { ok: false, why: came.why })
+        return
+      }
+      setJumpMark((was) => markAfter(was, before, came.at, order.title))
+      await answerPress(order.id, { ok: true, why: '', ...(came.told ? { told: came.told } : {}) })
+    })()
+  }
+  /* Go back: the person's place, exactly — project, kehikko, epic, parts and step. Theirs, so not paced or marked. */
+  const jumpBack = () => {
+    const mark = jumpMarkRef.current
+    setJumpMark(null)
+    if (mark) void goPlace(mark.back)
+  }
+  const shownJumpMark = markStands(jumpMark, placeNow)
+
   /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
   const pinViews = useMemo(() => {
     const map = new Map<string, PinView>()
@@ -3750,6 +3916,19 @@ export function App() {
     goElsewhere.current = null
     placeGo.go(pending.entry, pending.project)
   }, [projectId, held, placeGo.go])
+  /* An agent's jump into another project, carried on there the same way. */
+  useEffect(() => {
+    const pending = agentArrival.current
+    if (!pending || pending.project !== projectId) return
+    if (held === null) {
+      pending.cleared = true
+      return
+    }
+    if (!pending.cleared) return
+    agentArrival.current = null
+    window.clearTimeout(pending.timer)
+    pending.resolve(pending.apply())
+  }, [projectId, held])
   /* A module's `view.goto` into another project, gone to once that project's
      epics are read there — `goElsewhere`'s rule. */
   useEffect(() => {
@@ -4761,6 +4940,8 @@ export function App() {
           host itself; said once. See `Followed.tsx`. */}
       <Followed projects={projects} />
       <WentTo note={placeGo.note} onClose={placeGo.clearNote} />
+      {/* An agent's jump, signed, with Go back. See `JumpMark.tsx`. */}
+      <JumpMark mark={shownJumpMark} onBack={jumpBack} onClose={() => setJumpMark(null)} />
 
       {/* The project picker a module gets instead of a listing. Owned by the
           host for the reason every dialog here is — a modal inside a 220-pixel
