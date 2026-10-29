@@ -732,7 +732,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
       return url.startsWith('/host/updates')
         ? {
             ...check([checkout('kehikot.terminal', 0), checkout('notes', 0)]),
-            ...(restarted ? {} : { older: { 'kehikot.terminal': 'Terminal is running older code than its checkout. Restart it to run them.' }, kept: ['kehikot.terminal', 'notes'] }),
+            ...(restarted ? {} : { older: { 'kehikot.terminal': 'Terminal is running older code than its checkout. Restart it to run them.' }, kept: ['kehikot.terminal', 'notes'], holds: ['kehikot.terminal'] }),
           }
         : {}
     }

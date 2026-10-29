@@ -902,6 +902,9 @@ function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
     if (sweeping === running) sweeping = null
     seen = running
   })
+  void running.then((swept) => {
+    for (const presence of swept.presences) if (presence.module) holdsSaid.set(presence.id, presence.module.holds)
+  }, () => undefined)
   sweeping = running
   sweepingKept = kept
   /* The first sweep is also when "Keep modules up to date automatically" reads the copies (`bootAutoUpdates`). */
@@ -921,6 +924,13 @@ function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
  * since died, so a stale belief cannot become a wrong signal.
  */
 let seen: Promise<Swept> | null = null
+
+/**
+ * What each module's manifest last said it holds (protocol 2.33.0, `holds`), by id, for what has to
+ * be answered without a sweep: whether an automatic update may restart it (`holdsShells`). A module
+ * that never answered is not here, which reads as having said nothing.
+ */
+const holdsSaid = new Map<string, readonly string[] | undefined>()
 
 /**
  * The programs the host started, and when.
@@ -1599,7 +1609,7 @@ const auto = new AutoUpdates({
       pinned: pinSummary(listCanvases(db))[id]?.versions ?? [],
       running: nursery.holds(id) || answeredBy.has(id),
       onScreen: neededNow().has(id),
-      holdsShells: holdsShells(id),
+      holdsShells: holdsShells({ id, holds: holdsSaid.get(id) }),
       kept: registration.keep === true,
       busy: progress.has(id) || inHand.has(id) || releases.applying(id) || builds.busy(id),
     }
@@ -3254,7 +3264,8 @@ async function answerRequest(request: Request): Promise<Response> {
     if (url.pathname === '/host/layouts' && request.method === 'GET') {
       const id = Number(url.searchParams.get('project'))
       const project = Number.isInteger(id) && id > 0 ? projectById(db, id) : null
-      return json(readShelves(project?.path ?? null))
+      /* Ours as the published list has them (`official.layouts`), then the project's and the person's. */
+      return json(readShelves(project?.path ?? null, official.layouts()))
     }
 
     /* "Save this kehikko as a layout…": the project's shelf or the person's.
@@ -3889,6 +3900,8 @@ async function answerRequest(request: Request): Promise<Response> {
         /* Which running modules are kept: the ones whose row offers "Restart
            anyway" where an ordinary restart would only be refused. */
         kept: await keptAndRunning(),
+        /* Which modules a restart ends live sessions in (`holdsShells`): their row's restart says so. */
+        holds: [...registered.keys()].filter((id) => holdsShells({ id, holds: holdsSaid.get(id) })),
         /* The protocol package this host has: what "you have" is compared
            with when the page does not know the app's version. */
         protocol: PACKAGE_VERSION,

@@ -9,7 +9,7 @@ import { ensureSettings, writeSettings } from '../server/agentSettings.ts'
 import { syncOnce, tidySkills, type ModuleSeen } from '../server/agentSync.ts'
 import { HOST_ID } from '../server/kehikot.ts'
 import { ownSkillAt, ownSkillDeclarations, withHost } from '../server/ownSkills.ts'
-import { claudeSkillsDir } from '../server/skills.ts'
+import { claudeSkillsDir, everywhereFor } from '../server/skills.ts'
 import { DEFAULT_SETTINGS } from '../src/host/agentSettings.ts'
 import { BUILD_A_MODULE_GUIDE, OWN_SKILLS, OWN_SKILLS_MODULE } from '../src/host/skills.ts'
 
@@ -116,5 +116,36 @@ describe('Kehikot’s own skills', () => {
     expect(tidySkills(db, root, registry, () => {}).removed).toEqual([])
     expect(existsSync(join(root, 'kehikot-module', 'SKILL.md'))).toBe(true)
     expect(withHost(null)).toBeNull()
+  })
+})
+
+/*
+ * The host's own skills reach EVERY agent module that installs skills for its own agent (protocol
+ * 2.23.0, `agentSessions.installsSkills`), by that declaration and no id: they are in the
+ * `everywhere` a module is told at `POST /host/place` (`everywhereFor`). Stand-in ids, so no
+ * program is named.
+ */
+describe('the host’s own skills, to any agent module that installs skills', () => {
+  const seen = [
+    { id: HOST_ID, origin: ORIGIN, skills: ownSkillDeclarations(), agent: false },
+    { id: 'kehikot.someagent', origin: 'http://127.0.0.1:9101', skills: [{ name: 'someagent-here', summary: 'x', version: '1' }], agent: true },
+    { id: 'kehikot.otheragent', origin: 'http://127.0.0.1:9102', skills: [{ name: 'otheragent-here', summary: 'x', version: '1' }], agent: true },
+  ]
+
+  test('each agent module is told every one of them, filed under the host, with the host’s origin', () => {
+    for (const asker of ['kehikot.someagent', 'kehikot.otheragent']) {
+      const told = everywhereFor(asker, seen, () => true)
+      const own = told.filter((one) => one.module === HOST_ID)
+      expect(own.map((one) => one.name)).toEqual(OWN_SKILLS.map((one) => one.name))
+      expect(own.every((one) => one.origin === ORIGIN)).toBe(true)
+      /* Its own skills are its agent's; another agent module's are written for that one. */
+      expect(told.map((one) => one.name)).toContain(`${asker.slice('kehikot.'.length)}-here`)
+      expect(told.some((one) => one.module !== HOST_ID && one.module !== asker)).toBe(false)
+    }
+  })
+
+  test('not when the person keeps the host’s skills out of every conversation', () => {
+    const told = everywhereFor('kehikot.someagent', seen, (module) => module !== HOST_ID)
+    expect(told.some((one) => one.module === HOST_ID)).toBe(false)
   })
 })

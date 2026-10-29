@@ -129,6 +129,8 @@ export interface Check {
   previews: Record<string, Preview>
   /** Running modules whose registration says to keep them: an ordinary restart of one is refused. Empty from an older host. */
   kept: string[]
+  /** Modules a restart ends live shells or sessions in (`holdsShells`): their restart button says so. Empty from an older host. */
+  holds: string[]
   /** The protocol package this host has; null from an older host. What "you have" says outside the desktop app. */
   protocol: string | null
   /** Installed copies being built, and the ones whose build did not finish (`moduleBuilds.ts`). Empty from an older host. */
@@ -169,6 +171,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: s
       older: z.record(z.string(), z.string()).default({}),
       previews: z.record(z.string(), z.enum(['page', 'restart', 'self', 'kept'])).default({}),
       kept: z.array(z.string()).default([]),
+      holds: z.array(z.string()).default([]),
       protocol: z.string().nullable().default(null),
       /* One a later host words differently is dropped, not refused. */
       builds: z.record(z.string(), buildToldSchema).default({}).catch({}),
@@ -185,6 +188,7 @@ export async function fetchUpdates(fetch: boolean, signal?: AbortSignal, app?: s
     older: body.older,
     previews: body.previews,
     kept: body.kept,
+    holds: body.holds,
     protocol: body.protocol,
     builds: body.builds,
     auto: body.auto,

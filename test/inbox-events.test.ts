@@ -13,9 +13,10 @@ import { addProject } from '../server/projects.ts'
 import {
   Burst,
   DEFAULT_CHIME,
-  DEFAULT_EVENT_SOUNDS,
   chimeFor,
   chimeFrom,
+  declaredSound,
+  eventDefault,
   chimePatched,
   eventSoundFor,
   presetOf,
@@ -115,11 +116,27 @@ describe('an event’s own sound', () => {
   const file = { id: '0123456789abcdef', name: 'ding.wav', ext: 'wav', bytes: 10, seconds: 1 }
   const settings = (more: Partial<ChimeSettings> = {}): ChimeSettings => ({ ...DEFAULT_CHIME, files: [file], ...more })
 
-  test('the host ships a generic Answer chime, and it is the default for research-complete from any module', () => {
+  test('the host ships a generic Answer chime; an event plays it when its manifest names it (protocol 2.33.0), from any module', () => {
     expect(presetOf('answer')?.name).toBe('Answer')
-    expect(DEFAULT_EVENT_SOUNDS['research-complete']).toEqual({ type: 'preset', id: 'answer' })
-    expect(chimeFor(settings(), 'done', 'kehikot.claude', 'research-complete')).toEqual({ sound: { type: 'preset', id: 'answer' }, asWritten: true })
-    expect(chimeFor(settings(), 'done', 'kehikot.other', 'research-complete')).toEqual({ sound: { type: 'preset', id: 'answer' }, asWritten: true })
+    expect(declaredSound('answer')).toEqual({ type: 'preset', id: 'answer' })
+    expect(chimeFor(settings(), 'done', 'kehikot.someagent', 'research-complete', 'answer')).toEqual({ sound: { type: 'preset', id: 'answer' }, asWritten: true })
+    expect(chimeFor(settings(), 'done', 'kehikot.other', 'build-green', 'bell')).toEqual({ sound: { type: 'preset', id: 'bell' }, asWritten: true })
+    expect(eventDefault('answer')).toEqual({ type: 'preset', id: 'answer' })
+  })
+
+  test('the host keeps no table of event ids: an event whose manifest names no sound plays its kind', () => {
+    const kindSound = { sound: DEFAULT_CHIME.sounds.done, asWritten: false }
+    expect(chimeFor(settings(), 'done', 'kehikot.someagent', 'research-complete')).toEqual(kindSound)
+    expect(eventDefault()).toEqual({ type: 'kind' })
+    /* A key this host has no sound for is the kind's too; a renamed one is read as its new id. */
+    expect(declaredSound('chimes2')).toBeNull()
+    expect(chimeFor(settings(), 'done', 'kehikot.someagent', 'research-complete', 'chimes2')).toEqual(kindSound)
+    expect(declaredSound('research')).toEqual({ type: 'preset', id: 'answer' })
+  })
+
+  test('what the person chose wins over what the manifest names', () => {
+    const chosen = settings({ events: { 'kehikot.someagent': { 'research-complete': { type: 'kind' } } } })
+    expect(chimeFor(chosen, 'done', 'kehikot.someagent', 'research-complete', 'answer')).toEqual({ sound: DEFAULT_CHIME.sounds.done, asWritten: false })
   })
 
   test('a sound saved under the chime’s former id, research, is read as Answer', () => {

@@ -222,7 +222,7 @@ describe.skipIf(!inChild)('the chime, rendered', () => {
 
   test('each declared event has a picker under its module, by its own words; the Answer chime by default, played as written', async () => {
     const modules = [
-      { id: 'kehikot.claude', name: 'Claude', events: [{ id: 'research-complete', says: 'Research complete', state: 'done' as const }] },
+      { id: 'kehikot.claude', name: 'Claude', events: [{ id: 'research-complete', says: 'Research complete', state: 'done' as const, sound: 'answer' }] },
       { id: 'kehikot.tests', name: 'Tests' },
     ]
     const el = await mount(<Panels.ChimePanel modules={modules} />)

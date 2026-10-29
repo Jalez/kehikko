@@ -223,7 +223,11 @@ export interface FramedModule {
   /** What the module can be asked to show (protocol 2.28.0): who is told `context.show`. Absent: nothing. */
   shows?: string[]
   /** The Inbox events the module declares (protocol 2.31.0): what an item's `event` is held to, and what Settings lists. Absent: none. */
-  events?: { id: string; says: string; state: 'working' | 'attention' | 'done' }[]
+  events?: { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[]
+  /** What the module can open when the host points the canvas at it (protocol 2.33.0): `file`. Absent: nothing. */
+  opens?: string[]
+  /** What a restart of the module ends (protocol 2.33.0): `live-sessions`. Absent: it says nothing. */
+  holds?: string[]
   declares: Manifest['declares']
   /**
    * What the server answering now is built from: its version, the commit it
@@ -577,6 +581,8 @@ export async function look(
       reacts: manifest.reacts,
       ...(manifest.shows?.length ? { shows: [...manifest.shows] } : {}),
       ...(manifest.events?.length ? { events: manifest.events.map((one) => ({ ...one })) } : {}),
+      ...(manifest.opens ? { opens: [...manifest.opens] } : {}),
+      ...(manifest.holds ? { holds: [...manifest.holds] } : {}),
       declares: manifest.declares,
       build: manifest.build ?? null,
     },

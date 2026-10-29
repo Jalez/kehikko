@@ -325,6 +325,7 @@ describe('to a module that installs skills for its own agent, the skills kept fo
         ...about,
         { id: 'kehikot.codex', name: 'Codex', skills: [{ name: 'kehikot-here' }], manifest: { declares: { agentSessions: { loadsSkills: true, installsSkills: true } } } },
         { id: 'kehikot.claude', name: 'Claude', skills: [{ name: 'kehikot-here' }], manifest: { declares: { agentSessions: { loadsSkills: true } } } },
+        { id: 'kehikot.someagent', name: 'Some agent', skills: [], manifest: { declares: { agentSessions: { installsSkills: true } } } },
       ],
       everywhere: async (asker) => {
         asking.push(asker)
@@ -351,5 +352,13 @@ describe('to a module that installs skills for its own agent, the skills kept fo
     const claude = (await (await issueAs(one, 'kehikot.claude'))!.json()) as { everywhere?: unknown }
     expect(claude.everywhere).toBeUndefined()
     expect(asking).toEqual(['kehikot.codex'])
+  })
+
+  test('any module that declares it is told them, whatever its id: a stand-in agent module', async () => {
+    const asking: string[] = []
+    const one = deskWith(asking)
+    const said = (await (await issueAs(one, 'kehikot.someagent'))!.json()) as { everywhere?: unknown }
+    expect(said.everywhere).toEqual(kept)
+    expect(asking).toEqual(['kehikot.someagent'])
   })
 })

@@ -146,10 +146,21 @@ describe('the decision table', () => {
     )
   })
 
-  test('which modules hold live work: Terminal, Claude, Codex — under either spelling', () => {
-    expect(['kehikot.terminal', 'kehikot.claude', 'kehikot.codex', 'roadmap.terminal'].every(holdsShells)).toBe(true)
-    expect(holdsShells('kehikot.journeys')).toBe(false)
-    expect(restartNowWord('kehikot.codex')).toBe('Restart now (ends its shells)')
+  test('which modules hold live work: whatever says holds live-sessions (protocol 2.33.0), by any id', () => {
+    expect(holdsShells({ id: 'kehikot.someagent', holds: ['live-sessions'] })).toBe(true)
+    expect(holdsShells({ id: 'kehikot.someagent', holds: ['cache'] })).toBe(false)
+    expect(holdsShells({ id: 'kehikot.someagent' })).toBe(false)
+    expect(holdsShells({ id: 'kehikot.journeys' })).toBe(false)
+    expect(restartNowWord({ holds: true })).toBe('Restart now (ends its shells)')
+  })
+
+  test('a copy released before holds was a word keeps its old answer, until it says anything about holds', () => {
+    for (const id of ['kehikot.terminal', 'kehikot.claude', 'kehikot.codex']) {
+      expect(holdsShells({ id })).toBe(true)
+      expect(holdsShells({ id, holds: null })).toBe(true)
+      /* Once it says holds, what it says is the answer. */
+      expect(holdsShells({ id, holds: [] })).toBe(false)
+    }
   })
 })
 

@@ -102,10 +102,11 @@ describe('a module row', () => {
   test('a kept module is told plainly, and its button says what restarting costs', () => {
     const kept = moduleRow({ ...checkout('terminal', 0), name: 'Terminal' }, null, null, undefined, { stale: 'its registration says to keep it, and so on.', kept: true })
     expect(kept.reason).toBe("Terminal was updated, but it's kept running so your open shells aren't cut off. Restart it when you're ready; restarting ends the shells running in it.")
-    expect(restartNowWord('kehikot.terminal')).toBe('Restart now (ends its shells)')
-    expect(restartNowWord('kehikot.claude')).toBe('Restart now (ends its shells)')
-    expect(restartNowWord('kehikot.codex')).toBe('Restart now (ends its shells)')
-    expect(restartNowWord('kehikot.notes')).toBe('Restart now')
+    expect(kept.holds).toBeUndefined()
+    const holding = moduleRow({ ...checkout('terminal', 0), name: 'Terminal' }, null, null, undefined, { kept: true, holds: true })
+    expect(holding.holds).toBe(true)
+    expect(restartNowWord(holding)).toBe('Restart now (ends its shells)')
+    expect(restartNowWord(kept)).toBe('Restart now')
   })
 
   test('what the server says is read when this page did nothing: an update still running, a module left on old code', () => {

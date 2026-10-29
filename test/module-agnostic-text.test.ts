@@ -26,6 +26,8 @@ import ts from 'typescript'
  * data (a registration, `modules.json`, a manifest) is never in the source and
  * passes too: that is how the host says a module's name.
  *
+ * Hard-coded module IDS in code are held by the sibling `module-agnostic-ids.test.ts`.
+ *
  * The allowlist is exact: a file, the word, and why. A new entry needs a reason
  * a reviewer would accept; "the module does it" is not one — say "a module".
  */
@@ -53,9 +55,7 @@ const ALLOWED: readonly { file: RegExp; word: string; why: string }[] = [
   { file: /^server\/callers\.ts$/, word: 'Claude', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^server\/callers\.ts$/, word: 'Codex', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Claude', why: 'the title of a trademark icon a module names as its own (`brand:claude`)' },
-  /* The built-in layouts are named for ways of working; two share a word with a module. */
-  { file: /^src\/host\/layouts\.ts$/, word: 'Review', why: 'the layout called Review, a way of working' },
-  { file: /^src\/host\/layouts\.ts$/, word: 'Learning', why: 'the layout called Learning, a way of working' },
+  /* The built-in layouts (data in modules.json) are named for ways of working; two share a word with a module. */
   { file: /^src\/host\/tour\.ts$/, word: 'Review', why: 'names the Review and Learning layouts' },
   { file: /^src\/host\/tour\.ts$/, word: 'Learning', why: 'names the Review and Learning layouts' },
 ]

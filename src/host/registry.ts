@@ -55,7 +55,11 @@ export interface FramedModule {
    * The Inbox events the module declares (protocol 2.31.0): Settings lists each
    * under the module, by its `says`, for a sound of its own. Absent: none.
    */
-  events?: { id: string; says: string; state: 'working' | 'attention' | 'done' }[]
+  events?: { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[]
+  /** What the module can open when the canvas is pointed at it (protocol 2.33.0): `file`. Absent: nothing. */
+  opens?: string[]
+  /** What a restart of the module ends (protocol 2.33.0): `live-sessions`. Absent: it says nothing. */
+  holds?: string[]
   /** `skills` (protocol 2.5.0): the agent skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string

@@ -63,7 +63,7 @@ export const HOST_SETTINGS_API: SettingsApi = {
 }
 
 /* ------------------------------------------------------------------ *
- * The project a form is for, and whether the Editor can show a file
+ * The project a form is for, and whether a module can open a file
  * ------------------------------------------------------------------ */
 
 export interface SettingsProject {
@@ -72,7 +72,7 @@ export interface SettingsProject {
 }
 
 /**
- * Show a file read-only in the Editor module, when one is on the open kehikko: the page sets this
+ * Show a file read-only in a module that opens files (`opens: ['file']`, protocol 2.33.0): the page sets this
  * (`App.tsx`), and answers whether it could. Without one, the file is shown in a dialog here.
  */
 let opener: ((path: string) => boolean) | null = null
@@ -96,7 +96,7 @@ export function ModuleSettingsForm({
   /** The project's id; null for a module whose settings are all machine settings, or none open. */
   project: number | null
   api?: SettingsApi
-  /** The file was put in the Editor: the caller may close itself. */
+  /** The file was put in a module that opens files: the caller may close itself. */
   onOpened?(): void
 }) {
   const [answer, setAnswer] = useState<SettingsAnswer | null>(null)
@@ -360,7 +360,7 @@ function Line({ value, busy, label, onChange }: { value: string; busy: boolean; 
   )
 }
 
-/** The file, read-only, when no Editor is on the kehikko to show it in. */
+/** The file, read-only, when no module here opens files. */
 function FileDialog({ shown, name, onClose }: { shown: { file: string; text: string } | null; name: string; onClose(): void }) {
   return (
     <Dialog open={shown !== null} onOpenChange={(open) => (open ? null : onClose())}>

@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 
+import { BUILT_IN_LAYOUTS, readBuiltInLayouts, type Layout } from '../src/host/layouts.ts'
 import { HOST_REPO, readOfficial, type Official } from './official.ts'
 import { because } from './traffic.ts'
 
@@ -25,6 +26,11 @@ import { because } from './traffic.ts'
  *    taken off the published list; this release vouched for it and still
  *    offers it. A module is never taken away by the list — one that is
  *    installed is a registration on this machine, which nothing here touches.
+ *
+ * The built-in layouts (`layouts`, beside `modules`; `src/host/layouts.ts`)
+ * are taken whole: a fetched list whose layouts read replaces the ones the host
+ * was built with; one without them, or with any that does not read, leaves the
+ * host's own. The module list is used either way.
  *
  * An entry that was only ever fetched and is later taken off the published
  * list stops being offered. If somebody installed it meanwhile it stays in
@@ -124,6 +130,8 @@ export interface Standing {
 
 export interface SourceDeps {
   builtIn: readonly Official[]
+  /** The built-in layouts this host was built with; `BUILT_IN_LAYOUTS` when absent. */
+  builtInLayouts?: readonly Layout[]
   /** Null turns fetching off: the built-in list, and nothing read or written. */
   url: string | null
   /** Where the last good list is kept. See `officialListFile`. */
@@ -162,14 +170,16 @@ export function officialSource(deps: SourceDeps) {
   const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS
 
   let fetched: Official[] | null = null
+  let fetchedLayouts: Layout[] | null = null
   let fetchedAt: string | null = null
   let stale = false
   let merged: readonly Official[] = deps.builtIn
   let notBefore = 0
   let inFlight: Promise<void> | null = null
 
-  function take(list: Official[], when: string): void {
+  function take(list: Official[], when: string, layouts: Layout[] | null): void {
     fetched = list
+    fetchedLayouts = layouts
     fetchedAt = when
     merged = mergeLists(deps.builtIn, list)
   }
@@ -179,9 +189,9 @@ export function officialSource(deps: SourceDeps) {
      Install clones. Anything wrong with it and it is as if it were not there. */
   if (deps.url) {
     try {
-      const kept = JSON.parse(readFileSync(deps.cache, 'utf8')) as { from?: unknown; fetched?: unknown; modules?: unknown }
+      const kept = JSON.parse(readFileSync(deps.cache, 'utf8')) as { from?: unknown; fetched?: unknown; modules?: unknown; layouts?: unknown }
       if (kept.from === deps.url && typeof kept.fetched === 'string' && !Number.isNaN(Date.parse(kept.fetched))) {
-        take(readFetched({ modules: kept.modules }), kept.fetched)
+        take(readFetched({ modules: kept.modules }), kept.fetched, readBuiltInLayouts({ layouts: kept.layouts }))
       }
     } catch {
       /* No cache, or not one this host can use. */
@@ -202,18 +212,19 @@ export function officialSource(deps: SourceDeps) {
         (async () => {
           const response = await ask(url, { signal: abort.signal, redirect: 'error', headers: { accept: 'application/json' } })
           if (!response.ok) throw new Error(`answered ${response.status}`)
-          return readFetched(JSON.parse(await bounded(response, MAX_BYTES)))
+          const raw: unknown = JSON.parse(await bounded(response, MAX_BYTES))
+          return { modules: readFetched(raw), layouts: readBuiltInLayouts(raw) }
         })(),
         late,
       ])
       const when = new Date(now()).toISOString()
-      take(list, when)
+      take(list.modules, when, list.layouts)
       stale = false
       notBefore = now() + REFRESH_EVERY_MS
       try {
         mkdirSync(dirname(deps.cache), { recursive: true })
         const tmp = `${deps.cache}.writing-${process.pid}`
-        writeFileSync(tmp, `${JSON.stringify({ from: url, fetched: when, modules: list }, null, 2)}\n`)
+        writeFileSync(tmp, `${JSON.stringify({ from: url, fetched: when, modules: list.modules, ...(list.layouts ? { layouts: layoutsAsKept(list.layouts) } : {}) }, null, 2)}\n`)
         renameSync(tmp, deps.cache)
       } catch (error) {
         deps.log?.(`the official module list could not be kept at ${deps.cache}: ${(error as Error).message}`)
@@ -245,9 +256,16 @@ export function officialSource(deps: SourceDeps) {
   return {
     /** The list to offer and install from, as of now. */
     current: (): readonly Official[] => merged,
+    /** The built-in layouts to offer: the published list's when it carried good ones, else the host's own. */
+    layouts: (): readonly Layout[] => fetchedLayouts ?? deps.builtInLayouts ?? BUILT_IN_LAYOUTS,
     /** Only what was fetched (or read from the cache); null when there is none. */
     fetched: (): readonly Official[] | null => fetched,
     standing: (): Standing => ({ fetched: fetchedAt, stale, ...(deps.url ? {} : { off: true as const }) }),
     refresh,
   }
+}
+
+/** Layouts as the cache keeps them: the shape `modules.json` gives them, so they are read back by the same `readBuiltInLayouts`. */
+function layoutsAsKept(layouts: readonly Layout[]) {
+  return layouts.map((one) => ({ id: one.id, version: 2, name: one.name, summary: one.summary, containers: one.containers }))
 }
