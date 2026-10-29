@@ -77,6 +77,8 @@ export interface Refusal {
  *
  *  - `/host/restart-anyway` — a person's two presses (`anyway.ts`). There is
  *    no tool for it at the door, and a script is not a person pressing.
+ *  - `/host/restart-module` — a person's press on a module's Run menu
+ *    (`restartModule.ts`). It stops a process and runs a program, so only the page.
  *  - `/host/headers`, `/host/pressed` — a browser's word about what a frame
  *    said, and what came of a press (`headers.ts`). A module's frame is
  *    another origin, and so is every other site.
@@ -112,6 +114,7 @@ export interface Refusal {
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
   '/host/updates/cancel',
+  '/host/restart-module',
   '/host/headers',
   '/host/pressed',
   '/host/inbox/report',

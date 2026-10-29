@@ -50,6 +50,7 @@ import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
+import { restartModuleDesk } from './restartModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -2794,6 +2795,15 @@ const anyway = anywayDesk({
   patient: (request) => server.timeout(request, 0),
 })
 
+/* "Restart module", on every module's Run menu: the same `restart`, behind a person's press. `restartModule.ts`. */
+const restartModuleDoor = restartModuleDesk({
+  registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
+  startable,
+  busy: (id) => inHand.has(id) || working.has(id),
+  restart: (id, registration, runnable, within) => restart(id, registration, runnable, within),
+  patient: (request) => server.timeout(request, 0),
+})
+
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
 type UpdateStep = 'updating' | 'applying' | 'installing' | 'preparing' | 'restarting'
 type Phase = (now: UpdateStep) => void
@@ -4084,6 +4094,10 @@ async function answerRequest(request: Request): Promise<Response> {
     /* Restarting a module that is kept, on a person's two presses. `anyway.ts`. */
     const anywayAnswer = await anyway.route(request, url)
     if (anywayAnswer) return anywayAnswer
+
+    /* Restarting a module this host started, on a person's press. `restartModule.ts`. */
+    const restartModuleAnswer = await restartModuleDoor.route(request, url)
+    if (restartModuleAnswer) return restartModuleAnswer
 
     /* The inbox: what the modules said they are doing, held per project. `inbox.ts`. */
     const inboxAnswer = await inboxRoutes.route(request, url)

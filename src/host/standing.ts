@@ -1,3 +1,4 @@
+import type { RestartState } from './restartModule.ts'
 import { buildIsStale, type Build, type ModuleCondition } from 'kehikot-module-protocol'
 
 /**
@@ -24,7 +25,7 @@ export type Waiting = 'starting' | 'installing' | 'updating' | 'restarting' | 'l
 export type Showing =
   | { kind: 'page' }
   | { kind: 'cover'; state: Waiting }
-  | { kind: 'notice'; condition: ModuleCondition; asleep: boolean; line: string }
+  | { kind: 'notice'; condition: ModuleCondition; asleep: boolean; line: string; restartFailed?: string[] }
 
 /** What the host's server said about the module. */
 export interface Said {
@@ -54,10 +55,16 @@ export interface Found {
  * Until then such a module is covered as loading, and the next answer says
  * `starting`, or says the notice was right.
  */
-export function showing(said: Said, found: Found | undefined, asked = true): Showing {
+export function showing(said: Said, found: Found | undefined, asked = true, restart?: RestartState): Showing {
+  /* A restart a person asked for, in hand: the same cover the host's own restart draws. */
+  if (restart?.kind === 'restarting') return { kind: 'cover', state: 'restarting' }
   /* The host is doing something to the program that ends on its own. This
      wins over a page that is still answering: it is about to be replaced. */
   if (said.lifecycle && said.lifecycle !== 'asleep') return { kind: 'cover', state: said.lifecycle }
+  /* One that did not bring the module back, while it still does not answer: the reason, and Retry. */
+  if (restart?.kind === 'failed' && said.condition !== 'ready') {
+    return { kind: 'notice', condition: said.condition, asleep: false, line: restart.why, restartFailed: restart.detail }
+  }
   if (!asked && said.condition === 'silent') return { kind: 'cover', state: 'loading' }
   /* Nothing serves the module, so there is no page whatever a conversation
      last heard. Believing the conversation here left a container green over a
@@ -89,10 +96,12 @@ export function noticeOf(
   /** Above the line, for a module that does not fit: "Monitor needs a newer Kehikot". */
   title?: string
   detail?: string[]
-  offer: 'start' | 'update' | null
+  offer: 'start' | 'update' | 'retry-restart' | null
   /** The fit's button: "Update Kehikot", or "Update <Module>" with `module` set to open its row. */
   fix?: { label: string; module?: true }
 } {
+  /* A restart that did not bring it back: what it printed last, and the same press again. */
+  if (notice.restartFailed) return { line: notice.line, detail: notice.restartFailed, offer: 'retry-restart' }
   /* The module and this Kehikot do not fit, and the protocol says which side
      is behind (`fitOf`): its title, its one line, and the update that changes
      it. No start: the program is running, and starting it again changes nothing. */
