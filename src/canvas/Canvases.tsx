@@ -14,8 +14,11 @@ import type { Canvas } from '@/host/canvases.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
 import { openSaveLayout } from '@/host/onboarding.ts'
+import { kehikkoVisitKey, ordered } from '@/host/pickerOrder.ts'
+import { usePickerSort, useVisits } from '@/host/pickerStore.ts'
 import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
+import { SortSwitch } from './SortSwitch.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
 /**
@@ -58,6 +61,9 @@ export function Canvases({
   /** Which kehikko's removal has been asked about but not yet confirmed. */
   const [arming, setArming] = useState<number | null>(null)
   const alone = canvases.length < 2
+  const sort = usePickerSort('kehikot')
+  const visits = useVisits()
+  const listed = ordered(canvases, sort, (one) => one.name, (one) => (one.key === undefined || one.project === null ? undefined : visits.kehikot[kehikkoVisitKey(one.project, one.key)]))
   const renaming = canvases.find((one) => one.id === editing) ?? null
 
   return (
@@ -106,7 +112,8 @@ export function Canvases({
         ) : (
           <>
             <DropdownMenuLabel>kehikot</DropdownMenuLabel>
-            {canvases.map((canvas) => (
+            <SortSwitch picker="kehikot" label="kehikot" />
+            {listed.map((canvas) => (
               <DropdownMenuItem
                 key={canvas.id}
                 onSelect={armedSelect(arming === canvas.id, () => setArming(null), () => onOpen(canvas.id))}

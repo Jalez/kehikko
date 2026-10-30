@@ -1,4 +1,5 @@
 import type { ChimeSettings } from './chime.ts'
+import type { PickerSorts, Visits } from './pickerOrder.ts'
 import type { NoticeSettings } from './trackerNotices.ts'
 
 /**
@@ -353,4 +354,8 @@ export interface SettingsAnswer {
   updates?: { auto: boolean }
   /** The Inbox chime (`server/chime.ts`). Absent from an older host. */
   chime?: ChimeSettings
+  /** How the project, epic and kehikko pickers are ordered (`server/pickerOrder.ts`). Absent from an older host. */
+  picker?: PickerSorts
+  /** When each place was last visited (`server/pickerOrder.ts`), read with the settings so the pickers need no request of their own at start-up. Absent from an older host. */
+  visits?: Visits
 }

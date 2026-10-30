@@ -262,6 +262,7 @@ export function Bar({
           held={held}
           heldBefore={heldBefore}
           hasProject={project !== null}
+          project={project?.id ?? null}
           /* Any epic, or none, is one epic's scope; "All epics" is the project's. */
           onPick={(epic) => onSubject({ ...subject, epic, scope: 'epic' })}
           onPickAll={() => onSubject({ ...subject, epic: null, scope: 'project' })}

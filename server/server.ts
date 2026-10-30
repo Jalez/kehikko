@@ -79,6 +79,7 @@ import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from '
 import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
+import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
@@ -255,6 +256,7 @@ const inbox = new Inbox(db)
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
+ensurePickerOrder(db)
 ensureOnboarding(db)
 ensureWhatsNew(db)
 /* The person's pinned places, across projects. `pinnedPlaces.ts`. */
@@ -2715,6 +2717,7 @@ const settingsDesk = settingsRoute({
 })
 
 const soundsDesk = soundsRoute({ db })
+const visitsDesk = visitsRoute({ db })
 
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
@@ -4223,6 +4226,9 @@ async function answerRequest(request: Request): Promise<Response> {
     /* The Inbox chime's own sounds. `chime.ts`; every write is PAGE_ONLY. */
     const soundsAnswer = await soundsDesk(request, url)
     if (soundsAnswer) return soundsAnswer
+    /* When each place was last visited, for the pickers' "Recent". `pickerOrder.ts`; the POST is PAGE_ONLY. */
+    const visitsAnswer = await visitsDesk(request, url)
+    if (visitsAnswer) return visitsAnswer
 
     /*
      * What one module's door offers, and what the agent has been told about it.

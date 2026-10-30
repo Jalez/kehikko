@@ -20,10 +20,13 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { openSettings } from '@/host/agentSettings.ts'
 import { onOpenStorage } from '@/host/storage.ts'
+import { ordered, projectVisitKey } from '@/host/pickerOrder.ts'
+import { usePickerSort, useVisits } from '@/host/pickerStore.ts'
 import { fetchFolders, type Entry, type Listing, type Project } from '@/host/projects.ts'
 import { Hint } from './Hint.tsx'
 import { MISSING_SAID, MissingMark } from './MissingProject.tsx'
 import { AddItem, armedSelect, Remove } from './Menu.tsx'
+import { SortSwitch } from './SortSwitch.tsx'
 import { Storage, type StorageViews } from './Storage.tsx'
 
 /**
@@ -89,6 +92,9 @@ export function Projects({
   const [measuring, setMeasuring] = useState(false)
   /* Settings' About links here too. */
   useEffect(() => onOpenStorage(() => setMeasuring(true)), [])
+  const sort = usePickerSort('projects')
+  const visits = useVisits()
+  const listed = ordered(projects, sort, (one) => one.name, (one) => visits.projects[projectVisitKey(one.id)])
 
   return (
     <div className="flex min-w-6 shrink-[0.01] items-center max-[400px]:min-w-5">
@@ -125,7 +131,8 @@ export function Projects({
         </Hint>
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel>projects</DropdownMenuLabel>
-          {projects.map((project) => (
+          <SortSwitch picker="projects" label="projects" />
+          {listed.map((project) => (
             <DropdownMenuItem
               key={project.id}
               onSelect={armedSelect(arming === project.id, () => setArming(null), () => onOpen(project.id))}

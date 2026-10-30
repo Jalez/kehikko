@@ -55,6 +55,7 @@ import {
 import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { adoptChime } from '@/host/chimeStore.ts'
+import { adoptSorts, adoptVisits } from '@/host/pickerStore.ts'
 import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
@@ -121,6 +122,8 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
       const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
       if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'The host would not say its settings.')
       adoptChime(body.chime)
+      adoptSorts(body.picker)
+      adoptVisits(body.visits)
       return body
     },
     { signal, fresh },
@@ -136,6 +139,7 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
   if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'The host did not take that change.')
   adoptChime(body.chime)
+  adoptSorts(body.picker)
   if (body.status) keepRead('settings', body)
   else forgetRead('settings')
   return body

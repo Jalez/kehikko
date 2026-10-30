@@ -14,11 +14,14 @@ import {
 import { Input } from '@/components/ui/input.tsx'
 import { offerOfCreate, slugFrom } from '@/host/epics.ts'
 import { ALL_EPICS } from '@/host/scope.ts'
+import { epicVisitKey, ordered } from '@/host/pickerOrder.ts'
+import { usePickerSort, useVisits } from '@/host/pickerStore.ts'
 import { sizeWords, type Epic, type Epics as Held } from '@/host/projects.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
 import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
+import { SortSwitch } from './SortSwitch.tsx'
 import { AddItem, armedSelect, NameForm, Remove, renameKey, RowPencil } from './Menu.tsx'
 
 /**
@@ -149,6 +152,7 @@ export function Epics({
   held,
   heldBefore = null,
   hasProject,
+  project = null,
   onPick,
   onRetitle,
   onCreate,
@@ -172,6 +176,8 @@ export function Epics({
    */
   heldBefore?: Held | null
   hasProject: boolean
+  /** The open project's id, which the visits of its epics are filed under. */
+  project?: number | null
   onPick(epic: string | null): void
   /**
    * Change what one epic is called — never its slug.
@@ -206,7 +212,9 @@ export function Epics({
   const [creating, setCreating] = useState(false)
   /** Which epic's delete has been asked about but not yet confirmed. One at a time. */
   const [arming, setArming] = useState<string | null>(null)
-  const epics = held?.epics ?? []
+  const sort = usePickerSort('epics')
+  const visits = useVisits()
+  const epics = ordered(held?.epics ?? [], sort, titleOf, (one) => (project == null ? undefined : visits.epics[epicVisitKey(project, one.slug)]))
   const holds = held?.holds ?? false
   /* The picked epic's entry, for its title. Null while the list is still being
      read, or when the slug names nothing in it — then the slug itself shows. */
@@ -320,6 +328,7 @@ export function Epics({
         ) : (
           <>
             <DropdownMenuLabel>epics</DropdownMenuLabel>
+            {nothingToPick ? null : <SortSwitch picker="epics" label="epics" />}
             {/* Said rather than left blank, so an empty list reads as an answer
                 and not as a list that failed to load. */}
             {nothingToPick ? (

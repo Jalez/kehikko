@@ -137,6 +137,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/storage',
   '/host/skills',
   '/host/settings',
+  '/host/visits',
   '/host/sounds',
   '/host/sounds/rename',
   '/host/sounds/remove',

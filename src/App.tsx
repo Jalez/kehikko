@@ -114,6 +114,8 @@ import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
 import { useChime } from './canvas/useChime.ts'
+import { visitFor, type Here } from './host/pickerOrder.ts'
+import { noteVisit } from './host/pickerStore.ts'
 import { useToasts } from './canvas/useToasts.ts'
 import { InboxToasts } from './canvas/InboxToasts.tsx'
 import { placeWords, settledToasts } from './host/toasts.ts'
@@ -3396,6 +3398,26 @@ export function App() {
         }
   const placeRef = useRef(placeNow)
   placeRef.current = placeNow
+
+  /**
+   * The pickers' "Recent": every place the page arrives at is a visit to its
+   * project, its epic and its kehikko, whichever way it was reached — a picker,
+   * a pinned place, Inbox Open, an agent's jump, Go back, a jump into another
+   * project all end in the screen showing a different place, and this is asked
+   * of that (`visitFor`, `host/pickerOrder.ts`). The host stamps and keeps it
+   * (`server/pickerOrder.ts`). A kehikko of another project, which shows for a
+   * moment while a switch settles, is not this project's visit.
+   */
+  const visitedHere: Here | null =
+    projectId === null
+      ? null
+      : { project: projectId, epic: about.scope === 'project' ? null : about.epic, kehikko: open && open.project === projectId ? (open.key ?? null) : null }
+  const visitedBefore = useRef<Here | null>(null)
+  useEffect(() => {
+    const visit = visitFor(visitedBefore.current, visitedHere)
+    visitedBefore.current = visitedHere
+    if (visit) noteVisit(visit)
+  }, [visitedHere?.project, visitedHere?.epic, visitedHere?.kehikko])
 
   /** The containers on the open kehikko, but `except`, walked to a step: a person's press on a step in a module that shows steps. */
   const turnHere = (target: { epic: string; step: number }, except?: string) => {
