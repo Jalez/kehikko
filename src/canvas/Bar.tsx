@@ -387,6 +387,7 @@ export function Bar({
             size="icon"
             aria-label={focus === 'on' ? 'keep the container headers drawn' : 'drop the container headers'}
             aria-pressed={focus === 'on'}
+            data-tour="focus"
             className={
               focus === 'on'
                 ? 'text-foreground size-6'
@@ -449,6 +450,7 @@ export function Bar({
             variant="ghost"
             size="icon"
             aria-label={theme === 'dark' ? 'switch to light' : 'switch to dark'}
+            data-tour="theme"
             className="text-muted-foreground hover:text-foreground size-6"
             onClick={onTheme}
           >
@@ -483,6 +485,7 @@ export function Bar({
                 variant="ghost"
                 size="icon"
                 aria-label="Kehikko modules"
+                data-tour="modules"
                 className="text-muted-foreground hover:text-foreground size-6"
               >
                 <LayoutGrid className="size-3" />

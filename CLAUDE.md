@@ -186,6 +186,13 @@
   pause at the step and point at Help; Help → Continue tour resumes there,
   Restart tour starts from the first step not done.
   A control the tour should find gets a `data-tour` and a frame.
+  Every control of the top bar has an explanatory SHOW stop (project, epic,
+  parts, kehikko, Pinned and its pin button, Kehikko modules, headers, theme),
+  so someone with a project, an epic and a kehikko — whose WAIT steps are all
+  done and so skipped — is walked through the bar and never offered "Create your
+  first epic". A new control in the bar gets a stop (`data-tour`, a frame, and
+  its place in `test/tour-steps.test.ts`). Stops into the example container are
+  counted from the page, not from where the tour stands (`shownExplanations`).
 - Layouts are in the kehikko menu (new kehikko… opens the picker) and on the
   empty canvas, never in Help. The built-ins start with Design, Research,
   Development, Review, Learning.

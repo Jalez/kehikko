@@ -13,9 +13,13 @@
  *     ("Next"). A step already done is passed over — a person who has
  *     projects, epics and kehikot starts at the first one they have not, or
  *     goes straight to the explanations.
- *   - SHOW — the explanations after: a container's menus, its corners, the
- *     Inbox, Updates, Settings, Help. Next and Back; a stop whose element is
- *     not on screen is left out.
+ *   - SHOW — the explanations after: what each control of the top bar is for
+ *     (project, epic, parts, kehikko, Pinned, Kehikko modules), a container's
+ *     menus and corners, then the Inbox, headers, Updates, Settings, theme and
+ *     Help. Next and Back; a stop whose element is not on screen (Parts on
+ *     "All epics", a bar too narrow to draw one) is left out. Someone who
+ *     already has a project, an epic and a kehikko gets only these, so the
+ *     bar is explained to them too; the waiting steps are the first run's.
  *
  * ## Frames
  *
@@ -215,6 +219,90 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
+    id: 'project-bar',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="project"]', 'button[aria-label="switch project"]'],
+        title: 'Your projects',
+        body:
+          'Switch project here, or add another folder with add a project…. Order the list A–Z or by Recent.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'epic-bar',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="epic"]', 'button[aria-label="the epic this project is on"]'],
+        title: 'The epic',
+        body:
+          'An epic is one piece of work, and every module works on the epic picked here. Choose All epics to see the whole project; the list orders A–Z or by Recent.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'parts-bar',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="parts"]'],
+        title: 'Its parts',
+        body:
+          'Pick one part or a few and every module narrows to them. Parts divide a single epic, so this is not here on All epics.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'kehikko-bar',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="kehikko"]', 'button[aria-label="switch kehikko"]'],
+        title: 'Your kehikot',
+        body:
+          'An epic can have several arrangements of modules; switch between them here, or choose new kehikko… to make another. The list orders A–Z or by Recent.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'pinned',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="pinned"]', '[data-testid="pinned-menu"]'],
+        title: 'Pinned places',
+        body:
+          'Pin the place you are on — project, epic, parts and kehikko — with the pin button or Alt+Shift+P, and come back to it in one click from this menu. Unpin from the menu.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'modules',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="modules"]', 'button[aria-label="Kehikko modules"]'],
+        title: 'Kehikko modules',
+        body:
+          'Install, add and update modules here: the official list, or Install from repository… for one that is not on it.',
+        side: 'bottom',
+        align: 'end',
+      },
+    ],
+  },
+  {
     id: 'header',
     kind: 'show',
     example: 'header',
@@ -300,6 +388,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
+    id: 'focus',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="focus"]', 'button[aria-label="drop the container headers"]', 'button[aria-label="keep the container headers drawn"]'],
+        title: 'Container headers',
+        body:
+          'Drop the headers out of the way and a container shows its own when the pointer nears its top. Press again to keep them drawn.',
+        side: 'bottom',
+        align: 'end',
+      },
+    ],
+  },
+  {
     id: 'updates',
     kind: 'show',
     frames: [
@@ -320,6 +422,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
         selectors: ['[data-tour="settings"]', 'button[aria-label="Settings"]'],
         title: 'Settings',
         body: 'How Kehikot works with your agents. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
+        side: 'bottom',
+        align: 'end',
+      },
+    ],
+  },
+  {
+    id: 'theme',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="theme"]', 'button[aria-label="switch to light"]', 'button[aria-label="switch to dark"]'],
+        title: 'Light or dark',
+        body:
+          'Switch the whole app, and the modules in it, between light and dark.',
         side: 'bottom',
         align: 'end',
       },
@@ -436,9 +552,37 @@ export function frameOf(
   return null
 }
 
+/**
+ * Is a stop that points into the example container one the tour can make? Judged
+ * from the page, not from where the tour stands: the example is marked, and the
+ * headers shown, only while one of these stops is up, yet the stops BEFORE them
+ * (the top bar's) must count them in their "n of m" and walk on to them.
+ * Hidden headers count (the tour shows them); a control the container does not
+ * have does not.
+ */
+function exampleHas(step: TourStep, root: ParentNode, layout: boolean): boolean {
+  const example = pickExample(root, layout)
+  if (!example) return false
+  const prefix = `[${EXAMPLE_ATTR}]`
+  return step.frames.some((frame) =>
+    frame.selectors.some((selector) => {
+      if (!selector.startsWith(prefix)) return false
+      try {
+        return example.querySelector(`:scope${selector.slice(prefix.length)}`) !== null
+      } catch {
+        return false
+      }
+    }),
+  )
+}
+
 /** The explanations on screen now, as indexes into `TOUR_STEPS`. */
 export function shownExplanations(root: ParentNode = document, layout = true): number[] {
-  return TOUR_STEPS.flatMap((step, index) => (step.kind === 'show' && frameOf(step, root, layout) ? [index] : []))
+  return TOUR_STEPS.flatMap((step, index) => {
+    if (step.kind !== 'show') return []
+    const shown = step.example !== undefined ? exampleHas(step, root, layout) : frameOf(step, root, layout) !== null
+    return shown ? [index] : []
+  })
 }
 
 /** The class every tour popover carries, which `index.css` themes with the app's own tokens. */

@@ -36,6 +36,7 @@ export function PinnedMenu({ view }: { view: PinnedView }) {
             size="sm"
             aria-label={said}
             data-testid="pinned-menu"
+            data-tour="pinned"
             className="text-muted-foreground hover:text-foreground h-6 min-w-6 shrink-0 gap-1 px-1.5 text-xs max-[900px]:px-1"
           >
             <Pin className="size-3 shrink-0" />
@@ -159,6 +160,7 @@ export function PinButton({ view }: { view: PinnedView }) {
       aria-keyshortcuts={PIN_CHORD.aria}
       disabled={!view.canPin}
       data-testid="pin-here"
+      data-tour="pin"
       className={pinned ? 'text-foreground size-6 shrink-0' : 'text-muted-foreground hover:text-foreground size-6 shrink-0'}
       onClick={view.onToggle}
     >
