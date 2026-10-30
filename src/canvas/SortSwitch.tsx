@@ -1,8 +1,9 @@
+import { useEffect } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 
 import { DropdownMenuRadioGroup } from '@/components/ui/dropdown-menu.tsx'
 import { SORTS, SORT_WORDS, type Picker, type PickerSort } from '@/host/pickerOrder.ts'
-import { setSort, usePickerSort } from '@/host/pickerStore.ts'
+import { loadVisits, setSort, usePickerSort } from '@/host/pickerStore.ts'
 
 /**
  * The order of one picker's list: "A–Z" or "Recent", a two-part switch at the
@@ -18,6 +19,10 @@ import { setSort, usePickerSort } from '@/host/pickerStore.ts'
  */
 export function SortSwitch({ picker, label }: { picker: Picker; label: string }) {
   const sort = usePickerSort(picker)
+  /* Read again as the list opens: what another window visited since is in it. */
+  useEffect(() => {
+    void loadVisits()
+  }, [])
   const pick = (next: PickerSort) => {
     if (next !== sort) void setSort(picker, next).catch(() => undefined)
   }

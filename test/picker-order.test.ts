@@ -51,21 +51,22 @@ describe('the two orders', () => {
 describe('what is a visit: the place the page shows, however it was reached', () => {
   const at = (project: number | null, epic: string | null, kehikko: string | null): Here => ({ project, epic, kehikko })
   const home = at(1, 'one', 'main')
+  const homeLeft = { project: 1, epic: 'one', kehikko: 'main' }
 
-  test('the picker: a different epic, kehikko or project is a visit to it, and to the project around it', () => {
-    expect(visitFor(home, at(1, 'two', 'main'))).toEqual({ project: 1, epic: 'two', kehikko: 'main' })
-    expect(visitFor(home, at(1, 'one', 'wide'))).toEqual({ project: 1, epic: 'one', kehikko: 'wide' })
-    expect(visitFor(home, at(2, null, 'main'))).toEqual({ project: 2, kehikko: 'main' })
+  test('the picker: a different epic, kehikko or project is a visit to it, and the place left is stamped too', () => {
+    expect(visitFor(home, at(1, 'two', 'main'))).toEqual({ project: 1, epic: 'two', kehikko: 'main', left: homeLeft })
+    expect(visitFor(home, at(1, 'one', 'wide'))).toEqual({ project: 1, epic: 'one', kehikko: 'wide', left: homeLeft })
+    expect(visitFor(home, at(2, null, 'main'))).toEqual({ project: 2, kehikko: 'main', left: homeLeft })
   })
 
   test('a pinned place and Inbox Open: the same arrival, in another project', () => {
-    expect(visitFor(home, at(3, 'auth', 'review'))).toEqual({ project: 3, epic: 'auth', kehikko: 'review' })
+    expect(visitFor(home, at(3, 'auth', 'review'))).toEqual({ project: 3, epic: 'auth', kehikko: 'review', left: homeLeft })
   })
 
   test('an agent’s jump, and Go back after it: each arrival is a visit, the way back too', () => {
     const jumped = at(1, 'two', 'wide')
-    expect(visitFor(home, jumped)).toEqual({ project: 1, epic: 'two', kehikko: 'wide' })
-    expect(visitFor(jumped, home)).toEqual({ project: 1, epic: 'one', kehikko: 'main' })
+    expect(visitFor(home, jumped)).toEqual({ project: 1, epic: 'two', kehikko: 'wide', left: homeLeft })
+    expect(visitFor(jumped, home)).toEqual({ ...homeLeft, left: { project: 1, epic: 'two', kehikko: 'wide' } })
   })
 
   test('a jump into another project, and back', () => {
@@ -74,14 +75,15 @@ describe('what is a visit: the place the page shows, however it was reached', ()
   })
 
   test('"All epics" visits the project and kehikko and no epic', () => {
-    expect(visitFor(home, at(1, null, 'main'))).toEqual({ project: 1, kehikko: 'main' })
+    expect(visitFor(home, at(1, null, 'main'))).toEqual({ project: 1, kehikko: 'main', left: homeLeft })
   })
 
-  test('starting up at a place is a visit; standing still, or no project, is not', () => {
-    expect(visitFor(null, home)).toEqual({ project: 1, epic: 'one', kehikko: 'main' })
+  test('starting up is not a switch (the place is stamped when first left); standing still, or no project, is nothing', () => {
+    expect(visitFor(null, home)).toBeNull()
     expect(visitFor(home, { ...home })).toBeNull()
     expect(visitFor(home, at(null, null, null))).toBeNull()
     expect(visitFor(home, null)).toBeNull()
+    expect(visitFor(at(null, null, null), home)).toEqual(homeLeft)
   })
 })
 
@@ -120,6 +122,26 @@ describe('the host keeps them in frame.sqlite', () => {
     expect(visits.projects).toEqual({ [projectVisitKey(1)]: 300, [projectVisitKey(2)]: 200 })
     expect(visits.epics).toEqual({ [epicVisitKey(1, 'one')]: 100, [epicVisitKey(2, 'one')]: 200 })
     expect(visits.kehikot).toEqual({ [kehikkoVisitKey(1, 'main')]: 300 })
+  })
+
+  test('a visit stamps the place left a moment before the one arrived at, so it ranks next', async () => {
+    const db = new Database(':memory:')
+    const route = visitsRoute({ db, now: () => 1000 })
+    const answer = await post(route, '/host/visits', { project: 2, kehikko: 'b', left: { project: 1, epic: 'e', kehikko: 'a' } })
+    expect(answer!.status).toBe(200)
+    const visits = readVisits(db)
+    expect(visits.projects).toEqual({ [projectVisitKey(1)]: 999, [projectVisitKey(2)]: 1000 })
+    expect(visits.epics).toEqual({ [epicVisitKey(1, 'e')]: 999 })
+    expect(visits.kehikot).toEqual({ [kehikkoVisitKey(1, 'a')]: 999, [kehikkoVisitKey(2, 'b')]: 1000 })
+    expect((await post(route, '/host/visits', { project: 2, left: { project: 1, left: { project: 3 } } }))!.status).toBe(400)
+  })
+
+  test('the settings answer carries the visits, so the page needs no request of its own at start-up', async () => {
+    const db = new Database(':memory:')
+    recordVisit(db, { project: 1, epic: 'e' }, 50)
+    const url = new URL('http://127.0.0.1/host/settings')
+    const read = await (await settings(db)(new Request(url), url))!.json()
+    expect(read.visits.epics[epicVisitKey(1, 'e')]).toBe(50)
   })
 
   test('the choice and the visits are still there after a restart, and the same through a second connection', async () => {

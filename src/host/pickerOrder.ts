@@ -69,6 +69,8 @@ export interface Visit {
   project: number
   epic?: string
   kehikko?: string
+  /** The place just left, which was visited until now: stamped a moment before the arrival, so it ranks next. */
+  left?: Omit<Visit, 'left'>
 }
 
 /**
@@ -76,16 +78,19 @@ export interface Visit {
  * a picker, a pinned place, Inbox Open, an agent's jump, Go back, a jump into
  * another project — ends in the page showing a different place, so this is
  * asked of the place as the page shows it (`placeNow` in `App.tsx`), the one
- * place a place is applied. Null when nothing new was arrived at.
+ * place a place is applied. Null when nothing new was arrived at — and at
+ * start-up, which is not a switch: the place the page opened on is stamped when
+ * it is first left (`left`).
  */
 export function visitFor(was: Here | null, now: Here | null): Visit | null {
-  if (!now || now.project === null) return null
-  if (was && was.project === now.project && was.epic === now.epic && was.kehikko === now.kehikko) return null
-  return {
-    project: now.project,
-    ...(now.epic !== null ? { epic: now.epic } : {}),
-    ...(now.kehikko !== null ? { kehikko: now.kehikko } : {}),
-  }
+  if (!was || !now || now.project === null) return null
+  if (was.project === now.project && was.epic === now.epic && was.kehikko === now.kehikko) return null
+  const place = (here: Here & { project: number }) => ({
+    project: here.project,
+    ...(here.epic !== null ? { epic: here.epic } : {}),
+    ...(here.kehikko !== null ? { kehikko: here.kehikko } : {}),
+  })
+  return { ...place({ ...now, project: now.project }), ...(was.project !== null ? { left: place({ ...was, project: was.project }) } : {}) }
 }
 
 /**

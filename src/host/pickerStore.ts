@@ -45,7 +45,7 @@ export function adoptSorts(stored: unknown): void {
   tell()
 }
 
-function adoptVisits(stored: unknown): void {
+export function adoptVisits(stored: unknown): void {
   if (typeof stored !== 'object' || stored === null) return
   const one = (v: unknown): Record<string, number> => {
     const out: Record<string, number> = {}
@@ -95,12 +95,16 @@ export async function setSort(picker: Picker, sort: PickerSort): Promise<void> {
 
 /** Notes a visit: held at once, and told to the host, which stamps it with its own clock. */
 export function noteVisit(visit: Visit, now = Date.now()): void {
-  const stamp = (held: Readonly<Record<string, number>>, key: string) => ({ ...held, [key]: now })
-  visits = {
-    projects: stamp(visits.projects, projectVisitKey(visit.project)),
-    epics: visit.epic !== undefined ? stamp(visits.epics, epicVisitKey(visit.project, visit.epic)) : visits.epics,
-    kehikot: visit.kehikko !== undefined ? stamp(visits.kehikot, kehikkoVisitKey(visit.project, visit.kehikko)) : visits.kehikot,
+  const hold = (one: Omit<Visit, 'left'>, at: number) => {
+    const stamp = (held: Readonly<Record<string, number>>, key: string) => ({ ...held, [key]: at })
+    visits = {
+      projects: stamp(visits.projects, projectVisitKey(one.project)),
+      epics: one.epic !== undefined ? stamp(visits.epics, epicVisitKey(one.project, one.epic)) : visits.epics,
+      kehikot: one.kehikko !== undefined ? stamp(visits.kehikot, kehikkoVisitKey(one.project, one.kehikko)) : visits.kehikot,
+    }
   }
+  if (visit.left) hold(visit.left, now - 1)
+  hold(visit, now)
   tell()
   void globalThis
     .fetch('/host/visits', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(visit) })

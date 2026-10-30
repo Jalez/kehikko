@@ -18,7 +18,7 @@ import { readNotices, writeNotices } from './trackerNotices.ts'
 import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
 import { chimePatched } from '../src/host/chime.ts'
 import { readChime, writeChime } from './chime.ts'
-import { readSorts, writeSorts } from './pickerOrder.ts'
+import { readSorts, readVisits, writeSorts } from './pickerOrder.ts'
 import { sortsPatched } from '../src/host/pickerOrder.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
 
@@ -235,6 +235,7 @@ export function settingsRoute(deps: SettingsDeps) {
     updates: { auto: readAutoUpdates(deps.db) },
     chime: readChime(deps.db),
     picker: readSorts(deps.db),
+    visits: readVisits(deps.db),
     skillsAt: deps.skillsAt(),
   })
 

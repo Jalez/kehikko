@@ -65,6 +65,7 @@ export function readVisits(db: Database): Visits {
 /** Records a visit at `now`: the project, and its epic and kehikko when named. */
 export function recordVisit(db: Database, visit: Visit, now = Date.now()): void {
   ensurePickerOrder(db)
+  if (visit.left) recordVisit(db, visit.left, now - 1)
   const put = db.query('insert into visits (kind, key, at) values (?, ?, ?) on conflict (kind, key) do update set at = excluded.at')
   put.run('project', projectVisitKey(visit.project), now)
   if (visit.epic !== undefined) put.run('epic', epicVisitKey(visit.project, visit.epic), now)
@@ -74,15 +75,18 @@ export function recordVisit(db: Database, visit: Visit, now = Date.now()): void 
 /** What a POST body names as a visit, or null for anything else. */
 export function visitOf(body: unknown): Visit | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null
-  const { project, epic, kehikko } = body as { project?: unknown; epic?: unknown; kehikko?: unknown }
+  const { project, epic, kehikko, left } = body as { project?: unknown; epic?: unknown; kehikko?: unknown; left?: unknown }
   if (typeof project !== 'number' || !Number.isInteger(project) || project < 0) return null
   const text = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 200
   if (epic !== undefined && epic !== null && !text(epic)) return null
   if (kehikko !== undefined && kehikko !== null && !text(kehikko)) return null
+  const before = left === undefined || left === null ? null : visitOf(left)
+  if (left !== undefined && left !== null && (!before || before.left)) return null
   return {
     project,
     ...(typeof epic === 'string' ? { epic } : {}),
     ...(typeof kehikko === 'string' ? { kehikko } : {}),
+    ...(before ? { left: before } : {}),
   }
 }
 

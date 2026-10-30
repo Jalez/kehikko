@@ -115,7 +115,7 @@ import { useInbox } from './canvas/useInbox.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
 import { useChime } from './canvas/useChime.ts'
 import { visitFor, type Here } from './host/pickerOrder.ts'
-import { loadVisits, noteVisit } from './host/pickerStore.ts'
+import { noteVisit } from './host/pickerStore.ts'
 import { useToasts } from './canvas/useToasts.ts'
 import { InboxToasts } from './canvas/InboxToasts.tsx'
 import { placeWords, settledToasts } from './host/toasts.ts'
@@ -3413,9 +3413,6 @@ export function App() {
       ? null
       : { project: projectId, epic: about.scope === 'project' ? null : about.epic, kehikko: open && open.project === projectId ? (open.key ?? null) : null }
   const visitedBefore = useRef<Here | null>(null)
-  useEffect(() => {
-    void loadVisits()
-  }, [])
   useEffect(() => {
     const visit = visitFor(visitedBefore.current, visitedHere)
     visitedBefore.current = visitedHere
