@@ -30,6 +30,8 @@ import { KehikkoMark } from './Mark.tsx'
 import { Trouble } from './Trouble.tsx'
 import { TrackerReading } from './TrackerReading.tsx'
 import type { StorageViews } from './Storage.tsx'
+import { PinButton, PinnedMenu } from './PinnedPlaces.tsx'
+import type { PinnedView } from './usePinnedPlaces.ts'
 
 /**
  * The whole of the host's own interface.
@@ -119,6 +121,7 @@ export function Bar({
   tracker = null,
   onRefreshTrackers = () => {},
   activity = null,
+  pinned = null,
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -186,6 +189,8 @@ export function Bar({
    * that has none, and then nothing is drawn.
    */
   activity?: BarActivity | null
+  /** The person's pinned places and the Pin button, or null to draw neither. See `PinnedPlaces.tsx`. */
+  pinned?: PinnedView | null
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
@@ -210,7 +215,7 @@ export function Bar({
        * Each truncates with an ellipsis rather than squeezing to an icon, and
        * the strip stays thirty-two pixels at every width.
        */}
-      <header className="bg-background flex h-8 shrink-0 items-center gap-1 overflow-hidden px-2 max-[480px]:gap-0.5 max-[480px]:px-1">
+      <header data-testid="bar" className="bg-background flex h-8 shrink-0 items-center gap-1 overflow-hidden px-2 max-[480px]:gap-0.5 max-[480px]:px-1">
         {/* Whose window this is, before anything it holds. The mark is the same
             one the update panel draws, still. */}
         <span className="text-foreground flex shrink-0 items-center gap-1.5 pr-1 text-xs font-medium select-none max-[480px]:hidden">
@@ -302,6 +307,19 @@ export function Bar({
           onCreate={onCreate}
           onDelete={onDelete}
         />
+
+        {/*
+         * The person's pinned places, right after the breadcrumb they are
+         * pinned from, and the Pin button for the place it shows. The label
+         * gives way to the icon first; both stay at every width. See
+         * `PinnedPlaces.tsx`.
+         */}
+        {pinned ? (
+          <>
+            <PinnedMenu view={pinned} />
+            <PinButton view={pinned} />
+          </>
+        ) : null}
 
         <span className="flex-1" />
 

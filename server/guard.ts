@@ -110,6 +110,9 @@ export interface Refusal {
  *  - `/host/connections` — the person's switches of how a kehikko's modules
  *    affect each other (`src/host/connections.ts`). An agent reads them in
  *    `read_canvas`; only the person changes them.
+ *  - `/host/pinned-places` — the person's pinned places (`pinnedPlaces.ts`).
+ *    An agent reads them in `my_place`; only the person pins, unpins or
+ *    orders them.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -145,6 +148,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/set',
   '/host/module-settings/file',
   '/host/connections',
+  '/host/pinned-places',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

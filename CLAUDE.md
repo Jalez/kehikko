@@ -778,6 +778,24 @@
   whole read (`BRANCH_PAGES`), kept in the reading and applied wherever a row was
   read (`withBranches`). Absent means not read, `[]` read and none.
 
+## Pinned places
+
+- A place is what the bar's breadcrumb shows: project, kehikko, epic (or All
+  epics) and picked parts. The person pins one with the Pin button after the
+  breadcrumb (or `Alt+Shift+P`) and goes back from the Pinned menu beside it.
+  Rules and words: `src/host/pinnedPlaces.ts`; the menu and button:
+  `src/canvas/PinnedPlaces.tsx`; the store: `server/pinnedPlaces.ts`, the
+  `pinned_places` table in `frame.sqlite` (pins span projects, never in one).
+- Picking a pin goes by `goPlace` in `App.tsx` — the path the pickers, an
+  agent's `jump` and Go back share. Never a second navigator.
+- A pin whose project, kehikko, epic or every part is gone is greyed with the
+  reason and can still be unpinned; some parts gone keeps the rest and says so
+  (`resolvePin`). The row is never rewritten for it.
+- `POST /host/pinned-places` (pin, unpin, order) is in `PAGE_ONLY`. `my_place`
+  lists the pins read-only; no MCP tool pins or unpins.
+- On the bar the word "Pinned" goes under 900 px; the menu's icon and the Pin
+  button stay at every width (`dev/header-fit.drive.mjs` measures it on bee).
+
 ## The storage overview
 - What every module's data takes in every project, and Kehikot's machine data:
   measured by `server/storage.ts` (async, never at startup, a time and entry
