@@ -228,6 +228,10 @@ export interface FramedModule {
   opens?: string[]
   /** What a restart of the module ends (protocol 2.33.0): `live-sessions`. Absent: it says nothing. */
   holds?: string[]
+  /** What the module says to agent sessions on a kehikko it is on (protocol 2.36.0). Absent: it says nothing; its summary stands in. */
+  agentSays?: string
+  /** What it says to agent sessions on a kehikko it is NOT on (protocol 2.36.0). Absent: nothing. */
+  absentSays?: string
   declares: Manifest['declares']
   /**
    * What the server answering now is built from: its version, the commit it
@@ -583,6 +587,8 @@ export async function look(
       ...(manifest.events?.length ? { events: manifest.events.map((one) => ({ ...one })) } : {}),
       ...(manifest.opens ? { opens: [...manifest.opens] } : {}),
       ...(manifest.holds ? { holds: [...manifest.holds] } : {}),
+      ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
+      ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),
       declares: manifest.declares,
       build: manifest.build ?? null,
     },

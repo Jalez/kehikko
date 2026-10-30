@@ -2780,6 +2780,10 @@ const placeRoutes = placeDesk({
       id: presence.id,
       name: presence.module?.name ?? presence.name ?? null,
       summary: presence.module?.summary ?? presence.summary,
+      /* What it says to agents where it is and where it is not (protocol 2.36.0); absent lines only from the official list. */
+      ...(presence.module?.agentSays ? { agentSays: presence.module.agentSays } : {}),
+      ...(presence.module?.absentSays ? { absentSays: presence.module.absentSays } : {}),
+      official: official.current().some((one) => one.id === presence.id),
       skills: presence.module?.declares.skills ?? [],
       /* What a skill's needs are matched against (protocol 2.21.0). */
       ...(presence.module ? { manifest: presence.module } : {}),
