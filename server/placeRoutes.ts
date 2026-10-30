@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { doorsHanded, meetingSkill } from '../src/host/connections.ts'
-import { installsSkills, isKehikkoBound, missingNeeds, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
+import { LIMITS, installsSkills, isKehikkoBound, missingNeeds, oneLine, type AbsentModule, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
@@ -44,7 +44,8 @@ import { doorName } from './register.ts'
  *    records says it issued a token, in a project, and gets every Kehikot door
  *    the session should have with the token on its URL (`placeDoorsSchema`),
  *    and beside them the modules on that kehikko (`modulesOn`), so the session
- *    can be told what it has around it from its first turn — and, to a module that installs
+ *    can be told what it has around it from its first turn, and the installed modules that are
+ *    not on it but say something there (`absentFrom`, 2.36.0) — and, to a module that installs
  *    skills for its own agent (2.23.0), `everywhere`: the skills the person keeps in every
  *    conversation (`everywhereFor` in skills.ts). A program's: a
  *    token grants nothing a call could not do by naming the place
@@ -73,6 +74,12 @@ export interface ModuleAbout {
   name: string | null
   /** Its own one line of what it is for, when it has one. */
   summary?: string
+  /** What it says to agents on a kehikko it is on (`agentSays`, protocol 2.36.0), when it says anything. */
+  agentSays?: string
+  /** What it says to agents on a kehikko it is NOT on (`absentSays`, protocol 2.36.0), when it says anything. */
+  absentSays?: string
+  /** Whether it is on the official list this host vouches for: only such a module is heard where it is absent. */
+  official?: boolean
   /** The skills it declares (protocol 2.5.0); empty for one that is not answering. */
   skills: readonly Pick<ModuleSkill, 'name' | 'needs'>[]
   /**
@@ -89,6 +96,8 @@ export interface ModuleOn {
   name: string
   /** The module's one line, clipped; empty when it has none. Its words, to be read as text. */
   summary: string
+  /** What it says to agents (`agentSays`, protocol 2.36.0), clipped; absent when it says nothing. */
+  says?: string
   /** The name its MCP door has in the session's config (one of `doors`), or null for a module with none. */
   door: string | null
   /**
@@ -125,11 +134,12 @@ export function modulesOn(
     if (seen.has(p.i)) continue
     seen.add(p.i)
     const one = known.get(p.i)
-    const summary = (one?.summary ?? '').replace(/[\s\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
+    const says = oneLine(one?.agentSays, SUMMARY_MAX)
     out.push({
       module: p.i,
-      name: (one?.name ?? '').trim().slice(0, 80) || p.i,
-      summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX - 1)}…` : summary,
+      name: oneLine(one?.name, 80) || p.i,
+      summary: oneLine(one?.summary, SUMMARY_MAX),
+      ...(says ? { says } : {}),
       door: doors.find((door) => door.module === p.i)?.name ?? null,
       skills: (one?.skills ?? [])
         /* A need is met only by a module whose connection to this skill the person left on here
@@ -141,6 +151,28 @@ export function modulesOn(
         )
         .map((skill) => skill.name),
     })
+  }
+  return out
+}
+
+/**
+ * The modules installed here that are NOT on a session's kehikko and say something to sessions
+ * there (`absentSays`, protocol 2.36.0), in the order the host knows them. Only a module on the
+ * official list: an absent line reaches sessions on every kehikko of every project, where nobody
+ * placed the module, so it is heard only from a module this host vouches for. Never the module the
+ * session is for, never one on the kehikko, and nothing for a place with no kehikko. Each line is
+ * one line of text, clipped (`oneLine`); at most `LIMITS.ABSENT_MODULES`.
+ */
+export function absentFrom(canvas: Pick<Canvas, 'placements'> | null, about: readonly ModuleAbout[], asker: string): AbsentModule[] {
+  if (!canvas) return []
+  const on = new Set(canvas.placements.map((p) => p.i))
+  const out: AbsentModule[] = []
+  for (const one of about) {
+    if (one.id === asker || on.has(one.id) || !one.official) continue
+    const says = oneLine(one.absentSays, SUMMARY_MAX)
+    if (!says) continue
+    out.push({ module: one.id, name: oneLine(one.name, 80) || one.id, says })
+    if (out.length >= LIMITS.ABSENT_MODULES) break
   }
   return out
 }
@@ -337,9 +369,11 @@ export function placeDesk(deps: PlaceDeps) {
       const about = deps.modules ? await deps.modules() : undefined
       const asker = about?.find((one) => one.id === module)
       const modules = about ? modulesOn(canvas, about, doors, loadsSkillsHere({ ...(asker?.manifest ?? {}), id: module })) : undefined
+      /* And the installed ones not on it that say something there (2.36.0): only with a kehikko. */
+      const absent = about && canvas ? absentFrom(canvas, about, module) : undefined
       /* A module that installs skills for its own agent is told which ones the person keeps in every conversation (2.23.0). */
       const everywhere = deps.everywhere && asker?.manifest && installsSkills(asker.manifest) ? await deps.everywhere(module) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(everywhere ? { everywhere } : {}) })
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {
