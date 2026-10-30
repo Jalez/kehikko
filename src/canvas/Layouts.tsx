@@ -1,6 +1,4 @@
 import { Check, LayoutTemplate } from 'lucide-react'
-import { scopeRowTooltip, type ContainerScope } from '@/host/scope.ts'
-import { ScopeIcon } from './Scope.tsx'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -56,13 +54,10 @@ function shortName(module: string, available: readonly Available[]): string {
 export function LayoutPreview({
   containers,
   available,
-  scopes,
   className = 'h-48 w-full',
 }: {
   containers: readonly LayoutContainer[]
   available?: readonly Available[]
-  /** What each module's content belongs to (protocol 2.29.0), by id: its icon is drawn after the name. */
-  scopes?: ReadonlyMap<string, ContainerScope>
   className?: string
 }) {
   const state = new Map(available?.map((one) => [one.module, one]) ?? [])
@@ -83,28 +78,23 @@ export function LayoutPreview({
         const one = state.get(c.module)
         const absent = one && one.state !== 'here'
         const name = shortName(c.module, available ?? [])
-        const scope = scopes?.get(c.module)
         return (
           <div
             key={c.module}
             className="absolute p-0.5"
             style={{ left: `${(c.x / COLUMNS) * 100}%`, top: `${(c.y / rows) * 100}%`, width: `${(c.w / COLUMNS) * 100}%`, height: `${(c.h / rows) * 100}%` }}
-            title={scope ? `${name} — ${scopeRowTooltip(scope)}` : name}
+            title={name}
             data-preview-module={c.module}
             data-preview-state={one?.state}
-            data-scope={scope?.active}
           >
             <div
               className={
-                'flex size-full min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-[5px] border p-0.5 text-center text-[11px] leading-tight ' +
+                'flex size-full min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-[5px] border p-0.5 text-center text-[10px] leading-tight ' +
                 (absent ? 'bg-background border-muted-foreground/60 border-dashed' : 'bg-card border-border')
               }
             >
               <ModuleIcon id={c.module} name={name} className="size-4 shrink-0" />
-              <span className="flex max-w-full min-w-0 items-center gap-0.5">
-                <span className="min-w-0 truncate">{name}</span>
-                {scope ? <ScopeIcon scope={scope.active} className="size-2.5 shrink-0 opacity-70" /> : null}
-              </span>
+              <span className="max-w-full min-w-0 truncate">{name}</span>
             </div>
           </div>
         )
@@ -119,14 +109,11 @@ function LayoutCard({
   available,
   chosen,
   onChoose,
-  scopes,
 }: {
   layout: Layout
   available: readonly Available[]
   chosen: boolean
   onChoose(): void
-  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn on its chip. */
-  scopes?: ReadonlyMap<string, ContainerScope>
 }) {
   const said = availabilitySaid(available)
   const optional = available.filter((one) => one.optional && one.state !== 'here').map((one) => one.name)
@@ -141,7 +128,7 @@ function LayoutCard({
         (chosen ? 'border-primary ring-primary/40 ring-2' : 'hover:border-foreground/30')
       }
     >
-      <LayoutPreview containers={layout.containers} available={available} scopes={scopes} />
+      <LayoutPreview containers={layout.containers} available={available} />
       <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
         <span className="min-w-0 truncate" title={layout.name}>
           {layout.name}
@@ -171,8 +158,6 @@ interface PickerProps {
   project: number | null
   /** What is registered here, id → name. */
   registered: ReadonlyMap<string, string>
-  /** What each registered module's content belongs to (protocol 2.29.0), by id: drawn after its name in the picture. */
-  scopes?: ReadonlyMap<string, ContainerScope>
   /** Make the kehikko (mode `new`) or fill the open one (`fill`) with these containers. Resolves to a refusal or null. */
   onUse(layout: Layout, available: Available[], install: string[], name: string): Promise<string | null>
   /** Read for the cards; injectable for a test. */
@@ -194,7 +179,7 @@ async function officialList(): Promise<OfficialEntry[]> {
  */
 const loadShelves = (project: number | null) => fetchLayouts(project)
 
-export function LayoutPicker({ open, onOpenChange, mode, project, registered, scopes, onUse, load = loadShelves, loadOfficial = officialList }: PickerProps) {
+export function LayoutPicker({ open, onOpenChange, mode, project, registered, onUse, load = loadShelves, loadOfficial = officialList }: PickerProps) {
   const [shelves, setShelves] = useState<Shelves | null>(null)
   const [official, setOfficial] = useState<OfficialEntry[]>([])
   const [chosen, setChosen] = useState<Layout>(BLANK)
@@ -325,7 +310,6 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, sc
                           available={availableOf(layout)}
                           chosen={chosen.from === layout.from && chosen.id === layout.id}
                           onChoose={() => setChosen(layout)}
-                          scopes={scopes}
                         />
                       ))}
                     </div>

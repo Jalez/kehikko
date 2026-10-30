@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { ContainerScope } from '@/host/scope.ts'
 import { createCanvas, type Canvas, type Placement } from '@/host/canvases.ts'
 import { placementsFor, type Available, type Layout } from '@/host/layouts.ts'
 import {
@@ -106,7 +105,6 @@ export function OnboardingHost({
   project,
   open,
   registered,
-  scopes,
   onMade,
   onFill,
   onInstalled,
@@ -126,8 +124,6 @@ export function OnboardingHost({
   open: Canvas | null
   /** What is registered here, id → name. */
   registered: ReadonlyMap<string, string>
-  /** What each registered module's content belongs to (protocol 2.29.0), for the layout cards' chips. */
-  scopes?: ReadonlyMap<string, ContainerScope>
   /** A kehikko was made from a layout: put it in the list and open it. */
   onMade(canvas: Canvas): void
   /** Put these containers on the open kehikko. */
@@ -292,7 +288,6 @@ export function OnboardingHost({
         onOpenChange={(isOpen) => !isOpen && setPicker(null)}
         project={project}
         registered={registered}
-        scopes={scopes}
         onUse={use}
       />
       <SaveLayoutDialog open={saving} onOpenChange={setSaving} kehikko={open} />

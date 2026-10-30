@@ -100,7 +100,7 @@ import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, typ
 import { settingsOf } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
-import { coveredForScope, scopeOfContainer, scopeToKeep, scopeToTell, type ContainerScope } from './host/scope.ts'
+import { coveredForScope, scopeOfContainer, scopeToKeep, scopeToTell } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
@@ -3241,12 +3241,6 @@ export function App() {
     for (const presence of registry?.presences ?? []) map.set(presence.id, presence.name ?? presence.id)
     return map
   }, [registry])
-  /* And what each one's content belongs to (protocol 2.29.0), at its default: for the layout cards. */
-  const registeredScopes = useMemo(() => {
-    const map = new Map<string, ContainerScope>()
-    for (const presence of registry?.presences ?? []) if (presence.module) map.set(presence.id, scopeOfContainer(presence.module, null))
-    return map
-  }, [registry])
 
   /**
    * One item of a module's header, chosen in its container's menus.
@@ -5011,7 +5005,6 @@ export function App() {
         project={projectId}
         open={open}
         registered={registeredNames}
-        scopes={registeredScopes}
         onMade={onMade}
         onFill={(placements) => change({ placements })}
         onInstalled={() => void look(true)}
