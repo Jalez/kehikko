@@ -893,8 +893,9 @@
   `FRESH_MS`, a failure not retried within `RETRY_MS`. Never read a credential.
 - Pressing the item opens What's new at that release (`openWhatsNew(at)`), the
   handle in a `<mark>` (`markedPieces`), text only. Handles are never linked.
-- The open project's host lists are news on a read (`refresh` in `useInbox`), so
-  their items toast and chime like a module's.
+- In the open project, only this list is news on a read (`refresh` in `useInbox`),
+  so a mention toasts and chimes like a module's item. The other host lists
+  (tracker notices, settings) stay quiet there: do not widen it.
 
 ## A conversation's place (protocol 2.4.0)
 

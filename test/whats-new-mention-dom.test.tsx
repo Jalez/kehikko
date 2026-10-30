@@ -7,8 +7,9 @@ import type { InstalledModule, WhatsNewRecord } from '../src/host/whatsNew.ts'
 /*
  * "You're mentioned in What's new", rendered: the Inbox item opens What's new
  * at its release with the handle marked (as text, never markup); the page
- * names the releases the person gets to the host; and an item the host files
- * in the open project is news the toast and chime hear.
+ * names the releases the person gets to the host; and a mention the host files
+ * in the open project is news the toast and chime hear, while a tracker notice
+ * there stays quiet as before.
  *
  * In a process of its own for the reason `whats-new-dom.test.tsx` gives.
  */
@@ -37,6 +38,7 @@ let WhatsNew: typeof import('../src/canvas/WhatsNew.tsx')
 let Rules: typeof import('../src/host/whatsNew.ts')
 let Mentions: typeof import('../src/host/whatsNewMentions.ts')
 let useInbox: typeof import('../src/canvas/useInbox.ts').useInbox
+let TRACKER_NOTICES_MODULE: string
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -84,6 +86,7 @@ beforeAll(async () => {
   Rules = await import('../src/host/whatsNew.ts')
   Mentions = await import('../src/host/whatsNewMentions.ts')
   ;({ useInbox } = await import('../src/canvas/useInbox.ts'))
+  ;({ TRACKER_NOTICES_MODULE } = await import('../src/host/trackerNotices.ts'))
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
 })
 
@@ -184,7 +187,7 @@ if (inChild) {
     ])
   })
 
-  test('a host item filed in the open project is news: the toast and the chime hear it; a module’s is not read as news', async () => {
+  test('a mention filed in the open project is news the toast and chime hear; a tracker notice there, or a module’s item, is not', async () => {
     fresh()
     const told: string[] = []
     const entry = (module: string, id: string): Entry => ({
@@ -209,7 +212,11 @@ if (inChild) {
     await tick(30)
     inboxSnaps[1] = {
       rev: 2,
-      open: [entry(Mentions.MENTIONS_MODULE, 'mention:kehikot@v0.1.90:tp-coder'), entry('kehikot.example', 'a-module-item')],
+      open: [
+        entry(Mentions.MENTIONS_MODULE, 'mention:kehikot@v0.1.90:tp-coder'),
+        entry(TRACKER_NOTICES_MODULE, 'github:github.com/o/r#12'),
+        entry('kehikot.example', 'a-module-item'),
+      ],
       earlier: 0,
     }
     await act(async () => refresh!(1, 2))
