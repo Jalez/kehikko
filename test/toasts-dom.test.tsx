@@ -7,7 +7,7 @@ import type { Entry } from '../src/host/inbox.ts'
 /* The Inbox toast, rendered, in a process of its own (see `chime-dom.test.tsx`). */
 
 const inChild = process.env.TOAST_DOM === '1'
-const TESTS = 9
+const TESTS = 15
 
 if (!inChild) {
   test('the toast, rendered in a process of their own', () => {
@@ -45,6 +45,7 @@ beforeAll(async () => {
   Toasts = await import('../src/canvas/InboxToasts.tsx')
   UseToasts = await import('../src/canvas/useToasts.ts')
   Store = await import('../src/host/chimeStore.ts')
+  Settled = (await import('../src/host/toasts.ts')).settledToasts
 })
 afterAll(async () => {
   if (!inChild) return
@@ -56,6 +57,8 @@ let plays = true
 let opened: string[] = []
 /** The record the app holds: a toast never changes it. */
 let record: Entry[] = []
+let bump: () => void = () => {}
+let Settled: typeof import('../src/host/toasts.ts').settledToasts
 let offer: (id: string, state?: Entry['state'], more?: Partial<Entry>) => void = () => {}
 
 beforeEach(() => {
@@ -73,8 +76,16 @@ afterEach(() => {
 })
 
 /* What the app does: the same news offered to the toast, the window decision asked at the moment of showing. */
-function Harness({ ms }: { ms: number }) {
+function Harness({ scale }: { scale: number }) {
   const toasts = UseToasts.useToasts(() => plays)
+  const [, setN] = React.useState(0)
+  bump = () => setN((n) => n + 1)
+  /* What the app does: an item seen, dismissed or closed in the Inbox closes its toast. */
+  const { closeMany } = toasts
+  React.useEffect(() => {
+    const settled = Settled(toasts.toasts, record, 1)
+    if (settled.length) closeMany(settled)
+  })
   offer = (id, state = 'done', more = {}) => {
     const one = entry(id, state, more)
     record.push(one)
@@ -83,8 +94,9 @@ function Harness({ ms }: { ms: number }) {
   return (
     <Toasts.InboxToasts
       toasts={toasts.toasts}
-      ms={() => ms}
+      scale={scale}
       onClose={toasts.close}
+      onCloseAll={toasts.closeAll}
       onOpen={(toast) => {
         opened.push(toast.entry.id)
         toasts.close(toast.id)
@@ -93,11 +105,12 @@ function Harness({ ms }: { ms: number }) {
   )
 }
 
-async function mount(ms = 60_000) {
+/** `scale` is ms to a "second": the default setting never expires, so it matters only for a timed one. */
+async function mount(scale = 1000) {
   const el = document.createElement('div')
   document.body.appendChild(el)
   const root = createRoot(el)
-  await act(async () => root.render(<Harness ms={ms} />))
+  await act(async () => root.render(<Harness scale={scale} />))
   unmount = () => root.unmount()
   return el
 }
@@ -164,11 +177,11 @@ describe.skipIf(!inChild)('the Inbox toast, rendered', () => {
     await arrive(['a'])
     expect(cards()).toHaveLength(0)
     plays = true
-    Store.setChime({ ...Store.chimeNow(), toast: false })
+    await act(async () => Store.setChime({ ...Store.chimeNow(), toast: false }))
     await arrive(['b'])
     expect(cards()).toHaveLength(0)
     expect(Store.chimeNow().on).toBe(true)
-    Store.setChime({ ...Store.chimeNow(), toast: true, on: false })
+    await act(async () => Store.setChime({ ...Store.chimeNow(), toast: true, on: false }))
     await arrive(['w', 'working'])
     expect(cards()).toHaveLength(0)
     /* Muted sound, toast on: the toast shows. */
@@ -196,8 +209,9 @@ describe.skipIf(!inChild)('the Inbox toast, rendered', () => {
     expect(cards()).toHaveLength(0)
   })
 
-  test('every toast goes by itself, none sticks: a short one first', async () => {
-    await mount(120)
+  test('a timed toast goes by itself, urgent ones no later than the rest', async () => {
+    await mount(24)
+    await act(async () => Store.setChime({ ...Store.chimeNow(), toastFor: 5 }))
     await arrive(['a', 'attention'])
     expect(cards()).toHaveLength(1)
     await wait(200)
@@ -205,7 +219,8 @@ describe.skipIf(!inChild)('the Inbox toast, rendered', () => {
   })
 
   test('hover or keyboard focus pauses the timer; leaving lets it run out', async () => {
-    await mount(300)
+    await mount(60)
+    await act(async () => Store.setChime({ ...Store.chimeNow(), toastFor: 5 }))
     await arrive(['a'])
     const card = cards()[0]!
     await act(async () => card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
@@ -222,6 +237,92 @@ describe.skipIf(!inChild)('the Inbox toast, rendered', () => {
     await wait(450)
     expect(cards()).toHaveLength(1)
     await act(async () => open.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(cards()).toHaveLength(0)
+  })
+
+  test('by default a toast stays until dismissed', async () => {
+    expect(Store.chimeNow().toastFor).toBe('dismiss')
+    await mount(1)
+    await arrive(['a', 'attention', { priority: 'urgent' }], )
+    await arrive(['b'])
+    await wait(600)
+    expect(cards()).toHaveLength(2)
+  })
+
+  test('each timed option expires: 5, 10 and 30 s', async () => {
+    /* A "second" is 10 ms here, so 5 s is 50 ms, 10 s is 100 ms and 30 s is 300 ms. */
+    await mount(10)
+    for (const [stay, ms] of [[5, 50], [10, 100], [30, 300]] as const) {
+      await act(async () => Store.setChime({ ...Store.chimeNow(), toastFor: stay }))
+      await arrive([`n${stay}`])
+      expect(cards()).toHaveLength(1)
+      await wait(ms / 2)
+      expect(cards()).toHaveLength(1)
+      await wait(ms + 150)
+      expect(cards()).toHaveLength(0)
+    }
+  })
+
+  test('the setting persists and is read: set, sent to the host, adopted from its answer', async () => {
+    const sent: unknown[] = []
+    const was = globalThis.fetch
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { chime: Record<string, unknown> }
+      sent.push(body.chime)
+      return Response.json({ ok: true, chime: { ...Store.chimeNow(), ...body.chime } })
+    }) as unknown as typeof fetch
+    try {
+      await Store.setToastFor(10)
+      expect(sent).toEqual([{ toastFor: 10 }])
+      expect(Store.chimeNow().toastFor).toBe(10)
+      /* A host that says nothing of it (or an older one) reads as until dismissed. */
+      Store.adoptChime({})
+      expect(Store.chimeNow().toastFor).toBe('dismiss')
+      /* One the host refuses goes back. */
+      globalThis.fetch = (async () => Response.json({ ok: false, why: 'no' }, { status: 400 })) as unknown as typeof fetch
+      await expect(Store.setToastFor(30)).rejects.toThrow()
+      expect(Store.chimeNow().toastFor).toBe('dismiss')
+    } finally {
+      globalThis.fetch = was
+    }
+  })
+
+  test('with Until dismissed the cap of three holds, and what was replaced is still in the record', async () => {
+    await mount()
+    for (const id of ['one', 'two', 'three', 'four', 'five']) await arrive([id])
+    expect(cards().map((one) => one.querySelector('[data-toast-label]')!.textContent)).toEqual(['three', 'four', 'five'])
+    expect(record.map((one) => one.id)).toEqual(['one', 'two', 'three', 'four', 'five'])
+  })
+
+  test('Dismiss all shows when more than one is on screen, and closes them all', async () => {
+    await mount()
+    await arrive(['a'])
+    expect(document.querySelector('[data-toast-dismiss-all]')).toBeNull()
+    await arrive(['b'])
+    const all = document.querySelector<HTMLElement>('[data-toast-dismiss-all]')!
+    expect(all.textContent).toContain('Dismiss all')
+    const before = JSON.stringify(record)
+    await act(async () => all.click())
+    expect(cards()).toHaveLength(0)
+    expect(document.querySelector('[data-toast-dismiss-all]')).toBeNull()
+    expect(JSON.stringify(record)).toBe(before)
+  })
+
+  test('opening the item closes its toast, and so does seeing or dismissing it in the Inbox', async () => {
+    await mount()
+    await arrive(['a'])
+    await arrive(['b'])
+    await arrive(['c'])
+    await act(async () => cards()[0]!.querySelector<HTMLElement>('[data-toast-open]')!.click())
+    expect(opened).toEqual(['a'])
+    expect(cards().map((one) => one.querySelector('[data-toast-label]')!.textContent)).toEqual(['b', 'c'])
+    /* Seen in the Inbox. */
+    record.find((one) => one.id === 'b')!.seen = 1
+    await act(async () => bump())
+    expect(cards().map((one) => one.querySelector('[data-toast-label]')!.textContent)).toEqual(['c'])
+    /* Dismissed in the Inbox. */
+    record.find((one) => one.id === 'c')!.dismissed = 1
+    await act(async () => bump())
     expect(cards()).toHaveLength(0)
   })
 })

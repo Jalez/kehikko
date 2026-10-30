@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-import { DEFAULT_CHIME, chimeFrom, type ChimeSettings } from './chime.ts'
+import { DEFAULT_CHIME, chimeFrom, type ChimeSettings, type ToastFor } from './chime.ts'
 import { forgetRead } from './hostRead.ts'
 
 /**
@@ -73,6 +73,18 @@ export async function setToast(on: boolean): Promise<void> {
   setChime({ ...held, toast: on })
   try {
     await postChime({ toast: on })
+  } catch (error) {
+    setChime(was)
+    throw error
+  }
+}
+
+/** How long a toast stays; the copy changes at once and goes back if the host does not take it. */
+export async function setToastFor(stay: ToastFor): Promise<void> {
+  const was = held
+  setChime({ ...held, toastFor: stay })
+  try {
+    await postChime({ toastFor: stay })
   } catch (error) {
     setChime(was)
     throw error

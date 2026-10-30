@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Kind } from '@/host/chime.ts'
+import { useChimeSettings } from '@/host/chimeStore.ts'
 import { countWords, toastMs, toastWord, withToast, type Toast } from '@/host/toasts.ts'
 
 /**
  * The Inbox toast, drawn: bottom right, a polite live region, at most three.
- * It holds the list it is given and nothing else; each toast times itself out,
- * and hover or keyboard focus on it pauses the timer. The words are plain text
+ * It holds the list it is given and nothing else. A toast stays until it is
+ * dismissed unless the person chose a time; a timed toast times itself out, and
+ * hover or keyboard focus on it pauses the timer. The words are plain text
  * (a module's label is never markup or a link), the kind is an icon AND a
  * word, and Open / Dismiss are the only controls. Dismiss closes the toast and
  * nothing more.
@@ -16,9 +18,9 @@ import { countWords, toastMs, toastWord, withToast, type Toast } from '@/host/to
 
 const ICONS: Record<Kind, typeof Bell> = { urgent: AlertTriangle, attention: Bell, done: CheckCircle2, notice: Info }
 
-function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast: Toast): void; onClose(id: number): void; ms: (kind: Kind) => number }) {
+function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast: Toast): void; onClose(id: number): void; ms: number | null }) {
   const Icon = ICONS[toast.kind]
-  const left = useRef(ms(toast.kind))
+  const left = useRef(ms ?? 0)
   const since = useRef<number | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const held = useRef({ hover: false, focus: false })
@@ -30,10 +32,10 @@ function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast:
     since.current = null
   }, [])
   const run = useCallback(() => {
-    if (timer.current !== null) return
+    if (ms === null || timer.current !== null) return
     since.current = Date.now()
     timer.current = setTimeout(() => onClose(toast.id), left.current)
-  }, [onClose, toast.id])
+  }, [ms, onClose, toast.id])
   useEffect(() => {
     run()
     return stop
@@ -101,14 +103,18 @@ export function InboxToasts({
   toasts,
   onOpen,
   onClose,
-  ms = toastMs,
+  onCloseAll,
+  scale = 1000,
 }: {
   toasts: readonly Toast[]
   onOpen(toast: Toast): void
   onClose(id: number): void
-  /** How long a kind stays; the real durations unless a test shortens them. */
-  ms?: (kind: Kind) => number
+  /** Closes every toast; offered when more than one shows. */
+  onCloseAll(): void
+  /** Milliseconds to a second: 1000 unless a test shortens it. */
+  scale?: number
 }) {
+  const ms = toastMs(useChimeSettings().toastFor, scale)
   return (
     <div
       role="region"
@@ -118,6 +124,12 @@ export function InboxToasts({
       data-inbox-toasts
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2"
     >
+      {toasts.length > 1 ? (
+        <Button type="button" size="sm" variant="secondary" className="pointer-events-auto" onClick={onCloseAll} data-toast-dismiss-all>
+          <X aria-hidden />
+          Dismiss all
+        </Button>
+      ) : null}
       {toasts.map((toast) => (
         <ToastCard key={toast.id} toast={toast} onOpen={onOpen} onClose={onClose} ms={ms} />
       ))}
@@ -126,7 +138,7 @@ export function InboxToasts({
 }
 
 /** The toasts on screen and the way to add one (the oldest beyond three goes). */
-export function useToastList(): { toasts: Toast[]; add(make: (id: number) => Toast | null): void; close(id: number): void } {
+export function useToastList(): { toasts: Toast[]; add(make: (id: number) => Toast | null): void; close(id: number): void; closeMany(ids: readonly number[]): void; closeAll(): void } {
   const [toasts, setToasts] = useState<Toast[]>([])
   const ids = useRef(0)
   const add = useCallback((make: (id: number) => Toast | null) => {
@@ -134,5 +146,7 @@ export function useToastList(): { toasts: Toast[]; add(make: (id: number) => Toa
     if (toast) setToasts((was) => withToast(was, toast))
   }, [])
   const close = useCallback((id: number) => setToasts((was) => was.filter((one) => one.id !== id)), [])
-  return { toasts, add, close }
+  const closeMany = useCallback((ids: readonly number[]) => setToasts((was) => (ids.length ? was.filter((one) => !ids.includes(one.id)) : was)), [])
+  const closeAll = useCallback(() => setToasts((was) => (was.length ? [] : was)), [])
+  return { toasts, add, close, closeMany, closeAll }
 }

@@ -167,6 +167,17 @@ describe('the settings route', () => {
     return { db, read: async () => (await (await route(new Request(url), url))!.json()).chime, post: (body: unknown) => route(new Request(url, { method: 'POST', body: JSON.stringify(body) }), url) }
   }
 
+  test('how long a toast stays: until dismissed by default, kept machine-wide, a bad value refused', async () => {
+    const { db, read, post } = desk()
+    expect((await read()).toastFor).toBe('dismiss')
+    expect((await post({ chime: { toastFor: 7 } }))!.status).toBe(400)
+    await post({ chime: { toastFor: 10 } })
+    expect((await read()).toastFor).toBe(10)
+    expect(readChime(db).toastFor).toBe(10)
+    await post({ chime: { toastFor: 'dismiss' } })
+    expect(readChime(db).toastFor).toBe('dismiss')
+  })
+
   test('answers the chime, on by default, and keeps a mute and a chosen sound machine-wide', async () => {
     const { db, read, post } = desk()
     expect((await read()).on).toBe(true)

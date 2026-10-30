@@ -29,10 +29,11 @@ import {
   type Sound,
   type Tune,
   type Wave,
+  type ToastFor,
 } from '@/host/chime.ts'
 import { audio, forgetClip, playSound } from '@/host/chimePlayer.ts'
 import { Hint } from './Hint.tsx'
-import { addSound, postChime, removeSound, renameSound, setMuted, setToast, useChimeSettings } from '@/host/chimeStore.ts'
+import { addSound, postChime, removeSound, renameSound, setMuted, setToast, setToastFor, useChimeSettings } from '@/host/chimeStore.ts'
 
 /**
  * Settings › Inbox notifications: the mute switch, the toast switch, a sound for each kind of thing that
@@ -122,6 +123,32 @@ export function ChimePanel({ modules = [] }: { modules?: readonly ModuleRef[] })
             </p>
           </div>
           <Switch id={`${labelId}-toast`} checked={settings.toast} onCheckedChange={(on) => run(setToast(on))} className="mt-0.5" />
+        </div>
+        <div className="flex min-w-0 items-start justify-between gap-4 py-3.5" data-toast-for-setting>
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor={`${labelId}-toast-for`} className="text-sm leading-snug">
+              How long a toast stays
+            </Label>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              {settings.toastFor === 'dismiss' ? 'Until you dismiss it.' : `${settings.toastFor} seconds.`} The same for every kind. At most three show; a newer one replaces the oldest, which stays in the Inbox.
+            </p>
+          </div>
+          <div className="w-40 shrink-0">
+            <NativeSelect
+              id={`${labelId}-toast-for`}
+              value={String(settings.toastFor)}
+              disabled={!settings.toast}
+              onChange={(event) => {
+                const value = event.target.value
+                run(setToastFor(value === 'dismiss' ? 'dismiss' : (Number(value) as ToastFor)))
+              }}
+            >
+              <NativeSelectOption value="dismiss">Until dismissed</NativeSelectOption>
+              <NativeSelectOption value="5">5 s</NativeSelectOption>
+              <NativeSelectOption value="10">10 s</NativeSelectOption>
+              <NativeSelectOption value="30">30 s</NativeSelectOption>
+            </NativeSelect>
+          </div>
         </div>
       </div>
 

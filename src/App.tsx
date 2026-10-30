@@ -112,7 +112,7 @@ import { useRestarts } from './canvas/useRestarts.ts'
 import { useChime } from './canvas/useChime.ts'
 import { useToasts } from './canvas/useToasts.ts'
 import { InboxToasts } from './canvas/InboxToasts.tsx'
-import { placeWords } from './host/toasts.ts'
+import { placeWords, settledToasts } from './host/toasts.ts'
 import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
@@ -3771,6 +3771,12 @@ export function App() {
       toastRef.current(entry, project)
     },
   })
+  /* An item seen, dismissed or closed in the Inbox closes its toast. */
+  const { toasts: shownToasts, closeMany: closeToasts } = toasts
+  useEffect(() => {
+    const settled = settledToasts(shownToasts, inbox.open, projectId)
+    if (settled.length) closeToasts(settled)
+  }, [shownToasts, inbox.open, projectId, closeToasts])
   activityRef.current = inbox.receive
   inboxGreetedRef.current = inbox.greeted
   inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
@@ -4894,6 +4900,7 @@ export function App() {
       <InboxToasts
         toasts={toasts.toasts}
         onClose={toasts.close}
+        onCloseAll={toasts.closeAll}
         onOpen={(toast) => {
           toasts.close(toast.id)
           goToEntry(toast.entry, toast.project)
