@@ -136,7 +136,7 @@ async function tick(db: ReturnType<typeof open>, id: number, trackers: InstanceT
   trackers.tick(Date.now() + 3_600_000)
   trackers.stateChanged(root)
   watch.watching([root])
-  new Inbox(db).importNotifications(id, root)
+  new Inbox(db)
   listProjects(db)
   projectById(db, id)
   await new Promise((done) => setTimeout(done, 20))

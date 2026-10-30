@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 
 import { BUILT_IN_LAYOUTS, readBuiltInLayouts, type Layout } from '../src/host/layouts.ts'
-import { HOST_REPO, readOfficial, type Official } from './official.ts'
+import { HOST_REPO, readOfficial, readRetired, type Official, type Retired } from './official.ts'
 import { because } from './traffic.ts'
 
 /**
@@ -107,8 +107,9 @@ export function readFetched(raw: unknown): Official[] {
 }
 
 /** The fetched list over the built-in one. See "The merge" above. */
-export function mergeLists(builtIn: readonly Official[], fetched: readonly Official[] | null): Official[] {
-  if (!fetched) return [...builtIn]
+export function mergeLists(builtIn: readonly Official[], fetched: readonly Official[] | null, retired: readonly Retired[] = []): Official[] {
+  const gone = new Set(retired.map((one) => one.id))
+  if (!fetched) return builtIn.filter((entry) => !gone.has(entry.id))
   const newer = new Map(fetched.map((entry) => [entry.id, entry]))
   const merged = builtIn.map((entry) => {
     const id = entry.id
@@ -116,7 +117,15 @@ export function mergeLists(builtIn: readonly Official[], fetched: readonly Offic
     newer.delete(id)
     return over ?? entry
   })
-  return [...merged, ...newer.values()]
+  return [...merged, ...newer.values()].filter((entry) => !gone.has(entry.id))
+}
+
+/** Retired modules of both lists, by id; a module the fetched list still lists is not retired by an older built-in one. */
+export function mergeRetired(builtIn: readonly Retired[], fetched: readonly Retired[] | null, listed: readonly Official[] | null): Retired[] {
+  const alive = new Set((listed ?? []).map((entry) => entry.id))
+  const all = new Map<string, Retired>()
+  for (const one of [...builtIn, ...(fetched ?? [])]) all.set(one.id, one)
+  return [...all.values()].filter((one) => !alive.has(one.id))
 }
 
 export interface Standing {
@@ -130,6 +139,8 @@ export interface Standing {
 
 export interface SourceDeps {
   builtIn: readonly Official[]
+  /** The modules the built-in list retired. */
+  builtInRetired?: readonly Retired[]
   /** The built-in layouts this host was built with; `BUILT_IN_LAYOUTS` when absent. */
   builtInLayouts?: readonly Layout[]
   /** Null turns fetching off: the built-in list, and nothing read or written. */
@@ -173,15 +184,18 @@ export function officialSource(deps: SourceDeps) {
   let fetchedLayouts: Layout[] | null = null
   let fetchedAt: string | null = null
   let stale = false
-  let merged: readonly Official[] = deps.builtIn
+  const builtInRetired = deps.builtInRetired ?? []
+  let retiredNow: readonly Retired[] = mergeRetired(builtInRetired, null, fetched)
+  let merged: readonly Official[] = mergeLists(deps.builtIn, null, retiredNow)
   let notBefore = 0
   let inFlight: Promise<void> | null = null
 
-  function take(list: Official[], when: string, layouts: Layout[] | null): void {
+  function take(list: Official[], when: string, layouts: Layout[] | null, retired: Retired[] = []): void {
     fetched = list
     fetchedLayouts = layouts
     fetchedAt = when
-    merged = mergeLists(deps.builtIn, list)
+    retiredNow = mergeRetired(builtInRetired, retired, list)
+    merged = mergeLists(deps.builtIn, list, retiredNow)
   }
 
   /* The last good list, when it was read from the same place this host reads.
@@ -189,9 +203,9 @@ export function officialSource(deps: SourceDeps) {
      Install clones. Anything wrong with it and it is as if it were not there. */
   if (deps.url) {
     try {
-      const kept = JSON.parse(readFileSync(deps.cache, 'utf8')) as { from?: unknown; fetched?: unknown; modules?: unknown; layouts?: unknown }
+      const kept = JSON.parse(readFileSync(deps.cache, 'utf8')) as { from?: unknown; fetched?: unknown; modules?: unknown; layouts?: unknown; retired?: unknown }
       if (kept.from === deps.url && typeof kept.fetched === 'string' && !Number.isNaN(Date.parse(kept.fetched))) {
-        take(readFetched({ modules: kept.modules }), kept.fetched, readBuiltInLayouts({ layouts: kept.layouts }))
+        take(readFetched({ modules: kept.modules }), kept.fetched, readBuiltInLayouts({ layouts: kept.layouts }), readRetired(kept))
       }
     } catch {
       /* No cache, or not one this host can use. */
@@ -213,18 +227,18 @@ export function officialSource(deps: SourceDeps) {
           const response = await ask(url, { signal: abort.signal, redirect: 'error', headers: { accept: 'application/json' } })
           if (!response.ok) throw new Error(`answered ${response.status}`)
           const raw: unknown = JSON.parse(await bounded(response, MAX_BYTES))
-          return { modules: readFetched(raw), layouts: readBuiltInLayouts(raw) }
+          return { modules: readFetched(raw), layouts: readBuiltInLayouts(raw), retired: readRetired(raw) }
         })(),
         late,
       ])
       const when = new Date(now()).toISOString()
-      take(list.modules, when, list.layouts)
+      take(list.modules, when, list.layouts, list.retired)
       stale = false
       notBefore = now() + REFRESH_EVERY_MS
       try {
         mkdirSync(dirname(deps.cache), { recursive: true })
         const tmp = `${deps.cache}.writing-${process.pid}`
-        writeFileSync(tmp, `${JSON.stringify({ from: url, fetched: when, modules: list.modules, ...(list.layouts ? { layouts: layoutsAsKept(list.layouts) } : {}) }, null, 2)}\n`)
+        writeFileSync(tmp, `${JSON.stringify({ from: url, fetched: when, modules: list.modules, ...(list.retired.length ? { retired: list.retired } : {}), ...(list.layouts ? { layouts: layoutsAsKept(list.layouts) } : {}) }, null, 2)}\n`)
         renameSync(tmp, deps.cache)
       } catch (error) {
         deps.log?.(`the official module list could not be kept at ${deps.cache}: ${(error as Error).message}`)
@@ -258,6 +272,8 @@ export function officialSource(deps: SourceDeps) {
     current: (): readonly Official[] => merged,
     /** The built-in layouts to offer: the published list's when it carried good ones, else the host's own. */
     layouts: (): readonly Layout[] => fetchedLayouts ?? deps.builtInLayouts ?? BUILT_IN_LAYOUTS,
+    /** The modules the lists retired: what a host removes from its machine (`retired.ts`). */
+    retired: (): readonly Retired[] => retiredNow,
     /** Only what was fetched (or read from the cache); null when there is none. */
     fetched: (): readonly Official[] | null => fetched,
     standing: (): Standing => ({ fetched: fetchedAt, stale, ...(deps.url ? {} : { off: true as const }) }),

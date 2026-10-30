@@ -115,7 +115,7 @@ import { InboxToasts } from './canvas/InboxToasts.tsx'
 import { placeWords, settledToasts } from './host/toasts.ts'
 import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
-import { epicMarks, kehikkoMarks, moduleMark, noticeFor, partMarks, type Namer } from './host/activity.ts'
+import { epicMarks, kehikkoMarks, moduleMark, partMarks, type Namer } from './host/activity.ts'
 import { nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
 import { placeOpened } from './host/activity.ts'
 import { fetchLog } from './host/inboxClient.ts'
@@ -297,7 +297,6 @@ const QUIET_BETWEEN_SWEEPS_MS = 3000
 const HEADERS_SETTLE_MS = 250
 
 /** Names for another project's places: none are read for a project that is not open, so a line says its slugs. */
-const OTHER_NAMES: Namer = { epic: () => null, part: () => null, kehikko: () => null }
 
 /**
  * How long the page waits before looking again while its own server is silent.
@@ -3739,11 +3738,6 @@ export function App() {
     (module: string) => registry?.presences.find((p) => p.id === module)?.name ?? module,
     [registry],
   )
-  /* An entry that entered attention or done is delivered, as a line, to whoever
-     consumes `kehikot.notifications@1` — a Notifications module on a canvas —
-     as if the module had sent it. The record already holds it; this only
-     forwards. See `noticeFor`. */
-  const noticeRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
   /* The sound a module's manifest names for one of its events (protocol 2.33.0), before the person chooses one. */
   const chime = useChime((module, event) =>
@@ -3763,7 +3757,6 @@ export function App() {
     at: activityAt,
     nameOf: moduleName,
     notify: (entry, project) => {
-      noticeRef.current(entry, project)
       /* The same news, as a sound: `useInbox` has already left out what is on screen. */
       const kind = kindOf(entry)
       if (kind) chime.offer(kind, entry.module, entry.named?.id)
@@ -3821,17 +3814,6 @@ export function App() {
       by: moduleName(entry.module),
       place: placeWords(entry, activityNames, elsewhere),
     })
-  }
-  noticeRef.current = (entry, project) => {
-    /* Another project's: its names are not this page's to read, so the line says the project instead. */
-    const elsewhere = project !== projectRef.current ? (projects.find((one) => one.id === project)?.name ?? 'another project') : null
-    const line = elsewhere
-      ? noticeFor(entry, { epic: entry.place?.epic ?? null, parts: [], kehikko: null }, OTHER_NAMES)
-      : noticeFor(entry, activityAt, activityNames)
-    if (!line) return
-    if (elsewhere) line.message = `${elsewhere}: ${line.message}`
-    const out = bus.emit(entry.module, 'kehikot.notifications@1', line, kehikkoRef.current)
-    if (!out.ok) console.info('The host did not carry a notice derived from activity.', out.error)
   }
   const activityMarks = useMemo(() => {
     const live = inbox.live

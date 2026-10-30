@@ -1,14 +1,10 @@
 import type { Database } from 'bun:sqlite'
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import {
   activityItemsSchema,
-  moduleFile,
-  within,
   type ActivityItem,
   type ActivityState,
   type InboxEvent,
 } from 'kehikot-module-protocol'
-import { z } from 'zod'
 
 import {
   ENTRIES_MAX,
@@ -151,14 +147,8 @@ export interface Reported {
   rev: number
   open: Entry[]
   earlier: number
-  /** Entries that entered attention or done as news, for the line a notices consumer is told. */
+  /** Entries that entered attention or done as news, for the chime and the toast. */
   news: Entry[]
-}
-
-export interface Imported {
-  imported: number
-  /** True when this project had been imported before, or had no notifications file. */
-  already: boolean
 }
 
 export class Inbox {
@@ -566,120 +556,6 @@ export class Inbox {
       return { rev: this.#bump(project) }
     })
     return run()
-  }
-
-  /**
-   * The Notifications module's rows in this project, taken in once as closed
-   * entries. The file is read and never changed or removed. Recorded in the
-   * database, so a project that is opened again, or whose file is later
-   * deleted and re-made, does not import twice; and each row's id is its own
-   * `seq`, so even a repeated import cannot duplicate one.
-   */
-  importNotifications(
-    project: number,
-    projectPath: string | null,
-    /** The project's kehikot, so a row that named its kehikko only by name is filed under the key. */
-    kehikot: readonly { key: string; name: string }[] = [],
-  ): Imported {
-    const done = this.db
-      .query<{ value: string }, [number]>("select value from inbox_meta where project = ? and key = 'imported-notifications'")
-      .get(project)
-    if (done) return { imported: 0, already: true }
-    if (!projectPath) return { imported: 0, already: false }
-    const rows = readNotificationRows(projectPath)
-    const run = this.db.transaction(() => {
-      let imported = 0
-      const now = this.clock()
-      for (const row of rows ?? []) {
-        const id = `imported:${row.seq}`
-        const module = row.from
-        const exists = this.db
-          .query('select 1 from inbox_items where project = ? and module = ? and id = ?')
-          .get(project, module, id)
-        if (exists) continue
-        const at = Date.parse(row.at)
-        const when = Number.isFinite(at) ? at : now
-        const line: NoticeLine = {
-          epic: row.payload.epic,
-          message: row.payload.message,
-          level: row.payload.level,
-          refs: row.payload.refs,
-          ...(row.payload.place && (row.payload.place.epic || row.payload.place.parts?.length || row.payload.place.kehikko)
-            ? { place: row.payload.place as Place }
-            : {}),
-        }
-        /* The key when the row had one; else the one kehikko of that name,
-           when exactly one has it. */
-        const named = row.kehikko?.name ? kehikot.filter((one) => one.name === row.kehikko?.name) : []
-        const key = row.kehikko?.key ?? (named.length === 1 ? named[0]!.key : undefined)
-        const made = noticeEntry(module, '', line, id, when, key)
-        made.entry.origin = 'imported'
-        made.entry.how = 'imported'
-        this.#write(project, made.entry)
-        this.#move(project, made.move)
-        imported += 1
-      }
-      this.db
-        .query("insert into inbox_meta (project, key, value) values (?, 'imported-notifications', ?)")
-        .run(project, String(now))
-      if (imported) {
-        this.#trim(project)
-        this.#bump(project)
-      }
-      return { imported, already: false }
-    })
-    return run()
-  }
-}
-
-/* ---- the Notifications module's own file, read and never written ---- */
-
-const rowSchema = z.object({
-  seq: z.number(),
-  from: z.string().min(1).max(64),
-  at: z.string(),
-  kehikko: z.object({ id: z.number().optional(), name: z.string().optional(), key: z.string().optional() }).nullable().default(null),
-  payload: z
-    .object({
-      epic: z.string().default(''),
-      message: z.string().default(''),
-      level: z.string().default('info'),
-      refs: z.array(z.string()).default([]),
-      place: z
-        .object({ epic: z.string().optional(), parts: z.array(z.string()).optional(), kehikko: z.string().optional() })
-        .optional(),
-    })
-    .passthrough(),
-})
-type NotificationRow = z.infer<typeof rowSchema>
-
-const FILE_MAX = 8 * 1024 * 1024
-
-/** The rows of `<project>/.kehikot/notifications/notifications.json`, or `null` when there are none to read. */
-export function readNotificationRows(projectPath: string): NotificationRow[] | null {
-  let path: string | null
-  try {
-    path = moduleFile(projectPath, 'kehikot.notifications', 'notifications')
-  } catch {
-    return null
-  }
-  if (!path || !existsSync(path)) return null
-  try {
-    /* The fence the module itself had: what it reads is really under the project. */
-    const real = realpathSync(path)
-    if (!within(realpathSync(projectPath), real)) return null
-    if (statSync(real).size > FILE_MAX) return null
-    const parsed: unknown = JSON.parse(readFileSync(real, 'utf8'))
-    const rows = (parsed as { rows?: unknown })?.rows
-    if (!Array.isArray(rows)) return null
-    const out: NotificationRow[] = []
-    for (const one of rows) {
-      const row = rowSchema.safeParse(one)
-      if (row.success && row.data.payload.message) out.push(row.data)
-    }
-    return out
-  } catch {
-    return null
   }
 }
 

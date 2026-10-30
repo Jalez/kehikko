@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ActivityItem } from 'kehikot-module-protocol'
@@ -403,62 +403,6 @@ describe('the store', () => {
     inbox.migrate(project, { 'm\u0000y': 60 }, {})
     expect(isSeen(inbox.open(project).find((e) => e.id === 'y')!)).toBe(false)
   })
-
-  describe('importing the Notifications module’s rows', () => {
-    const rows = [
-      { seq: 1, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 3, name: 'Main', key: 'k1' }, payload: { epic: 'thesis', message: 'Finished: "Intro"', level: 'done', refs: ['gh#1'] } },
-      { seq: 2, from: 'kehikot.tests', at: '2026-01-02T11:00:00.000Z', kehikko: null, payload: { epic: 'thesis', message: 'Failed', level: 'attention', refs: [], place: { epic: 'thesis', parts: ['p'] } } },
-      { seq: 3, from: 'x', at: 'bad date', kehikko: null, payload: { message: '' } },
-    ]
-    const file = () => join(folder, '.kehikot', 'notifications', 'notifications.json')
-    beforeEach(() => {
-      mkdirSync(join(folder, '.kehikot', 'notifications'), { recursive: true })
-      writeFileSync(file(), JSON.stringify({ next: 4, rows }))
-    })
-    test('once, as closed entries with their time and kehikko, and the source is left alone', () => {
-      const before = readFileSync(file(), 'utf8')
-      const done = inbox.importNotifications(project, folder)
-      expect(done).toEqual({ imported: 2, already: false })
-      const all = inbox.all(project).sort((a, b) => a.id.localeCompare(b.id))
-      expect(all.map((e) => [e.module, e.id, e.state, e.closed !== null, e.origin])).toEqual([
-        ['kehikot.claude', 'imported:1', 'done', true, 'imported'],
-        ['kehikot.tests', 'imported:2', 'attention', true, 'imported'],
-      ])
-      expect(all[0]!.closed).toBe(Date.parse('2026-01-02T10:00:00.000Z'))
-      expect(all[0]!.place).toEqual({ epic: 'thesis', kehikko: 'k1' })
-      expect(all[0]!.refs).toEqual(['gh#1'])
-      expect(readFileSync(file(), 'utf8')).toBe(before)
-      /* a re-open does not duplicate, and neither does a file that changed */
-      expect(inbox.importNotifications(project, folder)).toEqual({ imported: 0, already: true })
-      expect(inbox.all(project)).toHaveLength(2)
-      inbox.forget(project, null, null)
-      expect(inbox.importNotifications(project, folder).imported).toBe(0)
-      expect(inbox.all(project)).toHaveLength(0)
-    })
-    test('a row that named its kehikko only by name is filed under that kehikko’s key, when one has the name', () => {
-      writeFileSync(
-        file(),
-        JSON.stringify({
-          rows: [
-            { seq: 9, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 10, name: 'writing' }, payload: { epic: 'thesis', message: 'One', level: 'done' } },
-            { seq: 10, from: 'kehikot.claude', at: '2026-01-02T10:00:00.000Z', kehikko: { id: 11, name: 'twin' }, payload: { epic: 'thesis', message: 'Two', level: 'done' } },
-          ],
-        }),
-      )
-      inbox.importNotifications(project, folder, [
-        { key: 'kw', name: 'writing' },
-        { key: 'a', name: 'twin' },
-        { key: 'b', name: 'twin' },
-      ])
-      const byId = Object.fromEntries(inbox.all(project).map((e) => [e.id, e.place]))
-      expect(byId['imported:9']).toEqual({ epic: 'thesis', kehikko: 'kw' })
-      expect(byId['imported:10']).toEqual({ epic: 'thesis' })
-    })
-    test('no file is no import, and is asked again later', () => {
-      rmSync(file())
-      expect(inbox.importNotifications(project, folder)).toEqual({ imported: 0, already: false })
-    })
-  })
 })
 
 describe('the routes, and what an agent reads', () => {
@@ -499,6 +443,18 @@ describe('the routes, and what an agent reads', () => {
     expect((await send('/host/inbox/report', { project, module: 'm', items: [item('a', 'attention'), item('a', 'done')] })).status).toBe(400)
     expect((await send('/host/inbox/report', { project: 999, module: 'm', items: [] })).status).toBe(400)
     expect((await send('/host/inbox/act', { project, do: 'nope' })).status).toBe(400)
+  })
+
+  test('an emitted notice lands in the Inbox with no Notifications module anywhere', async () => {
+    /* This desk has no registry, no consumer and no other module: the line is kept on its own. */
+    const out = await send('/host/inbox/notice', { project, module: 'kehikot.sender', name: 'Sender', line: { epic: 'thesis', message: 'Finished: \u201cBuild\u201d', level: 'done' } })
+    expect(out.status).toBe(200)
+    expect(changed).toEqual([project])
+    const read = await send(`/host/inbox?project=${project}`)
+    expect(read.status).toBe(200)
+    const log = await send(`/host/inbox/log?project=${project}&scope=everywhere`)
+    expect(log.body.rows.map((r: { label: string }) => r.label)).toEqual(['Build'])
+    expect(inbox.all(project).map((e) => [e.module, e.name, e.state])).toEqual([['kehikot.sender', 'Sender', 'done']])
   })
 
   test('notice, seen, dismiss, forget and the log over the routes', async () => {

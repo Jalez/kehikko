@@ -72,6 +72,30 @@ const entrySchema = z.object({
 
 export type Official = z.infer<typeof entrySchema>
 
+/**
+ * A module taken off the list for good: apps that read it remove the module from the machine
+ * (`retired.ts`). `name` and `says` are the words the person is told in the Inbox. Read with the
+ * same leniency as `layouts`: a list without the key has none, and an entry this host cannot read
+ * is dropped alone; an older host never sees the key at all.
+ */
+const retiredSchema = z.object({
+  id: z.string().regex(MODULE_ID).refine((id) => !id.startsWith('.')),
+  name: z.string().min(1).max(LIMITS.NAME),
+  says: z.string().min(1).max(300),
+})
+export type Retired = z.infer<typeof retiredSchema>
+
+export function readRetired(raw: unknown): Retired[] {
+  const list = (raw as { retired?: unknown } | null)?.retired
+  if (!Array.isArray(list)) return []
+  const out: Retired[] = []
+  for (const one of list.slice(0, 50)) {
+    const parsed = retiredSchema.safeParse(one)
+    if (parsed.success && !out.some((have) => have.id === parsed.data.id)) out.push(parsed.data)
+  }
+  return out
+}
+
 /** Read a list, refusing a duplicate id: two entries for one module is two answers to "where is it". */
 export function readOfficial(raw: unknown): Official[] {
   const entries = z.object({ modules: z.array(entrySchema) }).parse(raw).modules
@@ -86,6 +110,8 @@ export function readOfficial(raw: unknown): Official[] {
 /* The list this host was built with. Parsed where it is imported, so a list
    no host can use fails the start rather than the first press of Install. */
 export const OFFICIAL: readonly Official[] = readOfficial(listed)
+/** The modules that list retired. */
+export const RETIRED: readonly Retired[] = readRetired(listed)
 
 function triple(version: string): [number, number, number] | null {
   const match = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/.exec(version)

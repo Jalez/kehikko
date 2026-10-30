@@ -18,7 +18,7 @@ import { itemsIn } from './inbox.ts'
  * Every read and report first retires what nothing will report again: the
  * entries of a module that is not installed, a kehikko or an epic that is gone
  * (`present`, `Inbox.retire`).
- *  - `POST /host/inbox/notice` — one legacy `kehikot.notifications@1` line.
+ *  - `POST /host/inbox/notice` — one legacy `kehikot.notifications@1` line (`events.emit`).
  *  - `POST /host/inbox/act` — see, dismiss, forget: the person's.
  *  - `POST /host/inbox/migrate` — what the page kept in its own storage, once.
  *
@@ -36,8 +36,6 @@ export interface InboxDeps {
   inbox: Inbox
   /** The folder of a project, or null when there is no such project. */
   pathOf(project: number): string | null | undefined
-  /** The project's kehikot by key and name, for filing imported lines. */
-  kehikotOf?(project: number): readonly { key: string; name: string }[]
   /** What is still there for a project — installed modules, its kehikot, its epics — or null when not known. */
   present?(project: number): Present | null
   /**
@@ -87,14 +85,6 @@ function narrowingIn(scope: unknown, epic: unknown, kehikko: unknown): Narrowing
 export function inboxDesk(deps: InboxDeps) {
   const { inbox } = deps
 
-  /** The Notifications module's file, taken in the first time a project's inbox is read. */
-  function opened(project: number): void {
-    const path = deps.pathOf(project)
-    if (path === undefined) return
-    const done = inbox.importNotifications(project, path ?? null, deps.kehikotOf?.(project) ?? [])
-    if (done.imported) deps.changed(project, inbox.rev(project))
-  }
-
   /** What is still there, and the open entries of what is not closed, before the record is read or written. */
   function present(project: number): Present | null {
     const now = deps.present?.(project) ?? null
@@ -112,12 +102,10 @@ export function inboxDesk(deps: InboxDeps) {
         return reply({ ok: false, why: 'An inbox is read for a project: ?project=<id>.' }, 400)
       }
       if (url.pathname === '/host/inbox') {
-        opened(project)
         present(project)
         return reply({ ok: true, ...inbox.snapshot(project) })
       }
       if (url.pathname === '/host/inbox/log') {
-        opened(project)
         const narrowing = narrowingIn(
           url.searchParams.get('scope'),
           url.searchParams.get('epic'),
@@ -155,7 +143,6 @@ export function inboxDesk(deps: InboxDeps) {
       const items = silent || unreported ? [] : itemsIn(body.items)
       if (items === null) return reply({ ok: false, why: 'That is not a list of activity items the protocol takes.' }, 400)
       const loadedAt = typeof body.loadedAt === 'number' && Number.isFinite(body.loadedAt) ? body.loadedAt : undefined
-      opened(project)
       const now = present(project)
       const before = inbox.rev(project)
       const out = inbox.report(project, module, name, items, {
@@ -174,7 +161,6 @@ export function inboxDesk(deps: InboxDeps) {
       const line = lineSchema.safeParse(body.line)
       if (!line.success) return reply({ ok: false, why: 'That is not a notification line.' }, 400)
       const kehikko = typeof body.kehikko === 'string' && body.kehikko.length <= 200 ? body.kehikko : undefined
-      opened(project)
       const out = inbox.notice(project, module, name, line.data, kehikko)
       deps.changed(project, out.rev)
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier })

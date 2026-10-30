@@ -362,7 +362,7 @@ who changed six characters. `retitleEpic` in `server/holdings.ts` has the
 argument, and `withTitle` beside it has the reason a regular expression will not
 do — `"title"` is also the key on every step in these files.
 
-## One inbox, and the Notifications module is a consumer of it
+## One inbox
 
 A module says what it needs, is doing, or has finished with `activity.set`, and
 the host keeps ONE record of it: the Inbox (`src/host/inbox.ts`, kept by
@@ -371,8 +371,7 @@ project). An item has a life: it opens when first reported, records each state
 it enters with the time, and closes when the module drops it or stops answering
 (a closed item stays in the log, "Earlier", bounded to 2000 entries). A legacy
 `kehikot.notifications@1` line from `events.emit` is kept as an item born closed,
-attributed to the sender. The Notifications module's own file in a project is
-imported once, never changed.
+attributed to the sender.
 
 What a person sees: one control in the bar (a dot and the count of what needs
 them) and a panel on demand — **Next**, **Needs you** (urgent first, then the
@@ -388,11 +387,7 @@ to the most pressing item and, pressed again, to the next, across kehikot,
 epics and parts, using the item's `place`. The shortcut is read by the host's
 own document; with focus inside a module's frame, use the bar control.
 
-The entry that enters `attention` or `done` is also delivered as one
-`kehikot.notifications@1` line to whatever consumes it (a Notifications module
-on a canvas), as if the module had sent it — no line for `working`, none for an
-item whose place is open on screen, and each `(module, id, state, since)` once:
-the record, not the browser, remembers what was told. The page's old storage
+Each `(module, id, state, since)` is told once: the record, not the browser, remembers what was told. The page's old storage
 (`kehikot.activity.seen.<project>`, `kehikot.activity.derived.<project>`) is
 handed to the server once and removed. For an agent, `read_canvas` lists the
 open items and a bounded Earlier, and `read_inbox` answers the same in words;
