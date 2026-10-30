@@ -8,7 +8,7 @@ import { createCanvas, deleteCanvas, editCanvas, listCanvases, open as openDb, t
 import { dataVersionsFile, readDataVersions, recordDataVersion, recordedFor, refusal } from '../server/dataVersions.ts'
 import type { Presence } from '../server/discover.ts'
 import { keep, kehikotFile, syncProject } from '../server/kehikot.ts'
-import { versionsDir } from '../server/machineDirs.ts'
+import { machineDir, versionsDir } from '../server/machineDirs.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins, preparingLine } from '../server/pins.ts'
 import { addProject } from '../server/projects.ts'
 import {
@@ -142,7 +142,7 @@ describe('ls-remote', () => {
     git('add', 'a')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'one')
     git('tag', 'v1.0.0')
-    git('tag', '-a', '-m', 'annotated', 'v1.1.0')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'tag', '-a', '-m', 'annotated', 'v1.1.0')
     git('tag', 'scratch')
     const got = await new TagLister(run).tags(repo)
     expect(got).toMatchObject({ ok: true, tags: ['v1.1.0', 'v1.0.0'] })
@@ -468,7 +468,7 @@ describe('a version from source', () => {
   })
 
   test('the versions directory is the machine directory’s, and can be pointed elsewhere', () => {
-    expect(versionsDir({ HOME: '/h' }, )).toContain(join('Kehikot', 'versions'))
+    expect(versionsDir({ HOME: '/h' })).toBe(join(machineDir({ HOME: '/h' }), 'versions'))
     expect(versionsDir({ HOME: '/h', KEHIKOT_VERSIONS_DIR: '/scratch/v' })).toBe('/scratch/v')
   })
 })

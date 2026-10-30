@@ -524,6 +524,7 @@ describe('only one file opens an epic', () => {
     const opening = [...sources(join(HERE, 'server')), ...sources(join(HERE, 'src'))]
       .filter((path) => /\b(readJourneys?|journeyIn)\(/.test(readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')))
       .map((path) => relative(HERE, path))
+      .sort()
     /* And `server/plans.ts`, which reads it as the steps provider it was before
        protocol 2.21.0, until Journeys publishes a `steps.json`. */
     expect(opening).toEqual(['server/holdings.ts', 'server/plans.ts'])

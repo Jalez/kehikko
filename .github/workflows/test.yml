@@ -1,0 +1,47 @@
+# The host's tests on every pull request and on main: types, the unit suite and
+# the storage boundary. Browser tests do not run here (KEHIKOT_BROWSER_TESTS is
+# unset, so they skip); they run on bee, see CLAUDE.md.
+#
+# Read-only, no secrets, and not pull_request_target: a fork's pull request runs
+# its own code with a read-only token.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - run: bun install --frozen-lockfile
+
+      - run: bunx tsc --noEmit
+
+      - run: bun test
+
+      # Scans this host; the protocol checkout and registered modules are
+      # absent here and are reported as missing, not failures.
+      - run: bun run check:storage
