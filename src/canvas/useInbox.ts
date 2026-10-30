@@ -255,11 +255,15 @@ export function useInbox(options: {
           if (!got || got.rev === was?.rev) return
           /* Another project's record has no report of this page's behind it to say what is news:
              what entered attention or done since the last read is. The first read is not news. */
-          if (one !== projectRef.current && was) {
+          /* The open project's host lists (`isHostModule`) are the same: no page reports them,
+             so a read is the only way their news arrives. */
+          const open = one === projectRef.current
+          if (was) {
             const before = new Map(was.open.map((entry) => [rowKey(entry), entry]))
             forward(
               one,
               got.open.filter((entry) => {
+                if (open && !isHostModule(entry.module)) return false
                 if (entry.state === 'working' || !isLive(entry)) return false
                 const prior = before.get(rowKey(entry))
                 return !prior || prior.state !== entry.state || prior.entered !== entry.entered

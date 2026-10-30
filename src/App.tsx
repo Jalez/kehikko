@@ -19,6 +19,8 @@ import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSett
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
+import { openWhatsNew } from './host/whatsNew.ts'
+import { MENTIONS_MODULE, parseMentionId } from './host/whatsNewMentions.ts'
 import { forgetRead, hostRead } from './host/hostRead.ts'
 import { fileOpenerFor } from './host/fileOpener.ts'
 import { openLayouts } from './host/onboarding.ts'
@@ -118,7 +120,7 @@ import { placeWords, settledToasts } from './host/toasts.ts'
 import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, partMarks, type Namer } from './host/activity.ts'
-import { nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
+import { isHostModule, nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
 import { placeOpened } from './host/activity.ts'
 import { fetchLog } from './host/inboxClient.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
@@ -3827,7 +3829,8 @@ export function App() {
     toasts.offer({
       entry,
       project,
-      by: moduleName(entry.module),
+      /* The host's own lists have no presence: their by-line is the name they were filed with. */
+      by: isHostModule(entry.module) && entry.name ? entry.name : moduleName(entry.module),
       place: placeWords(entry, activityNames, elsewhere),
     })
   }
@@ -3911,6 +3914,12 @@ export function App() {
       /* The agent sync's lines have no place on a canvas: they are about Settings. */
       if (entry.module === SETTINGS_INBOX_MODULE) {
         openSettings()
+        return
+      }
+      /* A mention in What's new has no place either: it opens What's new at that release. */
+      if (entry.module === MENTIONS_MODULE) {
+        const at = parseMentionId(entry.id)
+        openWhatsNew(at ?? undefined)
         return
       }
       placeGo.go(entry, project)
@@ -5035,7 +5044,7 @@ export function App() {
 
       {/* "What's new" after Kehikot or a module updates: it never opens by
           itself — the bar's notice (`WhatsNewNotice`) opens it. See `WhatsNew.tsx`. */}
-      <WhatsNewHost />
+      <WhatsNewHost project={projectId} />
 
     </div>
   )

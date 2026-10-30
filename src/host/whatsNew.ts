@@ -515,14 +515,25 @@ const OPEN_WHATS_NEW = 'kehikot:open-whats-new'
 const POKE = 'kehikot:whats-new-poke'
 const SHOW_CHANGED = 'kehikot:whats-new-show'
 
-/** Open "What's new" now, on demand: Settings → About, the Updates menu. */
-export function openWhatsNew(): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_WHATS_NEW))
+/** Where What's new opens: a row, one of its releases, and a handle marked in its notes (an Inbox mention). */
+export interface OpenAt {
+  item: string
+  tag: string
+  login: string
 }
 
-export function onOpenWhatsNew(then: () => void): () => void {
-  window.addEventListener(OPEN_WHATS_NEW, then)
-  return () => window.removeEventListener(OPEN_WHATS_NEW, then)
+/** Open "What's new" now, on demand: Settings → About, the Updates menu; with `at`, at that release (the Inbox). */
+export function openWhatsNew(at?: OpenAt): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(OPEN_WHATS_NEW, { detail: at ?? null }))
+}
+
+export function onOpenWhatsNew(then: (at: OpenAt | null) => void): () => void {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent).detail as OpenAt | null | undefined
+    then(detail && typeof detail.item === 'string' && typeof detail.tag === 'string' && typeof detail.login === 'string' ? detail : null)
+  }
+  window.addEventListener(OPEN_WHATS_NEW, listener)
+  return () => window.removeEventListener(OPEN_WHATS_NEW, listener)
 }
 
 export type Poke = { updated: string } | { failed: string }

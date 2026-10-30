@@ -120,7 +120,10 @@ import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLe
 import { releaseFollower } from './moduleReleases.ts'
 import { readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
-import { releaseNotesDesk } from './releaseNotes.ts'
+import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
+import { ForgeLogins } from './forgeLogins.ts'
+import { mentionsDesk, releasesIn } from './whatsNewMentions.ts'
+import { APP_ITEM } from '../src/host/whatsNew.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
 import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
@@ -308,8 +311,13 @@ const trackers = new Trackers({
       const out = trackerNotices.landed(project.id, { rows, me, epics })
       wakes.inboxChanged(project.id, out.rev)
     }
+    /* Who the person is on each forge, kept for "You're mentioned in What's new". */
+    forgeLogins.learned(me)
   },
 })
+/* The person's login per forge, machine-wide: what tracker reads learned, else
+   asked once through the reading's own adapter and kept. `forgeLogins.ts`. */
+const forgeLogins = new ForgeLogins(db, (tracker, host) => trackers.me(tracker, host))
 /* The schedule: a project somebody looked at in the last half hour is read
    whole once its `every` minutes have passed. A minute tick that decides
    nothing for a project nobody is looking at. */
@@ -1214,6 +1222,26 @@ const releaseNotes = releaseNotesDesk({
       if (kept.repo?.toLowerCase() === asked) return true
     }
     return false
+  },
+})
+
+/* "You're mentioned in What's new": the releases the page names, read for the
+   person's GitHub login and told once each in the Inbox. `whatsNewMentions.ts`. */
+const mentions = mentionsDesk({
+  inbox,
+  login: () => because('who you are on GitHub', () => forgeLogins.login('github', 'github.com')),
+  resolve: async (item) => {
+    if (item === APP_ITEM) return { repo: APP_REPO, name: 'Kehikot' }
+    const registration = registered.get(item)
+    if (!registration?.dir || !isInstalled(registration.dir)) return null
+    const place = placeOf(registration.id, registration.dir)
+    const reading = await readCheckout(place, false).catch(() => null)
+    const repo = reading && !('error' in reading) ? reading.release?.repo : null
+    return repo ? { repo, name: place.name } : null
+  },
+  notes: async (repo, tag) => {
+    const got = await releaseNotes.release(repo, tag)
+    return got.ok ? got.value.body : null
   },
 })
 
@@ -3355,6 +3383,17 @@ async function answerRequest(request: Request): Promise<Response> {
       /* Told once: that modules now update themselves, while they do (`autoUpdates.ts`). */
       const notes = notesDue(record, { [AUTO_UPDATES_NOTE]: readAutoUpdates(db) })
       return json({ record, modules, updating: [...progress.keys()], notes, auto: [...new Set(auto.said().updated.map((one) => one.id))] })
+    }
+    /* "You're mentioned in What's new": the releases the person gets, named by
+       the page, read for their handle (`server/whatsNewMentions.ts`). In `PAGE_ONLY`. */
+    if (url.pathname === '/host/whats-new/mentions' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown; releases?: unknown } | null
+      const releases = releasesIn(body?.releases)
+      const project = typeof body?.project === 'number' && Number.isInteger(body.project) ? projectById(db, body.project) : null
+      if (!releases || !project) return json({ error: 'Name a project and the releases as { item, tag }.' }, 400)
+      const out = await mentions.check(project.id, releases)
+      if (out.rev !== null) wakes.inboxChanged(project.id, out.rev)
+      return json({ told: out.told })
     }
     if (url.pathname === '/host/whats-new' && request.method === 'POST') {
       const edit = whatsNewEditSchema.safeParse(await request.json().catch(() => null))

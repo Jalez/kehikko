@@ -875,6 +875,27 @@
 - Notes are drawn by `ReleaseSections` (`ReleaseNotes.tsx`), the same
   Markdown-only drawing; a failure that hit every release is said once.
 
+## You're mentioned in What's new
+
+- When the notes of a release the person gets (What's new's news rows, plus the
+  app version the desktop app is downloading) mention their GitHub login as
+  `@login` (any case, whole handle), the Inbox says so once: the host's own list
+  `kehikko.whatsnew` (by-line "Kehikot"), one `done` item per release and handle
+  (`mentionId`). Rules and words: `src/host/whatsNewMentions.ts`; the store side:
+  `server/whatsNewMentions.ts`. "Told" is the Inbox's record (`Inbox.holds`, any
+  project, open or closed) — never a second set, never browser storage.
+- The page names releases (`POST /host/whats-new/mentions`, `PAGE_ONLY`); the
+  server resolves each to the app's repository or an installed module's release
+  repository, never one the page names, and reads notes through `releaseNotes`.
+- The login: `server/forgeLogins.ts`, `forge_logins` in `frame.sqlite`, per
+  `tracker|host`. Tracker reads feed it (`learned`); otherwise asked once through
+  `Trackers.me` (the adapters' `gh api user` / `glab api user`), used for
+  `FRESH_MS`, a failure not retried within `RETRY_MS`. Never read a credential.
+- Pressing the item opens What's new at that release (`openWhatsNew(at)`), the
+  handle in a `<mark>` (`markedPieces`), text only. Handles are never linked.
+- The open project's host lists are news on a read (`refresh` in `useInbox`), so
+  their items toast and chime like a module's.
+
 ## A conversation's place (protocol 2.4.0)
 
 - A conversation's place is what a RECORD says, never what is on screen and

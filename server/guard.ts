@@ -143,6 +143,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/layouts',
   '/host/onboarding',
   '/host/whats-new',
+  '/host/whats-new/mentions',
   '/host/module-settings',
   '/host/module-settings/list',
   '/host/module-settings/set',
