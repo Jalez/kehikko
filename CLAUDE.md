@@ -708,6 +708,23 @@
 - A module's title and address are text, never markup or a link; do not widen the rule
   for a module that hands many.
 
+## The order of the bar's pickers
+
+- The project, epic and kehikko dropdowns each carry a two-part switch, "A–Z" and
+  "Recent" (`src/canvas/SortSwitch.tsx`, made of the menu's own radio items so
+  the keyboard reaches it and the menu stays open). Each picker keeps its own
+  choice; defaults are epics A–Z (the host already lists them so), projects and
+  kehikot Recent (they were in the order made). The rules are pure, in
+  `src/host/pickerOrder.ts`: never-visited after visited, A–Z among themselves;
+  "All epics" and "no epic" are not in the ordered list and stay where they are.
+- The choice is a row of `settings` in `frame.sqlite` (`{ picker: { epics: 'recent' } }`
+  on `POST /host/settings`); visit times are rows of `visits` in the same file
+  (`server/pickerOrder.ts`, `POST /host/visits`, `PAGE_ONLY`). Never in browser
+  storage, never in a project's `.kehikot/`. The page's copy is `src/host/pickerStore.ts`.
+- A visit is recorded in ONE place: `App.tsx` asks `visitFor` of the place the page
+  shows, so every way of arriving (picker, pinned place, Inbox Open, agent jump,
+  Go back, a jump into another project) counts. Do not record one at a call site.
+
 ## The Inbox
 
 - ONE record of what modules need, are doing and have said: `src/host/inbox.ts`

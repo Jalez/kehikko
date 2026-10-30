@@ -18,6 +18,8 @@ import { readNotices, writeNotices } from './trackerNotices.ts'
 import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
 import { chimePatched } from '../src/host/chime.ts'
 import { readChime, writeChime } from './chime.ts'
+import { readSorts, writeSorts } from './pickerOrder.ts'
+import { sortsPatched } from '../src/host/pickerOrder.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
 
 /**
@@ -215,7 +217,8 @@ export interface SettingsDeps {
  * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
  * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
  * `keepRunning.ts`), "Keep modules up to date automatically" (`{ updates: { auto } }`,
- * `autoUpdates.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
+ * `autoUpdates.ts`), how the project, epic and kehikko pickers are ordered
+ * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
  * what a module's own Tools and Skills windows send, so two windows each
@@ -231,6 +234,7 @@ export function settingsRoute(deps: SettingsDeps) {
     modules: { keep: readKeepRunning(deps.db) },
     updates: { auto: readAutoUpdates(deps.db) },
     chime: readChime(deps.db),
+    picker: readSorts(deps.db),
     skillsAt: deps.skillsAt(),
   })
 
@@ -241,7 +245,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; chime?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; chime?: unknown; picker?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -264,6 +268,13 @@ export function settingsRoute(deps: SettingsDeps) {
         writeKeepRunning(deps.db, keep)
         deps.modulesChanged?.(keep)
       }
+      return json(answer())
+    }
+
+    if (body.picker !== undefined) {
+      const next = sortsPatched(readSorts(deps.db), body.picker)
+      if (!next) return json({ ok: false, why: 'A change of a picker’s order is { projects | epics | kehikot: "az" | "recent" }.' }, 400)
+      writeSorts(deps.db, next)
       return json(answer())
     }
 
