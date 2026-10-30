@@ -792,8 +792,8 @@ export class Trackers {
 
   /** Read what was queued, once whatever is running has finished. */
   #kick(root: string): void {
-    const held = this.#of(root)
-    if (held.kick || (!held.queued.size && !held.queuedDetail.size)) return
+    const held = this.#held.get(root)
+    if (!held || held.kick || (!held.queued.size && !held.queuedDetail.size)) return
     held.kick = setTimeout(() => {
       held.kick = null
       const refs = [...new Set([...held.queued, ...held.queuedDetail])]
@@ -817,10 +817,10 @@ export class Trackers {
     held.lookedAt = Date.now()
     if (held.running) {
       if (held.runningScope && 'project' in held.runningScope) return held.running
-      const after = held.running.then(
-        () => this.refresh(root, scope),
-        () => this.refresh(root, scope),
-      )
+      /* Asked again once that lands, unless the project was forgotten meanwhile: that would hold it, and write there, anew. */
+      const again = (): Promise<TrackerRefreshResult> =>
+        this.#held.has(root) ? this.refresh(root, scope) : Promise.resolve({ outcome: 'declined', at: null, why: 'This project is no longer on the list.' })
+      const after = held.running.then(again, again)
       return after
     }
     const run = because(trackerReason(root, scope), () => this.#read(root, scope)).finally(() => {
@@ -858,7 +858,7 @@ export class Trackers {
     held.sources = sources
     if (!sources.length) {
       held.stored = { ...held.stored, at: now, sources: [] }
-      saveReading(root, held.stored)
+      this.#save(root, held)
       return {
         outcome: 'declined',
         at: held.stored.at,
@@ -1093,7 +1093,7 @@ export class Trackers {
       branches,
     }
     try {
-      saveReading(root, held.stored)
+      this.#save(root, held)
     } catch {
       /* The reading is still served from memory; the file is a cache. */
     }
@@ -1133,6 +1133,23 @@ export class Trackers {
     held.stored.at = this.#now().toISOString()
     saveReading(root, held.stored)
     this.#told(root, { at: held.stored.at, refreshing: held.running !== null })
+  }
+
+  /** A read that lands after its project was forgotten writes nothing. */
+  #save(root: string, held: Held): void {
+    if (this.#held.get(root) === held) saveReading(root, held.stored)
+  }
+
+  /**
+   * The project was taken off the list: hold nothing for it, so the schedule
+   * reads and writes nothing there again. A read already running lands in
+   * memory only.
+   */
+  forget(root: string): void {
+    const held = this.#held.get(root)
+    if (!held) return
+    if (held.kick) clearTimeout(held.kick)
+    this.#held.delete(root)
   }
 
   /**

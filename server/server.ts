@@ -3461,6 +3461,9 @@ async function answerRequest(request: Request): Promise<Response> {
       if (!body || typeof body.id !== 'number') return json({ error: 'Which project.' }, 400)
       const said = forgetProject(db, body.id)
       if (!said.ok) return json({ error: said.why }, said.status)
+      /* Nothing more is read or written there: no tracker schedule, no watch of its `.kehikot/`. */
+      trackers.forget(said.project.path)
+      watchOpenProjects()
       return json({ project: said.project, canvases: said.canvases })
     }
 
