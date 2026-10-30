@@ -146,6 +146,8 @@ import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { readShelves, saveLayout } from './layouts.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
+import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
+import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
 import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
@@ -252,6 +254,8 @@ const trackerNotices = new TrackerNotices(db, inbox)
 ensureSettings(db)
 ensureOnboarding(db)
 ensureWhatsNew(db)
+/* The person's pinned places, across projects. `pinnedPlaces.ts`. */
+ensurePinnedPlaces(db)
 
 /* Leftovers from before the app was called Kehikot — registrations, project
    files and database rows under the old module ids — migrated once, before any
@@ -3312,6 +3316,19 @@ async function answerRequest(request: Request): Promise<Response> {
       const edit = onboardingEditSchema.safeParse(await request.json().catch(() => null))
       if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { step, paused?, finished? } }.' }, 400)
       return json(writeOnboarding(db, edit.data))
+    }
+
+    /* The person's pinned places (`server/pinnedPlaces.ts`), resolved against
+       what is there now. The POST — pin, unpin, order — is in `PAGE_ONLY`. */
+    if (url.pathname === '/host/pinned-places' && request.method === 'GET') {
+      return json({ pinned: readPinnedPlaces(db) })
+    }
+    if (url.pathname === '/host/pinned-places' && request.method === 'POST') {
+      const edit = pinEditSchema.safeParse(await request.json().catch(() => null))
+      if (!edit.success) return json({ error: 'A pinned-places change is { pin: { project, kehikko, epic, scope, parts } }, { unpin: id } or { order: [id, …] }.' }, 400)
+      const done = editPinnedPlaces(db, edit.data)
+      if (!done.ok) return json({ error: done.why }, done.status)
+      return json({ pinned: done.pinned })
     }
 
     /* "What's new" after an update (`server/whatsNew.ts`): what was last

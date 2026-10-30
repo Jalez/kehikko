@@ -11,6 +11,9 @@
  * first, so its pages are kept, as `dev/calm-switch.drive.mjs` judges a revisit), land on epic
  * `plan`, answer `moved`, and tell `context.show` to Gamma and not to Beta.
  * (A project the host does not hold is `test/navigate.test.ts`'s.)
+ *
+ * Then, back in project-a, a place pinned in project-b is picked from the bar's Pinned menu: it
+ * must go by the same calm switch to epic `plan`, and the Pin button must be filled there.
  */
 import { bootHost, scratch } from './scratch-host.mjs'
 
@@ -115,6 +118,10 @@ async function drive(kind) {
   }
   /* project-b once by the person's own switch, so the jump back to it is a revisit. */
   await switchTo('project-b')
+  /* A pinned place in project-b — its kehikko, epic `plan` — as the bar's Pin button would pin it. */
+  const now = await (await fetch(`http://127.0.0.1:${scratch.api}/host/canvases`)).json()
+  const bKehikko = now.canvases.find((one) => one.project === b.id && one.key)
+  await send('POST', '/host/pinned-places', { pin: { project: b.id, kehikko: bKehikko?.key ?? null, epic: 'plan', scope: 'epic', parts: [] } })
   await switchTo('project-a')
   expect((await project()).includes('project-a'), `${kind}: standing in project-a before the jump`)
 
@@ -143,6 +150,30 @@ async function drive(kind) {
   expect(notBeta === null, `${kind}: Beta, which says nothing of it, was not told (${notBeta})`)
   const answered = await alpha.locator('body').getAttribute('data-jumped').catch(() => null)
   expect(answered === 'moved', `${kind}: Alpha's jump was answered moved (${answered})`)
+
+  /* A pinned place in project-b, picked from the bar's Pinned menu while standing in project-a:
+     the same path as the person's own switch (the calm switch), landing on the pinned epic. */
+  await switchTo('project-a')
+  await page.evaluate(SAMPLER)
+  await page.locator('[data-testid="pinned-menu"]').click()
+  const row = page.locator('[data-pinned]', { hasText: 'project-b' }).first()
+  const listed = await row.waitFor({ timeout: 6000 }).then(() => true, () => false)
+  expect(listed, `${kind}: the Pinned menu lists the place pinned in project-b`)
+  if (listed) {
+    await row.click()
+    const there = await page
+      .waitForFunction(() => document.querySelector('button[aria-label="switch project"]')?.textContent?.includes('project-b'), null, { timeout: 15000 })
+      .then(() => true, () => false)
+    expect(there, `${kind}: picking the pinned place switched to project-b`)
+    await page.waitForTimeout(1800)
+    const pinSamples = await page.evaluate(() => ((window.__sampling = false), window.__samples))
+    const pinShownAt = pinSamples.findIndex((s, i) => i > 0 && s.phase !== 'preparing' && pinSamples.slice(0, i).some((p) => p.phase === 'preparing'))
+    expect(pinShownAt > 0, `${kind}: the pinned place was gone to by the calm switch`)
+    const toldPin = await gamma.locator('#told').innerText()
+    expect(toldPin === 'plan', `${kind}: the pages are on the pinned epic plan (${toldPin})`)
+    const filled = await page.locator('[data-testid="pin-here"]').getAttribute('aria-pressed')
+    expect(filled === 'true', `${kind}: the Pin button is filled at the pinned place (${filled})`)
+  }
 
   await context.close()
   await browser.close()

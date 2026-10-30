@@ -364,6 +364,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/versions': 'a module’s versions',
   '/host/whats-new': 'what’s new',
   '/host/onboarding': 'the introduction and the tour',
+  '/host/pinned-places': 'the person’s pinned places',
   '/host/settings': 'settings',
   '/host/sounds': 'the Inbox chime’s own sounds',
   '/host/module-settings': 'a module’s settings',

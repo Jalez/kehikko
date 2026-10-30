@@ -9,7 +9,9 @@ import { browserTest } from './browser-gate.ts'
  * 480, 440, 400, 380, 340, 300, 280, 220 and 200 pixels, folded and not, light and dark, in
  * WebKit and Chromium. `dev/header-fit.drive.mjs` renders it for real, with a
  * stand-in module with a long name, version and branch, and saves a screenshot
- * of the header at each width. Runs on bee only (`dev/bee-browser-tests.sh`;
+ * of the header at each width. It also narrows the window from 1400 to 360 pixels and holds the
+ * bar at its top to one row with the pinned places and the Pin button whole in it, and pins, lists
+ * and unpins a place at 400. Runs on bee only (`dev/bee-browser-tests.sh`;
  * `test/browser-gate.ts`).
  */
 browserTest('the header’s name, version, branch and scope never overlap at any width, in WebKit and Chromium', () => {
@@ -22,7 +24,7 @@ browserTest('the header’s name, version, branch and scope never overlap at any
     timeout: 420_000,
   })
   const out = `${run.stdout.toString()}${run.stderr.toString()}`
-  if (run.exitCode !== 0) console.error(out.slice(0, 6000))
+  if (run.exitCode !== 0) console.error(out.length > 12000 ? `${out.slice(0, 6000)}\n…\n${out.slice(-6000)}` : out)
   expect(run.exitCode).toBe(0)
   expect(out.includes('never overlap')).toBe(true)
 }, 430_000)
