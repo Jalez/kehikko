@@ -237,7 +237,7 @@ describe('GitLab: the people of a merge request', () => {
     expect(q).toContain('approvedBy(first: 32) { nodes { username name avatarUrl } }')
     expect(q).toContain('resolvableDiscussionsCount resolvedDiscussionsCount')
     expect(q).toContain('commits(first: 1) { nodes { committedDate } }')
-    expect(q).toContain('headPipeline { status createdAt }')
+    expect(q).toContain('headPipeline { status finishedAt createdAt }')
     const without = glRefsQuery(gl, [1], [8], false)
     expect(without).not.toContain('reviewers')
     expect(without).not.toContain('resolvableDiscussionsCount')
