@@ -191,6 +191,8 @@ export const NOT_GREETED = 'the module has not been greeted'
  * before 1.1.0, or hung.
  */
 export const PRESSED_TIMEOUT_MS = 3000
+/** How long an opened item waits for a page that has not answered its greeting yet (`sendOpened`). */
+export const OPENED_HOLD_MS = 20_000
 
 interface Pending {
   resolve(answer: { found: boolean; why: string }): void
@@ -208,6 +210,8 @@ export class Conversation {
   private nextPress = 1
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   private greeted = false
+  /** An opened item waiting for the page to answer its greeting (`sendOpened`). */
+  private openedLater: { item: string; at: number } | null = null
   private answered = false
   private closed = false
   private nextGoto = 1
@@ -434,6 +438,28 @@ export class Conversation {
   }
 
   /**
+   * Tell this module the person opened one of its Inbox items (protocol
+   * 2.35.0, `kehikot.opened`): pressed it in the Inbox, on a toast or with
+   * Next, and the host has come to its place. Carries the item's id and nothing
+   * else, and is not answered: the module shows that thing and counts it as
+   * seen, and says what became of the item in its next list.
+   *
+   * A page that has not answered its greeting yet — loading, or reloading
+   * because the person's arrival put it on screen — is told once it does, if
+   * that is within `OPENED_HOLD_MS`; only the latest item is held. A module
+   * before 2.35.0 drops the message unread.
+   */
+  sendOpened(item: string): void {
+    if (this.closed) return
+    if (!this.greeted || !this.answered) {
+      this.openedLater = { item, at: Date.now() }
+      return
+    }
+    this.openedLater = null
+    this.post({ type: MESSAGE.OPENED, protocol: PROTOCOL, item })
+  }
+
+  /**
    * Tell this module to read its material again.
    *
    * `sendClear`'s twin in shape and its opposite in consequence: that one is
@@ -582,6 +608,9 @@ export class Conversation {
     case MESSAGE.READY: {
       this.answered = true
       if (this.readyTimer) clearTimeout(this.readyTimer)
+      const later = this.openedLater
+      this.openedLater = null
+      if (later && Date.now() - later.at <= OPENED_HOLD_MS) this.post({ type: MESSAGE.OPENED, protocol: PROTOCOL, item: later.item })
       /* The id in `ready` is the module's own claim about its name. It is not
          how the host identifies it — that is the frame — so a mismatch is a
          fault to report and not an impersonation to defend against. Treating

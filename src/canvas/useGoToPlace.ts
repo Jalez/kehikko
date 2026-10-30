@@ -22,6 +22,12 @@ export interface GoToPlaceDeps {
   goto(call: { epic: string; parts: string[]; kehikko?: string }): Moved
   /** Light a module's container on the open kehikko; `later` when the screen is still changing. */
   highlight(module: string, later: boolean): void
+  /**
+   * The host has come to the place of `entry` and its module's container is
+   * on the open kehikko: the module is told which item (`kehikot.opened`).
+   * `later` as for `highlight`. Not called when the plan stopped short.
+   */
+  arrived?(entry: Entry, later: boolean): void
 }
 
 /** A short line the page shows after a press; `n` makes the same words said twice a new line. */
@@ -68,7 +74,10 @@ export function useGoToPlace(deps: GoToPlaceDeps) {
       } else if (kehikko) {
         d.openKehikko(kehikko.key)
       }
-      if (lit) d.highlight(lit.module, Boolean(kehikko || epic))
+      if (lit) {
+        d.highlight(lit.module, Boolean(kehikko || epic))
+        d.arrived?.(entry, Boolean(kehikko || epic))
+      }
       say(plan.note)
     },
     [say],

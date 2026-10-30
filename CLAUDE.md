@@ -738,6 +738,19 @@
   sound the module's manifest names for the event — `events[].sound`, protocol
   2.33.0, `declaredSound` — else the kind's). The host keeps no table of event
   ids: the module picks ("Answer", formerly `research`, is still read).
+- **The same item** is one (project, module, item id) in one `state` since one
+  `entered` (the module's `since`): `sameItem` in `src/canvas/useInbox.ts`. A
+  re-report of it is never news — no toast, no chime, seen stays seen — through
+  a re-send, a close and return, a module restart, a page reload and a host
+  restart. Only a new state or a new `since` is news. The host trusts `since`;
+  a module that re-stamps it on every re-send makes each one news (Claude and
+  Codex did, before 1.13.0 and 0.5.0). Do not add a host-side rule that guesses
+  around `since`.
+- Open (an Inbox row, a toast, Next) sees a `done` item and, once the host is
+  at its place with the module's container on the kehikko, tells the module
+  which item (`kehikot.opened`, protocol 2.35.0: `arrived` in `useGoToPlace`,
+  `Conversation.sendOpened`). `attention` still ends only by the module's word;
+  the message is how a module learns the person came for it.
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
 - Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts

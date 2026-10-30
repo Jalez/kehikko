@@ -37,6 +37,7 @@ let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipPr
 let useGoToPlace: typeof import('../src/canvas/useGoToPlace.ts').useGoToPlace
 let WentTo: typeof import('../src/canvas/WentTo.tsx').WentTo
 let tally: typeof import('../src/host/inbox.ts').tally
+let Presses: typeof import('../src/host/presses.ts').Presses
 
 beforeAll(async () => {
   if (!inChild) return
@@ -50,6 +51,7 @@ beforeAll(async () => {
   ;({ useGoToPlace } = await import('../src/canvas/useGoToPlace.ts'))
   ;({ WentTo } = await import('../src/canvas/WentTo.tsx'))
   ;({ tally } = await import('../src/host/inbox.ts'))
+  ;({ Presses } = await import('../src/host/presses.ts'))
 })
 
 afterAll(async () => {
@@ -78,6 +80,9 @@ const entry = (id: string, more: Partial<Entry> = {}): Entry => ({
 /** The panel with one item, pressed. What the page would have done is recorded. */
 async function press(item: Entry) {
   const lit: string[] = []
+  const told: [string, string, boolean][] = []
+  const presses = new Presses()
+  presses.join('kehikot.claude', { clear() {}, refresh() {}, walk: async () => ({ found: false, why: '' }), item: async () => ({ ok: false, why: '' }), focus() {}, opened: (one) => told.push(['kehikot.claude', one, false]) })
   const epics: string[] = []
   const KEHIKOT = [{ key: 'k1', name: 'Design', modules: ['kehikot.claude'] }]
   function Wired() {
@@ -95,6 +100,8 @@ async function press(item: Entry) {
         return { outcome: 'moved', why: '' }
       },
       highlight: (module) => lit.push(module),
+      /* As `App.tsx` wires it, without the wait for the screen: the frame is told which item. */
+      arrived: (one) => void presses.opened(one.module, one.id),
     })
     const at = { epic, kehikko: 'k1' }
     const view: InboxView = {
@@ -136,7 +143,7 @@ async function press(item: Entry) {
   const status = host.querySelector('[data-went-to]')?.textContent ?? null
   await act(async () => root.unmount())
   host.remove()
-  return { lit, epics, status }
+  return { lit, epics, status, told }
 }
 
 if (inChild) {
@@ -145,6 +152,8 @@ if (inChild) {
     expect(got.epics).toEqual(['thesis', 'kiosk'])
     expect(got.lit).toEqual(['kehikot.claude'])
     expect(got.status).toBeNull()
+    /* And the module is told which of its items the person opened (kehikot.opened). */
+    expect(got.told).toEqual([['kehikot.claude', 'reel', false]])
   })
 
   test('an item with no place lights the module as before, and says it named no place', async () => {

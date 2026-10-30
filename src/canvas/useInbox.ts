@@ -85,6 +85,14 @@ export function projectsHolding(snaps: Readonly<Record<number, Snapshot | undefi
   )
 }
 
+/**
+ * The same item, as one key: one project, one module, one item id, in one state since one time.
+ * An item whose key this page has held is never news again; a new state or a new `since` is a new
+ * key. The modules are held to keeping `since` steady while the thing stays in its state.
+ */
+export const sameItem = (project: number, entry: Pick<Entry, 'module' | 'id' | 'state' | 'entered'>): string =>
+  `${project}\u0000${rowKey(entry)}\u0000${entry.state}\u0000${entry.entered}`
+
 /** Another project's live entries, for the Inbox to show under that project's name. */
 export interface Elsewhere {
   project: ProjectRef
@@ -184,9 +192,16 @@ export function useInbox(options: {
   const waiting = useRef(0)
   const chain = useRef<Promise<unknown>>(Promise.resolve())
 
+  /**
+   * Every (project, module, id, state, entered) this page has held or told: the SAME item. A read
+   * of another project says what is news by what is not in here, so an item that closed and came
+   * back unchanged (its module's page restarted slowly, say) is not news again. See `sameItem`.
+   */
+  const held = useRef(new Set<string>())
   const adopt = useCallback(
     (id: number, snap: Snapshot | null) => {
       if (!snap) return
+      for (const entry of snap.open) held.current.add(sameItem(id, entry))
       if (waiting.current > 0) return
       setSnap(id, snap)
     },
@@ -234,7 +249,8 @@ export function useInbox(options: {
   const told = useRef(new Set<string>())
   const forward = useCallback((id: number, news: readonly Entry[]) => {
     for (const entry of news) {
-      const said = `${id}\u0000${rowKey(entry)}\u0000${entry.state}\u0000${entry.entered}`
+      const said = sameItem(id, entry)
+      held.current.add(said)
       if (told.current.has(said)) continue
       told.current.add(said)
       /* A place can only be open on screen in the open project. */
@@ -261,14 +277,14 @@ export function useInbox(options: {
              lists stay quiet there, as before. */
           const open = one === projectRef.current
           if (was) {
-            const before = new Map(was.open.map((entry) => [rowKey(entry), entry]))
+            /* News is what this page has never held in that state since that time: not an item that
+               closed and came back as it was, which the open entries alone cannot tell. */
             forward(
               one,
               got.open.filter((entry) => {
                 if (open && entry.module !== MENTIONS_MODULE) return false
                 if (entry.state === 'working' || !isLive(entry)) return false
-                const prior = before.get(rowKey(entry))
-                return !prior || prior.state !== entry.state || prior.entered !== entry.entered
+                return !held.current.has(sameItem(one, entry))
               }),
             )
           }

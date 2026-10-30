@@ -99,6 +99,12 @@ export interface Pressable {
   fullscreen?(): Promise<boolean>
   /** Leave full screen if this frame has it. See `surface.ts`. */
   leaveFullscreen?(): void
+  /**
+   * Tell this module the person opened one of its Inbox items, by the item's
+   * id, once the host has come to its place. See `Conversation.sendOpened`.
+   * A call like the others: made at the moment of arrival, never stored here.
+   */
+  opened?(item: string): void
 }
 
 /* The shapes of a header press are `header.ts`'s; they are named here for the frame that carries one. */
@@ -209,6 +215,14 @@ export class Presses {
   fullscreen(id: string): Promise<boolean> {
     const frame = this.frames.get(id)
     return frame?.fullscreen ? frame.fullscreen() : Promise.resolve(false)
+  }
+
+  /** Tell one module the person opened its Inbox item `item`, if its frame is there. Answers whether it was. */
+  opened(id: string, item: string): boolean {
+    const frame = this.frames.get(id)
+    if (!frame?.opened) return false
+    frame.opened(item)
+    return true
   }
 
   /** Give the screen back, when that frame has it. */
