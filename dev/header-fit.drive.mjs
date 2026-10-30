@@ -14,7 +14,10 @@
  *     (`text-overflow: ellipsis`), and a chip does not clip its icon;
  *   - the header is one row, and does not scroll sideways;
  *   - the scope is a label with its name at 440 and wider and its icon alone under it, its
- *     accessible name and tooltip saying the scope at every width, and a row in the Frame menu.
+ *     accessible name and tooltip saying the scope at every width, and a row in the Frame menu;
+ *   - and the window's own bar, from 1400 down to 360 pixels: one row, the pinned places and the
+ *     Pin button whole and overlapping nothing, "Pinned" a word only at 900 and wider, and pinning,
+ *     listing and unpinning from the menu at 400.
  *
  *     node dev/header-fit.drive.mjs            # BROWSERS=webkit to pick one
  *
@@ -127,6 +130,88 @@ const MEASURE = (id) => {
   return { bad, state }
 }
 
+/*
+ * The bar at the top of the window, with the pinned places and the Pin button right after the
+ * breadcrumb: at each window width it stays one row 32 pixels tall, both controls are drawn whole
+ * inside it and overlap nothing, the word "Pinned" is there only at 900 pixels and wider, and the Pin
+ * button is there at every width.
+ */
+const BAR_WIDTHS = [1400, 1100, 900, 899, 800, 640, 480, 400, 360]
+const MEASURE_BAR = () => {
+  const bar = document.querySelector('header[data-testid="bar"]')
+  const bad = []
+  if (!bar) return { bad: ['no bar'], state: {} }
+  const rect = (el) => el.getBoundingClientRect()
+  const drawn = (el) => {
+    if (!el) return false
+    const style = getComputedStyle(el)
+    const r = rect(el)
+    return style.display !== 'none' && style.visibility !== 'hidden' && r.width > 0.5 && r.height > 0.5
+  }
+  const b = rect(bar)
+  if (b.height > 33) bad.push(`the bar is ${b.height}px tall`)
+  const menu = bar.querySelector('[data-testid="pinned-menu"]')
+  const pin = bar.querySelector('[data-testid="pin-here"]')
+  const word = bar.querySelector('[data-testid="pinned-label"]')
+  for (const [name, el] of [['the Pinned menu', menu], ['the Pin button', pin]]) {
+    if (!drawn(el)) {
+      bad.push(`${name} is not drawn`)
+      continue
+    }
+    const r = rect(el)
+    if (r.left < b.left - 0.5 || r.right > b.right + 0.5) bad.push(`${name} is outside the bar`)
+    if (Math.abs(r.top + r.height / 2 - (b.top + b.height / 2)) > 4) bad.push(`${name} is not on the bar's row`)
+    if (el.scrollWidth > el.clientWidth + 1) bad.push(`${name} clips what is in it (${el.scrollWidth} > ${el.clientWidth})`)
+    /* Nothing else in the bar under it. */
+    for (const other of bar.querySelectorAll('button, [data-testid="pinned-label"]')) {
+      if (other === el || el.contains(other) || other.contains(el) || !drawn(other)) continue
+      const o = rect(other)
+      const across = Math.min(r.right, o.right) - Math.max(r.left, o.left)
+      const down = Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top)
+      if (across > 0.5 && down > 0.5) bad.push(`${name} overlaps "${other.getAttribute('aria-label') ?? other.textContent}" by ${across.toFixed(1)}px`)
+    }
+  }
+  /* Tailwind's `max-[900px]:` is `width < 900px`. */
+  const wide = window.innerWidth >= 900
+  if (wide && !drawn(word)) bad.push('the word "Pinned" is gone at 900px or wider')
+  if (!wide && drawn(word)) bad.push('the word "Pinned" is still drawn under 900px')
+  return { bad, state: { width: Math.round(b.width), height: Math.round(b.height), word: drawn(word) ? 'word' : 'icon', pin: drawn(pin) ? 'drawn' : 'gone' } }
+}
+
+async function driveBar(page, kind, scheme) {
+  for (const width of BAR_WIDTHS) {
+    const run = `${kind} ${scheme} bar ${width}px`
+    await page.setViewportSize({ width, height: 700 })
+    await page.waitForTimeout(250)
+    const { bad, state } = await page.evaluate(MEASURE_BAR)
+    await page.locator('header[data-testid="bar"]').screenshot({ path: join(SHOTS, `${kind}-${scheme}-bar-${width}.png`) })
+    say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: bar ${state.width}x${state.height}px, pinned ${state.word}, pin button ${state.pin}${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
+    if (bad.length) failures.push(`${run}: ${bad[0]}`)
+  }
+  /* Narrow: the Pin button pins the place on screen (filled), and the menu lists it with its unpin. */
+  try {
+    await page.setViewportSize({ width: 400, height: 700 })
+    const pin = page.locator('[data-testid="pin-here"]')
+    if ((await pin.getAttribute('aria-pressed')) !== 'true') await pin.click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="pin-here"]')?.getAttribute('aria-pressed') === 'true', null, { timeout: 6000 })
+    await page.locator('[data-testid="pinned-menu"]').click()
+    const unpin = page.locator('[data-testid="pinned-unpin"]').first()
+    await unpin.waitFor({ timeout: 6000 })
+    const said = await unpin.getAttribute('aria-label')
+    if (!said?.startsWith('Unpin ')) throw new Error(`the unpin says "${said}"`)
+    await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-pinned-menu-400.png`), clip: { x: 0, y: 0, width: 400, height: 260 } })
+    await unpin.click()
+    await page.locator('[data-testid="pinned-empty"]').waitFor({ timeout: 6000 })
+    await page.keyboard.press('Escape')
+    await page.waitForFunction(() => document.querySelector('[data-testid="pin-here"]')?.getAttribute('aria-pressed') === 'false', null, { timeout: 6000 })
+    say(`ok   ${kind} ${scheme} bar 400px: pinned the place, listed it ("${said}"), unpinned it from the menu`)
+  } catch (error) {
+    failures.push(`${kind} ${scheme} bar 400px: pin, list and unpin failed (${error.message})`)
+    say(`FAIL ${kind} ${scheme} bar 400px: pin, list and unpin failed (${error.message})`)
+  }
+  await page.setViewportSize({ width: 1400, height: 700 })
+}
+
 /** A clip of the container's header and what opens below it, for a screenshot of a tooltip or a menu. */
 async function clipAround(page, id, below = 90) {
   const box = await page.locator(`[data-module="${id}"] header.container-grip`).boundingBox()
@@ -236,6 +321,7 @@ async function drive(kind, browserType) {
       }
       await page.keyboard.press('Escape')
     }
+    await driveBar(page, kind, scheme)
     await context.close()
   }
   await browser.close()
@@ -252,6 +338,6 @@ say(`screenshots: ${SHOTS}`)
 if (failures.length) {
   console.log(`\n${failures.length} failure(s):`)
   for (const failure of failures) console.log(`  - ${failure}`)
-} else console.log('\nthe header\'s name, version, branch and scope never overlap, in WebKit and Chromium, light and dark, at every width')
+} else console.log('\nthe header\'s name, version, branch and scope never overlap, and the bar keeps the pinned places and the Pin button on one row, in WebKit and Chromium, light and dark, at every width')
 stop()
 process.exit(failures.length ? 1 : 0)

@@ -12,6 +12,8 @@ import { setDisposition } from './dispositions.ts'
 import { createEpic, editParts, epicsIn, listEpics, readParts, readStepsAnswer } from './holdings.ts'
 import type { Came } from './headers.ts'
 import { JUMP_SIGNED, paceRefusal, toldWords } from '../src/host/jump.ts'
+import { pinnedWords } from '../src/host/pinnedPlaces.ts'
+import { ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { belongsWords, lookingAt, lookingWords, sameAsLooking, type Here, type Looking, type Unrecorded } from './doorPlaces.ts'
 import { keep } from './kehikot.ts'
 import { listProjects, MISSING_SAID, projectById, type Project } from './projects.ts'
@@ -882,8 +884,9 @@ function tools() {
         + 'conversation started from a place in Kehikot is recorded there; one that is not recorded says so, and is '
         + 'recorded with set_my_place (or by the person, from the ask this puts in their Inbox). Says the project’s '
         + 'base branch, the one to start work from and pull updates from, when it has one. Also says what the '
-        + 'person is looking at now, labelled as that. Ask this before acting on "the epic"; every tool here '
-        + 'answers about the recorded place, and says when it fell back to the person’s view.',
+        + 'person is looking at now, labelled as that, and the places the person pinned (read-only: jump to one '
+        + 'only when they ask; pins are theirs and no tool pins or unpins). Ask this before acting on "the epic"; '
+        + 'every tool here answers about the recorded place, and says when it fell back to the person’s view.',
       annotations: { title: 'This conversation’s place', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: { type: 'object', properties: {}, required: [] },
     },
@@ -2716,6 +2719,7 @@ function myPlace(door: Door): { text: string; failed: boolean } {
           ? 'Recorded for this connection with set_my_place (or by the person, from their Inbox). If the agent restarts or reconnects, it is a new connection with no record, and is asked again.'
           : `Read from ${here.module ?? 'the module'}'s record of this conversation${here.conversation ? ` (${here.conversation})` : ''}, as it is now.`,
         'Every tool here answers about this place unless you name another kehikko or epic.',
+        pinnedPlacesWords(door),
       ]
         .filter(Boolean)
         .join('\n'),
@@ -2736,10 +2740,22 @@ function myPlace(door: Door): { text: string; failed: boolean } {
       asked ? `The person has been asked in their Inbox (${project!.name}); their answer is recorded the same way.` : '',
       !door.session ? 'This client did not keep the session this door gave it at initialize, so nothing can be recorded for it here.' : '',
       `For information only, NOT this conversation’s place: ${lookingWords(null, now)}`,
+      pinnedPlacesWords(door),
     ]
       .filter(Boolean)
       .join('\n'),
     failed: false,
+  }
+}
+
+/** The person's pinned places, read-only, with what `jump` takes to go to each. See `src/host/pinnedPlaces.ts`. */
+function pinnedPlacesWords(door: Door): string {
+  try {
+    ensurePinnedPlaces(door.db)
+    const projects = listProjects(door.db)
+    return pinnedWords(readPinnedPlaces(door.db), (id) => projects.find((one) => one.id === id)?.path ?? null)
+  } catch {
+    return ''
   }
 }
 

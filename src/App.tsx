@@ -63,6 +63,8 @@ import {
 } from './host/canvases.ts'
 import { markAfter, markStands, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
 import { JumpMark } from './canvas/JumpMark.tsx'
+import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
+import { targetOf } from './host/pinnedPlaces.ts'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
 import {
@@ -3522,6 +3524,21 @@ export function App() {
   }
   const shownJumpMark = markStands(jumpMark, placeNow)
 
+  /**
+   * The person's pinned places and the Pin button (`PinnedPlaces.tsx`). A pin
+   * is gone to by `goPlace`, the one path the person's pickers, an agent's
+   * jump and Go back share — into another project with the calm switch.
+   */
+  const pinned = usePinnedPlaces({
+    here: targetOf(placeNow),
+    go: (place) => {
+      void goPlace(place).then((came) => {
+        if (!came.ok) setTrouble(`That pinned place could not be opened: ${came.why}`)
+      })
+    },
+    trouble: setTrouble,
+  })
+
   /** What each pinned container is doing, by `<kehikko>|<module>`. See `server/pins.ts`. */
   const pinViews = useMemo(() => {
     const map = new Map<string, PinView>()
@@ -4446,6 +4463,7 @@ export function App() {
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
         activity={barActivity}
+        pinned={pinned}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */
