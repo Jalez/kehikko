@@ -13,7 +13,7 @@ import {
   availability,
   availabilitySaid,
   BUILT_IN_LAYOUTS,
-  layoutFileSchema,
+  layoutContainerSchema,
   placementsFor,
   slugFor,
   toInstall,
@@ -63,12 +63,12 @@ describe('the built-in layouts', () => {
     expect(plan.containers.find((c) => c.module === 'kehikot.flows')?.optional).toBe(true)
   })
 
-  test('each fits the grid — twelve columns, the canvas’s rows — and no two containers overlap', () => {
+  test('each fits the grid — the canvas’s columns, the canvas’s rows — and no two containers overlap', () => {
     for (const layout of BUILT_IN_LAYOUTS) {
       for (const c of layout.containers) {
         expect(c.x + c.w).toBeLessThanOrEqual(COLUMNS)
         expect(c.y + c.h).toBeLessThanOrEqual(CANVAS_ROWS)
-        expect(layoutFileSchema.shape.containers.element.safeParse(c).success).toBe(true)
+        expect(layoutContainerSchema.safeParse(c).success).toBe(true)
       }
       const cells = new Set<string>()
       for (const c of layout.containers) {

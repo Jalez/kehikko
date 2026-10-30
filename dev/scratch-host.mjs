@@ -238,14 +238,14 @@ export async function bootHost(name = 'kehikko-drive', { traffic = false, env: m
   const a = first.projects[0].id
   const b = (await send('POST', '/host/projects', { path: at('project-b') })).project.id
   const wide = [
-    { i: 'kehikot.alpha', x: 0, y: 0, w: 6, h: 28 },
-    { i: 'kehikot.beta', x: 6, y: 0, w: 6, h: 28 },
-    { i: 'kehikot.gamma', x: 0, y: 28, w: 12, h: 28 },
+    { i: 'kehikot.alpha', x: 0, y: 0, w: 12, h: 28 },
+    { i: 'kehikot.beta', x: 12, y: 0, w: 12, h: 28 },
+    { i: 'kehikot.gamma', x: 0, y: 28, w: 24, h: 28 },
   ]
   const tall = [
-    { i: 'kehikot.alpha', x: 0, y: 0, w: 4, h: 56 },
-    { i: 'kehikot.beta', x: 4, y: 0, w: 4, h: 56 },
-    { i: 'kehikot.gamma', x: 8, y: 0, w: 4, h: 56 },
+    { i: 'kehikot.alpha', x: 0, y: 0, w: 8, h: 56 },
+    { i: 'kehikot.beta', x: 8, y: 0, w: 8, h: 56 },
+    { i: 'kehikot.gamma', x: 16, y: 0, w: 8, h: 56 },
   ]
   /* The kehikko a fresh project opens on holds the three as well, so the
      first load is a canvas of pages and not an empty one. */

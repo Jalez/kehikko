@@ -135,15 +135,17 @@ brings an older layout there when it starts, adopts or adds a project
 (`server/hostData.ts`): a legacy `<project>/data/epics` or `data/state` is moved.
 It never overwrites, and leaves both and logs both paths if both exist.
 
-**A kehikko is twelve columns by fifty-six rows** (`CANVAS_ROWS` in
-`src/host/fit.ts`), and the rows fill the canvas's height exactly at every
-window size. It was twenty-eight rows before. A `kehikot.json` says
-`"rows": 56` at its top and a layout file is version 2; a `kehikot.json`
-without `rows`, a layout file of version 1 and a database row without
-`placements.rows` count in twenty-eighths and are doubled as they are read,
-which draws every container where it drew. A host from before refuses a
-`kehikot.json` that says `rows` ("is the file from a newer Kehikot?"), and so
-never writes over it.
+**A kehikko is twenty-four columns by fifty-six rows** (`COLUMNS` and
+`CANVAS_ROWS` in `src/host/fit.ts`), and the rows fill the canvas's height
+exactly at every window size. It was twelve columns by twenty-eight rows
+before. A `kehikot.json` says `"rows": 56` and `"cols": 24` at its top and a
+layout file is version 3; a `kehikot.json` without `rows` or `cols`, a layout
+file of version 1 or 2, a published layout of version 1 or 2 and a database row
+whose `placements.rows` or `placements.cols` says the old count are doubled in
+that direction as they are read, which draws every container where it drew. A
+container is never narrower than two columns (`MIN_W`, one of the old twelve).
+A host from before refuses a `kehikot.json` that says `rows` or `cols` ("is
+the file from a newer Kehikot?"), and so never writes over it.
 
 **Machine-level state** — state that belongs to this computer rather than to a
 project — is allowed only where `dev/storage-boundary.ts` lists it, each with a

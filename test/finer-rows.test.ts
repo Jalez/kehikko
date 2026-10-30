@@ -10,7 +10,7 @@ import { projectLayoutsDir, readShelves, saveLayout } from '../server/layouts.ts
 import { addProject, type Project } from '../server/projects.ts'
 import { FOLDED_ROWS, SQUEEZED_ROWS, arranged } from '../src/host/columns.ts'
 import { GAP_MIN_H, NEW_H, place } from '../src/host/canvases.ts'
-import { CANVAS_ROWS, finer, ROWS_BEFORE } from '../src/host/fit.ts'
+import { CANVAS_ROWS, COLUMNS, finer, ROWS_BEFORE } from '../src/host/fit.ts'
 import { BUILT_IN_LAYOUTS, LAYOUT_VERSION, layoutFromFile } from '../src/host/layouts.ts'
 
 /**
@@ -157,9 +157,10 @@ describe('a shared kehikot.json from an older project', () => {
     })
     keep(store, p.id)
     const text = readFileSync(kehikotFile(dir)!, 'utf8')
-    expect(JSON.parse(text)).toMatchObject({ version: 2, rows: 56 })
-    expect(text).toContain('{"module":"kehikot.notes","x":0,"y":0,"w":6,"h":21,')
-    expect(text).toContain('{"module":"kehikot.claude","x":6,"y":0,"w":6,"h":56,')
+    expect(JSON.parse(text)).toMatchObject({ version: 2, rows: 56, cols: 24 })
+    /* And in twenty-fourths, since the file had no `cols` either (`finer-columns.test.ts`). */
+    expect(text).toContain('{"module":"kehikot.notes","x":0,"y":0,"w":12,"h":21,')
+    expect(text).toContain('{"module":"kehikot.claude","x":12,"y":0,"w":12,"h":56,')
 
     /* And read back, a file in fifty-sixths is taken as it is. */
     expect(syncProject(store, p)).toMatchObject({ outcome: 'read', changed: false })
@@ -258,7 +259,7 @@ describe('what is counted in rows doubled with them', () => {
   })
 
   test('a new container on an empty kehikko is half the width and twenty of the rows', () => {
-    expect(place([], 'a.one')[0]).toMatchObject({ x: 0, y: 0, w: 6, h: NEW_H, wish: NEW_H })
+    expect(place([], 'a.one')[0]).toMatchObject({ x: 0, y: 0, w: COLUMNS / 2, h: NEW_H, wish: NEW_H })
   })
 
   /* Every built-in layout fills the canvas to the bottom in at least one

@@ -69,66 +69,66 @@ const spot = (placements: ReturnType<typeof place>, id: string) => {
 }
 
 describe('a new module takes the first free space that fits, in reading order', () => {
-  test('an empty canvas: top left, six by twenty', () => {
-    expect(spot(place([], 'n'), 'n')).toEqual({ x: 0, y: 0, w: 6, h: 20 })
+  test('an empty canvas: top left, twelve by twenty', () => {
+    expect(spot(place([], 'n'), 'n')).toEqual({ x: 0, y: 0, w: 12, h: 20 })
   })
 
   test('a hole beside the first container is taken before the bottom row', () => {
-    const holed = [at('a', 0, 0, 6, 20), at('c', 0, 20, 12, 12), at('e', 6, 32, 6, 24)]
-    expect(spot(place(holed, 'n'), 'n')).toEqual({ x: 6, y: 0, w: 6, h: 20 })
+    const holed = [at('a', 0, 0, 12, 20), at('c', 0, 20, 24, 12), at('e', 12, 32, 12, 24)]
+    expect(spot(place(holed, 'n'), 'n')).toEqual({ x: 12, y: 0, w: 12, h: 20 })
   })
 
   test('a hole in the middle, first in reading order', () => {
-    const board = [at('a', 0, 0, 12, 8), at('b', 0, 8, 3, 48), at('c', 9, 8, 3, 48), at('d', 0, 28, 12, 28)]
-    /* Between b and c, rows 8..28, six columns of twenty: exactly one fit, x 3. */
+    const board = [at('a', 0, 0, 24, 8), at('b', 0, 8, 6, 48), at('c', 18, 8, 6, 48), at('d', 0, 28, 24, 28)]
+    /* Between b and c, rows 8..28, twelve columns of twenty: exactly one fit, x 6. */
     const placed = place(board, 'n')
-    expect(spot(placed, 'n')).toEqual({ x: 3, y: 8, w: 6, h: 20 })
+    expect(spot(placed, 'n')).toEqual({ x: 6, y: 8, w: 12, h: 20 })
   })
 
   test('a hole too small for the usual size is shaped to the gap, capped at the usual size', () => {
-    const board = [at('a', 0, 0, 12, 8), at('b', 0, 8, 4, 36), at('c', 9, 8, 3, 36), at('d', 0, 44, 12, 12)]
-    /* Gap is x 4..9 (five wide), rows 8..44 (thirty-six): five by twenty. */
+    const board = [at('a', 0, 0, 24, 8), at('b', 0, 8, 8, 36), at('c', 18, 8, 6, 36), at('d', 0, 44, 24, 12)]
+    /* Gap is x 8..18 (ten wide), rows 8..44 (thirty-six): ten by twenty. */
     const shaped = place(board, 'n')
-    expect(spot(shaped, 'n')).toEqual({ x: 4, y: 8, w: 5, h: 20 })
+    expect(spot(shaped, 'n')).toEqual({ x: 8, y: 8, w: 10, h: 20 })
     expect(shaped.find((p) => p.i === 'n')!.wish).toBe(20)
   })
 
   test('a gap shorter than the least is not used', () => {
-    /* Columns 4..7 are free for rows 20..30 only: four wide, but ten tall. */
-    const board = [at('e', 0, 0, 4, 56), at('c', 4, 0, 4, 20), at('f', 8, 0, 4, 30), at('d', 4, 30, 8, 26)]
-    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 0, y: 56, w: 6, h: 20 })
+    /* Columns 8..15 are free for rows 20..30 only: eight wide, but ten tall. */
+    const board = [at('e', 0, 0, 8, 56), at('c', 8, 0, 8, 20), at('f', 16, 0, 8, 30), at('d', 8, 30, 16, 26)]
+    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 0, y: 56, w: 12, h: 20 })
   })
 
   test('a gap the grid would collapse is not a gap', () => {
     /* b is stored at row 30 but drawn at row 20, so there is no hole from 20 to 30. */
-    const board = [at('a', 0, 0, 12, 20), at('b', 0, 30, 12, 20)]
+    const board = [at('a', 0, 0, 24, 20), at('b', 0, 30, 24, 20)]
     const placed = place(board, 'n')
-    expect(spot(placed, 'n')).toEqual({ x: 0, y: 40, w: 6, h: 16 })
+    expect(spot(placed, 'n')).toEqual({ x: 0, y: 40, w: 12, h: 16 })
   })
 
   test('a folded container is its header, and the space under it is free', () => {
-    const board = [at('a', 0, 0, 12, 20, true), at('b', 0, 2, 6, 20)]
-    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 6, y: 2, w: 6, h: 20 })
+    const board = [at('a', 0, 0, 24, 20, true), at('b', 0, 2, 12, 20)]
+    expect(spot(place(board, 'n'), 'n')).toEqual({ x: 12, y: 2, w: 12, h: 20 })
   })
 
   test('nothing fits: the old rule, beside the last or a new row', () => {
-    const full = [at('a', 0, 0, 12, 28), at('b', 0, 28, 12, 28)]
+    const full = [at('a', 0, 0, 24, 28), at('b', 0, 28, 24, 28)]
     const placed = place(full, 'n')
     expect(spot(placed, 'n').x).toBe(0)
     expect(spot(placed, 'n').y).toBe(56)
-    const nearly = [at('a', 0, 0, 12, 28), at('b', 0, 28, 10, 28)]
-    expect(spot(place(nearly, 'n'), 'n')).toEqual({ x: 0, y: 56, w: 6, h: 20 })
+    const nearly = [at('a', 0, 0, 24, 28), at('b', 0, 28, 20, 28)]
+    expect(spot(place(nearly, 'n'), 'n')).toEqual({ x: 0, y: 56, w: 12, h: 20 })
   })
 
   test('several in a row each take the next gap', () => {
-    const board = [at('a', 0, 0, 12, 8), at('b', 0, 8, 3, 48), at('c', 9, 8, 3, 48)]
+    const board = [at('a', 0, 0, 24, 8), at('b', 0, 8, 6, 48), at('c', 18, 8, 6, 48)]
     const one = place(board, 'n1')
-    expect(spot(one, 'n1')).toEqual({ x: 3, y: 8, w: 6, h: 20 })
+    expect(spot(one, 'n1')).toEqual({ x: 6, y: 8, w: 12, h: 20 })
     const two = place(one, 'n2')
-    expect(spot(two, 'n2')).toEqual({ x: 3, y: 28, w: 6, h: 20 })
+    expect(spot(two, 'n2')).toEqual({ x: 6, y: 28, w: 12, h: 20 })
     const three = place(two, 'n3')
     /* The gap is used up (eight rows are left under them), so the old rule: a new row. */
-    expect(spot(three, 'n3')).toEqual({ x: 0, y: 56, w: 6, h: 20 })
+    expect(spot(three, 'n3')).toEqual({ x: 0, y: 56, w: 12, h: 20 })
     /* None of them overlaps another. */
     for (const p of three) {
       for (const q of three) {
@@ -140,12 +140,12 @@ describe('a new module takes the first free space that fits, in reading order', 
   })
 
   test('an id already placed is left where it is', () => {
-    const board = [at('a', 0, 0, 6, 20)]
+    const board = [at('a', 0, 0, 12, 20)]
     expect(place(board, 'a')).toEqual(board)
   })
 
   test('the existing containers are returned untouched', () => {
-    const board = [at('a', 0, 0, 12, 20), at('b', 0, 30, 12, 20)]
+    const board = [at('a', 0, 0, 24, 20), at('b', 0, 30, 24, 20)]
     const placed = place(board, 'n')
     expect(placed.slice(0, 2)).toEqual(board)
   })

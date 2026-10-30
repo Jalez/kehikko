@@ -6,7 +6,7 @@ import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, granted, tops } from './columns.ts'
-import { CANVAS_ROWS } from './fit.ts'
+import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { registryIn, type RegistryView } from './registry.ts'
 import type { Told } from './jump.ts'
@@ -873,25 +873,26 @@ export function inProject(canvases: readonly Canvas[], project: number | null): 
 }
 
 /**
- * The grid is twelve columns wide, and a new container takes half of it, and
- * twenty of the fifty-six rows — the ten of twenty-eight it always took, in the
- * finer rows (`fit.ts`).
+ * The grid is twenty-four columns wide (`COLUMNS`, in `fit.ts` beside the
+ * rows), and a new container takes half of it, twelve (the six of twelve it
+ * always took), and twenty of the fifty-six rows (the ten of twenty-eight).
  */
-export const COLUMNS = 12
-const NEW_W = 6
+export { COLUMNS }
+export const NEW_W = 12
 export const NEW_H = 20
 /**
- * The least a container is shaped down to when only a smaller gap exists: four
- * columns by twelve rows (six of the twenty-eight a canvas used to have). Four
- * of twelve columns is a third of the canvas, the narrowest at which a module's
+ * The least a container is shaped down to when only a smaller gap exists: eight
+ * columns by twelve rows (four of the old twelve columns, six of the old
+ * twenty-eight rows). A third of the canvas is the narrowest at which a module's
  * header (title, version and its menus) and a line of content still sit side by
  * side; twelve rows is twice `SQUEEZED_ROWS`, the least a neighbour may be
  * pushed to, so a shaped container is a header and a readable body and never
- * one that looks as if it had been squeezed. The repo has
- * no per-module minimum size (the grid is given no `minW` or `minH`); this is the
- * host's own floor for a placement it chooses, and a person can still resize.
+ * one that looks as if it had been squeezed. The repo has no per-module
+ * minimum size (the grid's only `minW` is `MIN_W`, the old single column, and
+ * it has no `minH`); this is the host's own floor for a placement it chooses,
+ * and a person can still resize.
  */
-export const GAP_MIN_W = 4
+export const GAP_MIN_W = 8
 export const GAP_MIN_H = 12
 
 /**
@@ -900,8 +901,8 @@ export const GAP_MIN_H = 12
  *
  * The canvas is scanned left to right, top to bottom, over the grid as it is
  * DRAWN (`arranged`: wishes granted, vertical compaction applied), and the
- * container takes the first free rectangle that holds the usual six columns by
- * twenty rows. Failing that, the first gap in reading order that holds at least
+ * container takes the first free rectangle that holds the usual twelve columns
+ * by twenty rows. Failing that, the first gap in reading order that holds at least
  * `GAP_MIN_W` by `GAP_MIN_H` is taken at that gap's size, capped at the usual
  * one; a full-size gap anywhere is preferred to a shaped one. Failing that, the
  * old rule: beside the last container on the bottom row if it has room, else on

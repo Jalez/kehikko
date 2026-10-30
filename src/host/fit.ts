@@ -181,6 +181,66 @@ export function finer(oldRows: number): number {
 }
 
 /**
+ * How many columns a canvas has. Twenty-four: twelve, each cut in two.
+ *
+ * The owner, after the rows were halved: "perhaps we should also increase the
+ * number of columns as well, so that we get more nuance in resizing modules to
+ * be different sizes." Twelve columns made a width step of a twelfth of the
+ * canvas, over a hundred pixels on a laptop, so two containers side by side
+ * could be half and half, or seven and five, and nothing between.
+ *
+ * Why two and not four, by the same arithmetic as the rows. The grid draws
+ * eight pixels of air between columns and at both edges, so a canvas of N
+ * columns spends N+1 gaps on air before it divides what is left: at twenty-four
+ * that is 200 pixels, and a column on a 1280-pixel canvas is 45 pixels, a step
+ * of 53. At forty-eight it would be 392 pixels of air, a column of 18 pixels,
+ * and a canvas narrower than about 400 pixels (a window pushed into a corner)
+ * would have no width left to divide at all: the grid's column width goes
+ * negative. Twenty-four still draws at every width the header is held to
+ * (`test/header-fit-browser.test.ts`).
+ *
+ * And a multiple, so that the move is exact. With eight pixels of air, two of
+ * the new columns and the gap between them are, to the pixel, one of the old
+ * (`2 · (W − 200) / 24 + 8 = (W − 104) / 12`), and the grid rounds per
+ * container rather than accumulating, so a container `w` wide at column `x` of
+ * twelve draws exactly where one `2w` wide at column `2x` of twenty-four does.
+ * Every stored `x` and `w` in twelfths is doubled once: the database
+ * (`placements.cols`, `server/canvases.ts`), a `kehikot.json` without
+ * `"cols": 24` (`server/kehikot.ts`), a layout file before version 3 and a
+ * published layout without `cols` (`src/host/layouts.ts`). Each says which
+ * columns it counts in, so nothing is doubled twice.
+ *
+ * The counts of columns doubled with it, the same pixels as before: a new
+ * container (`NEW_W`, twelve), the least gap a new one is shaped into
+ * (`GAP_MIN_W`, eight), and the narrowest a person can make one (`MIN_W`, two,
+ * what one column used to be, so no container is narrower than one could be
+ * before and the header's narrowest width is where it was).
+ */
+export const COLUMNS = 24
+
+/**
+ * How many columns a canvas had before it had `COLUMNS`: what a database row
+ * without a column count, a `kehikot.json` without `cols`, a layout file before
+ * version 3 and a published layout without `cols` are all written in.
+ */
+export const COLUMNS_BEFORE = 12
+
+/**
+ * A count of the old columns, as a count of these. Exact: `COLUMNS` is a
+ * multiple of `COLUMNS_BEFORE`; see there for why a doubled container draws to
+ * the pixel where it drew.
+ */
+export function wider(oldColumns: number): number {
+  return oldColumns * (COLUMNS / COLUMNS_BEFORE)
+}
+
+/**
+ * The narrowest a container may be made: two columns, which is one of the old
+ * twelve. Given to the grid as every container's `minW`, so a drag stops there.
+ */
+export const MIN_W = wider(1)
+
+/**
  * The row height used before anything has been measured.
  *
  * Not a maximum — see the essay above on why the rows fill the height. It is

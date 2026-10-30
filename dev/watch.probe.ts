@@ -124,7 +124,7 @@ try {
   await fetch(`${HOST}/host/canvases/${kehikko}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ placements: [{ i: ID, x: 0, y: 0, w: 4, h: 12 }] }),
+    body: JSON.stringify({ placements: [{ i: ID, x: 0, y: 0, w: 8, h: 12 }] }),
   })
 
   /* The stream, exactly as `watchCanvases` opens it: the page id and the open
