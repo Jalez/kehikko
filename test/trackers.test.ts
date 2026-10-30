@@ -6,7 +6,11 @@ import { methodResults, trackerReadingResult, type TrackerRow, type TrackerSigna
 import { dispositionOf, facetsOf } from 'kehikot-module-protocol/facets'
 
 import { answer, answerCall } from '../server/answers.ts'
+import { createCanvas, open } from '../server/canvases.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
+import { call, type Door } from '../server/mcp.ts'
+import { Openness } from '../server/open.ts'
+import { addProject, forgetProject } from '../server/projects.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
 import { githubAdapter } from '../server/trackers/github.ts'
 import { BATCH, contributedIssues, declaredIssues, detailQuery, gitlabAdapter, refsQuery } from '../server/trackers/gitlab.ts'
@@ -455,6 +459,40 @@ describe('a project removed from the list', () => {
     expect(forgotten).toBeGreaterThan(-1)
     expect(body.indexOf('trackers.forget(said.project.path)')).toBeGreaterThan(forgotten)
     expect(body.indexOf('watchOpenProjects()')).toBeGreaterThan(forgotten)
+  })
+
+  test('an agent\'s read that refreshes, removed while it reads, answers without holding it again', async () => {
+    let release = () => {}
+    const held = new Promise<void>((done) => (release = done))
+    const adapter = fake(() => [ghRow(1)])
+    const list = adapter.list
+    adapter.list = async (...args) => {
+      await held
+      return list(...args)
+    }
+    const db = open(':memory:')
+    const added = addProject(db, folder, 'p')
+    if (!added.ok) throw new Error(added.why)
+    const made = createCanvas(db, 'k', added.project.id)
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
+    const door: Door = { db, which: () => new Openness().open(), wake: () => {}, epicsChanged: () => {}, dispositionsChanged: () => {}, seen: async () => [], trackers }
+    const asked = call('read_tracker', { kehikko: made.id, refresh: true }, door)
+    await settle()
+    expect(forgetProject(db, added.project.id).ok).toBe(true)
+    trackers.forget(folder)
+    rmSync(join(folder, '.kehikot'), { recursive: true })
+    release()
+    const said = await asked
+    expect(said.failed).toBe(true)
+    expect(said.text).toContain('no longer on the project list')
+    await settle()
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+    const reads = adapter.reads
+    trackers.tick(Date.now() + 20 * 60_000)
+    await settle()
+    expect(adapter.reads).toBe(reads)
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+    db.close()
   })
 
   test('a refresh waiting behind a running read when it is removed is not read at all', async () => {
