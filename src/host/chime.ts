@@ -192,11 +192,18 @@ export interface SoundFile {
 export const FILE_LIMITS = { bytes: 1024 * 1024, seconds: 5, count: 40, nameMax: 60, exts: ['wav', 'mp3', 'ogg', 'm4a', 'aac'] as const }
 export const FILE_ID = /^[0-9a-f]{16}$/
 
+/** How long a toast stays; a missing or unknown value reads as `'dismiss'`. */
+export const TOAST_FOR = ['dismiss', 5, 10, 30] as const
+export type ToastFor = (typeof TOAST_FOR)[number]
+export const toastForOf = (value: unknown): ToastFor => (TOAST_FOR as readonly unknown[]).includes(value) ? (value as ToastFor) : 'dismiss'
+
 export interface ChimeSettings {
   /** Not muted. */
   on: boolean
   /** Show a toast for a new Inbox item (`host/toasts.ts`). A switch of its own: muting the sound does not touch it. */
   toast: boolean
+  /** How long a toast stays: until it is dismissed, or this many seconds. */
+  toastFor: ToastFor
   sounds: Record<Kind, Sound>
   /** Per module (its id), a sound for some kinds in place of the kind's. */
   modules: Record<string, Partial<Record<Kind, Sound>>>
@@ -216,6 +223,7 @@ export const DEFAULT_SOUNDS: Record<Kind, Sound> = {
 export const DEFAULT_CHIME: ChimeSettings = {
   on: true,
   toast: true,
+  toastFor: 'dismiss',
   sounds: DEFAULT_SOUNDS,
   modules: {},
   events: {},
@@ -290,6 +298,7 @@ export function chimeFrom(stored: unknown): ChimeSettings {
   return {
     on: typeof row.on === 'boolean' ? row.on : true,
     toast: typeof row.toast === 'boolean' ? row.toast : true,
+    toastFor: toastForOf(row.toastFor),
     sounds,
     modules,
     events,
@@ -299,7 +308,7 @@ export function chimeFrom(stored: unknown): ChimeSettings {
 }
 
 /**
- * A change from the page: any subset of `{ on, toast, sounds, custom, modules, events }`.
+ * A change from the page: any subset of `{ on, toast, toastFor, sounds, custom, modules, events }`.
  * `events[module][event]` is a sound, `{ type: 'kind' }`, or `null` for the default.
  * `sounds` and `modules[id]` take a few kinds at a time; a module's kind set to
  * `null` removes the override, and a module with `{}` is dropped. `null` for
@@ -319,6 +328,11 @@ export function chimePatched(was: ChimeSettings, change: unknown): ChimeSettings
   if (body.toast !== undefined) {
     if (typeof body.toast !== 'boolean') return null
     next.toast = body.toast
+    touched = true
+  }
+  if (body.toastFor !== undefined) {
+    if (!(TOAST_FOR as readonly unknown[]).includes(body.toastFor)) return null
+    next.toastFor = body.toastFor as ToastFor
     touched = true
   }
   if (body.sounds !== undefined) {

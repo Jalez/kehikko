@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { DEFAULT_CHIME, chimeFrom, chimePatched, kindOf } from '../src/host/chime.ts'
 import type { Entry } from '../src/host/inbox.ts'
-import { Gather, TOAST_MAX, TOAST_MS, countWords, placeWords, toastMs, toastOf, withToast, type Arrival, type Toast } from '../src/host/toasts.ts'
+import { Gather, TOAST_MAX, countWords, placeWords, settledToasts, toastMs, toastOf, withToast, type Arrival, type Toast } from '../src/host/toasts.ts'
 
 const entry = (id: string, state: Entry['state'], more: Partial<Entry> = {}): Entry => ({
   module: 'kehikot.claude', name: 'Claude', id, state, label: id, priority: 'normal', refs: [],
@@ -33,12 +33,34 @@ describe('what a toast shows', () => {
   })
 })
 
-describe('a glimpse, never sticky', () => {
-  test('about 5 s, 8 s for what needs the person', () => {
-    expect(toastMs('done')).toBe(TOAST_MS.glimpse)
-    expect(toastMs('notice')).toBe(5000)
-    expect(toastMs('attention')).toBe(TOAST_MS.needs)
-    expect(toastMs('urgent')).toBe(8000)
+describe('how long a toast stays', () => {
+  test('until dismissed by default; else 5, 10 or 30 s, the same for every kind', () => {
+    expect(DEFAULT_CHIME.toastFor).toBe('dismiss')
+    expect(toastMs('dismiss')).toBeNull()
+    expect(toastMs(5)).toBe(5000)
+    expect(toastMs(10)).toBe(10_000)
+    expect(toastMs(30)).toBe(30_000)
+  })
+
+  test('the setting is read and patched; a missing or unknown value is until dismissed', () => {
+    expect(chimeFrom({}).toastFor).toBe('dismiss')
+    expect(chimeFrom({ toastFor: 7 }).toastFor).toBe('dismiss')
+    expect(chimeFrom({ toastFor: 10 }).toastFor).toBe(10)
+    expect(chimePatched(DEFAULT_CHIME, { toastFor: 30 })?.toastFor).toBe(30)
+    expect(chimePatched(chimePatched(DEFAULT_CHIME, { toastFor: 5 })!, { toastFor: 'dismiss' })?.toastFor).toBe('dismiss')
+    expect(chimePatched(DEFAULT_CHIME, { toastFor: 7 })).toBeNull()
+    expect(chimePatched(DEFAULT_CHIME, { toastFor: '5' })).toBeNull()
+  })
+
+  test('a toast whose item was seen, dismissed or closed is settled; another project’s is not', () => {
+    const a = toastOf(1, [arrival(entry('a', 'done'))])!
+    const b = toastOf(2, [arrival(entry('b', 'done'))])!
+    const open = [entry('a', 'done', { seen: 1, entered: 1 }), entry('b', 'done')]
+    expect(settledToasts([a, b], open, 1)).toEqual([1])
+    expect(settledToasts([a, b], open, 2)).toEqual([])
+    expect(settledToasts([b], [entry('b', 'done', { dismissed: 1, entered: 1 })], 1)).toEqual([2])
+    expect(settledToasts([b], [entry('b', 'done', { closed: 5 })], 1)).toEqual([2])
+    expect(settledToasts([b], [], 1)).toEqual([])
   })
 
   test('at most three on screen; a newer one replaces the oldest', () => {

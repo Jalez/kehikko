@@ -1,6 +1,6 @@
-import { BURST, KIND_WORDS, URGENCY, kindOf, type Kind } from './chime.ts'
+import { BURST, KIND_WORDS, URGENCY, kindOf, type Kind, type ToastFor } from './chime.ts'
 import type { Namer } from './activity.ts'
-import { placeLines, rowKey, type Entry } from './inbox.ts'
+import { isDismissed, isSeen, placeLines, rowKey, type Entry } from './inbox.ts'
 
 /**
  * The Inbox toast: a brief glimpse of what just arrived, with no record of
@@ -16,18 +16,31 @@ import { placeLines, rowKey, type Entry } from './inbox.ts'
  * toast was seen. Dismissing a toast closes the toast; it never touches the
  * record.
  *
- * ## A glimpse
+ * ## How long
  *
- * Every toast goes by itself: about 5 s, 8 s for a kind that needs the
- * person. At most three are on screen, a newer one replacing the oldest. A
+ * A toast stays until it is dismissed, unless the person chose a time
+ * (Settings › Inbox notifications: 5, 10 or 30 s, the same for every kind).
+ * At most three are on screen, a newer one replacing the oldest, which is
+ * still in the Inbox. A
  * burst (items arriving within the chime's collect window) is one toast that
  * says how many, headed by the most urgent.
  */
 
-export const TOAST_MS = { glimpse: 5000, needs: 8000 } as const
 export const TOAST_MAX = 3
 
-export const toastMs = (kind: Kind): number => (kind === 'urgent' || kind === 'attention' ? TOAST_MS.needs : TOAST_MS.glimpse)
+/** How long a toast stays, in ms, for the setting; `null` is until it is dismissed. One time for every kind. */
+export const toastMs = (stay: ToastFor, scale = 1000): number | null => (stay === 'dismiss' ? null : stay * scale)
+
+/** The toasts whose item has since been seen, dismissed or closed in the Inbox. Another project's, and a notice's, are left. */
+export function settledToasts(shown: readonly Toast[], open: readonly Entry[], project: number | null): number[] {
+  return shown
+    .filter((toast) => {
+      if (toast.project !== project) return false
+      const now = open.find((one) => rowKey(one) === rowKey(toast.entry))
+      return now !== undefined && (isSeen(now) || isDismissed(now) || now.closed !== null)
+    })
+    .map((toast) => toast.id)
+}
 
 /** What a toast shows. Plain text throughout: it is rendered as text and never as markup or a link. */
 export interface Toast {

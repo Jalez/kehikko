@@ -26,5 +26,5 @@ export function useToasts(plays: () => boolean) {
       addRef.current((id) => toastOf(id, batch))
     })
   }
-  return { toasts: list.toasts, close: list.close, offer: (arrival: Arrival) => gather.current?.offer(arrival) }
+  return { toasts: list.toasts, close: list.close, closeMany: list.closeMany, closeAll: list.closeAll, offer: (arrival: Arrival) => gather.current?.offer(arrival) }
 }
