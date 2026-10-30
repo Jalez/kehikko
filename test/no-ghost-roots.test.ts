@@ -308,8 +308,10 @@ describe('a ghost at a project\'s path', () => {
     /* The project is renamed away and its files deleted; a host makes a ghost at the new name with the id. */
     const elsewhere = join(scratch, 'renamed')
     real.renameSync(root, elsewhere)
-    real.rmSync(elsewhere, { recursive: true })
+    const held = join(scratch, 'held') /* held until the ghost exists: Linux hands a freed inode to the next folder made */
+    real.renameSync(elsewhere, held)
     ghostAt(elsewhere)
+    real.rmSync(held, { recursive: true })
     real.writeFileSync(join(elsewhere, '.kehikot', 'project.json'), JSON.stringify({ id: added.project.uid, createdAt: new Date().toISOString() }))
     const marks = { mint: () => new Uint8Array([1]), resolve: () => ({ path: elsewhere, stale: false }) }
     expect(followProjects(db, { thorough: true, marks })).toEqual([])
