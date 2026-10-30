@@ -1163,7 +1163,9 @@ function tools() {
         + 'last container if the bottom row has room, otherwise on a new row underneath. Nothing already there is '
         + 'moved, resized or removed — this only adds, and the person sees each container arrive and can take it '
         + 'off with one press. Which modules are SUITABLE is your judgement, not this tool’s: it places what it is '
-        + 'told, refuses what it cannot place, and says what it did. A module already on the kehikko is left alone '
+        + 'told, refuses what it cannot place, and says what it did: where each container landed, as a column and row '
+        + `of a grid ${COLUMNS} columns wide and ${CANVAS_ROWS} rows tall (it was 12 columns before; a half-width `
+        + `container is ${COLUMNS / 2} wide). A module already on the kehikko is left alone `
         + 'and named as such; a module not registered on this computer is refused, whole, because a container for '
         + 'it would be drawn as missing and there is nothing to work in. There is deliberately no tool that takes a '
         + 'container off, moves one, or changes the epic: those undo work somebody did with a pointer, and the '

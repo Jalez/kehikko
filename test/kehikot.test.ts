@@ -200,6 +200,7 @@ describe('the round trip: this computer, the file, another computer', () => {
     expect(text).toBe(`{
   "version": 2,
   "rows": 56,
+  "cols": 24,
   "kehikot": [
     {
       "key": "writing",
@@ -418,7 +419,8 @@ describe('a file that will not read', () => {
       module: 'kehikot.paper',
       x: 0,
       y: 0,
-      w: 12,
+      /* And in the old twelve columns: twelve of them is twenty-four of these. */
+      w: 24,
       /* Version 1 counted in the old twenty-eight rows: thirty of them is sixty of these. */
       h: 60,
       grow: false,

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 
-import { BUILT_IN_LAYOUTS, readBuiltInLayouts, type Layout } from '../src/host/layouts.ts'
+import { BUILT_IN_LAYOUTS, LAYOUT_VERSION, readBuiltInLayouts, type Layout } from '../src/host/layouts.ts'
 import { HOST_REPO, readOfficial, readRetired, type Official, type Retired } from './official.ts'
 import { because } from './traffic.ts'
 
@@ -281,7 +281,12 @@ export function officialSource(deps: SourceDeps) {
   }
 }
 
-/** Layouts as the cache keeps them: the shape `modules.json` gives them, so they are read back by the same `readBuiltInLayouts`. */
+/**
+ * Layouts as the cache keeps them: the shape `modules.json` gives them, so they are read back by the
+ * same `readBuiltInLayouts`. They are kept as read, in the units of now, and say so with the current
+ * `LAYOUT_VERSION`: kept with the version they were published at, they would be doubled again on the
+ * next start. A cache an older host wrote says its own version, and is read in its units.
+ */
 function layoutsAsKept(layouts: readonly Layout[]) {
-  return layouts.map((one) => ({ id: one.id, version: 2, name: one.name, summary: one.summary, containers: one.containers }))
+  return layouts.map((one) => ({ id: one.id, version: LAYOUT_VERSION, name: one.name, summary: one.summary, containers: one.containers }))
 }

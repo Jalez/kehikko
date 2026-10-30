@@ -263,7 +263,7 @@ describe('an older host and the new file', () => {
    * writes — which is what keeps it from writing over the file — and name the
    * field, which its sentence turns into "is the file from a newer Kehikot?".
    */
-  test('the reader of every host before the finer rows refuses what this host writes, naming rows', () => {
+  test('the reader of every host before the finer rows refuses what this host writes, naming rows and cols', () => {
     const { dir, store, p, kehikko } = arranged()
     editCanvas(store, kehikko.id, {
       placements: [{ ...notes, collapsed: true, h: FOLDED_ROWS, selected: true, filters: { a: 'b' }, version: 'v1.2.0' }, { ...paper, y: FOLDED_ROWS }],
@@ -276,26 +276,27 @@ describe('an older host and the new file', () => {
     expect(older.success).toBe(false)
     if (older.success) return
     expect(older.error.issues).toHaveLength(1)
-    expect(older.error.issues[0]).toMatchObject({ code: 'unrecognized_keys', keys: ['rows'], path: [] })
-    /* And the same text without it, halved back into its rows, is a layout it
-       reads intact — so nothing else about the shape changed: `rows` is the
-       whole of the refusal. */
-    const halved = JSON.parse(text) as { rows?: number; kehikot: { containers: { y: number; h: number; wish: number }[] }[] }
+    expect(older.error.issues[0]).toMatchObject({ code: 'unrecognized_keys', keys: ['rows', 'cols'], path: [] })
+    /* And the same text without them, halved back into its rows and columns,
+       is a layout it reads intact — so nothing else about the shape changed:
+       `rows` and `cols` are the whole of the refusal. */
+    const halved = JSON.parse(text) as { rows?: number; cols?: number; kehikot: { containers: { x: number; w: number; y: number; h: number; wish: number }[] }[] }
     delete halved.rows
-    for (const one of halved.kehikot[0]!.containers) Object.assign(one, { y: one.y / 2, h: one.h / 2, wish: one.wish / 2 })
+    delete halved.cols
+    for (const one of halved.kehikot[0]!.containers) Object.assign(one, { x: one.x / 2, w: one.w / 2, y: one.y / 2, h: one.h / 2, wish: one.wish / 2 })
     const reads = olderHostReads(JSON.stringify(halved))
     expect(reads.success).toBe(true)
     if (!reads.success) return
     /* What it makes of the personal fields it no longer finds: the whole epic, nothing folded. */
     expect(reads.data.epic).toBeNull()
     expect(reads.data.kehikot[0]!.containers.map((c) => [c.module, c.x, c.y, c.w, c.h, c.wish, c.collapsed, c.version ?? null])).toEqual([
-      ['kehikot.notes', 0, 0, 6, 5, 5, false, 'v1.2.0'],
-      ['kehikot.paper', 0, 5, 6, 6, 6, false, null],
+      ['kehikot.notes', 0, 0, 3, 5, 5, false, 'v1.2.0'],
+      ['kehikot.paper', 0, 5, 3, 6, 6, false, null],
     ])
   })
 
   test('and this host reads what an older host writes, in its rows', () => {
-    const read = parse(serialize([]).replace('  "rows": 56,\n', '  "epic": "x",\n  "selection": [],\n'))
+    const read = parse(serialize([]).replace('  "rows": 56,\n  "cols": 24,\n', '  "epic": "x",\n  "selection": [],\n'))
     expect(read.ok && read.legacy?.subject.epic).toBe('x')
   })
 })

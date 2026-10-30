@@ -319,8 +319,9 @@ describe('a database written before a column existed still opens', () => {
     const after = open(file)
     const [canvas] = listCanvases(after)
     expect(canvas?.name).toBe('from before')
-    /* Ten of the old twenty-eight rows is twenty of the fifty-six (`finerRows`). */
-    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 6, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null, scope: null })
+    /* Ten of the old twenty-eight rows is twenty of the fifty-six (`finerRows`),
+       and six of the old twelve columns twelve of the twenty-four (`finerColumns`). */
+    expect(canvas?.placements[0]).toEqual({ i: 'a.old', x: 0, y: 0, w: 12, h: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, wish: 20, selected: false, filters: {}, refreshEvery: null, version: null, scope: null })
 
     /* And opening it a second time is not an error, and moves nothing again. */
     after.close()

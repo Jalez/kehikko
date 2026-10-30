@@ -98,7 +98,7 @@ export const SQUEEZED_ROWS = 6
  * (two of them and the gap between are the 24 one old row was), about 13 on a
  * tall monitor, 2 at the floor — and the header goes dense when folded, which is a change to one CSS
  * rule rather than to the grid. A folded container is TWO of whatever a row
- * is, in the same sense that a full-width container is twelve columns. Making it depend on the drawn row height would put the
+ * is, in the same sense that a full-width container is every column. Making it depend on the drawn row height would put the
  * arrangement back in the business of reading its own scale, which is the
  * loop `fit.ts` exists to keep shut.
  *
@@ -115,8 +115,8 @@ export const FOLDED_ROWS = 2
  * Do these two containers share a column?
  *
  * They overlap in x, which is a broader question than "are they in the same
- * column" and deliberately so. Containers are placed by `x` and `w` over twelve
- * columns and nothing partitions those columns into lanes: a container six wide
+ * column" and deliberately so. Containers are placed by `x` and `w` over the
+ * canvas's columns and nothing partitions them into lanes: a container six wide
  * at x=0 shares columns with a container three wide at x=0, with one three wide
  * at x=3, and with a full-width one at x=0 w=12. On the canvases in this
  * workspace right now, one kehikko has a twelve-wide container underneath a

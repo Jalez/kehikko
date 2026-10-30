@@ -12,7 +12,7 @@ import {
   type ModuleScope,
 } from 'kehikot-module-protocol'
 import { STORED_GROUPS } from '../src/host/filters.ts'
-import { CANVAS_ROWS, finer, ROWS_BEFORE } from '../src/host/fit.ts'
+import { CANVAS_ROWS, COLUMNS, COLUMNS_BEFORE, finer, ROWS_BEFORE, wider } from '../src/host/fit.ts'
 import { partIdsIn } from '../src/host/parts.ts'
 /* The one rule for when a write leaves "All epics", shared with the page. */
 import { scopeAfter } from '../src/host/subject.ts'
@@ -643,6 +643,7 @@ export function open(file = databaseFile()): Database {
      module's default, which every container before scopes has been at. */
   add(db, 'placements', 'scope', 'text')
   finerRows(db)
+  finerColumns(db)
   add(db, 'canvases', 'selection', 'text')
   /* The connections switched off on a kehikko (`src/host/connections.ts`), as JSON; empty is automatic. */
   add(db, 'canvases', 'connections', "text not null default ''")
@@ -844,6 +845,30 @@ export function finerRows(db: Database): void {
   db.query(
     'update placements set y = y * ?, h = h * ?, wish = case when wish is null then null else wish * ? end, rows = ? where rows = ?',
   ).run(scale, scale, scale, CANVAS_ROWS, ROWS_BEFORE)
+}
+
+/**
+ * Every placement in the columns a canvas has now, from the columns it had.
+ *
+ * `finerRows` again, across: a canvas was twelve columns wide and is
+ * twenty-four (`COLUMNS` in `fit.ts`, where the reason is), and a container `w`
+ * wide at column `x` of twelve draws to the pixel where one `2w` wide at column
+ * `2x` of twenty-four draws. So the move is a doubling of `x` and `w`, and
+ * nothing else: `y`, `h` and `wish` are rows.
+ *
+ * Said on the row, in `placements.cols`, added with a DEFAULT of the old count
+ * for the same two reasons as `rows`: every row already in the table was
+ * written in twelfths, and so is every row a host from before this writes
+ * later, since its `insert` does not name the column. This host names it on
+ * every write (`editCanvas`). So a row is doubled once, when it says twelve,
+ * and a database an older host wrote into in between has only that host's rows
+ * moved. The two migrations are independent: a row from before both is doubled
+ * down and across, one from between them only across.
+ */
+export function finerColumns(db: Database): void {
+  add(db, 'placements', 'cols', `integer not null default ${COLUMNS_BEFORE}`)
+  const scale = wider(1)
+  db.query('update placements set x = x * ?, w = w * ?, cols = ? where cols = ?').run(scale, scale, COLUMNS, COLUMNS_BEFORE)
 }
 
 /**
@@ -1094,9 +1119,10 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
     if (edit.placements !== undefined) {
       db.query('delete from placements where canvas = ?').run(id)
       const insert = db.query(
-        /* `rows` named, with the count this host counts in: a row that does
-           not say is one an older host wrote, in the old rows (`finerRows`). */
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope, rows) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        /* `rows` and `cols` named, with the counts this host counts in: a row
+           that does not say is one an older host wrote, in the old rows or
+           columns (`finerRows`, `finerColumns`). */
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope, rows, cols) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -1118,6 +1144,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.version,
           p.scope,
           CANVAS_ROWS,
+          COLUMNS,
         )
       }
     }

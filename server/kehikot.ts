@@ -24,7 +24,7 @@ import { makeUnderRoot, projectRootExists, sayMissing } from './projectRoot.ts'
 import { isVersionTag, TAG_MAX } from './versions.ts'
 import { hostPath } from './hostData.ts'
 import { laid, redrawn } from '../src/host/columns.ts'
-import { CANVAS_ROWS, ROWS_BEFORE } from '../src/host/fit.ts'
+import { CANVAS_ROWS, COLUMNS, COLUMNS_BEFORE, ROWS_BEFORE } from '../src/host/fit.ts'
 import { AUTOMATIC, connectionsSettingSchema, isAutomatic, settingIn, tidy } from '../src/host/connections.ts'
 import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView, type View } from './view.ts'
 
@@ -216,6 +216,18 @@ import { AT_REST, containerView, readView, viewOf, writeView, type ContainerView
  * than this host has, which only a newer host could write, is refused with a
  * sentence that says so (`parse`).
  *
+ * ## And the columns, the same way
+ *
+ * `"cols": 24`, beside `rows`, for the same reason and with the same break. A
+ * canvas was twelve columns wide and is twenty-four (`COLUMNS` in `fit.ts`), and
+ * a file's `x` and `w` are counts of columns. Absent means twelve, and such a
+ * file is read with `x` and `w` doubled (`inUnits`), which draws every container
+ * where it drew; the file gains `cols` on its next write, never on a read. A
+ * host from before the finer columns refuses a file that says it ("the top
+ * level has a field this host does not know (cols)"), keeps its own canvases,
+ * and never writes over the file; the owner accepted that, as for `rows`. A
+ * file in more columns than this host has is refused in words (`parse`).
+ *
  * Until the split into `view.json`, version 2 also carried the project's
  * `epic`, `scope`, `parts` and `selection` at the top and `collapsed`,
  * `selected` and `filters` on every container. They are no longer written —
@@ -250,17 +262,20 @@ const FILE_NAME = 'kehikot'
 const VERSION = 2
 
 /**
- * A file's kehikko in the rows a canvas has now. Exact, because `rows` is
- * held to a divisor of `CANVAS_ROWS` by the schema; only the vertical numbers,
- * since columns did not change.
+ * A file's kehikko in the rows and columns a canvas has now. Exact, because
+ * `rows` and `cols` are held to divisors of `CANVAS_ROWS` and `COLUMNS` by the
+ * schema: `y`, `h`, `wish` and `openH` are rows, `x` and `w` are columns.
  */
-function inRows<K extends { containers: FileContainer[] }>(kehikko: K, rows: number): K {
-  if (rows === CANVAS_ROWS) return kehikko
+function inUnits<K extends { containers: FileContainer[] }>(kehikko: K, rows: number, cols: number): K {
+  if (rows === CANVAS_ROWS && cols === COLUMNS) return kehikko
   const by = CANVAS_ROWS / rows
+  const across = COLUMNS / cols
   return {
     ...kehikko,
     containers: kehikko.containers.map((c) => ({
       ...c,
+      x: c.x * across,
+      w: c.w * across,
       y: c.y * by,
       h: c.h * by,
       wish: c.wish === null ? null : c.wish * by,
@@ -274,6 +289,13 @@ const rowsSchema = z
   .number()
   .int()
   .refine((rows) => rows === ROWS_BEFORE || rows === CANVAS_ROWS, `is not ${ROWS_BEFORE} or ${CANVAS_ROWS}, the rows a canvas has been`)
+  .optional()
+
+/* What `cols` may say: the old twelve, or this host's own. */
+const colsSchema = z
+  .number()
+  .int()
+  .refine((cols) => cols === COLUMNS_BEFORE || cols === COLUMNS, `is not ${COLUMNS_BEFORE} or ${COLUMNS}, the columns a canvas has been`)
   .optional()
 
 /**
@@ -491,6 +513,8 @@ const fileSchema = z
     version: z.literal(VERSION),
     /* The rows the containers are counted in; absent is the old 28. */
     rows: rowsSchema,
+    /* The columns the containers are counted in; absent is the old 12. */
+    cols: colsSchema,
     /* The four legacy personal fields — read, never written. See "The shape
        of the file". Absent is "this file says nothing about it". */
     epic: epicSchema.optional(),
@@ -610,7 +634,7 @@ const NO_SUBJECT: Subject = { epic: null, parts: [], selection: [] }
  * is JSON and nothing here escapes a string by hand.
  */
 export function serialize(canvases: readonly Canvas[]): string {
-  const lines: string[] = ['{', `  "version": ${VERSION},`, `  "rows": ${CANVAS_ROWS},`, '  "kehikot": [']
+  const lines: string[] = ['{', `  "version": ${VERSION},`, `  "rows": ${CANVAS_ROWS},`, `  "cols": ${COLUMNS},`, '  "kehikot": [']
   canvases.forEach((canvas, index) => {
     const containers = shared(canvas.placements).map(toContainer)
     lines.push('    {')
@@ -721,8 +745,8 @@ export function parse(text: string): Parsed {
       const kehikot = old.data.kehikot.map(({ epic: _epic, selection: _selection, ...kehikko }) => kehikko)
       return {
         ok: true,
-        /* Version 1 is from before the finer rows: twenty-eighths. */
-        kehikot: kehikot.map(layoutOf).map((k) => inRows(k, ROWS_BEFORE)),
+        /* Version 1 is from before the finer rows and columns. */
+        kehikot: kehikot.map(layoutOf).map((k) => inUnits(k, ROWS_BEFORE, COLUMNS_BEFORE)),
         legacy: {
           /* Version 1 is from before parts: the whole epic. */
           subject: first ? { epic: first.epic, parts: [], selection: first.selection } : NO_SUBJECT,
@@ -742,14 +766,23 @@ export function parse(text: string): Parsed {
       why: `its containers are counted in ${rows} rows, which a newer Kehikot writes; this one has ${CANVAS_ROWS}, so update it to open this file`,
     }
   }
+  const cols = (raw as { cols?: unknown } | null)?.cols
+  if (typeof cols === 'number' && Number.isInteger(cols) && cols > COLUMNS) {
+    return {
+      ok: false,
+      why: `its containers are counted in ${cols} columns, which a newer Kehikot writes; this one has ${COLUMNS}, so update it to open this file`,
+    }
+  }
 
   const read = fileSchema.safeParse(raw)
   if (read.success) {
     /* Absent is every file written before the finer rows: twenty-eighths. */
     const counted = read.data.rows ?? ROWS_BEFORE
+    /* And absent columns, every file written before the finer columns: twelfths. */
+    const across = read.data.cols ?? COLUMNS_BEFORE
     return {
       ok: true,
-      kehikot: read.data.kehikot.map(layoutOf).map((k) => inRows(k, counted)),
+      kehikot: read.data.kehikot.map(layoutOf).map((k) => inUnits(k, counted, across)),
       legacy: carriesPersonal(read.data)
         ? { subject: subjectFrom(read.data), kehikot: containersFrom(read.data.kehikot) }
         : null,

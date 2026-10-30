@@ -50,7 +50,7 @@ try {
   const placed = await fetch(`${api}/host/canvases/${canvas.id}`, {
     method: 'PATCH',
     headers: asPage,
-    body: JSON.stringify({ placements: [...canvas.placements, { i: 'kehikot.slow', x: 0, y: 80, w: 4, h: 16 }] }),
+    body: JSON.stringify({ placements: [...canvas.placements, { i: 'kehikot.slow', x: 0, y: 80, w: 8, h: 16 }] }),
   })
   if (!placed.ok) throw new Error(`placing the module: ${placed.status}`)
 

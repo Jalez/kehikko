@@ -4,7 +4,7 @@ import { z } from 'zod'
 import listed from '../../modules.json'
 
 import { COLUMNS, type Placement } from './canvases.ts'
-import { finer } from './fit.ts'
+import { COLUMNS_BEFORE, finer, wider } from './fit.ts'
 
 /**
  * Suggested layouts: a kehikko to start from instead of an empty one.
@@ -82,32 +82,63 @@ export const layoutContainerSchema = z.object({
 })
 
 /**
- * The version a layout file is written as. 2 is 1 counted in the rows a canvas
- * has now: a version 1 file's `y` and `h` are in the old twenty-eight rows, and
- * are doubled as it is read (`layoutFromFile`) — the same move, for the same
- * reason, as a `kehikot.json` without `rows` (`server/kehikot.ts`). A host from
- * before reads a version 2 file as "not a layout" and leaves it off its shelf,
- * which is better than offering it at twice its height; it never writes a
- * layout file it did not make, so nothing is lost.
+ * The version a layout file is written as, which says the units it counts in:
+ *
+ *   - 1: the old twenty-eight rows and twelve columns;
+ *   - 2: fifty-six rows, still twelve columns;
+ *   - 3: fifty-six rows and twenty-four columns, what a canvas has now.
+ *
+ * An older file is read in the units of now (`layoutFromFile`): `y` and `h`
+ * doubled from version 1, `x` and `w` doubled from versions 1 and 2. The same
+ * moves, for the same reason, as a `kehikot.json` without `rows` or `cols`
+ * (`server/kehikot.ts`). The version and not a `cols` field, because a host
+ * from before strips a field it does not know from a layout (it is not strict)
+ * and would read twenty-fourths as twelfths, a container twice as wide; a
+ * version it does not know it reads as "not a layout" and leaves off its shelf,
+ * which is better. It never writes a layout file it did not make, so nothing is
+ * lost.
+ *
+ * The same field says the units of a built-in layout in the published list
+ * (`readBuiltInLayouts`), which is why `modules.json` keeps its layouts at
+ * version 2, in twelfths: a released app reads the list `main` publishes, and
+ * refuses every layout in it whole if one says 3.
  */
-export const LAYOUT_VERSION = 2
+export const LAYOUT_VERSION = 3
 
-/** A layout as it is kept in a file, on the project's shelf or the person's. */
-export const layoutFileSchema = z.object({
-  version: z.union([z.literal(1), z.literal(LAYOUT_VERSION)]),
+/** The columns a layout file of this version counts in. */
+function columnsOf(version: number): number {
+  return version < 3 ? COLUMNS_BEFORE : COLUMNS
+}
+
+/* A layout's every container inside the columns its version counts in. */
+function inItsColumns(file: { version: number; containers: readonly { x: number; w: number }[] }, ctx: z.RefinementCtx): void {
+  const cols = columnsOf(file.version)
+  file.containers.forEach((c, i) => {
+    if (c.x + c.w > cols) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['containers', i], message: `reaches past column ${cols}, the last of a version ${file.version} layout` })
+    }
+  })
+}
+
+const layoutFileShape = z.object({
+  version: z.union([z.literal(1), z.literal(2), z.literal(LAYOUT_VERSION)]),
   name: z.string().trim().min(1).max(NAME_MAX),
   summary: z.string().max(SUMMARY_MAX).default(''),
   containers: z.array(layoutContainerSchema).min(1).max(64),
 })
+
+/** A layout as it is kept in a file, on the project's shelf or the person's. */
+export const layoutFileSchema = layoutFileShape.superRefine(inItsColumns)
 export type LayoutFile = z.infer<typeof layoutFileSchema>
 
-/** A layout file as read, in the rows a canvas has now, whichever version wrote it. */
+/** A layout file as read, in the rows and columns a canvas has now, whichever version wrote it. */
 export function layoutFromFile(file: LayoutFile): LayoutFile {
   if (file.version === LAYOUT_VERSION) return file
+  const down = file.version === 1 ? finer : (n: number) => n
   return {
     ...file,
     version: LAYOUT_VERSION,
-    containers: file.containers.map((c) => ({ ...c, y: finer(c.y), h: finer(c.h) })),
+    containers: file.containers.map((c) => ({ ...c, x: wider(c.x), w: wider(c.w), y: down(c.y), h: down(c.h) })),
   }
 }
 
@@ -115,17 +146,19 @@ export function layoutFromFile(file: LayoutFile): LayoutFile {
  * One built-in layout as `modules.json` keeps it: an id, the layout file's fields, and `optional` on
  * a container (used when its module is here, left out without a word when it is not).
  */
-const builtInLayoutSchema = layoutFileSchema.extend({
-  id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(48),
-  containers: z.array(layoutContainerSchema.extend({ optional: z.boolean().optional() })).min(1).max(64),
-})
+const builtInLayoutSchema = layoutFileShape
+  .extend({
+    id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(48),
+    containers: z.array(layoutContainerSchema.extend({ optional: z.boolean().optional() })).min(1).max(64),
+  })
+  .superRefine(inItsColumns)
 
 /** How many built-in layouts a list may carry. */
 export const BUILT_IN_MAX = 32
 
 /**
  * The built-in layouts a module list carries (`layouts` in `modules.json`, beside `modules`), in
- * the rows a canvas has now, or null when the list has none or they do not read: a host then keeps
+ * the rows and columns a canvas has now (each layout's `version` says which it was written in), or null when the list has none or they do not read: a host then keeps
  * the ones it has. Read whole: one layout that does not read drops them all, as one bad entry drops
  * the module list (`readOfficial`). An id said twice is refused the same way. A host from before
  * this field drops the key unread (`z.object` strips it), so publishing it breaks no app.

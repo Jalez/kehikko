@@ -139,7 +139,13 @@
   ("field this host does not know (rows)") and keeps its own canvases without
   writing over it — the owner accepted that break: a teammate on an older host
   sees layout changes once they update. A file without `rows` is 28 rows and
-  is read doubled; it gains `rows` on its next write, never on a read. The
+  is read doubled; it gains `rows` on its next write, never on a read.
+  Columns the same way: a file written since the 24-column canvas carries
+  `"cols": 24`, one without it is 12 columns and has `x` and `w` read doubled,
+  a host before 24 columns refuses it ("(cols)"), and the database marks each
+  placement (`placements.cols`, `finerColumns`). Layout files are version 3
+  (24 columns); `modules.json` keeps its `layouts` at version 2 so released
+  apps still read the published list, and this host doubles them on read. The
   pre-split reader in `test/fixtures/pre-split/reader.ts` is frozen — never
   edit it to pass a test; it confirms the refusal. Legacy personal fields in it are read into
   `view.json` only when there is none, and dropped on the next write. Folds

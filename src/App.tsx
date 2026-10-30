@@ -136,7 +136,7 @@ import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
-import { CANVAS_ROWS, rowHeightFor, rowsHolding } from './host/fit.ts'
+import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
 import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
 import { apply, current, other, type Theme } from './host/theme.ts'
 import { Writer } from './host/writer.ts'
@@ -186,7 +186,7 @@ const GLIDE_MS = 260
  *
  * There is no `ROW_HEIGHT` here any more. A row is not a size this file
  * chooses; it is `room / CANVAS_ROWS`, decided in `fit.ts` for the same reason
- * a column is `room / 12` — see the essay there, and the two wrong answers it
+ * a column is `room / COLUMNS` — see the essay there, and the two wrong answers it
  * records. What is left in this constant is the one piece of vertical geometry
  * that really is fixed: the eight pixels of air between rows, above the first
  * and below the last, which the fit has to subtract before it divides.
@@ -583,7 +583,7 @@ export function App() {
   /*
    * How tall a row is DRAWN: the room, divided into `CANVAS_ROWS` of them.
    *
-   * A canvas is twelve columns wide and fifty-six rows tall, and both are
+   * A canvas is twenty-four columns wide and fifty-six rows tall, and both are
    * COUNTS rather than pixel sizes. That is the whole of it, and `fit.ts` has
    * the argument — including the two versions of this that were wrong: one that
    * shrank every container on the canvas whenever any container grew, and one
@@ -2302,7 +2302,7 @@ export function App() {
    * What a module that asks for more than the column can pay gets is the part
    * that was payable, and its own page scrolls for the rest. That is what a
    * container already at the bottom of a full column does today, and the
-   * vertical twin of a container that cannot be widened past column twelve.
+   * vertical twin of a container that cannot be widened past the last column.
    *
    * ## And the arithmetic uses the DRAWN row, which it could not before
    *
@@ -3676,7 +3676,7 @@ export function App() {
    * resize handle is constrained by it — `calcWH` clamps `h` to `maxH` and the
    * handle's travel is bounded by `mixinResizable` — so pulling a container
    * down past what its column can pay simply does not move any further, which
-   * is exactly what happens when you pull one past column twelve. The
+   * is exactly what happens when you pull one past the last column. The
    * alternative is a handle that travels, a container that grows, and a snap
    * back to a smaller size on release: the same rule, discovered instead of
    * felt.
@@ -3703,6 +3703,11 @@ export function App() {
             /* A bottom edge travels as far as the column below can pay; a top
                edge as far as the containers on top can spare. */
             maxH: pulling === one.i ? Math.min(CANVAS_ROWS, one.h + mostUp(containers, one.i)) : mostFor(containers, one.i),
+            /* No narrower than one of the old twelve columns (`MIN_W` in
+               `fit.ts`), so twenty-four columns add steps, not a sliver of a
+               container whose header has nowhere to go. One already narrower
+               is not widened by being drawn. */
+            minW: Math.min(MIN_W, one.w),
           }) as Layout,
       ),
     [containers, pulling],
@@ -4579,7 +4584,7 @@ export function App() {
            *
            * `cols` and `maxRows` are the same kind of statement: the axis has a
            * fixed number of divisions and nothing may exceed them. That is what
-           * makes a column's width `room / 12` regardless of the content, and
+           * makes a column's width `room / 24` regardless of the content, and
            * with this it is what makes a row's height `room / 56` regardless of
            * the content — which is the whole of the fix in `fit.ts`.
            *

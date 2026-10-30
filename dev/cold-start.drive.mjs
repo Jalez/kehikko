@@ -164,7 +164,7 @@ export async function coldStart({ check = false, page: drivePage = null } = {}) 
     const canvas = canvases.find((one) => one.name === 'Wide') ?? canvases[0]
     /* On every kehikko of the project, so whichever the page opens on holds them. */
     for (const one of canvases.filter((each) => each.project === canvas.project)) {
-      const placements = [...one.placements, ...slow.map((module, at) => ({ i: module.id, x: (at % 3) * 4, y: 60 + Math.floor(at / 3) * 16, w: 4, h: 16 }))]
+      const placements = [...one.placements, ...slow.map((module, at) => ({ i: module.id, x: (at % 3) * 8, y: 60 + Math.floor(at / 3) * 16, w: 8, h: 16 }))]
       const placed = await fetch(`${api}/host/canvases/${one.id}`, { method: 'PATCH', headers: asPage, body: JSON.stringify({ placements }) })
       if (!placed.ok) throw new Error(`placing the modules: ${placed.status}`)
     }

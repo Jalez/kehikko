@@ -41,10 +41,13 @@ const expect = (ok, what) => {
 }
 const rows = (old) => (old * ROWS) / 28
 
+/* And in the columns of the host it drives: twelve before, twenty-four now. */
+const cols = (old) => (BEFORE ? old : old * 2)
+
 const PLACEMENTS = [
-  { i: 'kehikot.alpha', x: 0, y: 0, w: 6, h: rows(10) },
-  { i: 'kehikot.gamma', x: 0, y: rows(10), w: 6, h: rows(8) },
-  { i: 'kehikot.beta', x: 6, y: 0, w: 6, h: rows(28) },
+  { i: 'kehikot.alpha', x: 0, y: 0, w: cols(6), h: rows(10) },
+  { i: 'kehikot.gamma', x: 0, y: rows(10), w: cols(6), h: rows(8) },
+  { i: 'kehikot.beta', x: cols(6), y: 0, w: cols(6), h: rows(28) },
 ]
 
 const send = async (method, path, body) => {

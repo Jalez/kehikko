@@ -111,8 +111,9 @@ describe('in kehikot.json', () => {
     if (older.success) return
     expect(older.error.issues[0]).toMatchObject({ code: 'unrecognized_keys', keys: ['connections'] })
     /* The same kehikko on automatic is read. */
-    const plain = JSON.parse(serialize([{ id: 1, key: 'one', name: 'one', project: null, placements: [], connections: AUTOMATIC }])) as { rows?: number }
+    const plain = JSON.parse(serialize([{ id: 1, key: 'one', name: 'one', project: null, placements: [], connections: AUTOMATIC }])) as { rows?: number; cols?: number }
     delete plain.rows
+    delete plain.cols
     expect(olderHostReads(JSON.stringify(plain)).success).toBe(true)
   })
 })
