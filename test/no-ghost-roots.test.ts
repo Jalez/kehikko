@@ -215,8 +215,11 @@ function story(db: ReturnType<typeof open>, { carryId }: { carryId: boolean }): 
     if (name === '.kehikot' && !carryId) continue
     real.renameSync(join(root, name), join(kollekti, name))
   }
-  real.rmSync(root, { recursive: true, force: true })
+  /* The folder is held, not deleted, until the ghost exists: a Linux filesystem hands a freed inode to the very next folder made, which would give the ghost the identity the row recorded (APFS does not). */
+  const held = join(scratch, 'held')
+  real.renameSync(root, held)
   ghostAt(root)
+  real.rmSync(held, { recursive: true, force: true })
   return { id: added.project.id, uid, kollekti }
 }
 

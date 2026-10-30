@@ -142,7 +142,7 @@ describe('ls-remote', () => {
     git('add', 'a')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'one')
     git('tag', 'v1.0.0')
-    git('tag', '-a', '-m', 'annotated', 'v1.1.0')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'tag', '-a', '-m', 'annotated', 'v1.1.0')
     git('tag', 'scratch')
     const got = await new TagLister(run).tags(repo)
     expect(got).toMatchObject({ ok: true, tags: ['v1.1.0', 'v1.0.0'] })
