@@ -145,6 +145,32 @@ export function discussionsOf(resolvable: unknown, resolved: unknown): TrackerDi
   return { resolved, unresolved: resolvable - resolved }
 }
 
+/**
+ * Where a person sees a merge request's head pipeline (protocol 2.34.0 `pipelineUrl`): REST's own
+ * `web_url` when the answer carried one, else the merge request's Pipelines tab, newest first —
+ * spelled from its URL, so GraphQL is asked for no field more. Only `https:`.
+ */
+export function pipelineUrlOf(head: unknown, mergeUrl: string, pipeline: PipelineState | undefined): string | undefined {
+  if (!pipeline) return undefined
+  const own = str(obj(head).web_url) || str(obj(head).webUrl)
+  if (/^https:\/\//.test(own) && own.length <= LIMITS.URL) return own
+  if (!/^https:\/\/[^/]+\/.+\/-\/merge_requests\/\d+$/.test(mergeUrl)) return undefined
+  const tab = `${mergeUrl}/pipelines`
+  return tab.length <= LIMITS.URL ? tab : undefined
+}
+
+/**
+ * When the head pipeline's state last moved (protocol 2.34.0 `pipelineAt`): when it finished, else
+ * when it started, else when it was made — whichever the answer carried. GraphQL is asked for
+ * `finishedAt` (a scalar: GitLab costs it once per query, not per merge request) and, with the
+ * people, `createdAt`; REST carries all three.
+ */
+export function pipelineAtOf(head: unknown, pipeline: PipelineState | undefined): string | undefined {
+  if (!pipeline) return undefined
+  const h = obj(head)
+  return instant(h.finishedAt ?? h.finished_at) ?? instant(h.startedAt ?? h.started_at) ?? instant(h.createdAt ?? h.created_at) ?? undefined
+}
+
 /** The later of the newest commit's time and the head pipeline's creation. */
 export function lastPushOf(commits: unknown, pipeline: unknown): string | undefined {
   const times = [instant(obj(nodes(commits)[0]).committedDate), instant(obj(pipeline).createdAt)].filter(
@@ -298,7 +324,9 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     .slice(0, LIMITS.TRACKER_LINKS)
     .map((one) => ({ ref: one, relation: 'closes' as const }))
   const contributes = contributesOf(source, contributedIssues(description), links.map((l) => l.ref))
-  const pipeline = pipelineOf(obj(r.headPipeline ?? r.head_pipeline).status)
+  const head = r.headPipeline ?? r.head_pipeline
+  const pipeline = pipelineOf(obj(head).status)
+  const url = clip(str(r.web_url) || str(r.webUrl), LIMITS.URL)
   const approved = typeof r.approved === 'boolean' ? r.approved : undefined
   const draft = typeof r.draft === 'boolean' ? r.draft : typeof r.work_in_progress === 'boolean' ? r.work_in_progress : undefined
   const from = r.sourceProjectId ?? r.source_project_id
@@ -313,7 +341,7 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     kind: 'change',
     state,
     title: clip(str(r.title), LIMITS.TITLE),
-    url: clip(str(r.web_url) || str(r.webUrl), LIMITS.URL),
+    url,
     draft,
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
@@ -327,6 +355,8 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     links,
     contributes,
     pipeline,
+    pipelineUrl: pipelineUrlOf(head, url, pipeline),
+    pipelineAt: pipelineAtOf(head, pipeline),
     /* GraphQL only (see "People" above): the REST list's `reviewers` say nobody's state. */
     reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy) : undefined,
     discussions: discussionsOf(r.resolvableDiscussionsCount, r.resolvedDiscussionsCount),
@@ -415,7 +445,7 @@ export function refsQuery(source: Source, issues: readonly number[], merges: rea
     parts.push(`mergeRequests(iids: [${merges.map((n) => `"${n}"`).join(',')}], first: ${merges.length}) { nodes {
       iid state title webUrl draft createdAt updatedAt closedAt mergedAt description approved
       sourceBranch targetBranch sourceProjectId targetProjectId
-      headPipeline { status${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE(people)}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
+      headPipeline { status finishedAt${people ? ' createdAt' : ''} } ${GRAPH_PEOPLE(people)}${people ? `\n      ${MERGE_PEOPLE}` : ''} } }`)
   }
   return `query { project(fullPath: "${source.repo}") {\n${parts.join('\n')}\n} }`
 }
@@ -542,6 +572,8 @@ export function branchesOn(row: TrackerRow, names: readonly string[]): TrackerRo
  * logged-in user. Measured on gitlab.com (`queryComplexity { score }`): 242 at 25 + 25 with the
  * people and the notes; the pictures (2.10.0) make that 260, so a batch is 22 + 22, which scores
  * 243 (20 + 20: 232). An issue's `type` (2.11.0) adds 2 whatever the batch: 22 + 22 scores 245.
+ * The head pipeline's `finishedAt` (2.34.0) is a scalar too and, like `type`, costs once per query,
+ * not per merge request (not measured: a batch over the limit is halved, below).
  * Over the limit, a batch is halved.
  */
 export const BATCH = 22

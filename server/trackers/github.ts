@@ -93,6 +93,18 @@ export function pipelineOf(checks: unknown): PipelineState | undefined {
   return 'success'
 }
 
+/**
+ * Where a person sees a pull request's checks (protocol 2.34.0 `pipelineUrl`): its own `/checks`
+ * page, spelled from the pull request's URL, since GitHub has no one page for a rollup. Only an
+ * `https:` URL, and only when there is a pipeline to see. No time: the rollup carries none, and
+ * reading each check's for it would cost a connection per pull request in GitHub's points.
+ */
+export function checksUrl(url: string, pipeline: PipelineState | undefined): string | undefined {
+  if (!pipeline || !/^https:\/\/[^/]+\/.+\/pull\/\d+$/.test(url)) return undefined
+  const checks = `${url}/checks`
+  return checks.length <= LIMITS.URL ? checks : undefined
+}
+
 export function reviewOf(decision: unknown): ReviewState | undefined {
   switch (str(decision).toUpperCase()) {
     case 'APPROVED':
@@ -347,6 +359,8 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
   const head = obj(obj(nodes(obj(r.commits))[0]).commit)
   const rollup = r.statusCheckRollup ?? head.statusCheckRollup
   const read = (field: string) => has(r, field)
+  const url = clip(str(r.url), LIMITS.URL)
+  const pipeline = rollup === undefined || rollup === null ? undefined : pipelineOf(rollup)
   return row(withPeople({
     ref,
     tracker: 'github',
@@ -356,7 +370,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     kind: 'change',
     state,
     title: clip(str(r.title), LIMITS.TITLE),
-    url: clip(str(r.url), LIMITS.URL),
+    url,
     draft: typeof r.isDraft === 'boolean' ? r.isDraft : undefined,
     labels: labelsOf(r.labels),
     assignees: people(r.assignees),
@@ -369,7 +383,8 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     mergedAt: state === 'merged' ? (instant(r.mergedAt) ?? undefined) : null,
     links,
     contributes,
-    pipeline: rollup === undefined || rollup === null ? undefined : pipelineOf(rollup),
+    pipeline,
+    pipelineUrl: checksUrl(url, pipeline),
     review: reviewOf(r.reviewDecision),
     /* Absent when the answer did not carry them, which is not the same as nobody. */
     reviewers: read('reviewRequests') || read('latestReviews') ? reviewersOf(r.reviewRequests, r.latestReviews) : undefined,
