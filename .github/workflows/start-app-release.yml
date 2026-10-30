@@ -1,0 +1,36 @@
+# After every push to main, ask Jalez/kehikko-desktop to release the app now
+# instead of waiting for its schedule (which GitHub can delay by hours). The
+# desktop's auto-release decides whether there is anything to release: a merge
+# whose pull requests all say `## Release note` `none` releases nothing.
+#
+# GitHub's own token cannot start a workflow in another repository, so this
+# needs DESKTOP_RELEASE_TOKEN: a fine-grained token with access to
+# Jalez/kehikko-desktop only and the permission "Actions: Read and write". Until
+# that secret exists this job says so and does nothing.
+name: start app release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: start-app-release
+  cancel-in-progress: false
+
+jobs:
+  start:
+    if: github.repository == 'Jalez/kehikko'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the desktop repository to release
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::DESKTOP_RELEASE_TOKEN is not set, so the app releases on the desktop's own schedule."
+            exit 0
+          fi
+          gh workflow run auto-release.yml -R Jalez/kehikko-desktop --ref main -f mode=release
+          echo "Asked Jalez/kehikko-desktop to release the app from ${GITHUB_SHA::7}."

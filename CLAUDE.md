@@ -280,6 +280,11 @@
   merged in between (skipping `none`), checks them with `dev/module-agnostic.ts`
   as it is at that commit, and when any are left tags the next patch version
   and builds the app from exactly that commit.
+- Each push to this repository's `main` starts that run at once
+  (`.github/workflows/start-app-release.yml`, with the `DESKTOP_RELEASE_TOKEN`
+  secret: a fine-grained token for kehikko-desktop only, "Actions: Read and
+  write"). Without the secret it does nothing and the hourly schedule stays the
+  only trigger. GitHub can delay that schedule by hours.
 - A line refused there fails the release and opens one issue in
   kehikko-desktop. Fix the line by editing the merged PR's description, then
   close the issue; the next hourly run tries again.
