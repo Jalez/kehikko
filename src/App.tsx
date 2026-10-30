@@ -3905,6 +3905,14 @@ export function App() {
     },
     goto: (call) => gotoHereRef.current(call),
     highlight: flashContainer,
+    /* The module is told which of its items the person opened (protocol 2.35.0), once it is
+       there to hear it: after the place's context has gone out, on the kehikko now shown —
+       `flashContainer`'s timing. A page still loading is told when it answers. */
+    arrived: (entry, later) => {
+      const tell = () => void presses.opened(entry.module, entry.id)
+      if (later) window.setTimeout(() => whenShownRef.current(tell), 300)
+      else tell()
+    },
   })
   const goToEntry = useCallback(
     (entry: Entry, project: number | null = projectId) => {

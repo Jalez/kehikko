@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, pressSchema } from 'kehikot-module-protocol'
+import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, openedSchema, pressSchema } from 'kehikot-module-protocol'
 import { PRESS_BACKSTOP_MS } from 'kehikot-module-protocol/client'
 
 import { Conversation, PRESSED_TIMEOUT_MS, type Answer } from '@/host/conversation.ts'
@@ -837,5 +837,49 @@ describe('a module can hand the host a control it cannot draw itself', () => {
     })
     expect(offers).toEqual([])
     expect(faults).toHaveLength(1)
+  })
+})
+
+describe('an Inbox item the person opened (kehikot.opened, protocol 2.35.0)', () => {
+  function frame() {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'kehikot.claude', null, async () => nothing, quiet(), { name: 'Claude' })
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    return { conversation, sent, say }
+  }
+  const opened = (sent: Sent[]) => sent.map((one) => one.message).filter((one) => one.type === MESSAGE.OPENED)
+
+  test('to a page that has answered: one message naming the item, and nothing waits for an answer', () => {
+    const { conversation, sent, say } = frame()
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.claude', protocol: PROTOCOL })
+    sent.length = 0
+    conversation.sendOpened('session-1')
+    expect(sent.map((one) => one.message)).toEqual([{ type: MESSAGE.OPENED, protocol: PROTOCOL, item: 'session-1' }])
+    expect(openedSchema.safeParse(sent[0]!.message).success).toBe(true)
+    conversation.close()
+  })
+
+  test('to a page still loading: told once it answers its greeting, the latest item only, and once', () => {
+    const { conversation, sent, say } = frame()
+    conversation.sendOpened('old')
+    conversation.sendOpened('session-2')
+    expect(opened(sent)).toEqual([])
+    conversation.greet(context)
+    expect(opened(sent)).toEqual([])
+    say({ type: MESSAGE.READY, id: 'kehikot.claude', protocol: PROTOCOL })
+    expect(opened(sent)).toEqual([{ type: MESSAGE.OPENED, protocol: PROTOCOL, item: 'session-2' }])
+    /* A reload of the page later is not told again. */
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.claude', protocol: PROTOCOL })
+    expect(opened(sent)).toHaveLength(1)
+    conversation.close()
+  })
+
+  test('nothing to a page taken off the canvas', () => {
+    const { conversation, sent } = frame()
+    conversation.close()
+    conversation.sendOpened('x')
+    expect(opened(sent)).toEqual([])
   })
 })
