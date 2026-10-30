@@ -48,6 +48,7 @@ import { systemProcesses, takeOver } from './takeover.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
+import { retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
 import { restartModuleDesk } from './restartModule.ts'
@@ -127,7 +128,7 @@ import { PeerLookup, type Found, type Root } from './callers.ts'
 import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
-import { HOST_REPO, OFFICIAL } from './official.ts'
+import { HOST_REPO, OFFICIAL, RETIRED } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
 import { createServer } from 'node:net'
@@ -574,6 +575,7 @@ const feedback = feedbackDesk({
    `officialSource.ts`, which also says who that trusts. */
 const official = officialSource({
   builtIn: OFFICIAL,
+  builtInRetired: RETIRED,
   url: listUrl(),
   cache: officialListFile(),
   log: (line) => console.log(line),
@@ -2692,7 +2694,6 @@ const headerDesk = headersDesk({
 const inboxRoutes = inboxDesk({
   inbox,
   pathOf: (project) => projectById(db, project)?.path,
-  kehikotOf: (project) => listCanvases(db).filter((one) => one.project === project).map((one) => ({ key: one.key, name: one.name })),
   /* What an entry's module and place are checked against: what is installed (as of the last
      sweep; nothing before one), the project's kehikot and its epics. */
   present: (project) => ({
@@ -2704,6 +2705,25 @@ const inboxRoutes = inboxDesk({
   eventsOf: (module) => lastPresences.get(module)?.module?.events,
   changed: (project, rev) => wakes.inboxChanged(project, rev),
 })
+
+/* What the official list retired is taken off this machine, once the list is read: see
+   `retired.ts`. Never waited for, and a sweep that finds nothing does nothing. */
+const retiring = retireDesk({
+  db,
+  inbox,
+  retired: official.retired,
+  root: installsDir(),
+  registry: registryDir(),
+  registered: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir })),
+  stop: (id) => void halt(id),
+  keep: (project) => keep(db, project),
+  woke: (kehikko) => wakes.woke(kehikko),
+  projects: () => listProjects(db).map((one) => ({ id: one.id })),
+  changed: (project, rev) => wakes.inboxChanged(project, rev),
+  registryChanged: () => wakes.registryChanged(),
+  log: (line) => console.log(line),
+})
+void official.refresh().then(() => retiring.sweep())
 
 /*
  * A conversation's place (protocol 2.4.0): the token a session carries on every
@@ -3870,7 +3890,7 @@ async function answerRequest(request: Request): Promise<Response> {
       const runningApp = app && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(app) ? app : null
       /* Somebody asked what is new: that includes which modules exist. Not
          waited for — the answer here is about checkouts. */
-      if (fetch) void official.refresh()
+      if (fetch) void official.refresh().then(() => retiring.sweep())
       /* And which Kehikot each release works with: read at most daily, so
          this is nearly always instant; never waited for long. */
       if (fetch) await appProtocols.settled(4_000, runningApp)

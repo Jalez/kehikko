@@ -745,8 +745,18 @@
   browser storage. The person's own clips are in `soundsDir()`
   (`KEHIKOT_SOUNDS_DIR`), served only by id at `GET /host/sounds/<id>`; their
   writes are in `PAGE_ONLY`. No MCP tool plays, mutes or picks a sound.
-- The Notifications module still receives the lines (`noticeFor`), and its own
-  `.kehikot/notifications/notifications.json` is imported once and never written.
+- The Inbox is the only place a line goes. A module that still emits a legacy
+  `kehikot.notifications@1` line (`events.emit`) lands in it through
+  `/host/inbox/notice`; nothing forwards a line to a module, and no old module
+  file is imported.
+- A module the official list retires (`retired` in `modules.json`, read with the
+  list: `server/officialSource.ts`, acted on by `server/retired.ts`) is taken off
+  the machine: its containers off every kehikko (`editCanvas`), its process
+  stopped, its registration and its `installed/<id>/` copy deleted, and each
+  project's Inbox told once as the host. A registration naming another directory
+  is somebody's own checkout and is left whole. Nothing under a project's
+  `.kehikot/<module>/` is ever touched. The host names no module: ids and words
+  come from the list. Retiring is published by merging `modules.json` to `main`.
 
 ## Tracker sources
 
