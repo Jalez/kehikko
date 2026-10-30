@@ -792,8 +792,8 @@ export class Trackers {
 
   /** Read what was queued, once whatever is running has finished. */
   #kick(root: string): void {
-    const held = this.#of(root)
-    if (held.kick || (!held.queued.size && !held.queuedDetail.size)) return
+    const held = this.#held.get(root)
+    if (!held || held.kick || (!held.queued.size && !held.queuedDetail.size)) return
     held.kick = setTimeout(() => {
       held.kick = null
       const refs = [...new Set([...held.queued, ...held.queuedDetail])]
@@ -858,7 +858,7 @@ export class Trackers {
     held.sources = sources
     if (!sources.length) {
       held.stored = { ...held.stored, at: now, sources: [] }
-      saveReading(root, held.stored)
+      this.#save(root, held)
       return {
         outcome: 'declined',
         at: held.stored.at,
@@ -1093,7 +1093,7 @@ export class Trackers {
       branches,
     }
     try {
-      saveReading(root, held.stored)
+      this.#save(root, held)
     } catch {
       /* The reading is still served from memory; the file is a cache. */
     }
@@ -1133,6 +1133,23 @@ export class Trackers {
     held.stored.at = this.#now().toISOString()
     saveReading(root, held.stored)
     this.#told(root, { at: held.stored.at, refreshing: held.running !== null })
+  }
+
+  /** A read that lands after its project was forgotten writes nothing. */
+  #save(root: string, held: Held): void {
+    if (this.#held.get(root) === held) saveReading(root, held.stored)
+  }
+
+  /**
+   * The project was taken off the list: hold nothing for it, so the schedule
+   * reads and writes nothing there again. A read already running lands in
+   * memory only.
+   */
+  forget(root: string): void {
+    const held = this.#held.get(root)
+    if (!held) return
+    if (held.kick) clearTimeout(held.kick)
+    this.#held.delete(root)
   }
 
   /**

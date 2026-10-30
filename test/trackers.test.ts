@@ -407,6 +407,46 @@ describe('one reading per project', () => {
   })
 })
 
+describe('a project removed from the list', () => {
+  test('is not read or written by the schedule again', async () => {
+    const adapter = fake(() => [ghRow(1)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
+    await trackers.refresh(folder, { project: true })
+    const reads = adapter.reads
+    /* The person removes the folder from the list, then deletes its .kehikot/. */
+    trackers.forget(folder)
+    rmSync(join(folder, '.kehikot'), { recursive: true })
+    trackers.tick(Date.now() + 20 * 60_000)
+    await settle()
+    expect(adapter.reads).toBe(reads)
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+  })
+
+  test('a read already running when it is removed lands in memory, not in the folder', async () => {
+    let release = () => {}
+    const held = new Promise<void>((done) => (release = done))
+    const adapter = fake(() => [ghRow(1)])
+    const list = adapter.list
+    adapter.list = async (...args) => {
+      await held
+      return list(...args)
+    }
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
+    const read = trackers.refresh(folder, { project: true })
+    await settle()
+    trackers.forget(folder)
+    release()
+    await read
+    await settle()
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+    const reads = adapter.reads
+    trackers.tick(Date.now() + 20 * 60_000)
+    await settle()
+    expect(adapter.reads).toBe(reads)
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+  })
+})
+
 /**
  * Jalez/kehikko#38: which change delivers which issue is worked out over the
  * whole reading, so it does not matter which read brought either side in.
