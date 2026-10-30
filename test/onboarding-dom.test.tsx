@@ -12,7 +12,7 @@ import { forgetEveryRead } from '../src/host/hostRead.ts'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 24
+const TESTS = 25
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -336,9 +336,14 @@ function page(...extra: string[]) {
       <button data-tour="epic">e</button>
       <button data-tour="parts">parts</button>
       <button data-tour="kehikko">k</button>
+      <button data-tour="pinned">pinned</button>
+      <button data-tour="pin">pin</button>
+      <button data-tour="modules">modules</button>
       <button data-inbox-control>inbox</button>
+      <button data-tour="focus">f</button>
       <button data-tour="updates">u</button>
       <button data-tour="settings">s</button>
+      <button data-tour="theme">t</button>
       <button data-tour="help">?</button>
     </div>
     ${extra.join('\n')}`
@@ -373,6 +378,27 @@ function guide(facts: Facts) {
   guides.push(one)
   return { one, rec, said }
 }
+
+/** The stops an existing user (a project, an epic and a kehikko) is walked through, in order, with everything on screen. */
+const EXISTING_USER = [
+  'project-bar',
+  'epic-bar',
+  'parts-bar',
+  'kehikko-bar',
+  'pinned',
+  'modules',
+  'header',
+  'scope',
+  'frame',
+  'menus',
+  'corners',
+  'inbox',
+  'focus',
+  'updates',
+  'settings',
+  'theme',
+  'help',
+]
 
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -439,9 +465,9 @@ describe('the tour waits for the person', () => {
     facts.kehikko = true
     one.refresh()
     await tick()
-    expect(one.step).toBe('header')
+    expect(one.step).toBe('project-bar')
     expect(rec.last).toMatchObject({ mode: 'show', next: 'Next', back: false })
-    expect(said.steps).toEqual(['project', 'epic', 'parts', 'kehikko', 'header'])
+    expect(said.steps).toEqual(['project', 'epic', 'parts', 'kehikko', 'project-bar'])
   })
 
   test('the explanations: Next and Back over what is on screen, Done finishes', async () => {
@@ -449,12 +475,12 @@ describe('the tour waits for the person', () => {
     const { one, rec, said } = guide({ project: true, projects: 1, epic: true, parts: false, kehikko: true })
     one.start(null)
     const ids = () => rec.views.map((view) => view.key.split(':')[0])
-    expect(one.step).toBe('header')
-    for (let i = 0; i < 8; i++) rec.last!.onNext()
-    expect(ids()).toEqual(['header', 'scope', 'frame', 'menus', 'corners', 'inbox', 'updates', 'settings', 'help'])
-    expect(rec.last).toMatchObject({ next: 'Done', progress: '9 of 9', back: true })
+    expect(one.step).toBe('project-bar')
+    for (let i = 0; i < EXISTING_USER.length - 1; i++) rec.last!.onNext()
+    expect(ids()).toEqual(EXISTING_USER)
+    expect(rec.last).toMatchObject({ next: 'Done', progress: `${EXISTING_USER.length} of ${EXISTING_USER.length}`, back: true })
     rec.last!.onBack()
-    expect(one.step).toBe('settings')
+    expect(one.step).toBe('theme')
     rec.last!.onNext()
     rec.last!.onNext()
     expect(said.finished).toBe(1)
@@ -465,7 +491,7 @@ describe('the tour waits for the person', () => {
     page(CONTAINER)
     const all = guide({ project: true, projects: 2, epic: true, parts: false, kehikko: true })
     all.one.start(null)
-    expect(all.one.step).toBe('header')
+    expect(all.one.step).toBe('project-bar')
     all.one.stop()
 
     const some = guide({ project: true, projects: 1, epic: true, parts: false, kehikko: false })
@@ -628,6 +654,7 @@ describe('the tour in the app', () => {
           onParts={nothing}
           onPlace={nothing}
           onUnplace={nothing}
+          pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
           focus="off"
           onFocus={nothing}
           theme="dark"
@@ -719,6 +746,68 @@ describe('the tour in the app', () => {
     await escape()
     await openMenu(document.querySelector('[data-tour="kehikko"]'))
     expect(document.querySelector('[data-tour="new-kehikko"]')?.textContent).toContain('new kehikko…')
+  })
+
+  test('every top-bar stop has its own control in the bar, in the bar’s order, and gives way gracefully when one is hidden', async () => {
+    const project = { id: 1, name: 'proj', path: '/p', epics: true } as never
+    const canvas = { id: 1, key: 'k', name: 'writing', project: 1, placements: [] } as never
+    await render(
+      <Bar.Bar
+        registry={{ presences: [] } as never}
+        canvases={[canvas]}
+        open={canvas}
+        placed={[]}
+        subject={{ epic: 'one', project } as never}
+        projects={[project]}
+        project={project}
+        held={{ epics: [{ slug: 'one', title: 'One' }], holds: true } as never}
+        onRetitleEpic={async () => true}
+        onCreateEpic={async () => true}
+        onDeleteEpic={nothing}
+        onProject={nothing}
+        onAddProject={nothing}
+        onShareProject={nothing}
+        onForgetProject={nothing}
+        onOpen={nothing}
+        onRename={nothing}
+        onCreate={nothing}
+        onDelete={nothing}
+        onSubject={nothing}
+        parts={[{ id: 'a', heading: 'A', refs: [], steps: 0 }]}
+        pickedParts={[]}
+        onParts={nothing}
+        onPlace={nothing}
+        onUnplace={nothing}
+        pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
+        focus="off"
+        onFocus={nothing}
+        theme="dark"
+        onTheme={nothing}
+        onTools={nothing}
+        trouble={null}
+        onLookAgain={nothing}
+        looking={false}
+      />,
+    )
+    await settle()
+    const bar = document.querySelector('[data-testid="bar"]')!
+    const stops = ['project-bar', 'epic-bar', 'parts-bar', 'kehikko-bar', 'pinned', 'focus', 'settings', 'theme', 'modules']
+    const found = stops.map((id) => tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === id)!.frames[0]!, bar, false))
+    expect(found.every((element) => element !== null)).toBe(true)
+    /* Left to right, as the bar draws them (the tour takes the modules button right after Pinned: it is the way in to everything else). */
+    const all = [...bar.querySelectorAll('*')]
+    const at = found.map((element) => all.indexOf(element!))
+    expect(at).toEqual([...at].sort((a, b) => a - b))
+    expect(new Set(at).size).toBe(stops.length)
+    /* The pin button is a control of its own, beside the menu. */
+    expect(bar.querySelector('[data-tour="pin"]')).not.toBeNull()
+    /* Narrow: none of them is inside what the bar lets go of under 480 pixels; the labels go, the controls stay. */
+    for (const element of found) expect(element!.closest('[class*="max-[480px]:hidden"]')).toBeNull()
+    /* A control the window cannot draw is left out, not pointed at and not a crash. */
+    bar.querySelector<HTMLElement>('[data-tour="pinned"]')!.style.display = 'none'
+    expect(tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === 'pinned')!.frames[0]!, bar, false)).toBeNull()
+    expect(tour.shownExplanations(document, false)).not.toContain(tour.stepIndex('pinned'))
+    expect(tour.shownExplanations(document, false)).toContain(tour.stepIndex('modules'))
   })
 
   test('is drawn in the app’s own tokens, and waits without dimming or switching the page off', async () => {
@@ -885,7 +974,7 @@ describe('the tour and container headers', () => {
     hide()
     {
       const { one, rec } = guide(ALL_DONE)
-      one.start(null)
+      one.start('header')
       expect(stepOf(rec)).toBe('header')
       expect(HIDDEN()).toBe(false)
       expect(rec.last?.note).toBe(tour.HEADERS_NOTE)
@@ -909,7 +998,7 @@ describe('the tour and container headers', () => {
       /* Finishing. */
       one.start('header')
       expect(HIDDEN()).toBe(false)
-      for (let i = 0; i < 8; i++) rec.last!.onNext()
+      for (let i = 0; i < EXISTING_USER.length - 1 - EXISTING_USER.indexOf('header'); i++) rec.last!.onNext()
       expect(HIDDEN()).toBe(true)
       rec.last!.onNext()
       expect(one.running).toBe('idle')
@@ -942,7 +1031,7 @@ describe('the tour and container headers', () => {
     page(CONTAINER)
     hide()
     const { one } = guide(ALL_DONE)
-    one.start(null)
+    one.start('header')
     jar = 'kehikko.focus=off'
     one.pause()
     expect(HIDDEN()).toBe(false)
@@ -963,7 +1052,7 @@ describe('the tour and container headers', () => {
       top = 20
     }
     const { one, rec } = guide(ALL_DONE)
-    one.start(null)
+    one.start('header')
     expect(menus.hasAttribute('data-tour-example')).toBe(true)
     expect(document.getElementById('bare')!.hasAttribute('data-tour-example')).toBe(false)
     expect(document.getElementById('folded')!.hasAttribute('data-tour-example')).toBe(false)
@@ -978,7 +1067,8 @@ describe('the tour and container headers', () => {
     hide()
     const { one, rec } = guide(ALL_DONE)
     one.start(null)
-    expect(rec.views.map((view) => view.key.split(':')[0])[0]).toBe('inbox')
+    expect(rec.views.map((view) => view.key.split(':')[0])).not.toContain('header')
+    expect(rec.views.map((view) => view.key.split(':')[0])[0]).toBe('project-bar')
     expect(HIDDEN()).toBe(true)
     expect(tour.pickExample(document, false)).toBeNull()
   })
