@@ -16,7 +16,7 @@
  *   - the scope is a label with its name at 440 and wider and its icon alone under it, its
  *     accessible name and tooltip saying the scope at every width, and a row in the Frame menu;
  *   - and the window's own bar, from 1400 down to 360 pixels: one row, the pinned places and the
- *     Pin button whole and overlapping nothing, "Pinned" a word only wider than 900, and pinning,
+ *     Pin button whole and overlapping nothing, "Pinned" a word only at 900 and wider, and pinning,
  *     listing and unpinning from the menu at 400.
  *
  *     node dev/header-fit.drive.mjs            # BROWSERS=webkit to pick one
@@ -133,10 +133,10 @@ const MEASURE = (id) => {
 /*
  * The bar at the top of the window, with the pinned places and the Pin button right after the
  * breadcrumb: at each window width it stays one row 32 pixels tall, both controls are drawn whole
- * inside it and overlap nothing, the word "Pinned" is there only wider than 900 pixels, and the Pin
+ * inside it and overlap nothing, the word "Pinned" is there only at 900 pixels and wider, and the Pin
  * button is there at every width.
  */
-const BAR_WIDTHS = [1400, 1100, 901, 900, 800, 640, 480, 400, 360]
+const BAR_WIDTHS = [1400, 1100, 900, 899, 800, 640, 480, 400, 360]
 const MEASURE_BAR = () => {
   const bar = document.querySelector('header[data-testid="bar"]')
   const bad = []
@@ -171,9 +171,10 @@ const MEASURE_BAR = () => {
       if (across > 0.5 && down > 0.5) bad.push(`${name} overlaps "${other.getAttribute('aria-label') ?? other.textContent}" by ${across.toFixed(1)}px`)
     }
   }
-  const wide = window.innerWidth > 900
-  if (wide && !drawn(word)) bad.push('the word "Pinned" is gone wider than 900px')
-  if (!wide && drawn(word)) bad.push('the word "Pinned" is still drawn at 900px or narrower')
+  /* Tailwind's `max-[900px]:` is `width < 900px`. */
+  const wide = window.innerWidth >= 900
+  if (wide && !drawn(word)) bad.push('the word "Pinned" is gone at 900px or wider')
+  if (!wide && drawn(word)) bad.push('the word "Pinned" is still drawn under 900px')
   return { bad, state: { width: Math.round(b.width), height: Math.round(b.height), word: drawn(word) ? 'word' : 'icon', pin: drawn(pin) ? 'drawn' : 'gone' } }
 }
 

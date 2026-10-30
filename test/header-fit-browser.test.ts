@@ -24,7 +24,7 @@ browserTest('the header’s name, version, branch and scope never overlap at any
     timeout: 420_000,
   })
   const out = `${run.stdout.toString()}${run.stderr.toString()}`
-  if (run.exitCode !== 0) console.error(out.slice(0, 6000))
+  if (run.exitCode !== 0) console.error(out.length > 12000 ? `${out.slice(0, 6000)}\n…\n${out.slice(-6000)}` : out)
   expect(run.exitCode).toBe(0)
   expect(out.includes('never overlap')).toBe(true)
 }, 430_000)
