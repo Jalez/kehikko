@@ -445,6 +445,44 @@ describe('a project removed from the list', () => {
     expect(adapter.reads).toBe(reads)
     expect(existsSync(join(folder, '.kehikot'))).toBe(false)
   })
+
+  test('the route that removes a project tells the reading, and the watch, after it is forgotten', () => {
+    const server = readFileSync(join(import.meta.dir, '..', 'server', 'server.ts'), 'utf8')
+    const route = server.indexOf("url.pathname === '/host/projects' && request.method === 'DELETE'")
+    expect(route).toBeGreaterThan(-1)
+    const body = server.slice(route, server.indexOf('\n    }\n', route))
+    const forgotten = body.indexOf('forgetProject(db, body.id)')
+    expect(forgotten).toBeGreaterThan(-1)
+    expect(body.indexOf('trackers.forget(said.project.path)')).toBeGreaterThan(forgotten)
+    expect(body.indexOf('watchOpenProjects()')).toBeGreaterThan(forgotten)
+  })
+
+  test('a refresh waiting behind a running read when it is removed is not read at all', async () => {
+    let release = () => {}
+    const held = new Promise<void>((done) => (release = done))
+    const adapter = fake(() => [ghRow(1)])
+    const refs = adapter.refs
+    adapter.refs = async (...args) => {
+      await held
+      return refs(...args)
+    }
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
+    /* A narrower read is running, and a whole-project read waits behind it. */
+    const narrow = trackers.refresh(folder, { refs: ['gh#1'] })
+    await settle()
+    const waiting = trackers.refresh(folder, { project: true })
+    trackers.forget(folder)
+    release()
+    await narrow
+    expect((await waiting).outcome).toBe('declined')
+    await settle()
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+    const reads = adapter.reads
+    trackers.tick(Date.now() + 20 * 60_000)
+    await settle()
+    expect(adapter.reads).toBe(reads)
+    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
+  })
 })
 
 /**

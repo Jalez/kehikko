@@ -817,10 +817,10 @@ export class Trackers {
     held.lookedAt = Date.now()
     if (held.running) {
       if (held.runningScope && 'project' in held.runningScope) return held.running
-      const after = held.running.then(
-        () => this.refresh(root, scope),
-        () => this.refresh(root, scope),
-      )
+      /* Asked again once that lands, unless the project was forgotten meanwhile: that would hold it, and write there, anew. */
+      const again = (): Promise<TrackerRefreshResult> =>
+        this.#held.has(root) ? this.refresh(root, scope) : Promise.resolve({ outcome: 'declined', at: null, why: 'This project is no longer on the list.' })
+      const after = held.running.then(again, again)
       return after
     }
     const run = because(trackerReason(root, scope), () => this.#read(root, scope)).finally(() => {
