@@ -203,6 +203,11 @@ export class Inbox {
     return rows.map(toEntry)
   }
 
+  /** Whether any project's record holds an entry of this module and id, open or closed: what was told once. */
+  holds(module: string, id: string): boolean {
+    return this.db.query<{ n: number }, [string, string]>('select 1 as n from inbox_items where module = ? and id = ? limit 1').get(module, id) !== null
+  }
+
   /** Every entry of a project, open and closed. For the log and for tests. */
   all(project: number): Entry[] {
     return this.#named(this.#entries(project))

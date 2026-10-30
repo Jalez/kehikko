@@ -574,6 +574,15 @@ export class Trackers {
     return me
   }
 
+  /**
+   * Who the person is on a tracker host, for a caller outside the reading
+   * (`server/forgeLogins.ts`): the same answer, kept the same time, so a login
+   * a read already learned is not asked again. Null for a tracker that cannot say.
+   */
+  me(tracker: Source['tracker'], host: string): Promise<Me | null> {
+    return this.#whoAmI({ tracker, host, repo: '', default: false, listed: false })
+  }
+
   /** The sources as last known, for sentences and for `get`. */
   #sourcesFor(held: Held): Source[] {
     if (held.sources) return held.sources

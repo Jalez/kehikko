@@ -1,5 +1,5 @@
 import { ExternalLink, ScrollText } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { isBuiltFrom, isWorksWithSentence, parseMarkdown, plainText, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
 import { releaseNotesTitle, releaseVersion, releasesMoved } from '@/host/moduleReleases.ts'
+import { markedPieces } from '@/host/whatsNewMentions.ts'
 import {
   fetchNotes,
   fetchReleases,
@@ -343,6 +344,7 @@ export function ReleaseSections({
   oneTrouble = false,
   headings = tags.length > 1,
   onDate,
+  focus,
 }: {
   repo: string
   name: string
@@ -357,8 +359,16 @@ export function ReleaseSections({
   headings?: boolean
   /** Told the date of a release once it is read: for a caller that draws it elsewhere. */
   onDate?(tag: string, date: string | null): void
+  /** A release to scroll to once its notes are read, with a handle marked in them (an Inbox mention). */
+  focus?: { tag: string; login: string } | null
 }) {
   const [readings, setReadings] = useState<Record<string, Reading>>({})
+  const sections = useRef(new Map<string, HTMLElement>())
+  const focusRead = focus ? readings[focus.tag]?.kind ?? 'reading' : null
+  useEffect(() => {
+    if (!focus || focusRead === 'reading') return
+    sections.current.get(focus.tag)?.scrollIntoView?.({ block: 'start' })
+  }, [focus?.tag, focusRead])
   const key = tags.join(',')
   useEffect(() => {
     if (!open) return
@@ -396,7 +406,17 @@ export function ReleaseSections({
         const reading = readings[tag] ?? { kind: 'reading' }
         const published = reading.kind === 'read' ? releaseDate(reading.release.publishedAt) : null
         return (
-          <section key={tag} data-testid="release-notes-release" data-tag={tag} className="pb-2">
+          <section
+            key={tag}
+            data-testid="release-notes-release"
+            data-tag={tag}
+            data-focus={focus?.tag === tag ? '' : undefined}
+            className="pb-2"
+            ref={(element) => {
+              if (element) sections.current.set(tag, element)
+              else sections.current.delete(tag)
+            }}
+          >
             {headings ? (
               <h3 className="pt-2 text-sm font-semibold">
                 {name} {releaseVersion(tag)}
@@ -418,7 +438,7 @@ export function ReleaseSections({
               )
             ) : whatsNew(reading.release.body) ? (
               /* The label above is the works-with sentence: the body does not say it again. */
-              <Markdown source={whatsNew(reading.release.body)} withoutWorksWith={Object.hasOwn(works, tag)} />
+              <Markdown source={whatsNew(reading.release.body)} withoutWorksWith={Object.hasOwn(works, tag)} mark={focus?.tag === tag ? focus.login : null} />
             ) : (
               <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
             )}
@@ -430,15 +450,25 @@ export function ReleaseSections({
 }
 
 /** Release notes drawn from the safe subset. Every leaf is a string child; nothing is set as HTML. */
-export function Markdown({ source, withoutWorksWith = false }: { source: string; withoutWorksWith?: boolean }) {
+export function Markdown({
+  source,
+  withoutWorksWith = false,
+  mark = null,
+}: {
+  source: string
+  withoutWorksWith?: boolean
+  /** A handle whose mentions (`@login`) are marked: the words as they are, in a `<mark>`, never markup. */
+  mark?: string | null
+}) {
   const blocks = parseMarkdown(source).filter(
     (block) =>
       !(withoutWorksWith && ((block.kind === 'paragraph' && isWorksWithSentence(plainText(block.children))) || (block.kind === 'small' && isBuiltFrom(plainText(block.children))))),
   )
-  return <div className="release-notes space-y-2 pb-3 leading-relaxed">{blocks.map((block, i) => drawBlock(block, i))}</div>
+  return <div className="release-notes space-y-2 pb-3 leading-relaxed">{blocks.map((block, i) => drawBlock(block, i, mark))}</div>
 }
 
-function drawBlock(block: Block, key: number): ReactNode {
+function drawBlock(block: Block, key: number, mark: string | null = null): ReactNode {
+  const drawInline = (nodes: readonly Inline[]) => drawInlineMarked(nodes, mark)
   switch (block.kind) {
     case 'heading': {
       const size = block.level <= 2 ? 'text-sm font-semibold' : 'text-[13px] font-semibold'
@@ -478,11 +508,26 @@ function drawBlock(block: Block, key: number): ReactNode {
   }
 }
 
-function drawInline(nodes: readonly Inline[]): ReactNode {
+function drawInlineMarked(nodes: readonly Inline[], mark: string | null): ReactNode {
+  const drawInline = (children: readonly Inline[]) => drawInlineMarked(children, mark)
   return nodes.map((node, i) => {
     switch (node.kind) {
       case 'text':
-        return <Fragment key={i}>{node.text}</Fragment>
+        return mark ? (
+          <Fragment key={i}>
+            {markedPieces(node.text, mark).map((piece, j) =>
+              piece.mark ? (
+                <mark key={j} data-mention className="bg-primary/15 text-foreground rounded px-0.5 font-medium">
+                  {piece.text}
+                </mark>
+              ) : (
+                <Fragment key={j}>{piece.text}</Fragment>
+              ),
+            )}
+          </Fragment>
+        ) : (
+          <Fragment key={i}>{node.text}</Fragment>
+        )
       case 'strong':
         return <strong key={i}>{drawInline(node.children)}</strong>
       case 'em':

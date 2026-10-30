@@ -29,8 +29,11 @@ import {
   releasesSaid,
   NOTES,
   type NewsItem,
+  type OpenAt,
   type WhatsNewAnswer,
 } from '@/host/whatsNew.ts'
+import { postMentions, releasesToCheck, withTag, type Release } from '@/host/whatsNewMentions.ts'
+import { watchApp } from '@/host/appUpdate.ts'
 import { useShownVersion } from './AppVersion.tsx'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
@@ -81,9 +84,12 @@ export function WhatsNewDialog({
   show,
   onClose,
   load = fetchNotes,
+  focus = null,
 }: {
   open: boolean
   items: readonly NewsItem[]
+  /** Opened at a release, with a handle marked in its notes: the row is selected and the release scrolled to. */
+  focus?: OpenAt | null
   /** The setting as it stands: the checkbox starts as its opposite. */
   show: boolean
   /** Closed, with whether "Don't show this after updates" is ticked. */
@@ -99,6 +105,9 @@ export function WhatsNewDialog({
   useEffect(() => {
     if (!items.some((one) => one.id === selected) && items[0]) setSelected(items[0].id)
   }, [items, selected])
+  useEffect(() => {
+    if (open && focus && items.some((one) => one.id === focus.item)) setSelected(focus.item)
+  }, [open, focus, items])
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose(dontShow)}>
@@ -184,7 +193,7 @@ export function WhatsNewDialog({
             <ScrollArea className="min-h-0 flex-1">
               {items.map((item) => (
                 <TabsContent key={item.id} value={item.id} className="flex min-w-0 flex-col px-5 py-4 sm:px-6" data-pane={item.id}>
-                  <Pane item={item} load={load} />
+                  <Pane item={item} load={load} focus={focus && focus.item === item.id ? focus : null} />
                 </TabsContent>
               ))}
             </ScrollArea>
@@ -213,7 +222,7 @@ export function WhatsNewDialog({
 }
 
 /** One row's notes: its name and versions, then every release, newest first. */
-function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
+function Pane({ item, load, focus }: { item: NewsItem; load: typeof fetchNotes; focus: OpenAt | null }) {
   const [date, setDate] = useState<string | null>(null)
   if (item.preparing) return <Preparing item={item} />
   if (item.kind === 'note') return <NotePane item={item} />
@@ -297,7 +306,17 @@ function Pane({ item, load }: { item: NewsItem; load: typeof fetchNotes }) {
             {item.name}’s repository is not on GitHub, so there are no release notes to read here.
           </p>
         ) : (
-          <ReleaseSections repo={repo} name={item.name} tags={item.tags} works={item.works} load={load} oneTrouble headings={!single} onDate={single ? onDate : undefined} />
+          <ReleaseSections
+            repo={repo}
+            name={item.name}
+            tags={item.tags}
+            works={item.works}
+            load={load}
+            oneTrouble
+            headings={!single}
+            onDate={single ? onDate : undefined}
+            focus={focus ? { tag: focus.tag, login: focus.login } : null}
+          />
         )}
       </div>
     </>
@@ -357,6 +376,10 @@ export interface WhatsNewDeps {
   app?: string | null
   /** How often the host is asked again while a "Preparing…" row stands. */
   pollMs?: number
+  /** The open project, whose Inbox is told of a mention of the person in the notes. */
+  project?: number | null
+  /** Ask the host to look for the person's handle in these releases' notes. */
+  mentions?: typeof postMentions
 }
 
 /* ---- the notice: what the host holds, the bar draws ---- */
@@ -436,6 +459,8 @@ function Host({
   notes = fetchNotes,
   releases = fetchReleases,
   pollMs = 2000,
+  project = null,
+  mentions = postMentions,
 }: WhatsNewDeps & { app: string | null }) {
   /** What is news now and not acknowledged: the notice's. */
   const [news, setNews] = useState<NewsItem[]>([])
@@ -443,6 +468,12 @@ function Host({
   const [items, setItems] = useState<NewsItem[]>([])
   const [open, setOpen] = useState(false)
   const [show, setShow] = useState(true)
+  /** Where the dialog was opened at: an Inbox mention's release. */
+  const [focus, setFocus] = useState<OpenAt | null>(null)
+  /** What is news, whatever the setting: the releases the person gets, looked at for their handle. */
+  const [gets, setGets] = useState<NewsItem[]>([])
+  /** The app version the desktop app is bringing, once it is downloading or ready. */
+  const [next, setNext] = useState<string | null>(null)
   const openRef = useRef(false)
   openRef.current = open
   const itemsRef = useRef(items)
@@ -497,6 +528,7 @@ function Host({
         if (!alive.current || appTags.current?.range !== range) return
         appTags.current = { range, tags }
         setNews((was) => withAppTags(was, tags))
+        setGets((was) => withAppTags(was, tags))
         setItems((was) => withAppTags(was, tags))
       })()
     },
@@ -529,6 +561,8 @@ function Host({
       const rows = allRef.current ? itemsOf(answer, true) : next
       setItems((was) => mergeItems(was, rows))
     }
+    setGets(next)
+    readAppTags(answer)
     if (!answer.record.show) {
       /* Not wanted: what moved is acknowledged as it is, so turning it back on tells only what comes after. */
       const done = next.filter((one) => !one.preparing)
@@ -537,8 +571,26 @@ function Host({
       return
     }
     setNews(next)
-    readAppTags(answer)
   }
+
+  /* The app the desktop app is bringing: its notes are the person's too. */
+  useEffect(() => {
+    const watching = watchApp((status) =>
+      setNext(status.version && (status.state === 'downloading' || status.state === 'ready' || status.state === 'installing') ? status.version : null),
+    )
+    return () => watching.stop()
+  }, [])
+
+  /* The releases the person gets, looked at for their handle: the host tells the Inbox once per release. */
+  const asked = useRef('')
+  useEffect(() => {
+    if (project === null) return
+    const releases: Release[] = releasesToCheck(gets, next)
+    const key = `${project}|${JSON.stringify(releases)}`
+    if (!releases.length || asked.current === key) return
+    asked.current = key
+    void mentions(project, releases)
+  }, [gets, next, project, mentions])
 
   /* At start: the first run records and stops; otherwise the notice, at once. */
   useEffect(() => {
@@ -599,12 +651,15 @@ function Host({
   /* On demand: Settings → About, the Updates menu. Everything installed, news first. */
   useEffect(
     () =>
-      onOpenWhatsNew(() => {
+      onOpenWhatsNew((at) => {
         void (async () => {
           const answer = await read()
           if (!answer || !alive.current) return
           if (answer.record) setShow(answer.record.show)
-          const all = itemsOf(answer.record ? answer : { ...answer, record: { app, modules: {}, show: true, told: Object.keys(NOTES) } }, true)
+          const listed = itemsOf(answer.record ? answer : { ...answer, record: { app, modules: {}, show: true, told: Object.keys(NOTES) } }, true)
+          /* Opened at a release (an Inbox mention): that release is among its row's, whatever was acknowledged. */
+          const all = at ? listed.map((one) => (one.id === at.item ? { ...one, tags: withTag(one.tags, at.tag) } : one)) : listed
+          setFocus(at && all.some((one) => one.id === at.item) ? at : null)
           allRef.current = true
           setItems(openRef.current ? mergeItems(itemsRef.current, all) : all)
           setOpen(true)
@@ -616,6 +671,7 @@ function Host({
 
   const close = (dontShow: boolean) => {
     setOpen(false)
+    setFocus(null)
     const shown = itemsRef.current
     void (async () => {
       const ack = ackFor(shown)
@@ -632,5 +688,5 @@ function Host({
     })()
   }
 
-  return <WhatsNewDialog open={open} items={items} show={show} onClose={close} load={notes} />
+  return <WhatsNewDialog open={open} items={items} show={show} onClose={close} load={notes} focus={focus} />
 }

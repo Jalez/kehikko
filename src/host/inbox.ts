@@ -65,7 +65,8 @@ export type Closing = 'listed' | 'silent' | 'unreported' | 'gone' | 'notice' | '
 
 /**
  * The host's own lists — the place asks (`kehikko`), the tracker notices
- * (`kehikko.trackers`), the settings lines (`kehikko.settings`). No container
+ * (`kehikko.trackers`), the settings lines (`kehikko.settings`), the mentions
+ * in What's new (`kehikko.whatsnew`). No container
  * stands for them and no page sends them: they are never closed for a module
  * that is not on the kehikko, not answering, or not registered.
  */
