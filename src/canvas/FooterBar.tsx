@@ -176,7 +176,8 @@ function FooterCell({
         aria-valuetext={`${value}${LEVEL_WORD[item.level]}`}
         aria-label={item.label}
         title={`${item.label}: ${value}${item.tooltip ? ` — ${item.tooltip}` : ''}`}
-        className="text-muted-foreground flex min-w-0 shrink items-center gap-1"
+        /* Never shrunk: its parts are fixed, so a meter given less room spills over its neighbours. The text gives way instead. */
+        className="text-muted-foreground flex shrink-0 items-center gap-1"
       >
         {meterLabels ? <span className="shrink-0">{item.label}</span> : null}
         <span className="bg-muted relative h-1.5 w-12 shrink-0 overflow-hidden rounded-full @max-[300px]/container:w-8" aria-hidden>
