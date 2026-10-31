@@ -221,6 +221,9 @@ export class Conversation {
   private greeted = false
   /** An opened item waiting for the page to answer its greeting (`sendOpened`). */
   private openedLater: { item: string; at: number } | null = null
+  /* What the host's rows cover of this frame now, for a module that says `reveal: 'over'`, and what the page was last told. */
+  private covered = { top: 0, bottom: 0 }
+  private coveredTold = '0,0'
   private answered = false
   private closed = false
   private nextGoto = 1
@@ -475,6 +478,30 @@ export class Conversation {
   }
 
   /**
+   * Tell this module how much of its frame the host's own rows cover now
+   * (protocol 2.42.0, `kehikot.covered`), for a module whose manifest says
+   * `reveal: 'over'`: its frame keeps its size when focus mode reveals the
+   * header and footer, and the rows are drawn over its top and bottom. STATE,
+   * not a press: the latest is kept, sent only when it differs from what the
+   * page was told, and sent again after a greeting while anything is covered
+   * (a page starts from nothing covered on every greeting). See
+   * `host/reveal.ts`.
+   */
+  sendCovered(covered: { top: number; bottom: number }): void {
+    if (this.closed) return
+    this.covered = { top: covered.top, bottom: covered.bottom }
+    if (!this.greeted || !this.answered) return
+    this.tellCovered()
+  }
+
+  private tellCovered(): void {
+    const key = `${this.covered.top},${this.covered.bottom}`
+    if (key === this.coveredTold) return
+    this.coveredTold = key
+    this.post({ type: MESSAGE.COVERED, protocol: PROTOCOL, ...this.covered })
+  }
+
+  /**
    * Tell this module to read its material again.
    *
    * `sendClear`'s twin in shape and its opposite in consequence: that one is
@@ -626,6 +653,9 @@ export class Conversation {
       const later = this.openedLater
       this.openedLater = null
       if (later && Date.now() - later.at <= OPENED_HOLD_MS) this.post({ type: MESSAGE.OPENED, protocol: PROTOCOL, item: later.item })
+      /* A greeted page starts from nothing covered; tell it if the rows are out now. */
+      this.coveredTold = '0,0'
+      this.tellCovered()
       /* The id in `ready` is the module's own claim about its name. It is not
          how the host identifies it — that is the frame — so a mismatch is a
          fault to report and not an impersonation to defend against. Treating

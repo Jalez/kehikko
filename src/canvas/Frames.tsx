@@ -5,7 +5,7 @@ import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
-import { revealHandlers, type Reveals } from '@/host/reveal.ts'
+import { revealHandlers, type Covers, type Reveals } from '@/host/reveal.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
 
@@ -112,6 +112,13 @@ export interface Framing {
    * epics" for one at Epic or Part. See `scopeToTell` in `host/scope.ts`.
    */
   scope: ModuleScope
+  /**
+   * For a module that says `reveal: 'over'` (protocol 2.42.0), which of its
+   * container's rows reveal OVER its page in focus mode; `null` for one that is
+   * pushed. The page is told what they cover (`kehikot.covered`) and is never
+   * resized for them. See `host/reveal.ts`.
+   */
+  covers: Covers | null
 }
 
 export function Frames({
@@ -219,7 +226,7 @@ export function Frames({
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false} style={layer}>
-      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters, scope }) => {
+      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters, scope, covers }) => {
         const visible = shown && !!rect
         return (
         <div
@@ -259,6 +266,8 @@ export function Frames({
             filters={filters}
             scope={scope}
             away={away}
+            reveals={reveals}
+            covers={covers}
           />
         </div>
         )

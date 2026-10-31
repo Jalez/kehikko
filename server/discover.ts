@@ -587,6 +587,7 @@ export async function look(
       ...(manifest.events?.length ? { events: manifest.events.map((one) => ({ ...one })) } : {}),
       ...(manifest.opens ? { opens: [...manifest.opens] } : {}),
       ...(manifest.holds ? { holds: [...manifest.holds] } : {}),
+      ...(manifest.reveal ? { reveal: manifest.reveal } : {}),
       ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
       ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),
       declares: manifest.declares,

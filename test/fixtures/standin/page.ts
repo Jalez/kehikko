@@ -3,9 +3,36 @@
  * which epic it was told, count presses of the button, and keep one header
  * toggle whose state the driver reads off `body[data-flag]`.
  */
-import { applyTheme, connect } from 'kehikot-module-protocol/client'
+import { applyTheme, connect, keepInView } from 'kehikot-module-protocol/client'
 
-const { id, origins, jump, activity, footer } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null; activity: unknown[] | null; footer: unknown[] | null } }).__standin
+const { id, origins, jump, activity, footer, over } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null; activity: unknown[] | null; footer: unknown[] | null; over?: boolean } }).__standin
+
+/* A terminal-like page (`reveal: 'over'`): what a pty would be told is every size this page sees, so
+   it counts them — a `ResizeObserver` on its screen and the window's `resize` — for a driver to read
+   off `window.__standinResizes`. The first observation is the page's own first layout, not a resize. */
+const probe = window as unknown as { __standinResizes: number; __standinCovered: { top: number; bottom: number }[] }
+probe.__standinResizes = 0
+probe.__standinCovered = []
+if (over) {
+  const screen = document.getElementById('screen')!
+  let first = true
+  new ResizeObserver(() => {
+    if (first) first = false
+    else probe.__standinResizes += 1
+  }).observe(screen)
+  window.addEventListener('resize', () => void (probe.__standinResizes += 1))
+}
+/* What the host's rows cover: the last line moves out from under them, with a transform, never a resize. */
+const keepLast = (covered: { top: number; bottom: number }) => {
+  probe.__standinCovered.push(covered)
+  const lines = document.getElementById('lines')
+  const last = document.getElementById('last')
+  if (!lines || !last) return
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+  lines.style.transition = reduce ? 'none' : 'transform 140ms ease'
+  const shift = keepInView(covered, window.innerHeight, last.getBoundingClientRect().bottom - (new DOMMatrix(getComputedStyle(lines).transform).m42 || 0))
+  lines.style.transform = shift ? `translateY(${shift}px)` : ''
+}
 let flag = false
 let presses = 0
 
@@ -39,6 +66,7 @@ const connection = connect(
       if (footer && facts?.footer === true) connection.footer(footer as Parameters<typeof connection.footer>[0])
     },
     onContext: (context) => told(context),
+    onCovered: (covered) => keepLast(covered),
     onPress: ({ item, place }) => {
       if (place === 'footer') {
         document.body.dataset.footerPressed = item

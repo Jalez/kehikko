@@ -10,7 +10,7 @@ import type { Choice } from '@/host/filters.ts'
 import { RESTART_ITEM, withRestart, type RestartState } from '@/host/restartModule.ts'
 import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
-import type { FilterGroup, FooterItem, HeaderItem } from 'kehikot-module-protocol'
+import { revealModeOf, type FilterGroup, type FooterItem, type HeaderItem } from 'kehikot-module-protocol'
 import { NO_FOOTER, drawsFooter } from '@/host/footer.ts'
 import { focusHandlers, revealHandlers, useRevealed, type Reveals } from '@/host/reveal.ts'
 import { FooterBar } from './FooterBar.tsx'
@@ -402,6 +402,10 @@ export function Container({
       /* Which module this container is showing, for anything that has to find
          one container on the canvas by what is in it. */
       data-module={presence.id}
+      /* A module that says `reveal: 'over'` (protocol 2.42.0): in focus mode
+         its rows reveal OVER its page and never resize it (`index.css`,
+         `host/reveal.ts`). */
+      data-reveal={revealModeOf(presence.module) === 'over' ? 'over' : undefined}
       /* In focus mode, the pointer over any part of this container that the
          host document can see — its header, its footer, a cover or notice —
          holds the reveal; the module's page holds it from the frames layer.
