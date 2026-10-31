@@ -582,6 +582,14 @@
   `/host/headers` and judges again (`orderedRef`). `read_canvas` lists footer
   items "in the footer".
 
+- A run's `copy` / `open` (protocol 2.40.0) is carried out BY THE HOST in the
+  person's click (`src/host/carry.ts`), started before anything is awaited, then
+  the press is sent with `carried`. A relayed press has no user activation, so a
+  module cannot do these itself from `onPress`. `open` goes only through
+  `openExternal` (https only); `copy` is written as text/plain and text/html and
+  never drawn. The greeting says `carries: ['copy', 'open']`. Never carry one out
+  for an agent's press (the schema refuses `agents` on such a run).
+
 ## Focus mode: header and footer reveal on hover, and push
 
 - The bar's focus control hides every container's header and footer. They reveal

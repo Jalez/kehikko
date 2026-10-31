@@ -88,6 +88,7 @@ import { whenLeft } from '@/host/surface.ts'
 import { focusAfter, focusIsInModule, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
+import { carry } from '@/host/carry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
 
@@ -491,7 +492,10 @@ export function HeaderMenus({
           })
         })
       }
-      void onPress({ item: item.id, ...(value === undefined ? {} : { value }) })
+      /* Protocol 2.40.0: a copy or an open the run hands the host, started HERE in the person's
+         click, before anything is awaited; the press follows, saying what was carried. */
+      void carry(item)
+        .then((carried) => onPress({ item: item.id, ...(value === undefined ? {} : { value }), ...(carried ? { carried } : {}) }))
         .catch((): Pressed => ({ ok: false, why: `${name} could not be pressed.` }))
         .then((came) => {
           /* Refused: back to the page at once, with the reason on the trigger. */

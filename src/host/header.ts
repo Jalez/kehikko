@@ -258,6 +258,8 @@ export interface Pressing {
   value?: PressValue
   /** Protocol 2.38.0: `footer` for an item of the module's footer; absent for one of its header. */
   place?: 'footer'
+  /** Protocol 2.40.0: what the host carried out itself in the person's click before sending this (`host/carry.ts`). */
+  carried?: 'copy' | 'open'
 }
 
 /** What became of a press: taken, or not — and then `why` is a sentence a person can read. */

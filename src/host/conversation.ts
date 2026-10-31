@@ -14,6 +14,7 @@ import {
   type ModuleContext,
   type PressValue,
 } from 'kehikot-module-protocol'
+import { CARRIES } from './carry.ts'
 
 /**
  * Every message type this host's build of the protocol names, in either
@@ -314,6 +315,8 @@ export class Conversation {
          of the container (`FooterBar`). A module draws its own only when
          this is not said. */
       footer: true,
+      /* Protocol 2.40.0: the acts this host carries out for a run in the person's click (`host/carry.ts`). */
+      carries: [...CARRIES],
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -553,7 +556,7 @@ export class Conversation {
    * and says how it is going by declaring its header again; nothing here
    * waits for that.
    */
-  press(item: string, value?: PressValue, place?: 'footer'): Promise<{ ok: boolean; why: string }> {
+  press(item: string, value?: PressValue, place?: 'footer', carried?: 'copy' | 'open'): Promise<{ ok: boolean; why: string }> {
     if (this.closed) return Promise.resolve({ ok: false, why: `${this.name} was taken off the canvas, so nothing was pressed.` })
     if (!this.greeted || !this.answered) {
       return Promise.resolve({ ok: false, why: `${this.name} has not answered the host yet, so nothing was pressed.` })
@@ -565,7 +568,7 @@ export class Conversation {
         resolve({ ok: false, why: `${this.name} did not answer the press, so it was not taken.` })
       }, this.pressedTimeoutMs)
       this.presses.set(id, { resolve, timer })
-      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }), ...(place ? { place } : {}) })
+      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }), ...(place ? { place } : {}), ...(carried ? { carried } : {}) })
     })
   }
 
