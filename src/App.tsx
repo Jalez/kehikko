@@ -138,6 +138,8 @@ import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
+import { agentFooterRefusal, footerDeclared, footerPressing, footerWithdrawn, NO_FOOTER, NO_FOOTERS, type Footers as HeldFooters } from './host/footer.ts'
+import { Reveals } from './host/reveal.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
@@ -506,6 +508,12 @@ export function App() {
      the press, which a closure made at the last render does not hold. */
   const headersRef = useRef<Headers>(headers)
   headersRef.current = headers
+  /* What each module declared for its container's footer (protocol 2.38.0), held as the headers are. */
+  const [footers, setFooters] = useState<HeldFooters>(NO_FOOTERS)
+  const footersRef = useRef<HeldFooters>(footers)
+  footersRef.current = footers
+  /* In focus mode, which containers have their header and footer revealed (`host/reveal.ts`). One for the page. */
+  const reveals = useMemo(() => new Reveals(), [])
   /**
    * What an agent last pressed in each module's header, by module id, so the
    * container says it happened where a person would look for it. Said for a
@@ -3295,6 +3303,12 @@ export function App() {
       pressing(headersRef.current[id] ?? NO_HEADER, press, byIdRef.current.get(id)?.name ?? id, (one) => presses.item(id, one)),
     [presses],
   )
+  /* A press on a footer item: the same road, judged against the footer and sent with `place: 'footer'`. */
+  const onFooterPressItem = useCallback(
+    (id: string, press: Pressing): Promise<Pressed> =>
+      footerPressing(footersRef.current[id] ?? NO_FOOTER, press, byIdRef.current.get(id)?.name ?? id, (one) => presses.item(id, one)),
+    [presses],
+  )
 
   /**
    * The modules on this kehikko that offer their own storage view (a header
@@ -3341,21 +3355,26 @@ export function App() {
     void (async () => {
       const canvas = openRef.current
       const press: Pressing = { item: order.item, ...(order.value === undefined ? {} : { value: order.value }) }
-      const items = headersRef.current[order.module]
+      /* Protocol 2.38.0: an order may be for an item of the module's footer, judged against what the frame declared for it. */
+      const footer = order.place === 'footer'
+      const items = footer ? footersRef.current[order.module] : headersRef.current[order.module]
       const refused =
         !canvas || canvas.id !== order.kehikko
           ? `The page that was asked does not have kehikko ${order.kehikko} open any more, so nothing was pressed.`
           : !canvas.placements.some((placement) => placement.i === order.module)
             ? `${order.module} is not on kehikko ${order.kehikko} any more, so nothing was pressed.`
             : !items
-              ? `${order.module} has declared no header on the page, so there is nothing to press.`
-              : agentRefusal(items, press, order.module)
+              ? `${order.module} has declared no ${footer ? 'footer' : 'header'} on the page, so there is nothing to press.`
+              : footer
+                ? agentFooterRefusal(footersRef.current[order.module] ?? NO_FOOTER, press, order.module)
+                : agentRefusal(headersRef.current[order.module] ?? NO_HEADER, press, order.module)
       /* Noted before the press reaches the module: what it asks next is an agent's doing, and may
          not switch project (`personsPressRefusal`). */
       if (!refused) agentPressedAt.current.set(order.module, Date.now())
-      const came: Pressed = refused ? { ok: false, why: refused } : await onPressItem(order.module, press)
+      const came: Pressed = refused ? { ok: false, why: refused } : await (footer ? onFooterPressItem : onPressItem)(order.module, press)
       if (came.ok) {
-        const label = items?.find((item) => item.id === order.item)?.label ?? order.item
+        const found = items?.find((item) => item.id === order.item)
+        const label = found && 'label' in found ? found.label : order.item
         setPressNotes((was) => ({
           ...was,
           [order.module]: { n: (was[order.module]?.n ?? 0) + 1, item: order.item, text: `an agent pressed ${label}` },
@@ -4129,12 +4148,23 @@ export function App() {
     }
     return JSON.stringify(on)
   }, [open, headers])
+  /* And their footers, posted with them (protocol 2.38.0). */
+  const footedHere = useMemo(() => {
+    if (!open) return '[]'
+    const on: [string, HeldFooters[string]][] = []
+    for (const placement of open.placements) {
+      const items = footers[placement.i]
+      if (items && items.length) on.push([placement.i, items])
+    }
+    return JSON.stringify(on)
+  }, [open, footers])
   /* What this page last posted: a posting that says what the server already holds is not made
      (`headerPosting`), unless the stream reopened and the server may have forgotten it. */
   const postedRef = useRef(NOTHING_POSTED)
   const postDeclared = useCallback((again = false) => {
     if (openId === null || declaredHere === null) return
-    const said = headerPosting(openId, declaredHere, codeAt, addressAt)
+    const base = headerPosting(openId, declaredHere, codeAt, addressAt)
+    const said = footedHere === '[]' ? base : JSON.stringify([base, footedHere])
     if (!again && said === postedRef.current) return
     postedRef.current = said
     void postHeaders(
@@ -4142,8 +4172,9 @@ export function App() {
       Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
       codeAt ? (JSON.parse(codeAt) as SharedLocation) : null,
       addressAt ? (JSON.parse(addressAt) as SharedAddress) : null,
+      Object.fromEntries(JSON.parse(footedHere) as [string, HeldFooters[string]][]),
     )
-  }, [openId, declaredHere, codeAt, addressAt])
+  }, [openId, declaredHere, footedHere, codeAt, addressAt])
   /* A moment after the last change: the modules of a kehikko greet one after another, and each
      greeting is a change, but one posting of the whole map says all of them. */
   useEffect(() => {
@@ -4380,12 +4411,15 @@ export function App() {
         /* Its menus too: the page that declared them is gone, and the one in
            its place declares its own after it is greeted. */
         setHeaders((was) => withdrawn(was, id))
+        setFooters((was) => footerWithdrawn(was, id))
         return
       }
       covers[event](id)
       if (event === 'unmounted') {
         setSaid((was) => forgotten(was, id))
         setHeaders((was) => withdrawn(was, id))
+        setFooters((was) => footerWithdrawn(was, id))
+        reveals.forget(id)
       }
     },
     [covers],
@@ -4410,8 +4444,9 @@ export function App() {
         }))
       },
       silent: (sentence) => {
-        /* Its menus go with its offers: see `host/header.ts`. */
+        /* Its menus go with its offers: see `host/header.ts`. And its footer. */
         setHeaders((was) => withdrawn(was, id))
+        setFooters((was) => footerWithdrawn(was, id))
         setLive((was) => ({
           ...was,
           /* All three offers go with the silence. A module that stopped
@@ -4445,6 +4480,7 @@ export function App() {
       refreshable: (state) => onRefreshable(id, state),
       /* Held whole, and drawn as the container's menus — see `host/header.ts`. */
       header: (items) => setHeaders((was) => declared(was, id, items)),
+      footer: (items) => setFooters((was) => footerDeclared(was, id, items)),
     }),
     [covers, onHeight, onOffer, onClearable, onRefreshable],
   )
@@ -4816,6 +4852,11 @@ export function App() {
                   /* A press on whichever frame is standing, judged against
                      what is declared now — see `onPressItem`. */
                   onPress={(press) => onPressItem(presence.id, press)}
+                  /* Its declared footer (protocol 2.38.0), pressed the same way with `place: 'footer'`. */
+                  footer={footers[presence.id] ?? NO_FOOTER}
+                  onFooterPress={(press) => onFooterPressItem(presence.id, press)}
+                  /* Revealing header and footer on hover only means something in focus mode. */
+                  reveals={focus === 'on' ? reveals : null}
                   /* And the keyboard to that frame after a press that closed
                      its menu — see `focusAfter` in `host/header.ts`. */
                   onKeyboard={() => presses.focus(presence.id)}
@@ -4922,6 +4963,7 @@ export function App() {
           watcherFor={watcherFor}
           onDocument={onDocument}
           moving={moving}
+          reveals={focus === 'on' ? reveals : null}
           still={calm.pagesStill}
           layer={layerStyle(calm.pages)}
         />

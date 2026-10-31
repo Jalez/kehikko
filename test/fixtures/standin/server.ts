@@ -30,6 +30,9 @@ const shows = process.env.STANDIN_SHOWS === '1'
 /* `STANDIN_ACTIVITY=<items as JSON>`: a "report" button says these (`activity.set`), for the Inbox toast's drive. */
 const activity = process.env.STANDIN_ACTIVITY ? (JSON.parse(process.env.STANDIN_ACTIVITY) as unknown[]) : null
 /* `STANDIN_EVENTS=<events as JSON>`: the Inbox events this one declares (protocol 2.31.0), for the events drive. */
+/* `STANDIN_FOOTER=<footer items as JSON>`: the footer this one declares (protocol 2.38.0) when the host
+   says it draws one, for the footer and focus-mode drives. */
+const footer = process.env.STANDIN_FOOTER ? (JSON.parse(process.env.STANDIN_FOOTER) as unknown[]) : null
 const events = process.env.STANDIN_EVENTS ? (JSON.parse(process.env.STANDIN_EVENTS) as unknown[]) : null
 
 const manifest = manifestSchema.parse({
@@ -78,7 +81,7 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</t
 <span id="pressed">0</span> <span id="greeted">not greeted</span>${jump ? ' <button id="jump">jump</button> <span id="jumped"></span>' : ''}${activity ? ' <button id="report">report</button>' : ''}</div>
 <div id="told" style="font:600 22px system-ui;padding:2px 6px">…</div>
 <div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
-<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)}, activity: ${json(activity)} }</script>
+<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)}, activity: ${json(activity)}, footer: ${json(footer)} }</script>
 <script type="module">${script}</script></body></html>`
 
 Bun.serve({
