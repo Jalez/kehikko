@@ -76,7 +76,7 @@ async function drive(kind, browserType) {
       page.on('pageerror', (error) => failures.push(`${run}: the page threw: ${error.message}`))
       try {
         await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
-        await page.waitForSelector(`[data-module="${MODULE}"] .container-footer-reveal`, { timeout: 30000 })
+        await page.waitForSelector(`[data-module="${MODULE}"] .container-footer-reveal`, { state: 'attached', timeout: 30000 })
         for (let tries = 0; tries < 6 && (await page.locator('[role="dialog"]').count()); tries += 1) {
           const myself = page.locator('[role="dialog"] button', { hasText: 'do it myself' })
           if (await myself.count()) await myself.first().click()
