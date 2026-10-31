@@ -12,6 +12,7 @@ import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { enterFullscreen, leaveFullscreen } from '@/host/surface.ts'
 import { framedAddress } from '@/host/theme.ts'
+import { coveredBy, useRevealed, type Covers, type Reveals } from '@/host/reveal.ts'
 
 /**
  * A module's own page, embedded, and the conversation that goes with it.
@@ -57,6 +58,8 @@ export function ModuleFrame({
   filters,
   scope,
   away = false,
+  reveals = null,
+  covers = null,
 }: {
   module: FramedModule
   context: ModuleContext
@@ -114,9 +117,18 @@ export function ModuleFrame({
    * the context as it is then.
    */
   away?: boolean
+  /** Focus mode's reveal, or `null` outside focus mode. Read only for a module with `covers`. */
+  reveals?: Reveals | null
+  /**
+   * Which of its container's rows reveal over this page, for a module that says
+   * `reveal: 'over'`; `null` for one that is pushed. See `host/reveal.ts`.
+   */
+  covers?: Covers | null
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const conversationRef = useRef<Conversation | null>(null)
+  /* What focus mode's rows cover of this page now; see the effect that tells it, below. */
+  const coveredRef = useRef({ top: 0, bottom: 0 })
 
   /* Held in refs and read inside the effects rather than listed as
      dependencies. The conversation must survive a re-render caused by the
@@ -255,6 +267,8 @@ export function ModuleFrame({
       { name: framed.name },
     )
     conversationRef.current = conversation
+    /* A new conversation for this frame starts from what the rows cover now. */
+    conversation.sendCovered(coveredRef.current)
 
     /* One listener for this frame. The window receives messages from every
        frame on the page and from anything else with a handle on it; the
@@ -433,6 +447,22 @@ export function ModuleFrame({
     sentContext.current = relit
     conversationRef.current?.sendContext(relit)
   }, [told, pinned, away])
+
+  /*
+   * What focus mode's rows cover of this page, for a module that says
+   * `reveal: 'over'` (protocol 2.42.0). Its frame is never resized by a
+   * reveal — the rows are drawn over it — so this is how it learns to move its
+   * last line out from under them. Subscribed per container, so a hover
+   * re-renders this frame alone; the conversation keeps the latest and tells
+   * the page only what changed, and again after a greeting. See `host/reveal.ts`.
+   */
+  const revealed = useRevealed(covers ? reveals : null, framed.id)
+  const coveredTop = coveredBy(covers, revealed).top
+  const coveredBottom = coveredBy(covers, revealed).bottom
+  coveredRef.current = { top: coveredTop, bottom: coveredBottom }
+  useEffect(() => {
+    conversationRef.current?.sendCovered({ top: coveredTop, bottom: coveredBottom })
+  }, [coveredTop, coveredBottom])
 
   /*
    * The frame's address: the entry, with the theme the host is drawing in NOW

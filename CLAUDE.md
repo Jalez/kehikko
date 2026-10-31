@@ -602,7 +602,19 @@
   with it. Never `position: absolute` or an overlay for them (`index.css`; the
   rules are held by `test/reveal.test.ts`). `prefers-reduced-motion`: no
   transition. A folded or selected container keeps its header shown.
-- `dev/focus-reveal.drive.mjs` measures it in both engines on bee.
+- The ONE exception: a module whose manifest says `reveal: 'over'` (protocol
+  2.42.0 — the terminal-like modules). Its container carries
+  `data-reveal="over"` and its hiding rows are `position: absolute` OVER the
+  page (scoped to `[data-reveal='over']` only), so its frame is never resized by
+  a hover — a resize there is a refit, a SIGWINCH and a full redraw, twice per
+  hover. The page is told what the rows cover in `kehikot.covered`
+  (`coveredBy`/`REVEAL_ROW_PX` in `host/reveal.ts`, `covers` on the framing,
+  `Conversation.sendCovered`, kept and re-sent after a greeting) and moves its
+  last line out from under them itself (`keepInView`). Never add host-side
+  delays or padding for it, and never make a pushed module overlay.
+- `dev/focus-reveal.drive.mjs` measures both in both engines on bee: the push
+  for Alpha, and for Beta (`STANDIN_REVEAL=over`) no resize, a constant box and
+  the last line above the footer.
 
 ## A module's icon, and Kehikot's own mark
 

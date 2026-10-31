@@ -153,3 +153,43 @@ export function focusHandlers(reveals: Reveals | null, id: string) {
 }
 
 const noSubscribe = () => () => {}
+
+/*
+ * ## Over, for a module that cannot afford a resize
+ *
+ * Pushing shrinks the module's frame, and for a terminal that is the one thing
+ * a hover must not do: the emulator fits to fewer rows, the pty is resized
+ * (SIGWINCH) and the program redraws for the smaller screen — and again the
+ * other way when the pointer leaves. Two full redraws and two scroll jumps per
+ * hover, in the place the person is reading. Waiting for the size to settle
+ * does not help: the pointer rests over a terminal for as long as somebody
+ * works in it, so the redraw only comes later.
+ *
+ * So a module may say `reveal: 'over'` in its manifest (protocol 2.42.0). Its
+ * container's rows are then drawn OVER the frame (`[data-reveal='over']` in
+ * `index.css`): the body keeps its height, the page keeps its rectangle, and
+ * nothing in the module is resized. What the rows cover is told to the page in
+ * `kehikot.covered` (`coveredBy`, `Conversation.sendCovered`), and the page
+ * moves its last line out from under them with a transform. Every other
+ * module keeps the push.
+ */
+
+/** The height of a revealed header or footer row: `h-8`, and the `2rem` the rows grow to in `index.css`. */
+export const REVEAL_ROW_PX = 32
+
+/**
+ * Which of a container's rows hide in focus mode and reveal over its page, for a
+ * module that says `reveal: 'over'`; `null` for one that is pushed. A selected
+ * container keeps its header in the column (it never hides), so it covers
+ * nothing; a container with no footer has none to cover with.
+ */
+export interface Covers {
+  header: boolean
+  footer: boolean
+}
+
+/** How much of the page the rows cover now: what `kehikot.covered` says. Nothing for a pushed module or a hidden reveal. */
+export function coveredBy(covers: Covers | null, revealed: boolean): { top: number; bottom: number } {
+  if (!covers || !revealed) return { top: 0, bottom: 0 }
+  return { top: covers.header ? REVEAL_ROW_PX : 0, bottom: covers.footer ? REVEAL_ROW_PX : 0 }
+}

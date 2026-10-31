@@ -95,7 +95,7 @@ import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
 import { ARRIVAL_WAIT_MS, NAVIGATE_SAYS, planJump, showReceivers, shownBy, type HeldShow } from '@/host/navigate.ts'
-import { navigatesOf, type ShowingManifest } from 'kehikot-module-protocol'
+import { navigatesOf, revealModeOf, type ShowingManifest } from 'kehikot-module-protocol'
 import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
@@ -4348,6 +4348,15 @@ export function App() {
             placements.find((p) => p.i === id)?.pinned ?? false,
           ),
           pinned: placements.find((p) => p.i === id)?.pinned ?? false,
+          /* A module that says `reveal: 'over'` (protocol 2.42.0) is never
+             resized by focus mode's reveal: its rows are drawn over its page,
+             and the page is told how much they cover. Which rows: the header
+             unless the container is selected (then it never hides), the footer
+             when the module declared one. See `host/reveal.ts`. */
+          covers:
+            revealModeOf(module) === 'over'
+              ? { header: !(placements.find((p) => p.i === id)?.selected ?? false), footer: (footers[id]?.length ?? 0) > 0 }
+              : null,
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
@@ -4366,7 +4375,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers])
 
   /*
    * A switch of kehikko or project, without the fidget: the kehikko being left

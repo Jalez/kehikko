@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, openedSchema, pressSchema } from 'kehikot-module-protocol'
+import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, coveredSchema, openedSchema, pressSchema } from 'kehikot-module-protocol'
 import { PRESS_BACKSTOP_MS } from 'kehikot-module-protocol/client'
 
 import { Conversation, PRESSED_TIMEOUT_MS, type Answer } from '@/host/conversation.ts'
@@ -881,5 +881,55 @@ describe('an Inbox item the person opened (kehikot.opened, protocol 2.35.0)', ()
     conversation.close()
     conversation.sendOpened('x')
     expect(opened(sent)).toEqual([])
+  })
+})
+
+describe('what the rows cover of an over page (kehikot.covered, protocol 2.42.0)', () => {
+  function frame() {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'kehikot.terminal', null, async () => nothing, quiet(), { name: 'Terminal' })
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    return { conversation, sent, say }
+  }
+  const covered = (sent: Sent[]) => sent.map((one) => one.message).filter((one) => one.type === MESSAGE.COVERED)
+
+  test('told when it changes, never twice the same, and parsed by the protocol', () => {
+    const { conversation, sent, say } = frame()
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    conversation.sendCovered({ top: 32, bottom: 32 })
+    conversation.sendCovered({ top: 32, bottom: 32 })
+    conversation.sendCovered({ top: 0, bottom: 0 })
+    expect(covered(sent)).toEqual([
+      { type: MESSAGE.COVERED, protocol: PROTOCOL, top: 32, bottom: 32 },
+      { type: MESSAGE.COVERED, protocol: PROTOCOL, top: 0, bottom: 0 },
+    ])
+    expect(coveredSchema.safeParse(covered(sent)[0]).success).toBe(true)
+    conversation.close()
+  })
+
+  test('nothing covered is never said to a page that was told nothing', () => {
+    const { conversation, sent, say } = frame()
+    conversation.sendCovered({ top: 0, bottom: 0 })
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    conversation.sendCovered({ top: 0, bottom: 0 })
+    expect(covered(sent)).toEqual([])
+    conversation.close()
+  })
+
+  test('a page still loading, or reloaded while revealed, is told once it answers', () => {
+    const { conversation, sent, say } = frame()
+    conversation.sendCovered({ top: 32, bottom: 0 })
+    conversation.greet(context)
+    expect(covered(sent)).toEqual([])
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    expect(covered(sent)).toEqual([{ type: MESSAGE.COVERED, protocol: PROTOCOL, top: 32, bottom: 0 }])
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    expect(covered(sent)).toHaveLength(2)
+    conversation.close()
+    conversation.sendCovered({ top: 0, bottom: 0 })
+    expect(covered(sent)).toHaveLength(2)
   })
 })

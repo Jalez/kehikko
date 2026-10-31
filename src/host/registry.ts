@@ -60,6 +60,12 @@ export interface FramedModule {
   opens?: string[]
   /** What a restart of the module ends (protocol 2.33.0): `live-sessions`. Absent: it says nothing. */
   holds?: string[]
+  /**
+   * How focus mode's revealed rows meet the page (protocol 2.42.0): `over`
+   * draws them over it and never resizes it (a terminal). Absent: pushed.
+   * See `host/reveal.ts`.
+   */
+  reveal?: 'push' | 'over'
   /** `skills` (protocol 2.5.0): the agent skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string

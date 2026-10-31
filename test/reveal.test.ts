@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { REVEAL_ENTER_MS, REVEAL_LEAVE_MS, Reveals, focusHandlers, revealHandlers } from '../src/host/reveal.ts'
+import { REVEAL_ENTER_MS, REVEAL_LEAVE_MS, REVEAL_ROW_PX, Reveals, coveredBy, focusHandlers, revealHandlers } from '../src/host/reveal.ts'
 
 /*
  * Focus mode's reveal (`host/reveal.ts`): the header and footer show while the
@@ -160,5 +160,34 @@ describe('the stylesheet pushes, never covers', () => {
 
   test('folded keeps its header; selected keeps its header', () => {
     expect(rules).toContain(':not([data-collapsed]):not([data-selected])')
+  })
+})
+
+describe('over: a module that says reveal: over is drawn over, never resized (protocol 2.42.0)', () => {
+  const css = readFileSync(join(import.meta.dir, '..', 'src', 'index.css'), 'utf8')
+  const start = css.indexOf('/*\n * Over: the one exception to the push')
+  const over = css.slice(start, css.indexOf('}', css.indexOf("[data-reveal='over'] > .container-footer-reveal")) + 1)
+
+  test('only a container marked over takes its hiding rows out of the column, over the page', () => {
+    expect(start).toBeGreaterThan(0)
+    expect(over).toMatch(/\.focus-mode \.react-grid-item \[data-reveal='over'\] > \.container-reveal:not\(\[data-collapsed\]\):not\(\[data-selected\]\) \{[^}]*position:\s*absolute;[^}]*top:\s*0;/)
+    expect(over).toMatch(/\.focus-mode \.react-grid-item \[data-reveal='over'\] > \.container-footer-reveal \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/)
+    /* Every absolute rule in the sheet's reveal rules is scoped to over. */
+    for (const rule of css.match(/[^{}]+\{[^}]*position:\s*absolute[^}]*\}/g) ?? []) {
+      if (rule.includes('container-reveal') || rule.includes('container-footer-reveal')) expect(rule).toContain("[data-reveal='over']")
+    }
+  })
+
+  test('the row the rows grow to is the row the page is told about', () => {
+    expect(REVEAL_ROW_PX).toBe(32)
+    expect(css).toMatch(/\{\s*height:\s*2rem;/)
+  })
+
+  test('what the page is told: nothing while hidden or pushed; each row that hides covers its own edge', () => {
+    expect(coveredBy(null, true)).toEqual({ top: 0, bottom: 0 })
+    expect(coveredBy({ header: true, footer: true }, false)).toEqual({ top: 0, bottom: 0 })
+    expect(coveredBy({ header: true, footer: true }, true)).toEqual({ top: 32, bottom: 32 })
+    expect(coveredBy({ header: false, footer: true }, true)).toEqual({ top: 0, bottom: 32 })
+    expect(coveredBy({ header: true, footer: false }, true)).toEqual({ top: 32, bottom: 0 })
   })
 })

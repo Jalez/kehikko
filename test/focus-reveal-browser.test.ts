@@ -8,7 +8,9 @@ import { browserTest } from './browser-gate.ts'
  * is over the middle of a module's page (no edge strip), push the page — its box
  * shrinks by the two rows, nothing of either overlaps it — hold without flicker,
  * hide when the pointer leaves, and have no transition under reduced motion. In
- * WebKit and Chromium, light and dark. `dev/focus-reveal.drive.mjs` drives it on a
+ * WebKit and Chromium, light and dark. And a stand-in that says `reveal: 'over'`
+ * (protocol 2.42.0): the rows come over it, its box and screen keep their size,
+ * it sees no resize, and its last line stays above the footer. `dev/focus-reveal.drive.mjs` drives it on a
  * scratch host whose stand-in declares a footer. Runs on bee only
  * (`dev/bee-browser-tests.sh`; `test/browser-gate.ts`).
  */
@@ -25,4 +27,8 @@ browserTest('in focus mode the header and footer reveal on hover anywhere and pu
   if (run.exitCode !== 0) console.error(out.length > 12000 ? `${out.slice(0, 6000)}\n…\n${out.slice(-6000)}` : out)
   expect(run.exitCode).toBe(0)
   expect(out.includes('reveal on hover anywhere and push the page')).toBe(true)
+  /* And the module that says reveal: 'over': revealed over its page, never resized. */
+  console.log(out.split('\n').filter((line) => line.includes(' over: ')).join('\n'))
+  expect(out.includes('without resizing it or covering its last line')).toBe(true)
+  expect(out.match(/ over: page \d+px at rest and revealed, 0 resizes/g)?.length).toBe(8)
 }, 430_000)

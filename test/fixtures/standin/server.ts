@@ -33,6 +33,10 @@ const activity = process.env.STANDIN_ACTIVITY ? (JSON.parse(process.env.STANDIN_
 /* `STANDIN_FOOTER=<footer items as JSON>`: the footer this one declares (protocol 2.38.0) when the host
    says it draws one, for the footer and focus-mode drives. */
 const footer = process.env.STANDIN_FOOTER ? (JSON.parse(process.env.STANDIN_FOOTER) as unknown[]) : null
+/* `STANDIN_REVEAL=over`: this one says `reveal: 'over'` (protocol 2.42.0) and is a terminal-like page:
+   a screen of lines whose last line sits on the page's bottom edge, which it keeps above the host's
+   rows with `keepInView`, and which counts every resize it sees (`dev/focus-reveal.drive.mjs`). */
+const revealOver = process.env.STANDIN_REVEAL === 'over'
 const events = process.env.STANDIN_EVENTS ? (JSON.parse(process.env.STANDIN_EVENTS) as unknown[]) : null
 
 const manifest = manifestSchema.parse({
@@ -52,6 +56,7 @@ const manifest = manifestSchema.parse({
   partless: 'A stand-in for a test: it holds nothing of a part.',
   ...(shows ? { shows: ['agent-session'] } : {}),
   ...(events ? { events } : {}),
+  ...(revealOver ? { reveal: 'over' } : {}),
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: [...(trafficHost ? ['traffic:read'] : []), ...(activity ? ['activity:report'] : []), ...(jump ? ['view:navigate'] : [])],
@@ -80,8 +85,10 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</t
 <div style="padding:6px"><input id="field" placeholder="type here" autocomplete="off"> <button id="press">press</button>
 <span id="pressed">0</span> <span id="greeted">not greeted</span>${jump ? ' <button id="jump">jump</button> <span id="jumped"></span>' : ''}${activity ? ' <button id="report">report</button>' : ''}</div>
 <div id="told" style="font:600 22px system-ui;padding:2px 6px">…</div>
-<div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>
-<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)}, activity: ${json(activity)}, footer: ${json(footer)} }</script>
+${revealOver
+  ? `<div id="screen" style="position:fixed;inset:0;overflow:hidden;font:12px ui-monospace,monospace;line-height:16px"><div id="lines" style="position:absolute;left:0;right:0;bottom:0;padding:0 6px">${Array.from({ length: 80 }, (_, i) => `<div>$ line ${i}</div>`).join('')}<div id="last">$ the prompt line_</div></div></div>`
+  : `<div id="list">${Array.from({ length: 60 }, (_, i) => `<div>row ${i}</div>`).join('')}</div>`}
+<script>window.__standin = { id: ${json(id)}, origins: ${json(origins.split(' '))}, jump: ${json(jump)}, activity: ${json(activity)}, footer: ${json(footer)}, over: ${json(revealOver)} }</script>
 <script type="module">${script}</script></body></html>`
 
 Bun.serve({

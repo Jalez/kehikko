@@ -439,6 +439,39 @@
 }
 
 /*
+ * Over: the one exception to the push, for a module that says so.
+ *
+ * A module whose manifest says `reveal: 'over'` (protocol 2.42.0) cannot afford
+ * to be resized by a hover: a terminal fits to fewer rows, its pty is told, and
+ * the program redraws — and again the other way on leave. Its container
+ * (`[data-reveal='over']`) takes the hiding rows OUT of the column: the header
+ * grows down from the top edge and the footer up from the bottom edge, drawn
+ * over the page, with the same height transition and the same fade as the push.
+ * The body keeps its height, so the page's rectangle never changes, and the
+ * page is told what the rows cover (`kehikot.covered`) so it can keep its last
+ * line above them with a transform. See `host/reveal.ts`.
+ *
+ * A folded or selected container's header never hides, so it is not touched
+ * here and stays in the column. Every module that does not say `over` keeps the
+ * push above.
+ */
+.focus-mode .react-grid-item [data-reveal='over'] > .container-reveal:not([data-collapsed]):not([data-selected]) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.focus-mode .react-grid-item [data-reveal='over'] > .container-footer-reveal {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+}
+
+/*
  * A folded container's header, dense enough to fit one grid row.
  *
  * One row is twenty-four pixels and an open header is thirty-two, so the
