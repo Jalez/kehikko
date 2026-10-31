@@ -560,6 +560,42 @@
   (`tracker`, `content`) and `{ registry: true, modules }`, the `/host/modules`
   reading the host just made at the end of a start wait.
 
+## A module's footer (protocol 2.38.0)
+
+- A module declares its footer (`kehikot.footer`) and the host draws it as one
+  row at the container's bottom, in the header's look: `src/canvas/FooterBar.tsx`
+  draws, `src/host/footer.ts` holds every rule and is what to test. The module
+  owns all the state; the page holds the latest list per module, nothing else.
+  The greeting says `footer: true`; a module declares only then, and draws its
+  own footer otherwise.
+- A module that declared nothing or `[]` gets no row. A folded container has no
+  footer (its body is gone too). The row is laid out by the protocol's
+  `footerLayout` at the row's measured width: words at 300+, icons and no
+  optional items under 300, every pressable item in one "⋯" (the header's own
+  merged menu) under 220. Never a second row.
+- Footer strings are text, as the header's: never markup, never a link, no URL
+  opened; an icon is a `HEADER_ICONS` key. A level is said with a mark and a word,
+  never colour alone.
+- A press goes with `place: 'footer'` (`footerPressing`). `press_item` presses a
+  footer item by id when the header has no item by that id, held to the header's
+  three cases (`agentFooterRefusal`); the page posts footers beside headers on
+  `/host/headers` and judges again (`orderedRef`). `read_canvas` lists footer
+  items "in the footer".
+
+## Focus mode: header and footer reveal on hover, and push
+
+- The bar's focus control hides every container's header and footer. They reveal
+  while the pointer is ANYWHERE over the container (its page, from the frames
+  layer, or its own rows) and on focus within it — `src/host/reveal.ts`, debounced
+  (`REVEAL_ENTER_MS`, `REVEAL_LEAVE_MS`) so the page moving under the pointer never
+  hides what it revealed. Never an edge strip again.
+- Revealed rows PUSH: they are in the column at height 0 and grow to a row, the
+  body shrinks and the page (positioned from the body's measured rect) shrinks
+  with it. Never `position: absolute` or an overlay for them (`index.css`; the
+  rules are held by `test/reveal.test.ts`). `prefers-reduced-motion`: no
+  transition. A folded or selected container keeps its header shown.
+- `dev/focus-reveal.drive.mjs` measures it in both engines on bee.
+
 ## A module's icon, and Kehikot's own mark
 
 - A module is drawn with ONE component wherever it is listed: `ModuleIcon`

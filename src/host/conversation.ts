@@ -9,6 +9,7 @@ import {
   PROTOCOL,
   type Build,
   type FilterGroup,
+  type FooterItem,
   type HeaderItem,
   type ModuleContext,
   type PressValue,
@@ -152,6 +153,13 @@ export interface ConversationWatcher {
    * remembers nothing else. Reported like `filters`, with no reply.
    */
   header(items: HeaderItem[]): void
+  /**
+   * What this module declares for its container's footer, right now
+   * (`kehikot.footer`, protocol 2.38.0): status text, meters, and the
+   * header's kinds of item. Whole, replacing the last, like `header`; `[]`
+   * takes the footer away.
+   */
+  footer?(items: FooterItem[]): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -302,6 +310,10 @@ export class Conversation {
       /* Every container this host frames has its header drawn by it
          (`HeaderMenus`), so the module need not draw a "⋯" of its own. */
       header: true,
+      /* Protocol 2.38.0: and its declared footer, as one row at the bottom
+         of the container (`FooterBar`). A module draws its own only when
+         this is not said. */
+      footer: true,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -541,7 +553,7 @@ export class Conversation {
    * and says how it is going by declaring its header again; nothing here
    * waits for that.
    */
-  press(item: string, value?: PressValue): Promise<{ ok: boolean; why: string }> {
+  press(item: string, value?: PressValue, place?: 'footer'): Promise<{ ok: boolean; why: string }> {
     if (this.closed) return Promise.resolve({ ok: false, why: `${this.name} was taken off the canvas, so nothing was pressed.` })
     if (!this.greeted || !this.answered) {
       return Promise.resolve({ ok: false, why: `${this.name} has not answered the host yet, so nothing was pressed.` })
@@ -553,7 +565,7 @@ export class Conversation {
         resolve({ ok: false, why: `${this.name} did not answer the press, so it was not taken.` })
       }, this.pressedTimeoutMs)
       this.presses.set(id, { resolve, timer })
-      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }) })
+      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }), ...(place ? { place } : {}) })
     })
   }
 
@@ -694,6 +706,13 @@ export class Conversation {
          bounded every string, refused duplicate ids and a switch whose value
          is not one of its options; what any item DOES is the module's. */
       this.watcher.header(message.items)
+      return true
+    }
+
+    case MESSAGE.FOOTER: {
+      /* As the header: handed on as parsed. Text and meters only say
+         something; what a pressable item does is the module's. */
+      this.watcher.footer?.(message.items)
       return true
     }
 

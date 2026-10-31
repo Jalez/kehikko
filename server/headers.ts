@@ -1,4 +1,4 @@
-import { headerItemsSchema, sharedAddressSchema, sharedLocationSchema, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
+import { footerItemsSchema, headerItemsSchema, sharedAddressSchema, sharedLocationSchema, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import type { Pressed, Pressing } from '../src/host/header.ts'
 import { toldIn, type Told } from '../src/host/jump.ts'
@@ -94,6 +94,8 @@ interface Posting {
   /** When it was posted, by the page's own clock: an older one that arrives late does not replace a newer. */
   at: number
   headers: Map<string, HeaderItem[]>
+  /** Protocol 2.38.0: what each container declared for its footer. */
+  footers: Map<string, FooterItem[]>
   /** Where in a change's code somebody is pointing on this kehikko, or null. */
   location: SharedLocation | null
   /** The last web address handed to this kehikko (protocol 2.16.0), or null. */
@@ -110,6 +112,7 @@ interface Waiting {
 export interface Declared {
   page: string
   headers: ReadonlyMap<string, readonly HeaderItem[]>
+  footers: ReadonlyMap<string, readonly FooterItem[]>
   location: SharedLocation | null
   address: SharedAddress | null
 }
@@ -124,7 +127,7 @@ export class Headers {
    * The whole map, replacing what that page said before. Answers `null`, or
    * the sentence saying what was wrong with it.
    */
-  posted(page: string, kehikko: number, at: number, raw: unknown, rawLocation: unknown = null, rawAddress: unknown = null): string | null {
+  posted(page: string, kehikko: number, at: number, raw: unknown, rawLocation: unknown = null, rawAddress: unknown = null, rawFooters: unknown = null): string | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'headers is an object of module id to its items.'
     const entries = Object.entries(raw as Record<string, unknown>)
     if (entries.length > MODULES_MAX) return `No kehikko holds more than ${MODULES_MAX} containers.`
@@ -135,6 +138,16 @@ export class Headers {
          forwarded; dropped, and the rest of the posting stands. */
       const parsed = headerItemsSchema.safeParse(items)
       if (parsed.success) headers.set(id, parsed.data)
+    }
+    /* Footers (protocol 2.38.0), held as the headers are: a list that does not parse is dropped, and an
+       older page that posts none has declared none. */
+    const footers = new Map<string, FooterItem[]>()
+    if (typeof rawFooters === 'object' && rawFooters !== null && !Array.isArray(rawFooters)) {
+      for (const [id, items] of Object.entries(rawFooters as Record<string, unknown>).slice(0, MODULES_MAX)) {
+        if (!id || id.length > 64) continue
+        const parsed = footerItemsSchema.safeParse(items)
+        if (parsed.success) footers.set(id, parsed.data)
+      }
     }
     /* A location that does not parse is none: the headers still stand. */
     const read = rawLocation === null || rawLocation === undefined ? null : sharedLocationSchema.safeParse(rawLocation)
@@ -148,7 +161,7 @@ export class Headers {
       const oldest = [...this.#pages.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) this.#pages.delete(oldest[0])
     }
-    this.#pages.set(page, { kehikko, at, headers, location, address })
+    this.#pages.set(page, { kehikko, at, headers, footers, location, address })
     return null
   }
 
@@ -173,7 +186,7 @@ export class Headers {
       if (!found || posting.at > found.posting.at) found = { page, posting }
     }
     return found
-      ? { page: found.page, headers: found.posting.headers, location: found.posting.location, address: found.posting.address }
+      ? { page: found.page, headers: found.posting.headers, footers: found.posting.footers, location: found.posting.location, address: found.posting.address }
       : null
   }
 
@@ -311,7 +324,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         return reply({ ok: false, why: 'A posting of headers names the kehikko the page has open.' }, 400)
       }
       const at = typeof body.at === 'number' && Number.isFinite(body.at) ? body.at : Date.now()
-      const wrong = held.posted(body.page, kehikko, at, body.headers, body.location, body.address)
+      const wrong = held.posted(body.page, kehikko, at, body.headers, body.location, body.address, body.footers)
       return wrong ? reply({ ok: false, why: wrong }, 400) : reply({ ok: true })
     }
 
@@ -333,6 +346,9 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
     door: {
       on: (kehikko: number): ReadonlyMap<string, readonly HeaderItem[]> | null =>
         held.on(kehikko, deps.hears)?.headers ?? null,
+      /* What each container declared for its footer (protocol 2.38.0); `null` as `on`. */
+      footers: (kehikko: number): ReadonlyMap<string, readonly FooterItem[]> | null =>
+        held.on(kehikko, deps.hears)?.footers ?? null,
       /* `undefined` when no listening page has the kehikko open: nobody can say. */
       location: (kehikko: number): SharedLocation | null | undefined => {
         const found = held.on(kehikko, deps.hears)
@@ -362,7 +378,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         if (!found) return Promise.resolve(null)
         return held.press(
           found.page,
-          { kehikko, module, item: press.item, ...(press.value === undefined ? {} : { value: press.value }) },
+          { kehikko, module, item: press.item, ...(press.value === undefined ? {} : { value: press.value }), ...(press.place === 'footer' ? { place: 'footer' as const } : {}) },
           deps.send,
           deps.waitMs,
         )

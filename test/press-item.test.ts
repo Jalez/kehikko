@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
+import { footerItemsSchema, headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
 import { createCanvas, editCanvas, listCanvases, open, type Placement } from '../server/canvases.ts'
 import { own, refusal } from '../server/guard.ts'
@@ -260,7 +260,7 @@ describe('press_item', () => {
       'kehikot.paper has no "publish" in its header now. What an agent may press in kehikot.paper: pane, compile, export. Nothing was pressed.',
     )
     expect((await press(id, { module: 'kehikot.notes', item: 'compile' })).text).toBe(
-      `kehikot.notes has declared no header items, so there is nothing of its to press. Containers on kehikko ${id} with something an agent may press: kehikot.paper. Nothing was pressed.`,
+      `kehikot.notes has declared no header or footer items, so there is nothing of its to press. Containers on kehikko ${id} with something an agent may press: kehikot.paper. Nothing was pressed.`,
     )
     expect((await press(id, { module: 'kehikot.tests', item: 'run' })).text).toBe(
       `kehikot.tests is not a container on kehikko ${id} (the wire). What is on it: kehikot.notes, kehikot.paper. Nothing was pressed.`,
@@ -459,5 +459,49 @@ describe('a press order on the page’s side', () => {
     /* Ordinary news still reaches everyone. */
     fresh.woke(3)
     expect([a.length, b.length, anonymous.length]).toEqual([2, 1, 1])
+  })
+})
+
+describe('a module’s footer (protocol 2.38.0)', () => {
+  const footer = () =>
+    footerItemsSchema.parse([
+      { kind: 'text', id: 'model', text: 'Opus · high' },
+      { kind: 'meter', id: 'context', label: 'Context', value: 0.9, level: 'critical' },
+      { kind: 'run', id: 'compact', label: 'Compact', icon: 'refresh', agents: true },
+      { kind: 'run', id: 'clear', label: 'Clear', confirm: true },
+    ])
+
+  test('read_canvas lists footer items under the container, said to be in the footer', async () => {
+    const id = aCanvas()
+    const name = 'page-f'
+    wakes.listen(() => {}, name)
+    openness.reported(name, id)
+    expect((await post('/host/headers', { page: name, kehikko: id, at: Date.now(), headers: {}, footers: { 'kehikot.notes': footer() } }))!.status).toBe(200)
+    const read = await call('read_canvas', { kehikko: id }, door())
+    expect(read.text).toContain('      model — text in the footer: "Opus · high".')
+    expect(read.text).toContain('      context — meter "Context" in the footer: "90%" (critical).')
+    expect(read.text).toContain('      compact — run "Compact" in the footer: idle. An agent may press it.')
+    expect(read.text).toContain('      clear — run "Clear" in the footer: idle. The person’s: it takes their second press.')
+  })
+
+  test('press_item presses a footer item by its id, and the page is told it is the footer’s', async () => {
+    const id = aCanvas()
+    const name = 'page-f'
+    const orders: PageOrder[] = []
+    wakes.listen((news) => {
+      const order = pressOrderIn((news as { press?: unknown }).press, name)
+      if (!order) return
+      orders.push(order)
+      void post('/host/pressed', { page: name, id: order.id, ok: true, why: '' })
+    }, name)
+    openness.reported(name, id)
+    await post('/host/headers', { page: name, kehikko: id, at: Date.now(), headers: {}, footers: { 'kehikot.notes': footer() } })
+    const pressed = await press(id, { module: 'kehikot.notes', item: 'compact' })
+    expect(pressed.failed).toBe(false)
+    expect(orders.map((one) => [one.item, one.place])).toEqual([['compact', 'footer']])
+    const refused = await press(id, { module: 'kehikot.notes', item: 'clear' })
+    expect(refused.failed).toBe(true)
+    expect(refused.text).toContain('second press')
+    expect((await press(id, { module: 'kehikot.notes', item: 'model' })).text).toContain('only says something')
   })
 })

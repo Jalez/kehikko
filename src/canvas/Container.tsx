@@ -10,7 +10,10 @@ import type { Choice } from '@/host/filters.ts'
 import { RESTART_ITEM, withRestart, type RestartState } from '@/host/restartModule.ts'
 import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
-import type { FilterGroup, HeaderItem } from 'kehikot-module-protocol'
+import type { FilterGroup, FooterItem, HeaderItem } from 'kehikot-module-protocol'
+import { NO_FOOTER, drawsFooter } from '@/host/footer.ts'
+import { focusHandlers, revealHandlers, useRevealed, type Reveals } from '@/host/reveal.ts'
+import { FooterBar } from './FooterBar.tsx'
 import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
@@ -80,6 +83,9 @@ export function Container({
   foldedBy = null,
   header = NO_HEADER,
   onPress = unpressable,
+  footer = NO_FOOTER,
+  onFooterPress = unpressable,
+  reveals = null,
   onKeyboard,
   surface,
   pressNote = null,
@@ -166,6 +172,19 @@ export function Container({
    * frame is standing, like `onClear`.
    */
   onPress?(press: Pressing): Promise<Pressed>
+  /**
+   * What the module last declared for its footer (protocol 2.38.0). Empty
+   * draws no row: a module that declared nothing has no footer at all.
+   */
+  footer?: readonly FooterItem[]
+  /** Send one press on a footer item. See `footerPressing` in `host/footer.ts`. */
+  onFooterPress?(press: Pressing): Promise<Pressed>
+  /**
+   * Which containers have their header and footer revealed in focus mode
+   * (`host/reveal.ts`). The container, its header and its footer are sources;
+   * the module's frame, in the other layer, is the fourth.
+   */
+  reveals?: Reveals | null
   /**
    * Hand the keyboard to the module's page: called after a press that closed
    * the menu it was made in, instead of focus going back to the menu's
@@ -310,6 +329,8 @@ export function Container({
   const items = useMemo(() => (onRestart ? withRestart(header, restart, presence.dir !== undefined) : header), [header, restart, onRestart !== undefined, presence.dir])
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
+  const revealed = useRevealed(reveals, presence.id)
+  const footed = drawsFooter(footer, showing.kind === 'page' && !oneEpic, collapsed)
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
 
@@ -381,15 +402,22 @@ export function Container({
       /* Which module this container is showing, for anything that has to find
          one container on the canvas by what is in it. */
       data-module={presence.id}
+      /* In focus mode, the pointer over any part of this container that the
+         host document can see — its header, its footer, a cover or notice —
+         holds the reveal; the module's page holds it from the frames layer.
+         See `host/reveal.ts`. */
+      {...revealHandlers(reveals, presence.id, 'chrome')}
+      {...focusHandlers(reveals, presence.id)}
+      data-revealed={revealed ? 'true' : undefined}
     >
       {/*
        * The header, inside a wrapper that does nothing at all most of the time.
        *
-       * In focus mode the wrapper becomes the thing that detects a pointer
-       * near the top of this container, and the header lifts out of the layout and
-       * hangs from it — see the `.focus-mode` rules in `index.css` for why the
-       * reveal has to be an element with `pointer-events: auto` rather than a
-       * `:hover` on the container, and for the eight pixels that costs.
+       * In focus mode the wrapper is a row of no height that grows to the
+       * header's while this container is revealed (`host/reveal.ts`: the
+       * pointer anywhere over it, or focus within it), pushing the module's
+       * page down rather than covering it — see the `.focus-mode` rules in
+       * `index.css`.
        *
        * Outside focus mode this div is a plain block in the column and changes
        * nothing. It is not conditional on the mode: a wrapper that appeared and
@@ -399,6 +427,7 @@ export function Container({
       <div
         className={collapsed ? 'container-reveal min-h-0 flex-1' : 'container-reveal shrink-0'}
         data-collapsed={collapsed ? 'true' : undefined}
+        data-revealed={revealed ? 'true' : undefined}
         /*
          * A SELECTED container keeps its header in focus mode, exactly as a
          * folded one does, and the reason is a cousin of that one.
@@ -907,6 +936,16 @@ export function Container({
           host could not make sense of, and a line under the container is the right
           size for that — visible to whoever is looking at this module, invisible
           from across the canvas. */}
+      {/* The module's declared footer (protocol 2.38.0): one row at the
+          bottom, in the header's look, only when the module declared one and
+          its page is showing. In focus mode it hides and reveals with the
+          header, from the same wrapper rules (`index.css`). */}
+      {footed ? (
+        <div className="container-footer-reveal shrink-0" data-revealed={revealed ? 'true' : undefined}>
+          <FooterBar items={footer} name={name} onPress={onFooterPress} onKeyboard={onKeyboard} />
+        </div>
+      ) : null}
+
       {fault ? (
         <p
           className="text-muted-foreground bg-card pointer-events-auto shrink-0 truncate border-t px-2.5 py-1 text-[11px]"

@@ -167,6 +167,8 @@ export interface PressOrder {
   module: string
   item: string
   value?: string | boolean
+  /** Protocol 2.38.0: `footer` for an item of the module's footer; absent for one of its header. */
+  place?: 'footer'
 }
 
 /**

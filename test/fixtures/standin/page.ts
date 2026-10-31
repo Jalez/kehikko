@@ -5,7 +5,7 @@
  */
 import { applyTheme, connect } from 'kehikot-module-protocol/client'
 
-const { id, origins, jump, activity } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null; activity: unknown[] | null } }).__standin
+const { id, origins, jump, activity, footer } = (window as unknown as { __standin: { id: string; origins: string[]; jump: Record<string, unknown> | null; activity: unknown[] | null; footer: unknown[] | null } }).__standin
 let flag = false
 let presses = 0
 
@@ -31,13 +31,19 @@ const header = () => [{ kind: 'toggle' as const, id: 'flag', label: 'Flag', chec
 const connection = connect(
   id,
   {
-    onHello: (context) => {
+    onHello: (context, _state, facts) => {
       document.getElementById('greeted')!.textContent = 'greeted'
       told(context)
       connection.header(header())
+      /* Its footer (protocol 2.38.0), only where the host says it draws one. */
+      if (footer && facts?.footer === true) connection.footer(footer as Parameters<typeof connection.footer>[0])
     },
     onContext: (context) => told(context),
-    onPress: ({ item }) => {
+    onPress: ({ item, place }) => {
+      if (place === 'footer') {
+        document.body.dataset.footerPressed = item
+        return
+      }
       if (item !== 'flag') return 'no such item'
       flag = !flag
       document.body.dataset.flag = String(flag)

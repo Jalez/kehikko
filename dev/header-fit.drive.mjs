@@ -15,6 +15,10 @@
  *   - the header is one row, and does not scroll sideways;
  *   - the scope is a label with its name at 440 and wider and its icon alone under it, its
  *     accessible name and tooltip saying the scope at every width, and a row in the Frame menu;
+ *   - the container's declared footer (protocol 2.38.0) at the same widths: one row no taller than the
+ *     header, its items overlapping nothing and inside the row, a text cut with an ellipsis, no
+ *     sideways scroll, the optional meter gone and runs as icons under 300, the runs in one "⋯" under
+ *     220 — and no footer at all when folded;
  *   - and the window's own bar, from 1400 down to 360 pixels: one row, the pinned places and the
  *     Pin button whole and overlapping nothing, "Pinned" a word only at 900 and wider, and pinning,
  *     listing and unpinning from the menu at 400.
@@ -39,6 +43,16 @@ const MODULE = 'kehikot.alpha'
 const LONG_NAME = 'An Extraordinarily Long Module Name'
 const LONG_VERSION = '12.34.56-release-candidate.7'
 const LONG_BRANCH = 'feature/a-really-long-branch-name-here'
+
+/* The stand-in's footer: a long status text, two meters (one optional, in the middle), three runs at the end. */
+const FOOTER = [
+  { kind: 'text', id: 'status', text: 'A rather long status line about what the module is doing right now, and more' },
+  { kind: 'meter', id: 'context', label: 'Context', value: 0.82, level: 'warn', text: '164k / 200k' },
+  { kind: 'meter', id: 'usage', label: 'Usage', value: 0.4, align: 'center', optional: true },
+  { kind: 'run', id: 'compact', label: 'Compact', icon: 'refresh', align: 'end' },
+  { kind: 'run', id: 'clear', label: 'Clear', icon: 'x', align: 'end', confirm: true },
+  { kind: 'toggle', id: 'follow', label: 'Follow', checked: true, align: 'end', optional: true },
+]
 
 const pw = await import('playwright-core')
 const failures = []
@@ -128,6 +142,49 @@ const MEASURE = (id) => {
   if (!state.scopeSaid.startsWith('Scope: This computer (default).')) bad.push(`the scope says "${state.scopeSaid}"`)
   if (state.width < 440 && state.scope === 'text') bad.push('the scope kept its name under 440px')
   return { bad, state }
+}
+
+/** The footer, measured as the header is: one row, nothing overlapping, nothing outside, an ellipsis for a long text. */
+const MEASURE_FOOTER = (id) => {
+  const box = document.querySelector(`[data-module="${id}"]`)
+  const footer = box.querySelector('[role="toolbar"][data-footer-mode]')
+  if (!footer) return { bad: [], state: { drawn: false } }
+  const bad = []
+  const rect = (el) => el.getBoundingClientRect()
+  const drawn = (el) => {
+    const style = getComputedStyle(el)
+    const r = rect(el)
+    return style.display !== 'none' && style.visibility !== 'hidden' && r.width > 0.5 && r.height > 0.5
+  }
+  const cells = [...footer.querySelectorAll('[data-footer-item], [data-footer-overflow]')].filter(drawn)
+  for (let i = 0; i < cells.length; i += 1) {
+    for (let j = i + 1; j < cells.length; j += 1) {
+      if (cells[i].contains(cells[j]) || cells[j].contains(cells[i])) continue
+      const a = rect(cells[i])
+      const b = rect(cells[j])
+      const across = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+      const down = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+      if (across > 0.5 && down > 0.5) bad.push(`footer overlap: ${cells[i].dataset.footerItem ?? '⋯'} and ${cells[j].dataset.footerItem ?? '⋯'} by ${across.toFixed(1)}px`)
+    }
+  }
+  const f = rect(footer)
+  if (f.height > 34) bad.push(`the footer is ${f.height}px tall`)
+  for (const el of cells) {
+    const r = rect(el)
+    if (r.right > f.right + 0.5 || r.left < f.left - 0.5) bad.push(`footer ${el.dataset.footerItem ?? '⋯'} is outside the row`)
+    if (Math.abs(r.top + r.height / 2 - (f.top + f.height / 2)) > 4) bad.push(`footer ${el.dataset.footerItem ?? '⋯'} is not on the row`)
+  }
+  if (footer.scrollWidth > footer.clientWidth + 1) bad.push(`the footer scrolls sideways (${footer.scrollWidth} > ${footer.clientWidth})`)
+  const status = footer.querySelector('[data-footer-item="status"] .truncate')
+  if (status && drawn(status) && status.scrollWidth > status.clientWidth + 1 && getComputedStyle(status).textOverflow !== 'ellipsis') bad.push('the status text is cut without an ellipsis')
+  const mode = footer.dataset.footerMode
+  const width = Math.round(f.width)
+  const want = width < 220 ? 'merged' : width < 300 ? 'icons' : 'words'
+  if (mode !== want) bad.push(`footer mode ${mode} at ${width}px, wanted ${want}`)
+  if (mode !== 'words' && footer.querySelector('[data-footer-item="usage"]')) bad.push('the optional meter is drawn under 300px')
+  if (mode === 'merged' && footer.querySelector('[data-footer-kind="run"]')) bad.push('a run is in the row under 220px')
+  if (mode === 'merged' && !footer.querySelector('[data-footer-overflow]')) bad.push('no ⋯ under 220px')
+  return { bad, state: { drawn: true, width, mode, cells: cells.length } }
 }
 
 /*
@@ -263,6 +320,14 @@ async function drive(kind, browserType) {
         await header.screenshot({ path: join(SHOTS, `${kind}-${scheme}-${folded ? 'folded' : 'open'}-${width}.png`) })
         say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: header ${state.width}px, name ${Math.round(state.name)}px, version ${state.version}, branch ${state.badge}, scope ${state.scope}${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
         if (bad.length) failures.push(`${run}: ${bad[0]}`)
+        /* The declared footer at the same width: one row; and none at all when folded. */
+        const foot = await page.evaluate(MEASURE_FOOTER, MODULE)
+        const footBad = [...foot.bad]
+        if (folded && foot.state.drawn) footBad.push('a folded container draws a footer')
+        if (!folded && !foot.state.drawn) footBad.push('the declared footer is not drawn')
+        if (foot.state.drawn) await page.locator(`[data-module="${MODULE}"] [role="toolbar"][data-footer-mode]`).screenshot({ path: join(SHOTS, `${kind}-${scheme}-footer-${width}.png`) })
+        say(`${footBad.length ? 'FAIL' : 'ok  '} ${run} footer: ${foot.state.drawn ? `${foot.state.width}px, ${foot.state.mode}, ${foot.state.cells} drawn` : 'none'}${footBad.length ? `\n      ${footBad.slice(0, 6).join('\n      ')}` : ''}`)
+        if (footBad.length) failures.push(`${run} footer: ${footBad[0]}`)
       }
     }
     /* Narrow and open: the scope's icon raises its tooltip, and the Frame menu has the scope as a row. */
@@ -329,7 +394,7 @@ async function drive(kind, browserType) {
 
 let PAGE
 try {
-  PAGE = process.env.PAGE ?? (await bootHost('kehikko-header-fit'))
+  PAGE = process.env.PAGE ?? (await bootHost('kehikko-header-fit', { standin: (id) => (id === MODULE ? { STANDIN_FOOTER: JSON.stringify(FOOTER) } : {}) }))
   for (const kind of BROWSERS) await drive(kind, pw[kind])
 } catch (error) {
   failures.push(`the drive itself failed: ${error.stack ?? error}`)
@@ -338,6 +403,6 @@ say(`screenshots: ${SHOTS}`)
 if (failures.length) {
   console.log(`\n${failures.length} failure(s):`)
   for (const failure of failures) console.log(`  - ${failure}`)
-} else console.log('\nthe header\'s name, version, branch and scope never overlap, and the bar keeps the pinned places and the Pin button on one row, in WebKit and Chromium, light and dark, at every width')
+} else console.log('\nthe header\'s name, version, branch and scope never overlap, the declared footer keeps one row at every width and none folded, and the bar keeps the pinned places and the Pin button on one row, in WebKit and Chromium, light and dark, at every width')
 stop()
 process.exit(failures.length ? 1 : 0)

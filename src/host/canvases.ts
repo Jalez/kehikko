@@ -1,6 +1,6 @@
 import { settingIn, type ConnectionsSetting } from './connections.ts'
 import { z } from 'zod'
-import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
+import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -671,6 +671,8 @@ export interface PressOrder {
   module: string
   item: string
   value?: string | boolean
+  /** Protocol 2.38.0: `footer` for an item of the module's footer; absent for one of its header. */
+  place?: 'footer'
 }
 
 /**
@@ -693,6 +695,7 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
     module: said.module,
     item: said.item,
     ...(said.value === undefined ? {} : { value: said.value }),
+    ...(said.place === 'footer' ? { place: 'footer' as const } : {}),
   }
 }
 
@@ -784,12 +787,14 @@ export function postHeaders(
   location: SharedLocation | null = null,
   /* The last web address handed to it (protocol 2.16.0), for `read_canvas`, for the location's reason. */
   address: SharedAddress | null = null,
+  /* What each container declared for its footer (protocol 2.38.0), for `read_canvas` and `press_item`. */
+  footers: Readonly<Record<string, readonly FooterItem[]>> = {},
 ): Promise<void> {
   return fetch('/host/headers', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     /* `at`, so a posting that arrives after a later one does not replace it. */
-    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, location, address }),
+    body: JSON.stringify({ page: pageId(), kehikko, at: Date.now(), headers, location, address, footers }),
   })
     .then(() => undefined)
     .catch(() => {
