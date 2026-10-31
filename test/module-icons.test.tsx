@@ -3,12 +3,14 @@ import { BRAND_MODULE_ICONS, LUCIDE_MODULE_ICONS, MODULE_ICONS, isModuleIcon } f
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import listed from '../modules.json'
+import { namedByLists } from '../server/known.ts'
 import { readOfficial } from '../server/official.ts'
 import { BRAND_MARKS } from '../src/canvas/brandMarks.ts'
 import { KEHIKOT_ITSELF, LUCIDE_DRAWN, ModuleIcon, iconOfModule, setListedIcons, setRegisteredIcons } from '../src/canvas/ModuleIcon.tsx'
 import { ModuleList } from '../src/canvas/Modules.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import { initialOf, moduleIconFor } from '../src/host/moduleIcon.ts'
+import { rowsOf } from '../src/host/moduleMenu.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
@@ -158,5 +160,61 @@ describe('the modules menu, drawn', () => {
     expect(drawn).toEqual(expect.arrayContaining(['brand:latex', 'brand:claude', 'lucide:route', 'fallback']))
     expect(drawn.length).toBe(4)
     expect(html).not.toContain('sparkles')
+  })
+})
+
+describe('the agent brand marks', () => {
+  test('each new key draws its own mark, with the title it names', () => {
+    for (const slug of ['openai', 'googlegemini', 'opencode', 'mistralai'] as const) {
+      expect(BRAND_MODULE_ICONS).toContain(slug)
+      const html = renderToStaticMarkup(<ModuleIcon icon={`brand:${slug}`} name="Agent" />)
+      expect(html).toContain(`data-module-icon="brand:${slug}"`)
+      expect(html).toContain(BRAND_MARKS[slug].path.slice(0, 20))
+    }
+  })
+
+  test('a brand key this host does not know is drawn as the module’s initial, never blank', () => {
+    const html = renderToStaticMarkup(<ModuleIcon icon="brand:from-a-newer-protocol" name="Zed" />)
+    expect(html).toContain('data-module-icon="fallback"')
+    expect(html).toContain('>Z</text>')
+    setRegisteredIcons([{ id: 'kehikot.zed', icon: 'brand:from-a-newer-protocol' }])
+    expect(iconOfModule('kehikot.zed')).toBeNull()
+    expect(renderToStaticMarkup(<ModuleIcon id="kehikot.zed" name="Zed" />)).toContain('>Z</text>')
+  })
+
+  test('the official list gives the agent modules their marks', () => {
+    const byId = new Map(readOfficial(listed).map((entry) => [entry.id, entry.icon]))
+    expect(byId.get('kehikot.codex')).toBe('brand:openai')
+    expect(byId.get('kehikot.antigravity')).toBe('brand:googlegemini')
+    expect(byId.get('kehikot.opencode')).toBe('brand:opencode')
+    expect(byId.get('kehikot.vibe')).toBe('brand:mistralai')
+  })
+})
+
+
+describe('a module installed from a repository, not on the official list', () => {
+  const never: Presence = { id: 'kehikot.antigravity', at: 'http://127.0.0.1:9040', condition: 'silent', reached: false, line: 'not running' }
+  const mineEntry = {
+    id: 'kehikot.antigravity',
+    name: 'Antigravity',
+    summary: 'A terminal.',
+    tags: ['agents'],
+    repo: 'Jalez/kehikko-antigravity',
+    host: 'github.com',
+    port: 9040,
+    installed: true,
+    mine: true,
+  } as never
+
+  test('its row says its name while it has never answered, from the person’s own list, and the server fills it for every other surface', () => {
+    const [row] = rowsOf([never], new Set(), [], [mineEntry])
+    expect(row!.name).toBe('Antigravity')
+    const named = { ...never, ...namedByLists(never.id, [[], [mineEntry]]) }
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <ModuleList registry={{ presences: [named], sweep: { dir: '/tmp/modules', rejected: [] }, protocol: 2 }} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+      </TooltipProvider>,
+    )
+    expect(html).toContain('>Antigravity<')
   })
 })

@@ -50,6 +50,10 @@ const ALLOWED: readonly { file: RegExp; word: string; why: string }[] = [
   { file: /^server\/callers\.ts$/, word: 'Claude', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^server\/callers\.ts$/, word: 'Codex', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Claude', why: 'the title of a trademark icon a module names as its own (`brand:claude`)' },
+  { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Gemini', why: 'the title of a trademark icon a module names as its own (`brand:googlegemini`)' },
+  { file: /^src\/canvas\/brandMarks\.ts$/, word: 'OpenAI', why: 'the title of a trademark icon a module names as its own (`brand:openai`)' },
+  { file: /^src\/canvas\/brandMarks\.ts$/, word: 'OpenCode', why: 'the title of a trademark icon a module names as its own (`brand:opencode`)' },
+  { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Mistral', why: 'the title of a trademark icon a module names as its own (`brand:mistralai`)' },
   /* The built-in layouts (data in modules.json) are named for ways of working; two share a word with a module. */
   { file: /^src\/host\/tour\.ts$/, word: 'Review', why: 'names the Review and Learning layouts' },
   { file: /^src\/host\/tour\.ts$/, word: 'Learning', why: 'names the Review and Learning layouts' },
