@@ -175,7 +175,8 @@ export function moduleRow(
   /* Not a failure of anything a person did: it works, from source. Said beside whatever else is true. */
   if (told.build?.state === 'failed') row.fromSource = fromSourceSaid(reading.name)
   /* Why the switch has not taken it yet, said beside whatever else is true. */
-  if (told.auto) {
+  /* `until: 'app'` is the release that needs a newer Kehikot: the row says that once, with the release (`needsNewerSaid`). */
+  if (told.auto && told.auto.until !== 'app') {
     row.autoSaid = waitSaid(reading.name, told.auto)
     if (told.auto.until === 'retry') row.autoFailed = true
   }

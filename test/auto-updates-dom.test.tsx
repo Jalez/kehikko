@@ -183,7 +183,8 @@ describe.skipIf(!inChild)('the Updates menu', () => {
     expect(indicatorText()).not.toContain('update')
     await press(host)
     await settle()
-    expect(waits().sort()).toEqual(['Paper waits for Kehikot 0.1.70', 'Terminal updates when its sessions end'])
+    expect(waits().sort()).toEqual(['Terminal updates when its sessions end'])
+    /* Paper's wait for the app is said once, with its release (`updates-needs-newer`), not a second time here. */
   }, 15_000)
 
   test('"Updated automatically" lists what the switch updated, and a wake reads it again', async () => {

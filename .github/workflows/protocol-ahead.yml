@@ -1,0 +1,71 @@
+# Daily: does the newest release of an official module need a protocol this
+# host does not speak? If so, open (or update) ONE issue saying the host pin has
+# to be bumped and the app released; close it when the host has caught up.
+# dev/protocol-ahead.ts does the looking. It warns and never blocks anything:
+# the issue is what makes the bump happen, and an unrelated app fix should not
+# wait for it.
+#
+# Read-only on code; it needs `issues: write` and nothing else.
+name: protocol ahead
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: protocol-ahead
+  cancel-in-progress: false
+
+jobs:
+  look:
+    if: github.repository == 'Jalez/kehikko'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - run: bun install --frozen-lockfile
+
+      - name: Look at each module's newest release
+        id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          bun dev/protocol-ahead.ts "$RUNNER_TEMP/report.md"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODE: ${{ steps.look.outputs.code }}
+        run: |
+          label="protocol-ahead"
+          gh label create "$label" --color BFD4F2 --description "A module release needs a protocol the host does not speak" 2>/dev/null || true
+          open=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')
+          if [ "$CODE" = "3" ]; then
+            title=$(head -n 1 "$RUNNER_TEMP/report.md")
+            tail -n +3 "$RUNNER_TEMP/report.md" > "$RUNNER_TEMP/body.md"
+            echo "::warning::$title"
+            if [ -n "$open" ]; then
+              gh issue edit "$open" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            else
+              gh issue create --label "$label" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            fi
+          elif [ "$CODE" = "0" ]; then
+            if [ -n "$open" ]; then gh issue close "$open" --comment "The host speaks the newest protocol any module release needs."; fi
+          else
+            echo "::error::dev/protocol-ahead.ts failed (exit $CODE)"
+            exit 1
+          fi

@@ -506,6 +506,17 @@
   (`showLanded` in `src/App.tsx`, `[data-landed]` in `index.css`), never focused.
   `dev/place-in-gaps.drive.mjs` (run by `test/place-in-gaps.test.ts`, on bee) checks it.
 
+## Protocol pin before a module's release
+
+- When a module's release pins a newer protocol, the host pin is bumped and the
+  app released FIRST, then the module is released: until then a released app
+  says "needs a newer Kehikot" for that module and can never install it.
+- `dev/protocol-ahead.ts` is the check: the daily `protocol-ahead.yml` opens one
+  issue ("Kehikot speaks protocol X but … needs Z: bump the host pin") when a
+  module's newest release pins more than this host does, and closes it when
+  the host catches up. It warns, never blocks: an unrelated app fix does not
+  wait for a module's bump. The desktop's auto-release does not repeat it.
+
 ## A module's header menus, and an agent's press
 
 - A module declares its header (`kehikot.header`, protocol 1.1.0) and the host
