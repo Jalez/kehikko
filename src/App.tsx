@@ -1,3 +1,4 @@
+import { fetchMessages, onMessagesChanged } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
@@ -4067,8 +4068,26 @@ export function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  /* Whether the open project has messages between agent sessions (protocol 2.41.0): the Inbox's
+     control is then there to reach them, even with nothing else in it. */
+  const [messageCount, setMessageCount] = useState(0)
+  useEffect(() => {
+    if (projectId === null) {
+      setMessageCount(0)
+      return
+    }
+    let cancelled = false
+    const read = () => void fetchMessages(projectId, 0).then((got) => !cancelled && got && setMessageCount(got.count))
+    read()
+    const off = onMessagesChanged((project) => project === projectId && read())
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [projectId])
+
   const barActivity = useMemo<BarActivity | null>(() => {
-    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen) return null
+    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen && messageCount === 0) return null
     const narrowing = { scope: inboxScope, epic: about.epic, kehikko: open?.key ?? null }
     return {
       epics: activityMarks.epics,
@@ -4102,6 +4121,8 @@ export function App() {
         rev: inbox.rev,
         shortcut: 'Alt+Shift+N',
         now: () => Date.now(),
+        /* Messages between agent sessions in the open project (protocol 2.41.0): read-only, at the foot. */
+        ...(projectId !== null ? { messages: { project: projectId, nameOf: moduleName } } : {}),
         /* The host's ask "which epic is this conversation for?": the person answers with one press. */
         choicesFor: (entry) =>
           isPlaceAsk(entry) && projectId !== null
@@ -4113,6 +4134,8 @@ export function App() {
       },
     }
   }, [
+    messageCount,
+    moduleName,
     inbox,
     inboxOpen,
     inboxScope,

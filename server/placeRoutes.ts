@@ -208,6 +208,11 @@ export interface PlaceDeps {
   changed(project: number, rev: number): void
   /** A registered module's origin, or null. */
   originOf(module: string): Promise<string | null>
+  /**
+   * The session's unread messages for its notes, counted delivered (protocol 2.41.0), asked when the
+   * module says `messages: true`. Absent: this host keeps none, and the answer carries no `messages`.
+   */
+  messagesFor?(here: Here | null, token: string): { messages: unknown[]; messagesMore: number }
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -373,7 +378,9 @@ export function placeDesk(deps: PlaceDeps) {
       const absent = about && canvas ? absentFrom(canvas, about, module) : undefined
       /* A module that installs skills for its own agent is told which ones the person keeps in every conversation (2.23.0). */
       const everywhere = deps.everywhere && asker?.manifest && installsSkills(asker.manifest) ? await deps.everywhere(module) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}) })
+      /* Its unread messages, for the notes (2.41.0): only to a module that says it says them, and only then counted delivered. */
+      const told = body.messages === true && deps.messagesFor ? deps.messagesFor((await resolve(token, null)).here, token) : undefined
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(told ?? {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {
