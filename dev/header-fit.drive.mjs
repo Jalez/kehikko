@@ -180,7 +180,9 @@ const MEASURE_FOOTER = (id) => {
   const mode = footer.dataset.footerMode
   const width = Math.round(f.width)
   const want = width < 220 ? 'merged' : width < 300 ? 'icons' : 'words'
-  if (mode !== want) bad.push(`footer mode ${mode} at ${width}px, wanted ${want}`)
+  /* A crowded row steps further down than its width alone says (`footerRow`), never less far. */
+  const order = ['words', 'icons', 'merged']
+  if (order.indexOf(mode) < order.indexOf(want)) bad.push(`footer mode ${mode} at ${width}px, wanted at least ${want}`)
   if (mode !== 'words' && footer.querySelector('[data-footer-item="usage"]')) bad.push('the optional meter is drawn under 300px')
   if (mode === 'merged' && footer.querySelector('[data-footer-kind="run"]')) bad.push('a run is in the row under 220px')
   if (mode === 'merged' && !footer.querySelector('[data-footer-overflow]')) bad.push('no ⋯ under 220px')

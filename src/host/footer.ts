@@ -26,6 +26,8 @@
  */
 
 import {
+  FOOTER_ICONS_BELOW,
+  FOOTER_MERGE_BELOW,
   footerLayout,
   footerPressRefusal,
   pressableFooterItem,
@@ -71,12 +73,30 @@ export function drawsFooter(items: readonly FooterItem[], showingPage: boolean, 
 /**
  * The row at a width: the protocol's `footerLayout`, the one rule every host
  * shares (one row; under 300 px optional items go and runs become icons;
- * under 220 px every pressable item is in one "⋯"). A run is drawn as its
+ * under 220 px every pressable item is in one "⋯"), taken `steps` further
+ * down when the row as drawn is crowded (`footerCrowded`). A run is drawn as its
  * icon only when it HAS one this host draws; one without keeps its words,
  * cut with an ellipsis like any text.
  */
-export function footerRow(items: readonly FooterItem[], width: number | null): FooterLayout {
-  return footerLayout(items, width)
+export function footerRow(items: readonly FooterItem[], width: number | null, steps = 0): FooterLayout {
+  const row = footerLayout(items, width)
+  /* Measured, as the header's name room is (`headerFit.ts`): the protocol's widths say how far a
+     row MAY be drawn; what a module put in it decides whether that fits. Each step down is the
+     next narrower layout, so a crowded 400-pixel row is drawn as the 280-pixel one, then as the
+     200-pixel one — never overlapping, never a second row. */
+  const ladder: FooterLayout['mode'][] = ['words', 'icons', 'merged']
+  const at = Math.min(ladder.length - 1, ladder.indexOf(row.mode) + Math.max(0, steps))
+  const mode = ladder[at]
+  if (mode === row.mode) return row
+  return footerLayout(items, mode === 'icons' ? FOOTER_ICONS_BELOW - 1 : FOOTER_MERGE_BELOW - 1)
+}
+
+/** The most steps down a footer takes: words to icons to one "⋯". */
+export const FOOTER_STEPS = 2
+
+/** Whether a drawn row is crowded: the row, or any group in it, is wider inside than the room it has. */
+export function footerCrowded(boxes: readonly { scrollWidth: number; clientWidth: number }[]): boolean {
+  return boxes.some((box) => box.scrollWidth > box.clientWidth + 1)
 }
 
 /* ------------------------------------------------------------------ *

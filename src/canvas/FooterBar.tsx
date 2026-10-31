@@ -11,7 +11,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { footerRow, type FooterPressable } from '@/host/footer.ts'
+import { FOOTER_STEPS, footerCrowded, footerRow, type FooterPressable } from '@/host/footer.ts'
 import type { Pressed, Pressing } from '@/host/header.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { HEADER_ICONS, HeaderMenus, SAID_FOR_MS } from './HeaderMenus.tsx'
@@ -67,7 +67,18 @@ export function FooterBar({
     return () => watching.disconnect()
   }, [])
 
-  const row = footerRow(items, width)
+  /* Steps down when what the module declared does not fit the room the widths allow: measured
+     after each layout, before paint, and started over when the width or the items change. */
+  const [steps, setSteps] = useState(0)
+  const declaredAs = JSON.stringify(items)
+  useLayoutEffect(() => setSteps(0), [width, declaredAs])
+  const row = footerRow(items, width, steps)
+  useLayoutEffect(() => {
+    const element = box.current
+    if (!element || steps >= FOOTER_STEPS) return
+    const groups = [element, ...element.querySelectorAll<HTMLElement>('[data-footer-group]')]
+    if (footerCrowded(groups)) setSteps((was) => Math.min(FOOTER_STEPS, was + 1))
+  })
   const [said, setSaid] = useState<{ item: string; text: string } | null>(null)
   useEffect(() => {
     if (!said) return
@@ -94,11 +105,11 @@ export function FooterBar({
       data-footer-mode={row.mode}
       className="bg-card pointer-events-auto flex h-8 min-w-0 shrink-0 items-center gap-2 overflow-hidden border-t px-2.5 text-[11px] select-none @max-[300px]/container:gap-1"
     >
-      <span className="flex min-w-0 flex-1 items-center gap-2 @max-[300px]/container:gap-1" data-footer-group="start">
+      <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden @max-[300px]/container:gap-1" data-footer-group="start">
         {row.start.map(draw)}
       </span>
       {row.center.length ? (
-        <span className="flex min-w-0 shrink items-center justify-center gap-2" data-footer-group="center">
+        <span className="flex min-w-0 shrink items-center justify-center gap-2 overflow-hidden" data-footer-group="center">
           {row.center.map(draw)}
         </span>
       ) : null}

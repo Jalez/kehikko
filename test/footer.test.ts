@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { footerItemsSchema, type FooterItem } from 'kehikot-module-protocol'
 
 import {
+  FOOTER_STEPS,
   NO_FOOTER,
+  footerCrowded,
   NO_FOOTERS,
   agentFooterPressable,
   agentFooterRefusal,
@@ -127,5 +129,22 @@ describe('the server holds what the page posted', () => {
     expect(on.footers.has('kehikot.bad')).toBe(false)
     expect(held.posted('p2', 3, 2, {})).toBeNull()
     expect(held.on(3, (page) => page === 'p2')!.footers.size).toBe(0)
+  })
+})
+
+describe('a crowded row steps down, as the header does', () => {
+  test('words → icons → merged, measured; never further', () => {
+    expect(footerRow(agent(), 400, 0).mode).toBe('words')
+    expect(footerRow(agent(), 400, 1).mode).toBe('icons')
+    expect(footerRow(agent(), 400, 2).mode).toBe('merged')
+    expect(footerRow(agent(), 400, 9).mode).toBe('merged')
+    expect(footerRow(agent(), 280, 1).mode).toBe('merged')
+    expect(FOOTER_STEPS).toBe(2)
+  })
+
+  test('crowded is the row or any group wider inside than its room', () => {
+    expect(footerCrowded([{ scrollWidth: 300, clientWidth: 300 }, { scrollWidth: 80, clientWidth: 80 }])).toBe(false)
+    expect(footerCrowded([{ scrollWidth: 300, clientWidth: 300 }, { scrollWidth: 170, clientWidth: 32 }])).toBe(true)
+    expect(footerCrowded([{ scrollWidth: 262, clientWidth: 218 }])).toBe(true)
   })
 })
