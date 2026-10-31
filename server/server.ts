@@ -13,7 +13,7 @@ import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { connectionsSettingSchema, type ConnectionModule } from '../src/host/connections.ts'
 import { forgetFormerName } from './formerName.ts'
-import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, rememberDoor, rememberedMcp } from './known.ts'
+import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, namedByLists, remember, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
 import {
   createCanvas,
@@ -746,6 +746,13 @@ async function survey(kept = false): Promise<{
         presence.summary = was.summary
         presence.tags = was.tags
         presence.icon = was.icon
+      }
+      /* Never awake and never remembered (just installed): the lists know it by name. */
+      const named = was ? null : namedByLists(presence.id, [listed, readMine(myModulesFile()).modules])
+      if (named) {
+        presence.name = named.name
+        presence.summary = named.summary
+        presence.tags = named.tags
       }
     }
     /* The icon the page draws: the module's own (as it answered, or as it last

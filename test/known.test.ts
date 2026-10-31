@@ -153,3 +153,14 @@ describe('where a module’s door was', () => {
     expect(knownDoors(db).size).toBe(0)
   })
 })
+
+describe('a module installed from a repository, never awake', () => {
+  test('is named by the lists, not by its id', async () => {
+    const { namedByLists } = await import('../server/known.ts')
+    const mine = [{ id: 'kehikot.antigravity', name: 'Antigravity', summary: 'A terminal.', tags: ['agents'] }]
+    const official = [{ id: 'kehikot.codex', name: 'Codex' }]
+    expect(namedByLists('kehikot.antigravity', [official, mine])).toEqual({ name: 'Antigravity', summary: 'A terminal.', tags: ['agents'] })
+    expect(namedByLists('kehikot.codex', [official, mine])?.name).toBe('Codex')
+    expect(namedByLists('kehikot.unlisted', [official, mine])).toBeNull()
+  })
+})

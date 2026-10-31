@@ -110,6 +110,24 @@ export function remember(
   ).run(id, name, about.summary ?? '', JSON.stringify(about.tags ?? []), about.icon ?? null, about.reacts ? JSON.stringify(about.reacts) : null, now)
 }
 
+/**
+ * A name for a module that has never answered and is remembered by nobody: one just installed, never
+ * woken. The lists name it — the official list, or the person's own (the person's added repositories, whose entry was
+ * read from the module's source when it was added). Without this the row, the container and Settings
+ * said the id, `kehikot.antigravity`, for a module installed from a repository until it first started.
+ * Only what a module IS (name, summary, tags), as for `remember`; null when no list has it.
+ */
+export function namedByLists(
+  id: string,
+  lists: readonly (readonly { id: string; name: string; summary?: string; tags?: readonly string[] }[])[],
+): { name: string; summary: string; tags: string[] } | null {
+  for (const list of lists) {
+    const one = list.find((entry) => entry.id === id)
+    if (one?.name) return { name: one.name, summary: one.summary ?? '', tags: [...(one.tags ?? [])] }
+  }
+  return null
+}
+
 /** Everything the host has been told, by module id. */
 export function known(db: Database): Map<string, Known> {
   const rows = db
