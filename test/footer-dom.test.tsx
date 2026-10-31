@@ -15,7 +15,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.FOOTER_DOM === '1'
-const TESTS = 8
+const TESTS = 10
 
 if (!inChild) {
   test('the footer, rendered in a process of its own', () => {
@@ -146,6 +146,49 @@ describe('the row', () => {
     expect(narrow.host.firstElementChild?.getAttribute('data-footer-mode')).toBe('merged')
     expect(item('compact')).toBeNull()
     expect(narrow.host.querySelector('[data-footer-overflow]')).not.toBeNull()
+  })
+})
+
+describe('acts the host carries out (protocol 2.40.0)', () => {
+  if (!inChild) return
+
+  test('Copy: the host writes the clipboard inside the click, then sends the press saying it did', async () => {
+    const written: string[] = []
+    const was = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
+    })
+    try {
+      const items = footerItemsSchema.parse([{ kind: 'run', id: 'copy', label: 'Copy ids', copy: { plain: 'kehikko#1\nkehikko#2' } }])
+      const { presses } = await bar(items)
+      await act(async () => {
+        item('copy')!.click()
+        /* Written in the click itself, before anything was awaited. */
+        expect(written).toEqual(['kehikko#1\nkehikko#2'])
+      })
+      await act(async () => {})
+      expect(presses).toEqual([{ item: 'copy', carried: 'copy' }])
+    } finally {
+      if (was) Object.defineProperty(navigator, 'clipboard', was)
+      else delete (navigator as { clipboard?: unknown }).clipboard
+    }
+  })
+
+  test('Open: the host opens the https page from the click, and the press says so', async () => {
+    const opened: string[] = []
+    const was = window.open
+    window.open = ((url: string) => (opened.push(url), null)) as typeof window.open
+    try {
+      const items = footerItemsSchema.parse([{ kind: 'run', id: 'open', label: 'Open', open: 'https://github.com/Jalez/kehikko/pull/1' }])
+      const { presses } = await bar(items)
+      await act(async () => item('open')!.click())
+      await act(async () => {})
+      expect(opened).toEqual(['https://github.com/Jalez/kehikko/pull/1'])
+      expect(presses).toEqual([{ item: 'open', carried: 'open' }])
+    } finally {
+      window.open = was
+    }
   })
 })
 

@@ -11,6 +11,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { carry } from '@/host/carry.ts'
 import { FOOTER_STEPS, footerCrowded, footerRow, type FooterPressable } from '@/host/footer.ts'
 import type { Pressed, Pressing } from '@/host/header.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
@@ -87,7 +88,8 @@ export function FooterBar({
   }, [said])
 
   const press = (item: FooterPressable, value?: PressValue) => {
-    void onPress({ item: item.id, ...(value === undefined ? {} : { value }) }).then((came) => {
+    /* Protocol 2.40.0: a run's copy or open is started here, in the person's click, before the press is sent. */
+    void carry(item).then((carried) => onPress({ item: item.id, ...(value === undefined ? {} : { value }), ...(carried ? { carried } : {}) })).then((came) => {
       if (!came.ok) setSaid({ item: item.id, text: came.why })
       else if (item.kind === 'run' || item.kind === 'go') onKeyboard?.()
     })
