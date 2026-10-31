@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b28 pass/)
+    expect(out).toMatch(/\b29 pass/)
   }, 60_000)
 }
 
@@ -261,14 +261,55 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const host = await mount()
     await press(host)
     await settle()
-    expect(document.querySelector('[data-testid="updates-works"]')?.textContent).toBe('Works with Kehikot 0.1.39 and later')
-    expect(text()).toContain('1.7.0 needs a Kehikot newer than 0.1.41 (protocol 2.11 or later); this Kehikot has protocol 2.10.')
+    expect(document.querySelector('[data-testid="updates-works"]')?.textContent).toBe('1.6.0 works with Kehikot 0.1.39 and later')
+    const needs = document.querySelector('[data-testid="updates-needs-newer"]') as HTMLElement
+    expect(needs.textContent).toBe('1.7.0 is out; it needs a Kehikot newer than 0.1.41.')
+    expect(needs.title).toBe('Needs protocol 2.11 or later; this Kehikot has protocol 2.10.')
 
     const whatsNew = document.querySelector('[data-testid="updates-whats-new"]') as HTMLButtonElement
     await act(async () => whatsNew.click())
     await settle()
     const said = [...document.querySelectorAll('[data-testid="release-notes-works"]')].map((one) => one.textContent)
     expect(said).toEqual(['Works with Kehikot 0.1.39 and later', 'Needs protocol 2.6 or later'])
+  })
+
+  test('up to date, with a newer release that needs a newer Kehikot: said once, in two lines', async () => {
+    const release = {
+      follows: 'release',
+      installed: 'v1.14.0',
+      newest: 'v1.14.0',
+      target: null,
+      notes: ['v1.14.0'],
+      needsNewer: { tag: 'v1.14.1', protocol: '2.37.0' },
+      repo: 'Jalez/kehikko-journeys',
+      error: null,
+      works: {
+        'v1.14.0': { kind: 'from', need: '2.30.0', from: '0.1.95', until: null },
+        'v1.14.1': { kind: 'unreleased', need: '2.37.0', newest: { app: '0.1.95', protocol: '2.36.0' } },
+      },
+    }
+    answer = async (url) => {
+      if (url.startsWith('/host/updates')) {
+        return { ...check([checkout('kehikot.journeys', 0, { name: 'Journeys', branch: null, upstream: 'v1.14.0', blocked: null, release })]),
+          protocol: '2.36.0',
+          /* The switch is on and the release waits for the app: the row is drawn, and used to say so a second time. */
+          auto: { on: true, waiting: { 'kehikot.journeys': { until: 'app', target: 'v1.14.1', detail: '' } }, updated: [] },
+        }
+      }
+      return {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    const row = document.querySelector('[data-testid="updates-row"]') as HTMLElement
+    expect(row.querySelector('[data-testid="updates-row-title"]')?.textContent).toBe('Journeysup to date for this Kehikot · 1.14.0')
+    expect(row.querySelector('[data-testid="updates-needs-newer"]')?.textContent).toBe('1.14.1 is out; it needs a Kehikot newer than 0.1.95.')
+    expect(row.querySelector('[data-testid="updates-needs-newer"]')?.getAttribute('title')).toBe('Needs protocol 2.37 or later; this Kehikot has protocol 2.36.')
+    /* Not the installed release's "works with", not "waits for a newer Kehikot", not the protocol in the line. */
+    expect(row.querySelector('[data-testid="updates-works"]')).toBeNull()
+    expect(row.querySelector('[data-testid="updates-auto-waiting"]')).toBeNull()
+    expect(row.textContent).not.toContain('waits for')
+    expect(row.textContent).not.toContain('Works with')
   })
 
   test('checking turns into the results in the same panel, listing only what needs attention', async () => {

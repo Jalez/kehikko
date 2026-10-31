@@ -70,7 +70,7 @@ import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
-import { needsNewerSaid, releaseInView, releaseSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, worksLineSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
 
 /**
@@ -1050,12 +1050,18 @@ function Row({
           <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
         ) : null}
       </div>
-      {release && worksSaid(release, releaseInView(release)) ? (
-        <p className="text-muted-foreground pt-1" data-testid="updates-works">
-          {worksSaid(release, releaseInView(release))}
+      {release && needsNewerSaid(release, have) ? (
+        /* One sentence for the newer release's need, with the protocol in the tooltip. */
+        <p className="text-muted-foreground pt-1" data-testid="updates-needs-newer" title={needsNewerTip(release, have) ?? undefined}>
+          {needsNewerSaid(release, have)}
         </p>
       ) : null}
-      {release && needsNewerSaid(release, have) ? <p className="text-muted-foreground pt-1">{needsNewerSaid(release, have)}</p> : null}
+      {/* The release the row speaks of, with its version. Left out when that is the one installed and a newer one is said just above: "up to date" already says it works. */}
+      {release && worksLineSaid(release, releaseInView(release)) && !(needsNewerSaid(release, have) && !release.target) ? (
+        <p className="text-muted-foreground pt-1" data-testid="updates-works">
+          {worksLineSaid(release, releaseInView(release))}
+        </p>
+      ) : null}
       {row.fromSource ? (
         /* Plain, and not an error: the module works. The log is in its details in the modules list. */
         <p className="text-muted-foreground pt-1" data-testid="updates-from-source">

@@ -115,7 +115,9 @@ export function releaseSaid(release: ModuleRelease): string {
   if (release.follows === 'main') return 'following main · no releases yet'
   if (release.follows === 'ahead' && release.newest) return `running main ahead of ${releaseVersion(release.newest)}`
   const at = release.installed ?? release.newest
-  return at ? `up to date · ${releaseVersion(at)}` : 'up to date'
+  /* A newer release exists that this Kehikot cannot run: "up to date" alone would read as "nothing newer". */
+  const upToDate = release.needsNewer ? 'up to date for this Kehikot' : 'up to date'
+  return at ? `${upToDate} · ${releaseVersion(at)}` : upToDate
 }
 
 /** The whole line: "Journeys 1.5.0 → 1.6.0", "Journeys up to date · 1.6.0". */
@@ -135,16 +137,40 @@ export function releaseInView(release: ModuleRelease): string | null {
 }
 
 /**
- * Said under the line when a newer release needs a newer app, or null:
- * "1.7.0 needs Kehikot 0.1.41 or later; you have 0.1.40." `have.app` is the
- * running app's version, inside the desktop app; elsewhere the host's protocol.
+ * Said once under the line when a newer release needs a newer app, or null:
+ * "1.7.0 is out; it needs Kehikot 0.1.41 or later (you have 0.1.40)." When no
+ * app has it yet: "1.7.0 is out; it needs a Kehikot newer than 0.1.40." The
+ * protocol is the tooltip (`needsNewerTip`), not the sentence.
  */
 export function needsNewerSaid(release: ModuleRelease, have: { app?: string | null; protocol?: string | null } = {}): string | null {
   if (!release.needsNewer) return null
   const version = releaseVersion(release.needsNewer.tag)
   const works = release.works && Object.hasOwn(release.works, release.needsNewer.tag) ? release.works[release.needsNewer.tag]! : null
+  if (works?.kind === 'from') return `${version} is out; it needs Kehikot ${works.from} or later${have.app ? ` (you have ${have.app})` : ''}.`
+  if (works?.kind === 'unreleased') return `${version} is out; it needs a Kehikot newer than ${works.newest.app}.`
+  return `${version} is out; it needs a newer Kehikot.`
+}
+
+/** The protocol behind `needsNewerSaid`, for a tooltip: "Needs protocol 2.37 or later; this Kehikot has protocol 2.36." */
+export function needsNewerTip(release: ModuleRelease, have: { app?: string | null; protocol?: string | null } = {}): string | null {
+  if (!release.needsNewer) return null
+  const has = have.protocol ? `; this Kehikot has protocol ${protocolSaid(have.protocol)}` : ''
+  return `Needs protocol ${protocolSaid(release.needsNewer.protocol)} or later${has}.`
+}
+
+/** What an agent is told of the release this Kehikot cannot run: the app and the protocol, in one sentence. */
+function needsNewerForAgents(release: ModuleRelease, have: { app?: string | null; protocol?: string | null }): string | null {
+  if (!release.needsNewer) return null
+  const version = releaseVersion(release.needsNewer.tag)
+  const works = release.works && Object.hasOwn(release.works, release.needsNewer.tag) ? release.works[release.needsNewer.tag]! : null
   if (works) return needsKehikotSaid(version, works, have)
   return `${version} needs a newer Kehikot (protocol ${protocolSaid(release.needsNewer.protocol)} or later).`
+}
+
+/** "1.14.0 works with Kehikot 0.1.95 and later": `worksSaid` bound to the version it speaks of. */
+export function worksLineSaid(release: ModuleRelease, tag: string | null): string | null {
+  const said = worksSaid(release, tag)
+  return said && tag ? `${releaseVersion(tag)} ${said[0]!.toLowerCase()}${said.slice(1)}` : null
 }
 
 /** The title of the notes dialog: "What's new in Journeys 1.6.0", or "…1.5.0 → 1.6.0" over several. */
@@ -181,7 +207,7 @@ function worksForAgents(release: ModuleRelease, have: { protocol?: string | null
     const said = worksSaid(release, tag)
     if (said) lines.push(`${tag}: ${said}.`)
   }
-  const newer = needsNewerSaid(release, { protocol: have.protocol ?? null })
+  const newer = needsNewerForAgents(release, { protocol: have.protocol ?? null })
   if (newer && release.works && release.needsNewer && Object.hasOwn(release.works, release.needsNewer.tag)) lines.push(newer)
   return lines
 }

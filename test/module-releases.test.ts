@@ -10,6 +10,8 @@ import { tagsFromLsRemote, type Tags } from '../server/versions.ts'
 import {
   isRelease,
   needsNewerSaid,
+  needsNewerTip,
+  worksLineSaid,
   releaseForAgents,
   releaseInView,
   releaseLine,
@@ -245,7 +247,8 @@ describe('an installed copy', () => {
     m.release('1.2.0', '3.0.0')
     const reading = await read(m.place(f))
     expect(reading.release).toMatchObject({ newest: 'v1.1.0', target: 'v1.1.0', needsNewer: { tag: 'v1.2.0', protocol: '3.0.0' } })
-    expect(needsNewerSaid(reading.release!)).toBe('1.2.0 needs a newer Kehikot (protocol 3.0 or later).')
+    expect(needsNewerSaid(reading.release!)).toBe('1.2.0 is out; it needs a newer Kehikot.')
+    expect(needsNewerTip(reading.release!)).toBe('Needs protocol 3.0 or later.')
   })
 
   test('each release named says which Kehikot it works with, from the app mapping', async () => {
@@ -267,7 +270,9 @@ describe('an installed copy', () => {
     expect(release).toMatchObject({ installed: 'v1.0.0', target: 'v1.1.0', needsNewer: { tag: 'v1.2.0', protocol: '2.11.0' } })
     expect(worksSaid(release, 'v1.0.0')).toBe('Works with Kehikot 0.1.22 and later')
     expect(worksSaid(release, releaseInView(release))).toBe('Works with Kehikot 0.1.37 and later')
-    expect(needsNewerSaid(release, { app: '0.1.40' })).toBe('1.2.0 needs a Kehikot newer than 0.1.39 (protocol 2.11 or later); you have 0.1.40.')
+    expect(needsNewerSaid(release, { app: '0.1.40' })).toBe('1.2.0 is out; it needs a Kehikot newer than 0.1.39.')
+    expect(worksLineSaid(release, 'v1.0.0')).toBe('1.0.0 works with Kehikot 0.1.22 and later')
+    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('1.2.0 needs a Kehikot newer than 0.1.39 (protocol 2.11 or later)')
     expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('v1.1.0: Works with Kehikot 0.1.37 and later.')
   })
 
