@@ -107,6 +107,9 @@ export type News =
      the record's revision, so a page that already holds it need not ask; the
      page re-reads `/host/inbox`. */
   | { inbox: number; rev: number }
+  /* A project's messages between agent sessions changed (protocol 2.41.0):
+     only that there is something to re-read at `/host/messages`. */
+  | { messages: number }
   /* The fifth kind: a project's tracker reading started or landed. Carries
      the signal itself — `context.tracker` is two small facts, and making every
      page fetch them back would be a round trip per page per read. */
@@ -389,6 +392,15 @@ export class Wakes {
    */
   inboxChanged(project: number, rev: number): void {
     this.#tell({ inbox: project, rev })
+  }
+
+  /**
+   * Say that a project's messages between agent sessions changed: one was sent,
+   * or the person cleared them (`server/messageRoutes.ts`). Only that there is
+   * something to re-read: never what a message says.
+   */
+  messagesChanged(project: number): void {
+    this.#tell({ messages: project })
   }
 
   /**

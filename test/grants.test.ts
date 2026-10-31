@@ -46,6 +46,8 @@ const PARAMS: Record<string, unknown> = {
   'traffic.note': { calls: [{ at: 1, kind: 'GET', host: 'api.example.com', path: '/' }] },
   'parts.get': { epic: 'x' },
   'dispositions.get': {},
+  'messages.send': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', body: 'hi' },
+  'messages.read': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
 }
 
 describe('the rule', () => {

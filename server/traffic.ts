@@ -357,6 +357,8 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/inbox/log': 'the page reads the Inbox',
   '/host/inbox/migrate': 'the page reads the Inbox',
   '/host/inbox': 'the page reads the Inbox',
+  '/host/messages': 'the page reads the messages between agents',
+  '/host/messages/clear': 'a person clears the messages between agents',
   '/host/health': 'is Kehikot up',
   '/host/hello': 'is Kehikot here',
   '/host/tools': 'a module’s tools',

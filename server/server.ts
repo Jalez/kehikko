@@ -50,6 +50,8 @@ import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
 import { retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
+import { AgentMessages } from './agentMessages.ts'
+import { messageDesk } from './messageRoutes.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
 import { restartModuleDesk } from './restartModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
@@ -252,6 +254,8 @@ if (settled.adopted > 0 && settled.seeded) epicFromKehikot(db, settled.seeded.id
 ensureKnown(db)
 /* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
 const inbox = new Inbox(db)
+/* Messages between agent sessions (protocol 2.41.0): one record per project, beside the Inbox. `agentMessages.ts`. */
+const agentMessages = new AgentMessages(db)
 /* What happened on the person's issues and changes, told in the Inbox as the host's own items. `trackerNotices.ts`. */
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
@@ -2820,6 +2824,24 @@ const placeRoutes = placeDesk({
   },
   changed: (project, rev) => wakes.inboxChanged(project, rev),
   originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
+  /* A session's unread messages, for its notes (protocol 2.41.0). */
+  messagesFor: (here, token) => messageRoutes.forNotes(here, token),
+})
+
+/*
+ * Messages between agent sessions (protocol 2.41.0): sent and read by the
+ * module that runs a session, through its server; read whole by the person.
+ * See `messageRoutes.ts`.
+ */
+const messageRoutes = messageDesk({
+  db,
+  messages: agentMessages,
+  resolve: (token) => placeRoutes.resolve(token, null),
+  nameOf: (module) => {
+    const presence = lastPresences.get(module)
+    return presence?.module?.name ?? presence?.name ?? null
+  },
+  changed: (project) => wakes.messagesChanged(project),
 })
 
 /*
@@ -2853,6 +2875,7 @@ const serverAsk = serverAskDesk({
       /* The record of traffic (protocol 2.20.0): the Monitor's door reads it, a module's server notes into it. */
       { door: trafficReading, via: 'server' },
     ),
+  messages: (module, method, params) => messageRoutes.serverAnswer(module, method, params),
 })
 
 /*
@@ -4206,6 +4229,10 @@ async function answerRequest(request: Request): Promise<Response> {
     const restartModuleAnswer = await restartModuleDoor.route(request, url)
     if (restartModuleAnswer) return restartModuleAnswer
 
+    /* Messages between agent sessions, for the person's view, and their clearing. `messageRoutes.ts`. */
+    const messagesAnswer = await messageRoutes.route(request, url)
+    if (messagesAnswer) return messagesAnswer
+
     /* The inbox: what the modules said they are doing, held per project. `inbox.ts`. */
     const inboxAnswer = await inboxRoutes.route(request, url)
     if (inboxAnswer) return inboxAnswer
@@ -4649,6 +4676,8 @@ async function answerRequest(request: Request): Promise<Response> {
           },
           headers: headerDesk.door,
           inbox,
+          /* How many messages between agent sessions a project keeps (protocol 2.41.0), for my_place. Never their words. */
+          messages: agentMessages,
           trackers,
           versions: {
             list: (module, kehikko) => pins.list(module, kehikko, true),

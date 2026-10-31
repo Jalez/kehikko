@@ -1249,3 +1249,21 @@
   them where its own agent reads skills. The host never writes an agent's folder other than Claude
   Code's.
 
+
+## Messages between agent sessions
+
+- ONE record (protocol 2.41.0, `agents:message`): `server/agentMessages.ts`, in
+  `frame.sqlite` per project id, never in the project (a session is this
+  machine's; a file in the repo would let a pulled branch speak as an agent).
+  The host is the only writer; no module keeps a copy.
+- `messages.send` / `messages.read` come only from a module's server through
+  `/host/server-ask` (`server/messageRoutes.ts`): the token must be one that
+  module issued, the project is the token's, the sender is stamped from the
+  token's record. A page is declined (`answers.ts`).
+- Unread reach a session's notes only when its module posts `/host/place` with
+  `messages: true`; the cursor moves past what was handed. Never move it
+  otherwise.
+- A message is text: the page draws `body` as a string (`src/canvas/Messages.tsx`),
+  nothing acts on one, and no MCP tool here reads, sends or clears them —
+  `my_place` says only where they go and how many are kept. Clearing is
+  `POST /host/messages/clear`, in `PAGE_ONLY`.

@@ -8,6 +8,7 @@ import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
+import { announceMessagesChanged } from './messagesClient.ts'
 import { registryIn, type RegistryView } from './registry.ts'
 import type { Told } from './jump.ts'
 
@@ -620,6 +621,9 @@ export function watchCanvases(
         const rev = (parsed as { rev?: unknown }).rev
         inboxed?.(inbox, typeof rev === 'number' && Number.isInteger(rev) ? rev : null)
       }
+      /* Messages between agent sessions changed (protocol 2.41.0): the view reads again. */
+      const messaged = (parsed as { messages?: unknown })?.messages
+      if (typeof messaged === 'number' && Number.isInteger(messaged)) announceMessagesChanged(messaged)
       const disposed = (parsed as { dispositions?: unknown })?.dispositions
       if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
       const tracked = parsed as { tracker?: unknown; at?: unknown; refreshing?: unknown }

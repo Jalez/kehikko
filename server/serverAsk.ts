@@ -13,6 +13,7 @@ import {
 
 import { hold } from '../src/host/grants.ts'
 import type { Answer } from './answers.ts'
+import type { MessageAsked } from './messageRoutes.ts'
 import { tag, untraced } from './traffic.ts'
 
 /**
@@ -51,6 +52,11 @@ export interface ServerAskDeps {
   projectAt(folder: string): string | null
   /** The page's answer to the call, in that project — or in none, for a question about this computer (`traffic.*`, 2.20.0). */
   answer(module: string, method: string, params: unknown, root: string | null): Answer
+  /**
+   * `messages.send` and `messages.read` (protocol 2.41.0), answered for the session the call's token
+   * names (`messageRoutes.ts`): the project is the token's, so these name none. Absent: refused.
+   */
+  messages?(module: string, method: string, params: unknown): Promise<MessageAsked>
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -133,6 +139,15 @@ export function serverAskDesk(deps: ServerAskDeps) {
     const held = hold(method, (capability) => deps.may(module, capability))
     if (held.held) return refused('grant', held.why)
     if ('undeclared' in held) deps.undeclared?.(module, method, held.undeclared)
+    /* Messages (protocol 2.41.0): the session, and so the project, is the one the token names. A
+       token this host does not hold is refused as a project it does not hold: another host may. */
+    if (method === 'messages.send' || method === 'messages.read') {
+      if (!deps.messages) return reply({ ok: false, reason: 'failed', error: 'This host keeps no messages.' })
+      const said = await deps.messages(module, method, params)
+      if (said.ok) return reply({ ok: true, data: said.data })
+      if ('refused' in said) return refused('project', said.error)
+      return reply({ ok: false, reason: 'failed', error: said.error.slice(0, LIMITS.REASON) })
+    }
     /* A question about this computer names no project (protocol 2.20.0); the schema holds the rest to one. */
     const root = needsProject(method) ? deps.projectAt(project ?? '') : null
     if (needsProject(method) && !root) return refused('project', SERVER_ASK_SAYS.project)

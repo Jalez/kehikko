@@ -124,6 +124,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/notice',
   '/host/inbox/act',
   '/host/inbox/migrate',
+  '/host/messages/clear',
   '/host/trackers',
   '/host/base-branch',
   '/host/mine/check',

@@ -66,6 +66,12 @@ export const ANSWERED_BY_THE_SERVER = [
      `readParts` in `server/holdings.ts` and `server/dispositions.ts`. */
   'parts.get',
   'dispositions.get',
+  /* Messages between agent sessions (protocol 2.41.0): the record is the
+     server's (`server/agentMessages.ts`), and a module's SERVER asks them for a
+     session its token names (`server/messageRoutes.ts`). A page has no session:
+     `answer` declines them there. */
+  'messages.send',
+  'messages.read',
 ] as const
 
 /**

@@ -107,6 +107,7 @@ const nothingToShow = (method: string, data: unknown): Answer => {
   return held.ok ? { ok: true, data: held.data } : { ok: false, reason: 'failed', error: held.why }
 }
 const notMineToSay = (error: string): Answer => ({ ok: false, reason: 'failed', error })
+const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
 /* Which half answers what, and the check that nothing falls between them, live
    in `src/host/division.ts` — one file, because the failure worth catching is a
@@ -638,6 +639,18 @@ export function answer(
    * A call arriving here now is the canvas having forwarded something it should
    * have kept, and the guard at the top of this function says exactly that.
    */
+
+  /**
+   * Messages between agent sessions (protocol 2.41.0) are a SESSION's, sent and
+   * read by the module that runs it from its server, where `/host/server-ask`
+   * hands them to `server/messageRoutes.ts` before this table is reached. A page
+   * has no session to send from, so it is told so: `declined` for a send, a
+   * refusal for a read (whose answer has no outcome).
+   */
+  case 'messages.send':
+    return nothingToShow('messages.send', { outcome: 'declined', why: MESSAGES_FROM_A_PAGE })
+  case 'messages.read':
+    return notMineToSay(MESSAGES_FROM_A_PAGE)
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the

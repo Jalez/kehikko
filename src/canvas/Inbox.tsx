@@ -28,6 +28,7 @@ import {
   type Tally,
 } from '@/host/inbox.ts'
 import { ActivityDot } from './Activity.tsx'
+import { MessagesSection, type MessagesView } from './Messages.tsx'
 import { Hint } from './Hint.tsx'
 import { MuteChime } from './ChimeSettings.tsx'
 
@@ -94,6 +95,8 @@ export interface InboxView {
    * the person's answer, posted by the page.
    */
   choicesFor?(entry: Entry): { label: string; run(): void }[] | null
+  /** The open project's messages between agent sessions (protocol 2.41.0), read-only, folded at the foot. */
+  messages?: MessagesView
 }
 
 const PAGE = 20
@@ -618,6 +621,8 @@ export function InboxPanel({ view }: { view: InboxView }) {
             ) : null}
           </section>
         ) : null}
+
+        {view.messages ? <MessagesSection view={view.messages} /> : null}
       </div>
 
       {unseenFinished > 0 || forgettable ? (
