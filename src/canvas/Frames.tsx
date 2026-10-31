@@ -5,6 +5,7 @@ import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
+import { revealHandlers, type Reveals } from '@/host/reveal.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
 
@@ -125,6 +126,7 @@ export function Frames({
   moving,
   still = false,
   layer,
+  reveals = null,
 }: {
   framings: readonly Framing[]
   context: ModuleContext
@@ -184,6 +186,13 @@ export function Frames({
   still?: boolean
   /** The layer's own opacity and fade, for the same switch. */
   layer?: CSSProperties
+  /**
+   * In focus mode, the reveal of each container's header and footer
+   * (`host/reveal.ts`). The pointer crossing into a page holds its
+   * container's reveal: the host document sees the frame's boundary, never
+   * the moves inside it, and that is all this needs.
+   */
+  reveals?: Reveals | null
 }) {
   /* A page that is hidden while it has the focus gives it back: `inert` makes
      it unfocusable, but a browser leaves the focus where it was, and a module
@@ -219,6 +228,7 @@ export function Frames({
              document rather than the old one pointed somewhere else. */
           key={`${module.id}|${module.entry}|${generation}`}
           data-frame={module.id}
+          {...revealHandlers(reveals, module.id, 'frame')}
           /* Held while a switch hands over (`still`): the page being left,
              fading out where it was, is no more a target than a hidden one. */
           {...hiddenFrame(visible && !still)}

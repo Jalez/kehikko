@@ -250,6 +250,7 @@ export function ModuleFrame({
         /* The module's menus, as declared. Held by the canvas; see
            `host/header.ts`. */
         header: (items) => watcherRef.current.header(items),
+        footer: (items) => watcherRef.current.footer?.(items),
       },
       { name: framed.name },
     )
@@ -323,7 +324,7 @@ export function ModuleFrame({
       /* And a walk, which is a press with an answer. See `Pressable.walk`. */
       walk: (target) => conversation.goto(target),
       /* And one item of the module's own header. See `Pressable.item`. */
-      item: (press) => conversation.press(press.item, press.value),
+      item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined),
       /* And an Inbox item of its own that the person opened, once the host came to its place. */
       opened: (item) => conversation.sendOpened(item),
       /* And the keyboard, after a press that closed its menu. The frame's

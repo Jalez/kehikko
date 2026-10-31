@@ -344,113 +344,90 @@
 }
 
 /*
- * Focus mode: the headers come out of the layout, and come back on hover.
+ * Focus mode: the header and the footer come out of the layout, and come back
+ * — pushing, not covering — while the pointer is over the container.
  *
- * `src/host/focus.ts` has the argument for the mode. This is how it is drawn,
- * and the interesting part is not the hiding — it is the reveal, because the
- * obvious way to write it does not work in this program.
+ * `src/host/focus.ts` has the argument for the mode, and `src/host/reveal.ts`
+ * the argument for how the reveal is decided. This is how it is drawn.
  *
- * ## Why `:hover` on the container is not available
+ * ## Pushed, not hung over the page
  *
- * A grid item and the container inside it are `pointer-events: none`, so that the
- * module's page underneath can be clicked — see the essay a few rules up. An
- * element that is not a hit target never matches `:hover`, so `.container:hover`
- * matches nothing, ever. Nor could JavaScript do better: the pointer spends its
- * time over an iframe, and a document does not receive pointer events that
- * happen inside one — the same fact that makes `moving` necessary in
- * `Frames.tsx`.
+ * The header used to hang from an eight-pixel strip at the top edge, drawn
+ * OVER the module's page. Now the header's wrapper (`.container-reveal`) and
+ * the footer's (`.container-footer-reveal`) stay in the container's column at
+ * a height of nothing, and grow to a row when the container is revealed. The
+ * body between them is `flex-1`, so it gives up exactly what they take; the
+ * module's page is positioned from the body's measured rectangle
+ * (`host/rects.ts`), so it shrinks with it. Nothing in the module is covered
+ * and nothing overflows. When they hide the page has its full height back.
  *
- * So the reveal needs one element that IS a hit target, and every pixel of that
- * element is a pixel of the module underneath that cannot be clicked. That is
- * the entire cost of this feature and it is paid here, in eight pixels along
- * the top edge of a container, which is where a module is least likely to have put
- * something you press.
+ * ## Who reveals
  *
- * ## How the eight pixels become thirty-two
+ * `[data-revealed]` is set by `host/reveal.ts` from the pointer anywhere over
+ * the container — its page (from the frames layer), its header, its footer, a
+ * cover — and from focus within it, debounced so that the page moving under
+ * the pointer cannot hide what the pointer just revealed. `:focus-within`
+ * stays as a second way for the keyboard: Tab reaches the hidden controls,
+ * which are faded and not removed, and the wrapper opens around them. And an
+ * open menu keeps its row: a menu is drawn in a portal, so the pointer in it
+ * is over neither the header nor the page.
  *
- * `.container-reveal` is that hit target. It is eight pixels tall at rest and a
- * header tall when hovered, with the header itself overflowing it visibly the
- * rest of the time. Growing on hover is what stops the flicker: at eight pixels
- * forever, moving the pointer down onto the header it had just revealed would
- * leave the strip, un-match the rule, and hide the header out from under the
- * pointer — the classic reveal that cannot be reached.
+ * The rows keep `pointer-events: none` until they are shown, so a faded
+ * control is never a hidden target. A tooltip must not outlive the row it was
+ * on — `Hint.tsx` sets `disableHoverableContent` for that; `dev/tooltips.mjs`
+ * measures it.
  *
- * The header keeps `pointer-events: none` until it is actually shown. Without
- * that, the invisible strip would still carry the header's buttons, and the
- * top-right eight pixels of every module would be an unlabelled control that
- * takes the container off the canvas.
+ * ## Motion
  *
- * ## A tooltip must not outlive the header it was on
- *
- * The header being FADED rather than unmounted has one consequence worth
- * naming here, next to the rule that causes it: a tooltip opened on one of
- * these controls used to stay on screen after the header had gone, floating
- * over the canvas with nothing to press to dismiss it. Not because the trigger
- * missed the `pointerleave` — it receives one — but because a Radix tooltip is
- * hoverable by default and owes its dismissal to a later `pointermove`, and
- * the thing below a container header is an iframe this document gets no
- * pointer events from. `Hint.tsx` has the argument and sets
- * `disableHoverableContent`; `dev/tooltips.mjs` measures it. Anyone changing
- * how the header hides should run that probe.
- *
- * `:focus-within` is there for the same reason the hover is, for somebody not
- * using a pointer. Pin, prompts, tools and remove live only in this header; a
- * reveal that answered to the mouse alone would put all four out of a keyboard
- * user's reach, and nothing on screen would say so.
+ * One short height transition, the row's own; `prefers-reduced-motion` has
+ * none — the rows appear and go.
  *
  * ## A folded container keeps its header, in focus mode too
  *
- * `[data-collapsed]` is the exemption, and it is deliberate rather than an
- * oversight. Focus mode gives space back to the modules; a folded container is not
- * showing a module, so there is no space to give — and hiding its header would
- * leave a container with nothing visible at all, its program still running,
- * indistinguishable from a container that had been taken off the canvas. The one
- * thing on screen saying "this is folded and still here" is the header, so in
- * focus mode it is the one header that stays drawn.
+ * `[data-collapsed]` is the exemption, and it is deliberate. A folded
+ * container is not showing a module, so there is no space to give — and hiding
+ * its header would leave a container with nothing visible at all. A folded
+ * container has no footer either (`host/footer.ts`).
  *
  * ## And a SELECTED container keeps its header too
  *
- * `[data-selected]` is the second exemption and it is the same shape of
- * argument. A pin or a fold is a thing the person did and can see they did; a
- * selection is a state something else can change — an agent through the host's
- * MCP door names two containers and they become the targets. The container's
- * own ring says so from across the canvas whatever mode it is in, because the
- * ring is on the container and not in the header. What the exemption buys is
- * the BOX: the one control that takes the selection back, kept reachable on
- * exactly the containers where somebody is likely to reach for it, instead of
- * being a hover away on a header that is hidden.
+ * `[data-selected]` is the second exemption: a selection is a state something
+ * else can change, and the box that takes it back stays reachable on exactly
+ * the containers where somebody is likely to reach for it. Its footer reveals
+ * like any other.
  */
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  height: 8px;
-  overflow: visible;
-  pointer-events: auto;
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]),
+.focus-mode .react-grid-item .container-footer-reveal {
+  height: 0;
+  overflow: hidden;
+  transition: height 140ms ease;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip,
+.focus-mode .react-grid-item .container-footer-reveal > * {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-/* And while one of its menus is open. A menu is drawn in a portal, so the
-   pointer in it is not over the header and the focus in it is not within the
-   header: without this the header faded out from under its own open menu. */
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):has([data-slot='dropdown-menu-trigger'][data-state='open']) {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
+.focus-mode .react-grid-item .container-footer-reveal:is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
   height: 2rem;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):hover > .container-grip,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):focus-within > .container-grip,
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):has([data-slot='dropdown-menu-trigger'][data-state='open']) > .container-grip {
+.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
+.focus-mode .react-grid-item .container-footer-reveal:is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-mode .react-grid-item .container-reveal,
+  .focus-mode .react-grid-item .container-reveal > .container-grip,
+  .focus-mode .react-grid-item .container-footer-reveal,
+  .focus-mode .react-grid-item .container-footer-reveal > * {
+    transition: none;
+  }
 }
 
 /* No fade while a container is being dragged. The gesture starts on the header, so

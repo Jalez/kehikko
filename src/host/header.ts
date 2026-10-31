@@ -256,6 +256,8 @@ export function focusIsInModule(active: Element | null): boolean {
 export interface Pressing {
   item: string
   value?: PressValue
+  /** Protocol 2.38.0: `footer` for an item of the module's footer; absent for one of its header. */
+  place?: 'footer'
 }
 
 /** What became of a press: taken, or not — and then `why` is a sentence a person can read. */
