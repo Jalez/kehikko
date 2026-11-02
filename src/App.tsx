@@ -105,7 +105,7 @@ import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, typ
 import { settingsOf } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
-import { coveredForScope, scopeOfContainer, scopeToKeep, scopeToTell } from './host/scope.ts'
+import { coveredForScope, keptScope, scopeOfContainer, scopeToKeep, scopeToTell } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
    one of the least readable name collisions available. */
@@ -4211,10 +4211,11 @@ export function App() {
    *
    * A page is loaded when its module first appears on the open canvas, and is
    * kept while the module is on the open kehikko or on one of the last
-   * `KEPT_KEHIKOT` left — which is what makes switching back free. It is
-   * dropped when none of those has it any more (the oldest kehikko left falls
-   * off the list), when the last canvas holding it lets go, or when its
-   * registration disappears.
+   * `KEPT_KEHIKOT` left — which is what makes switching back free — and, by
+   * its container's scope, always at This computer and while in its project at
+   * Project (`scopeKeeps`, `host/scope.ts`). It is dropped when none of those
+   * has it any more (the oldest kehikko left falls off the list), when the
+   * last canvas holding it lets go, or when its registration disappears.
    *
    * Held in a ref rather than in state because it is a record of what has been
    * loaded, not a description of what should be on screen. Deriving it every
@@ -4224,6 +4225,8 @@ export function App() {
   const loadedRef = useRef<Set<string>>(new Set())
   /** The open kehikko and the ones left before it, most recent first. See `recentlyOpen`. */
   const recentRef = useRef<number[]>([])
+  /** Each module's manifest as last read, for the scope its containers keep it by (`framesKept`). */
+  const scopeReadRef = useRef<Map<string, NonNullable<Presence['module']>>>(new Map())
   /**
    * Which version each loaded page is of: the open kehikko's pin when the
    * module is on it, else whatever it was last loaded as. One page per module,
@@ -4281,9 +4284,15 @@ export function App() {
     const loadedVersion = loadedVersionRef.current
     const anywhere = new Set(everyPlaced(canvases))
     /* The open kehikko and the last few left: a page on none of them is let
-       go (`framesKept`, `Frames.tsx`). */
+       go (`framesKept`, `Frames.tsx`) — unless its container's scope keeps it
+       (This computer, or Project while in its project: `scopeKeeps`). The
+       module last read stands while it is not answering, so a restart does
+       not drop a page its scope keeps. */
     recentRef.current = recentlyOpen(recentRef.current, open?.id ?? null)
-    const kept = framesKept(canvases, recentRef.current)
+    const read = scopeReadRef.current
+    for (const [id, presence] of byId) if (presence.module) read.set(id, presence.module)
+    for (const id of [...read.keys()]) if (!byId.has(id)) read.delete(id)
+    const kept = framesKept(canvases, recentRef.current, (p) => keptScope(read.get(p.i), p.scope))
     for (const id of [...loaded]) {
       if (!anywhere.has(id) || !byId.has(id) || !kept.has(id)) loaded.delete(id)
     }

@@ -69,6 +69,10 @@ import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
  *     those is let go, oldest kehikko first, and loads again when its kehikko
  *     is opened. A dev server's page holds tens of megabytes, and a person who
  *     has visited every kehikko of three projects is not looking at them.
+ *     A container's scope keeps its page beyond that bound, and outside it:
+ *     at This computer always, at Project while a kehikko of its project is
+ *     open (`scopeKeeps` in `host/scope.ts`). Such a page is `away` like any
+ *     other kept page, in whichever project is open.
  */
 
 export interface Rect {

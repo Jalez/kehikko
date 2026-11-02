@@ -39,7 +39,8 @@ import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editParts, epicSlugs, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
-import { fetchManifest, look, type Presence } from './discover.ts'
+import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
+import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
@@ -1404,10 +1405,22 @@ function theirReturn(id: string): void {
 }
 
 /**
+ * Each module's manifest as last read, for the scope a container keeps it by
+ * (`scopeKeeps`, "Why a container's scope may keep a module" in
+ * `lifecycle.ts`). Kept while the module is not answering — a module its scope
+ * keeps that went down is needed, and started again — and forgotten with its
+ * registration. Memory only: a host that has not read a module keeps nothing
+ * for it by scope.
+ */
+const scopeRead = new Map<string, FramedModule>()
+
+/**
  * Which modules are on a kehikko that a live page says it has open.
  *
  * The whole activation rule, and it is one sentence: a module is needed when
- * somebody is looking at a canvas that has it. Two windows on two kehikot need
+ * somebody is looking at a canvas that has it — or when a container's scope,
+ * which the person picked, keeps it (This computer always, Project while in
+ * its project; see `wanted`). Two windows on two kehikot need
  * the union — `open.ts` refuses to collapse those into one answer for an agent
  * and hands them over uncollapsed here, because two screens is not an ambiguity
  * when the question is "is anybody looking at this".
@@ -1427,8 +1440,11 @@ function neededNow(now = Date.now()): Set<string> {
  * module on both is needed, not warm. Local, like `neededNow`.
  */
 function wantedNow(now = Date.now()): Wanted {
-  return wanted(listCanvases(db), new Set(openness.every(now)), readKeepRunning(db))
+  return wanted(listCanvases(db), new Set(openness.every(now)), readKeepRunning(db), (placement) =>
+    keptScope(scopeRead.get(placement.i), placement.scope),
+  )
 }
+
 
 /** What the host is doing to one module, for `lifecycleOf`. */
 function doing(id: string): Doing {
@@ -1461,6 +1477,7 @@ function isStarting(id: string, now: number): boolean {
  * exhaustively without a process ever being created.
  */
 function standings(presences: readonly Presence[], now: number): Standing[] {
+  for (const presence of presences) if (presence.module) scopeRead.set(presence.id, presence.module)
   const { needed, warm } = wantedNow(now)
   idleness.noted(needed, now)
   /* Warm counts as needed for idleness: a module on another kehikko of the
@@ -1476,6 +1493,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
      — see `readRegistrations` — so it is also the list of what these may hold. */
   const here = new Set(presences.map((presence) => presence.id))
   idleness.forgetAllBut(here)
+  for (const id of [...scopeRead.keys()]) if (!here.has(id)) scopeRead.delete(id)
   for (const id of [...starting.keys()]) if (!here.has(id)) starting.delete(id)
   for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
   for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
