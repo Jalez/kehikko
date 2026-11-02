@@ -864,15 +864,19 @@ function listed(item: HeaderItem, alone: boolean): boolean {
 }
 
 /**
- * Whether a menu is open, closed by the two things Radix cannot see.
+ * Whether a menu is open, and how it came to close, for `focusAfter`.
  *
  * Radix closes a menu on a press outside it and on Escape. A press INSIDE A
  * MODULE'S PAGE is neither, as far as this document can tell: the page is
  * another origin's iframe, and a pointer that goes down in one raises no
  * event here at all — the fact `Hint.tsx` and `Frames.tsx` each had to work
  * around. What this document does get is `blur` on its window, when focus
- * leaves for the frame. So that closes the menu: somebody who clicked into
- * the module is done with the menu over it.
+ * leaves for the frame, and that closes the menu in the menu root itself
+ * (`useCloseOnFrameBlur`, `src/lib/menus.ts`), so every menu in the app closes
+ * the same way. What stays here is the REASON a close happened: a menu closed
+ * while the keyboard is already in a module's page is 'away', not a dismissal
+ * — the content's own blur can close the menu a moment before the window's,
+ * as `focusAfter` in `host/header.ts` says.
  *
  * A drag needs nothing here. It starts with a press on the header, which is
  * outside the menu, and Radix has closed it before the grid moves anything.
@@ -884,25 +888,11 @@ function useOpen(onClosed: () => void, closing: MutableRefObject<Closing>): [boo
   const set = (next: boolean) => {
     /* A menu that opens has not been closed by anything yet. */
     if (next) closing.current = 'dismissed'
+    /* Closed while the keyboard is already in a module's page is 'away'. */
+    else if (focusIsInModule(document.activeElement)) closing.current = 'away'
     setOpen(next)
     if (!next) closed.current()
   }
-  useEffect(() => {
-    if (!open) return
-    const away = (event: Event) => {
-      /* In the capture phase an element's blur passes here too: only the window's own. */
-      if (event.target !== window) return
-      /* Focus is in a module's page now, and is not pulled back out of it. */
-      closing.current = 'away'
-      setOpen(false)
-      closed.current()
-    }
-    /* Capture, so this runs before Radix's own `blur` listener closes the menu as an
-       ordinary dismissal: that one would leave `closing` at `dismissed` and the
-       menu would hand focus back to its trigger, away from the page just clicked. */
-    window.addEventListener('blur', away, true)
-    return () => window.removeEventListener('blur', away, true)
-  }, [open])
   return [open, set]
 }
 

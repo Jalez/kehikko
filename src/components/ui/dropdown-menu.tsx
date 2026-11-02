@@ -3,6 +3,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { focusIsInFrame, useCloseOnFrameBlur } from '@/lib/menus'
 
 /**
  * shadcn's dropdown menu (new-york), whole: checkbox items, a radio group,
@@ -21,13 +22,31 @@ import { cn } from '@/lib/utils'
  * `EDGE_GAP` pixels from the window's edge: a container at the left of the
  * window is narrower than its menus, and a menu pushed back into view by
  * Radix's collision handling otherwise lands flush against the edge.
+ *
+ * And the root closes the menu when the window loses focus to a module's
+ * page (`useCloseOnFrameBlur`, `src/lib/menus.ts`): a press inside a frame is
+ * no pointerdown this document ever sees, so the outside-press rule cannot
+ * fire — the window's `blur` is what arrives.
  */
 
 /** How far a menu stays from the edge of the window when it has to be moved to fit. */
 export const EDGE_GAP = 8
 
-function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+function DropdownMenu({ open, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  /* The root holds the open state itself, so the one hook can close the menu
+     on that blur whether the caller controls `open` or not. */
+  const [inner, setInner] = React.useState(defaultOpen ?? false)
+  const isOpen = open ?? inner
+  const change = React.useCallback(
+    (next: boolean) => {
+      if (open === undefined) setInner(next)
+      onOpenChange?.(next)
+    },
+    [open, onOpenChange],
+  )
+  const close = React.useCallback(() => change(false), [change])
+  useCloseOnFrameBlur(isOpen, close)
+  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" open={isOpen} onOpenChange={change} {...props} />
 }
 
 function DropdownMenuPortal({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -70,6 +89,8 @@ function DropdownMenuContent({
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event)
           if (shutByTheTour()) event.preventDefault()
+          /* Focus has left for a module's page: the trigger does not take the keyboard back out of it — the `focusAfter` rule in `host/header.ts`. */
+          if (focusIsInFrame(document)) event.preventDefault()
         }}
         {...props}
       />
