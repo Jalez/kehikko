@@ -58,6 +58,7 @@ export function ModuleFrame({
   filters,
   scope,
   away = false,
+  visible = true,
   reveals = null,
   covers = null,
 }: {
@@ -117,6 +118,12 @@ export function ModuleFrame({
    * the context as it is then.
    */
   away?: boolean
+  /**
+   * Whether the person can see this page now: on the open kehikko, in a
+   * container that is not folded, and drawn. Told to the page (`kehikot.visible`,
+   * protocol 2.45.0), which cannot see a CSS hide from inside its frame.
+   */
+  visible?: boolean
   /** Focus mode's reveal, or `null` outside focus mode. Read only for a module with `covers`. */
   reveals?: Reveals | null
   /**
@@ -129,6 +136,9 @@ export function ModuleFrame({
   const conversationRef = useRef<Conversation | null>(null)
   /* What focus mode's rows cover of this page now; see the effect that tells it, below. */
   const coveredRef = useRef({ top: 0, bottom: 0 })
+  /* Whether the page is on screen now; see the effect that tells it, below. */
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
 
   /* Held in refs and read inside the effects rather than listed as
      dependencies. The conversation must survive a re-render caused by the
@@ -269,6 +279,7 @@ export function ModuleFrame({
     conversationRef.current = conversation
     /* A new conversation for this frame starts from what the rows cover now. */
     conversation.sendCovered(coveredRef.current)
+    conversation.sendVisible(visibleRef.current)
 
     /* One listener for this frame. The window receives messages from every
        frame on the page and from anything else with a handle on it; the
@@ -463,6 +474,16 @@ export function ModuleFrame({
   useEffect(() => {
     conversationRef.current?.sendCovered({ top: coveredTop, bottom: coveredBottom })
   }, [coveredTop, coveredBottom])
+
+  /*
+   * Whether the page is on screen (protocol 2.45.0). A page hidden on a
+   * kehikko the person left keeps running, and a module that counts what the
+   * person saw from what its page shows must not count it there. The
+   * conversation tells only a change, and once after every greeting.
+   */
+  useEffect(() => {
+    conversationRef.current?.sendVisible(visible)
+  }, [visible])
 
   /*
    * The frame's address: the entry, with the theme the host is drawing in NOW

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, coveredSchema, openedSchema, pressSchema } from 'kehikot-module-protocol'
+import { MAX_HEIGHT, MESSAGE, MIN_HEIGHT, PROTOCOL, coveredSchema, openedSchema, pressSchema, visibleSchema } from 'kehikot-module-protocol'
 import { PRESS_BACKSTOP_MS } from 'kehikot-module-protocol/client'
 
 import { Conversation, PRESSED_TIMEOUT_MS, type Answer } from '@/host/conversation.ts'
@@ -931,5 +931,45 @@ describe('what the rows cover of an over page (kehikot.covered, protocol 2.42.0)
     conversation.close()
     conversation.sendCovered({ top: 0, bottom: 0 })
     expect(covered(sent)).toHaveLength(2)
+  })
+})
+
+describe('whether the page is on screen (kehikot.visible, protocol 2.45.0)', () => {
+  function frame() {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const conversation = new Conversation(frame, 'kehikot.terminal', null, async () => nothing, quiet(), { name: 'Terminal' })
+    const say = (data: unknown) => conversation.receive({ source: contentWindow, origin: 'null', data })
+    return { conversation, sent, say }
+  }
+  const visible = (sent: Sent[]) => sent.map((one) => one.message).filter((one) => one.type === MESSAGE.VISIBLE)
+  const told = (on: boolean) => ({ type: MESSAGE.VISIBLE, protocol: PROTOCOL, visible: on })
+
+  test('told once after the greeting, then each change and never the same twice, parsed by the protocol', () => {
+    const { conversation, sent, say } = frame()
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    expect(visible(sent)).toEqual([told(true)])
+    conversation.sendVisible(true)
+    conversation.sendVisible(false)
+    conversation.sendVisible(false)
+    conversation.sendVisible(true)
+    expect(visible(sent)).toEqual([told(true), told(false), told(true)])
+    expect(visibleSchema.safeParse(visible(sent)[1]).success).toBe(true)
+    conversation.close()
+  })
+
+  test('a page hidden before it answered is told it is hidden once it does, and again after every greeting', () => {
+    const { conversation, sent, say } = frame()
+    conversation.sendVisible(false)
+    conversation.greet(context)
+    expect(visible(sent)).toEqual([])
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    expect(visible(sent)).toEqual([told(false)])
+    conversation.greet(context)
+    say({ type: MESSAGE.READY, id: 'kehikot.terminal', protocol: PROTOCOL })
+    expect(visible(sent)).toEqual([told(false), told(false)])
+    conversation.close()
+    conversation.sendVisible(true)
+    expect(visible(sent)).toHaveLength(2)
   })
 })
