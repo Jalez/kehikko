@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { doorsHanded, meetingSkill } from '../src/host/connections.ts'
-import { LIMITS, installsSkills, isKehikkoBound, missingNeeds, oneLine, type AbsentModule, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
+import { LIMITS, installsSkills, isKehikkoBound, oneLine, skillsThatLoad, type AbsentModule, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
@@ -102,9 +102,11 @@ export interface ModuleOn {
   door: string | null
   /**
    * The skills it offers that can work on this kehikko: every need a skill lists is met by a
-   * container here (`missingNeeds`, protocol 2.21.0: by id, or by what a module provides, says or
-   * asks for). Kehikko-bound ones only for a session started by a module that loads skills
-   * (`loadsSkillsHere`): that is where such a skill is routed.
+   * container's manifest here (`skillsThatLoad`, protocol 2.44.0 — the same rule the module that
+   * loads skills runs). Kehikko-bound ones only for a session started by a module that loads skills
+   * (`loadsSkillsHere`): that is where such a skill is routed. What CAN load now, not what a session
+   * holds: the module that runs it knows that, and says apart what its session lacks (`holds` in the
+   * protocol's notes, 2.44.0).
    */
   skills: string[]
 }
@@ -147,7 +149,7 @@ export function modulesOn(
         .filter(
           (skill) =>
             (loadsBound || !isKehikkoBound(skill)) &&
-            missingNeeds(skill, meetingSkill(canvas.connections, p.i, skill.name, on)).length === 0,
+            skillsThatLoad([skill], meetingSkill(canvas.connections, p.i, skill.name, on)).load.length === 1,
         )
         .map((skill) => skill.name),
     })
