@@ -62,7 +62,11 @@ import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
  *     its size, so it is not reflowed to nothing and back; it keeps running,
  *     which is the whole point; and it stops receiving the pointer. It is
  *     `inert` too, so no Tab lands in a page nobody can see, and it is not
- *     told the open kehikko's context (`away`, `whileAway`).
+ *     told the open kehikko's context (`away`, `whileAway`). It is told
+ *     that it is hidden, and shown again (`kehikot.visible`, protocol
+ *     2.45.0): a CSS hide fires no `visibilitychange` inside the frame, and a
+ *     module that counts what the person saw must not count it on a page
+ *     nobody can see.
  *
  *   - **Kept, within a bound.** The pages of the open kehikko and of the last
  *     `KEPT_KEHIKOT` kehikot left are kept (`framesKept`); a page on none of
@@ -270,6 +274,7 @@ export function Frames({
             filters={filters}
             scope={scope}
             away={away}
+            visible={visible}
             reveals={reveals}
             covers={covers}
           />

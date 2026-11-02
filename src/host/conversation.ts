@@ -224,6 +224,9 @@ export class Conversation {
   /* What the host's rows cover of this frame now, for a module that says `reveal: 'over'`, and what the page was last told. */
   private covered = { top: 0, bottom: 0 }
   private coveredTold = '0,0'
+  /* Whether the host has this frame's page on screen now (`kehikot.visible`), and what the page was last told; `null` after a greeting. */
+  private visible = true
+  private visibleTold: boolean | null = null
   private answered = false
   private closed = false
   private nextGoto = 1
@@ -502,6 +505,31 @@ export class Conversation {
   }
 
   /**
+   * Tell this module whether its page is on screen (protocol 2.45.0,
+   * `kehikot.visible`). The host keeps a page alive and hidden with CSS when
+   * the person leaves for a kehikko its module is not on, or folds its
+   * container — and inside a CSS-hidden frame no `visibilitychange` fires, so
+   * this is the only way the page can know nobody is looking at it. `true`
+   * after `false` is the person arriving back at it.
+   *
+   * STATE, like `sendCovered`: the latest is kept, a change is told, and the
+   * page is told once after every greeting whatever it is. A module before
+   * 2.45.0 drops the message unread.
+   */
+  sendVisible(visible: boolean): void {
+    if (this.closed) return
+    this.visible = visible
+    if (!this.greeted || !this.answered) return
+    this.tellVisible()
+  }
+
+  private tellVisible(): void {
+    if (this.visibleTold === this.visible) return
+    this.visibleTold = this.visible
+    this.post({ type: MESSAGE.VISIBLE, protocol: PROTOCOL, visible: this.visible })
+  }
+
+  /**
    * Tell this module to read its material again.
    *
    * `sendClear`'s twin in shape and its opposite in consequence: that one is
@@ -656,6 +684,9 @@ export class Conversation {
       /* A greeted page starts from nothing covered; tell it if the rows are out now. */
       this.coveredTold = '0,0'
       this.tellCovered()
+      /* And whether it is on screen, once after every greeting. */
+      this.visibleTold = null
+      this.tellVisible()
       /* The id in `ready` is the module's own claim about its name. It is not
          how the host identifies it — that is the frame — so a mismatch is a
          fault to report and not an impersonation to defend against. Treating
