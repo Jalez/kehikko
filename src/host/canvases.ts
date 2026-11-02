@@ -1,6 +1,6 @@
 import { settingIn, type ConnectionsSetting } from './connections.ts'
 import { z } from 'zod'
-import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
+import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWebAddress, type ContentChange, type FooterItem, type HeaderItem, type ModuleScope, type SharedAddress, type SharedLocation } from 'kehikot-module-protocol'
 
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
@@ -10,6 +10,7 @@ import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
 import { registryIn, type RegistryView } from './registry.ts'
+import { scopeKeeps } from './scope.ts'
 import type { Told } from './jump.ts'
 
 /**
@@ -1081,12 +1082,27 @@ export function recentlyOpen(recent: readonly number[], open: number | null, kep
 
 /**
  * The modules whose pages may stay loaded: every module on a kehikko in
- * `recent`. A page outside it is let go — see `Frames.tsx`.
+ * `recent`, and every module a container's scope keeps (`scopeKeeps` in
+ * `host/scope.ts`) — at This computer on any kehikko of any project, at
+ * Project on any kehikko of the open kehikko's project — without counting
+ * against `KEPT_KEHIKOT`. `scopeOf` is the scope in use for one container, or
+ * null when its module has not been read. A page outside all of it is let go
+ * — see `Frames.tsx`.
  */
-export function framesKept(canvases: readonly Canvas[], recent: readonly number[]): Set<string> {
+export function framesKept(
+  canvases: readonly Canvas[],
+  recent: readonly number[],
+  scopeOf: (placement: Placement) => ModuleScope | null = () => null,
+): Set<string> {
   const ids = new Set<string>()
   const keep = new Set(recent)
-  for (const canvas of canvases) if (keep.has(canvas.id)) for (const p of canvas.placements) ids.add(p.i)
+  const open = canvases.find((canvas) => canvas.id === recent[0])?.project ?? null
+  const projects = new Set<number>(open === null ? [] : [open])
+  for (const canvas of canvases) {
+    for (const p of canvas.placements) {
+      if (keep.has(canvas.id) || scopeKeeps(scopeOf(p), canvas.project, projects)) ids.add(p.i)
+    }
+  }
   return ids
 }
 

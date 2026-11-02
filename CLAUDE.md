@@ -421,6 +421,15 @@
   (`recentlyOpen`, `framesKept` in `src/host/canvases.ts`); a hidden page is
   `inert` (`hiddenFrame`) and is not told the open kehikko's context
   (`away`, `whileAway` in `src/host/context.ts`): its place is its own kehikko.
+- A container's scope keeps its module beyond that, in both halves: at This
+  computer always, at Project while a kehikko of its project is open
+  (`scopeKeeps` in `src/host/scope.ts`). Kept is NEEDED in `wanted` (started,
+  never stopped, whatever "Keep this project's modules running" says) and a
+  loaded page in `framesKept`, outside `KEPT_KEHIKOT`, `away` like any kept
+  page. It counts as the person's exemption (the essay in `lifecycle.ts`): the
+  container is theirs, and its scope is their pick or the default they left.
+  A module not read since the host started keeps nothing by scope (boot
+  starts nothing).
 
 ## A folder nobody picked is never written
 

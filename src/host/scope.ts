@@ -182,3 +182,36 @@ export function scopeToTell(active: ModuleScope, allEpics: boolean, pinned = fal
 
 /** The order the modules menu groups by: from the widest to the narrowest. */
 export const SCOPE_ORDER: readonly ModuleScope[] = MODULE_SCOPES
+
+/*
+ * ## What a container's scope keeps
+ *
+ * A container's scope is the person's choice, among the modes its module
+ * offers, of what its content belongs to — and that choice says how long the
+ * module is wanted, too. A module at This computer is about the whole
+ * machine, so leaving its kehikko, or its project, does not make it any less
+ * wanted; one at Project is wanted while the person is anywhere in its
+ * project. Epic, Part and Kehikko keep nothing beyond the kehikko.
+ *
+ * Both halves of keeping read this one rule: the host's process policy (a
+ * module kept is NEEDED and never stopped, `wanted` in `server/lifecycle.ts`)
+ * and the page's (its page stays loaded, hidden and inert, not counted
+ * against `KEPT_KEHIKOT`: `framesKept` in `host/canvases.ts`). It is let go
+ * when the container is removed, its scope changes or the app quits.
+ *
+ * A container whose module has not been read since the host started keeps
+ * nothing by its scope: the scope in use is the module's to say (its
+ * default, or whether it still offers the one picked), and nothing is started
+ * on a guess about it.
+ */
+
+/** Whether a container at `scope`, on a kehikko of `project`, keeps its module while the open projects are `open`. */
+export function scopeKeeps(scope: ModuleScope | null, project: number | null, open: ReadonlySet<number>): boolean {
+  if (scope === 'machine') return true
+  return scope === 'project' && project !== null && open.has(project)
+}
+
+/** The scope in use for a container, or null when its module has not been read. */
+export function keptScope(module: ScopeManifest | null | undefined, picked: string | null | undefined): ModuleScope | null {
+  return module ? activeScope(module, picked ?? null) : null
+}

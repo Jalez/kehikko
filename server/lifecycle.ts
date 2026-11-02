@@ -1,3 +1,7 @@
+import type { ModuleScope } from 'kehikot-module-protocol'
+
+import { scopeKeeps } from '../src/host/scope.ts'
+
 /**
  * When a module should be running, and when it should not.
  *
@@ -16,7 +20,7 @@
  * which kehikko each open page has (`open.ts`) and which modules are on it
  * (`canvases.ts`). Nothing had to be invented; only a policy had to be decided.
  *
- * ## The policy, in four lines
+ * ## The policy, in a few lines
  *
  *  - A module on a kehikko an open page is looking at is NEEDED.
  *  - A needed module that nothing answers for is STARTED, if its registration
@@ -25,6 +29,9 @@
  *    the person turned "Keep this project's modules running" off): started in
  *    the background once the open kehikko's own are up, `WARM_AT_ONCE` at a
  *    time, and not stopped while it stays warm. See `toWarm`.
+ *  - A module a container's scope keeps — at This computer always, at Project
+ *    while a kehikko of its project is open — is NEEDED wherever its kehikko
+ *    is. See "Why a container's scope may keep a module".
  *  - A module that has been neither needed nor warm for `GRACE_MS` is STOPPED —
  *    but only if this host process started it, and only if its owner has not
  *    said to keep it.
@@ -103,6 +110,28 @@
  * it would put the names of somebody else's modules in this repository, which
  * is the catalogue this host has spent every other decision refusing to have.
  *
+ * ## Why a container's scope may keep a module
+ *
+ * The argument above is that an exemption must come from the person, never
+ * from the module. A container's scope (protocol 2.29.0) passes that test: the
+ * module only OFFERS the scopes it can work at, and the person picks one per
+ * container, in its settings window, kept with the arrangement they made.
+ * The module's default is only the scope a container starts at, on a kehikko
+ * where the person put it, until they pick another or remove it; a module
+ * whose one scope is This computer is one they placed knowing that. So
+ * a container at This computer — a module about the whole machine, which
+ * leaving one kehikko or one project does not make any less wanted — makes its
+ * module NEEDED at all times, on any kehikko of any project: started when it
+ * is not answering, like any needed module, and never stopped. One at Project
+ * is needed while any kehikko of its project is open; switching project puts
+ * it back on the ordinary rules. Epic, Part and Kehikko change nothing.
+ *
+ * A module the host has not read since it started has no scope in use to go
+ * by (its default is its manifest's to say), so nothing is started at boot
+ * because of a scope: "Boot starts nothing" stands, and quitting the app lets
+ * go of what a scope kept. The rule is `scopeKeeps` in `src/host/scope.ts`,
+ * which the page reads too, to keep the same module's page loaded.
+ *
  * ## The one thing this cannot save, and it is worth saying out loud
  *
  * The whole policy hangs on a page reporting what it has open, and a page that
@@ -150,7 +179,7 @@ export const STARTING_FOR_MS = 30_000
  */
 export interface Standing {
   id: string
-  /** On a kehikko that some live page says it has open. */
+  /** On a kehikko that some live page says it has open, or kept by a container's scope (`wanted`). */
   needed: boolean
   /**
    * On another kehikko of a project some live page has open, and the person
@@ -234,11 +263,17 @@ export interface Wanted {
  * both is needed, not warm. With `keep` off (the person turned "Keep this
  * project's modules running" off) nothing is warm. A kehikko in no project
  * makes only itself needed: a project of null is not a project.
+ *
+ * A container's scope adds to needed (`scopeOf` is the scope in use for one
+ * container, null when its module has not been read): at This computer its
+ * module is needed whatever is open, at Project while a kehikko of its
+ * project is open. See "Why a container's scope may keep a module" above.
  */
 export function wanted(
-  canvases: readonly { id: number; project: number | null; placements: readonly { i: string }[] }[],
+  canvases: readonly { id: number; project: number | null; placements: readonly { i: string; scope?: string | null }[] }[],
   open: ReadonlySet<number>,
   keep: boolean,
+  scopeOf: (placement: { i: string; scope?: string | null }) => ModuleScope | null = () => null,
 ): Wanted {
   const needed = new Set<string>()
   const projects = new Set<number>()
@@ -246,6 +281,15 @@ export function wanted(
     if (!open.has(canvas.id)) continue
     if (canvas.project !== null) projects.add(canvas.project)
     for (const placement of canvas.placements) needed.add(placement.i)
+  }
+  /* What a container's scope keeps is needed too, wherever its kehikko is —
+     This computer always, Project while a kehikko of its project is open —
+     and with "Keep this project's modules running" off as well: it is a
+     choice the person made for that container. See `scopeKeeps`. */
+  for (const canvas of canvases) {
+    for (const placement of canvas.placements) {
+      if (scopeKeeps(scopeOf(placement), canvas.project, projects)) needed.add(placement.i)
+    }
   }
   const warm = new Map<string, number>()
   if (!keep || projects.size === 0) return { needed, warm }
