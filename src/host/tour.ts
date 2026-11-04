@@ -317,28 +317,14 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
-    id: 'scope',
-    kind: 'show',
-    example: 'header',
-    frames: [
-      {
-        selectors: ['[data-tour-example] [data-testid="header-scope"]'],
-        title: 'What it belongs to',
-        body: 'Its scope: This computer, Project, Epic, Part or Kehikko. Press it to see the scopes the module can work at, and pick one.',
-        side: 'bottom',
-        align: 'start',
-      },
-    ],
-  },
-  {
     id: 'frame',
     kind: 'show',
     example: 'header',
     frames: [
       {
         selectors: ['[data-tour-example] [data-menu="frame"]'],
-        title: 'The Frame menu',
-        body: 'Everything about the container itself: its version, its tools for agents, its skills, refreshing, feedback.',
+        title: 'The Container menu',
+        body: 'Everything about the container itself: its scope, its settings, its tools for agents, how to use it, feedback.',
         side: 'bottom',
         align: 'end',
       },
@@ -605,8 +591,8 @@ export function inView(element: Element, view: Window | null = element.ownerDocu
 }
 
 /**
- * The container the header, Frame, menus and corner stops all point at: an
- * unfolded one that is drawn, whose header has menus (and a Frame menu), the
+ * The container the header, Container, menus and corner stops all point at: an
+ * unfolded one that is drawn, whose header has menus (and a Container menu), the
  * one in the window before one that is not. Null when no container is
  * unfolded: those stops are then left out.
  */

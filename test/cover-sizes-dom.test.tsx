@@ -198,7 +198,7 @@ describe('updating, at every size', () => {
     expect(chip.textContent).toBe('Updating')
     expect(chip.querySelector('.kehikko-mark[data-working="true"]')).not.toBeNull()
     expect(chip.getAttribute('aria-label')).toContain('Updating — restarting on the new code…')
-    /* Nothing to press while it updates: no state rows in the Frame menu. */
+    /* Nothing to press while it updates: no state rows in the Container menu. */
     const menu = await openFrame()
     expect(menu.querySelector('[data-frame="standing"]')).toBeNull()
   })
@@ -243,7 +243,7 @@ describe('a restart that failed, at every size', () => {
     expect(pressed).toBe(1)
   })
 
-  test('folded: Failed in the header, and Retry and Show details first in the Frame menu', async () => {
+  test('folded: Failed in the header, and Retry and Show details first in the Container menu', async () => {
     let pressed = 0
     await draw(FAILED, 'folded', () => pressed++)
     expect(document.querySelector('[data-body]')).toBeNull()
@@ -253,7 +253,7 @@ describe('a restart that failed, at every size', () => {
     const menu = await openFrame()
     const group = menu.querySelector('[data-frame="standing"]')!
     expect([...group.querySelectorAll('[data-standing]')].map((row) => row.getAttribute('data-standing'))).toEqual(['retry', 'details'])
-    /* First of the Frame rows. */
+    /* First of the Container rows. */
     expect(menu.querySelector('[data-frame]')).toBe(group)
     await act(async () => group.querySelector<HTMLElement>('[data-standing="retry"]')!.click())
     expect(pressed).toBe(1)

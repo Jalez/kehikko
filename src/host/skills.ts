@@ -199,7 +199,7 @@ export function lineDiff(before: string, after: string): DiffLine[] {
   return out
 }
 
-/** What the Frame menu's Skills row says: `null` for a module that offers none. */
+/** What the Container menu's Skills row says: `null` for a module that offers none. */
 export function skillsSaying(skills: readonly { name: string }[] | undefined, name: string): { state: string; hint: string } | null {
   if (!skills || skills.length === 0) return null
   const count = skills.length === 1 ? '1 skill' : `${skills.length} skills`

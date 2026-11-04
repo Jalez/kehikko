@@ -2,17 +2,19 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 
 /*
- * What a container's header offers, rendered: at 380, 280 and 200 pixels,
- * open, folded to one row and folded to two, every action the module declared
- * and every one of the host's is reachable — in the row or behind a trigger —
- * and none of them is drawn twice (`src/host/headerOffer.ts`).
+ * What a container's header offers, rendered: at 380, 280, 220, 200 and 160
+ * pixels, open, folded to one row and folded to two, every action the module
+ * declared and every one of the host's is reachable — in the row or behind a
+ * trigger — and none of them is drawn twice (`src/host/headerOffer.ts`). The
+ * checkbox, the module's icon, the overflow, the fold button and the name are
+ * in the row at every one of them (`ROW_PRIORITY`), and there is no scope chip.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives: Radix
  * decides at load whether it has a DOM.
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 3
+const TESTS = 6
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -34,6 +36,7 @@ let createRoot: typeof import('react-dom/client').createRoot
 let Box: typeof import('../src/canvas/Container.tsx')
 let Protocol: typeof import('kehikot-module-protocol')
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
+let Scope: typeof import('../src/host/scope.ts')
 let WIDTH: PropertyDescriptor | undefined
 
 beforeAll(async () => {
@@ -46,6 +49,7 @@ beforeAll(async () => {
   WIDTH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
   Box = await import('../src/canvas/Container.tsx')
   Protocol = await import('kehikot-module-protocol')
+  Scope = await import('../src/host/scope.ts')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
 })
 
@@ -89,6 +93,8 @@ const items = () =>
     { kind: 'run', id: 'clean', label: 'Clean', disabled: 'Nothing to clean.' },
   ])
 
+const scope = () => Scope.scopeOfContainer({ modes: [{ id: 'paper', scope: 'epic', scopeSays: 'the open epic’s paper' }, { id: 'all', scope: 'project', scopeSays: 'every paper' }] }, null)
+
 const footer = () =>
   Protocol.footerItemsSchema.parse([
     { kind: 'text', id: 'status', text: 'Synced' },
@@ -97,7 +103,7 @@ const footer = () =>
 
 type Fold = 'open' | 'one row' | 'two rows'
 
-async function header(width: number, fold: Fold) {
+async function header(width: number, fold: Fold, declared: () => ReturnType<typeof items> = items) {
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
     configurable: true,
     get(this: HTMLElement) {
@@ -124,7 +130,7 @@ async function header(width: number, fold: Fold) {
           footer={footer()}
           onFold={nothing}
           onCollapse={nothing}
-          header={items()}
+          header={declared()}
           filters={[]}
           chosen={{}}
           onChoose={nothing}
@@ -149,6 +155,7 @@ async function header(width: number, fold: Fold) {
           onRemove={nothing}
           kehikko="thesis"
           epic={null}
+          scope={scope()}
         />
       </TooltipProvider>,
     )
@@ -186,6 +193,7 @@ const EVERYTHING = [
   'frame:help',
   'frame:prompts',
   'frame:rows',
+  'frame:scope',
   'frame:settings',
   'frame:skills',
   'frame:tools',
@@ -196,11 +204,13 @@ const EVERYTHING = [
   'item:wrap',
 ]
 
+const WIDTHS = [380, 280, 220, 200, 160] as const
+
 describe('the same header at every width and fold', () => {
   if (!inChild) return
 
-  test('everything is reachable at 380, 280 and 200 pixels, open, one row and two rows', async () => {
-    for (const width of [380, 280, 200]) {
+  test('everything is reachable at 380, 280, 220, 200 and 160 pixels, open, one row and two rows', async () => {
+    for (const width of WIDTHS) {
       for (const fold of ['open', 'one row', 'two rows'] as const) {
         await header(width, fold)
         if (fold === 'two rows') expect(document.querySelector('[data-fold]')!.getAttribute('data-fold')).toBe('2')
@@ -214,7 +224,7 @@ describe('the same header at every width and fold', () => {
   })
 
   test('nothing appears twice: one place per action, Settings included', async () => {
-    for (const width of [380, 280, 200]) {
+    for (const width of WIDTHS) {
       for (const fold of ['open', 'one row', 'two rows'] as const) {
         await header(width, fold)
         const found = await offered()
@@ -226,17 +236,17 @@ describe('the same header at every width and fold', () => {
     }
   })
 
-  test('under 220 one "⋯" holds the module’s menus and then Frame, in the order the separate menus have', async () => {
+  test('under 220 one "⋯" holds the module’s menus and then Container, in the order the separate menus have', async () => {
     await header(380, 'open')
     const wide = [...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
     expect(wide).toEqual(['view', 'go', 'run', 'frame'])
     act(() => unmount?.())
     document.body.innerHTML = ''
-    for (const fold of ['open', 'one row'] as const) {
-      await header(200, fold)
+    for (const [width, fold] of [[200, 'open'], [200, 'one row'], [160, 'open'], [160, 'two rows']] as const) {
+      await header(width, fold)
       expect([...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['more'])
       const trigger = document.querySelector<HTMLElement>('header [data-menu="more"]')!
-      /* The Frame trigger's dot for tools nobody connected comes with its rows. */
+      /* The Container trigger's dot for tools nobody connected comes with its rows. */
       expect(trigger.getAttribute('data-tools')).toBe('loud')
       await act(async () => {
         trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
@@ -245,13 +255,78 @@ describe('the same header at every width and fold', () => {
       const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
       const sections = [...content.querySelectorAll(':scope > [data-section]')]
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'frame'])
-      expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Frame'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
+      expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Container'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())
       unmount = null
       document.body.innerHTML = ''
     }
+  })
+
+  test('the row keeps the checkbox, the icon, the overflow, the fold button and the name at every width, open and folded; no scope chip', async () => {
+    for (const width of WIDTHS) {
+      for (const fold of ['open', 'one row', 'two rows'] as const) {
+        await header(width, fold)
+        const head = document.querySelector('header')!
+        const at = `${width} ${fold}`
+        expect(head.querySelector('[role="checkbox"]'), at).not.toBeNull()
+        expect(head.querySelector('[data-module-icon]'), at).not.toBeNull()
+        expect(head.querySelector('[data-tour="fold"]'), at).not.toBeNull()
+        expect(head.querySelector('[data-testid="header-name"]')?.className, at).toMatch(/truncate/)
+        const triggers = [...head.querySelectorAll('[data-menu]')].map((el) => el.getAttribute('data-menu'))
+        expect(triggers.at(-1), at).toBe(width < 220 ? 'more' : 'frame')
+        if (width < 220) expect(triggers, at).toEqual(['more'])
+        expect(head.querySelector('[data-testid="header-scope"]'), at).toBeNull()
+        /* Left to right: checkbox, icon, name … overflow, fold. */
+        const order = [...head.querySelectorAll('[role="checkbox"], [data-module-icon], [data-testid="header-name"], [data-menu], [data-tour="fold"]')]
+        const index = (el: Element | null) => order.indexOf(el!)
+        expect(index(head.querySelector('[role="checkbox"]')) < index(head.querySelector('[data-module-icon]')), at).toBe(true)
+        expect(index(head.querySelector('[data-module-icon]')) < index(head.querySelector('[data-testid="header-name"]')), at).toBe(true)
+        expect(index(head.querySelector(`[data-menu="${triggers.at(-1)}"]`)) < index(head.querySelector('[data-tour="fold"]')), at).toBe(true)
+        act(() => unmount?.())
+        unmount = null
+        document.body.innerHTML = ''
+      }
+    }
+  })
+
+  test('a module with no menus: under 220 its Container rows are a section of a "⋯", not a trigger of their own', async () => {
+    const none = () => Protocol.headerItemsSchema.parse([])
+    await header(380, 'open', none)
+    const wide = document.querySelector<HTMLElement>('header [data-menu="frame"]')!
+    expect(wide.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
+    expect([...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['frame'])
+    act(() => unmount?.())
+    document.body.innerHTML = ''
+    for (const width of [200, 160]) {
+      for (const fold of ['open', 'one row'] as const) {
+        await header(width, fold, none)
+        expect([...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['more'])
+        const trigger = document.querySelector<HTMLElement>('header [data-menu="more"]')!
+        expect(trigger.getAttribute('aria-label')).toBe('menus of Paper — tools not connected')
+        await act(async () => {
+          trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+          document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+        })
+        const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
+        const section = content.querySelector('[data-section="frame"]')!
+        expect(section.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Container')
+        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
+        act(() => unmount?.())
+        unmount = null
+        document.body.innerHTML = ''
+      }
+    }
+  })
+
+  test('the Container trigger’s tooltip says what it holds', async () => {
+    await header(380, 'open')
+    const trigger = document.querySelector<HTMLElement>('header [data-menu="frame"]')!
+    expect(trigger.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
+    /* Without a pointer the tooltip is not mounted; the words are the one rule's (`frameHint`). */
+    const { frameHint } = await import('../src/host/headerOffer.ts')
+    expect(frameHint(['scope', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])).toBe('This container: scope, tools, skills, header and footer, how to use it, feedback, prompts')
   })
 })

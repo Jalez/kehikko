@@ -11,7 +11,7 @@ export interface Reveal {
 /**
  * The choices of when a container's header and footer show, each with its line.
  *
- * Offered in two places on purpose — the Frame menu's "Header and footer", and
+ * Offered in two places on purpose — the Container menu's "Header and footer", and
  * the fold control's held menu, the control a person holds when the rows are
  * what they are thinking about — and drawn by this one component in both, so
  * the two are the same words in the same order and cannot drift apart.

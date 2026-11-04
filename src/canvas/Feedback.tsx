@@ -75,7 +75,7 @@ export function FeedbackButton({
  * What one module's feedback list holds, for whichever menu is showing it.
  *
  * Two menus do: the button above, which the host's own strip still has, and
- * the Feedback row of a container's Frame menu (`HeaderMenus.tsx`), where the
+ * the Feedback row of a container's Container menu (`HeaderMenus.tsx`), where the
  * same list opens beside the menu. One reading and one dialog behind both, so
  * the list is the same list wherever it is opened from.
  */

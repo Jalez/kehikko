@@ -87,7 +87,7 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
-import { FRAME_TITLE, layoutOf, modeFor, pinsFor, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
@@ -98,7 +98,7 @@ import { RevealChoices } from './RevealChoices.tsx'
 import type { StandingRow } from './Standing.tsx'
 
 /**
- * A container's menus: the module's own View, Go and Run, and the host's Frame.
+ * A container's menus: the module's own View, Go and Run, and the host's Container menu.
  *
  * ## What a module declares, the host draws
  *
@@ -108,7 +108,7 @@ import type { StandingRow } from './Standing.tsx'
  * dropdown menus: a `switch` is a radio group, a `toggle` a checkbox item, a
  * `go` a list of places, a `run` an item that says how it is going. The KIND
  * decides the menu — the rule is `menusOf` in `host/header.ts` and the table
- * is the protocol's — so every container reads the same: View, Go, Run, Frame.
+ * is the protocol's — so every container reads the same: View, Go, Run, Container.
  *
  * A module that declares nothing draws nothing here, and its header is the
  * header it had. An empty menu is not drawn.
@@ -148,7 +148,7 @@ import type { StandingRow } from './Standing.tsx'
  * size and nothing else; under 300 pixels they are icons, each twenty-four
  * pixels like every other control in the row; under 220 the three become one
  * "⋯" whose menu has View, Go and Run as labelled sections and the host's
- * Frame rows as the last — so that one trigger, not two, stands for
+ * Container rows as the last — so that one trigger, not two, stands for
  * everything that did not fit. Folded, a container is a header as wide as it
  * was open, and it offers the same: folding moves nothing. `layoutOf` in
  * `host/headerOffer.ts` is the rule, and every way of drawing comes from it.
@@ -373,11 +373,11 @@ export function HeaderMenus({
   pinned?: boolean
   /**
    * Where everything in the header goes (`layoutOf` in `host/headerOffer.ts`), when the caller has
-   * worked it out for the whole row — the container does, because the gear and the Frame menu are
+   * worked it out for the whole row — the container does, because the gear and the Container menu are
    * its to draw. Left out, it is worked out here for the module's menus alone.
    */
   layout?: HeaderLayout
-  /** The host's Frame rows, drawn as the last section of the merged "⋯" when `layout` puts them there. */
+  /** The host's Container rows, drawn as the last section of the merged "⋯" when `layout` puts them there. */
   frame?: FrameParts
 }) {
   const anchor = useRef<HTMLSpanElement>(null)
@@ -387,8 +387,9 @@ export function HeaderMenus({
   const buttons = askedPinned ?? (mode === 'words' && measured.wide)
   const layout = useMemo(() => given ?? layoutOf({ items, frame: [] }, mode, buttons), [given, items, mode, buttons])
   const pinned = layout.pinned
-  /* The triggers this draws: the module's, and the "⋯" that holds them. Frame alone is the container's. */
-  const triggers = layout.triggers.filter((trigger) => trigger.which !== 'frame')
+  /* The triggers this draws: the module's, and the "⋯" that holds them. A trigger with only the
+     Container rows in it — the Container menu, or a "⋯" with no module menus — is the container's. */
+  const triggers = layout.triggers.filter((trigger) => trigger.sections.some((section) => section.kind === 'module'))
 
   /*
    * The one confirmed run that has had its first press, and what it looked
@@ -635,7 +636,7 @@ function PinnedRun({ item, rows, word }: { item: RunItem; rows: Pressable; word:
   )
 }
 
-/** One trigger and its menu: View, Go or Run, or — under 220 px — all three and Frame as sections of "⋯". */
+/** One trigger and its menu: View, Go or Run, or — under 220 px — all three and Container as sections of "⋯". */
 function Menu({
   trigger,
   mode,
@@ -651,7 +652,7 @@ function Menu({
   rows: Pressable
   onClosed(): void
   word: Said | null
-  /** The host's Frame rows, for the "⋯" whose last section is Frame. */
+  /** The host's Container rows, for the "⋯" whose last section is Container. */
   frame?: FrameParts
 }) {
   const which = trigger.which as HeaderMenu | 'more'
@@ -719,7 +720,7 @@ function Menu({
             ) : (
               <>
                 <Glyph className="size-3" aria-hidden />
-                {/* The Frame trigger's dot, for tools nobody has connected, comes into "⋯" with its rows. */}
+                {/* The Container trigger's dot, for tools nobody has connected, comes into "⋯" with its rows. */}
                 {loud ? <span className="bg-foreground ring-card absolute top-0.5 right-0.5 size-1.5 rounded-full ring-1" aria-hidden /> : null}
               </>
             )}
@@ -1138,7 +1139,8 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
  * ------------------------------------------------------------------ */
 
 /**
- * Frame: what the host offers about a module as a program.
+ * Container: what the host offers about a placed module. Called "Frame" before;
+ * the code keeps the `frame` spelling.
  *
  * Three controls used to stand in the header one by one — the tools plug,
  * feedback, prompts — and each was a twenty-four pixel icon on every
@@ -1163,18 +1165,18 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
  * Feedback said nothing until it was opened, and its list opens beside this
  * menu as it opened under its own button.
  *
- * Checkbox, dot and name stay direct on the left, and fold and remove on the
+ * Checkbox, icon and name stay direct on the left, and fold and remove on the
  * right: those are pressed without thinking, and a menu in front of them
- * would be a second press on the commonest things a person does here.
+ * would be a second press on the commonest things a person does here
+ * (`ROW_PRIORITY` in `host/headerOffer.ts`).
  *
  * Drawn on every container, folded too, as the three were — as its own
- * trigger at 220 px and wider, and under that as the last section of the
- * module's "⋯" when the module has menus (`layoutOf` in `host/headerOffer.ts`):
- * the same rows either way, so nothing is reachable at one width and not at
- * another.
+ * trigger at 220 px and wider, and under that as the last section of the one
+ * "⋯", with the module's menus when it has any (`layoutOf`): the same rows
+ * either way, so nothing is reachable at one width and not at another.
  */
 
-/** What the Frame rows are drawn from, wherever they are drawn: the Frame menu, or the last section of "⋯". */
+/** What the Container rows are drawn from, wherever they are drawn: the Container menu, or the last section of "⋯". */
 export interface FrameParts {
   module: string
   name: string
@@ -1198,8 +1200,8 @@ export interface FrameParts {
    */
   onSettings?(): void
   /**
-   * The container's scope (protocol 2.29.0): a "Scope: Epic (default)" row at every width, so it is
-   * reachable where the header has only its icon. Opens the settings window, where it is picked.
+   * The container's scope (protocol 2.29.0): a "Scope: Epic (default)" row at every width — the one
+   * place the header says it. Opens the settings window, where it is picked.
    */
   scope?: ContainerScope | null
   /** What the sweep read of the agent's configuration for this module. `none` or absent: no door, no row. */
@@ -1208,7 +1210,7 @@ export interface FrameParts {
   /**
    * The agent skills the module's manifest offers (protocol 2.5.0). None or absent: no row.
    * A row beside Tools rather than a mark of its own on the header: the header is one row that has
-   * to fit at 380, 280 and 200 pixels and folded, and this menu's trigger is on it at every one.
+   * to fit at 380, 280, 220, 200 and 160 pixels and folded, and this menu is on it at every one.
    */
   skills?: readonly { name: string }[]
   onSkills?(): void
@@ -1237,7 +1239,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
 }
 
 /**
- * The host's rows about a module, in `FRAME_ENTRIES` order: drawn in the Frame menu, and as the
+ * The host's rows about a module, in `FRAME_ENTRIES` order: drawn in the Container menu, and as the
  * last section of the merged "⋯" under 220 px — the same rows, words and order in both.
  */
 function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
@@ -1335,28 +1337,31 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
   )
 }
 
-/** The Frame menu's trigger and its rows. Not drawn where the merged "⋯" holds them (`layoutOf`). */
-export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
-  const { name, rows } = parts
+/**
+ * The Container menu's trigger and its rows: its own trigger (`which: 'frame'`), or — under 220 px,
+ * for a module with no menus of its own — the "⋯" that holds Container alone (`which: 'more'`).
+ * Not drawn where the module's "⋯" holds the rows (`layoutOf`).
+ */
+export function FrameMenu({ parts, entries, which = 'frame' }: { parts: FrameParts; entries: readonly FrameEntry[]; which?: 'frame' | 'more' }) {
+  const { name } = parts
   const closing = useRef<Closing>('dismissed')
   const quiet = useRef(false)
   const [open, setOpen] = useOpen(() => {}, closing)
   const tools = toolsSaying(parts.agent, name)
-  const offered = parts.onSkills ? skillsSaying(parts.skills, name) : null
+  const more = which === 'more'
+  const Glyph = more ? Ellipsis : AppWindow
+  const said = more ? `${name}'s menus: ${FRAME_TITLE.toLowerCase()}` : frameHint(entries)
+  const label = more ? `menus of ${name}` : `${FRAME_TITLE.toLowerCase()} menu of ${name}`
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Word
-        hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}${parts.onHelp ? 'how to use it, ' : ''}feedback and prompts`}
-        word={null}
-        quiet={quiet}
-      >
+      <Word hint={tools?.loud ? `${said}. ${tools.hint}` : said} word={null} quiet={quiet}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={tools?.loud ? `frame menu of ${name} — ${tools.state}` : `frame menu of ${name}`}
-            data-menu="frame"
+            aria-label={tools?.loud ? `${label} — tools ${tools.state}` : label}
+            data-menu={which}
             data-tools={tools?.loud ? 'loud' : undefined}
             {...modal}
             className={
@@ -1366,7 +1371,7 @@ export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: read
             }
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <AppWindow className="size-3" aria-hidden />
+            <Glyph className="size-3" aria-hidden />
             {tools?.loud ? (
               <span className="bg-foreground ring-card absolute top-0.5 right-0.5 size-1.5 rounded-full ring-1" aria-hidden />
             ) : null}
@@ -1377,7 +1382,7 @@ export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: read
       <DropdownMenuContent
         align="end"
         className="max-w-64 min-w-48"
-        data-menu-content="frame"
+        data-menu-content={which}
         onCloseAutoFocus={(event) => {
           /* The host's own rows open a dialog or act in this document: focus
              returns to the trigger, quietly — unless it has gone to a module. */
@@ -1390,14 +1395,22 @@ export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: read
         <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
           {name}
         </DropdownMenuLabel>
-        <FrameRows parts={parts} entries={entries} />
+        {/* In the "⋯", the section says what it is, as it does beside a module's menus. */}
+        {more ? (
+          <DropdownMenuGroup data-section="frame">
+            <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
+            <FrameRows parts={parts} entries={entries} />
+          </DropdownMenuGroup>
+        ) : (
+          <FrameRows parts={parts} entries={entries} />
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
 /**
- * What the Frame menu says about a module's tools: the word on the row, the
+ * What the Container menu says about a module's tools: the word on the row, the
  * sentence behind it, and whether it is the state somebody should act on.
  * `null` for a module with no MCP door, which has no row. The sentences are
  * the ones the plug had; see `ToolsMark` in `Tools.tsx`, which the host's own
@@ -1412,21 +1425,21 @@ export function toolsSaying(
     return {
       state: 'not connected',
       loud: true,
-      hint: `${name} offers tools to an agent, and no agent has been told about them. Open the frame menu to see the tools and to connect them.`,
+      hint: `${name} offers tools to an agent, and no agent has been told about them. Open the container menu to see the tools and to connect them.`,
     }
   }
   if (agent.kind === 'elsewhere') {
     return {
       state: 'points elsewhere',
       loud: true,
-      hint: `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at this module. An agent will reach that address and get nothing. Open the frame menu to repoint it.`,
+      hint: `An MCP server called "${agent.as}" is configured, and it points at ${agent.pointsAt} rather than at this module. An agent will reach that address and get nothing. Open the container menu to repoint it.`,
     }
   }
   if (agent.kind === 'renamed') {
     return {
       state: 'connected under an old name',
       loud: true,
-      hint: `${name}'s tools are connected as "${agent.as}", and the module now asks to be connected as "${agent.to}". Open the frame menu to reconnect it under that name.`,
+      hint: `${name}'s tools are connected as "${agent.as}", and the module now asks to be connected as "${agent.to}". Open the container menu to reconnect it under that name.`,
     }
   }
   if (agent.kind === 'refused') {

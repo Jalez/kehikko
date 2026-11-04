@@ -290,11 +290,10 @@ describe('the page’s rules and words', () => {
     expect(savedSaid({ ok: false, why: 'Not running.' })).toEqual({ tone: 'refused', text: 'Not running.' })
   })
 
-  test('the gear is a button at 220 and wider; under it, in "⋯" when the menus are drawn, else the Frame menu', () => {
-    expect(settingsPlaceFor('words', true)).toBe('button')
-    expect(settingsPlaceFor('icons', false)).toBe('button')
-    expect(settingsPlaceFor('merged', true)).toBe('more')
-    expect(settingsPlaceFor('merged', false)).toBe('frame')
+  test('the gear is a button at 220 and wider; under it, a Container row in the one "⋯"', () => {
+    expect(settingsPlaceFor('words')).toBe('button')
+    expect(settingsPlaceFor('icons')).toBe('button')
+    expect(settingsPlaceFor('merged')).toBe('more')
   })
 
   test('the door’s text names the file, and that the module writes it', () => {

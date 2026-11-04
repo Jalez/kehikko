@@ -209,7 +209,7 @@ describe('the introduction', () => {
     const scoped = Intro.INTRO_SLIDES.find((one) => one.id === 'scope')!
     expect(scoped.title).toBe('Every module says what it belongs to')
     for (const name of ['This computer', 'Project', 'Epic', 'Part', 'Kehikko']) expect(scoped.body).toContain(name)
-    expect(scoped.body).toContain('shows its scope on top')
+    expect(scoped.body).toContain('menu says its scope')
     /* The host names no module and no vendor (`module-agnostic-text.test.ts`). */
     expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs belong to/)
     for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'each module brings its own', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
@@ -358,7 +358,7 @@ function add(html: string): HTMLElement {
 }
 
 const CONTAINER =
-  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-testid="header-scope">s</button><button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
+  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
   ['nw', 'ne', 'sw', 'se'].map((c) => `<span class="react-resizable-handle react-resizable-handle-${c} corner-handle"></span>`).join('') +
   '</div>'
 
@@ -388,7 +388,6 @@ const EXISTING_USER = [
   'pinned',
   'modules',
   'header',
-  'scope',
   'frame',
   'menus',
   'corners',
@@ -979,12 +978,9 @@ describe('the tour and container headers', () => {
       expect(HIDDEN()).toBe(false)
       expect(rec.last?.note).toBe(tour.HEADERS_NOTE)
       rec.last!.onNext()
-      expect(stepOf(rec)).toBe('scope')
-      expect(HIDDEN()).toBe(false)
-      expect(rec.last?.note).toBeUndefined()
-      rec.last!.onNext()
       expect(stepOf(rec)).toBe('frame')
       expect(HIDDEN()).toBe(false)
+      expect(rec.last?.note).toBeUndefined()
       rec.last!.onNext()
       rec.last!.onNext()
       expect(stepOf(rec)).toBe('corners')
@@ -1062,7 +1058,7 @@ describe('the tour and container headers', () => {
     expect(menus.hasAttribute('data-tour-example')).toBe(false)
   })
 
-  test('with no unfolded container the header, Frame, menus and corner stops are left out, and the headers stay as they were', () => {
+  test('with no unfolded container the header, Container, menus and corner stops are left out, and the headers stay as they were', () => {
     page('<div class="react-grid-item"><div data-module="c"><div class="container-reveal" data-collapsed="true"><header class="container-grip" data-dense="true">c<button data-menu="frame">f</button></header></div></div></div>')
     hide()
     const { one, rec } = guide(ALL_DONE)

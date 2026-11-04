@@ -87,7 +87,7 @@ export function coveredForScope(
  * modules menu, the settings window and `read_canvas` all read `scopeOfContainer`.
  */
 
-/** The lucide icon for each scope, drawn beside its name and alone where the header has no room. */
+/** The lucide icon for each scope, drawn beside its name. */
 export const SCOPE_ICONS = {
   machine: 'laptop',
   project: 'folder',
@@ -135,7 +135,7 @@ export function scopeOfContainer(module: ScopeManifest, picked: string | null | 
   }
 }
 
-/** The header label's tooltip: the scope's name, whether it is the default, and the module's line. */
+/** The Container menu's Scope row tooltip: the scope's name, whether it is the default, and the module's line. */
 export function scopeTooltip(scope: ContainerScope): string {
   return `Scope: ${scope.name} (${scope.isDefault ? 'default' : 'changed'}). ${capitalised(scope.says)}`
 }

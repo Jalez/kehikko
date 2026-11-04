@@ -83,7 +83,7 @@ async function drive(kind, browserType) {
       const gear = page.locator('[data-module="kehikot.beta"] [data-settings-button]').first()
       if (await gear.count()) await gear.click()
       else {
-        /* Narrow: the gear is in the Frame menu. */
+        /* Narrow: the gear is in the Container menu. */
         const frame = page.locator('[data-module="kehikot.beta"] [data-menu="frame"]').first()
         await frame.click()
         await page.locator('[data-frame="settings"]').first().click()

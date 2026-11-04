@@ -21,7 +21,7 @@ import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, frameEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
 import { FeedbackDialog, useFeedback } from './Feedback.tsx'
-import { layoutOf, modeFor, pinsFor } from '@/host/headerOffer.ts'
+import { layoutOf, modeFor, overflowOf, pinsFor } from '@/host/headerOffer.ts'
 import { SettingsButton } from './ModuleSettings.tsx'
 import { settingsHint } from '@/host/moduleSettings.ts'
 import { RefreshButton } from './Refreshing.tsx'
@@ -32,7 +32,6 @@ import { foldChoices, foldDrawn, rowsHide, type FoldRows, type ShowRows } from '
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
-import { ScopeLabel } from './Scope.tsx'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
@@ -174,7 +173,7 @@ export function Container({
    * given, else always.
    */
   rowsMode?: ShowRows
-  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Frame menu and the fold control's menu. */
+  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Container menu and the fold control's menu. */
   showRows?: ShowRows | null
   barRows?: ShowRows
   onShowRows?(mode: ShowRows | null): void
@@ -276,20 +275,20 @@ export function Container({
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
   /**
-   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in the Frame menu only when
+   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in the Container menu only when
    * the module's manifest says how (`helpFor`); absent: never.
    */
   onHelp?(): void
   /**
    * Open this module's settings (protocol 2.15.0): a gear in the row at 220 px and wider, folded or
-   * not; under that, "Settings…" in the Frame rows (in "⋯" when the module has menus). One entry at
+   * not; under that, "Settings…" in the Container rows (in "⋯" when the module has menus). One entry at
    * every width (`layoutOf` in `host/headerOffer.ts`). See `ModuleSettings.tsx`.
    */
   onSettings?(): void
   /**
-   * The container's scope (protocol 2.29.0): a label on the left of the header, the first thing to
-   * give way to its icon (`host/headerFit.ts`), and a row in the Frame menu at every width. Absent or
-   * null while the module's manifest has not been read.
+   * The container's scope (protocol 2.29.0): the "Scope:" row of the Container menu at every width,
+   * which opens the settings window. Not drawn in the row: the menu says it, and the row's room goes
+   * to what `ROW_PRIORITY` keeps. Absent or null while the module's manifest has not been read.
    */
   scope?: ContainerScope | null
   /** Look again, after this module has been started. */
@@ -341,7 +340,7 @@ export function Container({
   }, [])
   const fit = stepDown(fitFor(width), steps)
   /* What is drawn changes with the words, the width and the source: start from the most again. */
-  const content = `${name}\u0000${scope ? `${scope.active}:${scope.isDefault}` : ''}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
+  const content = `${name}\u0000${version ?? ''}\u0000${current ?? ''}\u0000${presence.module?.version ?? ''}\u0000${presence.source?.branch ?? ''}`
   useLayoutEffect(() => setSteps(0), [width, content])
   useLayoutEffect(() => {
     const label = grip.current?.querySelector<HTMLElement>('[data-testid="header-name"]')
@@ -356,7 +355,7 @@ export function Container({
   const hasSettings = onSettings !== undefined
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* The cover or notice in every size's words (`host/coverFit.ts`): the body draws it for its own
-     box, and folded, the header carries its word and the Frame menu its press. */
+     box, and folded, the header carries its word and the Container menu its press. */
   const standing = showing.kind === 'page' ? null : standingOf(showing, notice, presence.at, coverDetail)
   const pressing = useStandingPress(standing?.action ?? null, presence.id, onStarted, onRestart)
   /* The module's own items, and the host's row after them: a module this host starts is the one `dir` names. */
@@ -373,7 +372,7 @@ export function Container({
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
   /* Everything the header offers, as one list, and where each entry goes at this width
-     (`host/headerOffer.ts`): the module's menus, the gear and the Frame rows all come from it, so
+     (`host/headerOffer.ts`): the module's menus, the gear and the Container rows all come from it, so
      the same things are reachable at every width and folded, and each in one place. */
   const feedback = useFeedback(presence.id)
   const frameParts: FrameParts = {
@@ -393,7 +392,11 @@ export function Container({
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
   }
   const layout = layoutOf({ items: showing.kind === 'page' ? items : [], frame: frameEntriesOf(frameParts) }, modeFor(width), pinsFor(width), fold)
-  const frameEntries = layout.triggers.find((trigger) => trigger.which === 'frame')?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
+  /* The overflow holds the Container rows. When it holds nothing of the module's — the Container
+     trigger, or a "⋯" for a module with no menus — it is drawn here; otherwise `HeaderMenus` draws it. */
+  const overflow = overflowOf(layout)
+  const ownOverflow = overflow.sections.every((section) => section.kind === 'frame') ? overflow : null
+  const frameEntries = ownOverflow?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
 
   return (
     /*
@@ -666,10 +669,10 @@ export function Container({
          * sentence in full, always, next to its name. This is the convenience;
          * that is the place it is guaranteed to be readable.
          */}
-        {/* The module's icon, decorative beside its name (`ModuleIcon.tsx`). The
-            first thing to go after the gaps: under 240 pixels the name keeps
-            the room, and the folded row and the 200-pixel container hold. */}
-        {fit.icon ? <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5" /> : null}
+        {/* The module's icon, decorative beside its name (`ModuleIcon.tsx`). Kept at every width:
+            second in `ROW_PRIORITY`, after the checkbox — it says which container this is when the
+            name has been cut to nothing. */}
+        {layout.row.includes('icon') ? <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5 shrink-0" /> : null}
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
             <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
@@ -699,15 +702,13 @@ export function Container({
           protocol={presence.module?.build?.protocol ?? null}
           onPicked={onVersion}
           text={fit.version}
-          tight={!fit.icon}
+          tight={!fit.quiet}
         />
         {/* The branch it runs from: quiet on main, marked anywhere else. See `Branch.tsx`. */}
-        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} tight={!fit.icon} />
-        {/* What the module's content belongs to (protocol 2.29.0): the scope in use, the first thing
-            to give way to its icon. A press opens the settings window, where the person picks it;
-            its tooltip says the scope, default or changed, and the module's line. */}
-        {scope ? <ScopeLabel scope={scope} text={fit.scopeText} onOpen={onSettings} /> : null}
-        {/* Folded with no page: the state as a word, its press in the Frame menu (`Standing.tsx`). */}
+        <BranchMark source={presence.source} text={fit.badgeText} quiet={fit.quiet} tight={!fit.quiet} />
+        {/* No scope chip here: the scope is the Container menu's "Scope:" row, which opens the
+            settings window where it is picked (`FrameRows` in `HeaderMenus.tsx`). */}
+        {/* Folded with no page: the state as a word, its press in the Container menu (`Standing.tsx`). */}
         {collapsed && standing ? <StandingChip standing={standing} said={pressing.said} running={pressing.running} /> : null}
         <span className="-mx-1 flex-1" />
 
@@ -720,7 +721,7 @@ export function Container({
          * nothing. Only while its page is what is showing — and folded too:
          * a folded header is as wide as the open one, and what it offers is
          * the same (`layoutOf` in `host/headerOffer.ts`). Under 220 pixels
-         * they are one "⋯" whose last section is the Frame rows.
+         * they are one "⋯" whose last section is the Container rows.
          */}
         {showing.kind === 'page' ? (
           <HeaderMenus
@@ -837,13 +838,14 @@ export function Container({
         ) : null}
 
         {/*
-         * Frame: what the host offers about the module as a program — its
+         * Container: what the host offers about the placed module — its scope,
          * tools, feedback to its authors, prompts. One trigger where three
-         * icons stood, on every container, folded too. What each of the
-         * three said at a glance, and where that went, is in `FrameMenu`.
+         * icons stood, on every container, folded too; under 220 pixels the
+         * "⋯" (`ROW_PRIORITY`). What each of the three said at a glance, and
+         * where that went, is in `FrameMenu`.
          */}
         {/* The module's settings (protocol 2.15.0): a gear, on the host's side of the line beside the
-            Frame menu, at 220 px and wider, folded or not; under that it is the Frame rows' "Settings…".
+            Container menu, at 220 px and wider, folded or not; under that it is the Container rows' "Settings…".
             One entry or the other, never both (`layoutOf`). */}
         {layout.gear ? (
           <SettingsButton
@@ -858,7 +860,7 @@ export function Container({
           />
         ) : null}
 
-        {frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} /> : null}
+        {ownOverflow && frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} which={ownOverflow.which as 'frame' | 'more'} /> : null}
         {/* The Feedback row's dialog: once, wherever the row was drawn from. */}
         <FeedbackDialog feedback={feedback} module={presence.id} name={name} kehikko={kehikko} epic={epic} />
 

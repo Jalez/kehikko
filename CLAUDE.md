@@ -552,13 +552,18 @@
   the module's page after a press that was sent, the trigger after Escape or a
   press that was not taken, and nowhere when focus already left for a module.
   Focus returned to a trigger never raises its tooltip.
-- The header is one row. Anything added to it has to fit at 380, 280 and 200
-  pixels and folded; a module's menus are words, then icons under 300, then one
-  "⋯" under 220 (`modeFor`) whose last section is the Frame rows.
+- The header is one row. Anything added to it has to fit at 380, 280, 220, 200
+  and 160 pixels and folded; a module's menus are words, then icons under 300,
+  then one "⋯" under 220 (`modeFor`) whose last section is the Container rows —
+  for a module with no menus too: the Container menu is never its own trigger
+  under 220. What the row keeps at every width is `ROW_PRIORITY`: checkbox,
+  module icon, the overflow, fold, then the name (cut first). The host's
+  per-container menu is called "Container" (code keeps `frame`); there is no
+  scope chip in the row.
 - Where every header entry goes is ONE rule, `layoutOf` in
   `src/host/headerOffer.ts`: the same actions reachable at every width and
   fold state (folding moves nothing), each in exactly one place (a pinned run
-  button is not also a Run row; the settings gear is not also a Frame row).
+  button is not also a Run row; the settings gear is not also a Container row).
   A new header control gets an entry there, not a width check of its own.
 - `press_item` (`server/mcp.ts`) presses only an item marked `agents: true`,
   never a `confirm` run, and refuses an item with `tool` by naming it. The
@@ -649,7 +654,7 @@
   personal, beside `collapsed`; `src/host/rows.ts`): `always`, `hover`
   (what follows below), `click`, or `null` for the bar's focus control, which
   stays the default (`barRows`: on is `hover`, off is `always`). Offered in
-  two places, both kept: the Frame menu ("Header and footer") and the second
+  two places, both kept: the Container menu ("Header and footer") and the second
   group of the fold control's held-press menu, under the fold choice (there
   even when two rows is not, so the fold control always has a menu). A container whose rows hide carries
   `data-rows="hide"`, and every hiding rule in `index.css` is scoped to it —
@@ -735,8 +740,8 @@
   a file inside that module's own folder.
 - Reached from the gear in a container's header (220 px and wider, folded or
   not; under 220 it is "Settings…" in the module's "⋯", `settingsPlaceFor`),
-  the Frame menu's "Settings…" (every width) and Settings › Modules. Every
-  module on a kehikko has the gear and the Frame row, settings or not: its window
+  the Container menu's "Settings…" (every width) and Settings › Modules. Every
+  module on a kehikko has the gear and the Container row, settings or not: its window
   always has "Providers & Consumers" (see "Connections between modules").
 - A change is the person's only through a PASS: minted by `Passes.issue` in
   the desk's `set`, reached only by `POST /host/module-settings/set`
@@ -761,9 +766,8 @@
   `read_canvas`; no MCP tool changes it. Never offer a scope the module does not
   list, and never add a second switch for it: a module's own "this epic / all
   epics" toggle is this setting.
-- In the header the scope is the first thing to give way (`scopeText` in
-  `src/host/headerFit.ts`), to its icon, which keeps the tooltip; it is also a
-  row in the Frame menu at every width.
+- The header row has no scope chip: the scope is the Container menu's "Scope:"
+  row at every width, which opens the settings window.
 
 ## What a module may ask
 
@@ -1116,7 +1120,7 @@
 
 - A module offers skills in `declares.skills` (protocol 2.5.0) and serves each
   SKILL.md at `skillPath(name)`. The PERSON installs, updates or removes them
-  in the Skills window (`src/canvas/Skills.tsx`, a "Skills…" row in the Frame
+  in the Skills window (`src/canvas/Skills.tsx`, a "Skills…" row in the Container
   menu beside Tools); `server/skills.ts` does the work into
   `claudeSkillsDir()` (`~/.claude/skills`, beside `CLAUDE_CONFIG`).
 - `syncSkill` is the one writer, and holds every rule: never overwrite or
