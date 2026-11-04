@@ -20,6 +20,7 @@ import { standingOf } from '@/host/coverFit.ts'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, frameEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
+import { controlsOf, type ControlParts } from './HeaderControls.tsx'
 import { FeedbackDialog, useFeedback } from './Feedback.tsx'
 import { layoutOf, modeFor, overflowOf, pinsFor } from '@/host/headerOffer.ts'
 import { SettingsButton } from './ModuleSettings.tsx'
@@ -375,6 +376,13 @@ export function Container({
      (`host/headerOffer.ts`): the module's menus, the gear and the Container rows all come from it, so
      the same things are reachable at every width and folded, and each in one place. */
   const feedback = useFeedback(presence.id)
+  /* The module's own row controls: buttons while there is room, rows of the "⋯" under 220 px. */
+  const controlParts: ControlParts = {
+    name,
+    filter: { groups: filters, chosen, onChoose, onEverything },
+    clear: { label: clear, onClear },
+    refresh: { state: refresh, every: refreshEvery, onRefresh, onEvery: onRefreshEvery },
+  }
   const frameParts: FrameParts = {
     module: presence.id,
     name,
@@ -390,13 +398,22 @@ export function Container({
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
+    controls: controlParts,
+    onRemove,
   }
-  const layout = layoutOf({ items: showing.kind === 'page' ? items : [], frame: frameEntriesOf(frameParts) }, modeFor(width), pinsFor(width), fold)
+  const page = showing.kind === 'page'
+  const layout = layoutOf(
+    { items: page ? items : [], frame: frameEntriesOf(frameParts), controls: page ? controlsOf(controlParts) : [] },
+    modeFor(width),
+    pinsFor(width),
+    fold,
+  )
   /* The overflow holds the Container rows. When it holds nothing of the module's — the Container
      trigger, or a "⋯" for a module with no menus — it is drawn here; otherwise `HeaderMenus` draws it. */
   const overflow = overflowOf(layout)
-  const ownOverflow = overflow.sections.every((section) => section.kind === 'frame') ? overflow : null
+  const ownOverflow = overflow.sections.every((section) => section.kind !== 'module') ? overflow : null
   const frameEntries = ownOverflow?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
+  const overflowControls = ownOverflow?.sections.flatMap((section) => (section.kind === 'controls' ? section.controls : [])) ?? []
 
   return (
     /*
@@ -673,6 +690,13 @@ export function Container({
             second in `ROW_PRIORITY`, after the checkbox — it says which container this is when the
             name has been cut to nothing. */}
         {layout.row.includes('icon') ? <ModuleIcon id={presence.id} name={name} className="text-muted-foreground size-3.5 shrink-0" /> : null}
+        {/*
+         * The name and what gives way before it — version, branch mark, a folded container's state —
+         * in one box that takes what the row leaves and clips its own tail. Nothing in it can push
+         * the overflow, the fold or anything else on the right past the row's edge, however narrow
+         * (`ROW_PRIORITY`); the name, first in it, is cut with an ellipsis before anything is clipped.
+         */}
+        <span data-header-left className="flex min-w-0 flex-1 items-center overflow-hidden [gap:inherit]">
         {presence.module?.summary ? (
           <Hint label={presence.module.summary} side="bottom" align="start">
             <span data-testid="header-name" title={nameTitle} className="min-w-0 shrink-[0.05] cursor-default truncate text-xs font-medium">{name}</span>
@@ -710,7 +734,7 @@ export function Container({
             settings window where it is picked (`FrameRows` in `HeaderMenus.tsx`). */}
         {/* Folded with no page: the state as a word, its press in the Container menu (`Standing.tsx`). */}
         {collapsed && standing ? <StandingChip standing={standing} said={pressing.said} running={pressing.running} /> : null}
-        <span className="-mx-1 flex-1" />
+        </span>
 
         {/*
          * The module's own menus: View, Go and Run, from what it declared.
@@ -782,7 +806,7 @@ export function Container({
          * `host/headerOffer.ts` exists to end: the header holds the same things
          * at a width whether the container is open, one row or two.
          */}
-        {showing.kind === 'page' ? (
+        {layout.controls.includes('filter') ? (
           <FilterButton
             groups={filters}
             chosen={chosen}
@@ -812,7 +836,7 @@ export function Container({
          * it, and that is exactly the failure the two-press arm exists for: the
          * first press only changes what it says.
          */}
-        {showing.kind === 'page' ? (
+        {layout.controls.includes('clear') ? (
           <ClearButton label={clear} name={name} onClear={onClear} />
         ) : null}
 
@@ -827,7 +851,7 @@ export function Container({
          * The clock in `App.tsx` still skips folded containers, so nothing is
          * read on a timer for a list nobody can see.
          */}
-        {showing.kind === 'page' ? (
+        {layout.controls.includes('refresh') ? (
           <RefreshButton
             state={refresh}
             every={refreshEvery}
@@ -860,7 +884,7 @@ export function Container({
           />
         ) : null}
 
-        {ownOverflow && frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} which={ownOverflow.which as 'frame' | 'more'} /> : null}
+        {ownOverflow && frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} which={ownOverflow.which as 'frame' | 'more'} controls={overflowControls} /> : null}
         {/* The Feedback row's dialog: once, wherever the row was drawn from. */}
         <FeedbackDialog feedback={feedback} module={presence.id} name={name} kehikko={kehikko} epic={epic} />
 
@@ -912,11 +936,14 @@ export function Container({
          * canvas it could no longer follow.
          */}
 
+        {/* Under 220 px it is "Remove from this kehikko", the last Container row of the "⋯" (`layoutOf`). */}
+        {layout.remove ? (
         <Hint label="take it off this kehikko — the program keeps running" side="left">
           <Button
             variant="ghost"
             size="icon"
             aria-label={`take ${name} off the canvas`}
+            data-remove-button=""
             /* The container resizes from all four corners, and the top right one
                lies over this button: the handle is a small square at the very
                corner and the button is lifted above it, so a press on the
@@ -932,6 +959,7 @@ export function Container({
             <X className="size-3" />
           </Button>
         </Hint>
+        ) : null}
       </header>
       </div>
 

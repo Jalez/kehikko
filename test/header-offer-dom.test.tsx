@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 6
+const TESTS = 9
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -103,7 +103,22 @@ const footer = () =>
 
 type Fold = 'open' | 'one row' | 'two rows'
 
-async function header(width: number, fold: Fold, declared: () => ReturnType<typeof items> = items) {
+/** The module's own row controls, when a test offers them. */
+interface Controls {
+  filters?: import('kehikot-module-protocol').FilterGroup[]
+  clear?: string | null
+  refresh?: { can: boolean; at: string | null; busy: boolean }
+  onClear?(): void
+  onRemove?(): void
+}
+
+const CONTROLS = (): Controls => ({
+  filters: [{ id: 'state', label: 'State', options: [{ id: 'open', label: 'Open' }, { id: 'all', label: 'All' }], fallback: 'open' }],
+  clear: 'forget 3 shown',
+  refresh: { can: true, at: null, busy: false },
+})
+
+async function header(width: number, fold: Fold, declared: () => ReturnType<typeof items> = items, controls: Controls = {}) {
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
     configurable: true,
     get(this: HTMLElement) {
@@ -131,13 +146,13 @@ async function header(width: number, fold: Fold, declared: () => ReturnType<type
           onFold={nothing}
           onCollapse={nothing}
           header={declared()}
-          filters={[]}
+          filters={controls.filters ?? []}
           chosen={{}}
           onChoose={nothing}
           onEverything={nothing}
-          clear={null}
-          onClear={nothing}
-          refresh={undefined}
+          clear={controls.clear ?? null}
+          onClear={controls.onClear ?? nothing}
+          refresh={controls.refresh}
           refreshEvery={null}
           onRefresh={nothing}
           onRefreshEvery={nothing}
@@ -152,7 +167,7 @@ async function header(width: number, fold: Fold, declared: () => ReturnType<type
           barRows="always"
           onShowRows={nothing}
           onStarted={nothing}
-          onRemove={nothing}
+          onRemove={controls.onRemove ?? nothing}
           kehikko="thesis"
           epic={null}
           scope={scope()}
@@ -170,6 +185,8 @@ async function offered(): Promise<Map<string, string[]>> {
   const head = document.querySelector('header')!
   for (const pin of head.querySelectorAll('[data-pinned-run]')) note(`item:${pin.getAttribute('data-pinned-run')}`, 'row')
   if (head.querySelector('[data-settings-button]')) note('frame:settings', 'row')
+  if (head.querySelector('[data-remove-button]')) note('frame:remove', 'row')
+  for (const control of head.querySelectorAll('button[data-control]')) note(`control:${control.getAttribute('data-control')}`, 'row')
   for (const trigger of [...head.querySelectorAll<HTMLElement>('[data-menu]')]) {
     const which = trigger.getAttribute('data-menu')!
     await act(async () => {
@@ -181,6 +198,7 @@ async function offered(): Promise<Map<string, string[]>> {
     const ids = new Set([...content.querySelectorAll('[data-item], [data-item-label]')].map((el) => el.getAttribute('data-item') ?? el.getAttribute('data-item-label')))
     for (const id of ids) note(`item:${id}`, which)
     for (const row of content.querySelectorAll('[data-frame]')) note(`frame:${row.getAttribute('data-frame')}`, which)
+    for (const row of content.querySelectorAll('[data-control]')) note(`control:${row.getAttribute('data-control')}`, which)
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
@@ -192,6 +210,7 @@ const EVERYTHING = [
   'frame:feedback',
   'frame:help',
   'frame:prompts',
+  'frame:remove',
   'frame:rows',
   'frame:scope',
   'frame:settings',
@@ -256,7 +275,7 @@ describe('the same header at every width and fold', () => {
       const sections = [...content.querySelectorAll(':scope > [data-section]')]
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'frame'])
       expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Container'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())
@@ -313,7 +332,7 @@ describe('the same header at every width and fold', () => {
         const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
         const section = content.querySelector('[data-section="frame"]')!
         expect(section.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Container')
-        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
+        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'])
         act(() => unmount?.())
         unmount = null
         document.body.innerHTML = ''
@@ -328,5 +347,92 @@ describe('the same header at every width and fold', () => {
     /* Without a pointer the tooltip is not mounted; the words are the one rule's (`frameHint`). */
     const { frameHint } = await import('../src/host/headerOffer.ts')
     expect(frameHint(['scope', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])).toBe('This container: scope, tools, skills, header and footer, how to use it, feedback, prompts')
+  })
+
+  test('filter, clear, refresh and remove: buttons in the row at 220 and wider, and every one reachable once at every width', async () => {
+    const all = [...EVERYTHING, 'control:clear', 'control:filter', 'control:refresh'].sort()
+    for (const width of WIDTHS) {
+      for (const fold of ['open', 'one row'] as const) {
+        await header(width, fold, items, CONTROLS())
+        const found = await offered()
+        expect([...found.keys()].sort(), `${width} ${fold}`).toEqual(all)
+        for (const [key, places] of found) expect(places, `${key} at ${width} ${fold}`).toHaveLength(1)
+        for (const key of ['control:filter', 'control:clear', 'control:refresh', 'frame:remove']) expect(found.get(key), `${key} ${width}`).toEqual([width < 220 ? 'more' : 'row'])
+        act(() => unmount?.())
+        unmount = null
+        document.body.innerHTML = ''
+      }
+    }
+  })
+
+  test('at 160 and 200 a module with filter, clear and refresh pushes nothing past the edge: the row is the five, the rest is in "⋯"', async () => {
+    for (const declared of [items, () => Protocol.headerItemsSchema.parse([])]) {
+      for (const width of [200, 160]) {
+        for (const fold of ['open', 'one row', 'two rows'] as const) {
+          await header(width, fold, declared, CONTROLS())
+          const head = document.querySelector('header')!
+          const at = `${width} ${fold} ${declared === items ? 'menus' : 'no menus'}`
+          /* No control of the module's, no gear, no ×, no pinned run in the row. */
+          expect(head.querySelectorAll('button[data-control], [data-remove-button], [data-settings-button], [data-pinned-run]'), at).toHaveLength(0)
+          /* Outside the box that clips its own tail (name, version, branch), the row has only the checkbox, the "⋯" and the fold. */
+          const left = head.querySelector<HTMLElement>('[data-header-left]')!
+          expect(left.className, at).toMatch(/min-w-0/)
+          expect(left.className, at).toMatch(/overflow-hidden/)
+          expect(left.contains(head.querySelector('[data-testid="header-name"]')), at).toBe(true)
+          const outside = [...head.querySelectorAll('button')].filter((el) => !left.contains(el))
+          expect(outside.map((el) => el.getAttribute('role') === 'checkbox' ? 'select' : el.hasAttribute('data-menu') ? el.getAttribute('data-menu') : el.getAttribute('data-tour')), at).toEqual(['select', 'more', 'fold'])
+          expect(head.querySelector('[data-module-icon]'), at).not.toBeNull()
+          /* The "⋯": the module's menus, then "Shown" with filter, clear and refresh, then Container ending in remove. */
+          const trigger = head.querySelector<HTMLElement>('[data-menu="more"]')!
+          await act(async () => {
+            trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+            document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+          })
+          const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
+          const sections = [...content.querySelectorAll('[data-section]')].map((el) => el.getAttribute('data-section')).filter((one) => one !== null)
+          expect(sections.slice(-2), at).toEqual(['controls', 'frame'])
+          const shown = content.querySelector('[data-section="controls"]')!
+          expect(shown.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Shown')
+          expect([...shown.querySelectorAll('[data-control]')].map((el) => el.getAttribute('data-control'))).toEqual(['filter', 'clear', 'refresh'])
+          expect(content.querySelector('[data-frame="remove"]')!.textContent).toContain('Remove from this kehikko')
+          act(() => unmount?.())
+          unmount = null
+          document.body.innerHTML = ''
+        }
+      }
+    }
+  })
+
+  test('in "⋯", clear and remove each take two presses, and the first leaves the menu open', async () => {
+    let cleared = 0
+    let removed = 0
+    await header(160, 'open', items, { ...CONTROLS(), onClear: () => cleared++, onRemove: () => removed++ })
+    const open = async () => {
+      const trigger = document.querySelector<HTMLElement>('header [data-menu="more"]')!
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+        document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+      })
+    }
+    const press = async (selector: string) => {
+      const row = document.querySelector<HTMLElement>(selector)!
+      await act(async () => {
+        row.click()
+      })
+    }
+    for (const [selector, count, armed] of [
+      ['[data-menu-content="more"] [data-control="clear"]', () => cleared, 'Press again to forget 3 shown'],
+      ['[data-menu-content="more"] [data-frame="remove"]', () => removed, 'Press again to remove'],
+    ] as const) {
+      await open()
+      await press(selector)
+      expect(count()).toBe(0)
+      /* Still open, and armed. */
+      const row = document.querySelector<HTMLElement>(selector)!
+      expect(row.getAttribute('data-armed')).toBe('true')
+      expect(row.textContent).toContain(armed)
+      await press(selector)
+      expect(count()).toBe(1)
+    }
   })
 })

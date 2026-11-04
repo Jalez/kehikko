@@ -121,6 +121,7 @@ export function ClearButton({
            canvas where being wrong about which state it is in destroys
            something. */
         aria-pressed={armed}
+        data-control="clear"
         className={
           armed
             ? 'text-destructive bg-destructive/10 hover:text-destructive size-6 cursor-default'

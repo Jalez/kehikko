@@ -160,6 +160,7 @@ export function FilterButton({
             size="icon"
             aria-label={said.name}
             aria-pressed={on}
+            data-control="filter"
             /* Foreground whichever state it is in — the argument is in the
                essay above, and it is that the presence of this button is
                itself the message. `hover:text-foreground` is gone with the
@@ -190,66 +191,90 @@ export function FilterButton({
        * a document to do it to.
        */}
       <DropdownMenuContent align="end" className="max-w-56 min-w-44">
-        {groups.map((group, index) => (
-          <div key={group.id}>
-            {index > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuLabel className="text-muted-foreground min-w-0 truncate text-[11px] font-normal">
-              <Label text={group.label} />
-            </DropdownMenuLabel>
-            {/* Items with a tick rather than Radix's own radio group, which is
-                what every other menu in this host uses — one vocabulary of menu
-                parts, and one place the tick is drawn. A `text` group has no
-                items: it is one input, and the argument for why that is
-                allowable HERE and was refused in the header strip is on
-                `LIMITS.FILTER_TEXT` in the protocol. */}
-            {group.kind === 'text' ? (
-              <Typed
-                value={typedIn(own(chosen, group.id))}
-                placeholder={group.label}
-                onType={(text) => onChoose(group.id, text)}
-              />
-            ) : group.kind === 'toggles' ? (
-              <Toggles group={group} on={switchedOn(group, own(chosen, group.id))} onChoose={onChoose} />
-            ) : (
-              group.options.map((option) => (
-                <DropdownMenuItem
-                  key={option.id}
-                  className="min-w-0 cursor-default text-xs"
-                  onSelect={() => onChoose(group.id, option.id)}
-                >
-                  <DropdownMenuCheck checked={(own(chosen, group.id) ?? group.fallback) === option.id} />
-                  <Label text={option.label} />
-                </DropdownMenuItem>
-              ))
-            )}
-          </div>
-        ))}
-
-        {/*
-         * One press that puts everything back, shown only when there is
-         * something to put back.
-         *
-         * The modules that grew these controls held themselves to this already,
-         * and it is the reason `fallback` is a field: a narrowed view has to
-         * have a way out that does not require remembering which of four things
-         * you changed. The host can offer it without understanding anything,
-         * because each group's module named its own resting option.
-         *
-         * Host words, deliberately — this item is the one thing in the menu no
-         * module wrote, and it must not disappear into a list of a stranger's
-         * phrases.
-         */}
-        {on ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-default text-xs" onSelect={() => onEverything()}>
-              <DropdownMenuCheck checked={false} />
-              Show everything
-            </DropdownMenuItem>
-          </>
-        ) : null}
+        <FilterChoices groups={groups} chosen={chosen} onChoose={onChoose} onEverything={onEverything} />
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/**
+ * The filter menu's rows: each group, then "Show everything" when something is narrowed. Drawn in
+ * the filter button's menu, and — under 220 px, where the button is not in the row — in a
+ * "Filter" submenu of the header's "⋯" (`layoutOf`): one component, so the two cannot drift.
+ */
+export function FilterChoices({
+  groups,
+  chosen,
+  onChoose,
+  onEverything,
+}: {
+  groups: readonly FilterGroup[]
+  chosen: Choice
+  onChoose(group: string, option: string | string[]): void
+  onEverything(): void
+}) {
+  const on = narrowed(groups, chosen)
+  return (
+    <>
+          {groups.map((group, index) => (
+            <div key={group.id}>
+              {index > 0 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuLabel className="text-muted-foreground min-w-0 truncate text-[11px] font-normal">
+                <Label text={group.label} />
+              </DropdownMenuLabel>
+              {/* Items with a tick rather than Radix's own radio group, which is
+                  what every other menu in this host uses — one vocabulary of menu
+                  parts, and one place the tick is drawn. A `text` group has no
+                  items: it is one input, and the argument for why that is
+                  allowable HERE and was refused in the header strip is on
+                  `LIMITS.FILTER_TEXT` in the protocol. */}
+              {group.kind === 'text' ? (
+                <Typed
+                  value={typedIn(own(chosen, group.id))}
+                  placeholder={group.label}
+                  onType={(text) => onChoose(group.id, text)}
+                />
+              ) : group.kind === 'toggles' ? (
+                <Toggles group={group} on={switchedOn(group, own(chosen, group.id))} onChoose={onChoose} />
+              ) : (
+                group.options.map((option) => (
+                  <DropdownMenuItem
+                    key={option.id}
+                    className="min-w-0 cursor-default text-xs"
+                    onSelect={() => onChoose(group.id, option.id)}
+                  >
+                    <DropdownMenuCheck checked={(own(chosen, group.id) ?? group.fallback) === option.id} />
+                    <Label text={option.label} />
+                  </DropdownMenuItem>
+                ))
+              )}
+            </div>
+          ))}
+
+          {/*
+           * One press that puts everything back, shown only when there is
+           * something to put back.
+           *
+           * The modules that grew these controls held themselves to this already,
+           * and it is the reason `fallback` is a field: a narrowed view has to
+           * have a way out that does not require remembering which of four things
+           * you changed. The host can offer it without understanding anything,
+           * because each group's module named its own resting option.
+           *
+           * Host words, deliberately — this item is the one thing in the menu no
+           * module wrote, and it must not disappear into a list of a stranger's
+           * phrases.
+           */}
+          {on ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-default text-xs" onSelect={() => onEverything()}>
+                <DropdownMenuCheck checked={false} />
+                Show everything
+              </DropdownMenuItem>
+            </>
+          ) : null}
+    </>
   )
 }
 

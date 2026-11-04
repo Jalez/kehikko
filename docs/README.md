@@ -484,11 +484,12 @@ nothing in it is not drawn, and a module that declares nothing has the header
 it always had. After them comes **Container**, the host's own menu, on every
 container: its scope, the module's settings, tools (the plug), skills, when the
 header and footer show, how to use it, feedback to its authors, and prompts.
-Under 220 pixels the module's menus and Container are sections of one "⋯".
+Under 220 pixels the module's menus, its filter, clear and refresh ("Shown"),
+and Container are sections of one "⋯", and removing the container is
+Container's last row ("Remove from this kehikko", pressed twice).
 The checkbox, the dot, the module's icon and the name stay direct on the left,
 and fold and remove on the right; however narrow, the row keeps the checkbox,
-the icon, the "⋯", the fold button and the name, the name cut first. The
-filter, clear and refresh buttons are unchanged.
+the icon, the "⋯", the fold button and the name, the name cut first.
 
 - **The module owns all the state.** The host draws what was last declared and
   remembers nothing. Choosing an item sends `kehikot.press` with a correlation
