@@ -110,6 +110,9 @@ export interface Refusal {
  *  - `/host/connections` — the person's switches of how a kehikko's modules
  *    affect each other (`src/host/connections.ts`). An agent reads them in
  *    `read_canvas`; only the person changes them.
+ *  - `/host/updates/step-back` — the person's press of "Step back to …?"
+ *    (`moduleReleases.ts`): moving a module to an older release that might
+ *    misread data a newer one wrote is theirs to decide.
  *  - `/host/pinned-places` — the person's pinned places (`pinnedPlaces.ts`).
  *    An agent reads them in `my_place`; only the person pins, unpins or
  *    orders them.
@@ -121,6 +124,7 @@ export interface Refusal {
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
   '/host/updates/cancel',
+  '/host/updates/step-back',
   '/host/restart-module',
   '/host/headers',
   '/host/pressed',

@@ -234,6 +234,18 @@
   held where it is ("running main ahead of 1.6.0") and moves to the first
   release after it. Never moved back, never fast-forwarded along `main` once
   releases exist. A copy with uncommitted changes is not moved.
+- The ONE exception to "never moved back": a copy on a release whose need this
+  host does not meet (the app was downgraded) steps back to the newest older
+  release it meets (`pickStepBack`, needs read from each tag with `git show`,
+  never run). It moves on its own, like an update, only when the older
+  release's `manifest.ts` declares a literal `dataVersion` at least as high as
+  the highest recorded in any project (`dataVersions.ts`) and as the current
+  release's, no container is pinned above it, and the copy is not `keep`;
+  then the Updates panel and every project's Inbox (done, low) say "<name> was
+  moved back to <version>, which works with this Kehikot." Otherwise
+  `back.ask` holds the risk, the row asks "Step back to <version>?", and only
+  the person's press moves it (`POST /host/updates/step-back`, `PAGE_ONLY`,
+  which `allow`s that one move). Never widen this to any other case.
 - A module registered from somebody's own checkout (not under `installed/`)
   follows its branch as before; only an installed copy's `Place` carries the
   follower (`placeOf` in `server/server.ts`). A registration never names a

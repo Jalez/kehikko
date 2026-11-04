@@ -77,6 +77,7 @@ const releaseSchema = z.object({
   error: z.string().nullable().default(null),
   /* Absent from an older host; one a later host words differently is dropped, not refused. */
   works: z.record(z.string(), worksSchema).optional().catch(undefined),
+  back: z.object({ to: z.string(), ask: z.string().nullable() }).optional().catch(undefined),
 }) satisfies z.ZodType<ModuleRelease, z.ZodTypeDef, unknown>
 
 const checkoutSchema = z.object({
@@ -210,7 +211,7 @@ const autoToldSchema = z.object({
     Object.fromEntries(Object.entries(all).filter((one): one is [string, z.infer<typeof autoWaitSchema>] => one[1] !== null)),
   ),
   updated: z
-    .array(z.object({ id: z.string(), name: z.string(), from: z.string().nullable(), to: z.string(), at: z.string(), major: z.boolean() }))
+    .array(z.object({ id: z.string(), name: z.string(), from: z.string().nullable(), to: z.string(), at: z.string(), major: z.boolean(), back: z.boolean().optional() }))
     .default([]),
 }) satisfies z.ZodType<AutoTold, z.ZodTypeDef, unknown>
 
@@ -289,12 +290,16 @@ export class LeftRunning extends Error {}
  * The answer is a stream of lines: `{phase}` as the server moves from the
  * merge to an install to a restart — told to `onPhase` — then `{done}` or
  * `{error}`. Refusals come back as the server's sentence.
+ *
+ * With `back`, it is the person's press of "Step back" to that release
+ * (`POST /host/updates/step-back`, the page's alone): the same update, moving
+ * the copy to an older release the host asked about first.
  */
-export async function applyUpdate(id: string, signal?: AbortSignal, onPhase?: (phase: Phase) => void): Promise<Updated> {
-  const response = await fetch('/host/updates', {
+export async function applyUpdate(id: string, signal?: AbortSignal, onPhase?: (phase: Phase) => void, back?: string): Promise<Updated> {
+  const response = await fetch(back ? '/host/updates/step-back' : '/host/updates', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id }),
+    body: JSON.stringify(back ? { id, to: back } : { id }),
     signal,
   })
   if (!response.ok) throw new Error(await reason(response))
@@ -540,7 +545,12 @@ export type Outcome =
 export function needsAttention(reading: Reading, outcome: Outcome | null | undefined, flagged = false): boolean {
   if (outcome || flagged) return true
   if (!isCheckout(reading)) return true
-  return hasUpdate(reading) || reading.fetchFailed !== null || reading.waiting === true
+  return hasUpdate(reading) || stepBackWaits(reading) || reading.fetchFailed !== null || reading.waiting === true
+}
+
+/** A step back that waits for the person's press (`back.ask`): its row asks "Step back to …?". */
+export function stepBackWaits(one: Pick<Checkout, 'release'>): boolean {
+  return !!one.release?.back && one.release.back.ask !== null && one.release.target === null
 }
 
 /** The checkouts that need a person, most pressing first, and the level rest. */
@@ -563,7 +573,7 @@ export function triage(
    what GitHub could not be asked about, then what was just updated. */
 function weight(one: Reading): number {
   if (!isCheckout(one)) return 2
-  if (hasUpdate(one)) return 3
+  if (hasUpdate(one) || stepBackWaits(one)) return 3
   return one.fetchFailed || one.waiting ? 1 : 0
 }
 

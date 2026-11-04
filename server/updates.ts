@@ -119,6 +119,8 @@ export interface ReleaseFollower {
   local?(place: Place): Promise<string[]>
   /** Which Kehikot each of these releases works with, by tag. */
   worksFor?(place: Place, tags: readonly string[]): Promise<Record<string, WorksWith>>
+  /** The person pressed "Step back" for this move (`back.ask`): it no longer waits for them. */
+  allow?(id: string, tag: string): void
 }
 
 /** A place as it is said: without the follower and the builder, which are not data. */

@@ -57,6 +57,14 @@ export interface ModuleRelease {
    * read the app tags.
    */
   works?: Record<string, WorksWith>
+  /**
+   * The release it is on needs a newer Kehikot than this one, and an older
+   * release works here: the one it steps back to. `ask` null: it moves like an
+   * update, and `target` is `to`. Otherwise `target` is null and `ask` is the
+   * risk the person is told before they press "Step back". Absent otherwise,
+   * and from an older host.
+   */
+  back?: { to: string; ask: string | null }
 }
 
 const RELEASE = /^v(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/
@@ -111,6 +119,8 @@ export function releasesMoved(from: string | null, to: string, tags: readonly st
  * - "running main ahead of 1.6.0".
  */
 export function releaseSaid(release: ModuleRelease): string {
+  if (release.target && release.back) return `${release.installed ? releaseVersion(release.installed) : 'main'} → back to ${releaseVersion(release.target)}`
+  if (release.back && release.installed) return `${releaseVersion(release.installed)} needs a newer Kehikot`
   if (release.target) return `${release.installed ? releaseVersion(release.installed) : 'main'} → ${releaseVersion(release.target)}`
   if (release.follows === 'main') return 'following main · no releases yet'
   if (release.follows === 'ahead' && release.newest) return `running main ahead of ${releaseVersion(release.newest)}`
@@ -118,6 +128,16 @@ export function releaseSaid(release: ModuleRelease): string {
   /* A newer release exists that this Kehikot cannot run: "up to date" alone would read as "nothing newer". */
   const upToDate = release.needsNewer ? 'up to date for this Kehikot' : 'up to date'
   return at ? `${upToDate} · ${releaseVersion(at)}` : upToDate
+}
+
+/** The question on a step back that waits for a press: "Step back to 1.4.0?", or null when there is none. */
+export function stepBackAsked(release: ModuleRelease): string | null {
+  return release.back && release.back.ask !== null && !release.target ? `Step back to ${releaseVersion(release.back.to)}?` : null
+}
+
+/** Said once a copy was moved back on its own: "<name> was moved back to 1.4.0, which works with this Kehikot." */
+export function steppedBackSaid(name: string, to: string): string {
+  return `${name} was moved back to ${releaseVersion(to)}, which works with this Kehikot.`
 }
 
 /** The whole line: "Journeys 1.5.0 → 1.6.0", "Journeys up to date · 1.6.0". */
@@ -193,6 +213,12 @@ function releaseStanding(release: ModuleRelease): string {
     return `The installed copy runs main ahead of ${release.newest}, the newest release; it stays there and moves to the first release after it${unread}.${newer}`
   }
   const on = release.installed ? `release ${release.installed}` : 'main'
+  if (release.back && release.target) {
+    return `The installed copy runs ${on}, which needs a newer Kehikot than this one; it steps back to ${release.target}, the newest release this host can run, at its next start${unread}.`
+  }
+  if (release.back) {
+    return `The installed copy runs ${on}, which needs a newer Kehikot than this one. ${release.back.to} works here, but stepping back waits for the person: ${release.back.ask}${unread}`
+  }
   if (release.target) return `The installed copy runs ${on}; the newest release this host can run is ${release.target}, which it moves to at its next start${unread}.${newer}`
   return `The installed copy runs ${on}, the newest release this host can run${unread}.${newer}`
 }
