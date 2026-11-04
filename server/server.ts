@@ -13,7 +13,7 @@ import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { connectionsSettingSchema, type ConnectionModule } from '../src/host/connections.ts'
 import { forgetFormerName } from './formerName.ts'
-import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, namedByLists, remember, rememberDoor, rememberedMcp } from './known.ts'
+import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, settle, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
 import {
   createCanvas,
@@ -126,7 +126,7 @@ import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
-import { readMine } from './myModules.ts'
+import { describeFolder, readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
 import { ForgeLogins } from './forgeLogins.ts'
@@ -765,6 +765,7 @@ async function survey(kept = false): Promise<{
    */
   const remembered = known(db)
   const listed = official.current()
+  let mineList: ReturnType<typeof readMine>['modules'] | undefined
   for (const presence of presences) {
     if (presence.name) {
       remember(db, presence.id, presence.name, {
@@ -775,18 +776,26 @@ async function survey(kept = false): Promise<{
       })
     } else {
       const was = remembered.get(presence.id)
-      if (was) {
-        presence.name = was.name
-        presence.summary = was.summary
-        presence.tags = was.tags
-        presence.icon = was.icon
-      }
-      /* Never awake and never remembered (just installed): the lists know it by name. */
-      const named = was ? null : namedByLists(presence.id, [listed, readMine(myModulesFile()).modules])
-      if (named) {
-        presence.name = named.name
-        presence.summary = named.summary
-        presence.tags = named.tags
+      /* Not answering: the official list, then the installed copy's manifest read as text, then
+         what was remembered. A remembered row is as old as the last answer, so it comes last, and
+         the row is brought level with what won (`settle`). */
+      const entry = listed.find((one) => one.id === presence.id)
+      const mine = (mineList ??= readMine(myModulesFile()).modules).find((one) => one.id === presence.id)
+      const dir = registered.get(presence.id)?.dir
+      const installed = dir ? describeFolder(dir) : null
+      const said = settle({
+        listed: entry ?? mine ?? null,
+        installed: installed?.id === presence.id ? installed : null,
+        was: was ?? mine ?? null,
+      })
+      if (said) {
+        presence.name = said.name
+        presence.summary = said.summary
+        presence.tags = said.tags
+        presence.icon = said.icon
+        const changed =
+          !was || was.name !== said.name || was.summary !== said.summary || was.icon !== said.icon || was.tags.join('\n') !== said.tags.join('\n')
+        if (changed && (was || entry || installed)) remember(db, presence.id, said.name, { summary: said.summary, tags: said.tags, icon: said.icon })
       }
     }
     /* The icon the page draws: the module's own (as it answered, or as it last

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { LIMITS, MODULE_ID, PACKAGE_VERSION } from 'kehikot-module-protocol'
+import { isModuleIcon, LIMITS, MODULE_ID, PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import type { Ran, Runner } from './feedback.ts'
@@ -131,9 +131,31 @@ export const installable = (entry: Mine): Installable => ({ ...entry, mine: true
 /** Where a module's manifest is, in the order they are looked for. Every module so far keeps it at the root. */
 export const MANIFEST_PATHS = ['manifest.ts', 'src/manifest.ts', 'server/manifest.ts'] as const
 
+/**
+ * What the files of a checkout on disk say a module is: its manifest read as text, never run.
+ * Null when there is no readable manifest in the shape `describeModule` reads. Used for a registered
+ * module that is not answering, so what it is called and drawn with follows its installed copy.
+ */
+export function describeFolder(dir: string): Extract<Described, { ok: true }> | null {
+  const text = (path: string) => {
+    try {
+      return readFileSync(join(dir, path), 'utf8')
+    } catch {
+      return null
+    }
+  }
+  for (const path of MANIFEST_PATHS) {
+    const manifest = text(path)
+    if (manifest === null) continue
+    const described = describeModule(manifest, text('package.json'))
+    return described.ok ? described : null
+  }
+  return null
+}
+
 /** What the source of a module says it is, before it is ever run. */
 export type Described =
-  | { ok: true; id: string; name: string; summary: string; tags: string[]; protocol?: string }
+  | { ok: true; id: string; name: string; summary: string; tags: string[]; icon?: string; protocol?: string }
   | { ok: false; why: string }
 
 /* One string literal in TypeScript source: '…', "…" or a template with no `${`. */
@@ -200,12 +222,14 @@ export function describeModule(manifest: string, pkg: string | null): Described 
   /* `…kehikko-protocol.git#v2.6.0`, `^2.6.0`, `2.6.0`: the version it is built with is what it needs.
      The same rule reads each release's need (`moduleReleases.ts`). */
   const pinned = protocolPin(pkg)
+  const icon = stringAt(manifest, 'icon', start)
   return {
     ok: true,
     id,
     name: name.slice(0, LIMITS.NAME),
     summary: summary.slice(0, LIMITS.SUMMARY),
     tags,
+    ...(icon && isModuleIcon(icon) ? { icon } : {}),
     ...(pinned ? { protocol: pinned } : {}),
   }
 }

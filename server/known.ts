@@ -1,5 +1,7 @@
 import type { Database } from 'bun:sqlite'
 
+import { isModuleIcon } from 'kehikot-module-protocol'
+
 /**
  * What a module called itself, the last time it was awake enough to say.
  *
@@ -126,6 +128,36 @@ export function namedByLists(
     if (one?.name) return { name: one.name, summary: one.summary ?? '', tags: [...(one.tags ?? [])] }
   }
   return null
+}
+
+/** What one source says a module is; each field may be missing. */
+export interface Said {
+  name?: string
+  summary?: string
+  tags?: readonly string[]
+  icon?: string | null
+}
+
+/**
+ * What a module that is NOT answering is called and drawn with, field by field, from the freshest
+ * word available: the official list's entry, then the installed copy's manifest read as text, then
+ * what the host remembered (`known_modules`). A remembered row is only ever as new as the last time
+ * the module answered, so it must not outvote a list or a checkout that has moved on. A live
+ * manifest, when there is one, outranks all of them (the server settles only a module that is not
+ * answering, so it passes none). Null when nobody has a name.
+ */
+export function settle(
+  sources: { live?: Said | null; listed?: Said | null; installed?: Said | null; was?: Said | null },
+): { name: string; summary: string; tags: string[]; icon: string | null } | null {
+  const order = [sources.live, sources.listed, sources.installed, sources.was].filter((one): one is Said => !!one)
+  const name = order.find((one) => one.name)?.name
+  if (!name) return null
+  return {
+    name,
+    summary: order.find((one) => one.summary)?.summary ?? '',
+    tags: [...(order.find((one) => one.tags?.length)?.tags ?? [])],
+    icon: order.find((one) => isModuleIcon(one.icon))?.icon ?? null,
+  }
 }
 
 /** Everything the host has been told, by module id. */
