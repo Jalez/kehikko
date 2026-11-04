@@ -169,7 +169,7 @@ export function Container({
    * given, else always.
    */
   rowsMode?: ShowRows
-  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Frame menu. */
+  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Frame menu and the fold control's menu. */
   showRows?: ShowRows | null
   barRows?: ShowRows
   onShowRows?(mode: ShowRows | null): void
@@ -858,6 +858,7 @@ export function Container({
           choices={foldChoices(footerDrawn && onFold !== undefined)}
           onCollapse={onCollapse}
           onFold={(rows) => onFold?.(rows)}
+          reveal={onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined}
         />
 
         {/*

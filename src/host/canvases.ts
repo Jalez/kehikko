@@ -5,7 +5,7 @@ import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWeb
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
-import { arranged, granted, tops } from './columns.ts'
+import { arranged, dragged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
@@ -208,6 +208,70 @@ export function promptFor(
   return all.length ? all.join('\n\n') : null
 }
 export type Placement = z.infer<typeof placementSchema>
+
+/** A rectangle as the grid reports one: react-grid-layout's `Layout`, the part of it read here. */
+export interface GridItem {
+  i: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * The placements after the grid reported an arrangement (`onLayoutChange` in
+ * `App.tsx`): its rectangles, and everything of ours it has never heard of
+ * carried across from what is stored.
+ *
+ * `next` is react-grid-layout's idea of the arrangement, and it reports one
+ * after every change of `layouts` — a drag, a resize, and also a fold, whose
+ * height changed. So a field not copied here is lost on the next fold or
+ * drag, which is how a container folded to two rows used to be written back
+ * as one: `foldRows` was not carried, and the redrawn height was one row.
+ *
+ * `held` is the container a hand has just let go of the corner of, and
+ * `given` the rows a top edge traded with the containers on top of it; see
+ * `onLayoutChange`.
+ */
+export function fromGrid(was: readonly Placement[], next: readonly GridItem[], held: string | null, given: ReadonlyMap<string, number>): Placement[] {
+  return next.map((item) => {
+    const before = was.find((p) => p.i === item.i)
+    /*
+     * What the hand said, if this is the container it was on: a drag to
+     * the folded height is a fold, a drag out of it is an unfold, and any
+     * other drag is a new wish. `dragged` in `host/columns.ts` has the
+     * argument; a container that was not the one being resized has said
+     * nothing, and keeps what it had.
+     */
+    const said =
+      before && held === item.i
+        ? dragged(before, item.h)
+        : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
+    return {
+      i: item.i,
+      x: item.x,
+      y: item.y,
+      w: item.w,
+      h: item.h,
+      grow: before?.grow ?? false,
+      pinned: before?.pinned ?? false,
+      prompt: before?.prompt ?? '',
+      promptFor: before?.promptFor ?? null,
+      collapsed: said.collapsed,
+      /* How far it folds and when its rows show: a drag is a fold or not, never a change of these. */
+      ...(before?.foldRows !== undefined ? { foldRows: before.foldRows } : {}),
+      ...(before?.showRows !== undefined ? { showRows: before.showRows } : {}),
+      wish: given.get(item.i) ?? said.wish,
+      selected: before?.selected ?? false,
+      /* A drag is not a change of mind about what a container is showing, nor
+         about how often it reads, which version runs, or what it shows. */
+      filters: before?.filters ?? {},
+      refreshEvery: before?.refreshEvery ?? null,
+      version: before?.version ?? null,
+      scope: before?.scope ?? null,
+    }
+  })
+}
 
 const canvasSchema = z.object({
   id: z.number().int(),

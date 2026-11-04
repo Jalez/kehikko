@@ -47,6 +47,7 @@ import {
   framesKept,
   recentlyOpen,
   fetchCanvases,
+  fromGrid,
   inProject,
   answerPress,
   place,
@@ -2861,47 +2862,7 @@ export function App() {
       /* The rows a top edge took from, or gave to, the containers on top of
          it: those heights were chosen by the same hand, so they are wishes. */
       const given = traded.current
-      const placements = next.map((item) => {
-        const before = was.find((p) => p.i === item.i)
-        /*
-         * What the hand said, if this is the container it was on: a drag to
-         * the folded height is a fold, a drag out of it is an unfold, and any
-         * other drag is a new wish. `dragged` in `host/columns.ts` has the
-         * argument; a container that was not the one being resized has said
-         * nothing, and keeps what it had.
-         */
-        const said =
-          before && held === item.i
-            ? dragged(before, item.h)
-            : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
-        return {
-          i: item.i,
-          x: item.x,
-          y: item.y,
-          w: item.w,
-          h: item.h,
-          /* Everything of ours that react-grid-layout has never heard of is
-             carried across from what is stored. `next` is its idea of the
-             arrangement, so anything not in its vocabulary is dropped here on
-             the first drag unless it is copied over deliberately. */
-          grow: before?.grow ?? false,
-          pinned: before?.pinned ?? false,
-          prompt: before?.prompt ?? '',
-          promptFor: before?.promptFor ?? null,
-          collapsed: said.collapsed,
-          wish: given.get(item.i) ?? said.wish,
-          selected: before?.selected ?? false,
-          /* Carried across for the same reason as everything above it. A drag is
-             not a change of mind about what a container is showing, nor about how
-             often it reads. */
-          filters: before?.filters ?? {},
-          refreshEvery: before?.refreshEvery ?? null,
-          /* And the version: a drag is not a choice of which version runs. */
-          version: before?.version ?? null,
-          /* And the scope: a drag is not a choice of what the container shows. */
-          scope: before?.scope ?? null,
-        }
-      })
+      const placements = fromGrid(was, next, held, given)
       /*
        * Then drawn at what the wishes are granted. A move can change who
        * shares a column with whom — a container dragged out of a full column

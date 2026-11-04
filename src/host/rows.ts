@@ -19,6 +19,9 @@
  *
  * `null` follows the bar: `hover` with focus mode on, `always` with it off.
  *
+ * The choice is in two places: the Frame menu's "Header and footer", and the
+ * second group of the fold control's held-press menu, under the fold choice.
+ *
  * ## How far a fold goes
  *
  * Folding used to leave the header alone. A container may now fold to its
@@ -86,7 +89,8 @@ export const FOLD_ROWS_SAID: Readonly<Record<FoldRows, { label: string; line: st
 
 /**
  * Which fold choices are offered: two rows only when the host draws this
- * module's footer. With one choice there is no menu to open.
+ * module's footer. With one choice the fold group is left out of the fold
+ * control's menu; the menu still holds when the rows show.
  */
 export function foldChoices(footerDrawn: boolean): readonly FoldRows[] {
   return footerDrawn ? FOLD_ROWS : [1]

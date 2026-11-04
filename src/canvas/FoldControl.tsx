@@ -8,10 +8,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { foldHint } from '@/host/folds.ts'
-import { FOLD_ROWS_SAID, LongPress, opensFoldChoice, type FoldRows } from '@/host/rows.ts'
+import { FOLD_ROWS_SAID, LongPress, SHOW_ROWS, SHOW_ROWS_SAID, opensFoldChoice, type FoldRows, type ShowRows } from '@/host/rows.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -21,8 +22,15 @@ import { Hint } from './Hint.tsx'
  * always did. When the module's footer is drawn there are two choices, and a
  * long press (`LONG_PRESS_MS`), Shift+Enter, Shift+F10, the context-menu key,
  * a right click or ArrowDown opens a small menu of them: one row, the header;
- * two rows, the header and the footer. Picking one folds to it. With one
- * choice there is no menu, and the control is exactly the button it was.
+ * two rows, the header and the footer. Picking one folds to it.
+ *
+ * Under it, a second group: when this container's header and footer show —
+ * as the bar says, always, on hover, on click (`reveal`, the same choice as
+ * the Frame menu's "Header and footer"). It is here as well because this is
+ * the control a person holds when the rows are what they are thinking about.
+ * Picking one changes when the rows show and folds nothing. With neither a
+ * second fold nor `reveal` there is no menu, and the control is exactly the
+ * button it was.
  *
  * The menu is the shared dropdown, so it closes on a press outside it and on
  * the keyboard leaving for a module's page (`useCloseOnFrameBlur`).
@@ -34,6 +42,7 @@ export function FoldControl({
   choices,
   onCollapse,
   onFold,
+  reveal,
 }: {
   collapsed: boolean
   foldedBy: string | null
@@ -44,11 +53,15 @@ export function FoldControl({
   onCollapse(collapsed: boolean): void
   /** A choice picked from the menu: remember it and fold to it. */
   onFold(rows: FoldRows): void
+  /** When the header and footer show: the container's own choice (`null`: the bar's), what the bar says, and the change. Absent: no such group. */
+  reveal?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
 }) {
   const [open, setOpen] = useState(false)
   const long = useMemo(() => new LongPress(() => setOpen(true)), [])
   const described = useId()
   const choosable = choices.length > 1
+  /* Whether a held press opens a menu at all: a second fold to choose, or when the rows show. */
+  const menu = choosable || reveal !== undefined
   /* The fold a plain press makes: the remembered one, when it can be drawn. */
   const rows: FoldRows = choosable ? foldRows : 1
   const label =
@@ -60,9 +73,9 @@ export function FoldControl({
       ? 'text-foreground size-6 cursor-default'
       : 'text-muted-foreground hover:text-foreground data-[state=open]:bg-accent size-6 cursor-default'
   const icon = collapsed ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />
-  const hint = foldHint(collapsed, foldedBy, rows, choosable)
+  const hint = foldHint(collapsed, foldedBy, rows, choosable, reveal !== undefined)
 
-  if (!choosable) {
+  if (!menu) {
     return (
       <Hint label={hint} side="left">
         <Button
@@ -133,23 +146,59 @@ export function FoldControl({
           >
             {icon}
             <span id={described} hidden>
-              Hold, or press Shift+Enter, to choose one row or two.
+              {choosable && reveal
+                ? 'Hold, or press Shift+Enter, to choose one row or two, and when the header and footer show.'
+                : choosable
+                  ? 'Hold, or press Shift+Enter, to choose one row or two.'
+                  : 'Hold, or press Shift+Enter, to choose when the header and footer show.'}
             </span>
           </Button>
         </DropdownMenuTrigger>
       </Hint>
       <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)]" data-menu-content="fold">
-        <DropdownMenuLabel className="text-muted-foreground py-1 text-[11px] font-normal">Fold to</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={String(foldRows)}>
-          {choices.map((choice) => (
-            <DropdownMenuRadioItem key={choice} value={String(choice)} data-fold-choice={choice} className="items-start py-1 text-xs" onSelect={() => onFold(choice)}>
-              <span className="flex min-w-0 flex-col">
-                <span className="font-medium">{FOLD_ROWS_SAID[choice].label}</span>
-                <span className="text-muted-foreground text-[11px] leading-snug">{FOLD_ROWS_SAID[choice].line}</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {choosable ? (
+          <>
+            <DropdownMenuLabel className="text-muted-foreground py-1 text-[11px] font-normal">Fold to</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={String(foldRows)} data-fold-group="rows">
+              {choices.map((choice) => (
+                <DropdownMenuRadioItem key={choice} value={String(choice)} data-fold-choice={choice} className="items-start py-1 text-xs" onSelect={() => onFold(choice)}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-medium">{FOLD_ROWS_SAID[choice].label}</span>
+                    <span className="text-muted-foreground text-[11px] leading-snug">{FOLD_ROWS_SAID[choice].line}</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </>
+        ) : null}
+        {choosable && reveal ? <DropdownMenuSeparator /> : null}
+        {reveal ? (
+          <>
+            <DropdownMenuLabel className="text-muted-foreground py-1 text-[11px] font-normal">Header and footer</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={reveal.mode ?? 'bar'}
+              data-fold-group="reveal"
+              onValueChange={(value) => reveal.onChange(value === 'bar' ? null : (value as ShowRows))}
+            >
+              <DropdownMenuRadioItem value="bar" data-reveal-choice="bar" className="items-start py-1 text-xs">
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium">As the bar says</span>
+                  <span className="text-muted-foreground text-[11px] leading-snug">
+                    the bar’s focus control decides; now: {SHOW_ROWS_SAID[reveal.bar].label.toLowerCase()}.
+                  </span>
+                </span>
+              </DropdownMenuRadioItem>
+              {SHOW_ROWS.map((mode) => (
+                <DropdownMenuRadioItem key={mode} value={mode} data-reveal-choice={mode} className="items-start py-1 text-xs">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-medium">{SHOW_ROWS_SAID[mode].label}</span>
+                    <span className="text-muted-foreground text-[11px] leading-snug">{SHOW_ROWS_SAID[mode].hint}.</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
