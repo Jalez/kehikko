@@ -94,6 +94,7 @@ import { carry } from '@/host/carry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackRows, type FeedbackState } from './Feedback.tsx'
 import { RevealChoices } from './RevealChoices.tsx'
+import type { StandingRow } from './Standing.tsx'
 
 /**
  * A container's menus: the module's own View, Go and Run, and the host's Frame.
@@ -1176,6 +1177,12 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
 export interface FrameParts {
   module: string
   name: string
+  /**
+   * A folded container's state, when its page is not what is showing: the press its cover or
+   * notice would offer in the body, first in this menu (`standingRows` in `Standing.tsx`). Absent
+   * or empty: no rows.
+   */
+  standing?: readonly StandingRow[]
   /** The feedback list behind the "Feedback" row: one per container, so its dialog is drawn once (`Container`). */
   feedback: FeedbackState
   /**
@@ -1212,6 +1219,7 @@ export interface FrameParts {
 /** Which of the host's entries a container has, for `layoutOf`. */
 export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   const out: FrameEntry[] = []
+  if (parts.standing?.length) out.push('standing')
   if (parts.scope) out.push('scope')
   if (parts.onSettings) out.push('settings')
   if (toolsSaying(parts.agent, parts.name)) out.push('tools')
@@ -1232,6 +1240,17 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
   const has = (entry: FrameEntry) => entries.includes(entry)
   return (
     <>
+      {has('standing') && parts.standing?.length ? (
+        <DropdownMenuGroup data-frame="standing">
+          {parts.standing.map((row) => (
+            <DropdownMenuItem key={row.key} className={ROW} title={row.title} data-standing={row.key} disabled={row.disabled} onSelect={row.onSelect}>
+              <row.icon className="text-muted-foreground size-3.5" aria-hidden />
+              <span className="flex-1">{row.label}</span>
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+        </DropdownMenuGroup>
+      ) : null}
       {has('scope') && scope ? (
         <DropdownMenuItem className={ROW} title={scopeTooltip(scope)} data-frame="scope" data-scope={scope.active} disabled={!onSettings} onSelect={onSettings}>
           <ScopeIcon scope={scope.active} className="text-muted-foreground size-3.5" />

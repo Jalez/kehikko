@@ -147,7 +147,7 @@ export function ConditionPanel({
        room it was given. Centred rather than top-aligned because there is one
        thing here: this is not a page with a heading and content below it, it is
        a single statement about why the container is empty. */
-    <div className="flex h-full flex-col items-center justify-center gap-3 overflow-auto px-6 py-8 text-center">
+    <div className="flex h-full min-w-0 flex-col items-center justify-center gap-3 overflow-x-hidden overflow-y-auto px-6 py-8 text-center">
       <Icon
         className={cn(
           'size-6',
@@ -199,13 +199,13 @@ export function ConditionPanel({
       {detail?.length ? (
         <pre
           data-testid="condition-detail"
-          className="bg-muted text-muted-foreground max-h-32 w-full max-w-[64ch] overflow-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug whitespace-pre-wrap"
+          className="bg-muted text-muted-foreground max-h-32 w-full max-w-[64ch] overflow-x-hidden overflow-y-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug break-all whitespace-pre-wrap"
         >
           {detail.join('\n')}
         </pre>
       ) : null}
 
-      <p className="text-muted-foreground font-mono text-xs break-all">{at}</p>
+      <p className="text-muted-foreground/70 max-w-full font-mono text-[11px] break-all">{at}</p>
       {children}
     </div>
   )
@@ -233,11 +233,14 @@ export function ConditionPanel({
  * It is drawn by the host, on the theme's own card colour, over a frame that
  * is hidden while it is up — so nothing a module's document does or does not
  * paint in its first moments is ever on screen.
+ *
+ * This is the full size. A small or folded container draws the same facts
+ * smaller (`Standing.tsx`, `host/coverFit.ts`), with the address in a tooltip.
  */
 export function ModuleCover({ state, at, detail }: { state: Waiting; at: string; detail?: string }) {
   return (
     <div
-      className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center"
+      className="flex h-full min-w-0 flex-col items-center justify-center gap-3 overflow-x-hidden overflow-y-auto px-6 py-8 text-center"
       data-testid="module-cover"
       data-state={state}
       role="status"
@@ -245,7 +248,7 @@ export function ModuleCover({ state, at, detail }: { state: Waiting; at: string;
       <KehikkoMark working className="text-muted-foreground size-10" />
       <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{COVER_WORDS[state]}</p>
       {detail ? <p className="text-muted-foreground/80 max-w-[46ch] text-balance text-xs">{detail}</p> : null}
-      <p className="text-muted-foreground/70 font-mono text-[11px]">{at}</p>
+      <p className="text-muted-foreground/70 max-w-full font-mono text-[11px] break-all">{at}</p>
     </div>
   )
 }

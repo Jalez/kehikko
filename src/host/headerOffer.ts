@@ -70,8 +70,13 @@ export function pinsFor(width: number | null): boolean {
  * The offer
  * ------------------------------------------------------------------ */
 
-/** The host's own entries, in the order the Frame menu draws them. */
-export const FRAME_ENTRIES = ['scope', 'settings', 'tools', 'skills', 'rows', 'feedback', 'prompts'] as const
+/**
+ * The host's own entries, in the order the Frame menu draws them. `standing` is
+ * the press a folded container's cover or notice would have offered in its body
+ * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
+ * no body to hold it, it is the first rows of this menu, so it stays reachable.
+ */
+export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'feedback', 'prompts'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /** What the Frame menu is called, as a trigger and as the overflow's last section. */
