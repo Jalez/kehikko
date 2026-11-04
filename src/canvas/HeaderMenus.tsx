@@ -1232,7 +1232,7 @@ export function FrameMenu({
     <>
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <Word
-          hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, feedback and prompts`}
+          hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}feedback and prompts`}
           word={null}
           quiet={quiet}
         >

@@ -233,8 +233,14 @@ export function signedBy(marks: FoldMarks | null, placement: { i: string; collap
  * `rows` is how far a press folds (`host/rows.ts`), and `choosable` that a
  * long press opens the choice of one row or two.
  */
-export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1, choosable = false): string {
-  const hold = choosable ? '. Hold for one row or two' : ''
+export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1, choosable = false, reveal = false): string {
+  const hold = choosable && reveal
+    ? '. Hold for one row or two, and for when the header and footer show'
+    : choosable
+      ? '. Hold for one row or two'
+      : reveal
+        ? '. Hold to choose when the header and footer show'
+        : ''
   if (by === null) {
     return collapsed
       ? `folded — the module is still running. Press to put it back at the height it had${hold}`

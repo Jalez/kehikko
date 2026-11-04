@@ -590,6 +590,11 @@
   folded page stays hidden: no body, so `kehikot.visible` is false and
   `kehikot.covered` is nothing (`coversFor`); footer presses still go to its
   frame.
+- Every field of a placement the grid has never heard of is carried through
+  `fromGrid` (`host/canvases.ts`), which `onLayoutChange` runs on every
+  arrangement the grid reports, a fold's included. A field left out there is
+  lost on the next fold or drag (that is how two rows fell back to one).
+  Add a new placement field there too.
 - What goes in which row is the protocol's rule (2.47.0, its
   `docs/footer.md`): the header is how the module is set up, the footer is
   what is going on now plus the actions on those readouts (`actsOn`). The
@@ -622,7 +627,9 @@
   personal, beside `collapsed`; `src/host/rows.ts`): `always`, `hover`
   (what follows below), `click`, or `null` for the bar's focus control, which
   stays the default (`barRows`: on is `hover`, off is `always`). Offered in
-  the Frame menu ("Header and footer"). A container whose rows hide carries
+  two places, both kept: the Frame menu ("Header and footer") and the second
+  group of the fold control's held-press menu, under the fold choice (there
+  even when two rows is not, so the fold control always has a menu). A container whose rows hide carries
   `data-rows="hide"`, and every hiding rule in `index.css` is scoped to it —
   never to `.focus-mode` again.
 - Reveal on click: ONE container is clicked at a time (`clickTo`, held in

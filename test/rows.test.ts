@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test'
 import { footerItemsSchema } from 'kehikot-module-protocol'
 
-import { FOLDED_ROWS, FOLDED_TWO_ROWS, foldedHeight, granted, pressed, type Wished } from '../src/host/columns.ts'
+import { fromGrid } from '../src/host/canvases.ts'
+import { FOLDED_ROWS, FOLDED_TWO_ROWS, foldedHeight, granted, pressed, redrawn, type Wished } from '../src/host/columns.ts'
 import { drawsFooter } from '../src/host/footer.ts'
 import { foldHint } from '../src/host/folds.ts'
 import { REVEAL_ENTER_MS, Reveals, coversFor } from '../src/host/reveal.ts'
@@ -196,6 +197,8 @@ describe('how far a fold goes', () => {
     expect(foldHint(false, null)).toBe('fold it down to this header. The module keeps running and keeps what is in it')
     expect(foldHint(false, null, 2, true)).toBe('fold it down to this header and its footer. The module keeps running and keeps what is in it. Hold for one row or two')
     expect(foldHint(false, 'an agent', 2)).toBe('unfolded by an agent. Press to fold it down to its header and footer again')
+    expect(foldHint(false, null, 2, true, true)).toBe('fold it down to this header and its footer. The module keeps running and keeps what is in it. Hold for one row or two, and for when the header and footer show')
+    expect(foldHint(true, null, 1, false, true)).toBe('folded — the module is still running. Press to put it back at the height it had. Hold to choose when the header and footer show')
   })
 })
 
@@ -259,5 +262,20 @@ describe('kept per container, in this person\'s view', () => {
   test('a value it does not know is dropped, not refused', () => {
     const read = parseView(JSON.stringify({ version: 1, epic: null, selection: [], kehikot: { k1: { 'kehikot.paper': { foldRows: 3, showRows: 'sometimes', collapsed: true } } } }))!
     expect(read.kehikot.get('k1')!.get('kehikot.paper')).toEqual({ ...AT_REST, collapsed: true })
+  })
+})
+
+describe('what the grid reports keeps how a container folds and when its rows show', () => {
+  test('fromGrid carries foldRows and showRows across, and leaves them out where they were at rest', () => {
+    const base = { x: 0, y: 0, w: 12, h: FOLDED_TWO_ROWS, wish: 20, grow: false, pinned: false, prompt: '', promptFor: null, selected: false, filters: {}, refreshEvery: null, version: null, scope: null }
+    const was = [
+      { ...base, i: 'kehikot.a', collapsed: true, foldRows: 2 as const, showRows: 'click' as const },
+      { ...base, i: 'kehikot.b', x: 12, collapsed: false, h: 20 },
+    ]
+    const got = fromGrid(was, [{ i: 'kehikot.a', x: 0, y: 0, w: 12, h: FOLDED_TWO_ROWS }, { i: 'kehikot.b', x: 12, y: 0, w: 12, h: 20 }], null, new Map())
+    expect(got[0]).toMatchObject({ collapsed: true, foldRows: 2, showRows: 'click' })
+    expect('foldRows' in got[1]!).toBe(false)
+    expect('showRows' in got[1]!).toBe(false)
+    expect(redrawn(got)[0]!.h).toBe(FOLDED_TWO_ROWS)
   })
 })
