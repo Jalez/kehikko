@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react'
 import { revealModeOf } from 'kehikot-module-protocol'
 
 import type { Focus } from './focus.ts'
-import { clickTo, rowsHide, rowsShown, type ClickEvent, type ShowRows } from './rows.ts'
+import { LONG_PRESS_MS, clickTo, rowsHide, rowsShown, startsHold, type ClickEvent, type ShowRows } from './rows.ts'
 
 /**
  * In focus mode, which containers have their header and footer showing.
@@ -59,12 +59,16 @@ export class Reveals {
   readonly #hearers = new Set<() => void>()
   /* Reveal on click (`host/rows.ts`): the one container clicked into, or none. */
   #clicked: string | null = null
+  /* Reveal on long press: the press being held, when it began on this clock, and its timer. */
+  #holding: { id: string; since: number; timer: Timer } | null = null
   readonly #enterMs: number
   readonly #leaveMs: number
+  readonly #longMs: number
 
-  constructor(enterMs = REVEAL_ENTER_MS, leaveMs = REVEAL_LEAVE_MS) {
+  constructor(enterMs = REVEAL_ENTER_MS, leaveMs = REVEAL_LEAVE_MS, longMs = LONG_PRESS_MS) {
     this.#enterMs = enterMs
     this.#leaveMs = leaveMs
+    this.#longMs = longMs
   }
 
   /** One source took hold of a container, or let it go. */
@@ -84,10 +88,47 @@ export class Reveals {
 
   /** Something moved the click (`clickTo`): one notification when the clicked container changes, none otherwise. */
   click(event: ClickEvent): void {
+    this.#hold(event)
     const next = clickTo(this.#clicked, event)
     if (next === this.#clicked) return
     this.#clicked = next
     this.#tell()
+  }
+
+  /**
+   * The long press: a press into a container revealed on long press is timed,
+   * and reveals it when it has been held `LONG_PRESS_MS` — by the timer, or by
+   * a release that says it was held that long (a page measures its own press,
+   * and its `up` may arrive with the timer still to fire). A release before
+   * then, a press anywhere else, Escape or a press on nothing ends it.
+   */
+  #hold(event: ClickEvent): void {
+    if (event.kind === 'frame' || event.kind === 'held') return
+    const holding = this.#holding
+    if (event.kind === 'release') {
+      if (!holding) return
+      this.#unhold()
+      const held = event.held ?? Date.now() - holding.since
+      if (held >= this.#longMs) this.click({ kind: 'held', id: holding.id })
+      return
+    }
+    if (holding && 'id' in event && startsHold(event) && holding.id === event.id) return
+    this.#unhold()
+    if (!startsHold(event)) return
+    const id = event.id
+    this.#holding = {
+      id,
+      since: Date.now(),
+      timer: setTimeout(() => {
+        this.#holding = null
+        this.click({ kind: 'held', id })
+      }, this.#longMs),
+    }
+  }
+
+  #unhold(): void {
+    if (this.#holding) clearTimeout(this.#holding.timer)
+    this.#holding = null
   }
 
   /** Whether this container is the one clicked into, for a container revealed on click. */
@@ -98,7 +139,7 @@ export class Reveals {
   /** Whether a container whose rows show `mode` has them showing now. `always` is never "revealed": nothing hides. */
   showing(id: string, mode: ShowRows): boolean {
     if (mode === 'hover') return this.revealed(id)
-    if (mode === 'click') return this.clicked(id)
+    if (mode === 'click' || mode === 'longpress') return this.clicked(id)
     return false
   }
 
@@ -108,6 +149,7 @@ export class Reveals {
     const timer = this.#timers.get(id)
     if (timer) clearTimeout(timer)
     this.#timers.delete(id)
+    if (this.#holding?.id === id) this.#unhold()
     const wasClicked = this.#clicked === id
     if (wasClicked) this.#clicked = null
     if (this.#shown.delete(id) || wasClicked) this.#tell()
@@ -215,7 +257,7 @@ export const REVEAL_ROW_PX = 32
 export interface Covers {
   header: boolean
   footer: boolean
-  /** What reveals them: the pointer over the container (the default), or a click into it (`host/rows.ts`). */
+  /** What reveals them: the pointer over the container (the default), or a press into it — a click or a held press (`host/rows.ts`). */
   by?: 'hover' | 'click'
 }
 
@@ -242,5 +284,5 @@ export function coversFor(
   if (!module || revealModeOf(module) !== 'over' || !placement || placement.collapsed) return null
   const mode = rowsShown(placement, focus)
   if (!rowsHide(mode)) return null
-  return { header: !placement.selected, footer, by: mode === 'click' ? 'click' : 'hover' }
+  return { header: !placement.selected, footer, by: mode === 'click' || mode === 'longpress' ? 'click' : 'hover' }
 }

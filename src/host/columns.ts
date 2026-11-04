@@ -396,7 +396,7 @@ function stacked(
 export function wishing(
   boxes: readonly Wished[],
   id: string,
-  change: Partial<Pick<Wished, 'wish' | 'collapsed'>>,
+  change: Partial<Pick<Wished, 'wish' | 'collapsed' | 'foldRows'>>,
   rows = CANVAS_ROWS,
   floor = SQUEEZED_ROWS,
 ): Map<string, number> {
@@ -534,6 +534,18 @@ export function mostFor(
  * squeezed height, and that is the exact bug this file's `granted` essay names
  * as the one thing no caller may do.
  *
+ * ## And to two rows, where the footer is drawn
+ *
+ * `FOLDED_TWO_ROWS` is a two-row fold's height: the header and the module's
+ * footer. With `twoRows` — the host draws this module's footer — a corner
+ * pulled to that height (more than one row's fold, at most two) is that fold:
+ * `collapsed` with `foldRows: 2`, the wish left alone, exactly what "Two
+ * rows" in the fold control's menu writes. Pulled to one row's height it is
+ * a one-row fold (`foldRows: 1`), so the two never disagree with what is
+ * drawn. Without a footer, two rows is not a fold and a height there is a
+ * wish like any other, as it always was. Pulled taller than the fold it is
+ * in, it unfolds.
+ *
  * ## Only on release
  *
  * The fold itself is applied when the corner is let go, not while it moves.
@@ -547,10 +559,11 @@ export function mostFor(
 export function dragged(
   before: Pick<Wished, 'h' | 'wish' | 'collapsed'>,
   h: number,
-  folded = FOLDED_ROWS,
-): Pick<Wished, 'wish' | 'collapsed'> {
+  twoRows = false,
+): Pick<Wished, 'wish' | 'collapsed' | 'foldRows'> {
   if (h === before.h) return { wish: before.wish, collapsed: before.collapsed }
-  if (h <= folded) return { wish: before.wish, collapsed: true }
+  if (h <= FOLDED_ROWS) return twoRows ? { wish: before.wish, collapsed: true, foldRows: 1 } : { wish: before.wish, collapsed: true }
+  if (twoRows && h <= FOLDED_TWO_ROWS) return { wish: before.wish, collapsed: true, foldRows: 2 }
   return { wish: h, collapsed: false }
 }
 

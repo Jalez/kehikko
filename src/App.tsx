@@ -142,7 +142,7 @@ import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import { agentFooterRefusal, footerDeclared, footerPressing, footerWithdrawn, NO_FOOTER, NO_FOOTERS, type Footers as HeldFooters } from './host/footer.ts'
 import { Reveals, coversFor } from './host/reveal.ts'
-import { barRows, rowsShown, watchClicks, type FoldRows, type ShowRows } from './host/rows.ts'
+import { barRows, rowsShown, watchClicks, withMode, type ClickEvent, type FoldRows, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
@@ -515,11 +515,19 @@ export function App() {
   const [footers, setFooters] = useState<HeldFooters>(NO_FOOTERS)
   const footersRef = useRef<HeldFooters>(footers)
   footersRef.current = footers
+  /* Whether the host draws this container's footer now: a corner pulled to two rows is then a two-row fold (`dragged`). */
+  const twoRowsFor = useCallback((id: string) => (footersRef.current[id]?.length ?? 0) > 0, [])
   /* In focus mode, which containers have their header and footer revealed (`host/reveal.ts`). One for the page. */
   const reveals = useMemo(() => new Reveals(), [])
   /* Reveal on click (`host/rows.ts`): a click into a module's page or onto a container's own chrome
      moves the click there; Escape or a press on nothing takes it away. One listener for the page. */
-  useEffect(() => watchClicks(document, window, (event) => reveals.click(event)), [reveals])
+  /* Each container's mode, read at the moment of the press (set below, where the placements are). */
+  const rowsModeRef = useRef<(id: string) => ShowRows>(() => 'click')
+  const onClickMove = useCallback((event: ClickEvent) => reveals.click(withMode(event, rowsModeRef.current)), [reveals])
+  useEffect(() => watchClicks(document, window, onClickMove), [onClickMove])
+  /* A page's own presses (`kehikot.pointer`, protocol 2.49.0): where each press began on the page's
+     clock, by module, so its release says how long it was held. */
+  const pressedAtRef = useRef(new Map<string, number>())
   /**
    * What an agent last pressed in each module's header, by module id, so the
    * container says it happened where a person would look for it. Said for a
@@ -2100,6 +2108,10 @@ export function App() {
    * arrangement the first one already changed. Every render puts it back to
    * what is drawn.
    */
+  rowsModeRef.current = (id) => {
+    const placement = open?.placements.find((p) => p.i === id)
+    return placement ? rowsShown(placement, focus) : barRows(focus)
+  }
   const arrangedRef = useRef<{ kehikko: number | null; placements: Placement[] }>({ kehikko: null, placements: [] })
   arrangedRef.current = { kehikko: open?.id ?? null, placements: open?.placements ?? [] }
   const foldRef = useRef<(from: string, call: { fold: string[]; unfold: string[] }) => Folded>(() => ({
@@ -2862,7 +2874,7 @@ export function App() {
       /* The rows a top edge took from, or gave to, the containers on top of
          it: those heights were chosen by the same hand, so they are wishes. */
       const given = traded.current
-      const placements = fromGrid(was, next, held, given)
+      const placements = fromGrid(was, next, held, given, twoRowsFor)
       /*
        * Then drawn at what the wishes are granted. A move can change who
        * shares a column with whom — a container dragged out of a full column
@@ -4509,8 +4521,19 @@ export function App() {
       /* Held whole, and drawn as the container's menus — see `host/header.ts`. */
       header: (items) => setHeaders((was) => declared(was, id, items)),
       footer: (items) => setFooters((was) => footerDeclared(was, id, items)),
+      /* A press inside the page: reveal on click and on long press (`host/rows.ts`). */
+      pointer: (phase, at) => {
+        if (phase === 'down') {
+          pressedAtRef.current.set(id, at)
+          onClickMove({ kind: 'press', id })
+          return
+        }
+        const since = pressedAtRef.current.get(id)
+        pressedAtRef.current.delete(id)
+        onClickMove(phase === 'up' && since !== undefined ? { kind: 'release', held: at - since } : { kind: 'release', held: 0 })
+      },
     }),
-    [covers, onHeight, onOffer, onClearable, onRefreshable],
+    [covers, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
   )
 
   return (
@@ -4817,7 +4840,7 @@ export function App() {
               remeasure()
               return
             }
-            const heights = before ? wishing(stored, item.i, dragged(before, item.h)) : granted(stored)
+            const heights = before ? wishing(stored, item.i, dragged(before, item.h, twoRowsFor(item.i))) : granted(stored)
             for (const one of layout) {
               const height = heights.get(one.i)
               if (height !== undefined) one.h = height

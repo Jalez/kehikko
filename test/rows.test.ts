@@ -21,6 +21,9 @@ import {
   rowsHide,
   rowsShown,
   showRowsIn,
+  SHOW_ROWS,
+  SHOW_ROWS_SAID,
+  withMode,
 } from '../src/host/rows.ts'
 import { AT_REST, parseView, serializeView, viewOf } from '../server/view.ts'
 
@@ -58,6 +61,61 @@ describe('when the rows show', () => {
     expect(foldRowsIn(2)).toBe(2)
     expect(foldRowsIn('2')).toBe(1)
     expect(foldRowsIn(null)).toBe(1)
+  })
+})
+
+describe('reveal on long press', () => {
+  test('a press into a long-press container reveals nothing, takes the click from the others, and keeps itself when revealed', () => {
+    expect(clickTo(null, { kind: 'press', id: 'a', mode: 'longpress' })).toBeNull()
+    expect(clickTo('b', { kind: 'press', id: 'a', mode: 'longpress' })).toBeNull()
+    expect(clickTo('a', { kind: 'press', id: 'a', mode: 'longpress' })).toBe('a')
+    expect(clickTo('b', { kind: 'frame', id: 'a', mode: 'longpress' })).toBeNull()
+    expect(clickTo(null, { kind: 'held', id: 'a' })).toBe('a')
+    expect(clickTo('a', { kind: 'release', held: 10 })).toBe('a')
+  })
+
+  test('withMode fills the mode of the events that name a container, and keeps one already there', () => {
+    const modeOf = (id: string): 'longpress' | 'click' => (id === 'a' ? 'longpress' : 'click')
+    expect(withMode({ kind: 'press', id: 'a' }, modeOf)).toEqual({ kind: 'press', id: 'a', mode: 'longpress' })
+    expect(withMode({ kind: 'chrome', id: 'b' }, modeOf)).toEqual({ kind: 'chrome', id: 'b', mode: 'click' })
+    expect(withMode({ kind: 'frame', id: 'a', mode: 'hover' }, modeOf)).toEqual({ kind: 'frame', id: 'a', mode: 'hover' })
+    expect(withMode({ kind: 'escape' }, modeOf)).toEqual({ kind: 'escape' })
+  })
+
+  test('Reveals times the press: released early reveals nothing, held reveals, a release saying it was held reveals', () => {
+    jest.useFakeTimers()
+    try {
+      const reveals = new Reveals(5, 20, 500)
+      reveals.click({ kind: 'press', id: 'a', mode: 'longpress' })
+      jest.advanceTimersByTime(200)
+      reveals.click({ kind: 'release', held: 200 })
+      jest.advanceTimersByTime(1000)
+      expect(reveals.showing('a', 'longpress')).toBe(false)
+      reveals.click({ kind: 'press', id: 'a', mode: 'longpress' })
+      jest.advanceTimersByTime(500)
+      expect(reveals.showing('a', 'longpress')).toBe(true)
+      reveals.click({ kind: 'outside' })
+      expect(reveals.showing('a', 'longpress')).toBe(false)
+      reveals.click({ kind: 'press', id: 'a', mode: 'longpress' })
+      reveals.click({ kind: 'release', held: 640 })
+      expect(reveals.showing('a', 'longpress')).toBe(true)
+      /* A press elsewhere ends a hold that has not fired. */
+      reveals.click({ kind: 'outside' })
+      reveals.click({ kind: 'chrome', id: 'b', mode: 'longpress' })
+      reveals.click({ kind: 'press', id: 'c', mode: 'click' })
+      jest.advanceTimersByTime(1000)
+      expect(reveals.showing('b', 'longpress')).toBe(false)
+      expect(reveals.showing('c', 'click')).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('its words say a plain click does not, and where to hold in a page too old to say its presses', () => {
+    expect(SHOW_ROWS).toContain('longpress')
+    expect(SHOW_ROWS_SAID.longpress.label).toBe('Reveal on long press')
+    expect(SHOW_ROWS_SAID.longpress.hint).toContain('a plain click does not')
+    expect(SHOW_ROWS_SAID.longpress.hint).toContain('hold on the header')
   })
 })
 

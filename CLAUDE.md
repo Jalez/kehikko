@@ -595,6 +595,11 @@
   arrangement the grid reports, a fold's included. A field left out there is
   lost on the next fold or drag (that is how two rows fell back to one).
   Add a new placement field there too.
+- A corner pulled to `FOLDED_TWO_ROWS` (more than one row's fold) is a two-row
+  fold when the host draws the module's footer (`dragged(before, h, twoRows)`,
+  `twoRowsFor` in `App.tsx`): `collapsed` and `foldRows: 2`, the wish kept, the
+  same placement the fold menu's "Two rows" writes. To `FOLDED_ROWS` it is a
+  one-row fold; taller unfolds. With no footer, two rows is a plain height.
 - What goes in which row is the protocol's rule (2.47.0, its
   `docs/footer.md`): the header is how the module is set up, the footer is
   what is going on now plus the actions on those readouts (`actsOn`). The
@@ -633,13 +638,24 @@
   `data-rows="hide"`, and every hiding rule in `index.css` is scoped to it —
   never to `.focus-mode` again.
 - Reveal on click: ONE container is clicked at a time (`clickTo`, held in
-  `Reveals.click`). A click inside a page is read as the window's `blur` with
-  that container's frame left active (and `focusin` on the frame); a press on
-  a container's own chrome is a `pointerdown` here; Escape (the host
-  document's) or a press on nothing clears it; a menu or dialog is neither
-  (`pressedAt`). One listener for the page (`watchClicks`, in `App.tsx`).
+  `Reveals.click`). A press inside a page is the page's own word when it
+  speaks protocol 2.49.0 (`kehikot.pointer`, asked for with `pointer: true` in
+  the greeting; `press`/`release` from `watcherFor` in `App.tsx`). For an older
+  page it is read from where the keyboard went: the window's `blur` with that
+  container's frame left active (and `focusin` on the frame), and, while the
+  window stays blurred, the active element read every `FRAME_POLL_MS` — a
+  press from one page into another blurs nothing here. A press on a
+  container's own chrome is a `pointerdown` here and its end a `pointerup`;
+  Escape (the host document's) or a press on nothing clears it; a menu or
+  dialog is neither (`pressedAt`). One listener for the page (`watchClicks`,
+  in `App.tsx`), each event given its container's mode (`withMode`).
   `useRevealed(reveals, id, mode)` is what both the container and the frame
   read; an `over` module's `covers.by` says which.
+- Reveal on long press (`longpress`): as click, but a press reveals only once
+  held `LONG_PRESS_MS` (the timer in `Reveals`, or a page's `up` saying it was
+  held that long); a plain press into it still takes the click from the others.
+  An older page cannot say its presses, so there only the chrome can be held,
+  and the option's line says so.
 - The bar's focus control hides every container's header and footer. They reveal
   while the pointer is ANYWHERE over the container (its page, from the frames
   layer, or its own rows) and on focus within it — `src/host/reveal.ts`, debounced

@@ -273,6 +273,7 @@ export function ModuleFrame({
            `host/header.ts`. */
         header: (items) => watcherRef.current.header(items),
         footer: (items) => watcherRef.current.footer?.(items),
+        pointer: (phase, at) => watcherRef.current.pointer?.(phase, at),
       },
       { name: framed.name },
     )
