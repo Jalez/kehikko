@@ -163,6 +163,7 @@ import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
 import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
 import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
+import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
 
@@ -653,6 +654,7 @@ const storage = storageDesk({
 const installs = installDesk({
   list: official.current,
   source: official,
+  apps: () => appProtocols.apps(),
   run: runQuietly,
   root: installsDir(),
   registry: registryDir(),
@@ -672,6 +674,7 @@ const installs = installDesk({
    and no MCP tool reaches it. See `myModules.ts`. */
 const mine = myModulesDesk({
   file: myModulesFile(),
+  apps: () => appProtocols.apps(),
   official: official.current,
   desk: installs,
   run: account.run,
@@ -1260,6 +1263,7 @@ const versionRuns = new VersionRuns({
 const remotesByDir = new Map<string, { at: number; repo: string | null }>()
 const releaseNotes = releaseNotesDesk({
   gateway: github,
+  shown: (body) => appVersionsIn(body, appProtocols.apps()),
   allowed: async (repo) => {
     const asked = repo.toLowerCase()
     if (official.current().some((one) => one.repo.toLowerCase() === asked)) return true

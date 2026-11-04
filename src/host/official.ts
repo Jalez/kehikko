@@ -23,7 +23,7 @@ const moduleSchema = z.object({
   installed: z.boolean(),
   install: installingSchema.optional(),
   /* The entry asks for a newer protocol package than this host has. */
-  newer: z.object({ protocol: z.string(), has: z.string() }).optional(),
+  newer: z.object({ protocol: z.string(), has: z.string(), app: z.string().optional() }).optional(),
   /* Installed from another repository than the list now names: that repository. */
   from: z.string().optional(),
   /* One of the person's own ("My modules"): the host its repository is on, and that it is theirs. */

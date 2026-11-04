@@ -9,6 +9,7 @@ import { appEngine } from '@/host/appUpdate.ts'
 import type { Canvas } from '@/host/canvases.ts'
 import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { protocolDetailSaid, protocolSaid } from '@/host/worksWith.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
@@ -330,7 +331,9 @@ function AvailableRow({
         </div>
         {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
         {row.entry.newer ? (
-          <p className="text-muted-foreground mt-1 text-xs leading-relaxed">Needs a newer version of Kehikot than this one.</p>
+          <p className="text-muted-foreground mt-1 text-xs leading-relaxed" title={protocolDetailSaid(row.entry.newer.protocol, row.entry.newer.has)} data-needs-newer>
+            {row.entry.newer.app ? `Needs Kehikot ${row.entry.newer.app} or later.` : 'Needs a newer version of Kehikot than this one.'}
+          </p>
         ) : failed ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
             <GitSaid said={failed} />
@@ -498,7 +501,7 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
             module here shares. Absent for a module that does not say. */}
         {built?.protocol ? (
           <>
-            <dt>protocol</dt>
+            <dt>module protocol</dt>
             <dd className="font-mono break-all">{built.protocol}</dd>
           </>
         ) : null}
@@ -878,12 +881,15 @@ function Found({ checked, adding, onInstall, onCancel }: { checked: Checked; add
           {from}
           {checked.private ? ' (private)' : ''}
         </dd>
-        <dt>protocol</dt>
+        <dt>module protocol</dt>
         <dd className="font-mono break-all">{checked.protocol ? `needs ${checked.protocol}` : 'does not say'}</dd>
       </dl>
       {checked.newer ? (
         <p className="leading-relaxed text-amber-600 dark:text-amber-400">
-          It needs a newer Kehikot than this one (protocol {checked.newer.protocol}; this one has {checked.newer.has}), so it
+          <span title={protocolDetailSaid(checked.newer.protocol, checked.newer.has)}>
+            It needs {checked.newer.app ? `Kehikot ${checked.newer.app} or later` : 'a newer Kehikot than this one'}
+          </span>
+          {' '}(module protocol {protocolSaid(checked.newer.protocol)}; this one has {protocolSaid(checked.newer.has)}), so it
           cannot be installed here.
         </p>
       ) : (

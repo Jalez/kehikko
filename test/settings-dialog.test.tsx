@@ -421,7 +421,12 @@ test('About: the version, the protocol, and the release notes and storage overvi
   await render(<Settings.SettingsDialog open onOpenChange={(open) => (closed += open ? 0 : 1)} load={async () => answer()} section="about" />)
   await act(async () => {})
   const about = document.querySelector('[data-about]')!
-  expect(about.querySelector('[data-protocol]')!.textContent).toMatch(/^kehikot-module-protocol \d+\.\d+\.\d+$/)
+  const protocol = about.querySelector('[data-protocol]')!
+  expect(protocol.previousElementSibling!.textContent).toBe('Module protocol')
+  expect(protocol.querySelector('.font-mono')!.textContent).toMatch(/^\d+\.\d+\.\d+$/)
+  expect(protocol.querySelector('[data-protocol-meaning]')!.textContent).toBe(Settings.PROTOCOL_MEANING)
+  /* Beneath the app version, not before it. */
+  expect(about.querySelector('[data-version]')!.compareDocumentPosition(protocol) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(about.querySelector('[data-version="host"]')!.textContent).toContain('host 0.1.99')
   expect(button('All release notesKehikot’s releases on GitHub, newest first.')).toBeTruthy()
   expect(button('Build your own moduleThe guide to making a Kehikot module, from the first question to its first release. In your agent, /kehikot-module walks you through it.')).toBeTruthy()

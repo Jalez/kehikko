@@ -214,8 +214,8 @@ describe('Updates, with pinned containers', () => {
 
 describe('what the version in a header says when pointed at', () => {
   test('the protocol package the module is built with, when it states one', () => {
-    expect(versionHint('Notes', null, '0.36.0')).toBe('Notes runs latest · built with protocol 0.36.0 — press to pick a version')
-    expect(versionHint('Notes', 'v1.2.0', '0.34.0')).toBe('Notes is pinned to v1.2.0 on this kehikko · built with protocol 0.34.0 — press to change')
+    expect(versionHint('Notes', null, '0.36.0')).toBe('Notes runs latest · built with module protocol 0.36.0 — press to pick a version')
+    expect(versionHint('Notes', 'v1.2.0', '0.34.0')).toBe('Notes is pinned to v1.2.0 on this kehikko · built with module protocol 0.34.0 — press to change')
   })
 
   test('and exactly what it said before for a module that does not', () => {

@@ -179,7 +179,7 @@ export function VersionPicker({
  * states one.
  */
 export function versionHint(name: string, pinned: string | null, protocol: string | null): string {
-  const built = protocol ? ` · built with protocol ${protocol}` : ''
+  const built = protocol ? ` · built with module protocol ${protocol}` : ''
   return pinned
     ? `${name} is pinned to ${pinned} on this kehikko${built} — press to change`
     : `${name} runs latest${built} — press to pick a version`

@@ -124,20 +124,20 @@ export function worksWith(need: string, apps: readonly AppProtocol[] | null): Wo
 /**
  * The sentence: "Works with Kehikot 0.1.39 and later", "Works with Kehikot
  * 0.1.15 to 0.1.21 (0.1.22 moved to protocol 2)", "Needs a Kehikot newer than
- * 0.1.41 (protocol 2.11 or later)", or, when the apps are not known, "Needs
- * protocol 2.6 or later".
+ * 0.1.41 (module protocol 2.11 or later)", or, when the apps are not known,
+ * "Needs a newer Kehikot (module protocol 2.6 or later)".
  */
 export function worksWithSaid(works: WorksWith): string {
   switch (works.kind) {
     case 'from':
       if (!works.until) return works.runningOnly && !works.from ? 'Works with this Kehikot and later' : `Works with Kehikot ${works.from} and later`
-      return `Works with Kehikot ${works.from === works.until.last ? works.from : `${works.from} to ${works.until.last}`} (${works.until.next} moved to protocol ${works.until.major})`
+      return `Works with Kehikot ${works.from === works.until.last ? works.from : `${works.from} to ${works.until.last}`} (${works.until.next} moved to module protocol ${works.until.major})`
     case 'unreleased':
-      return `Needs a Kehikot newer than ${works.newest.app} (protocol ${protocolSaid(works.need)} or later)`
+      return `Needs a Kehikot newer than ${works.newest.app} (module protocol ${protocolSaid(works.need)} or later)`
     case 'none':
-      return `Built for protocol ${protocolSaid(works.need)}, which no Kehikot release has`
+      return `Built for module protocol ${protocolSaid(works.need)}, which no Kehikot release has`
     case 'unknown':
-      return `Needs protocol ${protocolSaid(works.need)} or later`
+      return `Needs a newer Kehikot (module protocol ${protocolSaid(works.need)} or later)`
   }
 }
 
@@ -148,15 +148,68 @@ export function worksWithSaid(works: WorksWith): string {
  * protocol is what there is to compare: "…; this Kehikot has protocol 2.10."
  */
 export function needsKehikotSaid(version: string, works: WorksWith, have: { app?: string | null; protocol?: string | null } = {}): string {
-  const youHave = have.app ? `you have ${have.app}` : have.protocol ? `this Kehikot has protocol ${protocolSaid(have.protocol)}` : null
+  const youHave = have.app ? `you have ${have.app}` : have.protocol ? `this Kehikot has module protocol ${protocolSaid(have.protocol)}` : null
   const tail = youHave ? `; ${youHave}.` : '.'
   switch (works.kind) {
     case 'from':
       return `${version} needs Kehikot ${works.from} or later${tail}`
     case 'unreleased':
-      return `${version} needs a Kehikot newer than ${works.newest.app} (protocol ${protocolSaid(works.need)} or later)${tail}`
+      return `${version} needs a Kehikot newer than ${works.newest.app} (module protocol ${protocolSaid(works.need)} or later)${tail}`
     case 'none':
     case 'unknown':
-      return `${version} needs protocol ${protocolSaid(works.need)} or later${tail}`
+      return `${version} needs a newer Kehikot (module protocol ${protocolSaid(works.need)} or later)${tail}`
   }
+}
+
+/** The first Kehikot app whose protocol meets `need`, or null when no app on record does (or none are known). */
+export function firstAppWith(need: string, apps: readonly AppProtocol[] | null | undefined): string | null {
+  if (!apps || !triple(need)) return null
+  return appsInOrder(apps).find((one) => satisfies(need, one.protocol))?.app ?? null
+}
+
+/**
+ * What a person is told they must update to, leading with the app:
+ * "Kehikot 0.1.110 or later", or "a newer Kehikot" when no app on record has
+ * the protocol (or the apps are not known). Never a protocol number.
+ */
+export function needsAppSaid(need: string, apps: readonly AppProtocol[] | null | undefined): string {
+  const app = firstAppWith(need, apps)
+  return app ? `Kehikot ${app} or later` : 'a newer Kehikot'
+}
+
+/** The module-protocol detail behind it, for a tooltip or a details line: "module protocol 2.50 needed; this Kehikot has 2.49". */
+export function protocolDetailSaid(need: string, has?: string | null): string {
+  return `module protocol ${protocolSaid(need)} needed${has ? `; this Kehikot has ${protocolSaid(has)}` : ''}`
+}
+
+/**
+ * "Needs Kehikot 0.1.110 or later (this is 0.1.108)": a release or module the
+ * running Kehikot cannot run. `app` is the running app's version when known.
+ */
+export function needsNewerKehikotSaid(need: string, apps: readonly AppProtocol[] | null | undefined, app?: string | null): string {
+  const named = needsAppSaid(need, apps)
+  const sentence = named.startsWith('Kehikot') ? `Needs ${named}` : 'Needs a newer Kehikot than this one'
+  return app ? `${sentence} (this is ${app})` : sentence
+}
+
+const PROTOCOL_MENTION = /\b(?:the )?(?:module[ -])?protocol v?(\d{1,6}\.\d{1,6}(?:\.\d{1,6})?)\+?(?:( or (?:later|newer|above))|\b)/gi
+
+/**
+ * A display transform for a module's release notes, which agents write: a line
+ * that says "protocol 2.50" is shown as the app that first shipped it,
+ * "Kehikot 0.1.110 or later". A mention no app on record meets is left as
+ * written; the notes themselves are never rewritten.
+ */
+export function appVersionsIn(text: string, apps: readonly AppProtocol[] | null | undefined): string {
+  if (!apps || apps.length === 0) return text
+  return text.replace(PROTOCOL_MENTION, (whole, need: string) => {
+    const app = firstAppWith(need.split('.').length === 2 ? `${need}.0` : need, apps)
+    return app ? `Kehikot ${app} or later` : whole
+  })
+}
+
+/** An install refused for want of a newer app: "Notes needs Kehikot 0.1.110 or later (module protocol 2.50 needed; this one has 2.49)." */
+export function installRefusedSaid(name: string, newer: { protocol: string; has: string; app?: string }): string {
+  const what = newer.app ? `Kehikot ${newer.app} or later` : 'a newer Kehikot than this one'
+  return `${name} needs ${what} (module protocol ${protocolSaid(newer.protocol)} needed; this one has ${protocolSaid(newer.has)}).`
 }
