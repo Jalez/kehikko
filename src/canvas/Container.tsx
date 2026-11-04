@@ -1,3 +1,4 @@
+import { helpFor } from '@/host/moduleHelp.ts'
 import { X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -112,6 +113,7 @@ export function Container({
   onPrompts,
   onTools,
   onSkills,
+  onHelp,
   onSettings,
   onStarted,
   onRemove,
@@ -274,6 +276,11 @@ export function Container({
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
   /**
+   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in the Frame menu only when
+   * the module's manifest says how (`helpFor`); absent: never.
+   */
+  onHelp?(): void
+  /**
    * Open this module's settings (protocol 2.15.0): a gear in the row at 220 px and wider, folded or
    * not; under that, "Settings…" in the Frame rows (in "⋯" when the module has menus). One entry at
    * every width (`layoutOf` in `host/headerOffer.ts`). See `ModuleSettings.tsx`.
@@ -379,6 +386,7 @@ export function Container({
     onTools,
     skills: presence.module?.declares.skills,
     onSkills,
+    onHelp: onHelp && helpFor(presence.module) ? onHelp : undefined,
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,

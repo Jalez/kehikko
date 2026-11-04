@@ -39,6 +39,8 @@ import { ConditionDot } from './Conditions.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
+import { HelpButton } from './ModuleHelp.tsx'
+import { helpFor } from '@/host/moduleHelp.ts'
 
 /**
  * Kehikko modules: everything registered, whether or not it is on the canvas.
@@ -95,6 +97,7 @@ export function ModuleList({
   onPlace,
   onUnplace,
   onLookAgain,
+  onHelp,
 }: {
   registry: RegistryView | null
   onCanvas: Set<string>
@@ -104,6 +107,8 @@ export function ModuleList({
   onUnplace(id: string): void
   /** Sweep the registry again: an install has just registered something. */
   onLookAgain?(): void
+  /** Open a module's "How to use" (protocol 2.52.0). Given: a "?" on the row of each module that says how. */
+  onHelp?(id: string): void
 }) {
   const [query, setQuery] = useState('')
   const official = useOfficial(onLookAgain)
@@ -194,6 +199,7 @@ export function ModuleList({
                       onUnplace={() => onUnplace(row.id)}
                       onRemove={row.mine ? () => official.remove(row.id) : undefined}
                       refused={official.refused.get(row.id) ?? null}
+                      onHelp={onHelp && helpFor(row.presence.module) ? () => onHelp(row.id) : undefined}
                     />
                   ),
                 )}
@@ -359,6 +365,7 @@ function ModuleRow({
   onUnplace,
   onRemove,
   refused,
+  onHelp,
 }: {
   row: Registered
   /** What this module touches, and how. Empty for most of them, honestly. */
@@ -369,6 +376,8 @@ function ModuleRow({
   onRemove?(): void
   /** Why the last press on it was refused. */
   refused?: string | null
+  /** Open its "How to use" (protocol 2.52.0). Given only for a module that says how: a "?" beside add. */
+  onHelp?(): void
 }) {
   const { presence, placed } = row
   const standing = standingOf(presence, relationships)
@@ -447,6 +456,7 @@ function ModuleRow({
         <Halves standing={standing} />
         <Details row={row} shown={trouble} onRemove={onRemove} />
       </div>
+      {onHelp ? <HelpButton name={row.name} onHelp={onHelp} /> : null}
       <Hint
         label={
           placed

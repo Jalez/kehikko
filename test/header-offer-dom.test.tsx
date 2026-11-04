@@ -75,6 +75,7 @@ const presence = {
   agent: { kind: 'untold' },
   module: {
     name: 'Paper',
+    help: { summary: 'How it works.', sections: [{ title: 'Use', points: ['Press things.'] }] },
     declares: { protocol: '>=2', uses: [], storage: false, skills: [{ name: 'paper-cite', summary: 'Cite.', version: '1' }] },
   },
 } as unknown as import('../src/host/registry.ts').Presence
@@ -139,6 +140,7 @@ async function header(width: number, fold: Fold) {
           onPrompts={nothing}
           onTools={nothing}
           onSkills={nothing}
+          onHelp={nothing}
           onSettings={nothing}
           showRows={null}
           barRows="always"
@@ -181,6 +183,7 @@ async function offered(): Promise<Map<string, string[]>> {
 
 const EVERYTHING = [
   'frame:feedback',
+  'frame:help',
   'frame:prompts',
   'frame:rows',
   'frame:settings',
@@ -243,7 +246,7 @@ describe('the same header at every width and fold', () => {
       const sections = [...content.querySelectorAll(':scope > [data-section]')]
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'frame'])
       expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Frame'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['settings', 'tools', 'skills', 'rows', 'feedback', 'prompts'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())

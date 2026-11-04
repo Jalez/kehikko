@@ -4,6 +4,8 @@ import {
   fitSaid,
   LIMITS,
   manifestSchema,
+  helpOf,
+  type Help,
   PACKAGE_VERSION,
   PROTOCOL,
   readBuild,
@@ -232,6 +234,8 @@ export interface FramedModule {
   agentSays?: string
   /** What it says to agent sessions on a kehikko it is NOT on (protocol 2.36.0). Absent: nothing. */
   absentSays?: string
+  /** How to use the module, for a person (protocol 2.52.0): plain text the page draws as headings and bullets. Absent: none, and no "How to use". */
+  help?: Help
   declares: Manifest['declares']
   /**
    * What the server answering now is built from: its version, the commit it
@@ -590,6 +594,7 @@ export async function look(
       ...(manifest.reveal ? { reveal: manifest.reveal } : {}),
       ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
       ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),
+      ...(helpOf(manifest) ? { help: helpOf(manifest)! } : {}),
       declares: manifest.declares,
       build: manifest.build ?? null,
     },
