@@ -252,9 +252,9 @@ describe('what a module is built from, and what it says wrongly about itself', (
   test('the protocol version is in the row’s details, beside the address', () => {
     const html = draw([{ ...diff, module: module({ build }) }])
     expect(html).toMatch(/<dt>version<\/dt><dd[^>]*>1\.4\.0 \(abc1234\)<\/dd>/)
-    expect(html).toMatch(/<dt>protocol<\/dt><dd[^>]*>0\.36\.0<\/dd>/)
+    expect(html).toMatch(/<dt>module protocol<\/dt><dd[^>]*>0\.36\.0<\/dd>/)
     /* And is simply absent for a module that does not say. */
-    expect(draw([{ ...diff, module: module() }])).not.toContain('<dt>protocol</dt>')
+    expect(draw([{ ...diff, module: module() }])).not.toContain('<dt>module protocol</dt>')
   })
 
   test('a module that declares nothing about parts is refused where module problems are shown', () => {
