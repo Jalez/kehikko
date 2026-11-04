@@ -20,7 +20,7 @@ import { z } from 'zod'
 import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic } from '../holdings.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import { withContributors, type Adapter, type BoardsRead, type HeldBoard, type Me, type Read, type Wanted } from './common.ts'
+import { withContributors, type Adapter, type BoardsRead, type BranchChange, type HeldBoard, type Me, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -105,6 +105,8 @@ const VERSION = 1
 export const LIST_LIMIT = 400
 /** How long a project counts as looked at after its last question, for the schedule. */
 const LOOKED_AT_MS = 30 * 60_000
+/** How long one source's `changesByBranch` answer is used again, for the worktree cleanup. */
+const BY_BRANCH_MS = 5 * 60_000
 /** How long who the person is on a tracker host is believed. */
 const ME_KNOWN_MS = 12 * 60 * 60_000
 /** How long a failure to say who they are is believed before asking again. */
@@ -421,6 +423,8 @@ export class Trackers {
   #listLimit: number
   /** Who the person is per tracker host (`tracker|host`), and until when that is believed. */
   #me = new Map<string, { me: Me; until: number }>()
+  /** What `changesByBranch` last answered per source key, and when: one scan asks each source once. */
+  #byBranch = new Map<string, { at: number; got: BranchChange[] | { why: string } }>()
 
   constructor(options: TrackersOptions) {
     this.#run = options.run
@@ -581,6 +585,54 @@ export class Trackers {
    */
   me(tracker: Source['tracker'], host: string): Promise<Me | null> {
     return this.#whoAmI({ tracker, host, repo: '', default: false, listed: false })
+  }
+
+  /**
+   * Which requests and issues name which branches, for the worktree cleanup
+   * (`server/worktrees.ts`): the sources a repository with these remotes reads
+   * under the project's tracker file, from what the reading holds and from
+   * each source's `changesByBranch` (one cheap call per source, kept
+   * `BY_BRANCH_MS`). Nothing is stored in the reading. A source that could not
+   * be read is a sentence in `notes`, and the rest are still answered.
+   */
+  async branchStates(
+    root: string,
+    remotes: readonly string[],
+  ): Promise<{ changes: Array<BranchChange & { sign: '#' | '!' }>; issues: Array<{ branch: string; number: number; state: 'open' | 'closed' }>; notes: string[] }> {
+    const config = readConfig(root)
+    const sources = sourcesOf(config.ok ? config.config : { version: 1, sources: [], remotes: true, every: EVERY_DEFAULT }, remotes)
+    const keys = new Set(sources.map(sourceKey))
+    const held = this.#of(root)
+    const changes: Array<BranchChange & { sign: '#' | '!' }> = []
+    const issues: Array<{ branch: string; number: number; state: 'open' | 'closed' }> = []
+    const notes: string[] = []
+    for (const row of held.stored.rows) {
+      if (!keys.has(sourceKey(row))) continue
+      const sign = row.tracker === 'gitlab' ? '!' : '#'
+      if (row.kind === 'change' && row.headBranch) {
+        changes.push({ branch: row.headBranch, number: row.number, state: row.state as BranchChange['state'], sign })
+      } else if (row.kind === 'issue') {
+        for (const branch of row.branches ?? []) {
+          issues.push({ branch: branch.name, number: row.number, state: row.state === 'open' ? 'open' : 'closed' })
+        }
+      }
+    }
+    const now = this.#now().getTime()
+    for (const source of sources) {
+      const ask = this.#adapters[source.tracker].changesByBranch
+      if (!ask) continue
+      const key = sourceKey(source)
+      let was = this.#byBranch.get(key)
+      if (!was || now - was.at > BY_BRANCH_MS) {
+        const got = await ask(source).catch((e: unknown) => ({ why: e instanceof Error ? e.message : String(e) }))
+        was = { at: now, got }
+        this.#byBranch.set(key, was)
+      }
+      const sign = source.tracker === 'gitlab' ? '!' : '#'
+      if ('why' in was.got) notes.push(`${source.repo}: ${was.got.why}`)
+      else for (const one of was.got) changes.push({ ...one, sign })
+    }
+    return { changes, issues, notes }
   }
 
   /** The sources as last known, for sentences and for `get`. */
