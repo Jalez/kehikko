@@ -378,7 +378,7 @@ export function headersDesk(deps: HeadersDeps, held = new Headers()) {
         if (!found) return Promise.resolve(null)
         return held.press(
           found.page,
-          { kehikko, module, item: press.item, ...(press.value === undefined ? {} : { value: press.value }), ...(press.place === 'footer' ? { place: 'footer' as const } : {}) },
+          { kehikko, module, item: press.item, ...(press.value === undefined ? {} : { value: press.value }), ...(press.place === 'footer' ? { place: 'footer' as const } : {}), ...(press.place === 'footer' && press.text !== undefined ? { text: press.text } : {}) },
           deps.send,
           deps.waitMs,
         )

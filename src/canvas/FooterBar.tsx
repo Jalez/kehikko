@@ -1,4 +1,4 @@
-import { meterSaid, type FooterItem, type HeaderItem, type PressValue } from 'kehikot-module-protocol'
+import { LIMITS, meterSaid, type FooterItem, type HeaderItem, type InputFooterItem, type PressValue } from 'kehikot-module-protocol'
 import { ChevronDown, LoaderCircle, OctagonAlert, TriangleAlert } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
@@ -12,8 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { carry } from '@/host/carry.ts'
-import { FOOTER_STEPS, footerCrowded, footerRow, type FooterPressable } from '@/host/footer.ts'
-import type { Pressed, Pressing } from '@/host/header.ts'
+import { FOOTER_STEPS, fieldKey, fieldShows, footerCrowded, footerRow, type FooterPressable } from '@/host/footer.ts'
+import { focusAfter, focusIsInModule, type Pressed, type Pressing } from '@/host/header.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { HEADER_ICONS, HeaderMenus, SAID_FOR_MS } from './HeaderMenus.tsx'
 
@@ -38,6 +38,15 @@ import { HEADER_ICONS, HeaderMenus, SAID_FOR_MS } from './HeaderMenus.tsx'
  * Text, labels, tooltips and results are a stranger's strings: text nodes,
  * never markup, never a link. An icon is a key in `HEADER_ICONS`. A level is
  * said with a mark and a word in the accessible name as well as a colour.
+ *
+ * ## A field (protocol 2.46.0)
+ *
+ * A real `<input>` whose text is the module's `value` until the person types.
+ * What they type is theirs while the field has focus — a new `value` does not
+ * replace it — and leaving the field without Enter shows `value` again. Enter
+ * submits the text as a press; Escape puts `value` back. Every key typed in
+ * it stays in it, so no chord of the host's fires from a field. The rules are
+ * `fieldShows` and `fieldKey` in `host/footer.ts`.
  */
 export function FooterBar({
   items,
@@ -95,8 +104,25 @@ export function FooterBar({
     })
   }
 
+  /* A field's Enter: the typed text as a press. Taken, the keyboard goes to the module's page as after a
+     header press (`focusAfter`); not taken, it stays in the field with the person's text and the reason. */
+  const submit = (item: InputFooterItem, text: string): Promise<boolean> =>
+    onPress({ item: item.id, text }).then((came) => {
+      if (!came.ok) setSaid({ item: item.id, text: came.why })
+      else if (focusAfter('pressed', focusIsInModule(document.activeElement)) === 'module') onKeyboard?.()
+      return came.ok
+    })
+
   const draw = (item: FooterItem) => (
-    <FooterCell key={item.id} item={item} iconsOnly={row.iconsOnly} meterLabels={row.meterLabels} press={press} said={said?.item === item.id ? said.text : null} />
+    <FooterCell
+      key={item.id}
+      item={item}
+      iconsOnly={row.iconsOnly}
+      meterLabels={row.meterLabels}
+      press={press}
+      submit={submit}
+      said={said?.item === item.id ? said.text : null}
+    />
   )
 
   return (
@@ -152,12 +178,14 @@ function FooterCell({
   iconsOnly,
   meterLabels,
   press,
+  submit,
   said,
 }: {
   item: FooterItem
   iconsOnly: boolean
   meterLabels: boolean
   press(item: FooterPressable, value?: PressValue): void
+  submit(item: InputFooterItem, text: string): Promise<boolean>
   said: string | null
 }) {
   if (item.kind === 'text') {
@@ -203,6 +231,8 @@ function FooterCell({
   }
 
   if (item.kind === 'run') return <FooterRun item={item} iconOnly={iconsOnly} press={press} said={said} />
+
+  if (item.kind === 'input') return <FooterField item={item} submit={submit} said={said} />
 
   if (item.kind === 'toggle') {
     return (
@@ -324,6 +354,62 @@ function FooterRun({
       {bare ? null : <span className="min-w-0 truncate">{armed ? `${item.label}?` : item.label}</span>}
       {!bare && item.result && !armed ? <span className="text-muted-foreground/80 hidden shrink-0 @min-[380px]/container:inline">{item.result}</span> : null}
     </Button>
+  )
+}
+
+/**
+ * A field (protocol 2.46.0): one line, the module's `value` until the person
+ * types. Shrinks to nothing before it pushes the row; `grow` takes what the
+ * group has left.
+ */
+function FooterField({
+  item,
+  submit,
+  said,
+}: {
+  item: InputFooterItem
+  submit(item: InputFooterItem, text: string): Promise<boolean>
+  said: string | null
+}) {
+  /* What the person typed, or null while they have not: then the field shows the module's value. */
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = fieldShows(item.value, draft)
+  return (
+    <input
+      type="text"
+      data-footer-item={item.id}
+      data-footer-kind="input"
+      data-grow={item.grow ? 'true' : undefined}
+      aria-label={item.label}
+      aria-invalid={said ? true : undefined}
+      placeholder={item.placeholder}
+      title={said ?? item.tooltip ?? (shown || item.label)}
+      value={shown}
+      maxLength={LIMITS.FOOTER_INPUT}
+      spellCheck={false}
+      autoComplete="off"
+      autoCapitalize="off"
+      autoCorrect="off"
+      enterKeyHint="go"
+      className={`bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-ring h-6 min-w-0 rounded-sm border px-1.5 text-[11px] outline-none select-text focus-visible:ring-1 aria-invalid:border-destructive ${
+        item.grow ? 'flex-1' : 'w-40 shrink'
+      }`}
+      onMouseDown={(event) => event.stopPropagation()}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => setDraft(null)}
+      onKeyDown={(event) => {
+        const act = fieldKey(event.key, event.nativeEvent.isComposing)
+        /* Every key typed here is the field's: no chord of the host's, and nothing the canvas binds. */
+        event.stopPropagation()
+        if (act === 'type') return
+        event.preventDefault()
+        if (act === 'revert') return setDraft(null)
+        const text = shown
+        void submit(item, text).then((ok) => {
+          if (ok) setDraft(null)
+        })
+      }}
+    />
   )
 }
 

@@ -349,7 +349,7 @@ export function ModuleFrame({
       /* And a walk, which is a press with an answer. See `Pressable.walk`. */
       walk: (target) => conversation.goto(target),
       /* And one item of the module's own header. See `Pressable.item`. */
-      item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined, press.carried),
+      item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined, press.carried, press.text),
       /* And an Inbox item of its own that the person opened, once the host came to its place. */
       opened: (item) => conversation.sendOpened(item),
       /* And the keyboard, after a press that closed its menu. The frame's
