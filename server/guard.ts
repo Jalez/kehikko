@@ -107,6 +107,9 @@ export interface Refusal {
  *    (`moduleSettings.ts`). `/set` mints the pass that makes a change the
  *    person's, so a program reaching it could change a person-only setting;
  *    the reads go with it. An agent reads at the door's `module_settings`.
+ *  - `/host/messages/say` — the person's own message through a module's page
+ *    (protocol 2.50.0, `messageRoutes.ts`): stamped as the person's, so only
+ *    this page relays it, and only for a press of theirs in the module's frame.
  *  - `/host/connections` — the person's switches of how a kehikko's modules
  *    affect each other (`src/host/connections.ts`). An agent reads them in
  *    `read_canvas`; only the person changes them.
@@ -133,6 +136,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/act',
   '/host/inbox/migrate',
   '/host/messages/clear',
+  '/host/messages/say',
   '/host/trackers',
   '/host/base-branch',
   '/host/mine/check',

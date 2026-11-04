@@ -216,7 +216,7 @@ describe('the door at /mcp', () => {
 describe('the routes that are the page’s alone', () => {
   const body = { ...JSON_TYPE, 'content-length': '2' }
 
-  test('are the restart of a kept module, the restart of a module from its Run menu, the two header postings, the four inbox writes, the tracker edit, the base branch set, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, an update cancelled, a step back pressed, the agent settings, a visit to a place, a layout saved, the introduction or tour marked, what is new acknowledged or looked at for a mention, a module’s settings read, changed or its file shown, how a kehikko’s modules affect each other, the pinned places, the clearing of the messages between agents, and the scan and removal of finished worktrees', () => {
+  test('are the restart of a kept module, the restart of a module from its Run menu, the two header postings, the four inbox writes, the tracker edit, the base branch set, the five writes of My modules, Locate, the followed notice said and the answer to a conversation’s ask, the storage overview, a skill installed, updated or removed, an update cancelled, a step back pressed, the agent settings, a visit to a place, a layout saved, the introduction or tour marked, what is new acknowledged or looked at for a mention, a module’s settings read, changed or its file shown, how a kehikko’s modules affect each other, the pinned places, the clearing of the messages between agents, the person’s own message through a module, and the scan and removal of finished worktrees', () => {
     expect([...PAGE_ONLY].sort()).toEqual([
       '/host/base-branch',
       '/host/connections',
@@ -227,6 +227,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/inbox/report',
       '/host/layouts',
       '/host/messages/clear',
+      '/host/messages/say',
       '/host/mine/add',
       '/host/mine/adopt',
       '/host/mine/check',

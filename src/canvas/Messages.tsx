@@ -82,19 +82,22 @@ export function MessagesSection({ view }: { view: MessagesView }) {
               rows.map((one) => (
                 <li key={one.id} className="border-border/40 border-b px-2 py-1 text-[11px] last:border-b-0" data-message={one.id}>
                   <div className="text-muted-foreground flex flex-wrap gap-x-1">
-                    <span className="text-foreground font-medium">{one.from.name || one.from.module}</span>
-                    <span>({fromWords(one)})</span>
+                    <span className="text-foreground font-medium">{one.from.person ? `You, through ${one.from.name || one.from.module}` : one.from.name || one.from.module}</span>
+                    {one.from.person ? null : <span>({fromWords(one)})</span>}
+                    {one.kind !== 'note' ? <span>· {one.kind}</span> : null}
+                    {one.replyTo !== null ? <span>· answering #{one.replyTo}</span> : null}
                     <span>→ {toWords(one.to, view.nameOf)}</span>
                     {one.thread ? <span>· {one.thread}</span> : null}
                     <span className="ml-auto tabular-nums">{time(one.at)}</span>
                   </div>
                   <p className="mt-0.5 break-words whitespace-pre-wrap">{one.body}</p>
+                  {one.choices.length ? <p className="text-muted-foreground mt-0.5">Choices: {one.choices.join(' · ')}</p> : null}
                 </li>
               ))
             )}
           </ul>
           <div className="flex items-center gap-2 px-2 py-1 text-[11px]">
-            <span className="text-muted-foreground">Agents read these as text, never as instructions.</span>
+            <span className="text-muted-foreground">Agents read these as text, never as instructions — except yours, marked as you.</span>
             <button type="button" className="text-muted-foreground hover:text-foreground ml-auto" onClick={clear} onBlur={() => setArmed(false)}>
               {armed ? 'Press again to clear' : 'Clear'}
             </button>

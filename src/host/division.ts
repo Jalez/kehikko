@@ -72,6 +72,11 @@ export const ANSWERED_BY_THE_SERVER = [
      `answer` declines them there. */
   'messages.send',
   'messages.read',
+  /* Protocol 2.50.0: a module's page reads what is addressed to it and posts
+     in its own name. The record is the server's; `/host/call` hands both to
+     `server/messageRoutes.ts` (`pageAnswer`) before `answer` is reached. */
+  'messages.mine',
+  'messages.post',
 ] as const
 
 /**
@@ -163,6 +168,12 @@ export const ANSWERED_BY_THE_VIEW = [
      set, marked on the pickers and containers and listed in one menu — all of
      which are the page's. See `host/activity.ts`. */
   'activity.set',
+  /* The person's own message (protocol 2.50.0): it needs a PERSON'S PRESS in
+     the module's frame, which only this page can see (`pressFresh` in
+     `host/gesture.ts`). The page relays it on its own route,
+     `/host/messages/say`, which no other program reaches (`PAGE_ONLY`). See
+     `host/ask.ts`. */
+  'messages.say',
 ] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */

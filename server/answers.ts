@@ -107,6 +107,7 @@ const nothingToShow = (method: string, data: unknown): Answer => {
   return held.ok ? { ok: true, data: held.data } : { ok: false, reason: 'failed', error: held.why }
 }
 const notMineToSay = (error: string): Answer => ({ ok: false, reason: 'failed', error })
+const NO_MESSAGES = 'This host was not given a record of messages to answer from.'
 const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
 /* Which half answers what, and the check that nothing falls between them, live
@@ -651,6 +652,13 @@ export function answer(
     return nothingToShow('messages.send', { outcome: 'declined', why: MESSAGES_FROM_A_PAGE })
   case 'messages.read':
     return notMineToSay(MESSAGES_FROM_A_PAGE)
+  /* Protocol 2.50.0: answered from the record by `/host/call` before this
+     table (`pageAnswer` in `server/messageRoutes.ts`); reached only by a
+     caller that gave no record. */
+  case 'messages.mine':
+    return notMineToSay(NO_MESSAGES)
+  case 'messages.post':
+    return nothingToShow('messages.post', { outcome: 'declined', why: NO_MESSAGES })
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the

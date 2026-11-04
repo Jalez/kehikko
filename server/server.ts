@@ -2,7 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
-import { undeclaredLine } from '../src/host/grants.ts'
+import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
@@ -54,6 +54,7 @@ import { BY as HOST_BY, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
+import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
 import { restartModuleDesk } from './restartModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
@@ -261,6 +262,8 @@ ensureKnown(db)
 const inbox = new Inbox(db)
 /* Messages between agent sessions (protocol 2.41.0): one record per project, beside the Inbox. `agentMessages.ts`. */
 const agentMessages = new AgentMessages(db)
+/* Which modules the person allowed to send messages as them, as this host saw it (protocol 2.50.0). `personGrants.ts`. */
+const personGrants = new PersonGrants(db)
 /* What happened on the person's issues and changes, told in the Inbox as the host's own items. `trackerNotices.ts`. */
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
@@ -2945,6 +2948,10 @@ const messageRoutes = messageDesk({
     return presence?.module?.name ?? presence?.name ?? null
   },
   changed: (project) => wakes.messagesChanged(project),
+  hasProject: (project) => projectById(db, project) !== null,
+  known: (module) => callers.has(module),
+  may: (module, capability) => declared(module, capability),
+  granted: (module) => personGrants.granted(module),
 })
 
 /*
@@ -3347,6 +3354,18 @@ async function answerRequest(request: Request): Promise<Response> {
          open when this server restarted — sweep once so the answer is about the
          registry rather than about the host having just started. */
       if (!callers.size) await sweep()
+
+      /* A module's page reading its own mail and posting in its own name
+         (protocol 2.50.0): held to the manifest like every call, then answered
+         from the record. `messages.say` is NOT here: it is the person's, and
+         goes only through `/host/messages/say` (`messageRoutes.ts`). */
+      if ((body.method === 'messages.mine' || body.method === 'messages.post') && callers.has(named)) {
+        const held = hold(body.method, (capability) => declared(named, capability))
+        if (held.held) {
+          return json(body.method === 'messages.post' ? { ok: true, data: { outcome: 'declined', id: null, why: held.why } } : { ok: false, reason: 'failed', error: held.why })
+        }
+        return json(messageRoutes.pageAnswer(named, body.method, body.params, typeof body.project === 'number' ? body.project : null))
+      }
 
       return json(
         await answerCall(
@@ -3863,7 +3882,12 @@ async function answerRequest(request: Request): Promise<Response> {
       if (url.pathname === '/host/module-settings/file') return json(await moduleSettings.file(module, path))
       if (url.pathname === '/host/module-settings/set') {
         if (typeof body.key !== 'string' || body.key.length > LIMITS.SETTING_KEY) return json({ ok: false, why: 'Which setting.' }, 400)
-        return json(await moduleSettings.set(module, path, body.key, body.value))
+        const changed = await moduleSettings.set(module, path, body.key, body.value)
+        /* The person's change, relayed from this page and saved by the module:
+           the one way a grant to send messages as them is recorded (protocol
+           2.50.0, `personGrants.ts`). */
+        if ('outcome' in changed && changed.outcome === 'saved') personGrants.saw(module, body.key, body.value)
+        return json(changed)
       }
     }
 

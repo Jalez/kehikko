@@ -289,6 +289,48 @@ export interface CanvasControls {
    * `host/connections.ts`). Absent, every answer goes as the server gave it.
    */
   withhold?(module: string, method: string, data: unknown): unknown
+  /**
+   * Where the frame that asked stands (protocol 2.50.0): the epic, the parts and
+   * the kehikko's key, for the by-line of the person's message (`messages.say`).
+   * Absent or null: none said.
+   */
+  place?(): { epic: string | null; parts: string[]; kehikko: string | null } | null
+}
+
+/** What the person is told back when their message could not be proven theirs (protocol 2.50.0). */
+export const SAY_SAYS = {
+  noPress: 'A message as the person goes only on their press in this module, and none came with it. Nothing was sent.',
+  noManifest: 'This host has not read this module’s manifest, so it sends nothing as the person for it.',
+} as const
+
+/**
+ * The person's own message (protocol 2.50.0, `messages.say`), relayed by this
+ * page — the half that can see the person's press. Only when the request came
+ * while their press in the frame was fresh (`how.pressed`, read on arrival),
+ * and only on `/host/messages/say`, which is `PAGE_ONLY`: the server then holds
+ * the manifest and the person's grant, and stamps it. Every refusal is the
+ * method's `declined`.
+ */
+async function sayAsPerson(moduleId: string, rawParams: unknown, how: { pressed: boolean } | undefined, canvas: CanvasControls): Promise<Answer> {
+  if (!how?.pressed) return succeeded('messages.say', { outcome: 'declined', why: SAY_SAYS.noPress })
+  const schema = params.get('messages.say')!
+  const parsed = schema.safeParse(rawParams ?? {})
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return failed(`messages.say was called with something the canvas will not accept: ${issue?.path.length ? issue.path.join('.') : 'params'} — ${issue?.message ?? 'malformed'}.`)
+  }
+  try {
+    const response = await fetch('/host/messages/say', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ module: moduleId, project: canvas.project(), place: canvas.place?.() ?? null, pressed: true, params: parsed.data }),
+    })
+    const body = (await response.json()) as Answer
+    if (typeof body !== 'object' || body === null || typeof body.ok !== 'boolean') return failed("The host's server answered something that is not an answer.")
+    return body
+  } catch {
+    return failed(CALL_NOT_MADE)
+  }
 }
 
 /**
@@ -309,12 +351,17 @@ export function makeAsk(
    */
   may: ((capability: string) => boolean) | null = null,
 ): Ask {
-  return async (method, rawParams) => {
+  return async (method, rawParams, how) => {
     if (viewMethods.has(method)) {
       if (may) {
         const held = hold(method, may)
         if (held.held) return notAskedFor(method, held.why)
         if ('undeclared' in held) console.warn(`[host] ${undeclaredLine(moduleId, method, held.undeclared)}`)
+      }
+      if (method === 'messages.say') {
+        /* Fails closed: with no manifest read, nothing is sent as the person. */
+        if (!may) return notAskedFor(method, SAY_SAYS.noManifest)
+        return sayAsPerson(moduleId, rawParams, how, canvas)
       }
       return answerInTheView(moduleId, method, rawParams, canvas)
     }
@@ -625,6 +672,7 @@ function notAskedFor(method: string, why: string): Answer {
   if (method === 'view.goto') return succeeded(method, { outcome: 'declined', epic: null, why })
   if (method === 'view.fold') return succeeded(method, { outcome: 'declined', folded: [], unfolded: [], why })
   if (method === 'projects.pick') return succeeded(method, { outcome: 'declined', project: null, why })
+  if (method === 'messages.say') return succeeded(method, { outcome: 'declined', id: null, why })
   return failed(why)
 }
 
