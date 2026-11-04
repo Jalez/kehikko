@@ -45,7 +45,8 @@ import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { sourceOf } from './source.ts'
-import { systemProcesses, takeOver } from './takeover.ts'
+import { proveListener, systemProcesses, takeOver } from './takeover.ts'
+import { answersAs, judge, movedLine, newPort, repoint as repointRegistration } from './portTaken.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
@@ -2455,23 +2456,40 @@ async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<str
 }
 
 /** `kept`: refused because the registration says `keep`, which only a person's two presses get past. */
-type Halted = { ok: true; was: 'running' | 'not-running' } | { ok: false; why: string; kept?: boolean }
+type Halted =
+  | { ok: true; was: 'running' | 'not-running'; moved?: Moved }
+  | { ok: false; why: string; kept?: boolean }
+
+/** A module started on another port because another program held its own: where it goes, and what to say. */
+type Moved = { runnable: Runnable; line: string }
+
+/**
+ * Run a module somewhere else when the program on its port is not it — see
+ * `portTaken.ts`. Nothing is stopped: a free port is claimed the way the
+ * module would claim one itself, written into its registration, and the
+ * start that follows uses it.
+ */
+async function moveOff(id: string, registration: Registration, runnable: Runnable): Promise<{ ok: true; moved: Moved } | { ok: false; why: string }> {
+  if (runnable.port === null || !registration.file) return { ok: false, why: `${id} has no port in its registration to move it from.` }
+  const first = official.current().find((one) => one.id === id)?.port ?? null
+  const to = await newPort({ id, taken: runnable.port, first, registry: registryDir() })
+  if (!to.ok) return to
+  const written = repointRegistration(registration.file, to.url)
+  if (!written.ok) return written
+  const line = movedLine(knownName(id) ?? id, runnable.port, to.port)
+  console.log(`kehikko: ${line} (${id}: ${runnable.url} -> ${to.url}; the program on ${runnable.port} was left running)`)
+  return {
+    ok: true,
+    moved: { runnable: { ...runnable, port: to.port, url: to.url, command: `PORT=${to.port} ${runnable.script}` }, line },
+  }
+}
 
 /** What `anyway.ts` may know about, and do to, running programs: the nursery, and the proof in `takeover.ts`. */
 const anywayWorld: AnywayWorld = {
   ours: (id) => nursery.pidOf(id),
   stopOurs: (id) => halt(id),
   os: systemProcesses,
-  async answersAs(url) {
-    const got = await fetchManifest(url)
-    if (!got.ok) return null
-    try {
-      const id = (JSON.parse(got.text) as { id?: unknown } | null)?.id
-      return typeof id === 'string' ? id : null
-    } catch {
-      return null
-    }
-  },
+  answersAs: (url) => answersAs(url),
 }
 
 /**
@@ -2500,6 +2518,22 @@ async function haltForRestart(
        compiling, or hung. It goes first, or two copies race for the port. */
     if (nursery.holds(id)) halt(id)
     return { ok: true, was: 'not-running' }
+  }
+  /* Something answers there. When it is not the module — no manifest, or
+     another module's, from somewhere other than the module's directory —
+     the module is run on another port instead, and the program there is left
+     alone. Before `keep`, because nothing of the module's is stopped; except
+     a kept module whose own process this host still holds, which is not
+     stopped to do it. See `portTaken.ts`. */
+  if (registration && !(registration.keep === true && nursery.holds(id))) {
+    const occupied = judge(id, await proveListener(runnable, systemProcesses), await answersAs(runnable.url))
+    if (occupied.kind === 'foreign') {
+      const moved = await moveOff(id, registration, runnable)
+      if (!moved.ok) return { ok: false, why: moved.why }
+      /* A copy this host started that never got the port goes too, or it and the new one are two. */
+      if (nursery.holds(id)) halt(id)
+      return { ok: true, was: 'not-running', moved: moved.moved }
+    }
   }
   if (registration?.keep === true) {
     if (!anyway) return { ok: false, kept: true, why: keptSentence(id, runnable.url) }
@@ -2602,7 +2636,7 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
 }
 
 type Restarted =
-  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null }
+  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null; moved?: Moved }
   | { ok: false; why: string; detail?: string[]; refused?: boolean; kept?: boolean }
 
 /**
@@ -2635,7 +2669,10 @@ async function restart(
       const place = installedPlace(id)
       if (place) await builds.stopped({ id, name: place.name, dir: place.dir })
     }
-    return await bringUp(id, runnable, within)
+    const target = halted.moved?.runnable ?? runnable
+    const came = await bringUp(id, target, within)
+    if (!halted.moved) return came
+    return came.ok ? { ...came, moved: halted.moved } : { ...came, why: `${halted.moved.line} ${came.why}` }
   } finally {
     working.delete(id)
     if (mine) inHand.delete(id)
@@ -4293,7 +4330,9 @@ async function answerRequest(request: Request): Promise<Response> {
       if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [], ...(done.kept ? { kept: true } : {}) }, 409)
       return json({
         ok: true,
-        command: can.run.command,
+        command: done.ok && done.moved ? done.moved.runnable.command : can.run.command,
+        /* Said when the module was started on another port: the sentence, for the container to show. */
+        ...(done.ok && done.moved ? { moved: done.moved.line } : {}),
         /* The last it printed, when it has not answered — so the page can say
            more than "run it yourself and see". */
         ...(done.answered ? {} : { detail: done.detail }),

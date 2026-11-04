@@ -103,29 +103,37 @@ export function within(path: string, root: string): boolean {
 export type Proof =
   | { kind: 'nothing' }
   | { kind: 'proven'; pid: number; pgid: number }
-  | { kind: 'unproven'; detail: string }
+  | { kind: 'unproven'; detail: string; because: Unproven }
+
+/**
+ * Which of the proof's steps failed. `elsewhere` and `unasked` say nothing
+ * about the listener being the module, which is what lets `portTaken.ts` move
+ * the module off a port somebody else holds; `group` is a listener that DOES
+ * run from the module's directory, and `no-port` has nothing to look up.
+ */
+export type Unproven = 'no-port' | 'unasked' | 'elsewhere' | 'group'
 
 export async function proveListener(run: Runnable, os: Processes): Promise<Proof> {
-  const unproven = (detail: string): Proof => ({ kind: 'unproven', detail })
-  if (run.port === null) return unproven('its registration names no port, so there is nothing to find it by.')
+  const unproven = (detail: string, because: Unproven): Proof => ({ kind: 'unproven', detail, because })
+  if (run.port === null) return unproven('its registration names no port, so there is nothing to find it by.', 'no-port')
 
   let pid: number | null
   try {
     pid = await os.listenerOf(run.port)
   } catch {
-    return unproven(`this host could not ask which program is listening on port ${run.port}.`)
+    return unproven(`this host could not ask which program is listening on port ${run.port}.`, 'unasked')
   }
   if (pid === null) return { kind: 'nothing' }
 
   const cwd = await os.cwdOf(pid)
   if (cwd === null || !within(cwd, run.dir)) {
-    return unproven(`the program listening on port ${run.port} is not running from ${run.dir}.`)
+    return unproven(`the program listening on port ${run.port} is not running from ${run.dir}.`, 'elsewhere')
   }
 
   const pgid = await os.groupOf(pid)
   const own = await os.ownGroup()
   if (pgid === null || pgid <= 1 || own === null || pgid === own) {
-    return unproven(`the program on port ${run.port} shares a process group this host will not signal.`)
+    return unproven(`the program on port ${run.port} shares a process group this host will not signal.`, 'group')
   }
   /* The leader of the group is what decides how much the group holds. Gone is
      fine — `run.sh` may have exec'd or exited and left its server — but alive
@@ -133,7 +141,7 @@ export async function proveListener(run: Runnable, os: Processes): Promise<Proof
   if (pgid !== pid) {
     const leader = await os.cwdOf(pgid)
     if (leader !== null && !within(leader, run.dir)) {
-      return unproven(`the program on port ${run.port} shares a process group with something not running from ${run.dir}.`)
+      return unproven(`the program on port ${run.port} shares a process group with something not running from ${run.dir}.`, 'group')
     }
   }
   return { kind: 'proven', pid, pgid }
@@ -186,9 +194,9 @@ export async function takeOver(id: string, run: Runnable, os: Processes): Promis
   const refuse = (detail: string): TakeOver => ({
     kind: 'refused',
     why:
-      `${id} is already running at ${run.url} and this host did not start it, so it cannot restart it — `
-      + `${detail} Stop it where you started it and press this again — or reload this page, which is `
-      + 'enough when the module is fine and this container is holding a stale copy of its page.',
+      `${id} is already running at ${run.url} and this host did not start it, so it will not stop it — `
+      + `${detail} If that is a copy you started yourself, stop it there and press this again. If the `
+      + 'module is fine and only this container is stale, reloading this page is enough.',
   })
 
   const proof = await proveListener(run, os)

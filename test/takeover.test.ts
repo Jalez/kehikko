@@ -115,7 +115,7 @@ describe('refused, and nothing signalled', () => {
     const taken = await takeOver('kehikot.paper', runnable(root), os)
     expect(taken.kind).toBe('refused')
     if (taken.kind === 'refused') {
-      expect(taken.why).toContain('kehikot.paper is already running at http://127.0.0.1:7870 and this host did not start it')
+      expect(taken.why).toContain('kehikot.paper is already running at http://127.0.0.1:7870 and this host did not start it, so it will not stop it')
       expect(taken.why).toContain(`not running from ${root}`)
     }
     expect(world.signals).toEqual([])
