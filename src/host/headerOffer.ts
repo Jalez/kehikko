@@ -27,14 +27,17 @@
  *   row in Container; under 220 pixels Settings is a row in Container and
  *   nowhere else.
  * - **The overflow keeps the order and the words.** Under `MERGE_BELOW`, there
- *   is ONE "⋯" holding View, Go and Run as sections, then Container as the
- *   last section — the same rows, labels and disabled reasons as the separate
- *   menus. A module with no menus gets the same "⋯", holding Container alone:
- *   the Container menu is never a trigger of its own when there is no room.
+ *   is ONE "⋯" holding View, Go and Run as sections, then the module's filter,
+ *   clear and refresh (`CONTROLS`, as "Shown"), then Container as the last
+ *   section — the same rows, labels and disabled reasons as the separate
+ *   menus. Remove is a Container row there ("Remove from this kehikko", two
+ *   presses). A module with no menus gets the same "⋯": the Container menu is
+ *   never a trigger of its own when there is no room.
  * - **What the row keeps is a list, in order** (`ROW_PRIORITY`): the selection
  *   checkbox, the module's icon, the overflow, the fold button and the name.
- *   Everything else gives way before those — pinned runs and the gear go into
- *   menus, the menus into the one "⋯", the version and branch words go
+ *   Everything else gives way before those — pinned runs, the gear, the
+ *   module's row controls and remove go into menus, the menus into the one
+ *   "⋯", the version and branch words go
  *   (`host/headerFit.ts`) — and of the five the name gives way first, cut with
  *   an ellipsis.
  *
@@ -86,7 +89,7 @@ export function pinsFor(width: number | null): boolean {
  * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
  * no body to hold it, it is the first rows of this menu, so it stays reachable.
  */
-export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'] as const
+export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /**
@@ -107,7 +110,19 @@ export const FRAME_SAID: Record<FrameEntry, string> = {
   help: 'how to use it',
   feedback: 'feedback',
   prompts: 'prompts',
+  remove: 'remove',
 }
+
+/**
+ * The module's own row controls (`Filters.tsx`, `Clearing.tsx`, `Refreshing.tsx`), drawn only
+ * because the module offered them. Buttons in the row while there is room; under `MERGE_BELOW`
+ * a section of the one "⋯", after the module's menus and before Container.
+ */
+export const CONTROLS = ['filter', 'clear', 'refresh'] as const
+export type Control = (typeof CONTROLS)[number]
+
+/** What the controls' section of the "⋯" is called: they all act on what the module shows. */
+export const CONTROLS_TITLE = 'Shown'
 
 /** The Container trigger's tooltip: what this container's menu holds, in its order. */
 export function frameHint(entries: readonly FrameEntry[]): string {
@@ -123,7 +138,7 @@ export function frameHint(entries: readonly FrameEntry[]): string {
  */
 export const ROW_PRIORITY = ['select', 'icon', 'overflow', 'fold', 'name'] as const
 /** Something the row draws: one of `ROW_PRIORITY`, or what gives way before them. */
-export type RowPart = (typeof ROW_PRIORITY)[number] | 'menus' | 'gear' | 'pinned'
+export type RowPart = (typeof ROW_PRIORITY)[number] | 'menus' | 'controls' | 'gear' | 'remove' | 'pinned'
 
 /** How far a container is folded: open, to its header, to its header and footer. */
 export type Fold = 0 | 1 | 2
@@ -134,10 +149,12 @@ export interface Offer {
   items: readonly HeaderItem[]
   /** The host's entries this container has, any order. */
   frame: readonly FrameEntry[]
+  /** The module's own row controls it offers now, any order. Absent: none. */
+  controls?: readonly Control[]
 }
 
-/** One section of a menu: a module menu, or the host's Container entries. */
-export type Section = { kind: 'module'; menu: ModuleMenu } | { kind: 'frame'; entries: FrameEntry[] }
+/** One section of a menu: a module menu, the module's row controls, or the host's Container entries. */
+export type Section = { kind: 'module'; menu: ModuleMenu } | { kind: 'controls'; controls: Control[] } | { kind: 'frame'; entries: FrameEntry[] }
 
 /** One trigger in the row and what its menu holds, top to bottom. */
 export interface Trigger {
@@ -151,6 +168,10 @@ export interface HeaderLayout {
   pinned: RunItem[]
   /** The settings gear is drawn in the row (and so is not a row in Container). */
   gear: boolean
+  /** The module's row controls drawn as buttons in the row (and so in no menu). */
+  controls: Control[]
+  /** The remove button is drawn in the row (and so is not a row in Container). */
+  remove: boolean
   /** The triggers, left to right. Module menus first, the overflow (the one holding Container) last. */
   triggers: Trigger[]
   /** What the row draws, most important first: `ROW_PRIORITY`, then what this mode has room for. */
@@ -167,20 +188,26 @@ export function layoutOf(offer: Offer, mode: MenuMode, pins: boolean, fold: Fold
   const inRow = new Set(pinned.map((item) => item.id))
   const menus = menusOf(offer.items.filter((item) => !inRow.has(item.id)))
   const has = new Set(offer.frame)
-  const gear = mode !== 'merged' && has.has('settings')
-  const entries = FRAME_ENTRIES.filter((entry) => has.has(entry) && !(gear && entry === 'settings'))
+  const roomy = mode !== 'merged'
+  const gear = roomy && has.has('settings')
+  const remove = roomy && has.has('remove')
+  const entries = FRAME_ENTRIES.filter((entry) => has.has(entry) && !(gear && entry === 'settings') && !(remove && entry === 'remove'))
   const frame: Section = { kind: 'frame', entries }
   const modules: Section[] = menus.map((menu) => ({ kind: 'module', menu }))
-  /* No room: ONE "⋯", module menus or not, with Container as its last section. */
-  const triggers: Trigger[] =
-    mode === 'merged'
-      ? [{ which: 'more', sections: [...modules, frame] }]
-      : [...menus.map((menu): Trigger => ({ which: menu.menu, sections: [{ kind: 'module', menu }] })), { which: 'frame', sections: [frame] }]
+  const offered = CONTROLS.filter((control) => offer.controls?.includes(control))
+  const controls = roomy ? offered : []
+  const folded: Section[] = !roomy && offered.length ? [{ kind: 'controls', controls: offered }] : []
+  /* No room: ONE "⋯", module menus or not — the module's menus, its row controls, then Container. */
+  const triggers: Trigger[] = roomy
+    ? [...menus.map((menu): Trigger => ({ which: menu.menu, sections: [{ kind: 'module', menu }] })), { which: 'frame', sections: [frame] }]
+    : [{ which: 'more', sections: [...modules, ...folded, frame] }]
   const row: RowPart[] = [...ROW_PRIORITY]
-  if (mode !== 'merged' && menus.length) row.push('menus')
+  if (roomy && menus.length) row.push('menus')
+  if (controls.length) row.push('controls')
   if (gear) row.push('gear')
+  if (remove) row.push('remove')
   if (pinned.length) row.push('pinned')
-  return { mode, pinned, gear, triggers, row }
+  return { mode, pinned, gear, controls, remove, triggers, row }
 }
 
 /** The trigger that holds the Container rows: the overflow, last in the row. */
@@ -193,15 +220,18 @@ export type Place = 'row' | Trigger['which']
 
 /**
  * Every action in a layout with where it is, in drawn order: `item:<id>` for a
- * module's item, `frame:<entry>` for one of the host's. An action listed twice
+ * module's item, `control:<name>` for one of its row controls, `frame:<entry>` for one of the host's. An action listed twice
  * is drawn twice.
  */
 export function placesOf(layout: HeaderLayout): { key: string; place: Place }[] {
   const out: { key: string; place: Place }[] = layout.pinned.map((item) => ({ key: `item:${item.id}`, place: 'row' as const }))
+  out.push(...layout.controls.map((control) => ({ key: `control:${control}`, place: 'row' as const })))
   if (layout.gear) out.push({ key: 'frame:settings', place: 'row' })
+  if (layout.remove) out.push({ key: 'frame:remove', place: 'row' })
   for (const trigger of layout.triggers) {
     for (const section of trigger.sections) {
       if (section.kind === 'frame') out.push(...section.entries.map((entry) => ({ key: `frame:${entry}`, place: trigger.which })))
+      else if (section.kind === 'controls') out.push(...section.controls.map((control) => ({ key: `control:${control}`, place: trigger.which })))
       else out.push(...section.menu.groups.flatMap((group) => group.items.map((item) => ({ key: `item:${item.id}`, place: trigger.which }))))
     }
   }

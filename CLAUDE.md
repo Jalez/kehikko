@@ -557,7 +557,12 @@
   then one "⋯" under 220 (`modeFor`) whose last section is the Container rows —
   for a module with no menus too: the Container menu is never its own trigger
   under 220. What the row keeps at every width is `ROW_PRIORITY`: checkbox,
-  module icon, the overflow, fold, then the name (cut first). The host's
+  module icon, the overflow, fold, then the name (cut first). Under 220 the
+  module's filter, clear and refresh are the "⋯"'s "Shown" section and remove
+  is Container's last row ("Remove from this kehikko", two presses), all in
+  `layoutOf`'s offer; the name, version, branch and folded state sit in one
+  box (`data-header-left`) that clips its own tail, so nothing on the right is
+  ever pushed past the edge. The host's
   per-container menu is called "Container" (code keeps `frame`); there is no
   scope chip in the row.
 - Where every header entry goes is ONE rule, `layoutOf` in

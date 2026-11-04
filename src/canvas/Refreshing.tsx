@@ -98,6 +98,7 @@ export function RefreshButton({
             variant="ghost"
             size="icon"
             aria-label={`refresh what ${name} shows${every === null ? '' : ` — every ${every} minutes`}`}
+            data-control="refresh"
             /* Foreground in every state, for the reason `Filters.tsx` argues at
                length: this button is on almost no containers, so its presence
                is itself the message, and a fifth grey icon in a row of grey
@@ -119,6 +120,29 @@ export function RefreshButton({
           floats over the canvas, so it cannot push a container about, and it
           must not cover half the screen either. */}
       <DropdownMenuContent align="end" className="max-w-64 min-w-52">
+        <RefreshChoices state={state} every={every} onRefresh={onRefresh} onEvery={onEvery} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * The refresh menu's rows: when it last read, "Refresh now", and how often. Drawn in the refresh
+ * button's menu, and — under 220 px — in a "Refresh" submenu of the header's "⋯" (`layoutOf`).
+ */
+export function RefreshChoices({
+  state,
+  every,
+  onRefresh,
+  onEvery,
+}: {
+  state: { can: boolean; at: string | null; busy: boolean }
+  every: number | null
+  onRefresh(): void
+  onEvery(every: number | null): void
+}) {
+  return (
+    <>
         <DropdownMenuLabel className="text-muted-foreground min-w-0 truncate text-[11px] font-normal">
           <Ago at={state.at} />
         </DropdownMenuLabel>
@@ -137,8 +161,7 @@ export function RefreshButton({
 
         <DropdownMenuSeparator />
         <Every every={every} onEvery={onEvery} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   )
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { headerItemsSchema } from 'kehikot-module-protocol'
 
 import {
+  CONTROLS,
   FRAME_ENTRIES,
   FRAME_TITLE,
   ROW_PRIORITY,
@@ -37,9 +38,10 @@ const ITEMS = headerItemsSchema.parse([
 ])
 
 const OFFERS: Record<string, Offer> = {
-  'menus and every host entry': { items: ITEMS, frame: [...FRAME_ENTRIES] },
+  'menus and every host entry': { items: ITEMS, frame: [...FRAME_ENTRIES], controls: [...CONTROLS] },
   'menus, no settings': { items: ITEMS, frame: ['tools', 'feedback', 'prompts'] },
-  'no menus, every host entry': { items: [], frame: [...FRAME_ENTRIES] },
+  'no menus, every host entry': { items: [], frame: [...FRAME_ENTRIES], controls: [...CONTROLS] },
+  'no menus, only clear': { items: [], frame: ['feedback', 'prompts', 'remove'], controls: ['clear'] },
   'no menus, the least': { items: [], frame: ['feedback', 'prompts'] },
   'only a pinned run': { items: headerItemsSchema.parse([{ kind: 'run', id: 'go', label: 'Go', pinned: true }]), frame: ['settings', 'feedback', 'prompts'] },
 }
@@ -49,7 +51,11 @@ const at = (offer: Offer, width: number | null, fold: Fold) => layoutOf(offer, m
 describe('one list, the same everywhere', () => {
   for (const [said, offer] of Object.entries(OFFERS)) {
     test(`${said}: the same actions are reachable at every width and fold state`, () => {
-      const expected = [...offer.items.map((item) => `item:${item.id}`), ...offer.frame.map((entry) => `frame:${entry}`)].sort()
+      const expected = [
+        ...offer.items.map((item) => `item:${item.id}`),
+        ...(offer.controls ?? []).map((control) => `control:${control}`),
+        ...offer.frame.map((entry) => `frame:${entry}`),
+      ].sort()
       for (const width of WIDTHS) {
         for (const fold of FOLDS) expect(reachable(at(offer, width, fold)), `${width} ${fold}`).toEqual(expected)
       }
@@ -81,7 +87,8 @@ describe('where an entry goes', () => {
     expect(where(380)['item:compile']).toBe('row')
     expect(where(380)['frame:settings']).toBe('row')
     const frame = layout.triggers.at(-1)!.sections[0]!
-    expect(frame.kind === 'frame' && frame.entries).toEqual(FRAME_ENTRIES.filter((one) => one !== 'settings'))
+    expect(frame.kind === 'frame' && frame.entries).toEqual(FRAME_ENTRIES.filter((one) => one !== 'settings' && one !== 'remove'))
+    expect(where(380)['frame:remove']).toBe('row')
   })
 
   test('under 360: the pinned run is a row of the Run menu', () => {
@@ -89,11 +96,11 @@ describe('where an entry goes', () => {
     expect(where(280)['item:compile']).toBe('run')
   })
 
-  test('under 220: one "⋯" with View, Go, Run, then Container, and Settings among the Container rows', () => {
+  test('under 220: one "⋯" with View, Go, Run, the module’s controls, then Container, and Settings among the Container rows', () => {
     const layout = at(offer, 200, 0)
     expect(layout.gear).toBe(false)
     expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
-    expect(layout.triggers[0]!.sections.map((one) => (one.kind === 'module' ? one.menu.menu : 'frame'))).toEqual(['view', 'go', 'run', 'frame'])
+    expect(layout.triggers[0]!.sections.map((one) => (one.kind === 'module' ? one.menu.menu : one.kind))).toEqual(['view', 'go', 'run', 'controls', 'frame'])
     const frame = layout.triggers[0]!.sections.at(-1)!
     expect(frame.kind === 'frame' && frame.entries).toEqual([...FRAME_ENTRIES])
   })
@@ -109,10 +116,10 @@ describe('where an entry goes', () => {
     expect(clean.kind === 'run' && clean.disabled).toBe('Nothing to clean.')
   })
 
-  test('no module menus: under 220 the "⋯" holds Container alone, Settings in it once — never a trigger of its own', () => {
+  test('no module menus: under 220 the "⋯" holds the controls and Container, Settings in it once — never a trigger of its own', () => {
     const layout = at(OFFERS['no menus, every host entry']!, 200, 0)
     expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
-    expect(layout.triggers[0]!.sections.map((one) => one.kind)).toEqual(['frame'])
+    expect(layout.triggers[0]!.sections.map((one) => one.kind)).toEqual(['controls', 'frame'])
     expect(placesOf(layout).filter((one) => one.key === 'frame:settings')).toEqual([{ key: 'frame:settings', place: 'more' }])
   })
 
@@ -169,9 +176,9 @@ describe('what the row keeps when there is no room', () => {
 
   test('at 220 and wider what gives way first is still in the row: menus, gear, pinned runs, after the five', () => {
     const offer = OFFERS['menus and every host entry']!
-    expect(at(offer, 380, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear', 'pinned'])
-    expect(at(offer, 280, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear'])
-    expect(at(offer, 220, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear'])
+    expect(at(offer, 380, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'controls', 'gear', 'remove', 'pinned'])
+    expect(at(offer, 280, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'controls', 'gear', 'remove'])
+    expect(at(offer, 220, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'controls', 'gear', 'remove'])
   })
 })
 
@@ -179,5 +186,47 @@ describe('what the host’s menu is called', () => {
   test('Container, with a tooltip that lists what it holds, in its order', () => {
     expect(FRAME_TITLE).toBe('Container')
     expect(frameHint(['prompts', 'help', 'rows', 'settings', 'scope', 'feedback'])).toBe('This container: scope, settings, header and footer, how to use it, feedback, prompts')
+  })
+})
+
+describe('the module’s row controls and remove', () => {
+  const offer = OFFERS['menus and every host entry']!
+  const where = (width: number) => Object.fromEntries(placesOf(at(offer, width, 0)).map((one) => [one.key, one.place]))
+
+  test('at 220 and wider: filter, clear, refresh and remove are buttons in the row', () => {
+    for (const width of [380, 280, 220]) {
+      for (const key of ['control:filter', 'control:clear', 'control:refresh', 'frame:remove']) expect(where(width)[key], `${key} ${width}`).toBe('row')
+      expect(at(offer, width, 0).controls).toEqual([...CONTROLS])
+      expect(at(offer, width, 0).remove).toBe(true)
+    }
+  })
+
+  test('under 220: the controls are a section of the "⋯" between the module’s menus and Container, and remove is Container’s last row', () => {
+    for (const width of [200, 160]) {
+      for (const fold of FOLDS) {
+        const layout = at(offer, width, fold)
+        expect(layout.controls).toEqual([])
+        expect(layout.remove).toBe(false)
+        const sections = layout.triggers[0]!.sections
+        expect(sections.map((one) => (one.kind === 'module' ? one.menu.menu : one.kind))).toEqual(['view', 'go', 'run', 'controls', 'frame'])
+        const controls = sections[3]!
+        expect(controls.kind === 'controls' && controls.controls).toEqual(['filter', 'clear', 'refresh'])
+        const frame = sections.at(-1)!
+        expect(frame.kind === 'frame' && frame.entries.at(-1)).toBe('remove')
+        for (const key of ['control:filter', 'control:clear', 'control:refresh', 'frame:remove']) expect(where(width)[key]).toBe('more')
+      }
+    }
+  })
+
+  test('a module with no menus: under 220 the "⋯" holds the controls, then Container', () => {
+    const layout = at(OFFERS['no menus, only clear']!, 160, 0)
+    expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
+    expect(layout.triggers[0]!.sections.map((one) => one.kind)).toEqual(['controls', 'frame'])
+    expect(layout.row).toEqual([...ROW_PRIORITY])
+  })
+
+  test('the controls keep their order whatever order they are offered in', () => {
+    const layout = layoutOf({ items: [], frame: [], controls: ['refresh', 'filter'] }, 'words', true)
+    expect(layout.controls).toEqual(['filter', 'refresh'])
   })
 })

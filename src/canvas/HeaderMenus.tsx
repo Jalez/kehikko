@@ -87,7 +87,8 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
-import { FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, type Control, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { ControlRows, RemoveRow, type ControlParts } from './HeaderControls.tsx'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
@@ -658,6 +659,7 @@ function Menu({
   const which = trigger.which as HeaderMenu | 'more'
   const menus = trigger.sections.flatMap((section) => (section.kind === 'module' ? [section.menu] : []))
   const framed = frame ? trigger.sections.find((section) => section.kind === 'frame')?.entries ?? null : null
+  const controlled = frame?.controls ? trigger.sections.find((section) => section.kind === 'controls')?.controls ?? null : null
   const tools = framed ? toolsSaying(frame!.agent, name) : null
   const loud = tools?.loud === true
   const [open, setOpen] = useOpen(onClosed, rows.closing)
@@ -669,7 +671,7 @@ function Menu({
   const why = failed ? failedWhy(menus) : ''
   const state = busy ? ' — running' : failed ? ` — the last run failed${why ? `: ${why}` : ''}` : ''
   const at = where(menus)
-  const titles = [...menus.map((menu) => menu.title.toLowerCase()), ...(framed ? [FRAME_TITLE.toLowerCase()] : [])]
+  const titles = [...menus.map((menu) => menu.title.toLowerCase()), ...(controlled ? [CONTROLS_TITLE.toLowerCase()] : []), ...(framed ? [FRAME_TITLE.toLowerCase()] : [])]
   const hint =
     which === 'more'
       ? `${name}'s menus: ${titles.join(', ')}${at ? ` — ${at}` : ''}${state}${loud ? `. ${tools!.hint}` : ''}`
@@ -774,9 +776,10 @@ function Menu({
             ))}
           </DropdownMenuGroup>
         ))}
+        {controlled ? <ControlRows parts={frame!.controls!} controls={controlled} first={!menus.length} /> : null}
         {framed ? (
           <DropdownMenuGroup data-section="frame">
-            {menus.length ? <DropdownMenuSeparator /> : null}
+            {menus.length || controlled ? <DropdownMenuSeparator /> : null}
             <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
             <FrameRows parts={frame!} entries={framed} />
           </DropdownMenuGroup>
@@ -1222,6 +1225,10 @@ export interface FrameParts {
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
+  /** The module's own row controls (filter, clear, refresh), for the "⋯" that holds them under 220 px. */
+  controls?: ControlParts
+  /** Take the container off the kehikko: a "Remove from this kehikko" row where the × is not drawn (`layoutOf`). */
+  onRemove?(): void
 }
 
 /** Which of the host's entries a container has, for `layoutOf`. */
@@ -1235,6 +1242,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.rows) out.push('rows')
   if (parts.onHelp) out.push('help')
   out.push('feedback', 'prompts')
+  if (parts.onRemove) out.push('remove')
   return out
 }
 
@@ -1333,6 +1341,12 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           {prompted ? <span className="text-[10px] font-medium">uses one</span> : null}
         </DropdownMenuItem>
       ) : null}
+      {has('remove') && parts.onRemove ? (
+        <>
+          <DropdownMenuSeparator />
+          <RemoveRow name={name} onRemove={parts.onRemove} />
+        </>
+      ) : null}
     </>
   )
 }
@@ -1342,7 +1356,18 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
  * for a module with no menus of its own — the "⋯" that holds Container alone (`which: 'more'`).
  * Not drawn where the module's "⋯" holds the rows (`layoutOf`).
  */
-export function FrameMenu({ parts, entries, which = 'frame' }: { parts: FrameParts; entries: readonly FrameEntry[]; which?: 'frame' | 'more' }) {
+export function FrameMenu({
+  parts,
+  entries,
+  which = 'frame',
+  controls = [],
+}: {
+  parts: FrameParts
+  entries: readonly FrameEntry[]
+  which?: 'frame' | 'more'
+  /** The module's row controls, a section before Container's in the "⋯". */
+  controls?: readonly Control[]
+}) {
   const { name } = parts
   const closing = useRef<Closing>('dismissed')
   const quiet = useRef(false)
@@ -1350,7 +1375,7 @@ export function FrameMenu({ parts, entries, which = 'frame' }: { parts: FramePar
   const tools = toolsSaying(parts.agent, name)
   const more = which === 'more'
   const Glyph = more ? Ellipsis : AppWindow
-  const said = more ? `${name}'s menus: ${FRAME_TITLE.toLowerCase()}` : frameHint(entries)
+  const said = more ? `${name}'s menus: ${[...(controls.length ? [CONTROLS_TITLE.toLowerCase()] : []), FRAME_TITLE.toLowerCase()].join(', ')}` : frameHint(entries)
   const label = more ? `menus of ${name}` : `${FRAME_TITLE.toLowerCase()} menu of ${name}`
 
   return (
@@ -1396,8 +1421,10 @@ export function FrameMenu({ parts, entries, which = 'frame' }: { parts: FramePar
           {name}
         </DropdownMenuLabel>
         {/* In the "⋯", the section says what it is, as it does beside a module's menus. */}
+        {more && controls.length && parts.controls ? <ControlRows parts={parts.controls} controls={controls} first /> : null}
         {more ? (
           <DropdownMenuGroup data-section="frame">
+            {controls.length ? <DropdownMenuSeparator /> : null}
             <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
             <FrameRows parts={parts} entries={entries} />
           </DropdownMenuGroup>
