@@ -25,10 +25,14 @@ if (!inChild) {
 const message = (id: number, body: string): AgentMessage => ({
   id,
   at: '2026-10-31T12:00:00.000Z',
-  from: { module: 'stand.alpha', name: 'Alpha', session: 'conv-a', place: { epic: 'methods', parts: [], kehikko: 'writing' } },
+  from: { module: 'stand.alpha', name: 'Alpha', session: 'conv-a', place: { epic: 'methods', parts: [], kehikko: 'writing' }, person: false },
   to: { place: { epic: 'methods' } },
   thread: null,
   body,
+  kind: 'note',
+  choices: [],
+  replyTo: null,
+  once: false,
 })
 
 let React: typeof import('react')

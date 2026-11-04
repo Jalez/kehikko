@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { foldResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, trackerRefreshResult } from 'kehikot-module-protocol'
+import { foldResult, messageSendResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, trackerRefreshResult } from 'kehikot-module-protocol'
 
 import { answer, answerCall, type Grants } from '../server/answers.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
@@ -48,6 +48,9 @@ const PARAMS: Record<string, unknown> = {
   'dispositions.get': {},
   'messages.send': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', body: 'hi' },
   'messages.read': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+  'messages.mine': {},
+  'messages.post': { body: 'hi', to: { project: true } },
+  'messages.say': { body: 'hi', to: { project: true } },
 }
 
 describe('the rule', () => {
@@ -152,7 +155,7 @@ describe('the canvas holds every method it answers', () => {
       calls.length = 0
       const out = await makeAsk(ME, canvas, () => false)(method, PARAMS[method])
       expect(calls).toEqual([])
-      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'projects.pick': projectPickResult }
+      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'projects.pick': projectPickResult, 'messages.say': messageSendResult }
       if (Object.hasOwn(shapes, method)) {
         expect(out.ok).toBe(true)
         if (!out.ok) return
@@ -166,6 +169,8 @@ describe('the canvas holds every method it answers', () => {
     })
 
     test(`${method} reaches the canvas for a manifest that asked`, async () => {
+      /* The person's message moves nothing on the canvas: it is relayed only on a fresh press (test/person-messages.test.ts). */
+      if (method === 'messages.say') return
       calls.length = 0
       await makeAsk(ME, canvas, (capability) => capability === METHODS[method])(method, PARAMS[method])
       expect(calls.length).toBe(1)

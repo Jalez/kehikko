@@ -15,6 +15,7 @@ import {
   type ModuleContext,
   type PressValue,
 } from 'kehikot-module-protocol'
+import { pressFresh } from './gesture.ts'
 import { CARRIES } from './carry.ts'
 
 /**
@@ -82,7 +83,12 @@ export type Answer =
       declined?: 'host-too-old'
     }
 
-export type Ask = (method: string, params: unknown) => Promise<Answer>
+/**
+ * `how` (protocol 2.50.0): what only the moment of arrival can say — whether
+ * the person's press was fresh when the request came (`pressFresh`). Read by
+ * `messages.say` alone.
+ */
+export type Ask = (method: string, params: unknown, how?: { pressed: boolean }) => Promise<Answer>
 
 /**
  * What a conversation reports back to the canvas.
@@ -260,6 +266,7 @@ export class Conversation {
   private readonly readyTimeoutMs: number
   private readonly wentTimeoutMs: number
   private readonly pressedTimeoutMs: number
+  private readonly pressed: () => boolean
 
   constructor(
     private readonly frame: Pick<HTMLIFrameElement, 'contentWindow'>,
@@ -280,8 +287,11 @@ export class Conversation {
       readyTimeoutMs?: number
       wentTimeoutMs?: number
       pressedTimeoutMs?: number
+      /** Whether the person's press is fresh now (`pressFresh`); replaced in tests. */
+      pressed?: () => boolean
     } = {},
   ) {
+    this.pressed = options.pressed ?? pressFresh
     this.name = options.name ?? moduleId
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
@@ -720,7 +730,10 @@ export class Conversation {
          one response goes back for exactly one question. Nothing is queued and
          nothing is deduplicated: a module that asks twice gets two answers,
          which is what it asked for. */
-      void this.ask(message.method, message.params).then((answer) => {
+      /* Read NOW, synchronously, while the event that carried the request is
+         being handled: the person's activation is transient. */
+      const pressed = this.pressed()
+      void this.ask(message.method, message.params, { pressed }).then((answer) => {
         if (this.closed) return
         this.post(
           answer.ok

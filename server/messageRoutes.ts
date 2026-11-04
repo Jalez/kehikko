@@ -1,5 +1,9 @@
 import {
   LIMITS,
+  messageMineParams,
+  messageMineResult,
+  messagePostParams,
+  messageSayParams,
   messageReadParams,
   messageReadResult,
   messageSendParams,
@@ -7,7 +11,7 @@ import {
   type AgentMessage,
 } from 'kehikot-module-protocol'
 
-import type { AgentMessages, Reader } from './agentMessages.ts'
+import type { AgentMessages, Extras, Reader } from './agentMessages.ts'
 import { sessionIdOf } from './agentMessages.ts'
 import { issuerOf, type Here } from './doorPlaces.ts'
 import type { Database } from 'bun:sqlite'
@@ -44,7 +48,23 @@ export interface MessageDeps {
   nameOf(module: string): string | null
   /** The project's messages changed: pages read them again. */
   changed(project: number): void
+  /** Whether a project with this id is held here (2.50.0: a page names one by id). */
+  hasProject?(project: number): boolean
+  /** Whether a module is registered here (the last sweep's callers). */
+  known?(module: string): boolean
+  /** Whether its manifest, as the last sweep read it, asks for the capability. */
+  may?(module: string, capability: string): boolean
+  /** Whether the person allowed this module to send as them, as this host saw it (`personGrants.ts`). */
+  granted?(module: string): boolean
 }
+
+/** What a message's params carry beside the body (protocol 2.50.0). */
+const extrasOf = (data: { kind?: Extras['kind']; choices?: string[]; replyTo?: number; once?: boolean }): Extras => ({
+  ...(data.kind !== undefined ? { kind: data.kind } : {}),
+  ...(data.choices !== undefined ? { choices: data.choices } : {}),
+  ...(data.replyTo !== undefined ? { replyTo: data.replyTo } : {}),
+  ...(data.once !== undefined ? { once: data.once } : {}),
+})
 
 /** What a server question about messages came to: an answer, or a refusal of the project (another host may hold the token). */
 export type MessageAsked =
@@ -57,6 +77,11 @@ export const MESSAGE_ROUTE_SAYS = {
   notYours: 'That token was issued by another module: a module sends and reads only for the sessions it runs. Nothing was done.',
   noPlace: 'The module that issued that token has no record of its session just now, so there is no sender to stamp. Nothing was done.',
   page: 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.',
+  noProject: 'This call is standing in no project this host holds, so there are no messages to read or send.',
+  module: 'This host has no module registered under that id.',
+  notAsked: (capability: string) => `This module’s manifest does not ask for ${capability} (declares.uses), so this host does not send it.`,
+  notAllowed: 'The person has not allowed this module to send messages as them: they turn it on in its settings, in this host. Nothing was sent.',
+  noPress: 'A message as the person goes only on their press in this module, and none came with it. Nothing was sent.',
 } as const
 
 const reply = (body: unknown, status = 200): Response =>
@@ -103,6 +128,7 @@ export function messageDesk(deps: MessageDeps) {
         asked.data.body,
         asked.data.to,
         asked.data.thread ?? null,
+        extrasOf(asked.data),
       )
       if (sent.ok) deps.changed(here.project.id)
       return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
@@ -138,7 +164,90 @@ export function messageDesk(deps: MessageDeps) {
     return { messages: out.messages, messagesMore: out.more }
   }
 
+  /**
+   * `messages.mine` and `messages.post` from a module's PAGE (protocol 2.50.0),
+   * through `/host/call`, after the module is known and its grant held there:
+   * in the project the page stands in (`project`, an id), the module's own
+   * mail and a message in its own name — no session's, never the person's.
+   */
+  function pageAnswer(module: string, method: 'messages.mine' | 'messages.post', params: unknown, project: number | null): { ok: true; data: unknown } | { ok: false; reason: 'failed'; error: string } {
+    if (project === null || !(deps.hasProject?.(project) ?? true)) {
+      if (method === 'messages.post') return { ok: true, data: messageSendResult.parse({ outcome: 'declined', why: MESSAGE_ROUTE_SAYS.noProject }) }
+      return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.noProject }
+    }
+    if (method === 'messages.mine') {
+      const asked = messageMineParams.safeParse(params ?? {})
+      if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.mine: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+      const read = messages.mine(project, module, { limit: asked.data.limit, ...(asked.data.since !== undefined ? { since: asked.data.since } : {}) })
+      return { ok: true, data: messageMineResult.parse(read) }
+    }
+    const asked = messagePostParams.safeParse(params ?? {})
+    if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.post: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+    const sent = messages.send(
+      project,
+      { module, session: '', name: deps.nameOf(module) ?? module, epic: null, parts: [], kehikko: null },
+      asked.data.body,
+      asked.data.to,
+      asked.data.thread ?? null,
+      extrasOf(asked.data),
+    )
+    if (sent.ok) deps.changed(project)
+    return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
+  }
+
+  /**
+   * The PERSON's message (protocol 2.50.0, `messages.say`): `POST
+   * /host/messages/say`, in `PAGE_ONLY`, so only this host's own page reaches
+   * it — and the page sends it only for a request that came during the
+   * person's fresh press in the module's frame (`host/ask.ts`). Here: the page
+   * says so (`pressed`), the module is registered and its manifest asks for
+   * `messages:as-person`, and the person allowed it in this host's own
+   * settings form (`granted`). Then it is stamped `person: true`, with no
+   * session. Every refusal is `declined`, with why.
+   */
+  async function say(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as {
+      module?: unknown
+      project?: unknown
+      pressed?: unknown
+      place?: { epic?: unknown; parts?: unknown; kehikko?: unknown } | null
+      params?: unknown
+    } | null
+    const declined = (why: string): Response => reply({ ok: true, data: messageSendResult.parse({ outcome: 'declined', why }) })
+    if (!body || typeof body.module !== 'string' || body.module.length > 64) return reply({ ok: false, error: 'A message names a module.' }, 400)
+    const module = body.module
+    const project = typeof body.project === 'number' && Number.isInteger(body.project) && body.project > 0 ? body.project : null
+    if (project === null || !(deps.hasProject?.(project) ?? true)) return declined(MESSAGE_ROUTE_SAYS.noProject)
+    if (!(deps.known?.(module) ?? false)) return declined(MESSAGE_ROUTE_SAYS.module)
+    if (!(deps.may?.(module, 'messages:as-person') ?? false)) return declined(MESSAGE_ROUTE_SAYS.notAsked('messages:as-person'))
+    if (body.pressed !== true) return declined(MESSAGE_ROUTE_SAYS.noPress)
+    if (!(deps.granted?.(module) ?? false)) return declined(MESSAGE_ROUTE_SAYS.notAllowed)
+    const asked = messageSayParams.safeParse(body.params ?? {})
+    if (!asked.success) return reply({ ok: false, reason: 'failed', error: clip(`messages.say: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) })
+    const place = body.place ?? null
+    const slug = (one: unknown): string | null => (typeof one === 'string' && /^[a-z0-9-]{1,80}$/.test(one) ? one : null)
+    const sent = messages.send(
+      project,
+      {
+        module,
+        session: '',
+        name: deps.nameOf(module) ?? module,
+        epic: slug(place?.epic),
+        parts: Array.isArray(place?.parts) ? place.parts.flatMap((one) => slug(one) ?? []) : [],
+        kehikko: typeof place?.kehikko === 'string' && /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/.test(place.kehikko) ? place.kehikko : null,
+        person: true,
+      },
+      asked.data.body,
+      asked.data.to,
+      asked.data.thread ?? null,
+      extrasOf(asked.data),
+    )
+    if (sent.ok) deps.changed(project)
+    return reply({ ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) })
+  }
+
   async function route(request: Request, url: URL): Promise<Response | null> {
+    if (url.pathname === '/host/messages/say' && request.method === 'POST') return say(request)
     if (url.pathname === '/host/messages' && request.method === 'GET') {
       const project = Number(url.searchParams.get('project'))
       if (!Number.isInteger(project) || project <= 0) return reply({ ok: false, error: 'project is a project’s number.' }, 400)
@@ -157,5 +266,5 @@ export function messageDesk(deps: MessageDeps) {
     return null
   }
 
-  return { serverAnswer, forNotes, route }
+  return { serverAnswer, forNotes, route, pageAnswer }
 }

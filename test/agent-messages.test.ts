@@ -211,7 +211,7 @@ describe('who may send and read', () => {
     const said = await desk.serverAnswer(A, 'messages.send', { token: TOKEN_A, body: 'hello', to: { place: { epic: 'methods' } }, thread: 'auth' })
     expect(said).toEqual({ ok: true, data: { outcome: 'sent', id: 1, why: '' } })
     const [kept] = store.all(project.id)
-    expect(kept!.from).toEqual({ module: A, name: 'Alpha', session: 'conv-alpha', place: { epic: 'methods', parts: [], kehikko: writing.key } })
+    expect(kept!.from).toEqual({ module: A, name: 'Alpha', session: 'conv-alpha', place: { epic: 'methods', parts: [], kehikko: writing.key }, person: false })
     expect(kept!.thread).toBe('auth')
     expect(changed).toEqual([project.id])
   })

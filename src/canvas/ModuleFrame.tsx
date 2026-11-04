@@ -249,6 +249,15 @@ export function ModuleFrame({
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
         goto: (call, from) => canvasRef.current.goto(call, from),
+        /* Where this frame stands, for the by-line of the person's message (protocol 2.50.0). */
+        place: () => {
+          const told = contextRef.current
+          return {
+            epic: told.epic ?? null,
+            parts: (told.parts ?? []).filter((part) => part.picked).map((part) => part.id),
+            kehikko: told.kehikko?.key ?? null,
+          }
+        },
       },
       /* Held to what the manifest asks for, as the registry last read it. */
       (capability) => usesRef.current.includes(capability)),
