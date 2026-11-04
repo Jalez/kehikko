@@ -137,7 +137,7 @@ describe('focus', () => {
 
 describe('the stylesheet pushes, never covers', () => {
   const css = readFileSync(join(import.meta.dir, '..', 'src', 'index.css'), 'utf8')
-  const start = css.indexOf('.focus-mode .react-grid-item .container-reveal')
+  const start = css.indexOf(".react-grid-item [data-rows='hide'] > .container-reveal")
   const end = css.indexOf('/* No fade while a container is being dragged.')
   const rules = css.slice(start, end)
 
@@ -158,8 +158,14 @@ describe('the stylesheet pushes, never covers', () => {
     expect(rules).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*container-footer-reveal[\s\S]*transition:\s*none/)
   })
 
-  test('folded keeps its header; selected keeps its header', () => {
+  test('folded keeps its header; selected keeps its header; folded to two rows keeps its footer', () => {
     expect(rules).toContain(':not([data-collapsed]):not([data-selected])')
+    expect(rules).toContain(".container-footer-reveal:not([data-collapsed])")
+  })
+
+  test('only a container whose rows hide hides them: the rules are scoped to data-rows, never to the page-wide mode', () => {
+    expect(rules).not.toContain('.focus-mode')
+    for (const rule of rules.match(/[^{}]+\{[^}]*height:\s*0;[^}]*\}/g) ?? []) expect(rule).toContain("[data-rows='hide']")
   })
 })
 
@@ -170,8 +176,8 @@ describe('over: a module that says reveal: over is drawn over, never resized (pr
 
   test('only a container marked over takes its hiding rows out of the column, over the page', () => {
     expect(start).toBeGreaterThan(0)
-    expect(over).toMatch(/\.focus-mode \.react-grid-item \[data-reveal='over'\] > \.container-reveal:not\(\[data-collapsed\]\):not\(\[data-selected\]\) \{[^}]*position:\s*absolute;[^}]*top:\s*0;/)
-    expect(over).toMatch(/\.focus-mode \.react-grid-item \[data-reveal='over'\] > \.container-footer-reveal \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/)
+    expect(over).toMatch(/\.react-grid-item \[data-rows='hide'\]\[data-reveal='over'\] > \.container-reveal:not\(\[data-collapsed\]\):not\(\[data-selected\]\) \{[^}]*position:\s*absolute;[^}]*top:\s*0;/)
+    expect(over).toMatch(/\.react-grid-item \[data-rows='hide'\]\[data-reveal='over'\] > \.container-footer-reveal:not\(\[data-collapsed\]\) \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/)
     /* Every absolute rule in the sheet's reveal rules is scoped to over. */
     for (const rule of css.match(/[^{}]+\{[^}]*position:\s*absolute[^}]*\}/g) ?? []) {
       if (rule.includes('container-reveal') || rule.includes('container-footer-reveal')) expect(rule).toContain("[data-reveal='over']")

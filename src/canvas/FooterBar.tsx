@@ -53,10 +53,13 @@ export function FooterBar({
   name,
   onPress,
   onKeyboard,
+  dense = false,
 }: {
   /** What the module last declared. Never empty here: `drawsFooter` decides whether this is drawn at all. */
   items: readonly FooterItem[]
   name: string
+  /** Folded to two rows (`host/rows.ts`): the row fills its half of the folded container, as dense as the header. */
+  dense?: boolean
   /** Send one press on a footer item (`footerPressing`). */
   onPress(press: Pressing): Promise<Pressed>
   onKeyboard?(): void
@@ -131,7 +134,8 @@ export function FooterBar({
       role="toolbar"
       aria-label={`${name} footer`}
       data-footer-mode={row.mode}
-      className="bg-card pointer-events-auto flex h-8 min-w-0 shrink-0 items-center gap-2 overflow-hidden border-t px-2.5 text-[11px] select-none @max-[300px]/container:gap-1"
+      data-dense={dense ? 'true' : undefined}
+      className={`container-footer bg-card pointer-events-auto flex min-w-0 items-center gap-2 overflow-hidden border-t px-2.5 text-[11px] select-none @max-[300px]/container:gap-1 ${dense ? 'h-full px-2' : 'h-8 shrink-0'}`}
     >
       <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden @max-[300px]/container:gap-1" data-footer-group="start">
         {row.start.map(draw)}

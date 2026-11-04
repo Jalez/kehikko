@@ -577,8 +577,25 @@
   owns all the state; the page holds the latest list per module, nothing else.
   The greeting says `footer: true`; a module declares only then, and draws its
   own footer otherwise.
-- A module that declared nothing or `[]` gets no row. A folded container has no
-  footer (its body is gone too). The row is laid out by the protocol's
+- A module that declared nothing or `[]` gets no row. A container folded to one
+  row has no footer (its body is gone too); one folded to TWO rows keeps it.
+- Folding goes to one row (the header) or two (header and footer):
+  `foldRows` on the placement, personal, beside `collapsed`; drawn at
+  `FOLDED_TWO_ROWS` (`foldedHeight` in `columns.ts`). Two rows is offered only
+  while the host draws the module's footer (`foldChoices`); remembered as two
+  with no footer drawn, it draws one (`foldDrawn`) and keeps the choice. A
+  plain press on the fold control folds to the choice; a long press
+  (`LONG_PRESS_MS`), Shift+Enter, Shift+F10, the context-menu key, a right
+  click or ArrowDown opens it (`FoldControl.tsx`, the shared dropdown). The
+  folded page stays hidden: no body, so `kehikot.visible` is false and
+  `kehikot.covered` is nothing (`coversFor`); footer presses still go to its
+  frame.
+- What goes in which row is the protocol's rule (2.47.0, its
+  `docs/footer.md`): the header is how the module is set up, the footer is
+  what is going on now plus the actions on those readouts (`actsOn`). The
+  host's own header items keep to it: the condition and activity dots are the
+  one state it draws there, because a container folded to one row must still
+  say whether its module is alive. The row is laid out by the protocol's
   `footerLayout` at the row's measured width: words at 300+, icons and no
   optional items under 300, every pressable item in one "⋯" (the header's own
   merged menu) under 220. Never a second row.
@@ -601,6 +618,21 @@
 
 ## Focus mode: header and footer reveal on hover, and push
 
+- When a container's rows show is PER CONTAINER (`showRows` on the placement,
+  personal, beside `collapsed`; `src/host/rows.ts`): `always`, `hover`
+  (what follows below), `click`, or `null` for the bar's focus control, which
+  stays the default (`barRows`: on is `hover`, off is `always`). Offered in
+  the Frame menu ("Header and footer"). A container whose rows hide carries
+  `data-rows="hide"`, and every hiding rule in `index.css` is scoped to it —
+  never to `.focus-mode` again.
+- Reveal on click: ONE container is clicked at a time (`clickTo`, held in
+  `Reveals.click`). A click inside a page is read as the window's `blur` with
+  that container's frame left active (and `focusin` on the frame); a press on
+  a container's own chrome is a `pointerdown` here; Escape (the host
+  document's) or a press on nothing clears it; a menu or dialog is neither
+  (`pressedAt`). One listener for the page (`watchClicks`, in `App.tsx`).
+  `useRevealed(reveals, id, mode)` is what both the container and the frame
+  read; an `over` module's `covers.by` says which.
 - The bar's focus control hides every container's header and footer. They reveal
   while the pointer is ANYWHERE over the container (its page, from the frames
   layer, or its own rows) and on focus within it — `src/host/reveal.ts`, debounced

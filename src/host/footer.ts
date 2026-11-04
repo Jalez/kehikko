@@ -66,10 +66,13 @@ export function footerWithdrawn(held: Footers, id: string): Footers {
 /**
  * Whether a container draws a footer row at all: only for a module that
  * declared at least one item, whose page is the thing showing, on a container
- * that is not folded. Anything else draws nothing — never an empty row.
+ * that is not folded — or is folded to two rows, its header and its footer
+ * (`foldRows: 2`, `host/rows.ts`). Anything else draws nothing — never an
+ * empty row. `folded` is how the fold is drawn: `false` or `0` open, `1` (or
+ * `true`) to the header alone, `2` to header and footer.
  */
-export function drawsFooter(items: readonly FooterItem[], showingPage: boolean, folded: boolean): boolean {
-  return items.length > 0 && showingPage && !folded
+export function drawsFooter(items: readonly FooterItem[], showingPage: boolean, folded: boolean | 0 | 1 | 2): boolean {
+  return items.length > 0 && showingPage && (folded === false || folded === 0 || folded === 2)
 }
 
 /**

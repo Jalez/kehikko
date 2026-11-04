@@ -228,14 +228,19 @@ export function signedBy(marks: FoldMarks | null, placement: { i: string; collap
   return mark && mark.collapsed === placement.collapsed ? mark.by : null
 }
 
-/** What the fold control says when it is hovered: who, and what a press does. */
-export function foldHint(collapsed: boolean, by: string | null): string {
+/**
+ * What the fold control says when it is hovered: who, and what a press does.
+ * `rows` is how far a press folds (`host/rows.ts`), and `choosable` that a
+ * long press opens the choice of one row or two.
+ */
+export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1, choosable = false): string {
+  const hold = choosable ? '. Hold for one row or two' : ''
   if (by === null) {
     return collapsed
-      ? 'folded — the module is still running. Press to put it back at the height it had'
-      : 'fold it down to this header. The module keeps running and keeps what is in it'
+      ? `folded — the module is still running. Press to put it back at the height it had${hold}`
+      : `${rows === 2 ? 'fold it down to this header and its footer' : 'fold it down to this header'}. The module keeps running and keeps what is in it${hold}`
   }
   return collapsed
-    ? `folded by ${by} — the module is still running. Press to put it back at the height it had`
-    : `unfolded by ${by}. Press to fold it down to its header again`
+    ? `folded by ${by} — the module is still running. Press to put it back at the height it had${hold}`
+    : `unfolded by ${by}. Press to fold it down to its ${rows === 2 ? 'header and footer' : 'header'} again${hold}`
 }

@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from 'react'
 
+import { revealModeOf } from 'kehikot-module-protocol'
+
+import type { Focus } from './focus.ts'
+import { clickTo, rowsHide, rowsShown, type ClickEvent, type ShowRows } from './rows.ts'
+
 /**
  * In focus mode, which containers have their header and footer showing.
  *
@@ -52,6 +57,8 @@ export class Reveals {
   readonly #shown = new Set<string>()
   readonly #timers = new Map<string, Timer>()
   readonly #hearers = new Set<() => void>()
+  /* Reveal on click (`host/rows.ts`): the one container clicked into, or none. */
+  #clicked: string | null = null
   readonly #enterMs: number
   readonly #leaveMs: number
 
@@ -70,9 +77,29 @@ export class Reveals {
     this.#decide(id)
   }
 
-  /** Whether a container's header and footer are showing now. */
+  /** Whether a container's header and footer are showing now, for a container revealed on hover. */
   revealed(id: string): boolean {
     return this.#shown.has(id)
+  }
+
+  /** Something moved the click (`clickTo`): one notification when the clicked container changes, none otherwise. */
+  click(event: ClickEvent): void {
+    const next = clickTo(this.#clicked, event)
+    if (next === this.#clicked) return
+    this.#clicked = next
+    this.#tell()
+  }
+
+  /** Whether this container is the one clicked into, for a container revealed on click. */
+  clicked(id: string): boolean {
+    return this.#clicked === id
+  }
+
+  /** Whether a container whose rows show `mode` has them showing now. `always` is never "revealed": nothing hides. */
+  showing(id: string, mode: ShowRows): boolean {
+    if (mode === 'hover') return this.revealed(id)
+    if (mode === 'click') return this.clicked(id)
+    return false
   }
 
   /** Let go of everything about a container that went away. */
@@ -81,7 +108,9 @@ export class Reveals {
     const timer = this.#timers.get(id)
     if (timer) clearTimeout(timer)
     this.#timers.delete(id)
-    if (this.#shown.delete(id)) this.#tell()
+    const wasClicked = this.#clicked === id
+    if (wasClicked) this.#clicked = null
+    if (this.#shown.delete(id) || wasClicked) this.#tell()
   }
 
   subscribe = (hearer: () => void): (() => void) => {
@@ -118,11 +147,11 @@ export class Reveals {
   }
 }
 
-/** Whether one container is revealed, re-rendering only when that changes. */
-export function useRevealed(reveals: Reveals | null, id: string): boolean {
+/** Whether one container is revealed in its mode (on hover by default), re-rendering only when that changes. */
+export function useRevealed(reveals: Reveals | null, id: string, mode: ShowRows = 'hover'): boolean {
   return useSyncExternalStore(
     reveals ? reveals.subscribe : noSubscribe,
-    () => (reveals ? reveals.revealed(id) : false),
+    () => (reveals ? reveals.showing(id, mode) : false),
     () => false,
   )
 }
@@ -186,10 +215,32 @@ export const REVEAL_ROW_PX = 32
 export interface Covers {
   header: boolean
   footer: boolean
+  /** What reveals them: the pointer over the container (the default), or a click into it (`host/rows.ts`). */
+  by?: 'hover' | 'click'
 }
 
 /** How much of the page the rows cover now: what `kehikot.covered` says. Nothing for a pushed module or a hidden reveal. */
 export function coveredBy(covers: Covers | null, revealed: boolean): { top: number; bottom: number } {
   if (!covers || !revealed) return { top: 0, bottom: 0 }
   return { top: covers.header ? REVEAL_ROW_PX : 0, bottom: covers.footer ? REVEAL_ROW_PX : 0 }
+}
+
+/**
+ * What a container's rows cover of its page, for a module that says
+ * `reveal: 'over'`: `null` for a pushed module, for a container whose rows
+ * never hide (`always`, its own or the bar's), and for a folded container —
+ * its page is not drawn, so nothing of it is covered, and `kehikot.covered`
+ * says so. A selected container's header never hides; a module with no
+ * footer has none to cover with.
+ */
+export function coversFor(
+  module: { reveal?: string | null } | null | undefined,
+  placement: { collapsed: boolean; selected: boolean; showRows?: ShowRows | null } | undefined,
+  footer: boolean,
+  focus: Focus,
+): Covers | null {
+  if (!module || revealModeOf(module) !== 'over' || !placement || placement.collapsed) return null
+  const mode = rowsShown(placement, focus)
+  if (!rowsHide(mode)) return null
+  return { header: !placement.selected, footer, by: mode === 'click' ? 'click' : 'hover' }
 }

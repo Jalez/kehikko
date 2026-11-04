@@ -19,6 +19,7 @@ import { scopeAfter } from '../src/host/subject.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
 import { AUTOMATIC, settingIn, tidy, type ConnectionsSetting } from '../src/host/connections.ts'
+import { foldRowsIn, showRowsIn, type FoldRows, type ShowRows } from '../src/host/rows.ts'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -133,6 +134,16 @@ export interface Placement {
    * see the essay on `onCollapse` in `App.tsx`.
    */
   collapsed: boolean
+  /**
+   * How far it folds — its header alone (1) or its header and footer (2) —
+   * and when its header and footer show: `always`, on `hover`, on `click`, or
+   * `null` for what the bar's focus control says. Per placement and personal,
+   * beside `collapsed` (`view.json`); see `src/host/rows.ts`. Optional in the
+   * type so an arrangement from before them is still one; every row read from
+   * the database has both.
+   */
+  foldRows?: FoldRows
+  showRows?: ShowRows | null
   /**
    * The height this container's owner last asked for, in grid rows.
    *
@@ -404,6 +415,8 @@ export type PlacementInput = Omit<
   | 'prompt'
   | 'promptFor'
   | 'collapsed'
+  | 'foldRows'
+  | 'showRows'
   | 'wish'
   | 'selected'
   | 'filters'
@@ -416,6 +429,10 @@ export type PlacementInput = Omit<
   prompt?: string
   promptFor?: string | null
   collapsed?: boolean
+  /** Anything but a literal 2 is one row. */
+  foldRows?: number | null
+  /** Anything but one of `SHOW_ROWS` follows the bar. */
+  showRows?: string | null
   /** Absent means "the height it has": see `cleaned`. */
   wish?: number | null
   selected?: boolean
@@ -623,6 +640,12 @@ export function open(file = databaseFile()): Database {
      written before there was such a thing, where nothing is selected — which is
      what every container in them has been all along. */
   add(db, 'placements', 'selected', 'integer not null default 0')
+  /* How far a container folds (1: its header, 2: its header and footer) and
+     when its rows show (NULL: as the bar says). Every row written before these
+     existed folds to its header and follows the bar, which is what all of them
+     did. See `src/host/rows.ts`. */
+  add(db, 'placements', 'fold_rows', 'integer not null default 1')
+  add(db, 'placements', 'show_rows', 'text')
   /* Which filter values a container is on, as JSON. Text rather than a table of
      its own for the reason a project's `selection` is text: it is read whole,
      written whole, and never queried by its contents — the host has no query it
@@ -955,6 +978,8 @@ export function listCanvases(db: Database): Canvas[] {
         prompt: string
         prompt_for: string | null
         collapsed: number
+        fold_rows: number
+        show_rows: string | null
         wish: number | null
         selected: number
         filters: string
@@ -964,7 +989,7 @@ export function listCanvases(db: Database): Canvas[] {
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, fold_rows, show_rows, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
     )
     .all()
 
@@ -977,6 +1002,8 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       prompt_for: promptFor,
       collapsed,
+      fold_rows: foldRows,
+      show_rows: showRows,
       wish,
       selected,
       filters,
@@ -994,6 +1021,8 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       promptFor,
       collapsed: collapsed === 1,
+      /* At rest — one row, the bar's say — they are left out, as a placement from before them is. */
+      ...restless(foldRows, showRows),
       /* The migration above filled this for every row that existed; `?? h` is
          for a row written by a version of this host from before `wish` and read
          by this one without the migration having run again — which it does on
@@ -1122,7 +1151,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
         /* `rows` and `cols` named, with the counts this host counts in: a row
            that does not say is one an older host wrote, in the old rows or
            columns (`finerRows`, `finerColumns`). */
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope, rows, cols) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, fold_rows, show_rows, wish, selected, filters, refresh_every, version, scope, rows, cols) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -1137,6 +1166,8 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.prompt,
           p.promptFor,
           p.collapsed ? 1 : 0,
+          p.foldRows ?? 1,
+          p.showRows ?? null,
           p.wish,
           p.selected ? 1 : 0,
           JSON.stringify(p.filters),
@@ -1570,6 +1601,8 @@ function cleaned(placements: PlacementInput[]): Placement[] {
         typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
+      /* One row unless a literal 2; the bar's say unless one of its words. Left out at rest. */
+      ...restless(p.foldRows, p.showRows),
       /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A
          wish nobody could lay out is harmless to the arrangement — `granted`
          cuts it to the column — but a wish of ten thousand rows is not a
@@ -1603,6 +1636,13 @@ function cleaned(placements: PlacementInput[]): Placement[] {
     })
   }
   return kept
+}
+
+/** How far a container folds and when its rows show, as a placement carries them: only what is not at rest. */
+function restless(foldRows: unknown, showRows: unknown): { foldRows?: FoldRows; showRows?: ShowRows } {
+  const fold = foldRowsIn(foldRows)
+  const show = showRowsIn(showRows)
+  return { ...(fold === 2 ? { foldRows: fold } : {}), ...(show !== null ? { showRows: show } : {}) }
 }
 
 /** A scope word as a row may hold one: one of `MODULE_SCOPES`, else null (the module's default). */
