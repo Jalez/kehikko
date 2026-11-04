@@ -58,6 +58,8 @@ export function Start({
         command?: string
         detail?: string[]
         presence?: { condition?: string } | null
+        /** Said when another program held the module's port and it was started on another one. */
+        moved?: string
       }
 
       if (!body.ok) {
@@ -68,7 +70,11 @@ export function Start({
         return
       }
 
+      /* Text, as every string from the server is. */
+      const moved = typeof body.moved === 'string' ? `${body.moved} ` : ''
+
       if (body.presence?.condition === 'ready') {
+        if (moved) setSaid(moved.trim())
         onStarted()
         return
       }
@@ -76,7 +82,7 @@ export function Start({
       /* Ran, and still not answering. Said plainly, with what it has printed
          so far — the host keeps a module's output now (`server/moduleLog.ts`) —
          and the command, for running it by hand. */
-      setSaid(`It was started and has not answered yet. To run it yourself: ${body.command ?? ''}`)
+      setSaid(`${moved}It was started and has not answered yet. To run it yourself: ${body.command ?? ''}`)
       setPrinted(Array.isArray(body.detail) ? body.detail : [])
       onStarted()
     } catch (error) {
