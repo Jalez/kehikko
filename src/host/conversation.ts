@@ -1,5 +1,6 @@
 import {
   clampHeight,
+  FOOTER_KINDS,
   HOST_MESSAGES,
   LIMITS,
   looksLikeWireMessage,
@@ -323,6 +324,9 @@ export class Conversation {
       footer: true,
       /* Protocol 2.40.0: the acts this host carries out for a run in the person's click (`host/carry.ts`). */
       carries: [...CARRIES],
+      /* Protocol 2.46.0: the footer kinds `FooterBar` draws, a field among them. A host that names
+         none draws the 2.38.0 kinds, so a module sends a field only to a host that says so. */
+      footerKinds: [...FOOTER_KINDS],
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -611,7 +615,7 @@ export class Conversation {
    * and says how it is going by declaring its header again; nothing here
    * waits for that.
    */
-  press(item: string, value?: PressValue, place?: 'footer', carried?: 'copy' | 'open'): Promise<{ ok: boolean; why: string }> {
+  press(item: string, value?: PressValue, place?: 'footer', carried?: 'copy' | 'open', text?: string): Promise<{ ok: boolean; why: string }> {
     if (this.closed) return Promise.resolve({ ok: false, why: `${this.name} was taken off the canvas, so nothing was pressed.` })
     if (!this.greeted || !this.answered) {
       return Promise.resolve({ ok: false, why: `${this.name} has not answered the host yet, so nothing was pressed.` })
@@ -623,7 +627,7 @@ export class Conversation {
         resolve({ ok: false, why: `${this.name} did not answer the press, so it was not taken.` })
       }, this.pressedTimeoutMs)
       this.presses.set(id, { resolve, timer })
-      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }), ...(place ? { place } : {}), ...(carried ? { carried } : {}) })
+      this.post({ type: MESSAGE.PRESS, protocol: PROTOCOL, id, item, ...(value === undefined ? {} : { value }), ...(place ? { place } : {}), ...(carried ? { carried } : {}), ...(place && text !== undefined ? { text } : {}) })
     })
   }
 

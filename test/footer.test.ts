@@ -13,6 +13,8 @@ import {
   footerPressing,
   footerRow,
   footerWithdrawn,
+  fieldKey,
+  fieldShows,
 } from '../src/host/footer.ts'
 import type { Pressing } from '../src/host/header.ts'
 import { Headers } from '../server/headers.ts'
@@ -146,5 +148,50 @@ describe('a crowded row steps down, as the header does', () => {
     expect(footerCrowded([{ scrollWidth: 300, clientWidth: 300 }, { scrollWidth: 80, clientWidth: 80 }])).toBe(false)
     expect(footerCrowded([{ scrollWidth: 300, clientWidth: 300 }, { scrollWidth: 170, clientWidth: 32 }])).toBe(true)
     expect(footerCrowded([{ scrollWidth: 262, clientWidth: 218 }])).toBe(true)
+  })
+})
+
+describe('a field (protocol 2.46.0)', () => {
+  const field = (over: Record<string, unknown> = {}): FooterItem[] =>
+    footerItemsSchema.parse([{ kind: 'input', id: 'address', label: 'Address', value: 'https://example.com/', grow: true, ...over }])
+
+  test('shows the module’s value until the person types, then what they typed, whatever the module says meanwhile', () => {
+    expect(fieldShows('https://example.com/', null)).toBe('https://example.com/')
+    expect(fieldShows('https://example.org/', 'https://exa')).toBe('https://exa')
+    expect(fieldShows('https://example.org/', '')).toBe('')
+  })
+
+  test('Enter submits, Escape reverts, every other key types; Enter mid-composition is the composition’s', () => {
+    expect(fieldKey('Enter')).toBe('submit')
+    expect(fieldKey('Escape')).toBe('revert')
+    expect(fieldKey('a')).toBe('type')
+    expect(fieldKey('N')).toBe('type')
+    expect(fieldKey('Enter', true)).toBe('type')
+  })
+
+  test('stays in the row at 380, 280 and 200 px, never in ⋯', () => {
+    const items = [...field(), ...agent()]
+    for (const width of [380, 280, 200]) {
+      const row = footerRow(items, width)
+      expect([...row.start, ...row.center, ...row.end].map((one) => one.id)).toContain('address')
+      expect(row.overflow.map((one) => one.id)).not.toContain('address')
+    }
+  })
+
+  test('a submit is sent with its text and place footer; one without text is refused before it is sent', async () => {
+    const sent: Pressing[] = []
+    const send = (press: Pressing) => (sent.push(press), Promise.resolve({ ok: true, why: '' }))
+    expect(await footerPressing(field(), { item: 'address', text: 'https://example.org/' }, 'Viewer', send)).toEqual({ ok: true, why: '' })
+    expect(sent).toEqual([{ item: 'address', text: 'https://example.org/', place: 'footer' }])
+    expect((await footerPressing(field(), { item: 'address' }, 'Viewer', send)).ok).toBe(false)
+    expect(sent).toHaveLength(1)
+  })
+
+  test('an agent submits only into a field marked for agents, and only with text', () => {
+    expect(agentFooterPressable(field())).toEqual([])
+    expect(agentFooterPressable(field({ agents: true }))).toEqual(['address'])
+    expect(agentFooterRefusal(field(), { item: 'address', text: 'x' }, 'Viewer')).toContain("the person's")
+    expect(agentFooterRefusal(field({ agents: true }), { item: 'address' }, 'Viewer')).toContain('give the text')
+    expect(agentFooterRefusal(field({ agents: true }), { item: 'address', text: 'https://example.org/' }, 'Viewer')).toBeNull()
   })
 })

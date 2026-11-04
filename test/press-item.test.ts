@@ -505,3 +505,58 @@ describe('a module’s footer (protocol 2.38.0)', () => {
     expect((await press(id, { module: 'kehikot.notes', item: 'model' })).text).toContain('only says something')
   })
 })
+
+describe('a field in a module’s footer (protocol 2.46.0)', () => {
+  const footer = () =>
+    footerItemsSchema.parse([
+      { kind: 'input', id: 'address', label: 'Address', value: 'https://example.com/', grow: true, agents: true },
+      { kind: 'input', id: 'search', label: 'Search' },
+    ])
+
+  async function listening(id: number) {
+    const name = 'page-i'
+    const orders: PageOrder[] = []
+    wakes.listen((news) => {
+      const order = pressOrderIn((news as { press?: unknown }).press, name)
+      if (!order) return
+      orders.push(order)
+      void post('/host/pressed', { page: name, id: order.id, ok: true, why: '' })
+    }, name)
+    openness.reported(name, id)
+    await post('/host/headers', { page: name, kehikko: id, at: Date.now(), headers: {}, footers: { 'kehikot.notes': footer() } })
+    return orders
+  }
+
+  test('read_canvas says what a field holds and whether an agent may submit into it', async () => {
+    const id = aCanvas()
+    await listening(id)
+    const read = await call('read_canvas', { kehikko: id }, door())
+    expect(read.text).toContain('      address — field "Address" in the footer: holds "https://example.com/". An agent may submit text into it (press_item with text).')
+    expect(read.text).toContain('      search — field "Search" in the footer: holds nothing. The person’s.')
+  })
+
+  test('press_item submits text into a field marked for agents, and the page gets it with place footer', async () => {
+    const id = aCanvas()
+    const orders = await listening(id)
+    const submitted = await press(id, { module: 'kehikot.notes', item: 'address', text: 'https://example.org/' })
+    expect(submitted.failed).toBe(false)
+    expect(submitted.text).toContain('Submitted address with "https://example.org/"')
+    expect(orders.map((one) => [one.item, one.place, one.text])).toEqual([['address', 'footer', 'https://example.org/']])
+  })
+
+  test('a field needs the text, and one the module kept for the person is refused', async () => {
+    const id = aCanvas()
+    const orders = await listening(id)
+    expect((await press(id, { module: 'kehikot.notes', item: 'address' })).text).toContain('give the text to submit')
+    expect((await press(id, { module: 'kehikot.notes', item: 'search', text: 'x' })).text).toContain('the person')
+    expect((await press(id, { module: 'kehikot.notes', item: 'address', text: 3 })).failed).toBe(true)
+    expect(orders).toEqual([])
+  })
+
+  test('a page order carries text only for the footer, and not more than a field holds', () => {
+    const order = { page: 'page-a', id: 'abc', kehikko: 3, module: 'kehikot.notes', item: 'address', place: 'footer', text: 'hi' }
+    expect(pressOrderIn(order, 'page-a')).toEqual({ id: 'abc', kehikko: 3, module: 'kehikot.notes', item: 'address', place: 'footer', text: 'hi' })
+    expect(pressOrderIn({ ...order, place: undefined }, 'page-a')).not.toHaveProperty('text')
+    expect(pressOrderIn({ ...order, text: 'x'.repeat(5000) }, 'page-a')).toBeNull()
+  })
+})

@@ -882,6 +882,11 @@ function footerItemText(item: FooterItem): string {
   const level = 'level' in item && item.level !== 'normal' ? ` (${item.level})` : ''
   if (item.kind === 'text') return `${item.id} — text in the footer: ${quoted(item.text)}${level}.`
   if (item.kind === 'meter') return `${item.id} — meter ${quoted(item.label)} in the footer: ${quoted(meterSaid(item))}${level}.`
+  if (item.kind === 'input') {
+    return `${item.id} — field ${quoted(item.label)} in the footer: holds ${item.value ? quoted(item.value) : 'nothing'}. ${
+      item.agents ? 'An agent may submit text into it (press_item with text).' : 'The person’s.'
+    }`
+  }
   return itemText(item as unknown as HeaderItem).replace(/ in (View|Go|Run):/, ' in the footer:')
 }
 
@@ -1068,6 +1073,12 @@ function tools() {
             description:
               'For a switch or a go item, the id of the option; for a toggle, true to turn it on or false to turn '
               + 'it off. Leave it out for a run.',
+          },
+          text: {
+            type: 'string',
+            description:
+              'For a field in a footer, the text to submit, as if the person typed it and pressed Enter. Leave it out '
+              + 'for every other item.',
           },
         },
         required: ['module', 'item'],
@@ -2233,8 +2244,15 @@ async function pressOn(
         + 'out for a run.',
     )
   }
+  if (args.text !== undefined && (typeof args.text !== 'string' || args.text.length > LIMITS.FOOTER_INPUT)) {
+    return refuse(`text, when given, is the text to submit in a footer field, at most ${LIMITS.FOOTER_INPUT} characters. Leave it out for every other item.`)
+  }
   const module = args.module.trim()
-  const press: Pressing = { item: args.item.trim(), ...(args.value === undefined ? {} : { value: args.value }) }
+  const press: Pressing = {
+    item: args.item.trim(),
+    ...(args.value === undefined ? {} : { value: args.value }),
+    ...(typeof args.text === 'string' ? { text: args.text } : {}),
+  }
   if (!door.headers) return refuse('This host does not press header items.')
 
   const on = canvas.placements.map((p) => p.i)
@@ -2305,7 +2323,7 @@ async function pressOn(
   const item = inFooter ? footer.find((one) => one.id === press.item) : items.find((one) => one.id === press.item)
   return {
     text:
-      `Pressed ${press.item}${press.value === undefined ? '' : ` (${JSON.stringify(press.value)})`} in ${module} on `
+      `${press.text === undefined ? 'Pressed' : 'Submitted'} ${press.item}${press.value === undefined ? '' : ` (${JSON.stringify(press.value)})`}${press.text === undefined ? '' : ` with ${JSON.stringify(press.text)}`} in ${module} on `
       + `kehikko ${canvas.id} (${canvas.name}), ${how}, and the module took it.`
       + (item?.kind === 'run'
         ? ' Taken is not finished: a run says how it is going through its own item, so read_canvas again to see it '

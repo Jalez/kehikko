@@ -260,6 +260,8 @@ export interface Pressing {
   place?: 'footer'
   /** Protocol 2.40.0: what the host carried out itself in the person's click before sending this (`host/carry.ts`). */
   carried?: 'copy' | 'open'
+  /** Protocol 2.46.0: the text submitted in a footer field; absent for every other press. */
+  text?: string
 }
 
 /** What became of a press: taken, or not — and then `why` is a sentence a person can read. */

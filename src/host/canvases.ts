@@ -678,6 +678,8 @@ export interface PressOrder {
   value?: string | boolean
   /** Protocol 2.38.0: `footer` for an item of the module's footer; absent for one of its header. */
   place?: 'footer'
+  /** Protocol 2.46.0: the text to submit in a footer field. */
+  text?: string
 }
 
 /**
@@ -694,6 +696,7 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
   if (!short(said.id) || !short(said.module) || !short(said.item)) return null
   if (typeof said.kehikko !== 'number' || !Number.isInteger(said.kehikko) || said.kehikko <= 0) return null
   if (said.value !== undefined && typeof said.value !== 'boolean' && !short(said.value)) return null
+  if (said.text !== undefined && (typeof said.text !== 'string' || said.text.length > LIMITS.FOOTER_INPUT)) return null
   return {
     id: said.id,
     kehikko: said.kehikko,
@@ -701,6 +704,7 @@ export function pressOrderIn(value: unknown, page: string = pageId()): PressOrde
     item: said.item,
     ...(said.value === undefined ? {} : { value: said.value }),
     ...(said.place === 'footer' ? { place: 'footer' as const } : {}),
+    ...(said.place === 'footer' && typeof said.text === 'string' ? { text: said.text } : {}),
   }
 }
 

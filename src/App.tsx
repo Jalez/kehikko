@@ -3355,7 +3355,7 @@ export function App() {
     made.current = [...made.current.slice(-31), order.id]
     void (async () => {
       const canvas = openRef.current
-      const press: Pressing = { item: order.item, ...(order.value === undefined ? {} : { value: order.value }) }
+      const press: Pressing = { item: order.item, ...(order.value === undefined ? {} : { value: order.value }), ...(order.text === undefined ? {} : { text: order.text }) }
       /* Protocol 2.38.0: an order may be for an item of the module's footer, judged against what the frame declared for it. */
       const footer = order.place === 'footer'
       const items = footer ? footersRef.current[order.module] : headersRef.current[order.module]

@@ -9,7 +9,8 @@
  * else. Every RULE about that row is in this file, so it can be tested
  * without a browser: what is drawn at a width (`footerRow`), whether a press
  * may be sent (`footerPressing`), and what an agent may press
- * (`agentFooterRefusal`).
+ * (`agentFooterRefusal`), and what a field shows and does with a key
+ * (`fieldShows`, `fieldKey`).
  *
  * ## When it goes
  *
@@ -30,6 +31,7 @@ import {
   FOOTER_MERGE_BELOW,
   footerLayout,
   footerPressRefusal,
+  inputFooterItem,
   pressableFooterItem,
   type FooterItem,
   type FooterLayout,
@@ -100,6 +102,30 @@ export function footerCrowded(boxes: readonly { scrollWidth: number; clientWidth
 }
 
 /* ------------------------------------------------------------------ *
+ * A field (protocol 2.46.0)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The text a field shows: what the person typed while they have typed and not
+ * yet left or submitted, otherwise the module's `value` as declared last. A
+ * new `value` never replaces a draft; leaving the field drops the draft.
+ */
+export function fieldShows(value: string, draft: string | null): string {
+  return draft ?? value
+}
+
+/**
+ * What a key in a field does: Enter submits the text, Escape puts the
+ * module's `value` back, and every other key types. Enter while an input
+ * method is still composing a character is the composition's, not a submit.
+ */
+export function fieldKey(key: string, composing = false): 'submit' | 'revert' | 'type' {
+  if (composing) return 'type'
+  if (key === 'Enter') return 'submit'
+  return key === 'Escape' ? 'revert' : 'type'
+}
+
+/* ------------------------------------------------------------------ *
  * A press
  * ------------------------------------------------------------------ */
 
@@ -127,11 +153,10 @@ export async function footerPressing(
  * An agent's press
  * ------------------------------------------------------------------ */
 
-/** The footer's items an agent may press. */
+/** The footer's items an agent may press: the pressable ones marked for agents, and the fields marked for them (2.46.0). */
 export function agentFooterPressable(items: readonly FooterItem[]): string[] {
   return items
-    .filter(pressableFooterItem)
-    .filter((item) => agentStanding(item as unknown as HeaderItem) === 'agents')
+    .filter((item) => (pressableFooterItem(item) && agentStanding(item as unknown as HeaderItem) === 'agents') || (inputFooterItem(item) && item.agents))
     .map((item) => item.id)
 }
 
@@ -148,6 +173,11 @@ export function agentFooterRefusal(items: readonly FooterItem[], press: Pressing
     ? `What an agent may press in ${module}'s footer: ${may.join(', ')}.`
     : `Nothing in ${module}'s footer is for an agent to press.`
   if (!item) return `${module} has no "${shown(press.item)}" in its footer now. ${offered}`
+  if (inputFooterItem(item)) {
+    if (!item.agents) return `"${item.id}" is the person's: ${module} has not marked it for agents. ${offered}`
+    if (press.text === undefined) return `"${item.id}" in ${module}'s footer is a field: give the text to submit as text. ${offered}`
+    return footerPressRefusal(items, press)
+  }
   if (!pressableFooterItem(item)) return `"${item.id}" in ${module}'s footer only says something; it cannot be pressed. ${offered}`
   const standing = agentStanding(item as unknown as HeaderItem)
   if (standing === 'tool') {
