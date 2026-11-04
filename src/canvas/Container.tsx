@@ -13,8 +13,9 @@ import { FooterBar } from './FooterBar.tsx'
 import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
-import { ConditionDot, ModuleCover } from './Conditions.tsx'
-import { ContainerNotice } from './Notice.tsx'
+import { ConditionDot } from './Conditions.tsx'
+import { StandingBox, StandingChip, standingRows, useStandingPress } from './Standing.tsx'
+import { standingOf } from '@/host/coverFit.ts'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
 import { FrameMenu, HeaderMenus, frameEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
@@ -347,6 +348,10 @@ export function Container({
      its Providers & Consumers (`ModuleSettingsDialog`). */
   const hasSettings = onSettings !== undefined
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
+  /* The cover or notice in every size's words (`host/coverFit.ts`): the body draws it for its own
+     box, and folded, the header carries its word and the Frame menu its press. */
+  const standing = showing.kind === 'page' ? null : standingOf(showing, notice, presence.at, coverDetail)
+  const pressing = useStandingPress(standing?.action ?? null, presence.id, onStarted, onRestart)
   /* The module's own items, and the host's row after them: a module this host starts is the one `dir` names. */
   const items = useMemo(() => (onRestart ? withRestart(header, restart, presence.dir !== undefined) : header), [header, restart, onRestart !== undefined, presence.dir])
   /* For the dot and the header's controls, which are the page's and are
@@ -377,6 +382,7 @@ export function Container({
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
+    standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
   }
   const layout = layoutOf({ items: showing.kind === 'page' ? items : [], frame: frameEntriesOf(frameParts) }, modeFor(width), pinsFor(width), fold)
   const frameEntries = layout.triggers.find((trigger) => trigger.which === 'frame')?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
@@ -693,6 +699,8 @@ export function Container({
             to give way to its icon. A press opens the settings window, where the person picks it;
             its tooltip says the scope, default or changed, and the module's line. */}
         {scope ? <ScopeLabel scope={scope} text={fit.scopeText} onOpen={onSettings} /> : null}
+        {/* Folded with no page: the state as a word, its press in the Frame menu (`Standing.tsx`). */}
+        {collapsed && standing ? <StandingChip standing={standing} said={pressing.said} running={pressing.running} /> : null}
         <span className="-mx-1 flex-1" />
 
         {/*
@@ -941,11 +949,18 @@ export function Container({
           showing through it. A notice, when there is one, is opaque and takes
           the pointer again; there is no page behind it worth seeing. */}
       <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
-        {/* Not ready yet, and on its way: one cover, whichever moment it is. */}
-        {showing.kind === 'cover' ? (
-          <div className="bg-card pointer-events-auto absolute inset-0">
-            <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} />
-          </div>
+        {/* Not ready yet, and on its way, or not ready and nothing on its way: one cover or one
+            notice, drawn for the room this body has (`Standing.tsx`, `host/coverFit.ts`). */}
+        {showing.kind !== 'page' && standing ? (
+          <StandingBox
+            showing={showing}
+            notice={notice}
+            standing={standing}
+            presence={presence}
+            coverDetail={coverDetail}
+            onStarted={onStarted}
+            onRestart={onRestart}
+          />
         ) : null}
 
         {/* "All epics", and a module that cannot show them: one quiet sentence
@@ -958,11 +973,6 @@ export function Container({
           </div>
         ) : null}
 
-        {showing.kind === 'notice' && notice ? (
-          <div className="bg-card pointer-events-auto absolute inset-0">
-            <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} onRestart={onRestart} />
-          </div>
-        ) : null}
       </div>
 
       {/* A fault is not a condition. The module is working; it did one thing the

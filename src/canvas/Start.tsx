@@ -37,6 +37,29 @@ export function Start({
   /** Called when the sweep after a start has something new to say. */
   onStarted(): void
 }) {
+  const { running, said, printed, press } = useStart(module, onStarted)
+  return (
+    <div className="pointer-events-auto flex flex-col items-center gap-2">
+      <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" disabled={running} onClick={() => void press()}>
+        <Play className="size-3" />
+        {running ? 'starting…' : 'start it'}
+      </Button>
+      {said ? <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">{said}</p> : null}
+      {printed.length ? (
+        <pre className="bg-muted text-muted-foreground max-h-28 w-full max-w-[64ch] overflow-x-hidden overflow-y-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug break-all whitespace-pre-wrap">
+          {printed.join('\n')}
+        </pre>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The press behind `Start`, for every size the notice is drawn at: the button
+ * here, the icon button of a one-line notice, and the row of a folded
+ * header's Frame menu (`Standing.tsx`). One fetch, one set of outcomes.
+ */
+export function useStart(module: string, onStarted: () => void) {
   const [running, setRunning] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
   /** The last lines it printed, when the host has them. */
@@ -94,20 +117,7 @@ export function Start({
     }
   }
 
-  return (
-    <div className="pointer-events-auto flex flex-col items-center gap-2">
-      <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" disabled={running} onClick={() => void press()}>
-        <Play className="size-3" />
-        {running ? 'starting…' : 'start it'}
-      </Button>
-      {said ? <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">{said}</p> : null}
-      {printed.length ? (
-        <pre className="bg-muted text-muted-foreground max-h-28 w-full max-w-[64ch] overflow-auto rounded px-2 py-1.5 text-left font-mono text-[11px] leading-snug whitespace-pre-wrap">
-          {printed.join('\n')}
-        </pre>
-      ) : null}
-    </div>
-  )
+  return { running, said, printed, press }
 }
 
 /**
