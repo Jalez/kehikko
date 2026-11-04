@@ -248,7 +248,7 @@ describe('an installed copy', () => {
     const reading = await read(m.place(f))
     expect(reading.release).toMatchObject({ newest: 'v1.1.0', target: 'v1.1.0', needsNewer: { tag: 'v1.2.0', protocol: '3.0.0' } })
     expect(needsNewerSaid(reading.release!)).toBe('1.2.0 is out; it needs a newer Kehikot.')
-    expect(needsNewerTip(reading.release!)).toBe('Needs protocol 3.0 or later.')
+    expect(needsNewerTip(reading.release!)).toBe('Module protocol 3.0 or later is needed.')
   })
 
   test('each release named says which Kehikot it works with, from the app mapping', async () => {
@@ -272,7 +272,7 @@ describe('an installed copy', () => {
     expect(worksSaid(release, releaseInView(release))).toBe('Works with Kehikot 0.1.37 and later')
     expect(needsNewerSaid(release, { app: '0.1.40' })).toBe('1.2.0 is out; it needs a Kehikot newer than 0.1.39.')
     expect(worksLineSaid(release, 'v1.0.0')).toBe('1.0.0 works with Kehikot 0.1.22 and later')
-    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('1.2.0 needs a Kehikot newer than 0.1.39 (protocol 2.11 or later)')
+    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('1.2.0 needs a Kehikot newer than 0.1.39 (module protocol 2.11 or later)')
     expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('v1.1.0: Works with Kehikot 0.1.37 and later.')
   })
 

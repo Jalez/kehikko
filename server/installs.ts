@@ -9,6 +9,7 @@ import { buildBun, markInstalled } from './moduleBuilds.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
 import type { Runner } from './versions.ts'
+import { firstAppWith, installRefusedSaid, type AppProtocol } from '../src/host/worksWith.ts'
 
 /**
  * Installing a module from a list: clone it, install it, register it.
@@ -95,6 +96,8 @@ export interface Deps {
   source?: { refresh(): Promise<void>; standing(): Standing }
   /** The protocol package this host has; the installed one when not given. */
   protocol?: string
+  /** Which protocol each Kehikot app shipped, to say which app a module needs; without it the words say "a newer Kehikot". */
+  apps?: () => readonly AppProtocol[] | null
   run: Runner
   /** Where installed modules are cloned. See `installsDir`. */
   root: string
@@ -178,7 +181,11 @@ export function installDesk(deps: Deps) {
   const jobs = new Map<string, Installing>()
 
   const entries = () => (typeof deps.list === 'function' ? deps.list() : deps.list)
-  const unmet = (entry: Official) => (meetsProtocol(entry.protocol, deps.protocol) ? null : { protocol: entry.protocol!, has: deps.protocol ?? PACKAGE_VERSION })
+  const appFor = (need: string): { app?: string } => {
+    const app = firstAppWith(need, deps.apps?.())
+    return app ? { app } : {}
+  }
+  const unmet = (entry: Official) => (meetsProtocol(entry.protocol, deps.protocol) ? null : { protocol: entry.protocol!, has: deps.protocol ?? PACKAGE_VERSION, ...appFor(entry.protocol!) })
 
   /* The repository a checkout is of, asked once per directory: it is read to
      SAY something, never to decide where anything is fetched from. */
@@ -319,7 +326,7 @@ export function installDesk(deps: Deps) {
     }
     const newer = unmet(entry)
     if (newer) {
-      return { ok: false, why: `${entry.name} needs a newer Kehikot than this one (protocol ${newer.protocol}; this one has ${newer.has}).`, status: 409 }
+      return { ok: false, why: installRefusedSaid(entry.name, newer), status: 409 }
     }
     const running = jobs.get(entry.id)
     if (running?.state === 'installing') return { ok: true, install: running }

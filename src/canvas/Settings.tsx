@@ -989,6 +989,9 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
   )
 }
 
+/** What the module protocol number means, in one line, beneath it in About. */
+export const PROTOCOL_MEANING = 'The version of the language Kehikot and its modules use to talk to each other; a module needs a Kehikot at least as new as the one it asks for.'
+
 /** About: which Kehikot this is, the protocol it speaks, and where its notes and its data are. */
 function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: { auto: boolean }; onChange?(what: Change): void }) {
   const { shown } = useShownVersion()
@@ -1004,9 +1007,12 @@ function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: 
           <dd className="font-mono" data-version={shown?.kind ?? 'unknown'}>
             {shown ? (shown.kind === 'app' ? shown.version : `${shown.text} (a development host, not an app release)`) : 'Not known yet'}
           </dd>
-          <dt className="text-muted-foreground">Protocol</dt>
-          <dd className="font-mono" data-protocol>
-            kehikot-module-protocol {PACKAGE_VERSION}
+          <dt className="text-muted-foreground">Module protocol</dt>
+          <dd data-protocol>
+            <span className="font-mono">{PACKAGE_VERSION}</span>
+            <span className="text-muted-foreground block" data-protocol-meaning>
+              {PROTOCOL_MEANING}
+            </span>
           </dd>
           <dt className="text-muted-foreground">Settings kept</dt>
           <dd>On this computer, for every project; the Project section’s in the project itself.</dd>

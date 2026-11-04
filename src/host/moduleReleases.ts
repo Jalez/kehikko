@@ -171,11 +171,11 @@ export function needsNewerSaid(release: ModuleRelease, have: { app?: string | nu
   return `${version} is out; it needs a newer Kehikot.`
 }
 
-/** The protocol behind `needsNewerSaid`, for a tooltip: "Needs protocol 2.37 or later; this Kehikot has protocol 2.36." */
+/** The protocol behind `needsNewerSaid`, for a tooltip: "Module protocol 2.37 or later is needed; this Kehikot has module protocol 2.36." */
 export function needsNewerTip(release: ModuleRelease, have: { app?: string | null; protocol?: string | null } = {}): string | null {
   if (!release.needsNewer) return null
-  const has = have.protocol ? `; this Kehikot has protocol ${protocolSaid(have.protocol)}` : ''
-  return `Needs protocol ${protocolSaid(release.needsNewer.protocol)} or later${has}.`
+  const has = have.protocol ? `; this Kehikot has module protocol ${protocolSaid(have.protocol)}` : ''
+  return `Module protocol ${protocolSaid(release.needsNewer.protocol)} or later is needed${has}.`
 }
 
 /** What an agent is told of the release this Kehikot cannot run: the app and the protocol, in one sentence. */
@@ -184,7 +184,7 @@ function needsNewerForAgents(release: ModuleRelease, have: { app?: string | null
   const version = releaseVersion(release.needsNewer.tag)
   const works = release.works && Object.hasOwn(release.works, release.needsNewer.tag) ? release.works[release.needsNewer.tag]! : null
   if (works) return needsKehikotSaid(version, works, have)
-  return `${version} needs a newer Kehikot (protocol ${protocolSaid(release.needsNewer.protocol)} or later).`
+  return `${version} needs a newer Kehikot (module protocol ${protocolSaid(release.needsNewer.protocol)} or later).`
 }
 
 /** "1.14.0 works with Kehikot 0.1.95 and later": `worksSaid` bound to the version it speaks of. */
@@ -206,7 +206,7 @@ export function releaseForAgents(release: ModuleRelease, have: { protocol?: stri
 }
 
 function releaseStanding(release: ModuleRelease): string {
-  const newer = release.needsNewer ? ` ${release.needsNewer.tag} exists but needs protocol ${release.needsNewer.protocol}, newer than this host has.` : ''
+  const newer = release.needsNewer ? ` ${release.needsNewer.tag} exists but needs a newer Kehikot than this one (module protocol ${release.needsNewer.protocol}).` : ''
   const unread = release.error ? ` (its releases could not be read just now: ${release.error})` : ''
   if (release.follows === 'main') return `The installed copy follows main: it has no releases yet${unread}.${newer}`
   if (release.follows === 'ahead') {

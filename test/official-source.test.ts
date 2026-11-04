@@ -353,7 +353,7 @@ describe('what a changed list does to this machine', () => {
     expect(await d.install('kehikot.claude')).toEqual({
       ok: false,
       status: 409,
-      why: 'Claude needs a newer Kehikot than this one (protocol 1.1.0; this one has 1.0.0).',
+      why: 'Claude needs a newer Kehikot than this one (module protocol 1.1 needed; this one has 1.0).',
     })
     expect(calls).toEqual([])
 

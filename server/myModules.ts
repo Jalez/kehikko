@@ -12,6 +12,7 @@ import { spell } from './trackers/edit.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { Runner as GitRunner } from './versions.ts'
 import { protocolPin } from './moduleReleases.ts'
+import { firstAppWith, installRefusedSaid, type AppProtocol } from '../src/host/worksWith.ts'
 
 /**
  * "My modules": modules a person installs from a repository they can read,
@@ -352,6 +353,8 @@ export interface Deps {
   changed?(): void
   /** The protocol package this host has; the installed one when not given. */
   protocol?: string
+  /** Which protocol each Kehikot app shipped, to say which app a module needs. */
+  apps?: () => readonly AppProtocol[] | null
   now?(): Date
 }
 
@@ -461,7 +464,8 @@ export function myModulesDesk(deps: Deps) {
     if ((await deps.registered()).some((one) => one.id === described.id)) {
       return { ok: false, why: `A module called ${described.id} is already registered on this computer.`, status: 409 }
     }
-    const newer = described.protocol && !meetsProtocol(described.protocol, have) ? { protocol: described.protocol, has: have } : null
+    const app = described.protocol ? firstAppWith(described.protocol, deps.apps?.()) : null
+    const newer = described.protocol && !meetsProtocol(described.protocol, have) ? { protocol: described.protocol, has: have, ...(app ? { app } : {}) } : null
     return {
       ok: true,
       kind: 'mine',
@@ -491,7 +495,7 @@ export function myModulesDesk(deps: Deps) {
       return begun.ok ? { ok: true, id: checked.id, official: true } : begun
     }
     if (checked.newer) {
-      return { ok: false, why: `${checked.name} needs a newer Kehikot than this one (protocol ${checked.newer.protocol}; this one has ${checked.newer.has}).`, status: 409 }
+      return { ok: false, why: installRefusedSaid(checked.name, checked.newer), status: 409 }
     }
     const mine = read()
     if (mine.broken) return { ok: false, why: `${mine.broken}. Nothing was added.`, status: 500 }

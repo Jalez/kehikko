@@ -72,6 +72,8 @@ export type Got<T> =
 export interface Deps {
   /** Whether `owner/repo` is one this host knows. `APP_REPO` is always known. */
   allowed(repo: string): boolean | Promise<boolean>
+  /** A display transform for a module's notes as they are served (never stored, never the app's own): protocol numbers said as app versions. */
+  shown?(body: string): string
   /** Where every GitHub request goes (`github.ts`). Made from `fetch` and `gh` when not given. */
   gateway?: GitHubGateway
   /** For a test or a caller with no gateway: `gh api <path>`'s JSON, or null when gh is not there, not logged in, or says no. */
@@ -252,7 +254,7 @@ export function releaseNotesDesk(deps: Deps) {
       const tag = url.searchParams.get('tag') ?? ''
       if (!isRepo(repo)) return reply({ error: 'Name a repository as owner/name.' }, 400)
       const got = await release(repo, tag)
-      return got.ok ? reply(got.value) : reply({ error: got.why, url: got.url, ...(got.waiting ? { waiting: true } : {}) }, got.status)
+      return got.ok ? reply(deps.shown && !isApp(repo) ? { ...got.value, body: deps.shown(got.value.body) } : got.value) : reply({ error: got.why, url: got.url, ...(got.waiting ? { waiting: true } : {}) }, got.status)
     }
     if (url.pathname === '/host/releases') {
       const repo = url.searchParams.get('repo') ?? ''

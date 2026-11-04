@@ -264,13 +264,13 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-works"]')?.textContent).toBe('1.6.0 works with Kehikot 0.1.39 and later')
     const needs = document.querySelector('[data-testid="updates-needs-newer"]') as HTMLElement
     expect(needs.textContent).toBe('1.7.0 is out; it needs a Kehikot newer than 0.1.41.')
-    expect(needs.title).toBe('Needs protocol 2.11 or later; this Kehikot has protocol 2.10.')
+    expect(needs.title).toBe('Module protocol 2.11 or later is needed; this Kehikot has module protocol 2.10.')
 
     const whatsNew = document.querySelector('[data-testid="updates-whats-new"]') as HTMLButtonElement
     await act(async () => whatsNew.click())
     await settle()
     const said = [...document.querySelectorAll('[data-testid="release-notes-works"]')].map((one) => one.textContent)
-    expect(said).toEqual(['Works with Kehikot 0.1.39 and later', 'Needs protocol 2.6 or later'])
+    expect(said).toEqual(['Works with Kehikot 0.1.39 and later', 'Needs a newer Kehikot (module protocol 2.6 or later)'])
   })
 
   test('up to date, with a newer release that needs a newer Kehikot: said once, in two lines', async () => {
@@ -304,7 +304,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const row = document.querySelector('[data-testid="updates-row"]') as HTMLElement
     expect(row.querySelector('[data-testid="updates-row-title"]')?.textContent).toBe('Journeysup to date for this Kehikot · 1.14.0')
     expect(row.querySelector('[data-testid="updates-needs-newer"]')?.textContent).toBe('1.14.1 is out; it needs a Kehikot newer than 0.1.95.')
-    expect(row.querySelector('[data-testid="updates-needs-newer"]')?.getAttribute('title')).toBe('Needs protocol 2.37 or later; this Kehikot has protocol 2.36.')
+    expect(row.querySelector('[data-testid="updates-needs-newer"]')?.getAttribute('title')).toBe('Module protocol 2.37 or later is needed; this Kehikot has module protocol 2.36.')
     /* Not the installed release's "works with", not "waits for a newer Kehikot", not the protocol in the line. */
     expect(row.querySelector('[data-testid="updates-works"]')).toBeNull()
     expect(row.querySelector('[data-testid="updates-auto-waiting"]')).toBeNull()
