@@ -595,13 +595,18 @@ export function whileFrozen(
      looking at it. A pinned container's scope is never moved by the canvas going
      to "All epics" (`scopeToTell`), so a change here is always that pick. */
   const rescoped = (held.scope ?? 'epic') !== (told.scope ?? 'epic')
-  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten && !rebased && !rescoped) return null
+  /* Another kehikko passes a pin (protocol 2.51.0): the one page is now a
+     different container, and is told which, with that container's kept view.
+     What the pinned container is about stays as it was held. */
+  const moved = (held.kehikko?.id ?? null) !== (told.kehikko?.id ?? null)
+  if (!relit && !refiltered && !relocated && !remarked && !reread && !rewritten && !rebased && !rescoped && !moved) return null
   const { baseBranch: _held, ...frozen } = held
   return {
     ...(sameProject ? frozen : held),
     theme: told.theme,
     filters: told.filters,
     ...(rescoped ? { scope: told.scope } : {}),
+    ...(moved ? { kehikko: told.kehikko, kept: told.kept } : {}),
     ...(sameProject
       ? {
           project: told.project,

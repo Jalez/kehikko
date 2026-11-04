@@ -195,6 +195,12 @@ export interface Presence {
    */
   state?: string | null
   /**
+   * What the module kept for each of its containers, by kehikko id (protocol
+   * 2.51.0). Carried like `state`, and never read: `host/kept.ts` picks which
+   * string a frame is handed.
+   */
+  kept?: Record<number, string>
+  /**
    * Whether the AGENT has been told about this module's MCP door.
    *
    * A fact about the agent's configuration, not about the module — which is why

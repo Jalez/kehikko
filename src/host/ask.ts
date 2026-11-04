@@ -1,4 +1,5 @@
 import {
+  LIMITS,
   methodParams,
   type ActivityItem,
   type AddressIntent,
@@ -295,6 +296,18 @@ export interface CanvasControls {
    * Absent or null: none said.
    */
   place?(): { epic: string | null; parts: string[]; kehikko: string | null } | null
+  /**
+   * Which kehikko the frame that asked stands on, as an id (protocol 2.51.0):
+   * where a `state.set` that names none is kept. Absent or null: none said,
+   * and the server keeps it for the module.
+   */
+  kehikko?(): number | null
+  /**
+   * A module kept a string for one of its containers (`state.set`, protocol
+   * 2.51.0), told to the page before the server has it, so the next context for
+   * that container carries it. The page holds it; it never reads it.
+   */
+  kept?(module: string, kehikko: number, state: string): void
 }
 
 /** What the person is told back when their message could not be proven theirs (protocol 2.50.0). */
@@ -334,6 +347,19 @@ async function sayAsPerson(moduleId: string, rawParams: unknown, how: { pressed:
 }
 
 /**
+ * Where a `state.set` is kept and what (protocol 2.51.0): the kehikko the
+ * module named, else `standing` (the frame's), and the string. `null` for a
+ * call that is not a well-formed `state.set`, which the server refuses itself.
+ */
+export function keptAt(params: unknown, standing: number | null): { kehikko: number | null; state: string } | null {
+  if (typeof params !== 'object' || params === null) return null
+  const { state, kehikko } = params as { state?: unknown; kehikko?: unknown }
+  if (typeof state !== 'string' || state.length > LIMITS.MODULE_STATE) return null
+  if (kehikko !== undefined && !(typeof kehikko === 'number' && Number.isInteger(kehikko))) return null
+  return { kehikko: typeof kehikko === 'number' ? kehikko : standing, state }
+}
+
+/**
  * Build the `ask` for one module's conversation.
  *
  * Bound to a module id because every relayed call carries it and because the
@@ -366,6 +392,11 @@ export function makeAsk(
       return answerInTheView(moduleId, method, rawParams, canvas)
     }
 
+    /* Protocol 2.51.0: a module's kept string is for one container — the
+       kehikko it names, else the one its frame stands on. */
+    const keeping = method === 'state.set' ? keptAt(rawParams, canvas.kehikko?.() ?? null) : null
+    if (keeping && keeping.kehikko !== null) canvas.kept?.(moduleId, keeping.kehikko, keeping.state)
+
     try {
       const response = await fetch('/host/call', {
         method: 'POST',
@@ -378,6 +409,7 @@ export function makeAsk(
              epics and not the one directory a variable named at startup. Read
              now rather than captured — see `project` on `CanvasControls`. */
           project: canvas.project(),
+          ...(keeping ? { kehikko: keeping.kehikko } : {}),
         }),
       })
       const body = (await response.json()) as Answer
