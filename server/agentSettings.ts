@@ -21,6 +21,7 @@ import { readChime, writeChime } from './chime.ts'
 import { readSorts, readVisits, writeSorts } from './pickerOrder.ts'
 import { sortsPatched } from '../src/host/pickerOrder.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
+import { readWorktreeAuto, worktreeAutoChange, writeWorktreeAuto } from './worktrees.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -217,7 +218,8 @@ export interface SettingsDeps {
  * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
  * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
  * `keepRunning.ts`), "Keep modules up to date automatically" (`{ updates: { auto } }`,
- * `autoUpdates.ts`), how the project, epic and kehikko pickers are ordered
+ * `autoUpdates.ts`), "Remove finished worktrees automatically" (`{ worktrees: { auto } }`,
+ * `worktrees.ts`), how the project, epic and kehikko pickers are ordered
  * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
@@ -233,6 +235,7 @@ export function settingsRoute(deps: SettingsDeps) {
     notices: readNotices(deps.db),
     modules: { keep: readKeepRunning(deps.db) },
     updates: { auto: readAutoUpdates(deps.db) },
+    worktrees: { auto: readWorktreeAuto(deps.db) },
     chime: readChime(deps.db),
     picker: readSorts(deps.db),
     visits: readVisits(deps.db),
@@ -246,7 +249,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; chime?: unknown; picker?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; worktrees?: unknown; chime?: unknown; picker?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -293,6 +296,13 @@ export function settingsRoute(deps: SettingsDeps) {
         writeAutoUpdates(deps.db, auto)
         deps.updatesChanged?.(auto)
       }
+      return json(answer())
+    }
+
+    if (body.worktrees !== undefined) {
+      const auto = worktreeAutoChange(body.worktrees)
+      if (auto === null) return json({ ok: false, why: 'A change of the worktree cleanup is { auto: true } or { auto: false }.' }, 400)
+      writeWorktreeAuto(deps.db, auto)
       return json(answer())
     }
 

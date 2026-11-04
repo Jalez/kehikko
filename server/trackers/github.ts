@@ -34,8 +34,10 @@ import {
   who,
   withContributors,
   withPeople,
+  BRANCH_CHANGES,
   type Adapter,
   type BoardsRead,
+  type BranchChange,
   type Me,
   type Read,
 } from './common.ts'
@@ -593,6 +595,26 @@ export function listQuery(
   return `query { ${repository(source)} {\n${parts.join('\n')}\n} }`
 }
 
+/**
+ * `gh pr list --json number,state,headRefName,headRefOid,isCrossRepository`,
+ * as `changesByBranch` answers it: a fork's pull requests left out.
+ */
+export function branchChangesOf(answer: unknown): BranchChange[] {
+  const out: BranchChange[] = []
+  for (const raw of list(answer)) {
+    const r = obj(raw)
+    if (r.isCrossRepository !== false) continue
+    const number = r.number
+    const branch = branchOf(r.headRefName)
+    const word = str(r.state).toUpperCase()
+    const state = word === 'OPEN' ? 'open' : word === 'MERGED' ? 'merged' : word === 'CLOSED' ? 'closed' : null
+    if (typeof number !== 'number' || !Number.isInteger(number) || number <= 0 || !branch || !state) continue
+    const head = str(r.headRefOid)
+    out.push({ branch, number, state, ...(/^[0-9a-f]{40}$/.test(head) ? { head } : {}) })
+  }
+  return out
+}
+
 /** GitHub refusing a query for a scope the token lacks — here, only ever `read:project`. */
 export function lacksProjectScope(answer: unknown, ran: { err: string; out: string }): boolean {
   const errors = list(obj(answer).errors).map(obj)
@@ -654,6 +676,17 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
       const who = ran.code === 0 ? login(parsed(ran)) : ''
       if (who) return { login: who }
       return { why: ran.code === 0 ? `gh did not say who is logged in to ${host}.` : trouble(ran, 'gh', host) }
+    },
+
+    async changesByBranch(source) {
+      if (source.repo.split('/').length !== 2) return { why: `${source.repo} is not an owner/repo name GitHub can have.` }
+      const repo = source.host === 'github.com' ? source.repo : `${source.host}/${source.repo}`
+      const ran = await run(
+        ['gh', 'pr', 'list', '--repo', repo, '--state', 'all', '--limit', String(BRANCH_CHANGES), '--json', 'number,state,headRefName,headRefOid,isCrossRepository'],
+        { timeout: 60_000 },
+      )
+      if (ran.code !== 0) return { why: trouble(ran, 'gh', source.host) }
+      return branchChangesOf(parsed(ran))
     },
 
     async list(source, limit, now): Promise<Read> {

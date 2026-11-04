@@ -352,6 +352,8 @@ export interface SettingsAnswer {
   modules?: { keep: boolean }
   /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
   updates?: { auto: boolean }
+  /** "Remove finished worktrees automatically" (`server/worktrees.ts`). Absent from an older host. */
+  worktrees?: { auto: boolean }
   /** The Inbox chime (`server/chime.ts`). Absent from an older host. */
   chime?: ChimeSettings
   /** How the project, epic and kehikko pickers are ordered (`server/pickerOrder.ts`). Absent from an older host. */

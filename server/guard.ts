@@ -113,6 +113,10 @@ export interface Refusal {
  *  - `/host/pinned-places` — the person's pinned places (`pinnedPlaces.ts`).
  *    An agent reads them in `my_place`; only the person pins, unpins or
  *    orders them.
+ *  - `/host/worktrees/scan`, `/host/worktrees/remove` — the cleanup of
+ *    finished worktrees (`worktrees.ts`): a scan fetches every repository with
+ *    the person's login, and a removal deletes folders. Only a press in the
+ *    page does either; no MCP tool removes.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -152,6 +156,8 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/file',
   '/host/connections',
   '/host/pinned-places',
+  '/host/worktrees/scan',
+  '/host/worktrees/remove',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */
