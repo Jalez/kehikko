@@ -17,7 +17,9 @@ import { ConditionDot, ModuleCover } from './Conditions.tsx'
 import { ContainerNotice } from './Notice.tsx'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
-import { FrameMenu, HeaderMenus, type PressNote, type Surface } from './HeaderMenus.tsx'
+import { FrameMenu, HeaderMenus, frameEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
+import { FeedbackDialog, useFeedback } from './Feedback.tsx'
+import { layoutOf, modeFor, pinsFor } from '@/host/headerOffer.ts'
 import { SettingsButton } from './ModuleSettings.tsx'
 import { settingsHint } from '@/host/moduleSettings.ts'
 import { RefreshButton } from './Refreshing.tsx'
@@ -271,9 +273,9 @@ export function Container({
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
   /**
-   * Open this module's settings (protocol 2.15.0). Drawn only for a module that declared some: a
-   * gear in the row at 220 px and wider, folded or not; "Settings…" in the module's "⋯" under that,
-   * and in the Frame menu always. See `ModuleSettings.tsx`.
+   * Open this module's settings (protocol 2.15.0): a gear in the row at 220 px and wider, folded or
+   * not; under that, "Settings…" in the Frame rows (in "⋯" when the module has menus). One entry at
+   * every width (`layoutOf` in `host/headerOffer.ts`). See `ModuleSettings.tsx`.
    */
   onSettings?(): void
   /**
@@ -358,6 +360,26 @@ export function Container({
   const footed = drawsFooter(footer, showing.kind === 'page' && !oneEpic, fold)
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
+  /* Everything the header offers, as one list, and where each entry goes at this width
+     (`host/headerOffer.ts`): the module's menus, the gear and the Frame rows all come from it, so
+     the same things are reachable at every width and folded, and each in one place. */
+  const feedback = useFeedback(presence.id)
+  const frameParts: FrameParts = {
+    module: presence.id,
+    name,
+    feedback,
+    onSettings: hasSettings ? onSettings : undefined,
+    scope,
+    agent: presence.agent,
+    onTools,
+    skills: presence.module?.declares.skills,
+    onSkills,
+    prompted: presence.module?.declares.prompt === true,
+    onPrompts,
+    rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
+  }
+  const layout = layoutOf({ items: showing.kind === 'page' ? items : [], frame: frameEntriesOf(frameParts) }, modeFor(width), pinsFor(width), fold)
+  const frameEntries = layout.triggers.find((trigger) => trigger.which === 'frame')?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
 
   return (
     /*
@@ -679,12 +701,12 @@ export function Container({
          * First of everything on the right, and on the module's side of the
          * line the filter essay below draws: they are here only because the
          * program asked for them. Nothing at all for a module that declared
-         * nothing. Only while its page is what is showing, and not while
-         * folded — a view switch for a page nobody can see is a press with no
-         * visible effect, and the row a folded container has is the narrowest
-         * one on the canvas. See `HeaderMenus.tsx`.
+         * nothing. Only while its page is what is showing — and folded too:
+         * a folded header is as wide as the open one, and what it offers is
+         * the same (`layoutOf` in `host/headerOffer.ts`). Under 220 pixels
+         * they are one "⋯" whose last section is the Frame rows.
          */}
-        {showing.kind === 'page' && !collapsed ? (
+        {showing.kind === 'page' ? (
           <HeaderMenus
             items={items}
             name={name}
@@ -692,7 +714,8 @@ export function Container({
             onKeyboard={onKeyboard}
             surface={surface}
             note={pressNote}
-            onSettings={hasSettings ? onSettings : undefined}
+            layout={layout}
+            frame={frameParts}
           />
         ) : null}
 
@@ -737,12 +760,12 @@ export function Container({
          * stops asking. They sit together at the boundary, on the module's side
          * of it, where the height toggle used to be the thing marking the line.
          *
-         * Not shown while folded. A folded container is a header and nothing
-         * else, and narrowing a list nobody can see is a press with no visible
-         * effect. The choice is kept; unfolding brings the control back exactly
-         * as it was.
+         * Shown folded too. It used to be hidden there, and a folded container
+         * then offered less than the same container open — the inconsistency
+         * `host/headerOffer.ts` exists to end: the header holds the same things
+         * at a width whether the container is open, one row or two.
          */}
-        {showing.kind === 'page' && !collapsed ? (
+        {showing.kind === 'page' ? (
           <FilterButton
             groups={filters}
             chosen={chosen}
@@ -767,13 +790,12 @@ export function Container({
          * learns what went. See `Clearing.tsx` for the two-press arm, and the
          * protocol's `MESSAGE.CLEAR` for why the message carries nothing.
          *
-         * Hidden while folded, like the filter, and here the reason is
-         * stronger. A destructive control on a container drawn as a bare strip
-         * is a press somebody makes while aiming at the fold beside it — which
-         * is exactly the failure the arm exists for, and it costs nothing to
-         * not offer it in the one state where the mistake is most likely.
+         * Shown folded too, like the filter. A destructive control on a bare
+         * strip is a press somebody can make while aiming at the fold beside
+         * it, and that is exactly the failure the two-press arm exists for: the
+         * first press only changes what it says.
          */}
-        {showing.kind === 'page' && !collapsed ? (
+        {showing.kind === 'page' ? (
           <ClearButton label={clear} name={name} onClear={onClear} />
         ) : null}
 
@@ -784,14 +806,11 @@ export function Container({
          * because it belongs to the PROGRAM like both of them: it appears only
          * because the module asked for it and disappears when it stops asking.
          *
-         * Hidden while folded, like the other two, and here the reason is the
-         * plainest of the three: a folded container is a header, refreshing a
-         * list nobody can see spends a subprocess and somebody's rate limit for
-         * nothing, and the clock in `App.tsx` skips folded containers for
-         * exactly the same reason. The setting is kept; unfolding brings the
-         * control back with the interval it had.
+         * Shown folded too, like the other two: a press is a person asking.
+         * The clock in `App.tsx` still skips folded containers, so nothing is
+         * read on a timer for a list nobody can see.
          */}
-        {showing.kind === 'page' && !collapsed ? (
+        {showing.kind === 'page' ? (
           <RefreshButton
             state={refresh}
             every={refreshEvery}
@@ -807,13 +826,14 @@ export function Container({
          * icons stood, on every container, folded too. What each of the
          * three said at a glance, and where that went, is in `FrameMenu`.
          */}
-        {/* The module's settings (protocol 2.15.0): a gear for a module that declared some, on the
-            host's side of the line beside the Frame menu, so it never takes room from the module's
-            own menus — their mode is the width's. Under 220 px it is in "⋯" and the Frame menu. */}
-        {hasSettings ? (
+        {/* The module's settings (protocol 2.15.0): a gear, on the host's side of the line beside the
+            Frame menu, at 220 px and wider, folded or not; under that it is the Frame rows' "Settings…".
+            One entry or the other, never both (`layoutOf`). */}
+        {layout.gear ? (
           <SettingsButton
             name={name}
             onOpen={onSettings!}
+            mode={layout.mode}
             hint={(button) => (
               <Hint label={settingsHint(name)} side="bottom">
                 {button}
@@ -822,21 +842,9 @@ export function Container({
           />
         ) : null}
 
-        <FrameMenu
-          module={presence.id}
-          name={name}
-          onSettings={hasSettings ? onSettings : undefined}
-          agent={presence.agent}
-          onTools={onTools}
-          skills={presence.module?.declares.skills}
-          onSkills={onSkills}
-          prompted={presence.module?.declares.prompt === true}
-          onPrompts={onPrompts}
-          kehikko={kehikko}
-          epic={epic}
-          scope={scope}
-          rows={onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined}
-        />
+        {frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} /> : null}
+        {/* The Feedback row's dialog: once, wherever the row was drawn from. */}
+        <FeedbackDialog feedback={feedback} module={presence.id} name={name} kehikko={kehikko} epic={epic} />
 
         {/*
          * Fold this container down to its header, or open it again.

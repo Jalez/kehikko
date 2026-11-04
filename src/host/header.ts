@@ -92,8 +92,9 @@ export type RunItem = Extract<HeaderItem, { kind: 'run' }>
 
 /**
  * The runs drawn as icon buttons in the header (protocol 1.6.0): the protocol's
- * `pinnedRuns`, in declaration order, at most `LIMITS.PINNED_MAX`. Each is
- * ALSO in the Run menu: `menusOf` is not told about pinning.
+ * `pinnedRuns`, in declaration order, at most `LIMITS.PINNED_MAX`. `menusOf`
+ * is not told about pinning; `layoutOf` (`host/headerOffer.ts`) takes a run
+ * drawn as a button out of the Run menu, so it is in one place.
  */
 export function pinnedOf(items: readonly HeaderItem[]): RunItem[] {
   return pinnedRuns(items).filter((item): item is RunItem => item.kind === 'run')

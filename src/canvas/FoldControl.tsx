@@ -12,8 +12,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
 import { foldHint } from '@/host/folds.ts'
-import { FOLD_ROWS_SAID, LongPress, SHOW_ROWS, SHOW_ROWS_SAID, opensFoldChoice, type FoldRows, type ShowRows } from '@/host/rows.ts'
+import { FOLD_ROWS_SAID, LongPress, opensFoldChoice, type FoldRows } from '@/host/rows.ts'
 import { Hint } from './Hint.tsx'
+import { RevealChoices, type Reveal } from './RevealChoices.tsx'
 
 /**
  * Fold a container, or open it again — and, held, choose how far it folds.
@@ -26,8 +27,9 @@ import { Hint } from './Hint.tsx'
  *
  * Under it, a second group: when this container's header and footer show —
  * as the bar says, always, on hover, on click (`reveal`, the same choice as
- * the Frame menu's "Header and footer"). It is here as well because this is
- * the control a person holds when the rows are what they are thinking about.
+ * the Frame menu's "Header and footer", drawn by the same `RevealChoices`).
+ * It is here as well because this is the control a person holds when the
+ * rows are what they are thinking about.
  * Picking one changes when the rows show and folds nothing. With neither a
  * second fold nor `reveal` there is no menu, and the control is exactly the
  * button it was.
@@ -54,7 +56,7 @@ export function FoldControl({
   /** A choice picked from the menu: remember it and fold to it. */
   onFold(rows: FoldRows): void
   /** When the header and footer show: the container's own choice (`null`: the bar's), what the bar says, and the change. Absent: no such group. */
-  reveal?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
+  reveal?: Reveal
 }) {
   const [open, setOpen] = useState(false)
   const long = useMemo(() => new LongPress(() => setOpen(true)), [])
@@ -175,28 +177,8 @@ export function FoldControl({
         {reveal ? (
           <>
             <DropdownMenuLabel className="text-muted-foreground py-1 text-[11px] font-normal">Header and footer</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={reveal.mode ?? 'bar'}
-              data-fold-group="reveal"
-              onValueChange={(value) => reveal.onChange(value === 'bar' ? null : (value as ShowRows))}
-            >
-              <DropdownMenuRadioItem value="bar" data-reveal-choice="bar" className="items-start py-1 text-xs">
-                <span className="flex min-w-0 flex-col">
-                  <span className="font-medium">As the bar says</span>
-                  <span className="text-muted-foreground text-[11px] leading-snug">
-                    the bar’s focus control decides; now: {SHOW_ROWS_SAID[reveal.bar].label.toLowerCase()}.
-                  </span>
-                </span>
-              </DropdownMenuRadioItem>
-              {SHOW_ROWS.map((mode) => (
-                <DropdownMenuRadioItem key={mode} value={mode} data-reveal-choice={mode} className="items-start py-1 text-xs">
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-medium">{SHOW_ROWS_SAID[mode].label}</span>
-                    <span className="text-muted-foreground text-[11px] leading-snug">{SHOW_ROWS_SAID[mode].hint}.</span>
-                  </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            {/* The same component as the Frame menu's "Header and footer": one source, the same words. */}
+            <RevealChoices reveal={reveal} />
           </>
         ) : null}
       </DropdownMenuContent>
