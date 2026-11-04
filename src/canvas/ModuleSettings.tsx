@@ -483,8 +483,8 @@ function useHeaderMode(anchor: RefObject<HTMLElement | null>): MenuMode {
 
 /**
  * The gear in a container's header, for a module that declared settings. Icon-only, with the
- * tooltip "<Module> settings". Under 220 px it is not drawn: "Settings…" is then in the module's
- * "⋯" (when its menus are) and always in the Frame menu (`settingsPlaceFor`). `mode` is for tests;
+ * tooltip "<Module> settings". Under 220 px it is not drawn: "Settings…" is then a Frame row, in
+ * the module's "⋯" when it has menus and in the Frame menu when not (`settingsPlaceFor`). `mode` is for tests;
  * left out, the header is measured.
  */
 export function SettingsButton({ name, onOpen, mode: asked, hint }: { name: string; onOpen(): void; mode?: MenuMode; hint?: (children: ReactElement) => ReactNode }) {

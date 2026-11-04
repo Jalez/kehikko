@@ -91,9 +91,10 @@ export const settingsHint = (name: string): string => `${name} settings`
 /**
  * Where a container's settings button goes at a header's width (`MenuMode` of `modeFor`):
  * - `button`: a gear in the row, at 220 px and wider, folded or not;
- * - `more`: under 220, a "Settings…" row in the module's "⋯" menu, when its menus are drawn;
- * - `frame`: under 220 with no "⋯" (no menus, or folded): only the Frame menu's "Settings…",
- *   which is there at every width.
+ * - `more`: under 220, when the module has menus: "Settings…" in the Frame section of its "⋯";
+ * - `frame`: under 220 with no module menus: "Settings…" in the Frame menu.
+ * Never two of these at once: the Frame rows have "Settings…" only where the gear is not drawn
+ * (`layoutOf` in `host/headerOffer.ts`).
  * The gear never changes how the module's own menus are drawn: their mode is the width's.
  */
 export type SettingsPlace = 'button' | 'more' | 'frame'

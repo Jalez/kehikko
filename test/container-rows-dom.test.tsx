@@ -418,8 +418,8 @@ describe('the fold control: one row or two', () => {
       rows.focus()
       rows.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     })
-    const click = document.querySelector<HTMLElement>('[data-rows-choice="click"]')!
-    expect(document.querySelector('[data-rows-choice="bar"]')!.textContent).toContain('reveal on hover')
+    const click = document.querySelector<HTMLElement>('[data-reveal-choice="click"]')!
+    expect(document.querySelector('[data-reveal-choice="bar"]')!.textContent).toContain('reveal on hover')
     await act(async () => click.click())
     expect(chosen).toEqual(['click'])
   })
@@ -602,7 +602,7 @@ describe('each container keeps its own reveal mode', () => {
     await act(async () => wait(10))
     /* B to hover, from its Frame menu. */
     await openFrameMenu('kehikot.b')
-    await act(async () => document.querySelector<HTMLElement>('[data-rows-choice="hover"]')!.click())
+    await act(async () => document.querySelector<HTMLElement>('[data-reveal-choice="hover"]')!.click())
     await act(async () => wait(10))
     const modes = () => Object.fromEntries(handle.current!.placements().map((p) => [p.i, p.showRows ?? null]))
     expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'hover' })
@@ -613,7 +613,7 @@ describe('each container keeps its own reveal mode', () => {
     expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'hover' })
     /* And B changed again, to long press: A still on click. */
     await openFrameMenu('kehikot.b')
-    await act(async () => document.querySelector<HTMLElement>('[data-rows-choice="longpress"]')!.click())
+    await act(async () => document.querySelector<HTMLElement>('[data-reveal-choice="longpress"]')!.click())
     await act(async () => wait(10))
     expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'longpress' })
   })
@@ -778,22 +778,24 @@ describe('reveal on click and on long press, press by press', () => {
     expect([revealed('kehikot.a'), revealed('kehikot.b')]).toEqual([false, true])
   })
 
-  test('long press is offered in the Frame menu and the fold control\'s menu, each with its line', async () => {
+  test('long press is offered in the Frame menu and the fold control\'s menu, the same words from one source', async () => {
     await mount(box('kehikot.a', { footer: footer(), showRows: null, barRows: 'always', onShowRows: nothing, onFold: nothing }))
     await openFrameMenu('kehikot.a')
-    const inFrame = document.querySelector<HTMLElement>('[data-rows-choice="longpress"]')!
-    expect(inFrame.textContent).toContain('Reveal on long press')
-    expect(inFrame.getAttribute('title')).toContain('hold a press inside this container')
+    const inFrame = [...document.querySelectorAll<HTMLElement>('[data-reveal-choice]')].map((one) => one.textContent)
+    expect(inFrame.at(-1)).toContain('Reveal on long press')
+    expect(inFrame.at(-1)).toContain('hold on the header')
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     await act(async () => {
       fold('kehikot.a').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
     })
-    const inFold = foldMenu()!.querySelector<HTMLElement>('[data-reveal-choice="longpress"]')!
-    expect(inFold.textContent).toContain('Reveal on long press')
-    expect(inFold.textContent).toContain('a plain click does not')
-    expect(inFold.textContent).toContain('hold on the header')
+    const inFold = [...foldMenu()!.querySelectorAll<HTMLElement>('[data-reveal-choice]')].map((one) => one.textContent)
+    expect(inFold).toEqual(inFrame)
+    expect(inFold.at(-1)).toContain('a plain click does not')
   })
 })
 

@@ -553,10 +553,11 @@ describe('in the container', () => {
     return [...host.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
   }
 
-  test('the module’s menus stand before the host’s Frame, hide when folded, and a module that declares nothing has only Frame', async () => {
+  test('the module’s menus stand before the host’s Frame, stay when folded, and a module that declares nothing has only Frame', async () => {
     expect(await container(false, paper())).toEqual(['view', 'go', 'run', 'frame'])
     act(() => unmount?.())
-    expect(await container(true, paper())).toEqual(['frame'])
+    /* Folded, the header is as wide as it was and offers the same (`host/headerOffer.ts`). */
+    expect(await container(true, paper())).toEqual(['view', 'go', 'run', 'frame'])
     act(() => unmount?.())
     expect(await container(false, [])).toEqual(['frame'])
     /* Tools nobody has been told about are said on the trigger, as the plug said them. */
@@ -573,7 +574,7 @@ describe('in the container', () => {
     let opened = 0
     for (const [collapsed, items, menus] of [
       [false, paper(), ['view', 'go', 'run', 'frame']],
-      [true, paper(), ['frame']],
+      [true, paper(), ['view', 'go', 'run', 'frame']],
       [false, [], ['frame']],
     ] as const) {
       /* No mark of its own: the header gains nothing, at any width or folded. */
@@ -677,8 +678,8 @@ describe('pinned runs are icon buttons in the header row', () => {
     /* Same size as every other control in the row. */
     expect(pin('accept').className).toContain('size-6')
     await open('run')
-    /* The menu keeps every run, pinned or not. */
-    expect([...content('run')!.querySelectorAll('[data-item]')].map((el) => el.getAttribute('data-item'))).toEqual(['back', 'accept', 'reject', 'next', 'fifth', 'menu'])
+    /* A run drawn as a button is not also a row: one place per action. The fifth pin is beyond four, so a row. */
+    expect([...content('run')!.querySelectorAll('[data-item]')].map((el) => el.getAttribute('data-item'))).toEqual(['fifth', 'menu'])
   })
 
   test('the label is the accessible name, the icon is drawn, an unknown or missing icon is the first letters', async () => {
@@ -811,12 +812,10 @@ describe('pinned runs are icon buttons in the header row', () => {
     expect(pins()).toHaveLength(4)
   })
 
-  test('a container folded draws no menus, and so no pinned buttons', async () => {
-    const { host } = await mount(review(), { pinned: true })
-    expect(pins().length).toBe(4)
-    /* `Container` does not draw HeaderMenus when `collapsed`; see its header slot. */
-    const source = await Bun.file(new URL('../src/canvas/Container.tsx', import.meta.url)).text()
-    expect(source).toMatch(/showing\.kind === 'page' && !collapsed \? \(\s*<HeaderMenus/)
-    expect(host).not.toBeNull()
+  test('where the buttons are not drawn, every pinned run is a row of the Run menu', async () => {
+    await mount(review(), { pinned: false })
+    expect(pins()).toHaveLength(0)
+    await open('run')
+    expect([...content('run')!.querySelectorAll('[data-item]')].map((el) => el.getAttribute('data-item'))).toEqual(['back', 'accept', 'reject', 'next', 'fifth', 'menu'])
   })
 })

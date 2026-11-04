@@ -58,7 +58,7 @@ import {
 } from 'lucide-react'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { ScopeIcon } from './Scope.tsx'
-import { SHOW_ROWS, SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
+import { SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -86,12 +86,14 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
-import { focusAfter, focusIsInModule, menusOf, nested, pinnedOf, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
+import { FRAME_TITLE, layoutOf, modeFor, pinsFor, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
 import { carry } from '@/host/carry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
-import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
+import { FeedbackRows, type FeedbackState } from './Feedback.tsx'
+import { RevealChoices } from './RevealChoices.tsx'
 
 /**
  * A container's menus: the module's own View, Go and Run, and the host's Frame.
@@ -143,19 +145,20 @@ import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
  * container is often 380 pixels wide, so the triggers are words at a small
  * size and nothing else; under 300 pixels they are icons, each twenty-four
  * pixels like every other control in the row; under 220 the three become one
- * "⋯" whose menu has View, Go and Run as labelled sections. Folded, a
- * container is a header and nothing else, and the module's menus are not
- * drawn at all — a switch for a page nobody can see is a press with no
- * visible effect. `modeFor` is the rule.
+ * "⋯" whose menu has View, Go and Run as labelled sections and the host's
+ * Frame rows as the last — so that one trigger, not two, stands for
+ * everything that did not fit. Folded, a container is a header as wide as it
+ * was open, and it offers the same: folding moves nothing. `layoutOf` in
+ * `host/headerOffer.ts` is the rule, and every way of drawing comes from it.
  *
  * ## Pinned runs (protocol 1.6.0)
  *
- * A `run` with `pinned: true` is ALSO drawn as a 24 px icon button in this
- * same row, left of the menus (`PinnedRun`; `pinnedOf` in `host/header.ts` is
- * the rule: declaration order, at most four). It takes no height and no new
- * row. Not drawn under `PINNED_BELOW` (360 px of measured container), nor in
- * the icons/merged modes, nor folded (the menus are not drawn folded): the
- * Run menu always holds every run, so nothing is lost.
+ * A `run` with `pinned: true` is drawn as a 24 px icon button in this same
+ * row, left of the menus (`PinnedRun`; `pinnedOf` in `host/header.ts` is the
+ * rule: declaration order, at most four). It takes no height and no new row.
+ * Not drawn under `PINNED_BELOW` (360 px of measured container), nor in the
+ * icons/merged modes, and then it is a row of the Run menu. One or the other,
+ * never both: an action is in one place.
  *
  * Every label is one line, cut with an ellipsis and whole in its `title`.
  * The longest thing a module can say here is the reason a run is disabled,
@@ -174,28 +177,8 @@ import { FeedbackDialog, FeedbackRows, useFeedback } from './Feedback.tsx'
  * How wide
  * ------------------------------------------------------------------ */
 
-/** How the module's menus are drawn at a width: as words, as icons, or as one "⋯". */
-export type MenuMode = 'words' | 'icons' | 'merged'
-
-/** Under this many pixels of header, a trigger is an icon. The width the header's own gaps close at. */
-export const ICONS_BELOW = 300
-/** Under this many, View, Go and Run are one menu. */
-export const MERGE_BELOW = 220
-
-/**
- * Under this many pixels of container, pinned runs (protocol 1.6.0) are not
- * drawn as buttons and are only in the Run menu, which always holds every run.
- * Measured on the container's header, not the window. A merged "⋯" header
- * (under `MERGE_BELOW`) is narrower than this, so it draws none either.
- */
-export const PINNED_BELOW = 360
-
-/** The mode for a header this wide. `null` is "not measured yet", which is drawn as the widest. */
-export function modeFor(width: number | null): MenuMode {
-  if (width === null) return 'words'
-  if (width < MERGE_BELOW) return 'merged'
-  return width < ICONS_BELOW ? 'icons' : 'words'
-}
+/* The width rule is `host/headerOffer.ts`, with the rest of what decides where an entry goes. */
+export { ICONS_BELOW, MERGE_BELOW, PINNED_BELOW, modeFor, type MenuMode } from '@/host/headerOffer.ts'
 
 /**
  * The mode (and whether it is 360 px or wider) for the header this is drawn in, kept as the container is resized.
@@ -216,7 +199,7 @@ function useMode(anchor: RefObject<HTMLElement | null>, active: boolean): { mode
     const measure = () => {
       const width = header.offsetWidth || null
       setMode(modeFor(width))
-      setWide(width === null || width >= PINNED_BELOW)
+      setWide(pinsFor(width))
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
@@ -358,7 +341,8 @@ export function HeaderMenus({
   note = null,
   mode: asked,
   pinned: askedPinned,
-  onSettings,
+  layout: given,
+  frame,
 }: {
   /** What the module last declared. Empty draws nothing at all. */
   items: readonly HeaderItem[]
@@ -386,18 +370,23 @@ export function HeaderMenus({
   /** Whether pinned runs are drawn, when the caller knows. Left out, it follows the measured width. */
   pinned?: boolean
   /**
-   * Open the module's settings (protocol 2.15.0). Given, the merged "⋯" has a "Settings…" row: under
-   * 220 px the header's gear is not drawn (`settingsPlaceFor`), and this is where it went.
+   * Where everything in the header goes (`layoutOf` in `host/headerOffer.ts`), when the caller has
+   * worked it out for the whole row — the container does, because the gear and the Frame menu are
+   * its to draw. Left out, it is worked out here for the module's menus alone.
    */
-  onSettings?(): void
+  layout?: HeaderLayout
+  /** The host's Frame rows, drawn as the last section of the merged "⋯" when `layout` puts them there. */
+  frame?: FrameParts
 }) {
   const anchor = useRef<HTMLSpanElement>(null)
-  const menus = useMemo(() => menusOf(items), [items])
-  const measured = useMode(anchor, menus.length > 0 && (asked === undefined || askedPinned === undefined))
-  const mode = asked ?? measured.mode
+  const measured = useMode(anchor, items.length > 0 && given === undefined && (asked === undefined || askedPinned === undefined))
+  const mode = given?.mode ?? asked ?? measured.mode
   /* Pinned buttons need words-width AND 360 px of container. */
   const buttons = askedPinned ?? (mode === 'words' && measured.wide)
-  const pinned = useMemo(() => (buttons ? pinnedOf(items) : []), [buttons, items])
+  const layout = useMemo(() => given ?? layoutOf({ items, frame: [] }, mode, buttons), [given, items, mode, buttons])
+  const pinned = layout.pinned
+  /* The triggers this draws: the module's, and the "⋯" that holds them. Frame alone is the container's. */
+  const triggers = layout.triggers.filter((trigger) => trigger.which !== 'frame')
 
   /*
    * The one confirmed run that has had its first press, and what it looked
@@ -453,7 +442,7 @@ export function HeaderMenus({
   const closing = useRef<Closing>('dismissed')
   const sent = useRef(0)
 
-  if (!menus.length) return null
+  if (!triggers.length && !pinned.length) return null
 
   const rows: Pressable = {
     closing,
@@ -519,22 +508,18 @@ export function HeaderMenus({
       {pinned.map((item) => (
         <PinnedRun key={item.id} item={item} rows={rows} word={said?.item === item.id ? said : null} />
       ))}
-      {mode === 'merged' ? (
-        <Menu which="more" menus={menus} mode={mode} name={name} rows={rows} onClosed={disarm} word={said} onSettings={onSettings} />
-      ) : (
-        menus.map((menu) => (
-          <Menu
-            key={menu.menu}
-            which={menu.menu}
-            menus={[menu]}
-            mode={mode}
-            name={name}
-            rows={rows}
-            onClosed={disarm}
-            word={said?.menu === menu.menu ? said : null}
-          />
-        ))
-      )}
+      {triggers.map((trigger) => (
+        <Menu
+          key={trigger.which}
+          trigger={trigger}
+          mode={mode}
+          name={name}
+          rows={rows}
+          onClosed={disarm}
+          word={trigger.which === 'more' ? said : said?.menu === trigger.which ? said : null}
+          frame={frame}
+        />
+      ))}
       {/* The same sentence for somebody who is not looking at the trigger. No box: it takes no room in the row. */}
       <span role="status" aria-live="polite" className="sr-only" data-testid="header-said">
         {said?.text ?? ''}
@@ -553,8 +538,9 @@ export function initials(label: string): string {
 /**
  * One pinned run (protocol 1.6.0), as an icon button in the header row: the
  * same twenty-four pixels as every other control there, so the row does not
- * grow. The run stays in the Run menu as well; both go through `rows`, so
- * arming, the pending guard, full screen and `focusAfter` are one path.
+ * grow. Where the button is not drawn the run is a row of the Run menu
+ * instead; both go through `rows`, so arming, the pending guard, full screen
+ * and `focusAfter` are one path.
  *
  * Never colour alone: disabled is dimmed AND inert AND carries its reason in
  * the tooltip; busy is a spinner; failed is the menu's triangle; armed is a
@@ -647,27 +633,30 @@ function PinnedRun({ item, rows, word }: { item: RunItem; rows: Pressable; word:
   )
 }
 
-/** One trigger and its menu: View, Go or Run, or all three as sections of "⋯". */
+/** One trigger and its menu: View, Go or Run, or — under 220 px — all three and Frame as sections of "⋯". */
 function Menu({
-  which,
-  menus,
+  trigger,
   mode,
   name,
   rows,
   onClosed,
   word,
-  onSettings,
+  frame,
 }: {
-  which: HeaderMenu | 'more'
-  menus: readonly ModuleMenu[]
+  trigger: Trigger
   mode: MenuMode
   name: string
   rows: Pressable
   onClosed(): void
   word: Said | null
-  /** The module's settings, as a row at the foot of the merged "⋯" only. */
-  onSettings?(): void
+  /** The host's Frame rows, for the "⋯" whose last section is Frame. */
+  frame?: FrameParts
 }) {
+  const which = trigger.which as HeaderMenu | 'more'
+  const menus = trigger.sections.flatMap((section) => (section.kind === 'module' ? [section.menu] : []))
+  const framed = frame ? trigger.sections.find((section) => section.kind === 'frame')?.entries ?? null : null
+  const tools = framed ? toolsSaying(frame!.agent, name) : null
+  const loud = tools?.loud === true
   const [open, setOpen] = useOpen(onClosed, rows.closing)
   const quiet = useRef(false)
   const busy = menus.some((menu) => menu.busy)
@@ -677,9 +666,10 @@ function Menu({
   const why = failed ? failedWhy(menus) : ''
   const state = busy ? ' — running' : failed ? ` — the last run failed${why ? `: ${why}` : ''}` : ''
   const at = where(menus)
+  const titles = [...menus.map((menu) => menu.title.toLowerCase()), ...(framed ? [FRAME_TITLE.toLowerCase()] : [])]
   const hint =
     which === 'more'
-      ? `${name}'s menus: ${menus.map((menu) => menu.title.toLowerCase()).join(', ')}${at ? ` — ${at}` : ''}${state}`
+      ? `${name}'s menus: ${titles.join(', ')}${at ? ` — ${at}` : ''}${state}${loud ? `. ${tools!.hint}` : ''}`
       : which === 'view'
         ? `view: what ${name} shows`
         : which === 'go'
@@ -692,8 +682,9 @@ function Menu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            aria-label={`${which === 'more' ? 'menus' : title.toLowerCase()} of ${name}${state}`}
+            aria-label={`${which === 'more' ? 'menus' : title.toLowerCase()} of ${name}${state}${loud ? ` — tools ${tools!.state}` : ''}`}
             data-menu={which}
+            data-tools={loud ? 'loud' : undefined}
             data-run={busy ? 'busy' : failed ? 'failed' : undefined}
             {...modal}
             /* `pointer-events-auto` because the container is not, and the press
@@ -702,7 +693,7 @@ function Menu({
             className={
               mode === 'words'
                 ? `${failed ? 'text-destructive hover:text-destructive' : busy ? 'text-foreground' : 'text-muted-foreground hover:text-foreground data-[state=open]:text-foreground'} data-[state=open]:bg-accent pointer-events-auto relative h-6 shrink-0 cursor-default px-1.5 text-xs font-normal ${KEYBOARD_RING}`
-                : `text-foreground data-[state=open]:bg-accent pointer-events-auto size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING}`
+                : `text-foreground data-[state=open]:bg-accent pointer-events-auto relative size-6 shrink-0 cursor-default p-0 ${KEYBOARD_RING}`
             }
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -724,7 +715,11 @@ function Menu({
             ) : failed ? (
               <TriangleAlert className="text-destructive size-3" aria-hidden />
             ) : (
-              <Glyph className="size-3" aria-hidden />
+              <>
+                <Glyph className="size-3" aria-hidden />
+                {/* The Frame trigger's dot, for tools nobody has connected, comes into "⋯" with its rows. */}
+                {loud ? <span className="bg-foreground ring-card absolute top-0.5 right-0.5 size-1.5 rounded-full ring-1" aria-hidden /> : null}
+              </>
             )}
           </Button>
         </DropdownMenuTrigger>
@@ -776,14 +771,12 @@ function Menu({
             ))}
           </DropdownMenuGroup>
         ))}
-        {which === 'more' && onSettings ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className={ROW} data-more="settings" onSelect={onSettings}>
-              <Settings className="text-muted-foreground size-3.5" />
-              <span className="flex-1">Settings…</span>
-            </DropdownMenuItem>
-          </>
+        {framed ? (
+          <DropdownMenuGroup data-section="frame">
+            {menus.length ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
+            <FrameRows parts={frame!} entries={framed} />
+          </DropdownMenuGroup>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1172,32 +1165,29 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
  * right: those are pressed without thinking, and a menu in front of them
  * would be a second press on the commonest things a person does here.
  *
- * Drawn on every container, folded too, as the three were.
+ * Drawn on every container, folded too, as the three were — as its own
+ * trigger at 220 px and wider, and under that as the last section of the
+ * module's "⋯" when the module has menus (`layoutOf` in `host/headerOffer.ts`):
+ * the same rows either way, so nothing is reachable at one width and not at
+ * another.
  */
-export function FrameMenu({
-  module,
-  name,
-  agent,
-  onTools,
-  skills,
-  onSkills,
-  prompted,
-  onPrompts,
-  kehikko,
-  epic,
-  onSettings,
-  scope = null,
-  rows,
-}: {
+
+/** What the Frame rows are drawn from, wherever they are drawn: the Frame menu, or the last section of "⋯". */
+export interface FrameParts {
   module: string
   name: string
+  /** The feedback list behind the "Feedback" row: one per container, so its dialog is drawn once (`Container`). */
+  feedback: FeedbackState
   /**
    * When this container's header and footer show (`host/rows.ts`): its own
    * choice, `null` for the bar's, what the bar says now, and the change. A
    * "Header and footer" row at every width. Absent: no row.
    */
   rows?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
-  /** The module's settings (protocol 2.15.0): a "Settings…" row, at every width. Absent: the module declared none. */
+  /**
+   * The module's settings (protocol 2.15.0). A "Settings…" row only where the header's gear is not
+   * drawn (`layoutOf`): one entry, never two.
+   */
   onSettings?(): void
   /**
    * The container's scope (protocol 2.29.0): a "Scope: Epic (default)" row at every width, so it is
@@ -1217,141 +1207,160 @@ export function FrameMenu({
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
-  /** The open kehikko's name and epic, written under feedback filed from here. */
-  kehikko: string | null
-  epic: string | null
-}) {
-  const feedback = useFeedback(module)
+}
+
+/** Which of the host's entries a container has, for `layoutOf`. */
+export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
+  const out: FrameEntry[] = []
+  if (parts.scope) out.push('scope')
+  if (parts.onSettings) out.push('settings')
+  if (toolsSaying(parts.agent, parts.name)) out.push('tools')
+  if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
+  if (parts.rows) out.push('rows')
+  out.push('feedback', 'prompts')
+  return out
+}
+
+/**
+ * The host's rows about a module, in `FRAME_ENTRIES` order: drawn in the Frame menu, and as the
+ * last section of the merged "⋯" under 220 px — the same rows, words and order in both.
+ */
+function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
+  const { name, scope, onSettings, onTools, onSkills, rows, feedback, prompted, onPrompts } = parts
+  const tools = toolsSaying(parts.agent, name)
+  const offered = onSkills ? skillsSaying(parts.skills, name) : null
+  const has = (entry: FrameEntry) => entries.includes(entry)
+  return (
+    <>
+      {has('scope') && scope ? (
+        <DropdownMenuItem className={ROW} title={scopeTooltip(scope)} data-frame="scope" data-scope={scope.active} disabled={!onSettings} onSelect={onSettings}>
+          <ScopeIcon scope={scope.active} className="text-muted-foreground size-3.5" />
+          <span className="flex-1">Scope: {scope.name}</span>
+          <span className="text-muted-foreground text-[10px]">{scope.isDefault ? 'default' : 'changed'}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('settings') && onSettings ? (
+        <DropdownMenuItem className={ROW} title={`${name} settings`} data-frame="settings" onSelect={onSettings}>
+          <Settings className="text-muted-foreground size-3.5" />
+          <span className="flex-1">Settings…</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('tools') && tools ? (
+        <DropdownMenuItem className={ROW} title={tools.hint} data-frame="tools" onSelect={onTools}>
+          {tools.loud ? <Unplug className="size-3.5" /> : <Plug className="text-muted-foreground size-3.5" />}
+          <span className="flex-1">Tools…</span>
+          <span className={tools.loud ? 'text-[10px] font-medium' : 'text-muted-foreground text-[10px]'}>{tools.state}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('skills') && offered && onSkills ? (
+        <DropdownMenuItem className={ROW} title={offered.hint} data-frame="skills" onSelect={onSkills}>
+          <ScrollText className="text-muted-foreground size-3.5" />
+          <span className="flex-1">Skills…</span>
+          <span className="text-muted-foreground text-[10px]">{offered.state}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('rows') && rows ? (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className={ROW} data-frame="rows" title="when this container's header and footer show">
+            <Eye className="text-muted-foreground size-3.5" />
+            <span className="flex-1">Header and footer</span>
+            <span className="text-muted-foreground text-[10px]">{rows.mode === null ? 'as the bar' : SHOW_ROWS_SAID[rows.mode].label.toLowerCase()}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1rem)]">
+            {/* The very choices the fold control's held menu has: one component, so they cannot drift. */}
+            <RevealChoices reveal={rows} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      ) : null}
+      {has('feedback') ? (
+        <DropdownMenuSub onOpenChange={feedback.opened}>
+          <DropdownMenuSubTrigger className={ROW} data-frame="feedback">
+            <MessageSquare className="text-muted-foreground size-3.5" />
+            <span className="flex-1">Feedback</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-72 max-w-[calc(100vw-1rem)]">
+            <FeedbackRows feedback={feedback} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      ) : null}
+      {has('prompts') ? (
+        <DropdownMenuItem
+          className={ROW}
+          title={
+            prompted
+              ? 'prompts — this module uses one, and this is where it is written'
+              : 'prompts — what this container says to another module, and what it is told'
+          }
+          data-frame="prompts"
+          onSelect={onPrompts}
+        >
+          <MessageSquareText className="text-muted-foreground size-3.5" />
+          <span className="flex-1">Prompts…</span>
+          {prompted ? <span className="text-[10px] font-medium">uses one</span> : null}
+        </DropdownMenuItem>
+      ) : null}
+    </>
+  )
+}
+
+/** The Frame menu's trigger and its rows. Not drawn where the merged "⋯" holds them (`layoutOf`). */
+export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
+  const { name, rows } = parts
   const closing = useRef<Closing>('dismissed')
   const quiet = useRef(false)
   const [open, setOpen] = useOpen(() => {}, closing)
-  const tools = toolsSaying(agent, name)
-  const offered = onSkills ? skillsSaying(skills, name) : null
+  const tools = toolsSaying(parts.agent, name)
+  const offered = parts.onSkills ? skillsSaying(parts.skills, name) : null
 
   return (
-    <>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <Word
-          hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}feedback and prompts`}
-          word={null}
-          quiet={quiet}
-        >
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={tools?.loud ? `frame menu of ${name} — ${tools.state}` : `frame menu of ${name}`}
-              data-menu="frame"
-              data-tools={tools?.loud ? 'loud' : undefined}
-              {...modal}
-              className={
-                tools?.loud
-                  ? `text-foreground data-[state=open]:bg-accent pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
-                  : `text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
-              }
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <AppWindow className="size-3" aria-hidden />
-              {tools?.loud ? (
-                <span className="bg-foreground ring-card absolute top-0.5 right-0.5 size-1.5 rounded-full ring-1" aria-hidden />
-              ) : null}
-            </Button>
-          </DropdownMenuTrigger>
-        </Word>
-
-        <DropdownMenuContent
-          align="end"
-          className="max-w-64 min-w-48"
-          data-menu-content="frame"
-          onCloseAutoFocus={(event) => {
-            /* The host's own rows open a dialog or act in this document: focus
-               returns to the trigger, quietly — unless it has gone to a module. */
-            const to = focusAfter(closing.current, focusIsInModule(document.activeElement))
-            closing.current = 'dismissed'
-            if (to === 'trigger') returning(quiet)
-            else event.preventDefault()
-          }}
-        >
-          <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
-            {name}
-          </DropdownMenuLabel>
-          {scope ? (
-            <DropdownMenuItem className={ROW} title={scopeTooltip(scope)} data-frame="scope" data-scope={scope.active} disabled={!onSettings} onSelect={onSettings}>
-              <ScopeIcon scope={scope.active} className="text-muted-foreground size-3.5" />
-              <span className="flex-1">Scope: {scope.name}</span>
-              <span className="text-muted-foreground text-[10px]">{scope.isDefault ? 'default' : 'changed'}</span>
-            </DropdownMenuItem>
-          ) : null}
-          {onSettings ? (
-            <DropdownMenuItem className={ROW} title={`${name} settings`} data-frame="settings" onSelect={onSettings}>
-              <Settings className="text-muted-foreground size-3.5" />
-              <span className="flex-1">Settings…</span>
-            </DropdownMenuItem>
-          ) : null}
-          {tools ? (
-            <DropdownMenuItem className={ROW} title={tools.hint} data-frame="tools" onSelect={onTools}>
-              {tools.loud ? <Unplug className="size-3.5" /> : <Plug className="text-muted-foreground size-3.5" />}
-              <span className="flex-1">Tools…</span>
-              <span className={tools.loud ? 'text-[10px] font-medium' : 'text-muted-foreground text-[10px]'}>{tools.state}</span>
-            </DropdownMenuItem>
-          ) : null}
-          {offered && onSkills ? (
-            <DropdownMenuItem className={ROW} title={offered.hint} data-frame="skills" onSelect={onSkills}>
-              <ScrollText className="text-muted-foreground size-3.5" />
-              <span className="flex-1">Skills…</span>
-              <span className="text-muted-foreground text-[10px]">{offered.state}</span>
-            </DropdownMenuItem>
-          ) : null}
-          {rows ? (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className={ROW} data-frame="rows" title="when this container's header and footer show">
-                <Eye className="text-muted-foreground size-3.5" />
-                <span className="flex-1">Header and footer</span>
-                <span className="text-muted-foreground text-[10px]">{rows.mode === null ? 'as the bar' : SHOW_ROWS_SAID[rows.mode].label.toLowerCase()}</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1rem)]">
-                <DropdownMenuRadioGroup value={rows.mode ?? 'bar'} onValueChange={(value) => rows.onChange(value === 'bar' ? null : (value as ShowRows))}>
-                  <DropdownMenuRadioItem value="bar" className={ROW} data-rows-choice="bar" title="what the bar's focus control says for every container">
-                    <span className="flex-1">As the bar says</span>
-                    <span className="text-muted-foreground text-[10px]">{SHOW_ROWS_SAID[rows.bar].label.toLowerCase()}</span>
-                  </DropdownMenuRadioItem>
-                  {SHOW_ROWS.map((mode) => (
-                    <DropdownMenuRadioItem key={mode} value={mode} className={ROW} data-rows-choice={mode} title={SHOW_ROWS_SAID[mode].hint}>
-                      <span className="flex-1">{SHOW_ROWS_SAID[mode].label}</span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          ) : null}
-          <DropdownMenuSub onOpenChange={feedback.opened}>
-            <DropdownMenuSubTrigger className={ROW} data-frame="feedback">
-              <MessageSquare className="text-muted-foreground size-3.5" />
-              <span className="flex-1">Feedback</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-72 max-w-[calc(100vw-1rem)]">
-              <FeedbackRows feedback={feedback} />
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem
-            className={ROW}
-            title={
-              prompted
-                ? 'prompts — this module uses one, and this is where it is written'
-                : 'prompts — what this container says to another module, and what it is told'
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Word
+        hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}feedback and prompts`}
+        word={null}
+        quiet={quiet}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={tools?.loud ? `frame menu of ${name} — ${tools.state}` : `frame menu of ${name}`}
+            data-menu="frame"
+            data-tools={tools?.loud ? 'loud' : undefined}
+            {...modal}
+            className={
+              tools?.loud
+                ? `text-foreground data-[state=open]:bg-accent pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
+                : `text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`
             }
-            data-frame="prompts"
-            onSelect={onPrompts}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <MessageSquareText className="text-muted-foreground size-3.5" />
-            <span className="flex-1">Prompts…</span>
-            {prompted ? <span className="text-[10px] font-medium">uses one</span> : null}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <AppWindow className="size-3" aria-hidden />
+            {tools?.loud ? (
+              <span className="bg-foreground ring-card absolute top-0.5 right-0.5 size-1.5 rounded-full ring-1" aria-hidden />
+            ) : null}
+          </Button>
+        </DropdownMenuTrigger>
+      </Word>
 
-      <FeedbackDialog feedback={feedback} module={module} name={name} kehikko={kehikko} epic={epic} />
-    </>
+      <DropdownMenuContent
+        align="end"
+        className="max-w-64 min-w-48"
+        data-menu-content="frame"
+        onCloseAutoFocus={(event) => {
+          /* The host's own rows open a dialog or act in this document: focus
+             returns to the trigger, quietly — unless it has gone to a module. */
+          const to = focusAfter(closing.current, focusIsInModule(document.activeElement))
+          closing.current = 'dismissed'
+          if (to === 'trigger') returning(quiet)
+          else event.preventDefault()
+        }}
+      >
+        <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
+          {name}
+        </DropdownMenuLabel>
+        <FrameRows parts={parts} entries={entries} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

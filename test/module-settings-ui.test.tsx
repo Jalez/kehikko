@@ -15,7 +15,7 @@ import type { SetAnswer, SettingsAnswer, SettingsListed } from '../src/host/modu
  */
 
 const inChild = process.env.MODULE_SETTINGS_DOM === '1'
-const TESTS = 12
+const TESTS = 13
 
 if (!inChild) {
   test('the module settings, rendered in a process of their own', () => {
@@ -349,28 +349,39 @@ describe('the gear in the header', () => {
     }
   })
 
-  test('at 200 pixels it folds into the module’s "⋯", and folded into the Frame menu, which has it at every width', async () => {
+  test('at 200 pixels it is a Frame row in the module’s "⋯", folded or not, and nowhere else', async () => {
     let opened = 0
-    await header(200, false, true, () => (opened += 1))
-    expect(gear()).toBeNull()
-    const more = await openMenu('more')
-    const row = more!.querySelector<HTMLElement>('[data-more="settings"]')!
-    expect(row.textContent).toBe('Settings…')
-    await act(async () => row.click())
-    expect(opened).toBe(1)
-    act(() => unmount?.())
-
-    await header(200, true, true, () => (opened += 1))
-    expect(gear()).toBeNull()
-    expect(document.querySelector('[data-menu="more"]')).toBeNull()
-    const frame = await openMenu('frame')
-    const settings = frame!.querySelector<HTMLElement>('[data-frame="settings"]')!
-    expect(settings.textContent).toBe('Settings…')
-    await act(async () => settings.click())
+    for (const collapsed of [false, true]) {
+      await header(200, collapsed, true, () => (opened += 1))
+      expect(gear()).toBeNull()
+      /* One trigger holds the module's menus and the Frame rows: no Frame menu beside it. */
+      expect(document.querySelector('[data-menu="frame"]')).toBeNull()
+      const more = await openMenu('more')
+      const rows = more!.querySelectorAll<HTMLElement>('[data-frame="settings"]')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.textContent).toBe('Settings…')
+      expect(rows[0]!.closest('[data-section]')!.getAttribute('data-section')).toBe('frame')
+      await act(async () => rows[0]!.click())
+      act(() => unmount?.())
+      unmount = null
+      document.body.innerHTML = ''
+    }
     expect(opened).toBe(2)
   })
 
-  test('a module that declared no settings still gets the gear, the "⋯" row and the Frame row: its window has Providers & Consumers', async () => {
+  test('at 220 and wider the gear is Settings, and the Frame menu has no second one', async () => {
+    for (const [width, collapsed] of [[380, false], [280, true], [220, false]] as const) {
+      await header(width, collapsed, true, () => {})
+      expect(gear(), `${width}`).not.toBeNull()
+      const frame = await openMenu('frame')
+      expect(frame!.querySelector('[data-frame="settings"]'), `${width}`).toBeNull()
+      act(() => unmount?.())
+      unmount = null
+      document.body.innerHTML = ''
+    }
+  })
+
+  test('a module that declared no settings still gets the gear, or its Frame row under 220: its window has Providers & Consumers', async () => {
     for (const [width, collapsed] of [[380, false], [280, false], [380, true]] as const) {
       let opened = 0
       await header(width, collapsed, false, () => (opened += 1))
@@ -384,8 +395,8 @@ describe('the gear in the header', () => {
     }
     await header(200, true, false, () => {})
     expect(gear()).toBeNull()
-    const frame = await openMenu('frame')
-    expect(frame!.querySelector('[data-frame="settings"]')!.textContent).toBe('Settings…')
+    const more = await openMenu('more')
+    expect(more!.querySelector('[data-frame="settings"]')!.textContent).toBe('Settings…')
     act(() => unmount?.())
     unmount = null
     document.body.innerHTML = ''

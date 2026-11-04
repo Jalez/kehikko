@@ -554,7 +554,12 @@
   Focus returned to a trigger never raises its tooltip.
 - The header is one row. Anything added to it has to fit at 380, 280 and 200
   pixels and folded; a module's menus are words, then icons under 300, then one
-  "⋯" under 220 (`modeFor`).
+  "⋯" under 220 (`modeFor`) whose last section is the Frame rows.
+- Where every header entry goes is ONE rule, `layoutOf` in
+  `src/host/headerOffer.ts`: the same actions reachable at every width and
+  fold state (folding moves nothing), each in exactly one place (a pinned run
+  button is not also a Run row; the settings gear is not also a Frame row).
+  A new header control gets an entry there, not a width check of its own.
 - `press_item` (`server/mcp.ts`) presses only an item marked `agents: true`,
   never a `confirm` run, and refuses an item with `tool` by naming it. The
   server judges against what the page posted (`server/headers.ts`); the page
