@@ -95,7 +95,7 @@ import { containersKey, containersOf } from '@/host/showing.ts'
 import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Said } from '@/host/said.ts'
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
 import { ARRIVAL_WAIT_MS, NAVIGATE_SAYS, planJump, showReceivers, shownBy, type HeldShow } from '@/host/navigate.ts'
-import { navigatesOf, revealModeOf, type ShowingManifest } from 'kehikot-module-protocol'
+import { navigatesOf, type ShowingManifest } from 'kehikot-module-protocol'
 import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
@@ -140,7 +140,8 @@ import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks }
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import { agentFooterRefusal, footerDeclared, footerPressing, footerWithdrawn, NO_FOOTER, NO_FOOTERS, type Footers as HeldFooters } from './host/footer.ts'
-import { Reveals } from './host/reveal.ts'
+import { Reveals, coversFor } from './host/reveal.ts'
+import { barRows, rowsShown, watchClicks, type FoldRows, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
@@ -515,6 +516,9 @@ export function App() {
   footersRef.current = footers
   /* In focus mode, which containers have their header and footer revealed (`host/reveal.ts`). One for the page. */
   const reveals = useMemo(() => new Reveals(), [])
+  /* Reveal on click (`host/rows.ts`): a click into a module's page or onto a container's own chrome
+     moves the click there; Escape or a press on nothing takes it away. One listener for the page. */
+  useEffect(() => watchClicks(document, window, (event) => reveals.click(event)), [reveals])
   /**
    * What an agent last pressed in each module's header, by module id, so the
    * container says it happened where a person would look for it. Said for a
@@ -2729,6 +2733,31 @@ export function App() {
   )
 
   /**
+   * A fold picked from the fold control's menu: one row (the header) or two
+   * (the header and the footer), remembered on the placement beside
+   * `collapsed`, and folded to. The same write a press makes, so the heights
+   * are redrawn for the new folded height. Personal, like the fold
+   * (`view.json`). See `host/rows.ts`.
+   */
+  const onFold = useCallback(
+    (id: string, rows: FoldRows) => {
+      const placements = (open?.placements ?? []).map((p) => (p.i === id && (p.foldRows ?? 1) !== rows ? { ...p, foldRows: rows } : p))
+      change({ placements: pressed(placements, id, true) })
+    },
+    [change, open?.placements],
+  )
+
+  /** When one container's header and footer show: its own choice, or `null` for the bar's. Personal, beside the fold. */
+  const onShowRows = useCallback(
+    (id: string, mode: ShowRows | null) => {
+      const placements = open?.placements ?? []
+      if (!placements.some((p) => p.i === id && (p.showRows ?? null) !== mode)) return
+      change({ placements: placements.map((p) => (p.i === id ? { ...p, showRows: mode } : p)) })
+    },
+    [change, open?.placements],
+  )
+
+  /**
    * Pick a container out as a target on this kehikko, or unpick it.
    *
    * ## Which axis this is
@@ -4362,10 +4391,7 @@ export function App() {
              and the page is told how much they cover. Which rows: the header
              unless the container is selected (then it never hides), the footer
              when the module declared one. See `host/reveal.ts`. */
-          covers:
-            revealModeOf(module) === 'over'
-              ? { header: !(placements.find((p) => p.i === id)?.selected ?? false), footer: (footers[id]?.length ?? 0) > 0 }
-              : null,
+          covers: coversFor(module, placements.find((p) => p.i === id), (footers[id]?.length ?? 0) > 0, focus),
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
@@ -4384,7 +4410,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers, focus])
 
   /*
    * A switch of kehikko or project, without the fidget: the kehikko being left
@@ -4888,6 +4914,13 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
+                  /* How far it folds, and when its rows show (`host/rows.ts`): the person's, per container. */
+                  foldRows={placement.foldRows ?? 1}
+                  onFold={(rows) => onFold(presence.id, rows)}
+                  rowsMode={rowsShown(placement, focus)}
+                  showRows={placement.showRows ?? null}
+                  barRows={barRows(focus)}
+                  onShowRows={(mode) => onShowRows(presence.id, mode)}
                   foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
                   header={headers[presence.id] ?? NO_HEADER}
                   /* A press on whichever frame is standing, judged against
@@ -4896,8 +4929,9 @@ export function App() {
                   /* Its declared footer (protocol 2.38.0), pressed the same way with `place: 'footer'`. */
                   footer={footers[presence.id] ?? NO_FOOTER}
                   onFooterPress={(press) => onFooterPressItem(presence.id, press)}
-                  /* Revealing header and footer on hover only means something in focus mode. */
-                  reveals={focus === 'on' ? reveals : null}
+                  /* Which rows are revealed: on hover or on click, as `rowsMode` says. Every container
+                     has a say now, so the reveal is handed to all of them. */
+                  reveals={reveals}
                   /* And the keyboard to that frame after a press that closed
                      its menu — see `focusAfter` in `host/header.ts`. */
                   onKeyboard={() => presses.focus(presence.id)}
@@ -5004,7 +5038,7 @@ export function App() {
           watcherFor={watcherFor}
           onDocument={onDocument}
           moving={moving}
-          reveals={focus === 'on' ? reveals : null}
+          reveals={reveals}
           still={calm.pagesStill}
           layer={layerStyle(calm.pages)}
         />
@@ -5229,7 +5263,8 @@ function same(a: readonly Placement[], b: readonly Placement[]): boolean {
          to notice it — but a comparison that ignored them would be one edit
          away from dropping a fold on the floor. */
       one.wish === other.wish &&
-      one.collapsed === other.collapsed
+      one.collapsed === other.collapsed &&
+      (one.foldRows ?? 1) === (other.foldRows ?? 1)
     )
   })
 }

@@ -56,6 +56,15 @@ export const placementSchema = z.object({
    */
   collapsed: z.boolean().default(false),
   /**
+   * How far it folds: its header alone (1) or its header and footer (2), and
+   * when its rows show: always, on hover, on click, or as the bar says
+   * (absent). The person's, beside `collapsed`; see `host/rows.ts`. Optional,
+   * so an arrangement stored before either existed reads as one row and the
+   * bar's say.
+   */
+  foldRows: z.union([z.literal(1), z.literal(2)]).optional(),
+  showRows: z.enum(['always', 'hover', 'click']).nullable().optional(),
+  /**
    * The height its owner last asked for, in rows.
    *
    * Not `h`. `h` is what is drawn, and this is what was chosen — by a hand on

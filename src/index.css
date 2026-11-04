@@ -344,8 +344,15 @@
 }
 
 /*
- * Focus mode: the header and the footer come out of the layout, and come back
- * — pushing, not covering — while the pointer is over the container.
+ * Hidden rows: the header and the footer come out of the layout, and come back
+ * — pushing, not covering — while the pointer is over the container, or once
+ * it is clicked into.
+ *
+ * Which containers hide them is per container now (`host/rows.ts`): a
+ * container whose rows hide carries `data-rows="hide"` — its own choice of
+ * "reveal on hover" or "reveal on click", or the bar's focus mode when it has
+ * not chosen. `data-revealed` is set from the pointer for one and from the
+ * click for the other; the rules below are the same for both.
  *
  * `src/host/focus.ts` has the argument for the mode, and `src/host/reveal.ts`
  * the argument for how the reveal is decided. This is how it is drawn.
@@ -386,8 +393,9 @@
  *
  * `[data-collapsed]` is the exemption, and it is deliberate. A folded
  * container is not showing a module, so there is no space to give — and hiding
- * its header would leave a container with nothing visible at all. A folded
- * container has no footer either (`host/footer.ts`).
+ * its header would leave a container with nothing visible at all. A container
+ * folded to TWO rows keeps its footer too, for the same reason
+ * (`data-collapsed` on the footer's wrapper; `host/rows.ts`).
  *
  * ## And a SELECTED container keeps its header too
  *
@@ -396,36 +404,36 @@
  * the containers where somebody is likely to reach for it. Its footer reveals
  * like any other.
  */
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]),
-.focus-mode .react-grid-item .container-footer-reveal {
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]),
+.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) {
   height: 0;
   overflow: hidden;
   transition: height 140ms ease;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip,
-.focus-mode .react-grid-item .container-footer-reveal > * {
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip,
+.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
-.focus-mode .react-grid-item .container-footer-reveal:is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
+.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
   height: 2rem;
 }
 
-.focus-mode .react-grid-item .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
-.focus-mode .react-grid-item .container-footer-reveal:is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
+.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
   opacity: 1;
   pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .focus-mode .react-grid-item .container-reveal,
-  .focus-mode .react-grid-item .container-reveal > .container-grip,
-  .focus-mode .react-grid-item .container-footer-reveal,
-  .focus-mode .react-grid-item .container-footer-reveal > * {
+  .react-grid-item [data-rows='hide'] > .container-reveal,
+  .react-grid-item [data-rows='hide'] > .container-reveal > .container-grip,
+  .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]),
+  .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
     transition: none;
   }
 }
@@ -455,7 +463,7 @@
  * here and stays in the column. Every module that does not say `over` keeps the
  * push above.
  */
-.focus-mode .react-grid-item [data-reveal='over'] > .container-reveal:not([data-collapsed]):not([data-selected]) {
+.react-grid-item [data-rows='hide'][data-reveal='over'] > .container-reveal:not([data-collapsed]):not([data-selected]) {
   position: absolute;
   top: 0;
   right: 0;
@@ -463,7 +471,7 @@
   z-index: 2;
 }
 
-.focus-mode .react-grid-item [data-reveal='over'] > .container-footer-reveal {
+.react-grid-item [data-rows='hide'][data-reveal='over'] > .container-footer-reveal:not([data-collapsed]) {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -493,6 +501,18 @@
 .container-grip[data-dense='true'] [role='button'] {
   block-size: 1.125rem;
   inline-size: 1.125rem;
+}
+
+/* A container folded to two rows: its footer is as dense as its header. A footer's buttons keep
+   their own widths (a run says its label), and only their height and icons shrink. */
+.container-footer[data-dense='true'] button,
+.container-footer[data-dense='true'] input {
+  block-size: 1.125rem;
+}
+
+.container-footer[data-dense='true'] svg {
+  block-size: 0.625rem;
+  inline-size: 0.625rem;
 }
 
 /* A text chip (the version) keeps its own width — squared to 18px it spilled its label over the branch beside it. */

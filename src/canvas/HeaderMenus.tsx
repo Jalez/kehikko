@@ -58,6 +58,7 @@ import {
 } from 'lucide-react'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { ScopeIcon } from './Scope.tsx'
+import { SHOW_ROWS, SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -1186,9 +1187,16 @@ export function FrameMenu({
   epic,
   onSettings,
   scope = null,
+  rows,
 }: {
   module: string
   name: string
+  /**
+   * When this container's header and footer show (`host/rows.ts`): its own
+   * choice, `null` for the bar's, what the bar says now, and the change. A
+   * "Header and footer" row at every width. Absent: no row.
+   */
+  rows?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
   /** The module's settings (protocol 2.15.0): a "Settings…" row, at every width. Absent: the module declared none. */
   onSettings?(): void
   /**
@@ -1293,6 +1301,28 @@ export function FrameMenu({
               <span className="flex-1">Skills…</span>
               <span className="text-muted-foreground text-[10px]">{offered.state}</span>
             </DropdownMenuItem>
+          ) : null}
+          {rows ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={ROW} data-frame="rows" title="when this container's header and footer show">
+                <Eye className="text-muted-foreground size-3.5" />
+                <span className="flex-1">Header and footer</span>
+                <span className="text-muted-foreground text-[10px]">{rows.mode === null ? 'as the bar' : SHOW_ROWS_SAID[rows.mode].label.toLowerCase()}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1rem)]">
+                <DropdownMenuRadioGroup value={rows.mode ?? 'bar'} onValueChange={(value) => rows.onChange(value === 'bar' ? null : (value as ShowRows))}>
+                  <DropdownMenuRadioItem value="bar" className={ROW} data-rows-choice="bar" title="what the bar's focus control says for every container">
+                    <span className="flex-1">As the bar says</span>
+                    <span className="text-muted-foreground text-[10px]">{SHOW_ROWS_SAID[rows.bar].label.toLowerCase()}</span>
+                  </DropdownMenuRadioItem>
+                  {SHOW_ROWS.map((mode) => (
+                    <DropdownMenuRadioItem key={mode} value={mode} className={ROW} data-rows-choice={mode} title={SHOW_ROWS_SAID[mode].hint}>
+                      <span className="flex-1">{SHOW_ROWS_SAID[mode].label}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           ) : null}
           <DropdownMenuSub onOpenChange={feedback.opened}>
             <DropdownMenuSubTrigger className={ROW} data-frame="feedback">

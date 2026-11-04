@@ -57,6 +57,8 @@ export interface Wished extends Box {
   wish: number
   /** Folded down to its header, which is a state and not a height. */
   collapsed: boolean
+  /** How far it folds: its header alone (1, the default) or its header and footer (2). See `host/rows.ts`. */
+  foldRows?: 1 | 2
 }
 
 /**
@@ -110,6 +112,19 @@ export const SQUEEZED_ROWS = 6
  * folded container's corner pulled past it is an unfold — see `dragged`.
  */
 export const FOLDED_ROWS = 2
+
+/**
+ * The height of a container folded to TWO rows (`foldRows: 2`, `host/rows.ts`):
+ * its header and its footer, each as dense as a one-row fold's header. Twice
+ * `FOLDED_ROWS`, and for the same reason a count: two of whatever a row is,
+ * and the gap between them.
+ */
+export const FOLDED_TWO_ROWS = 4
+
+/** How tall this container is drawn while folded: one row's height, or two. */
+export function foldedHeight(box: Pick<Wished, 'foldRows'>): number {
+  return box.foldRows === 2 ? FOLDED_TWO_ROWS : FOLDED_ROWS
+}
 
 /**
  * Do these two containers share a column?
@@ -264,7 +279,7 @@ export function granted(
      trusted: a wish of no rows is a container deleted by a rounding error, and
      a wish past the canvas is simply "as much as there is". */
   const wanted = (box: Wished) =>
-    box.collapsed ? FOLDED_ROWS : Math.max(1, Math.min(rows, Math.round(box.wish)))
+    box.collapsed ? foldedHeight(box) : Math.max(1, Math.min(rows, Math.round(box.wish)))
 
   /* The least a container may be pushed to by anybody ABOVE it wanting more:
      its wish, if that is under the floor — a container that asked for two rows

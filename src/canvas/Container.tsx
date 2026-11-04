@@ -1,8 +1,4 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  X,
-} from 'lucide-react'
+import { X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
@@ -27,7 +23,8 @@ import { settingsHint } from '@/host/moduleSettings.ts'
 import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
-import { foldHint } from '../host/folds.ts'
+import { FoldControl } from './FoldControl.tsx'
+import { foldChoices, foldDrawn, rowsHide, type FoldRows, type ShowRows } from '@/host/rows.ts'
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
@@ -80,6 +77,12 @@ export function Container({
   onPin,
   collapsed,
   onCollapse,
+  foldRows = 1,
+  onFold,
+  rowsMode,
+  showRows = null,
+  barRows = 'always',
+  onShowRows,
   foldedBy = null,
   header = NO_HEADER,
   onPress = unpressable,
@@ -153,6 +156,23 @@ export function Container({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
+  /**
+   * How far this container folds: its header (1), or its header and footer
+   * (2, offered only while its footer is drawn). See `host/rows.ts`.
+   */
+  foldRows?: FoldRows
+  /** A fold picked from the fold control's menu: remember it, and fold to it. */
+  onFold?(rows: FoldRows): void
+  /**
+   * When this container's header and footer show, as it stands — its own
+   * choice or the bar's (`rowsShown`). Absent: on hover when `reveals` is
+   * given, else always.
+   */
+  rowsMode?: ShowRows
+  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Frame menu. */
+  showRows?: ShowRows | null
+  barRows?: ShowRows
+  onShowRows?(mode: ShowRows | null): void
   /**
    * Who left this container folded or unfolded as it is, when it was not the
    * person — "an agent". The fold control is drawn filled and says so, and a
@@ -329,8 +349,13 @@ export function Container({
   const items = useMemo(() => (onRestart ? withRestart(header, restart, presence.dir !== undefined) : header), [header, restart, onRestart !== undefined, presence.dir])
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
-  const revealed = useRevealed(reveals, presence.id)
-  const footed = drawsFooter(footer, showing.kind === 'page' && !oneEpic, collapsed)
+  const mode: ShowRows = rowsMode ?? (reveals ? 'hover' : 'always')
+  const revealed = useRevealed(reveals, presence.id, mode)
+  /* Whether the module's footer can be drawn at all, and then how the fold is drawn: two rows only
+     when that was chosen and there is a footer to draw (`host/rows.ts`). */
+  const footerDrawn = drawsFooter(footer, showing.kind === 'page' && !oneEpic, false)
+  const fold = foldDrawn(collapsed, foldRows, footerDrawn)
+  const footed = drawsFooter(footer, showing.kind === 'page' && !oneEpic, fold)
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
 
@@ -406,6 +431,11 @@ export function Container({
          its rows reveal OVER its page and never resize it (`index.css`,
          `host/reveal.ts`). */
       data-reveal={revealModeOf(presence.module) === 'over' ? 'over' : undefined}
+      /* Whether this container's rows hide until revealed — on hover or on click, its own choice or
+         the bar's (`host/rows.ts`); the `[data-rows='hide']` rules in `index.css`. */
+      data-rows={rowsHide(mode) ? 'hide' : undefined}
+      data-rows-mode={mode}
+      data-fold={fold || undefined}
       /* In focus mode, the pointer over any part of this container that the
          host document can see — its header, its footer, a cover or notice —
          holds the reveal; the module's page holds it from the frames layer.
@@ -805,6 +835,7 @@ export function Container({
           kehikko={kehikko}
           epic={epic}
           scope={scope}
+          rows={onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined}
         />
 
         {/*
@@ -820,33 +851,14 @@ export function Container({
          * button has to say, before it is pressed, that nothing is being
          * stopped.
          */}
-        <Hint label={foldHint(collapsed, foldedBy)} side="left">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={
-              (collapsed ? 'unfold this container' : 'fold this container down to its header')
-              + (foldedBy ? ` — ${collapsed ? 'folded' : 'unfolded'} by ${foldedBy}` : '')
-            }
-            aria-expanded={!collapsed}
-            data-tour="fold"
-            data-folded-by={foldedBy ?? undefined}
-            className={
-              /* Filled when somebody other than the person left it this way:
-                 the one control that puts it back is the one that stands out,
-                 and it takes no room of its own. */
-              foldedBy
-                ? 'bg-primary text-primary-foreground hover:bg-primary/85 hover:text-primary-foreground size-6 cursor-default'
-                : collapsed
-                  ? 'text-foreground size-6 cursor-default'
-                  : 'text-muted-foreground hover:text-foreground size-6 cursor-default'
-            }
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={() => onCollapse(!collapsed)}
-          >
-            {collapsed ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
-          </Button>
-        </Hint>
+        <FoldControl
+          collapsed={collapsed}
+          foldedBy={foldedBy}
+          foldRows={foldRows}
+          choices={foldChoices(footerDrawn && onFold !== undefined)}
+          onCollapse={onCollapse}
+          onFold={(rows) => onFold?.(rows)}
+        />
 
         {/*
          * There is no pin button here any more, and the pin itself is still
@@ -905,6 +917,14 @@ export function Container({
         instead — the same path a page on another kehikko takes — so the
         document is untouched and comes back exactly as it was.
       */}
+      {/* Folded to two rows: the footer under the header, each half of the folded container, and
+          still live — the page is hidden, the footer's presses still reach it (`host/rows.ts`). */}
+      {fold === 2 ? (
+        <div className="container-footer-reveal min-h-0 flex-1" data-collapsed="true" data-revealed={revealed ? 'true' : undefined}>
+          {/* No `onKeyboard`: the page is hidden, so the keyboard stays where the press was made. */}
+          <FooterBar items={footer} name={name} onPress={onFooterPress} dense />
+        </div>
+      ) : null}
       {collapsed ? null : (
       <>
       {/* The hollow part. Its only jobs are to be measured — the page is

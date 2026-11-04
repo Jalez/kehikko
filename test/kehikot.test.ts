@@ -30,7 +30,7 @@ import {
 } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { viewFile } from '../server/view.ts'
-import { FOLDED_ROWS } from '../src/host/columns.ts'
+import { FOLDED_ROWS, FOLDED_TWO_ROWS } from '../src/host/columns.ts'
 
 /*
  * A project's kehikot in the project's own folder — the copy that travels.
@@ -77,19 +77,26 @@ const everything: Placement = {
   x: 3,
   y: 0,
   w: 5,
-  /* Folded, so drawn at its header's height — as the page would have drawn it. */
-  h: FOLDED_ROWS,
+  /* Folded to two rows, so drawn at its header's and footer's height — as the page would have drawn it. */
+  h: FOLDED_TWO_ROWS,
   grow: true,
   pinned: true,
   prompt: 'read chapter two and say what is missing',
   promptFor: 'kehikot.notes',
   collapsed: true,
+  foldRows: 2,
+  showRows: 'click',
   wish: 20,
   selected: true,
   filters: { scope: 'chapter', kind: 'todo' },
   refreshEvery: 15,
   version: 'v1.2.0',
   scope: null,
+}
+
+/** A placement with how far it folds and when its rows show at rest: left out, as a database row at rest has them. */
+function atRest({ foldRows: _f, showRows: _s, ...rest }: Placement): Placement {
+  return rest
 }
 
 const another: Placement = {
@@ -361,7 +368,7 @@ describe('a file that will not read', () => {
     expect(syncProject(store, p)).toEqual({ file, outcome: 'read', changed: true })
     expect(refusal(dir)).toBeNull()
     expect(listCanvases(store)[0]!.placements).toEqual([
-      { ...everything, h: 20, collapsed: false, selected: false, filters: {} },
+      { ...atRest(everything), h: 20, collapsed: false, selected: false, filters: {} },
     ])
   })
 

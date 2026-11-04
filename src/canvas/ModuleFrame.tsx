@@ -467,7 +467,7 @@ export function ModuleFrame({
    * re-renders this frame alone; the conversation keeps the latest and tells
    * the page only what changed, and again after a greeting. See `host/reveal.ts`.
    */
-  const revealed = useRevealed(covers ? reveals : null, framed.id)
+  const revealed = useRevealed(covers ? reveals : null, framed.id, covers?.by ?? 'hover')
   const coveredTop = coveredBy(covers, revealed).top
   const coveredBottom = coveredBy(covers, revealed).bottom
   coveredRef.current = { top: coveredTop, bottom: coveredBottom }
