@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { browserTest } from './browser-gate.ts'
 
 /*
- * The left side of a container's header — name, version, branch mark, scope —
- * never overlaps, is never cut mid-glyph without an ellipsis and stays one row, at
- * 480, 440, 400, 380, 340, 300, 280, 220 and 200 pixels, folded and not, light and dark, in
+ * The left side of a container's header — name, version, branch mark — never
+ * overlaps, is never cut mid-glyph without an ellipsis and stays one row, and the
+ * checkbox, icon, overflow, fold button and name stay drawn, at 480, 440, 400,
+ * 380, 340, 300, 280, 220, 200 and 160 pixels, folded and not, light and dark, in
  * WebKit and Chromium. `dev/header-fit.drive.mjs` renders it for real, with a
  * stand-in module with a long name, version and branch, and saves a screenshot
  * of the header at each width. It also narrows the window from 1400 to 360 pixels and holds the
@@ -14,7 +15,7 @@ import { browserTest } from './browser-gate.ts'
  * and unpins a place at 400. Runs on bee only (`dev/bee-browser-tests.sh`;
  * `test/browser-gate.ts`).
  */
-browserTest('the header’s name, version, branch and scope never overlap at any width, in WebKit and Chromium', () => {
+browserTest('the header’s name, version and branch never overlap, and what the row keeps stays, at any width, in WebKit and Chromium', () => {
   const root = join(import.meta.dir, '..')
   const run = Bun.spawnSync([process.env.NODE ?? 'node', join(root, 'dev/header-fit.drive.mjs')], {
     cwd: root,

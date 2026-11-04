@@ -2,14 +2,15 @@ import { Flag, Folder, Laptop, LayoutGrid, Puzzle, type LucideIcon } from 'lucid
 import type { ModuleScope } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils.ts'
-import { onlyScopeSaid, scopeRowTooltip, scopeTooltip, type ContainerScope } from '@/host/scope.ts'
+import { onlyScopeSaid, scopeRowTooltip, type ContainerScope } from '@/host/scope.ts'
 import { Hint } from './Hint.tsx'
 
 /**
  * A module's scope, drawn (protocol 2.29.0): what its content belongs to — This
  * computer, Project, Epic, Part or Kehikko — as a small label with its icon.
  * Every rule (which scope is active, what the tooltip says) is in
- * `host/scope.ts`; this file only draws it. The scope is said in words in the
+ * `host/scope.ts`; this file only draws it — the Container menu's row icon, the
+ * modules-menu chip and the settings window's control (not the header row). The scope is said in words in the
  * label, its tooltip and its accessible name, never only by its icon.
  */
 
@@ -25,38 +26,6 @@ const ICONS: Record<ModuleScope, LucideIcon> = {
 export function ScopeIcon({ scope, className }: { scope: ModuleScope; className?: string }) {
   const Icon = ICONS[scope]
   return <Icon aria-hidden="true" className={cn('size-3 shrink-0', className)} />
-}
-
-/**
- * The scope in a container's header: the icon and the scope's name, or the icon
- * alone where the header has no room (`scopeText` in `host/headerFit.ts`, the
- * first thing to give way). A button: it opens the module's settings window,
- * where the scope is picked; its tooltip and name say the scope, whether it is
- * the default, and the module's line for it.
- */
-export function ScopeLabel({ scope, text, onOpen }: { scope: ContainerScope; text: boolean; onOpen?(): void }) {
-  const said = scopeTooltip(scope)
-  return (
-    <Hint label={said} side="bottom" align="start">
-      <button
-        type="button"
-        data-testid="header-scope"
-        /* A text chip: a folded (dense) header squares its other buttons to 18px, not this one (index.css). */
-        data-chip=""
-        data-scope={scope.active}
-        data-scope-default={scope.isDefault ? 'true' : 'false'}
-        aria-label={said}
-        onClick={onOpen}
-        className={cn(
-          'text-muted-foreground hover:text-foreground inline-flex h-5 shrink-0 items-center gap-1 rounded border px-1 text-[10px] leading-none',
-          !scope.isDefault && 'border-primary/40 text-foreground',
-        )}
-      >
-        <ScopeIcon scope={scope.active} />
-        {text ? <span className="whitespace-nowrap">{scope.name}</span> : null}
-      </button>
-    </Hint>
-  )
 }
 
 /**

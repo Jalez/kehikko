@@ -553,7 +553,7 @@ describe('in the container', () => {
     return [...host.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
   }
 
-  test('the module’s menus stand before the host’s Frame, stay when folded, and a module that declares nothing has only Frame', async () => {
+  test('the module’s menus stand before the host’s Container menu, stay when folded, and a module that declares nothing has only Container', async () => {
     expect(await container(false, paper())).toEqual(['view', 'go', 'run', 'frame'])
     act(() => unmount?.())
     /* Folded, the header is as wide as it was and offers the same (`host/headerOffer.ts`). */
@@ -562,13 +562,13 @@ describe('in the container', () => {
     expect(await container(false, [])).toEqual(['frame'])
     /* Tools nobody has been told about are said on the trigger, as the plug said them. */
     expect(trigger('frame')!.getAttribute('data-tools')).toBe('loud')
-    expect(trigger('frame')!.getAttribute('aria-label')).toBe('frame menu of Paper — not connected')
+    expect(trigger('frame')!.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
     await open('frame')
     expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'feedback', 'prompts'])
     expect(Menus.toolsSaying({ kind: 'told', as: 'paper' }, 'Paper')).toMatchObject({ state: 'connected', loud: false })
     expect(Menus.toolsSaying({ kind: 'none' }, 'Paper')).toBeNull()
   })
-  test('a module that offers skills has a Skills row beside Tools, in the Frame menu that stands on the header folded or not', async () => {
+  test('a module that offers skills has a Skills row beside Tools, in the Container menu that stands on the header folded or not', async () => {
     const skills = [{ name: 'paper-cite', summary: 'Cite from the paper.', version: '1' }, { name: 'paper-build', summary: 'Build it.', version: '2' }]
     const module = { declares: { protocol: '>=2', uses: [], storage: false, skills } } as never
     let opened = 0

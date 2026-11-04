@@ -1,7 +1,7 @@
 import { helpOf, type Help } from 'kehikot-module-protocol'
 
 /**
- * A module's "How to use" (protocol 2.52.0), as the host offers it. Pure, shared by the Frame menu,
+ * A module's "How to use" (protocol 2.52.0), as the host offers it. Pure, shared by the Container menu,
  * the modules list and the dialog, so they cannot disagree about which modules have one.
  *
  * The module writes it (`help` in its manifest) and the host draws it as text. The host's own words

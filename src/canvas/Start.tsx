@@ -57,7 +57,7 @@ export function Start({
 /**
  * The press behind `Start`, for every size the notice is drawn at: the button
  * here, the icon button of a one-line notice, and the row of a folded
- * header's Frame menu (`Standing.tsx`). One fetch, one set of outcomes.
+ * header's Container menu (`Standing.tsx`). One fetch, one set of outcomes.
  */
 export function useStart(module: string, onStarted: () => void) {
   const [running, setRunning] = useState(false)

@@ -606,7 +606,7 @@ export function App() {
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
   /* Whose "How to use" is open (protocol 2.52.0): drawn from its manifest's `help`, by the host. */
   const [helpFor, setHelpFor] = useState<string | null>(null)
-  /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Frame menu. */
+  /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Container menu. */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
   /* Where each container's body ended up, measured. The module pages are positioned

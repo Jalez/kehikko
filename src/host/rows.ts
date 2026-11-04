@@ -24,7 +24,7 @@
  *
  * `null` follows the bar: `hover` with focus mode on, `always` with it off.
  *
- * The choice is in two places: the Frame menu's "Header and footer", and the
+ * The choice is in two places: the Container menu's "Header and footer", and the
  * second group of the fold control's held-press menu, under the fold choice.
  *
  * ## How far a fold goes

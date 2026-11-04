@@ -3,7 +3,11 @@ import { headerItemsSchema } from 'kehikot-module-protocol'
 
 import {
   FRAME_ENTRIES,
+  FRAME_TITLE,
+  ROW_PRIORITY,
+  frameHint,
   layoutOf,
+  overflowOf,
   modeFor,
   pinsFor,
   placesOf,
@@ -20,7 +24,7 @@ import {
  * menus' order.
  */
 
-const WIDTHS = [null, 780, 440, 380, 360, 359, 300, 299, 280, 240, 220, 219, 200, 120] as const
+const WIDTHS = [null, 780, 440, 380, 360, 359, 300, 299, 280, 240, 220, 219, 200, 160, 120] as const
 const FOLDS: Fold[] = [0, 1, 2]
 
 const ITEMS = headerItemsSchema.parse([
@@ -71,7 +75,7 @@ describe('where an entry goes', () => {
   const offer = OFFERS['menus and every host entry']!
   const where = (width: number | null) => Object.fromEntries(placesOf(at(offer, width, 0)).map((one) => [one.key, one.place]))
 
-  test('wide: module menus, then Frame; the pinned run and the gear in the row', () => {
+  test('wide: module menus, then Container; the pinned run and the gear in the row', () => {
     const layout = at(offer, 380, 0)
     expect(layout.triggers.map((one) => one.which)).toEqual(['view', 'go', 'run', 'frame'])
     expect(where(380)['item:compile']).toBe('row')
@@ -85,7 +89,7 @@ describe('where an entry goes', () => {
     expect(where(280)['item:compile']).toBe('run')
   })
 
-  test('under 220: one "⋯" with View, Go, Run, then Frame, and Settings among the Frame rows', () => {
+  test('under 220: one "⋯" with View, Go, Run, then Container, and Settings among the Container rows', () => {
     const layout = at(offer, 200, 0)
     expect(layout.gear).toBe(false)
     expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
@@ -105,10 +109,11 @@ describe('where an entry goes', () => {
     expect(clean.kind === 'run' && clean.disabled).toBe('Nothing to clean.')
   })
 
-  test('no module menus: under 220 the Frame menu is the overflow, Settings in it once', () => {
+  test('no module menus: under 220 the "⋯" holds Container alone, Settings in it once — never a trigger of its own', () => {
     const layout = at(OFFERS['no menus, every host entry']!, 200, 0)
-    expect(layout.triggers.map((one) => one.which)).toEqual(['frame'])
-    expect(placesOf(layout).filter((one) => one.key === 'frame:settings')).toEqual([{ key: 'frame:settings', place: 'frame' }])
+    expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
+    expect(layout.triggers[0]!.sections.map((one) => one.kind)).toEqual(['frame'])
+    expect(placesOf(layout).filter((one) => one.key === 'frame:settings')).toEqual([{ key: 'frame:settings', place: 'more' }])
   })
 
   test('a module item called "Settings" is the module’s, and the host’s Settings is still one entry', () => {
@@ -123,5 +128,56 @@ describe('where an entry goes', () => {
     const entries: FrameEntry[] = ['prompts', 'scope', 'feedback']
     const frame = at({ items: [], frame: entries }, 380, 0).triggers[0]!.sections[0]!
     expect(frame.kind === 'frame' && frame.entries).toEqual(['scope', 'feedback', 'prompts'])
+  })
+})
+
+describe('what the row keeps when there is no room', () => {
+  const NARROW = [380, 280, 220, 200, 160] as const
+
+  test('the order: checkbox, icon, "⋯", fold, name', () => {
+    expect([...ROW_PRIORITY]).toEqual(['select', 'icon', 'overflow', 'fold', 'name'])
+  })
+
+  for (const [said, offer] of Object.entries(OFFERS)) {
+    test(`${said}: at 380, 280, 220, 200 and 160, open and folded, the row starts with the priority list`, () => {
+      for (const width of NARROW) {
+        for (const fold of FOLDS) expect(at(offer, width, fold).row.slice(0, ROW_PRIORITY.length), `${width} ${fold}`).toEqual([...ROW_PRIORITY])
+      }
+    })
+
+    test(`${said}: under 220 the row is the priority list and nothing else, and Container is a section of the one "⋯"`, () => {
+      for (const width of [200, 160]) {
+        for (const fold of FOLDS) {
+          const layout = at(offer, width, fold)
+          expect(layout.row, `${width} ${fold}`).toEqual([...ROW_PRIORITY])
+          expect(layout.triggers.map((one) => one.which)).toEqual(['more'])
+          expect(layout.pinned).toEqual([])
+          expect(layout.gear).toBe(false)
+          expect(overflowOf(layout).sections.at(-1)!.kind).toBe('frame')
+        }
+      }
+    })
+
+    test(`${said}: the overflow is always the last trigger and holds the Container rows`, () => {
+      for (const width of NARROW) {
+        const layout = at(offer, width, 0)
+        expect(overflowOf(layout).which).toBe(width < 220 ? 'more' : 'frame')
+        expect(overflowOf(layout).sections.some((one) => one.kind === 'frame')).toBe(true)
+      }
+    })
+  }
+
+  test('at 220 and wider what gives way first is still in the row: menus, gear, pinned runs, after the five', () => {
+    const offer = OFFERS['menus and every host entry']!
+    expect(at(offer, 380, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear', 'pinned'])
+    expect(at(offer, 280, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear'])
+    expect(at(offer, 220, 0).row).toEqual([...ROW_PRIORITY, 'menus', 'gear'])
+  })
+})
+
+describe('what the host’s menu is called', () => {
+  test('Container, with a tooltip that lists what it holds, in its order', () => {
+    expect(FRAME_TITLE).toBe('Container')
+    expect(frameHint(['prompts', 'help', 'rows', 'settings', 'scope', 'feedback'])).toBe('This container: scope, settings, header and footer, how to use it, feedback, prompts')
   })
 })

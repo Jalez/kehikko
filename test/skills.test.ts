@@ -178,7 +178,7 @@ describe('the rows the dialog draws', () => {
     expect(by.broken!.text).toBeNull()
   })
 
-  test('the diff and the Frame row', () => {
+  test('the diff and the Container row', () => {
     expect(lineDiff('a\nb\nc', 'a\nB\nc')).toEqual([
       { kind: 'same', text: 'a' },
       { kind: 'removed', text: 'b' },

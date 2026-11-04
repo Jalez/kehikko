@@ -27,7 +27,7 @@ import { RevealChoices, type Reveal } from './RevealChoices.tsx'
  *
  * Under it, a second group: when this container's header and footer show —
  * as the bar says, always, on hover, on click (`reveal`, the same choice as
- * the Frame menu's "Header and footer", drawn by the same `RevealChoices`).
+ * the Container menu's "Header and footer", drawn by the same `RevealChoices`).
  * It is here as well because this is the control a person holds when the
  * rows are what they are thinking about.
  * Picking one changes when the rows show and folds nothing. With neither a
@@ -177,7 +177,7 @@ export function FoldControl({
         {reveal ? (
           <>
             <DropdownMenuLabel className="text-muted-foreground py-1 text-[11px] font-normal">Header and footer</DropdownMenuLabel>
-            {/* The same component as the Frame menu's "Header and footer": one source, the same words. */}
+            {/* The same component as the Container menu's "Header and footer": one source, the same words. */}
             <RevealChoices reveal={reveal} />
           </>
         ) : null}

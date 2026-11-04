@@ -349,12 +349,12 @@ describe('the gear in the header', () => {
     }
   })
 
-  test('at 200 pixels it is a Frame row in the module’s "⋯", folded or not, and nowhere else', async () => {
+  test('at 200 pixels it is a Container row in the module’s "⋯", folded or not, and nowhere else', async () => {
     let opened = 0
     for (const collapsed of [false, true]) {
       await header(200, collapsed, true, () => (opened += 1))
       expect(gear()).toBeNull()
-      /* One trigger holds the module's menus and the Frame rows: no Frame menu beside it. */
+      /* One trigger holds the module's menus and the Container rows: no Container menu beside it. */
       expect(document.querySelector('[data-menu="frame"]')).toBeNull()
       const more = await openMenu('more')
       const rows = more!.querySelectorAll<HTMLElement>('[data-frame="settings"]')
@@ -369,7 +369,7 @@ describe('the gear in the header', () => {
     expect(opened).toBe(2)
   })
 
-  test('at 220 and wider the gear is Settings, and the Frame menu has no second one', async () => {
+  test('at 220 and wider the gear is Settings, and the Container menu has no second one', async () => {
     for (const [width, collapsed] of [[380, false], [280, true], [220, false]] as const) {
       await header(width, collapsed, true, () => {})
       expect(gear(), `${width}`).not.toBeNull()
@@ -381,7 +381,7 @@ describe('the gear in the header', () => {
     }
   })
 
-  test('a module that declared no settings still gets the gear, or its Frame row under 220: its window has Providers & Consumers', async () => {
+  test('a module that declared no settings still gets the gear, or its Container row under 220: its window has Providers & Consumers', async () => {
     for (const [width, collapsed] of [[380, false], [280, false], [380, true]] as const) {
       let opened = 0
       await header(width, collapsed, false, () => (opened += 1))

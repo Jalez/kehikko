@@ -19,7 +19,7 @@ import { useStart } from './Start.tsx'
  * `StandingBox` fills the body and measures it — the container's own box, with
  * a ResizeObserver, never the window — then draws the full cover, the small
  * one, or one line. `StandingChip` is the folded header's word, and
- * `standingRows` the Frame menu rows that carry the press there.
+ * `standingRows` the Container menu rows that carry the press there.
  *
  * The working state is the kehikko mark at every size, scaled: tiny in the
  * header and the line, small, full. It is still under reduced motion
@@ -236,7 +236,7 @@ export function StandingChip({ standing, said, running }: { standing: Standing; 
   )
 }
 
-/** One row the folded header's Frame menu draws for the state. */
+/** One row the folded header's Container menu draws for the state. */
 export interface StandingRow {
   key: string
   label: string
@@ -247,7 +247,7 @@ export interface StandingRow {
 }
 
 /**
- * The rows a folded container's Frame menu carries for its state: the press
+ * The rows a folded container's Container menu carries for its state: the press
  * the body would have offered, and, for a notice, unfolding to read it all.
  */
 export function standingRows(

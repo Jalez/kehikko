@@ -91,17 +91,15 @@ export const settingsHint = (name: string): string => `${name} settings`
 /**
  * Where a container's settings button goes at a header's width (`MenuMode` of `modeFor`):
  * - `button`: a gear in the row, at 220 px and wider, folded or not;
- * - `more`: under 220, when the module has menus: "Settings…" in the Frame section of its "⋯";
- * - `frame`: under 220 with no module menus: "Settings…" in the Frame menu.
- * Never two of these at once: the Frame rows have "Settings…" only where the gear is not drawn
+ * - `more`: under 220: "Settings…" in the Container section of the one "⋯", module menus or not.
+ * Never two of these at once: the Container rows have "Settings…" only where the gear is not drawn
  * (`layoutOf` in `host/headerOffer.ts`).
  * The gear never changes how the module's own menus are drawn: their mode is the width's.
  */
-export type SettingsPlace = 'button' | 'more' | 'frame'
+export type SettingsPlace = 'button' | 'more'
 
-export function settingsPlaceFor(mode: 'words' | 'icons' | 'merged', menusDrawn: boolean): SettingsPlace {
-  if (mode !== 'merged') return 'button'
-  return menusDrawn ? 'more' : 'frame'
+export function settingsPlaceFor(mode: 'words' | 'icons' | 'merged'): SettingsPlace {
+  return mode === 'merged' ? 'more' : 'button'
 }
 
 /** A value said in a line of text, for the door's read-only tool. */

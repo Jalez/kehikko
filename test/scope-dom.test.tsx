@@ -11,7 +11,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
  * pick sent, and read-only "This module only works for …" for one with one —
  * the scope beside the window's title and on its Providers & Consumers tab, and
  * the scope on each row of the modules menu with its line in the tooltip. The
- * header label and its Frame menu row are in `header-fit.test.tsx`.
+ * header label and its Container menu row are in `header-fit.test.tsx`.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives: Radix
  * decides at load whether it has a DOM.

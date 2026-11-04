@@ -14,7 +14,7 @@ import { COVER_WORDS, type Showing, type Waiting, type noticeOf } from './standi
  *
  * - `header`: folded, so there is no body. The state is a word in the header
  *   (`Updating`, `Stopped`), its sentence in the tooltip, and the action a row
- *   of the header's Frame menu — the one list `layoutOf` lays out
+ *   of the header's Container menu — the one list `layoutOf` lays out
  *   (`host/headerOffer.ts`), which is reachable at every width.
  * - `line`: under `LINE_BELOW` pixels of body. One line: a spinner or icon,
  *   the short word, the action as an icon button.

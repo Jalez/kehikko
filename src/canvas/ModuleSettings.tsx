@@ -31,7 +31,7 @@ import { ScopeControl, ScopeIcon } from './Scope.tsx'
  * A module's settings, drawn from what it declared (`declares.settings`, protocol 2.15.0) and
  * changed through the module's own door, one change at a time: the module writes, and says
  * "saved" or why not. This page holds no value of its own between reads. Reached from the gear in
- * a container's header, from the Frame menu's "Settings…", and from Settings › Modules. Rules and
+ * a container's header, from the Container menu's "Settings…", and from Settings › Modules. Rules and
  * words: `host/moduleSettings.ts`.
  */
 
@@ -483,14 +483,14 @@ function useHeaderMode(anchor: RefObject<HTMLElement | null>): MenuMode {
 
 /**
  * The gear in a container's header, for a module that declared settings. Icon-only, with the
- * tooltip "<Module> settings". Under 220 px it is not drawn: "Settings…" is then a Frame row, in
- * the module's "⋯" when it has menus and in the Frame menu when not (`settingsPlaceFor`). `mode` is for tests;
+ * tooltip "<Module> settings". Under 220 px it is not drawn: "Settings…" is then a Container row in
+ * the one "⋯" (`settingsPlaceFor`). `mode` is for tests;
  * left out, the header is measured.
  */
 export function SettingsButton({ name, onOpen, mode: asked, hint }: { name: string; onOpen(): void; mode?: MenuMode; hint?: (children: ReactElement) => ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null)
   const measured = useHeaderMode(anchor)
-  const place = settingsPlaceFor(asked ?? measured, false)
+  const place = settingsPlaceFor(asked ?? measured)
   return (
     <span ref={anchor} className="contents" data-settings-place={place}>
       {place === 'button'

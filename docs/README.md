@@ -481,10 +481,14 @@ host draws them in the container's header as dropdown menus
 
 The kind decides the menu, so every container reads the same. A menu with
 nothing in it is not drawn, and a module that declares nothing has the header
-it always had. After them comes **Frame**, the host's own menu, on every
-container: the module's tools (the plug), feedback to its authors, and prompts.
-The checkbox, the dot and the name stay direct on the left, and fold and remove
-on the right. The filter, clear and refresh buttons are unchanged.
+it always had. After them comes **Container**, the host's own menu, on every
+container: its scope, the module's settings, tools (the plug), skills, when the
+header and footer show, how to use it, feedback to its authors, and prompts.
+Under 220 pixels the module's menus and Container are sections of one "⋯".
+The checkbox, the dot, the module's icon and the name stay direct on the left,
+and fold and remove on the right; however narrow, the row keeps the checkbox,
+the icon, the "⋯", the fold button and the name, the name cut first. The
+filter, clear and refresh buttons are unchanged.
 
 - **The module owns all the state.** The host draws what was last declared and
   remembers nothing. Choosing an item sends `kehikot.press` with a correlation
@@ -674,7 +678,7 @@ says a kehikko changed, or a project's epics did, over `/host/watch` and the
 page re-reads.
 
 Tell your agent about it from the strip: the plug at the right-hand end. A
-module's own door is under **Tools…** in its container's Frame menu, whose
+module's own door is under **Tools…** in its container's Container menu, whose
 trigger carries a dot while no agent has been told about it. It opens a
 window listing the two tools, says whether an agent has been told, and connects,
 disconnects or repoints on a press — never on its own. That press runs, and the

@@ -272,7 +272,7 @@ describe('the Run menu at the narrow widths', () => {
     document.body.innerHTML = ''
 
     await mount({ at: 200 })
-    /* One "⋯" for everything that did not fit: the module's menus, then the Frame rows. */
+    /* One "⋯" for everything that did not fit: the module's menus, then the Container rows. */
     expect(menus()).toEqual(['more'])
     await open('more')
     expect(document.querySelector('[data-menu-content="more"] [data-section="run"]')).not.toBeNull()

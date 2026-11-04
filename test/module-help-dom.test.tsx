@@ -8,7 +8,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
  * A module's "How to use" (protocol 2.52.0): offered only for a module whose manifest says how, drawn
- * by the host as a dialog of headings and bullet lists, every string as text. The Frame menu's row at
+ * by the host as a dialog of headings and bullet lists, every string as text. The Container menu's row at
  * every width and fold is in `header-offer-dom.test.tsx`.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives: Radix decides at load whether

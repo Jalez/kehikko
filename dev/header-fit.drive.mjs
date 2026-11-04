@@ -5,7 +5,7 @@
  *
  * In WebKit (the desktop app's engine) and Chromium, light and dark, a stand-in module
  * with a long name, a long version, a long branch and the longest scope ("This computer"),
- * in a container made 480, 440, 400, 380, 340, 300, 280, 220 and 200 pixels wide, unfolded and
+ * in a container made 480, 440, 400, 380, 340, 300, 280, 220, 200 and 160 pixels wide, unfolded and
  * folded:
  *
  *   - no two of the header's drawn children (name, version, branch mark, and the controls
@@ -13,8 +13,9 @@
  *   - nothing is cut off mid-glyph: a label wider than its box ends in an ellipsis
  *     (`text-overflow: ellipsis`), and a chip does not clip its icon;
  *   - the header is one row, and does not scroll sideways;
- *   - the scope is a label with its name at 440 and wider and its icon alone under it, its
- *     accessible name and tooltip saying the scope at every width, and a row in the Frame menu;
+ *   - the checkbox, the module's icon, the overflow (the Container trigger, or "⋯" under 220), the
+ *     fold button and the name are drawn inside the header at every width (`ROW_PRIORITY`), and
+ *     there is no scope chip: the scope is a row in the Container menu, which opens the settings window;
  *   - the container's declared footer (protocol 2.38.0) at the same widths: one row no taller than the
  *     header, its items overlapping nothing and inside the row, a text cut with an ellipsis, no
  *     sideways scroll, the optional meter gone and runs as icons under 300, the runs in one "⋯" under
@@ -35,7 +36,7 @@ import { dirname, join } from 'node:path'
 import { bootHost, stop } from './scratch-host.mjs'
 
 const BROWSERS = (process.env.BROWSERS ?? 'webkit,chromium').split(',').filter(Boolean)
-const WIDTHS = [480, 440, 400, 380, 340, 300, 280, 220, 200]
+const WIDTHS = [480, 440, 400, 380, 340, 300, 280, 220, 200, 160]
 const SHOTS =
   process.env.HEADER_FIT_SHOTS ??
   (process.env.KEHIKOT_SCRATCH_PORTS ? join(dirname(process.env.KEHIKOT_SCRATCH_PORTS), 'header-fit-shots') : (process.env.SHOTS ?? '/tmp/kehikko-header-fit'))
@@ -92,7 +93,7 @@ const MEASURE = (id) => {
   }
   /* The header's own children and the name, version and branch inside their wrappers. */
   const items = [...header.children].filter(drawn)
-  const named = ['header-name', 'version-control', 'branch-mark', 'header-scope'].map((t) => header.querySelector(`[data-testid="${t}"]`)).filter((el) => el && drawn(el))
+  const named = ['header-name', 'version-control', 'branch-mark'].map((t) => header.querySelector(`[data-testid="${t}"]`)).filter((el) => el && drawn(el))
   const all = [...new Set([...items, ...named])]
   for (let i = 0; i < all.length; i += 1) {
     for (let j = i + 1; j < all.length; j += 1) {
@@ -111,7 +112,7 @@ const MEASURE = (id) => {
     const style = getComputedStyle(el)
     if (el.scrollWidth > el.clientWidth + 1 && !(style.textOverflow === 'ellipsis' && style.overflow !== 'visible')) bad.push(`${test} is cut without an ellipsis (${el.scrollWidth} > ${el.clientWidth})`)
   }
-  for (const test of ['version-control', 'branch-mark', 'header-scope']) {
+  for (const test of ['version-control', 'branch-mark']) {
     const el = header.querySelector(`[data-testid="${test}"]`)
     if (el && drawn(el) && el.scrollWidth > el.clientWidth + 1) bad.push(`${test} clips its icon (${el.scrollWidth} > ${el.clientWidth})`)
   }
@@ -130,17 +131,23 @@ const MEASURE = (id) => {
     name: header.querySelector('[data-testid="header-name"]')?.getBoundingClientRect().width ?? 0,
     version: named.find((el) => el.dataset.testid === 'version-control') ? 'drawn' : 'gone',
     badge: header.querySelector('[data-testid="branch-label"]') ? 'text' : header.querySelector('[data-testid="branch-mark"]') ? 'icon' : 'gone',
-    scope: (() => {
-      const el = header.querySelector('[data-testid="header-scope"]')
-      if (!el || !drawn(el)) return 'gone'
-      return el.textContent ? 'text' : 'icon'
-    })(),
-    scopeSaid: header.querySelector('[data-testid="header-scope"]')?.getAttribute('aria-label') ?? '',
   }
-  /* The scope is always there, says itself in words, and keeps its name only where it has room. */
-  if (state.scope === 'gone') bad.push('the scope is not drawn')
-  if (!state.scopeSaid.startsWith('Scope: This computer (default).')) bad.push(`the scope says "${state.scopeSaid}"`)
-  if (state.width < 440 && state.scope === 'text') bad.push('the scope kept its name under 440px')
+  /* What the row keeps at every width (`ROW_PRIORITY`): drawn, and inside the header. */
+  const triggers = [...header.querySelectorAll('[data-menu]')]
+  const keeps = {
+    checkbox: header.querySelector('[role="checkbox"]'),
+    icon: header.querySelector('[data-module-icon]'),
+    overflow: triggers.at(-1) ?? null,
+    fold: header.querySelector('[data-tour="fold"]'),
+    name: header.querySelector('[data-testid="header-name"]'),
+  }
+  for (const [what, el] of Object.entries(keeps)) {
+    if (!el || !drawn(el)) bad.push(`the ${what} is not drawn`)
+    else if (rect(el).right > h.right + 0.5) bad.push(`the ${what} is drawn past the header's edge`)
+  }
+  const overflowIs = keeps.overflow?.getAttribute('data-menu')
+  if (state.width < 220 && overflowIs !== 'more') bad.push(`under 220 the overflow is "${overflowIs}", not "⋯"`)
+  if (header.querySelector('[data-testid="header-scope"]')) bad.push('a scope chip is drawn in the row')
   return { bad, state }
 }
 
@@ -320,7 +327,7 @@ async function drive(kind, browserType) {
         const { bad, state } = await page.evaluate(MEASURE, MODULE)
         const header = page.locator(`[data-module="${MODULE}"] header.container-grip`)
         await header.screenshot({ path: join(SHOTS, `${kind}-${scheme}-${folded ? 'folded' : 'open'}-${width}.png`) })
-        say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: header ${state.width}px, name ${Math.round(state.name)}px, version ${state.version}, branch ${state.badge}, scope ${state.scope}${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
+        say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: header ${state.width}px, name ${Math.round(state.name)}px, version ${state.version}, branch ${state.badge}${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
         if (bad.length) failures.push(`${run}: ${bad[0]}`)
         /* The declared footer at the same width: one row; and none at all when folded. */
         const foot = await page.evaluate(MEASURE_FOOTER, MODULE)
@@ -332,7 +339,7 @@ async function drive(kind, browserType) {
         if (footBad.length) failures.push(`${run} footer: ${footBad[0]}`)
       }
     }
-    /* Narrow and open: the scope's icon raises its tooltip, and the Frame menu has the scope as a row. */
+    /* Narrow and open: the Container menu has the scope as a row, and the row opens the settings window. */
     {
       const fold = page.locator(`[data-module="${MODULE}"] button[data-tour="fold"]`)
       if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
@@ -342,17 +349,6 @@ async function drive(kind, browserType) {
         box.style.setProperty('max-width', `${w}px`, 'important')
       }, [MODULE, 220])
       await page.waitForTimeout(250)
-      const run = `${kind} ${scheme} 220px scope`
-      await page.locator(`[data-module="${MODULE}"] [data-testid="header-scope"]`).hover()
-      const tip = page.locator('[role="tooltip"]', { hasText: 'Scope: This computer' })
-      try {
-        await tip.first().waitFor({ timeout: 4000 })
-        await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-tooltip-220.png`), clip: await clipAround(page, MODULE) })
-        say(`ok   ${run}: the icon's tooltip says the scope`)
-      } catch {
-        failures.push(`${run}: no tooltip on the scope's icon`)
-        say(`FAIL ${run}: no tooltip on the scope's icon`)
-      }
       await page.mouse.move(5, 5)
       await page.locator(`[data-module="${MODULE}"] [data-menu="frame"]`).click()
       const row = page.locator('[data-frame="scope"]')
@@ -360,8 +356,8 @@ async function drive(kind, browserType) {
         await row.waitFor({ timeout: 4000 })
         const text = await row.textContent()
         if (!text?.includes('Scope: This computer')) throw new Error(text ?? '')
-        await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-frame-menu-220.png`), clip: await clipAround(page, MODULE, 260) })
-        say(`ok   ${kind} ${scheme} 220px frame menu: "${text}"`)
+        await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-container-menu-220.png`), clip: await clipAround(page, MODULE, 260) })
+        say(`ok   ${kind} ${scheme} 220px container menu: "${text}"`)
         /* The row opens the settings window: the Scope control at its top, the default marked. */
         await row.click()
         const control = page.locator('[data-testid="scope-control"]')
@@ -371,7 +367,7 @@ async function drive(kind, browserType) {
         await page.locator('[data-module-settings-dialog]').screenshot({ path: join(SHOTS, `${kind}-${scheme}-scope-settings.png`) })
         say(`ok   ${kind} ${scheme} settings window: ${options.length} scopes, the default marked`)
       } catch (error) {
-        failures.push(`${kind} ${scheme} 220px: the Frame menu's scope row or the settings window failed (${error.message})`)
+        failures.push(`${kind} ${scheme} 220px: the Container menu's scope row or the settings window failed (${error.message})`)
       }
       await page.keyboard.press('Escape')
       await page.waitForTimeout(300)

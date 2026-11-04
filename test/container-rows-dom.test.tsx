@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  * between two containers as the person clicks into one page and then another;
  * the fold control's menu of one row or two, by a long press and by the
  * keyboard; a container folded to two rows with its footer live; and the
- * Frame menu's say over when the rows show.
+ * Container menu's say over when the rows show.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives.
  */
@@ -391,7 +391,7 @@ describe('the fold control: one row or two', () => {
     expect(chosen).toEqual([null])
   })
 
-  test('the Frame menu\'s "Header and footer" is there folded, with no footer and focus mode off', async () => {
+  test('the Container menu\'s "Header and footer" is there folded, with no footer and focus mode off', async () => {
     await mount(box('kehikot.a', { collapsed: true, footer: [], showRows: null, barRows: 'always', onShowRows: nothing }))
     const trigger = container('kehikot.a').querySelector<HTMLElement>('[data-menu="frame"]')!
     await act(async () => {
@@ -403,7 +403,7 @@ describe('the fold control: one row or two', () => {
     expect(rows.textContent).toContain('as the bar')
   })
 
-  test('the Frame menu says when the rows show, and changes it', async () => {
+  test('the Container menu says when the rows show, and changes it', async () => {
     const chosen: unknown[] = []
     await mount(box('kehikot.a', { showRows: null, barRows: 'hover', onShowRows: (mode) => void chosen.push(mode) }))
     const trigger = container('kehikot.a').querySelector<HTMLElement>('[data-menu="frame"]')!
@@ -600,7 +600,7 @@ describe('each container keeps its own reveal mode', () => {
     })
     await act(async () => foldMenu()!.querySelector<HTMLElement>('[data-reveal-choice="click"]')!.click())
     await act(async () => wait(10))
-    /* B to hover, from its Frame menu. */
+    /* B to hover, from its Container menu. */
     await openFrameMenu('kehikot.b')
     await act(async () => document.querySelector<HTMLElement>('[data-reveal-choice="hover"]')!.click())
     await act(async () => wait(10))
@@ -778,7 +778,7 @@ describe('reveal on click and on long press, press by press', () => {
     expect([revealed('kehikot.a'), revealed('kehikot.b')]).toEqual([false, true])
   })
 
-  test('long press is offered in the Frame menu and the fold control\'s menu, the same words from one source', async () => {
+  test('long press is offered in the Container menu and the fold control\'s menu, the same words from one source', async () => {
     await mount(box('kehikot.a', { footer: footer(), showRows: null, barRows: 'always', onShowRows: nothing, onFold: nothing }))
     await openFrameMenu('kehikot.a')
     const inFrame = [...document.querySelectorAll<HTMLElement>('[data-reveal-choice]')].map((one) => one.textContent)
