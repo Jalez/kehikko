@@ -23,10 +23,12 @@ import {
   ensureCanvases,
   epicFromKehikot,
   hintSubject,
+  keepFor,
   keepState,
   listCanvases,
   listSubjects,
   open,
+  readKept,
   readState,
   readSubject,
   setSubject,
@@ -870,6 +872,8 @@ async function survey(kept = false): Promise<{
         return {
           ...presence,
           state: readState(db, presence.id),
+          /* Protocol 2.51.0: what it kept for each of its containers, by kehikko id. */
+          kept: readKept(db, presence.id),
           agent: awareness(presence),
           /* Where the registration says the program lives, for the details under a
              row in the module list. Absent for a module somebody starts themselves. */
@@ -3342,6 +3346,10 @@ async function answerRequest(request: Request): Promise<Response> {
            here from a page would be a way to name any folder on the disk, and
            this is the endpoint every framed module can reach. */
         project?: unknown
+        /* Which kehikko the frame stands on, as an id, for a write kept per
+           container (protocol 2.51.0). Supplied by the page for the reason
+           `project` is; checked against the placements before anything is kept. */
+        kehikko?: unknown
       } | null
 
       if (!body || typeof body.module !== 'string' || typeof body.method !== 'string') {
@@ -3382,7 +3390,17 @@ async function answerRequest(request: Request): Promise<Response> {
           body.method,
           body.params,
           (id) => callers.has(id),
-          (module, state) => keepState(db, module, state),
+          /* Protocol 2.51.0: for the container — the module on the kehikko the
+             module names, else the one its frame stands on (`kehikko`, from the
+             page). Module-wide only when nothing says which. */
+          (module, state, kehikko) => {
+            const at = kehikko ?? (typeof body.kehikko === 'number' && Number.isInteger(body.kehikko) ? body.kehikko : null)
+            if (at === null) {
+              keepState(db, module, state)
+              return true
+            }
+            return keepFor(db, at, module, state)
+          },
           rootOf(body.project),
           /* A mark from a frame is a person's press inside a module, so it is
              signed with the module's name — the one the registry last heard it

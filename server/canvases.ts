@@ -605,13 +605,12 @@ export function open(file = databaseFile()): Database {
     create index if not exists placements_by_module on placements (module);
 
     /*
-     * What a module asked the host to keep for it.
+     * What a module asked the host to keep for it, before protocol 2.51.0.
      *
-     * Keyed by module and by nothing else — not by canvas. A module's page is
-     * loaded once and shown on whichever canvas asks for it, so one module is
-     * one document with one set of preferences; state per canvas would need the
-     * document to be told it had moved, which is a message the protocol does
-     * not have and should not grow.
+     * Keyed by module and by nothing else — one string for every container of
+     * the module on every kehikko. Still read, as what a container that has
+     * kept nothing of its own starts from, and still written for a write that
+     * names no container; see container_state below.
      *
      * The host never reads the value. It is a string in, the same string out,
      * and keeping it that way is what stops this table becoming a settings
@@ -620,6 +619,29 @@ export function open(file = databaseFile()): Database {
     create table if not exists module_state (
       module text primary key,
       state  text not null
+    );
+
+    /*
+     * What a module asked the host to keep for ONE container: the module on
+     * one kehikko (protocol 2.51.0, state.set with kehikko).
+     *
+     * The same module on two kehikot is two ways of looking, and keyed by
+     * module they fought over one view — the last kehikko written won on both.
+     * Every context names its kehikko, so the page can be told this
+     * container's string when the person moves (context.kept), exactly as
+     * it is told this container's filters.
+     *
+     * Not on the placements row, because the page writes those whole and a
+     * module writes this; one table each, so neither overwrites the other. Not
+     * cascaded from placements either, which a save deletes and re-inserts:
+     * only from the kehikko. A container taken off and put back finds its view.
+     * LOCAL, like module_state: it is never written into the project.
+     */
+    create table if not exists container_state (
+      canvas integer not null references canvases(id) on delete cascade,
+      module text    not null,
+      state  text    not null,
+      primary key (canvas, module)
     );
   `)
   add(db, 'placements', 'grow', 'integer not null default 0')
@@ -1546,6 +1568,37 @@ export function keepState(db: Database, module: string, state: string): void {
     module,
     state.slice(0, LIMITS.MODULE_STATE),
   )
+}
+
+/**
+ * What this module asked to keep for each of its containers, by kehikko id
+ * (protocol 2.51.0). A kehikko with no entry has kept nothing of its own and
+ * starts from `readState`.
+ */
+export function readKept(db: Database, module: string): Record<number, string> {
+  const kept: Record<number, string> = {}
+  for (const row of db
+    .query<{ canvas: number; state: string }, [string]>('select canvas, state from container_state where module = ?')
+    .all(module)) {
+    kept[row.canvas] = row.state
+  }
+  return kept
+}
+
+/**
+ * Keep a string for one container: this module on kehikko `canvas`. Kept only
+ * when the module is on that kehikko — a module names its own containers and
+ * no other — and `false` otherwise. The host does not read it.
+ */
+export function keepFor(db: Database, canvas: number, module: string, state: string): boolean {
+  const placed = db.query<{ one: number }, [number, string]>('select 1 as one from placements where canvas = ? and module = ?').get(canvas, module)
+  if (!placed) return false
+  db.query('insert or replace into container_state (canvas, module, state) values (?, ?, ?)').run(
+    canvas,
+    module,
+    state.slice(0, LIMITS.MODULE_STATE),
+  )
+  return true
 }
 
 function tidyName(name: string | undefined): string | null {

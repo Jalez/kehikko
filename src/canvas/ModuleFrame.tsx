@@ -180,8 +180,12 @@ export function ModuleFrame({
       prompt,
       filters: JSON.parse(filtersKey) as FilterChoice,
       ...(scope ? { scope } : {}),
+      /* Protocol 2.51.0: what the module kept for THIS container, carried on
+         every context so its page has the other kehikko's when the person
+         moves. The same string the greeting carries; the page never reads it. */
+      kept: state,
     }),
-    [context, builtWith, pinned, prompt, filtersKey, scope],
+    [context, builtWith, pinned, prompt, filtersKey, scope, state],
   )
 
   const contextRef = useRef(told)
@@ -243,6 +247,9 @@ export function ModuleFrame({
         show: (from, showing) => canvasRef.current.show(from, showing),
         emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
         project: () => canvasRef.current.project(),
+        /* The kehikko THIS frame was last told it is on, pinned or not (protocol 2.51.0). */
+        kehikko: () => contextRef.current.kehikko?.id ?? null,
+        kept: (module, kehikko, state) => canvasRef.current.kept?.(module, kehikko, state),
         filter: (from, choice) => canvasRef.current.filter(from, choice),
         activity: (from, items) =>
           canvasRef.current.activity?.(from, items) ?? { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' },

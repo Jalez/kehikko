@@ -65,6 +65,7 @@ import {
   type PressOrder,
   type JumpOrder,
 } from './host/canvases.ts'
+import { keptFor, keptWritten } from './host/kept.ts'
 import { markAfter, markStands, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
 import { JumpMark } from './canvas/JumpMark.tsx'
 import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
@@ -404,6 +405,8 @@ export function App() {
   /* An agent's jump into another project, carried on once that project's epics are read there. */
   const agentArrival = useRef<{ project: number; cleared: boolean; timer: number; resolve(answer: GotoAnswer): void; apply(): GotoAnswer } | null>(null)
   const [openId, setOpenIdNow] = useState<number | null>(null)
+  /* What modules kept for their containers while this page was open (`host/kept.ts`). */
+  const [keptHere, setKeptHere] = useState<ReadonlyMap<string, string>>(() => new Map())
   const openIdRef = useRef(openId)
   openIdRef.current = openId
   /*
@@ -2240,6 +2243,10 @@ export function App() {
          table — see `project` on `CanvasControls` for why a path must not come
          from this side. */
       project: () => projectRef.current,
+      /* A module kept a string for one of its containers (protocol 2.51.0):
+         held here so the next context for that container carries it before
+         the registry sweep has read it back. */
+      kept: (module, kehikko, state) => setKeptHere((was) => keptWritten(was, module, kehikko, state)),
       /* `from` arrives already decided, as it does for `emit`, and here it
          matters more: a module that could name its own target would be able to
          move another container's filters, and a filter is what somebody is
@@ -4349,7 +4356,8 @@ export function App() {
                kept, as a folded page is, so it is all still there when an epic
                is picked again. See `host/scope.ts`. */
             !coveredForScope(about.scope, module, placements.find((p) => p.i === id)?.pinned ?? false, placements.find((p) => p.i === id)?.scope ?? null),
-          state: byId.get(id)?.state ?? null,
+          /* This container's kept string (protocol 2.51.0): see `host/kept.ts`. */
+          state: keptFor(byId.get(id), id, openId, keptHere),
           /* The container's scope (protocol 2.29.0): the person's pick among its
              module's, or its default, and `project` on "All epics" for one at
              Epic or Part. A pinned container is not moved by "All epics". */
@@ -4383,7 +4391,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers, focus])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers, focus, keptHere])
 
   /*
    * A switch of kehikko or project, without the fidget: the kehikko being left

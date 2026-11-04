@@ -207,7 +207,7 @@ export function answer(
    * calling it; a `Database` in the signature would mean a temp file per test
    * for the sake of one branch.
    */
-  keep: (module: string, state: string) => void = () => {},
+  keep: (module: string, state: string, kehikko: number | null) => boolean | void = () => {},
   /**
    * Which project folder this call is about, or null.
    *
@@ -480,11 +480,16 @@ export function answer(
    * registry at the top of this function. A module cannot write another's state
    * because it has no way to name one: the id comes from the registry, not from
    * the call.
+   *
+   * Protocol 2.51.0: for one CONTAINER, the module on the kehikko the call
+   * names (`kehikko`) — the one the module was last told it is on. `keep`
+   * answers `false` when the module is not on that kehikko: a module names its
+   * own containers and nobody else's.
    */
   case 'state.set': {
-    const { state } = parsed.data as { state: string }
-    keep(moduleId, state)
-    return nothingToShow('state.set', { kept: true })
+    const { state, kehikko } = parsed.data as { state: string; kehikko?: number }
+    const kept = keep(moduleId, state, kehikko ?? null)
+    return nothingToShow('state.set', { kept: kept !== false })
   }
 
   /**
@@ -742,7 +747,7 @@ export async function answerCall(
   method: string,
   rawParams: unknown,
   knownModule: (id: string) => boolean,
-  keep: (module: string, state: string) => void,
+  keep: (module: string, state: string, kehikko: number | null) => boolean | void,
   root: string | null,
   mark: (module: string, root: string | null, marking: Marking) => Marked,
   trackers: TrackerDoor | null,
