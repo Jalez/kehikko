@@ -164,3 +164,51 @@ describe('a module installed from a repository, never awake', () => {
     expect(namedByLists('kehikot.unlisted', [official, mine])).toBeNull()
   })
 })
+
+describe('a module that is not answering', () => {
+  const stale = { name: 'Codex', summary: 'old', tags: ['old'], icon: 'lucide:bot' }
+  const listed = { name: 'Codex', summary: 'new', tags: ['agents'], icon: 'brand:openai' }
+
+  test('the official list outranks a stale remembered icon', async () => {
+    const { settle } = await import('../server/known.ts')
+    expect(settle({ listed, was: stale })).toEqual({ name: 'Codex', summary: 'new', tags: ['agents'], icon: 'brand:openai' })
+  })
+
+  test('the installed copy outranks what was remembered, and the list outranks the installed copy', async () => {
+    const { settle } = await import('../server/known.ts')
+    expect(settle({ installed: { name: 'Codex', icon: 'brand:openai' }, was: stale })?.icon).toBe('brand:openai')
+    expect(settle({ listed, installed: { name: 'Codex', icon: 'brand:claude' }, was: stale })?.icon).toBe('brand:openai')
+  })
+
+  test('a live manifest still wins', async () => {
+    const { settle } = await import('../server/known.ts')
+    expect(settle({ live: { name: 'Codex', icon: 'brand:claude' }, listed, was: stale })?.icon).toBe('brand:claude')
+  })
+
+  test('a module on no list keeps its remembered icon', async () => {
+    const { settle } = await import('../server/known.ts')
+    expect(settle({ installed: { name: 'Mine' }, was: { ...stale, name: 'Mine', icon: 'lucide:rocket' } })?.icon).toBe('lucide:rocket')
+    expect(settle({})).toBeNull()
+  })
+
+  test('the installed copy is read as text, and the row follows it', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { describeFolder } = await import('../server/myModules.ts')
+    const dir = mkdtempSync(join(tmpdir(), 'known-'))
+    writeFileSync(
+      join(dir, 'manifest.ts'),
+      `import { manifestSchema } from 'kehikot-module-protocol'\nexport const ID = 'kehikot.codex'\nexport const manifest = manifestSchema.parse({\n  id: ID,\n  name: 'Codex',\n  icon: 'brand:openai',\n  summary: 'A terminal.',\n  tags: ['agents'],\n})\n`,
+    )
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { 'kehikot-module-protocol': '2.6.0' } }))
+    const read = describeFolder(dir)
+    expect(read?.icon).toBe('brand:openai')
+    const db = fresh()
+    remember(db, 'kehikot.codex', 'Codex', { icon: 'lucide:bot' })
+    const { settle } = await import('../server/known.ts')
+    const said = settle({ installed: read, was: known(db).get('kehikot.codex') })!
+    remember(db, 'kehikot.codex', said.name, said)
+    expect(known(db).get('kehikot.codex')?.icon).toBe('brand:openai')
+  })
+})
