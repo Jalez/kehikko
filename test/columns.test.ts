@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   FOLDED_ROWS,
+  FOLDED_TWO_ROWS,
   SQUEEZED_ROWS,
   below,
   dragged,
@@ -514,6 +515,20 @@ describe('a hand on the corner', () => {
   /* The invariant. A container drawn at sixteen because a neighbour took its
      rows still wishes for thirty-six, and releasing its corner at sixteen must not
      turn the squeeze into a choice. */
+  /* Where the host draws the module's footer, two rows is a fold too: the header and the footer. */
+  test('with a footer drawn, dragged to two rows is a two-row fold; to one row a one-row fold; past two an unfold', () => {
+    expect(dragged(open, FOLDED_TWO_ROWS, true)).toEqual({ wish: 28, collapsed: true, foldRows: 2 })
+    expect(dragged(open, FOLDED_ROWS + 1, true)).toEqual({ wish: 28, collapsed: true, foldRows: 2 })
+    expect(dragged(open, FOLDED_ROWS, true)).toEqual({ wish: 28, collapsed: true, foldRows: 1 })
+    const two = { h: FOLDED_TWO_ROWS, wish: 28, collapsed: true }
+    expect(dragged(two, FOLDED_ROWS, true)).toEqual({ wish: 28, collapsed: true, foldRows: 1 })
+    expect(dragged(two, FOLDED_TWO_ROWS + 1, true)).toEqual({ wish: FOLDED_TWO_ROWS + 1, collapsed: false })
+  })
+
+  test('with no footer, two rows is a height like any other', () => {
+    expect(dragged(open, FOLDED_TWO_ROWS)).toEqual({ wish: FOLDED_TWO_ROWS, collapsed: false })
+  })
+
   test('a squeezed container released at its drawn height keeps its wish', () => {
     expect(dragged({ h: 16, wish: 36, collapsed: false }, 16)).toEqual({ wish: 36, collapsed: false })
   })

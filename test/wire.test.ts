@@ -973,3 +973,24 @@ describe('whether the page is on screen (kehikot.visible, protocol 2.45.0)', () 
     expect(visible(sent)).toHaveLength(2)
   })
 })
+
+describe('a page\'s own presses (kehikot.pointer, protocol 2.49.0)', () => {
+  test('the greeting asks for them, and each one reaches the canvas with its phase and the page\'s time', () => {
+    const { frame, contentWindow, sent } = frameAndWindow()
+    const heard: [string, number][] = []
+    const conversation = new Conversation(frame, 'example.notes', null, async () => nothing, {
+      ...quiet(),
+      pointer: (phase, at) => void heard.push([phase, at]),
+    })
+    conversation.greet(context)
+    expect(sent[0]!.message.pointer).toBe(true)
+    for (const [phase, at] of [['down', 10], ['up', 620.5], ['cancel', 700]] as const) {
+      expect(conversation.receive({ source: contentWindow, origin: 'null', data: { type: MESSAGE.POINTER, phase, at } })).toBe(true)
+    }
+    expect(heard).toEqual([['down', 10], ['up', 620.5], ['cancel', 700]])
+    /* From another window: not this page's press. */
+    conversation.receive({ source: { postMessage() {} } as unknown as Window, origin: 'null', data: { type: MESSAGE.POINTER, phase: 'down', at: 1 } })
+    expect(heard).toHaveLength(3)
+    conversation.close()
+  })
+})

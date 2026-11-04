@@ -6,6 +6,7 @@ import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, dragged, granted, tops } from './columns.ts'
+import { SHOW_ROWS } from './rows.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
@@ -63,7 +64,7 @@ export const placementSchema = z.object({
    * bar's say.
    */
   foldRows: z.union([z.literal(1), z.literal(2)]).optional(),
-  showRows: z.enum(['always', 'hover', 'click']).nullable().optional(),
+  showRows: z.enum(SHOW_ROWS).nullable().optional(),
   /**
    * The height its owner last asked for, in rows.
    *
@@ -233,7 +234,14 @@ export interface GridItem {
  * `given` the rows a top edge traded with the containers on top of it; see
  * `onLayoutChange`.
  */
-export function fromGrid(was: readonly Placement[], next: readonly GridItem[], held: string | null, given: ReadonlyMap<string, number>): Placement[] {
+export function fromGrid(
+  was: readonly Placement[],
+  next: readonly GridItem[],
+  held: string | null,
+  given: ReadonlyMap<string, number>,
+  /** Whether the host draws this container's footer, so a corner pulled to two rows is a two-row fold (`dragged`). */
+  twoRows: (id: string) => boolean = () => false,
+): Placement[] {
   return next.map((item) => {
     const before = was.find((p) => p.i === item.i)
     /*
@@ -245,8 +253,9 @@ export function fromGrid(was: readonly Placement[], next: readonly GridItem[], h
      */
     const said =
       before && held === item.i
-        ? dragged(before, item.h)
+        ? dragged(before, item.h, twoRows(item.i))
         : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
+    const foldRows = 'foldRows' in said && said.foldRows !== undefined ? said.foldRows : before?.foldRows
     return {
       i: item.i,
       x: item.x,
@@ -259,7 +268,7 @@ export function fromGrid(was: readonly Placement[], next: readonly GridItem[], h
       promptFor: before?.promptFor ?? null,
       collapsed: said.collapsed,
       /* How far it folds and when its rows show: a drag is a fold or not, never a change of these. */
-      ...(before?.foldRows !== undefined ? { foldRows: before.foldRows } : {}),
+      ...(foldRows === 2 ? { foldRows } : {}),
       ...(before?.showRows !== undefined ? { showRows: before.showRows } : {}),
       wish: given.get(item.i) ?? said.wish,
       selected: before?.selected ?? false,

@@ -162,6 +162,13 @@ export interface ConversationWatcher {
    * takes the footer away.
    */
   footer?(items: FooterItem[]): void
+  /**
+   * The person pressed, or let go, inside this module's page
+   * (`kehikot.pointer`, protocol 2.49.0): `at` is the page's own clock, for
+   * the length of a press. How a container's rows are revealed on a click or
+   * a held press inside its page (`host/rows.ts`).
+   */
+  pointer?(phase: 'down' | 'up' | 'cancel', at: number): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -327,6 +334,9 @@ export class Conversation {
       /* Protocol 2.46.0: the footer kinds `FooterBar` draws, a field among them. A host that names
          none draws the 2.38.0 kinds, so a module sends a field only to a host that says so. */
       footerKinds: [...FOOTER_KINDS],
+      /* Protocol 2.49.0: tell me when the person presses inside the page, so a container's rows can be
+         revealed on a click or a held press in it (`host/rows.ts`). An older module sends nothing. */
+      pointer: true,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -781,6 +791,11 @@ export class Conversation {
       /* As the header: handed on as parsed. Text and meters only say
          something; what a pressable item does is the module's. */
       this.watcher.footer?.(message.items)
+      return true
+    }
+
+    case MESSAGE.POINTER: {
+      this.watcher.pointer?.(message.phase, message.at)
       return true
     }
 
