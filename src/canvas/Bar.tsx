@@ -117,6 +117,7 @@ export function Bar({
   onTools,
   trouble,
   onLookAgain,
+  onHelp,
   looking,
   tracker = null,
   onRefreshTrackers = () => {},
@@ -179,6 +180,8 @@ export function Bar({
   trouble: string | null
   /** Sweep the registry now. */
   onLookAgain(): void
+  /** Open a module's "How to use" (protocol 2.52.0): the "?" on its row in the modules list. */
+  onHelp?(id: string): void
   looking: boolean
   /** The open project's tracker reading, or null with no project open. See `TrackerReading.tsx`. */
   tracker?: TrackerState | null
@@ -501,6 +504,7 @@ export function Bar({
               onPlace={onPlace}
               onUnplace={onUnplace}
               onLookAgain={onLookAgain}
+              onHelp={onHelp}
             />
           </PopoverContent>
         </Popover>

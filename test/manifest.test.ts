@@ -254,3 +254,16 @@ describe('the categories a module files itself under', () => {
     }
   })
 })
+
+describe('how to use the module (protocol 2.52.0)', () => {
+  test('help is carried as plain one-line text, and a module that says none, or a malformed one, has none', async () => {
+    const help = { summary: 'What\nit is for.', sections: [{ title: 'Use', points: ['Press it.'] }] }
+    const carried = await look(registration, serving({ ...good, help }))
+    expect(carried.condition).toBe('ready')
+    expect(carried.module?.help).toEqual({ summary: 'What it is for.', sections: [{ title: 'Use', points: ['Press it.'] }] })
+    expect((await look(registration, serving(good))).module?.help).toBeUndefined()
+    const malformed = await look(registration, serving({ ...good, help: { summary: 'x'.repeat(500) } }))
+    expect(malformed.condition).toBe('ready')
+    expect(malformed.module?.help).toBeUndefined()
+  })
+})

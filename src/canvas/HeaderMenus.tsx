@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   CircleStop,
   Code,
   Columns2,
@@ -1211,6 +1212,11 @@ export interface FrameParts {
    */
   skills?: readonly { name: string }[]
   onSkills?(): void
+  /**
+   * Open the module's "How to use" (protocol 2.52.0, `help` in its manifest). Given only for a module
+   * that says how: a "How to use…" row at every width, folded too, in the one list `layoutOf` places.
+   */
+  onHelp?(): void
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
@@ -1225,6 +1231,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (toolsSaying(parts.agent, parts.name)) out.push('tools')
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
   if (parts.rows) out.push('rows')
+  if (parts.onHelp) out.push('help')
   out.push('feedback', 'prompts')
   return out
 }
@@ -1291,6 +1298,12 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       ) : null}
+      {has('help') && parts.onHelp ? (
+        <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-frame="help" onSelect={parts.onHelp}>
+          <CircleHelp className="text-muted-foreground size-3.5" />
+          <span className="flex-1">How to use…</span>
+        </DropdownMenuItem>
+      ) : null}
       {has('feedback') ? (
         <DropdownMenuSub onOpenChange={feedback.opened}>
           <DropdownMenuSubTrigger className={ROW} data-frame="feedback">
@@ -1334,7 +1347,7 @@ export function FrameMenu({ parts, entries }: { parts: FrameParts; entries: read
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <Word
-        hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}feedback and prompts`}
+        hint={tools?.loud ? tools.hint : `frame: ${name}'s tools${offered ? ', skills' : ''}, ${rows ? 'when its header and footer show, ' : ''}${parts.onHelp ? 'how to use it, ' : ''}feedback and prompts`}
         word={null}
         quiet={quiet}
       >

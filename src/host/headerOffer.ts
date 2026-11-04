@@ -5,7 +5,7 @@
  * A header holds two kinds of menus: the module's own (View, Go, Run, from what
  * it declared — `menusOf` in `host/header.ts`) and the host's Frame menu (the
  * module's settings, its tools, skills, when its header and footer show,
- * feedback, prompts). They used to be decided in three places — the module's
+ * how to use it, feedback, prompts). They used to be decided in three places — the module's
  * menus by width, the settings gear by width again, the Frame menu by nothing —
  * and folding hid the module's menus outright. So the same container offered
  * different things at 380 pixels, at 200, and folded, and some things twice:
@@ -76,7 +76,7 @@ export function pinsFor(width: number | null): boolean {
  * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
  * no body to hold it, it is the first rows of this menu, so it stays reachable.
  */
-export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'feedback', 'prompts'] as const
+export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /** What the Frame menu is called, as a trigger and as the overflow's last section. */

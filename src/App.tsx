@@ -16,6 +16,8 @@ import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
+import { ModuleHelpDialog } from './canvas/ModuleHelp.tsx'
+import { helpFor as helpOfModule } from './host/moduleHelp.ts'
 import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
@@ -602,6 +604,8 @@ export function App() {
   const [toolsFor, setToolsFor] = useState<string | null>(null)
   /* Whose agent skills are open (protocol 2.5.0). See `Skills.tsx`. */
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
+  /* Whose "How to use" is open (protocol 2.52.0): drawn from its manifest's `help`, by the host. */
+  const [helpFor, setHelpFor] = useState<string | null>(null)
   /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Frame menu. */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
@@ -4592,6 +4596,7 @@ export function App() {
         onTheme={onTheme}
         trouble={trouble}
         onLookAgain={() => void look(true)}
+        onHelp={setHelpFor}
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
@@ -4967,6 +4972,7 @@ export function App() {
                   onPrompts={() => setPrompting(presence.id)}
                   onTools={() => setToolsFor(presence.id)}
                   onSkills={() => setSkillsFor(presence.id)}
+                  onHelp={() => setHelpFor(presence.id)}
                   onSettings={() => setSettingsFor(presence.id)}
                   scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
                   onStarted={() => void look(true)}
@@ -5145,6 +5151,16 @@ export function App() {
           onOpenChange={(isOpen) => setSkillsFor(isOpen ? skillsFor : null)}
           module={skillsFor}
           name={byId.get(skillsFor)?.name ?? skillsFor}
+        />
+      ) : null}
+
+      {/* A module's "How to use": its manifest's own words, drawn as text. Closed when it has none. */}
+      {helpFor && helpOfModule(byId.get(helpFor)?.module) ? (
+        <ModuleHelpDialog
+          open
+          onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
+          name={byId.get(helpFor)?.name ?? helpFor}
+          help={helpOfModule(byId.get(helpFor)?.module)!}
         />
       ) : null}
 

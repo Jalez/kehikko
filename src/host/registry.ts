@@ -66,6 +66,12 @@ export interface FramedModule {
    * See `host/reveal.ts`.
    */
   reveal?: 'push' | 'over'
+  /**
+   * How to use the module, for a person (protocol 2.52.0), as the server read it with `helpOf`.
+   * Read again through `helpFor` (`host/moduleHelp.ts`): an older server never sends it, and a
+   * malformed one reads as none. Drawn as text only.
+   */
+  help?: unknown
   /** `skills` (protocol 2.5.0): the agent skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string
