@@ -29,6 +29,9 @@ import { releaseVersion, type ModuleRelease } from './moduleReleases.ts'
  * | holding shells or agent sessions, or kept        | when it next stops                          |
  * | pinned in a container                            | never by itself: the pin is the person's    |
  * | only newer releases that need a newer Kehikot    | never: it waits for the app                 |
+ * | on a release that needs a newer Kehikot          | back to the newest release that works here, |
+ * |                                                  | by the rules above — unless that step asks  |
+ * |                                                  | the person (`back.ask`): then never         |
  * | a checkout somebody registered (not installed)   | never                                       |
  * | refused by `update` (changes of its own…)        | never: it says why                          |
  * | failed at this release                           | at the next check, not before               |
@@ -98,6 +101,8 @@ export interface AutoDone {
   /** ISO time it finished. */
   at: string
   major: boolean
+  /** It was moved BACK to an older release, because the one it was on needs a newer Kehikot (`back` in `moduleReleases.ts`). */
+  back?: boolean
 }
 
 /** What `GET /host/updates` says about the switch (`auto`). */
@@ -228,7 +233,7 @@ export function waitSaid(name: string, wait: AutoWait): string {
 
 /** "Journeys 1.5.0 → 1.6.0", for an "Updated automatically" row. */
 export function doneSaid(done: AutoDone): string {
-  return `${done.name} ${done.from ?? 'main'} → ${done.to}`
+  return done.back ? `${done.name} ${done.from ?? 'main'} → back to ${done.to}` : `${done.name} ${done.from ?? 'main'} → ${done.to}`
 }
 
 /** The accessible name of a row's changelog button. Plain text from the module's registered name. */

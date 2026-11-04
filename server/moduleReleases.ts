@@ -8,6 +8,7 @@ import {
   compareReleases,
   isRelease,
   releasesNewestFirst,
+  releaseVersion,
   type ModuleRelease,
 } from '../src/host/moduleReleases.ts'
 import { higherNeed, withRunningHost, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
@@ -40,9 +41,23 @@ import { higherNeed, withRunningHost, worksWith, type AppProtocol, type WorksWit
  * `protocol`, which still applies. A newer release that needs a newer app is
  * skipped and said (`needsNewer`).
  *
- * ## Moving, and never moving back
+ * ## Moving forward, and stepping back only when this host cannot run it
  *
- * - A copy on release A moves to release B only when B is newer than A.
+ * - A copy on release A moves to release B only when B is newer than A — with
+ *   one exception, below.
+ * - Stepping back: when the release a copy is on needs a newer protocol than
+ *   this host has (the app was downgraded), it is moved to the newest OLDER
+ *   release whose need this host meets (`pickStepBack`), each need read from
+ *   that tag's `package.json` as above. It moves on its own, like an update,
+ *   only when nothing says the older release could be wrong for what is on
+ *   this machine: the data format that release's `manifest.ts` declares (read
+ *   with `git show`, never run) is known and at least the highest one recorded
+ *   for the module in any project (`dataVersions.ts`), no container is pinned
+ *   to a release newer than it, and its registration does not say `keep`.
+ *   Otherwise it waits for the person's press (`back.ask` says why; the press
+ *   is `POST /host/updates/step-back`, the page's alone, which `allow`s that
+ *   one move). Once the app is upgraded again the copy's own release runs and
+ *   it moves forward as ever; nothing else ever moves a copy back.
  * - A copy on `main` — every copy installed before releases — moves to the
  *   newest release when that release contains its commit (or is that commit).
  *   When the release is OLDER than the copy (`main` was ahead of the last
@@ -68,7 +83,87 @@ export interface FollowerDeps {
    * work with.
    */
   apps?(): readonly AppProtocol[] | null
+  /**
+   * What stepping a module back must respect (`pickStepBack`): the data format
+   * recorded for it across projects, the versions containers pin it to, and
+   * whether its registration says `keep`. Absent: every step back asks.
+   */
+  stepBack?(id: string): Omit<StepBackGuard, 'current'>
   now?(): number
+}
+
+/** What a step back must respect, beside the releases themselves. */
+export interface StepBackGuard {
+  /** The highest data format recorded for the module in any project on this machine, or null when none is. */
+  recorded: number | null
+  /** The data format the release it is on now declares, when known. */
+  current: number | null
+  /** The versions containers pin the module to. */
+  pinned: readonly string[]
+  /** Its registration says `keep`. */
+  kept: boolean
+}
+
+/** A step back, chosen: the release to move to, and why it waits for a press (null: it moves like an update). */
+export interface StepBack {
+  to: string
+  ask: string | null
+}
+
+/**
+ * The data format a release's `manifest.ts` declares — a literal
+ * `dataVersion: N` — or null when it does not say it as one. Read, never run.
+ */
+export function declaredDataVersion(source: string | null): number | null {
+  if (source === null) return null
+  const said = [...source.matchAll(/\bdataVersion\s*:\s*([^\s,}]+)/g)]
+  if (said.length !== 1) return null
+  const value = said[0]![1]!
+  return /^[1-9]\d{0,3}$/.test(value) ? Number(value) : null
+}
+
+/**
+ * Whether a copy on `installed` steps back, and to which release.
+ *
+ * Only when `installed` itself needs a newer protocol than `have` (its own pin
+ * or the list entry's): then the newest release OLDER than it whose need is
+ * met. Null when it runs here, or when no older release does either. The step
+ * waits for a press — `ask` says why — when the older release's data format is
+ * unknown or below what was recorded or what `installed` declares, when a
+ * container is pinned to a release newer than it, or when the copy is kept.
+ */
+export function pickStepBack(
+  releases: readonly string[],
+  needOf: (tag: string) => string | null,
+  dataOf: (tag: string) => number | null,
+  options: { installed: string | null; have?: string; entry?: string; guard: StepBackGuard },
+): StepBack | null {
+  const { installed, have, entry, guard } = options
+  if (!installed) return null
+  const need = higherNeed(needOf(installed), entry)
+  if (need === null || meetsProtocol(need, have)) return null
+  const older = releasesNewestFirst(releases).filter((tag) => compareReleases(tag, installed) < 0)
+  const to = pickNewest(older, needOf, { have, entry }).newest
+  if (!to) return null
+  return { to, ask: stepBackRisk(to, dataOf(to), guard) }
+}
+
+/** Why stepping back to `to` waits for the person, or null when it may go on its own. */
+function stepBackRisk(to: string, data: number | null, guard: StepBackGuard): string | null {
+  const version = releaseVersion(to)
+  if (guard.kept) return `Its registration says to keep it, so it is not moved back to ${version} without you.`
+  const above = guard.pinned.filter((tag) => !isRelease(tag) || compareReleases(tag, to) > 0)
+  if (above.length) {
+    return `A container is pinned to ${above.map((tag) => releaseVersion(tag)).join(', ')}, newer than ${version}, so the module is not moved below it without you.`
+  }
+  if (data === null) {
+    return `It is not known which data format ${version} reads, so it might misread data a newer version wrote and write it back wrong.`
+  }
+  const written = Math.max(guard.recorded ?? 0, guard.current ?? 0)
+  if (written > data) {
+    return `Its data has been written in format ${written} by a newer version, and ${version} reads format ${data}: it might misread that data and write it back wrong.`
+  }
+  return null
 }
 
 /** How often a check asks the remote for its tags afresh; between, `TagLister`'s answer stands. */
@@ -162,6 +257,10 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
   const have = deps.have ?? PACKAGE_VERSION
   /* A tag's protocol pin, per checkout and tag commit: a release does not change. */
   const pins = new Map<string, string | null>()
+  /* A tag's declared data format, per checkout and tag commit, likewise. */
+  const formats = new Map<string, number | null>()
+  /* The step back a person pressed for, per module: that one move is no longer asked. */
+  const allowed = new Map<string, string>()
   const askedAt = new Map<string, number>()
 
   const git = async (dir: string, args: string[], timeoutMs?: number) =>
@@ -181,6 +280,49 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       needs.set(tag, pins.get(key) ?? null)
     }
     return needs
+  }
+
+  async function dataOf(dir: string, tag: string): Promise<number | null> {
+    const commit = await out(dir, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`])
+    if (!commit) return null
+    const key = `${dir}\u0000${commit}`
+    if (!formats.has(key)) formats.set(key, declaredDataVersion(await out(dir, ['show', `${commit}:manifest.ts`])))
+    return formats.get(key) ?? null
+  }
+
+  /** Whether the copy on `installed` steps back, and to what (`pickStepBack`), with a press already given honoured. */
+  async function stepBackOf(place: Place, dir: string, releases: readonly string[], needs: Map<string, string | null>, installed: string | null): Promise<StepBack | null> {
+    const entry = deps.entryProtocol(place.id)
+    const needOf = (tag: string) => needs.get(tag) ?? null
+    if (!installed || meetsProtocol(higherNeed(needOf(installed), entry) ?? undefined, have)) {
+      allowed.delete(place.id)
+      return null
+    }
+    const held = deps.stepBack?.(place.id) ?? null
+    const guard: StepBackGuard = {
+      recorded: held?.recorded ?? null,
+      current: await dataOf(dir, installed),
+      pinned: held?.pinned ?? [],
+      kept: held?.kept ?? false,
+    }
+    const older = releases.filter((tag) => compareReleases(tag, installed) < 0)
+    const known = new Map<string, number | null>()
+    for (const tag of older) known.set(tag, await dataOf(dir, tag))
+    const back = pickStepBack(releases, needOf, (tag) => known.get(tag) ?? null, { installed, have, entry, guard })
+    if (!back) {
+      allowed.delete(place.id)
+      return null
+    }
+    /* Never past a guard nobody was asked about: a missing guard always asks. */
+    const ask = back.ask ?? (held ? null : `It is not known what is pinned or kept here, so it is not moved back to ${releaseVersion(back.to)} without you.`)
+    if (ask !== null && allowed.get(place.id) === back.to) return { to: back.to, ask: null }
+    if (allowed.has(place.id) && allowed.get(place.id) !== back.to) allowed.delete(place.id)
+    return { to: back.to, ask }
+  }
+
+  /** A person pressed "Step back" for this move: it goes ahead without asking again. */
+  function allow(id: string, tag: string): void {
+    allowed.set(id, tag)
   }
 
   async function overlay(place: Place, checkout: Checkout, fetch: boolean): Promise<Checkout> {
@@ -263,8 +405,14 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       return Object.keys(works).length ? { ...release, works } : release
     }
 
+    let back: StepBack | null = null
     if (installed) {
       if (newest && compareReleases(newest, installed) > 0) target = newest
+      else if (!newest) {
+        /* The release it is on needs a newer Kehikot than this one: step back, or ask to. */
+        back = await stepBackOf(place, dir, releases, needs, installed)
+        if (back && back.ask === null) target = back.to
+      }
     } else if (!newest) {
       /* It has releases, and this host can run none of them: it stays as it
          is, on main, and says what it would need. */
@@ -299,6 +447,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
           ? [installed]
           : [],
       needsNewer: picked.needsNewer,
+      ...(back ? { back } : {}),
     })
 
     if (!target) {
@@ -365,5 +514,5 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
     return worksOf(tags, (tag) => needs.get(tag) ?? null, deps.entryProtocol(place.id), deps.apps(), have)
   }
 
-  return { overlay, settle, local, worksFor }
+  return { overlay, settle, local, worksFor, allow }
 }

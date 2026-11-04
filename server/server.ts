@@ -49,7 +49,7 @@ import { systemProcesses, takeOver } from './takeover.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
-import { retireDesk } from './retired.ts'
+import { BY as HOST_BY, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
@@ -160,7 +160,8 @@ import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
 import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
-import type { ModuleRelease } from '../src/host/moduleReleases.ts'
+import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
+import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
 
 /**
@@ -546,7 +547,29 @@ const follower = releaseFollower({
     official.current().find((one) => one.id === id)?.protocol ?? readMine(myModulesFile()).modules.find((one) => one.id === id)?.protocol,
   /* Which Kehikot each release works with ("Works with Kehikot 0.1.39 and later"). */
   apps: () => appProtocols.apps(),
+  /* What a step back to an older release must respect: the data format recorded for the module
+     in any project, the versions containers pin it to, and `keep`. See `pickStepBack`. */
+  stepBack: (id) => ({
+    recorded: listProjects(db).reduce<number | null>((high, project) => {
+      const one = recordedFor(readDataVersions(project.path), id)
+      return one !== null && (high === null || one > high) ? one : high
+    }, null),
+    pinned: pinSummary(listCanvases(db))[id]?.versions ?? [],
+    kept: registered.get(id)?.keep === true,
+  }),
 })
+
+/**
+ * An installed copy was moved back on its own to a release this Kehikot runs: said once in every
+ * project's Inbox, by the host, as done and low priority.
+ */
+function tellSteppedBack(name: string, to: string): void {
+  const message = steppedBackSaid(name, to)
+  for (const project of listProjects(db)) {
+    const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message, level: 'done', refs: [] }, undefined, 'low')
+    wakes.inboxChanged(project.id, out.rev)
+  }
+}
 
 /* Which protocol each Kehikot app release shipped: the `app-v*` tags of this
    host's repository and each one's `package.json`, read at most daily, the last
@@ -1683,6 +1706,7 @@ const auto = new AutoUpdates({
   },
   apply: (id) => because('auto-update puts a release in place', () => applyAutomatically(id)),
   changed: () => wakes.updatesChanged(),
+  steppedBack: (_id, name, to) => tellSteppedBack(name, to),
   log: (line) => console.log(line),
 })
 
@@ -1884,6 +1908,8 @@ async function level(place: Place): Promise<void> {
   }
   if (!hasUpdate(reading) || reading.blocked) return
   const done = await update(place)
+  /* A step back put in place on its own (`moduleReleases.ts`): the person is told. */
+  if (done.ok && reading.release?.back && reading.release.target) auto.movedBack(place.id, place.name, reading.release.installed, reading.release.target)
   console.log(
     done.ok
       ? `kehikko: brought ${place.id} to ${reading.release?.target ?? reading.upstream} while it was stopped (${done.changed.length} files changed)`
@@ -4119,13 +4145,27 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ cancelled: running !== undefined })
     }
 
-    if (url.pathname === '/host/updates' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+    /*
+     * `/host/updates/step-back` is the person's press of "Step back to …?" on an installed copy
+     * whose release needs a newer Kehikot, where moving it back on its own was not safe enough
+     * (`back.ask`, `moduleReleases.ts`). It allows that one move and then runs the same update.
+     * The page's alone (`PAGE_ONLY`): no program decides to risk a person's data.
+     */
+    if ((url.pathname === '/host/updates' || url.pathname === '/host/updates/step-back') && request.method === 'POST') {
+      const stepping = url.pathname === '/host/updates/step-back'
+      const body = (await request.json().catch(() => null)) as { id?: unknown; to?: unknown } | null
       if (!body || typeof body.id !== 'string') return json({ error: 'An update names one checkout.' }, 400)
       const { places } = await topLevels(updatePlaces())
       const place = places.find((one) => one.id === body.id)
       if (!place) return json({ error: `There is no checkout called ${body.id} to update.` }, 404)
       if (progress.has(place.id)) return json({ error: `${place.name} is already being updated.` }, 409)
+      if (stepping) {
+        if (typeof body.to !== 'string' || !place.releases?.allow) return json({ error: 'A step back names an installed module and the release it moves to.' }, 400)
+        const before = await readCheckout(place, false, request.signal)
+        if ('error' in before) return json({ error: before.error }, 409)
+        if (before.release?.back?.to !== body.to) return json({ error: `${place.name} has no step back to ${body.to} waiting.` }, 409)
+        place.releases.allow(place.id, body.to)
+      }
       /* An install and a restart outlast the idle timeout, and a line is only
          written when something changes. */
       server.timeout(request, 0)

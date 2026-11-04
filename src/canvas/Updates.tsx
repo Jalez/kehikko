@@ -70,7 +70,7 @@ import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
-import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, worksLineSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, stepBackAsked, worksLineSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
 
 /**
@@ -422,7 +422,7 @@ export function Updates({
   }, [run])
 
   /** One or several checkouts, one after another; a cancel stops the rest. */
-  const updateAll = async (readyIds: string[], unfetchedIds: string[] = []) => {
+  const updateAll = async (readyIds: string[], unfetchedIds: string[] = [], back: Readonly<Record<string, string>> = {}) => {
     if (busy.current) return
     busy.current = true
     const abort = new AbortController()
@@ -451,7 +451,7 @@ export function Updates({
       updateId.current = id
       try {
         /* No signal: the request is only where the page reads the update's steps. */
-        const done = await applyUpdate(id, undefined, (reached) => setPhase({ kind: 'updating', ids, at, reached }))
+        const done = await applyUpdate(id, undefined, (reached) => setPhase({ kind: 'updating', ids, at, reached }), Object.hasOwn(back, id) ? back[id] : undefined)
         await drawn(since, abort.signal, markMs)
         replace(done.checkout)
         const outcome = outcomeOf(id, done)
@@ -776,6 +776,7 @@ export function Updates({
                     retrying={retryingIds.includes(one.id)}
                     disabled={updating !== null}
                     onUpdate={() => void updateAll([one.id])}
+                    onStepBack={(to) => void updateAll([one.id], [], { [one.id]: to })}
                     /* Only this page's own update, and only before the checkout
                        has moved: from then on nothing is cancelled. */
                     onCancel={updating && current === one.id && updating.reached === 'updating' ? cancel : null}
@@ -985,6 +986,7 @@ function Row({
   retrying,
   disabled,
   onUpdate,
+  onStepBack,
   onCancel,
   onRetry,
   armed,
@@ -1004,6 +1006,8 @@ function Row({
   /** Something else is being updated; this one waits. */
   disabled: boolean
   onUpdate(): void
+  /** "Step back" on a step back that waits for the person (`release.back.ask`): the release it moves to. */
+  onStepBack?(to: string): void
   /** Null once the update cannot be cancelled, or is not this page's to cancel. */
   onCancel: (() => void) | null
   onRetry(): void
@@ -1050,7 +1054,7 @@ function Row({
           <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
         ) : null}
       </div>
-      {release && needsNewerSaid(release, have) ? (
+      {release && !release.back && needsNewerSaid(release, have) ? (
         /* One sentence for the newer release's need, with the protocol in the tooltip. */
         <p className="text-muted-foreground pt-1" data-testid="updates-needs-newer" title={needsNewerTip(release, have) ?? undefined}>
           {needsNewerSaid(release, have)}
@@ -1174,6 +1178,19 @@ function Row({
       ) : hasUpdate(one) ? (
         /* Behind, but not something this host will touch on its own. */
         <p className="text-muted-foreground pt-1.5">Not updated automatically: {one.blocked}.</p>
+      ) : release?.back && stepBackAsked(release) ? (
+        /* Its release needs a newer Kehikot, and the older one that works here might not suit what is on this machine: the person decides. */
+        <div className="pt-1.5" data-testid="updates-step-back">
+          <p className="text-foreground font-medium">{stepBackAsked(release)}</p>
+          <p className="text-muted-foreground">{release.back.ask}</p>
+          {onStepBack ? (
+            <div className="flex justify-end pt-1">
+              <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={() => onStepBack(release.back!.to)}>
+                Step back
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
@@ -1219,6 +1236,11 @@ export function UpdatedAutomatically({
             {one.major ? (
               <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-major>
                 major update
+              </span>
+            ) : null}
+            {one.back ? (
+              <span className="text-muted-foreground shrink-0 text-[11px]" data-back title="The release it was on needs a newer Kehikot">
+                works with this Kehikot
               </span>
             ) : null}
             <span className="text-muted-foreground shrink-0 text-[11px]">{ago(new Date(one.at), now)}</span>

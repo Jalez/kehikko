@@ -10,7 +10,7 @@ import {
   type Candidate,
   type Decision,
 } from '../src/host/autoUpdates.ts'
-import { releaseVersion } from '../src/host/moduleReleases.ts'
+import { compareReleases, isRelease, releaseVersion } from '../src/host/moduleReleases.ts'
 import type { Checkout, Reading } from './updates.ts'
 
 /**
@@ -81,6 +81,8 @@ export interface AutoUpdatesDeps {
   apply(id: string): Promise<Applied>
   /** Something a page shows changed: an update began or ended, or a wait. */
   changed(): void
+  /** It was moved back to an older release on its own (`back` in `moduleReleases.ts`): said in the Inbox. */
+  steppedBack?(id: string, name: string, to: string): void
   log(line: string): void
   now?(): number
 }
@@ -158,6 +160,30 @@ export class AutoUpdates {
     this.#readings.delete(id)
     this.#failed.delete(id)
     if (this.#waiting.delete(id)) this.#deps.changed()
+  }
+
+  /**
+   * A copy was moved back on its own outside this queue — the release put in place when its
+   * module stopped (`level` in `server.ts`): said beside the updates this made, and in the Inbox.
+   */
+  movedBack(id: string, name: string, from: string | null, to: string): void {
+    this.#done(id, name, from, to)
+    this.#deps.changed()
+  }
+
+  #done(id: string, name: string, from: string | null, to: string): void {
+    const back = from !== null && isRelease(from) && isRelease(to) && compareReleases(to, from) < 0
+    this.#updated.unshift({
+      id,
+      name,
+      from: from ? releaseVersion(from) : null,
+      to: releaseVersion(to),
+      at: new Date(this.#now()).toISOString(),
+      major: isMajor(from, to),
+      ...(back ? { back: true } : {}),
+    })
+    this.#updated.length = Math.min(this.#updated.length, UPDATED_KEPT)
+    if (back) this.#deps.steppedBack?.(id, name, to)
   }
 
   /** Modules no longer registered are forgotten. */
@@ -247,15 +273,7 @@ export class AutoUpdates {
       this.#failed.delete(id)
       if (applied.checkout && !('error' in applied.checkout)) this.#readings.set(id, applied.checkout)
       else this.#readings.delete(id)
-      this.#updated.unshift({
-        id,
-        name: got.name,
-        from: from ? releaseVersion(from) : null,
-        to: releaseVersion(target),
-        at: new Date(this.#now()).toISOString(),
-        major: isMajor(from, target),
-      })
-      this.#updated.length = Math.min(this.#updated.length, UPDATED_KEPT)
+      this.#done(id, got.name, from, target)
     } else {
       this.#failed.set(id, { target, at: this.#now(), why: applied.why })
       this.#waiting.set(id, { until: 'retry', target, detail: applied.why, major: isMajor(from, target) })

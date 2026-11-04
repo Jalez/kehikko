@@ -400,11 +400,14 @@ export class Inbox {
     name: string,
     line: NoticeLine,
     kehikko?: string,
+    /** The host's own lines may be told as `low` (a module's notice is always `normal`). */
+    priority: Priority = 'normal',
   ): Reported {
     const id = module
     const now = this.clock()
     const run = this.db.transaction((): Reported => {
       const made = noticeEntry(id, name, line, `notice:${now.toString(36)}:${crypto.randomUUID().slice(0, 8)}`, now, kehikko)
+      made.entry.priority = priority
       this.#write(project, made.entry)
       this.#move(project, made.move)
       this.#trim(project)
