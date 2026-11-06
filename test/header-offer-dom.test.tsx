@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 9
+const TESTS = 10
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -433,6 +433,62 @@ describe('the same header at every width and fold', () => {
       expect(row.textContent).toContain(armed)
       await press(selector)
       expect(count()).toBe(1)
+    }
+  })
+
+  /*
+   * View and Run drawn on top of one another in a folded header: the dense rule
+   * that fits a folded header into one grid row squared every button to
+   * eighteen pixels, so a word trigger ("View", "Run") kept its text and lost
+   * its width, and its letters spilled over the next trigger. Layout cannot be
+   * measured here, so this holds what keeps the row one flow: every control is
+   * an item of the header's own flex row (through flex rows or boxes with no box of their own, nothing
+   * positioned, no negative margin), and no control that shows words is given a
+   * width by a rule from `index.css`.
+   */
+  test('folded or open, every control is one flow in the header row, and nothing that shows words is squared by the dense rule', async () => {
+    const css = (await Bun.file(new URL('../src/index.css', import.meta.url)).text()).replace(/\/\*[\s\S]*?\*\//g, '')
+    const sizing = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter(([, , body]) => /(^|[\s;])inline-size\s*:/.test(body!))
+      .flatMap(([, selectors]) => selectors!.split(',').map((one) => one.trim()))
+      .filter((one) => one.startsWith('.container-grip'))
+    expect(sizing.length).toBeGreaterThan(0)
+    const words = (el: Element): boolean =>
+      [...el.childNodes].some((node): boolean => (node.nodeType === 3 ? (node.textContent ?? '').trim() !== '' : node instanceof HTMLElement && node.getAttribute('aria-hidden') !== 'true' && !node.classList.contains('sr-only') && words(node)))
+    const CONTROLS_IN_ROW = '[data-menu], [data-pinned-run], [data-control], [data-settings-button], [data-remove-button], [data-tour="fold"]'
+    for (const width of [380, 280, 220, 200] as const) {
+      for (const fold of ['one row', 'two rows', 'open'] as const) {
+        await header(width, fold, items, CONTROLS())
+        const head = document.querySelector<HTMLElement>('header.container-grip')!
+        const at = `${width} ${fold}`
+        expect(head.className, at).toMatch(/(^|\s)flex(\s|$)/)
+        const controls = [...head.querySelectorAll<HTMLElement>(CONTROLS_IN_ROW)]
+        expect(controls.length, at).toBeGreaterThan(1)
+        if (width >= 300) expect(controls.filter((el) => el.hasAttribute('data-menu') && words(el)).map((el) => el.textContent), at).toEqual(['View', 'Go', 'Run'])
+        for (const control of controls) {
+          const which = `${control.getAttribute('data-menu') ?? control.getAttribute('data-pinned-run') ?? control.getAttribute('data-control') ?? control.getAttribute('data-tour') ?? 'remove'} at ${at}`
+          /* Up to the header: flex rows only, nothing taken out of the flow. */
+          for (let el: HTMLElement | null = control; el && el !== head; el = el.parentElement) {
+            expect(el.className, which).not.toMatch(/(^|\s)(absolute|fixed|sticky|float-\w+)(\s|$)/)
+            expect(el.style.position, which).toBe('')
+            /* The × keeps its lift over the corner's resize handle, and it is the last thing in the row. */
+            if (!el.hasAttribute('data-remove-button')) expect(el.className, which).not.toMatch(/(^|\s)-m[trblxyse]?-/)
+            /* `contents` draws no box: what is in it is laid out by the row it is in. */
+            if (el !== control && !/(^|\s)contents(\s|$)/.test(el.className)) {
+              expect(el.className, which).toMatch(/(^|\s)flex(\s|$)/)
+              expect(el.className, which).not.toMatch(/(^|\s)(flex-col|flex-wrap|grid)(\s|$)/)
+            }
+          }
+          if (control.hasAttribute('data-remove-button')) expect(control.nextElementSibling, which).toBeNull()
+          /* A control that shows words and is not square by its own classes keeps its width when folded. */
+          if (words(control) && !/(^|\s)size-\d/.test(control.className)) {
+            for (const selector of sizing) expect(control.matches(selector), `${which}: ${selector}`).toBe(false)
+          }
+        }
+        act(() => unmount?.())
+        unmount = null
+        document.body.innerHTML = ''
+      }
     }
   })
 })
