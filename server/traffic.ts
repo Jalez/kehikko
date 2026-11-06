@@ -320,6 +320,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/subject': 'the page says which epic is open',
   '/host/parts': 'the page edits an epic’s parts',
   '/host/layouts': 'the page’s suggested layouts',
+  '/host/kehikko-skills': 'the person’s skills for a kehikko',
   '/host/projects': 'the page reads the projects',
   '/host/projects/followed': 'the page reads the projects',
   '/host/projects/locate': 'a person locates a project',

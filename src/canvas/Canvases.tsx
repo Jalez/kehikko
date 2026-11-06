@@ -1,4 +1,4 @@
-import { ChevronDown, LayoutGrid, LayoutTemplate } from 'lucide-react'
+import { BookOpen, ChevronDown, LayoutGrid, LayoutTemplate } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -13,6 +13,7 @@ import {
 import type { Canvas } from '@/host/canvases.ts'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { worstOther } from '@/host/activity.ts'
+import { openKehikkoSkills } from '@/host/kehikkoSkills.ts'
 import { openSaveLayout } from '@/host/onboarding.ts'
 import { kehikkoVisitKey, ordered } from '@/host/pickerOrder.ts'
 import { usePickerSort, useVisits } from '@/host/pickerStore.ts'
@@ -164,6 +165,12 @@ export function Canvases({
             <DropdownMenuItem onSelect={() => openSaveLayout()} disabled={!open || open.placements.length === 0} data-save-layout-item="">
               <LayoutTemplate className="text-muted-foreground size-3 shrink-0" />
               save this kehikko as a layout…
+            </DropdownMenuItem>
+            {/* The person's own skills for every agent session on the open
+                kehikko. See `KehikkoSkills.tsx`. */}
+            <DropdownMenuItem onSelect={() => openKehikkoSkills()} disabled={!open || open.project === null} data-kehikko-skills-item="">
+              <BookOpen className="text-muted-foreground size-3 shrink-0" />
+              skills for this kehikko…
             </DropdownMenuItem>
           </>
         )}

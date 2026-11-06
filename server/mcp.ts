@@ -4,7 +4,7 @@ import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
 import type { Database } from 'bun:sqlite'
-import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, isSkillName, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
 import type { TrackerDoor } from './answers.ts'
@@ -16,6 +16,7 @@ import { pinnedWords } from '../src/host/pinnedPlaces.ts'
 import { ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { belongsWords, lookingAt, lookingWords, sameAsLooking, type Here, type Looking, type Unrecorded } from './doorPlaces.ts'
 import { keep } from './kehikot.ts'
+import { kehikkoSkillsText, listKehikkoSkills } from './kehikkoSkills.ts'
 import { listProjects, MISSING_SAID, projectById, type Project } from './projects.ts'
 import type { Inbox } from './inbox.ts'
 import type { AgentMessages } from './agentMessages.ts'
@@ -394,6 +395,7 @@ export const TOOL_NAMES = [
   'set_my_place',
   'storage',
   'module_settings',
+  'kehikko_skills',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -981,6 +983,25 @@ function tools() {
         properties: {
           ...KEHIKKO_PROPERTY,
           module: { type: 'string', maxLength: MAX_ID, description: 'One module’s id. Left out: every module with settings.' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'kehikko_skills',
+      description:
+        'The skills the person wrote for a kehikko (protocol 2.53.0): instructions for every agent session on it, '
+        + 'whichever module runs the session and whatever epic it works on. Without name: each skill’s name and its '
+        + 'one-line description, which says when to use it. With name: that skill’s whole text (its SKILL.md), to '
+        + 'follow as a skill when it fits the task — the way to read one this conversation did not load because the '
+        + 'person added or changed it after the conversation started. Read-only: only the person adds, changes or '
+        + 'removes a kehikko’s skills, from the kehikko menu; no tool does.',
+      annotations: { title: 'This kehikko’s skills', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          name: { type: 'string', maxLength: 40, description: 'One skill’s name, for its whole text. Left out: the list.' },
         },
         required: [],
       },
@@ -1622,6 +1643,13 @@ export async function call(
       else said.push(settingsText(await door.moduleSettings.read(one.id, path), path))
     }
     return { text: said.join('\n\n'), failed: false }
+  }
+  if (name === 'kehikko_skills') {
+    if (args.name !== undefined && (typeof args.name !== 'string' || !isSkillName(args.name))) {
+      return { text: 'name is one skill’s name, as the list prints it (lowercase words joined by dashes), or left out.', failed: true }
+    }
+    const project = where.canvas.project === null ? null : projectById(door.db, where.canvas.project)
+    return kehikkoSkillsText(where.canvas, listKehikkoSkills(project?.path ?? null, where.canvas.key), args.name as string | undefined)
   }
   const canvas = where.canvas
   const placed = door.here === undefined ? undefined : { here: door.here, looking: looking(door), unrecorded: door.unrecorded ?? null }
@@ -2922,7 +2950,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'toggle, a jump, a run — when the module has marked that item for agents, and shows a web page in the '
         + 'module on the kehikko that shows pages (open_address; never outside the canvas), and jumps the person’s '
         + 'view to another project, kehikko, epic, parts or step when they ask for it (jump; or step by step in a '
-        + 'walkthrough they started). It can ADD, FOLD, PRESS and JUMP; it '
+        + 'walkthrough they started), and reads the skills the person wrote for a kehikko (kehikko_skills; only the '
+        + 'person writes them). It can ADD, FOLD, PRESS and JUMP; it '
         + 'cannot remove, move, resize or reorder a container — the arrangement belongs to the person looking at it, '
         + 'and it never jumps the view unasked. What this door adds is what they '
         + 'can see arrive and take off with one press, what it folds or unfolds is marked on the container as an '

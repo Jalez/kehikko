@@ -158,6 +158,7 @@ import { embeddedPage, servePage } from './page.ts'
 import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { readShelves, saveLayout } from './layouts.ts'
+import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
@@ -3523,6 +3524,32 @@ async function answerRequest(request: Request): Promise<Response> {
       const saved = saveLayout(canvas, project?.path ?? null, body)
       if (!saved.ok) return json({ error: saved.why }, saved.status)
       return json({ layout: saved.layout }, 201)
+    }
+
+    /* A kehikko's own skills (`server/kehikkoSkills.ts`, protocol 2.53.0):
+       the person's, for every agent session on that kehikko. The GET is the
+       page's list; the POST — save, rename, remove — is in `PAGE_ONLY`, and no
+       MCP tool writes one. */
+    if (url.pathname === '/host/kehikko-skills' && request.method === 'GET') {
+      const canvas = listCanvases(db).find((one) => one.id === Number(url.searchParams.get('kehikko')))
+      if (!canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
+      const project = canvas.project === null ? null : projectById(db, canvas.project)
+      return json({ skills: listKehikkoSkills(project?.path ?? null, canvas.key), folder: project ? skillsRel(canvas.key) : null })
+    }
+    if (url.pathname === '/host/kehikko-skills' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as
+        | { kehikko?: unknown; act?: unknown; name?: unknown; description?: unknown; body?: unknown; was?: unknown }
+        | null
+      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
+      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
+      const project = canvas.project === null ? null : projectById(db, canvas.project)
+      if (body.act === 'remove') {
+        const done = removeKehikkoSkill(project?.path ?? null, canvas.key, body.name)
+        return done.ok ? json({ said: done.said }) : json({ error: done.why }, done.status)
+      }
+      if (body.act !== 'save') return json({ error: 'act is save or remove.' }, 400)
+      const done = saveKehikkoSkill(project?.path ?? null, canvas.key, body)
+      return done.ok ? json({ skill: done.skill, said: done.said }) : json({ error: done.why }, done.status)
     }
 
     /* Whether the introduction was seen and where the tour was left
