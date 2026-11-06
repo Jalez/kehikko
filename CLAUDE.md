@@ -757,6 +757,22 @@
   of this host changes a setting: an agent changes a non-`personOnly` one at
   the module's own door.
 
+## A kehikko's own skills (protocol 2.53.0)
+
+- The person writes skills for one kehikko; every agent session placed on it
+  loads them, whichever module runs it and whatever epic it is on. A kehikko is
+  `(project, key)` — nothing else is shared between kehikot (a layout leaves no
+  trace) — so they are kept in the project beside it:
+  `.kehikot/host/skills/<key>/<name>/SKILL.md`, through `server/kehikkoSkills.ts`
+  only. The file is the SKILL.md a session loads (`kehikkoSkillText`).
+- Writes are `POST /host/kehikko-skills` (`PAGE_ONLY`), from "skills for this
+  kehikko…" in the kehikko menu (`src/canvas/KehikkoSkills.tsx`). Agents read
+  them with `kehikko_skills` and nothing writes them over MCP. Never add a write
+  tool.
+- Delivery is the answer to `POST /host/place` (`kehikkoSkills`), read on every
+  ask, so an edit reaches a module's next ask. The modules load them; the notes
+  say them.
+
 ## A module's scope
 
 - What a module's content belongs to (protocol 2.29.0): This computer, Project,

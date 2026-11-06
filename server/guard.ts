@@ -119,6 +119,10 @@ export interface Refusal {
  *  - `/host/pinned-places` — the person's pinned places (`pinnedPlaces.ts`).
  *    An agent reads them in `my_place`; only the person pins, unpins or
  *    orders them.
+ *  - `/host/kehikko-skills` — the person's skills for a kehikko
+ *    (`kehikkoSkills.ts`): instructions every agent session on it loads, so
+ *    only a press in the page writes one. An agent reads them with the door's
+ *    `kehikko_skills` tool.
  *  - `/host/worktrees/scan`, `/host/worktrees/remove` — the cleanup of
  *    finished worktrees (`worktrees.ts`): a scan fetches every repository with
  *    the person's login, and a removal deletes folders. Only a press in the
@@ -155,6 +159,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds/rename',
   '/host/sounds/remove',
   '/host/layouts',
+  '/host/kehikko-skills',
   '/host/onboarding',
   '/host/whats-new',
   '/host/whats-new/mentions',

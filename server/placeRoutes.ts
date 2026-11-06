@@ -27,6 +27,7 @@ import {
   type Recorded,
 } from './doorPlaces.ts'
 import { readParts } from './holdings.ts'
+import { skillsForSession } from './kehikkoSkills.ts'
 import type { Inbox } from './inbox.ts'
 import { HOST_ID } from './kehikot.ts'
 import { projectAt, projectById, type Project } from './projects.ts'
@@ -47,7 +48,10 @@ import { doorName } from './register.ts'
  *    can be told what it has around it from its first turn, and the installed modules that are
  *    not on it but say something there (`absentFrom`, 2.36.0) — and, to a module that installs
  *    skills for its own agent (2.23.0), `everywhere`: the skills the person keeps in every
- *    conversation (`everywhereFor` in skills.ts). A program's: a
+ *    conversation (`everywhereFor` in skills.ts) — and, when the place has a
+ *    kehikko, `kehikkoSkills` (2.53.0): the skills the person wrote for that
+ *    kehikko (`kehikkoSkills.ts`), to every module that asks, so every
+ *    session on it loads them. A program's: a
  *    token grants nothing a call could not do by naming the place
  *    (`doorPlaces.ts`), and asking again with the same token is how a module
  *    learns that the kehikko changed.
@@ -382,7 +386,9 @@ export function placeDesk(deps: PlaceDeps) {
       const everywhere = deps.everywhere && asker?.manifest && installsSkills(asker.manifest) ? await deps.everywhere(module) : undefined
       /* Its unread messages, for the notes (2.41.0): only to a module that says it says them, and only then counted delivered. */
       const told = body.messages === true && deps.messagesFor ? deps.messagesFor((await resolve(token, null)).here, token) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(told ?? {}) })
+      /* The person's skills for that kehikko (2.53.0): to every module, whatever epic the session is on. Read on every ask, so an edit reaches the next one. */
+      const kehikkoSkills = canvas ? skillsForSession(project.path, canvas.key) : undefined
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(told ?? {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {

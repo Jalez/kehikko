@@ -481,7 +481,8 @@ describe('an agent has no way to do it', () => {
     const tools = (reply.body as { result: { tools: { name: string; description?: string }[] } }).result.tools
     expect(tools.length).toBeGreaterThan(0)
     for (const tool of tools) {
-      expect(tool.name).not.toMatch(/restart|stop|kill|anyway|start/i)
+      /* By its words: `kehikko_skills` reads skills, and "skills" is not "kill". */
+      expect(tool.name).not.toMatch(/(^|_)(restart|stop|kill|anyway|start)/i)
       expect(tool.description ?? '').not.toMatch(/restart-anyway|Restart anyway/i)
     }
   })

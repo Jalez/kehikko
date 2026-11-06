@@ -102,6 +102,7 @@ describe('the door says what it is and what it offers', () => {
       'create_epic',
       'fold_modules',
       'jump',
+      'kehikko_skills',
       'mark_disposition',
       'module_settings',
       'module_versions',

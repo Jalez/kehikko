@@ -308,6 +308,7 @@ describe('the host’s server, running', () => {
         'create_epic',
         'fold_modules',
         'jump',
+        'kehikko_skills',
         'mark_disposition',
         'module_settings',
         'module_versions',
