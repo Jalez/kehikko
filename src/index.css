@@ -515,7 +515,8 @@
   inline-size: 0.625rem;
 }
 
-/* A text chip (the version) keeps its own width — squared to 18px it spilled its label over the branch beside it. */
+/* A button that shows words — the version, a menu's word trigger (View, Go, Run) — is marked `data-chip` and keeps
+   its own width: squared to 18px it spilled its label over its neighbour in the row. */
 .container-grip[data-dense='true'] button[data-chip] {
   block-size: 1.125rem;
 }

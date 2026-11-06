@@ -691,6 +691,9 @@ function Menu({
             data-menu={which}
             data-tools={loud ? 'loud' : undefined}
             data-run={busy ? 'busy' : failed ? 'failed' : undefined}
+            /* A word keeps its own width in a folded header: squared to eighteen pixels by the dense
+               rule in `index.css`, "View" spilled its letters over "Run" beside it. */
+            data-chip={mode === 'words' ? '' : undefined}
             {...modal}
             /* `pointer-events-auto` because the container is not, and the press
                is stopped before the grid reads it as the start of a drag — both
