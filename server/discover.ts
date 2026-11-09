@@ -5,6 +5,8 @@ import {
   LIMITS,
   manifestSchema,
   helpOf,
+  introOf,
+  type Intro,
   type Help,
   PACKAGE_VERSION,
   PROTOCOL,
@@ -236,6 +238,8 @@ export interface FramedModule {
   absentSays?: string
   /** How to use the module, for a person (protocol 2.52.0): plain text the page draws as headings and bullets. Absent: none, and no "How to use". */
   help?: Help
+  /** The module's own introduction (protocol 2.57.0), as `introOf` read it. */
+  intro?: Intro
   declares: Manifest['declares']
   /**
    * What the server answering now is built from: its version, the commit it
@@ -595,6 +599,7 @@ export async function look(
       ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
       ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),
       ...(helpOf(manifest) ? { help: helpOf(manifest)! } : {}),
+      ...(introOf(manifest) ? { intro: introOf(manifest)! } : {}),
       declares: manifest.declares,
       build: manifest.build ?? null,
     },

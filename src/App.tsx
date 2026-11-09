@@ -18,6 +18,9 @@ import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
 import { ModuleHelpDialog } from './canvas/ModuleHelp.tsx'
 import { helpFor as helpOfModule } from './host/moduleHelp.ts'
+import { ModuleIntroDialog } from './canvas/ModuleIntro.tsx'
+import type { IntroAbout } from './canvas/Modules.tsx'
+import { fetchIntrosSeen, introFor as introOfModule, markIntroDone, offerSaid, offersIntro, type ModuleIntros } from './host/moduleIntro.ts'
 import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
 import { AgentSettingsHost } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
@@ -621,6 +624,19 @@ export function App() {
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
   /* Whose "How to use" is open (protocol 2.52.0): drawn from its manifest's `help`, by the host. */
   const [helpFor, setHelpFor] = useState<string | null>(null)
+  /* A module's introduction (protocol 2.57.0) in the app's introduction dialog: from the modules
+     list's "?" with "Add to this kehikko" (`add`), from the Container menu or a container's offer
+     without it. */
+  const [introOpen, setIntroOpen] = useState<{ id: string; about: IntroAbout; add: boolean } | null>(null)
+  /* Which modules' introductions the person watched or dismissed, machine-wide: the offer is made once. */
+  const [introsSeen, setIntrosSeen] = useState<ModuleIntros | null>(null)
+  useEffect(() => {
+    void fetchIntrosSeen().then(setIntrosSeen)
+  }, [])
+  const introDone = useCallback((id: string) => {
+    setIntrosSeen((was) => (was && !was.done.includes(id) ? { done: [...was.done, id] } : was))
+    void markIntroDone(id).then((now) => now && setIntrosSeen(now))
+  }, [])
   /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Container menu. */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
@@ -4638,7 +4654,7 @@ export function App() {
         onTheme={onTheme}
         trouble={trouble}
         onLookAgain={() => void look(true)}
-        onHelp={setHelpFor}
+        onIntro={(id, about) => setIntroOpen({ id, about, add: true })}
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
@@ -5015,6 +5031,23 @@ export function App() {
                   onTools={() => setToolsFor(presence.id)}
                   onSkills={() => setSkillsFor(presence.id)}
                   onHelp={() => setHelpFor(presence.id)}
+                  onIntro={() => {
+                    introDone(presence.id)
+                    setIntroOpen({ id: presence.id, about: { name: presence.name ?? presence.id, summary: presence.summary }, add: false })
+                  }}
+                  introOffer={(() => {
+                    const intro = introOfModule(presence.module)
+                    return intro && offersIntro(presence.id, intro, introsSeen)
+                      ? {
+                          said: offerSaid(intro),
+                          onWatch: () => {
+                            introDone(presence.id)
+                            setIntroOpen({ id: presence.id, about: { name: presence.name ?? presence.id, summary: presence.summary }, add: false })
+                          },
+                          onDismiss: () => introDone(presence.id),
+                        }
+                      : null
+                  })()}
                   onSettings={() => setSettingsFor(presence.id)}
                   scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
                   onStarted={() => void look(true)}
@@ -5210,6 +5243,31 @@ export function App() {
           onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
           name={byId.get(helpFor)?.name ?? helpFor}
           help={helpOfModule(byId.get(helpFor)?.module)!}
+        />
+      ) : null}
+
+      {/* A module's introduction (protocol 2.57.0), in the app's introduction dialog. */}
+      {introOpen ? (
+        <ModuleIntroDialog
+          open
+          onOpenChange={(isOpen) => setIntroOpen(isOpen ? introOpen : null)}
+          id={introOpen.id}
+          name={byId.get(introOpen.id)?.name ?? introOpen.about.name}
+          icon={introOpen.about.icon ?? null}
+          summary={byId.get(introOpen.id)?.summary ?? introOpen.about.summary ?? null}
+          intro={introOfModule(byId.get(introOpen.id)?.module)}
+          help={helpOfModule(byId.get(introOpen.id)?.module)}
+          addable={
+            introOpen.add
+              ? {
+                  open: open !== null,
+                  placed: (open?.placements ?? []).some((one) => one.i === introOpen.id),
+                  registered: byId.has(introOpen.id),
+                  onPlace: () => onPlaceRef.current(introOpen.id),
+                  onLookAgain: () => void look(true),
+                }
+              : undefined
+          }
         />
       ) : null}
 

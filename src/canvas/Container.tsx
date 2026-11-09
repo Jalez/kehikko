@@ -1,5 +1,6 @@
 import { helpFor } from '@/host/moduleHelp.ts'
-import { X } from 'lucide-react'
+import { Presentation, X } from 'lucide-react'
+import { introFor } from '@/host/moduleIntro.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
@@ -114,6 +115,8 @@ export function Container({
   onTools,
   onSkills,
   onHelp,
+  onIntro,
+  introOffer = null,
   onSettings,
   onStarted,
   onRemove,
@@ -282,6 +285,17 @@ export function Container({
    */
   onHelp?(): void
   /**
+   * Open the module's own introduction (protocol 2.57.0) in the app's introduction dialog. An
+   * "Introduction…" row in the Container menu only when the module has one (`introFor`); absent: never.
+   */
+  onIntro?(): void
+  /**
+   * The offer made once per module, machine-wide, on a container whose module has an introduction
+   * the person has neither watched nor dismissed: a strip under the header with what it is and ×.
+   * Never played by itself. Null: no strip.
+   */
+  introOffer?: { said: string; onWatch(): void; onDismiss(): void } | null
+  /**
    * Open this module's settings (protocol 2.15.0): a gear in the row at 220 px and wider, folded or
    * not; under that, "Settings…" in the Container rows (in "⋯" when the module has menus). One entry at
    * every width (`layoutOf` in `host/headerOffer.ts`). See `ModuleSettings.tsx`.
@@ -400,6 +414,7 @@ export function Container({
     skills: presence.module?.declares.skills,
     onSkills,
     onHelp: onHelp && helpFor(presence.module) ? onHelp : undefined,
+    onIntro: onIntro && introFor(presence.module) ? onIntro : undefined,
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
@@ -993,6 +1008,31 @@ export function Container({
           positioned to match it — and to stay out of the way of what is
           showing through it. A notice, when there is one, is opaque and takes
           the pointer again; there is no page behind it worth seeing. */}
+      {/* The module's introduction, offered once (protocol 2.57.0): a strip, never played by itself. */}
+      {introOffer && showing.kind === 'page' ? (
+        <div className="bg-muted/40 pointer-events-auto flex shrink-0 items-center gap-1.5 border-b py-1 pr-1 pl-2.5 text-[11px]" data-intro-offer="">
+          <Presentation className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+          <button
+            type="button"
+            className="text-foreground min-w-0 flex-1 truncate text-left font-medium underline-offset-2 hover:underline"
+            title={introOffer.said}
+            onClick={introOffer.onWatch}
+            data-intro-watch=""
+          >
+            {introOffer.said}
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-5 shrink-0"
+            aria-label="Dismiss the introduction offer"
+            onClick={introOffer.onDismiss}
+            data-intro-dismiss=""
+          >
+            <X className="size-3" />
+          </Button>
+        </div>
+      ) : null}
       <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
         {/* Not ready yet, and on its way, or not ready and nothing on its way: one cover or one
             notice, drawn for the room this body has (`Standing.tsx`, `host/coverFit.ts`). */}

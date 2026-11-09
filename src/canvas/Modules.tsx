@@ -39,8 +39,7 @@ import { ConditionDot } from './Conditions.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
-import { HelpButton } from './ModuleHelp.tsx'
-import { helpFor } from '@/host/moduleHelp.ts'
+import { IntroButton } from './ModuleHelp.tsx'
 
 /**
  * Kehikko modules: everything registered, whether or not it is on the canvas.
@@ -89,6 +88,13 @@ import { helpFor } from '@/host/moduleHelp.ts'
  * Remove. A checkout put under `installed/` by hand is offered there too, as
  * "Keep it as one of my modules".
  */
+/** What the dialog needs of a module that may not be registered here. */
+export interface IntroAbout {
+  name: string
+  icon?: string | null
+  summary?: string | null
+}
+
 export function ModuleList({
   registry,
   onCanvas,
@@ -97,7 +103,7 @@ export function ModuleList({
   onPlace,
   onUnplace,
   onLookAgain,
-  onHelp,
+  onIntro,
 }: {
   registry: RegistryView | null
   onCanvas: Set<string>
@@ -107,8 +113,12 @@ export function ModuleList({
   onUnplace(id: string): void
   /** Sweep the registry again: an install has just registered something. */
   onLookAgain?(): void
-  /** Open a module's "How to use" (protocol 2.52.0). Given: a "?" on the row of each module that says how. */
-  onHelp?(id: string): void
+  /**
+   * Open a module's introduction (protocol 2.57.0) — or its "How to use" when it has none, or the line
+   * it says about itself — in the app's introduction dialog, with "Add to this kehikko". Given: a "?"
+   * on every row, installed or not; the introduction is read without running the module.
+   */
+  onIntro?(id: string, about: IntroAbout): void
 }) {
   const [query, setQuery] = useState('')
   const official = useOfficial(onLookAgain)
@@ -189,6 +199,7 @@ export function ModuleList({
                       onInstall={() => (row.entry.mine ? official.installMine(row.id) : official.install(row.id))}
                       onRemove={row.entry.mine ? () => official.remove(row.id) : undefined}
                       refused={official.refused.get(row.id) ?? null}
+                      onIntro={onIntro ? () => onIntro(row.id, { name: row.name, icon: row.entry.icon ?? null, summary: row.summary }) : undefined}
                     />
                   ) : (
                     <ModuleRow
@@ -199,7 +210,7 @@ export function ModuleList({
                       onUnplace={() => onUnplace(row.id)}
                       onRemove={row.mine ? () => official.remove(row.id) : undefined}
                       refused={official.refused.get(row.id) ?? null}
-                      onHelp={onHelp && helpFor(row.presence.module) ? () => onHelp(row.id) : undefined}
+                      onIntro={onIntro ? () => onIntro(row.id, { name: row.name, summary: row.summary }) : undefined}
                     />
                   ),
                 )}
@@ -313,9 +324,12 @@ function AvailableRow({
   onInstall,
   onRemove,
   refused,
+  onIntro,
 }: {
   row: Available
   onInstall(): void
+  /** Open its introduction, read from the release an install would take: a "?" beside install. */
+  onIntro?(): void
   /** One of the person's own: take it off My modules (and delete what an earlier attempt cloned). */
   onRemove?(): void
   refused: string | null
@@ -347,6 +361,7 @@ function AvailableRow({
         ) : null}
         {onRemove && !working ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
       </div>
+      {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
       {row.entry.newer ? null : (
         <Hint label={`clone ${repoSaid(row.entry)}, install it and register it on this computer`} side="left">
           <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
@@ -365,7 +380,7 @@ function ModuleRow({
   onUnplace,
   onRemove,
   refused,
-  onHelp,
+  onIntro,
 }: {
   row: Registered
   /** What this module touches, and how. Empty for most of them, honestly. */
@@ -376,8 +391,8 @@ function ModuleRow({
   onRemove?(): void
   /** Why the last press on it was refused. */
   refused?: string | null
-  /** Open its "How to use" (protocol 2.52.0). Given only for a module that says how: a "?" beside add. */
-  onHelp?(): void
+  /** Open its introduction (protocol 2.57.0), or its "How to use": a "?" beside add. */
+  onIntro?(): void
 }) {
   const { presence, placed } = row
   const standing = standingOf(presence, relationships)
@@ -456,7 +471,7 @@ function ModuleRow({
         <Halves standing={standing} />
         <Details row={row} shown={trouble} onRemove={onRemove} />
       </div>
-      {onHelp ? <HelpButton name={row.name} onHelp={onHelp} /> : null}
+      {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
       <Hint
         label={
           placed

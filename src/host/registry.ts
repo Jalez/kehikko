@@ -72,6 +72,11 @@ export interface FramedModule {
    * malformed one reads as none. Drawn as text only.
    */
   help?: unknown
+  /**
+   * The module's own introduction (protocol 2.57.0), as the server read it with `introOf`. Read again
+   * through `introFor` (`host/moduleIntro.ts`). Drawn by the host as text and shapes only.
+   */
+  intro?: unknown
   /** `skills` (protocol 2.5.0): the agent skills the module offers; absent from older servers and modules. */
   declares: {
     protocol: string

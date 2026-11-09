@@ -4,6 +4,7 @@ import type { Help } from 'kehikot-module-protocol'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
 import { helpTitle } from '@/host/moduleHelp.ts'
+import { introTitle } from '@/host/moduleIntro.ts'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -64,17 +65,20 @@ export function ModuleHelpDialog({
   )
 }
 
-/** The "?" beside a module in the modules list: opens its "How to use". Drawn only for a module that says how. */
-export function HelpButton({ name, onHelp }: { name: string; onHelp(): void }) {
+/**
+ * The "?" beside a module in the modules list: opens its introduction (protocol 2.57.0) in the app's
+ * introduction dialog — or its "How to use" there when it has none (`ModuleIntro.tsx`).
+ */
+export function IntroButton({ name, onIntro }: { name: string; onIntro(): void }) {
   return (
-    <Hint label={`how to use ${name}`} side="left">
+    <Hint label={`what ${name} is for, and how to start`} side="left">
       <Button
         variant="ghost"
         size="icon"
-        aria-label={helpTitle(name)}
+        aria-label={introTitle(name)}
         data-module-help-button=""
         className="text-muted-foreground hover:text-foreground size-6 shrink-0"
-        onClick={onHelp}
+        onClick={onIntro}
       >
         <CircleHelp className="size-3.5" aria-hidden />
       </Button>

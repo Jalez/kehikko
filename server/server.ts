@@ -161,6 +161,8 @@ import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSetting
 import { readShelves, saveLayout } from './layouts.ts'
 import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
+import { ensureModuleIntros, moduleIntros, readModuleIntros, writeModuleIntros } from './moduleIntros.ts'
+import { moduleIntrosEditSchema } from '../src/host/moduleIntro.ts'
 import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
@@ -275,6 +277,7 @@ const trackerNotices = new TrackerNotices(db, inbox)
 ensureSettings(db)
 ensurePickerOrder(db)
 ensureOnboarding(db)
+ensureModuleIntros(db)
 ensureWhatsNew(db)
 /* The person's pinned places, across projects. `pinnedPlaces.ts`. */
 ensurePinnedPlaces(db)
@@ -1332,6 +1335,19 @@ const pins = new Pins({
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
 const lastPresences = new Map<string, Presence>()
+/* Where a module's introduction is read from when the page asks (`moduleIntros.ts`). The
+   repository comes from a list on this side, never from the request. */
+const intros = moduleIntros({
+  running: (id) => lastPresences.get(id)?.module ?? null,
+  dir: (id) => registered.get(id)?.dir ?? null,
+  repo: (id) => {
+    const listed = official.current().find((one) => one.id === id)
+    if (listed) return listed.repo
+    const mine = readMine(myModulesFile()).modules.find((one) => one.id === id)
+    return mine && (!mine.host || mine.host === 'github.com') ? mine.repo : null
+  },
+  run: runQuietly,
+})
 /** Every module id the registry held at the last sweep, or null when it could not be read. See `sweep`. */
 let lastRegistry: ReadonlySet<string> | null = null
 
@@ -3604,6 +3620,24 @@ async function answerRequest(request: Request): Promise<Response> {
       if (body.act !== 'save') return json({ error: 'act is save or remove.' }, 400)
       const done = saveKehikkoSkill(project?.path ?? null, canvas.key, body)
       return done.ok ? json({ skill: done.skill, said: done.said }) : json({ error: done.why }, done.status)
+    }
+
+    /* A module's own introduction (protocol 2.57.0), read without running it: its manifest, its
+       installed copy's intro.json, or that file at the release an install would take
+       (`server/moduleIntros.ts`). And which ones the person watched or dismissed; that POST is in
+       `PAGE_ONLY`. */
+    if (url.pathname === '/host/module-intro' && request.method === 'GET') {
+      const id = url.searchParams.get('module') ?? ''
+      if (!id || id.length > 200) return json({ error: 'Name a module: ?module=<id>.' }, 400)
+      return json(await intros.introFor(id))
+    }
+    if (url.pathname === '/host/module-intros' && request.method === 'GET') {
+      return json(readModuleIntros(db))
+    }
+    if (url.pathname === '/host/module-intros' && request.method === 'POST') {
+      const edit = moduleIntrosEditSchema.safeParse(await request.json().catch(() => null))
+      if (!edit.success) return json({ error: 'A change is { done: "<module id>" }.' }, 400)
+      return json(writeModuleIntros(db, edit.data))
     }
 
     /* Whether the introduction was seen and where the tour was left

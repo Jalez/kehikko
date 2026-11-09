@@ -1,11 +1,11 @@
-import { ArrowLeft, ArrowRight, Compass, XIcon } from 'lucide-react'
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { Compass } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.tsx'
 import { CANVAS_ROWS, COLUMNS } from '@/host/fit.ts'
 import { BUILT_IN_LAYOUTS } from '@/host/layouts.ts'
 import { KehikkoMark } from './Mark.tsx'
+import { IntroModal } from './IntroModal.tsx'
 
 /**
  * The introduction: a welcome, and what Kehikot brings — not a manual. How
@@ -31,8 +31,8 @@ export interface IntroSlide {
   art: () => ReactNode
 }
 
-/** The picture's frame: a rounded panel in the muted colour, the drawing inside it. */
-function Art({ label, children }: { label: string; children: ReactNode }) {
+/** The picture's frame: a rounded panel in the muted colour, the drawing inside it. A module's picture uses it too (`ModuleArt.tsx`). */
+export function Art({ label, children }: { label: string; children: ReactNode }) {
   return (
     <svg
       viewBox="0 0 320 150"
@@ -478,11 +478,8 @@ function WaysArt() {
   )
 }
 
-/** Does the person ask for less motion? Read on each open; a test stubs `matchMedia`. */
-export function prefersStill(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
+/* The dialog is `IntroModal`, shared with a module's own introduction; this gives it the app's slides. */
+export { prefersStill } from './IntroModal.tsx'
 
 export function IntroDialog({
   open,
@@ -498,118 +495,40 @@ export function IntroDialog({
   /** "I'll explore myself". */
   onExplore(): void
 }) {
-  const [at, setAt] = useState(0)
-  const [still, setStill] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    setAt(0)
-    setStill(prefersStill())
-  }, [open])
-  const slide = INTRO_SLIDES[at]!
-  const last = at === INTRO_SLIDES.length - 1
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showClose={false}
-        className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-lg [&>*]:min-w-0"
-        data-intro={slide.id}
-        data-motion={still ? 'still' : 'moving'}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowRight' && !last) setAt((n) => n + 1)
-          if (event.key === 'ArrowLeft' && at > 0) setAt((n) => n - 1)
-        }}
-      >
-        {/* The close has this row to itself: the picture starts below it. */}
-        <div className="flex h-11 items-center gap-2 pr-2 pl-4" data-intro-top="">
-          <KehikkoMark working={false} className="size-4" />
-          <span className="text-muted-foreground text-xs font-medium">Kehikot</span>
-          <span className="flex-1" />
-          <span className="text-muted-foreground text-[11px] tabular-nums" aria-hidden>
-            {at + 1} / {INTRO_SLIDES.length}
-          </span>
-          <DialogClose asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground size-7"
-              aria-label="Close the introduction"
-              data-intro-close=""
-            >
-              <XIcon className="size-4" />
-            </Button>
-          </DialogClose>
-        </div>
-
-        <div className="px-4" data-intro-art="">
-          {/* Keyed, so each slide's picture plays from its start. */}
-          <div key={slide.id}>{slide.art()}</div>
-        </div>
-
-        <div className="flex flex-col gap-1.5 px-5 pt-4">
-          <DialogTitle className={at === 0 ? 'text-lg' : undefined}>{slide.title}</DialogTitle>
-          <DialogDescription>{slide.body}</DialogDescription>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2 px-5 pt-4 pb-4">
-          <div className="flex min-w-24 flex-1 items-center gap-1.5" role="group" aria-label={`slide ${at + 1} of ${INTRO_SLIDES.length}`}>
-            {INTRO_SLIDES.map((one, i) => (
-              <button
-                key={one.id}
-                type="button"
-                aria-label={one.title}
-                aria-current={i === at ? 'step' : undefined}
-                onClick={() => setAt(i)}
-                data-intro-dot=""
-                className={`h-1.5 rounded-full transition-all ${i === at ? 'bg-primary w-4' : 'bg-muted-foreground/30 hover:bg-muted-foreground/60 w-1.5'}`}
-              />
-            ))}
-          </div>
-          {last ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                data-intro-explore=""
-                onClick={() => {
-                  onOpenChange(false)
-                  onExplore()
-                }}
-              >
-                I’ll explore myself
-              </Button>
-              <Button
-                size="sm"
-                data-intro-tour=""
-                onClick={() => {
-                  onOpenChange(false)
-                  onTour()
-                }}
-              >
-                <Compass className="size-3.5" />
-                Show me around
-              </Button>
-            </>
-          ) : (
-            <>
-              {at === 0 ? (
-                <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} data-intro-skip="">
-                  Skip
-                </Button>
-              ) : (
-                <Button variant="ghost" size="sm" onClick={() => setAt((n) => n - 1)} aria-label="back">
-                  <ArrowLeft className="size-3.5" />
-                  Back
-                </Button>
-              )}
-              <Button size="sm" onClick={() => setAt((n) => n + 1)} data-intro-next="">
-                Next
-                <ArrowRight className="size-3.5" />
-              </Button>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <IntroModal
+      open={open}
+      onOpenChange={onOpenChange}
+      slides={INTRO_SLIDES}
+      icon={<KehikkoMark working={false} className="size-4" />}
+      name="Kehikot"
+      closeLabel="Close the introduction"
+      last={(close) => (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-intro-explore=""
+            onClick={() => {
+              close()
+              onExplore()
+            }}
+          >
+            I’ll explore myself
+          </Button>
+          <Button
+            size="sm"
+            data-intro-tour=""
+            onClick={() => {
+              close()
+              onTour()
+            }}
+          >
+            <Compass className="size-3.5" />
+            Show me around
+          </Button>
+        </>
+      )}
+    />
   )
 }
