@@ -93,7 +93,7 @@ export function SkillsDialog({
         body: JSON.stringify({ module, name: row.name, press: what, ...(what === 'remove' ? {} : { sha256: row.sha256 }) }),
       })
       const body = (await response.json()) as { ok?: boolean; why?: string; said?: string }
-      setSaid({ name: row.name, text: body.ok ? (body.said ?? 'Done.') : (body.why ?? 'It did not work, and the host did not say why.') })
+      setSaid({ name: row.name, text: body.ok ? (body.said ?? 'Done.') : (body.why ?? 'It did not work, and Kehikot did not say why. Try again.') })
       if (body.ok) setReading(null)
       await ask()
     } catch (error) {

@@ -189,7 +189,7 @@ export function ConditionPanel({
           <dd className="text-foreground">{protocols.module ?? 'unstated'}</dd>
           <dt>module speaks</dt>
           <dd className="text-foreground">{protocols.range}</dd>
-          <dt>this host</dt>
+          <dt>this Kehikot</dt>
           <dd className="text-foreground">{protocols.host}</dd>
         </dl>
       ) : null}

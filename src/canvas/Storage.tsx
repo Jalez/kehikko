@@ -40,7 +40,7 @@ export async function fetchStorage(fresh = false, signal?: AbortSignal): Promise
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { why?: unknown; error?: unknown } | null
     const why = typeof body?.why === 'string' ? body.why : typeof body?.error === 'string' ? body.error : null
-    throw new Error(why ?? `the host's server answered ${response.status}`)
+    throw new Error(why ?? `Kehikot answered with error ${response.status}`)
   }
   return (await response.json()) as StorageReport
 }
@@ -239,7 +239,7 @@ function ShareRow({ share }: { share: Share }) {
       {share.owner.id ? <ModuleIcon id={share.owner.id} name={share.owner.name} className="text-muted-foreground mr-1.5 inline size-3.5 align-[-2px]" /> : null}
       <span className="font-medium">{share.owner.name}</span>{' '}
       <span className="text-muted-foreground font-mono text-[11px]">.kehikot/{share.folder}/</span>
-      {share.owner.id === null ? <span className="text-muted-foreground text-xs"> (no module this host knows claims it)</span> : null}
+      {share.owner.id === null ? <span className="text-muted-foreground text-xs"> (no installed module claims it)</span> : null}
       <span>: {tallySaid(share.tally)}</span>
       {share.tally.modified ? <span className="text-muted-foreground text-xs">, {modifiedSaid(share.tally.modified)}</span> : null}
       <Largest tally={share.tally} />

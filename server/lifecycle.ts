@@ -565,33 +565,32 @@ export const THEIRS_TO_RESTART_MS = 8_000
 /** Said on a container whose module somebody else was running, for `THEIRS_TO_RESTART_MS` after it went. */
 export function theirsLine(id: string, at: string): string {
   return (
-    `${id} stopped answering at ${at} a moment ago. This host did not start it, so it is giving whoever did `
-    + `${Math.round(THEIRS_TO_RESTART_MS / 1000)} seconds to bring it back before it starts it itself — or start it now.`
+    `${id} stopped answering at ${at} a moment ago. Kehikot did not start it, so it gives whoever did `
+    + `${Math.round(THEIRS_TO_RESTART_MS / 1000)} seconds to bring it back before starting it itself — or press Start now.`
   )
 }
 
 /** Said on a container whose module the host has just run. */
 export function startingLine(id: string, at: string): string {
   return (
-    `${id} is starting. This kehikko has it, so the host is running its run.sh; ` +
-    `it has not answered at ${at} yet. This resolves on its own — the container becomes the module, ` +
-    `or says the module was run and did not answer.`
+    `${id} is starting and has not answered at ${at} yet. ` +
+    `This clears up by itself: the module appears here, or this says it started and did not answer.`
   )
 }
 
 /** Said while a module the host ran is installing its dependencies. */
 export function installingLine(id: string): string {
-  return `${id} is installing what it needs. The host ran its run.sh, and that is installing its dependencies before it starts — the first time takes a minute.`
+  return `${id} is installing what it needs before it starts. The first time takes a minute.`
 }
 
 /** Said from the moment an update decides the module must be restarted, until it is. */
 export function updatingLine(id: string): string {
-  return `${id} is being updated. The host stopped it to move it to the new code, and starts it again when that is in place.`
+  return `${id} is being updated. Kehikot stopped it to move it to the new version, and starts it again when that is in place.`
 }
 
 /** Said while the host is stopping a running module and starting it again. */
 export function restartingLine(id: string): string {
-  return `${id} is restarting. The host stopped it and ran its run.sh again; the container becomes the module when it answers.`
+  return `${id} is restarting. The module appears here again when it answers.`
 }
 
 /** The line for one in-flight word. */
@@ -625,7 +624,7 @@ export function exitedLine(id: string, at: string, code: number | null, log: str
 export function unansweringLine(id: string, at: string, log: string): string {
   return (
     `${id} was started and is still running, but has not answered at ${at}. ` +
-    `The last of what it printed is below; all of it is in ${log}. Starting it again stops that process first.`
+    `The last of what it printed is below; all of it is in ${log}. Starting it again stops it first.`
   )
 }
 
@@ -671,9 +670,9 @@ export function silentSaid(
 /** Said on a container whose module the host stopped because nothing used it. */
 export function asleepLine(id: string, at: string): string {
   return (
-    `${id} is asleep. The host started it, then stopped it because no open kehikko or project had it for ` +
-    `${Math.round(GRACE_MS / 60_000)} minutes. Nothing is wrong with it: open a kehikko it is on ` +
-    `and the host starts it again at ${at}.`
+    `${id} is asleep: no open kehikko or project used it for ${Math.round(GRACE_MS / 60_000)} minutes, ` +
+    `so Kehikot stopped it to save memory. Nothing is wrong with it: open a kehikko it is on ` +
+    `and it starts again at ${at}.`
   )
 }
 

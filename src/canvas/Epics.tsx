@@ -238,13 +238,13 @@ export function Epics({
     : !held
       ? 'reading this project’s epics…'
       : !holds
-        ? 'this project has no .kehikot/host/epics, so there is no epic to pick — which is not a fault: not every project has any'
+        ? 'this project has no epics yet — choose new epic… to make one'
         : epics.length === 0
-          ? 'this project’s .kehikot/host/epics is empty'
+          ? 'this project has no epics yet — choose new epic… to make one'
           : allEpics
             ? 'every epic of this project at once — a module that works on one epic at a time says so'
             : picked
-              ? `${titleOf(picked)} — ${picked.slug}.json in .kehikot/host/epics`
+              ? `the epic every module on this kehikko works on: ${titleOf(picked)}`
               : 'the epic every module on this kehikko is shown'
 
   return (
@@ -367,7 +367,7 @@ export function Epics({
                 <Remove
                   armed={arming === one.slug}
                   label={`delete ${titleOf(one)}`}
-                  question="delete its file?"
+                  question="delete this epic?"
                   onArm={() => setArming(one.slug)}
                   onConfirm={() => {
                     setArming(null)

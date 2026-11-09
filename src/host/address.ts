@@ -217,7 +217,7 @@ export function offerWords(offer: Offer, askerName: string, addable: readonly { 
     title: `${askerName} wants to show a page`,
     lede:
       addable.length > 0
-        ? `Nothing on this kehikko shows pages. Add ${addable.map((one) => one.name).join(' or ')} here to open it on the canvas${outside ? ', or open it in your own browser' : ''}.`
+        ? `Nothing on this kehikko shows pages. Add ${addable.map((one) => one.name).join(' or ')} here to open it on this kehikko${outside ? ', or open it in your own browser' : ''}.`
         : outside
           ? 'Nothing on this kehikko shows pages, and no module that does is installed. You can open it in your own browser.'
           : 'Nothing on this kehikko shows pages, and no module that does is installed. This address is on this machine, so it is not opened in your browser from here.',

@@ -717,7 +717,7 @@ export function App() {
         if (cancelled) return
         setSettled(true)
         setTrouble(
-          `The canvases could not be read: ${(error as Error).message}. Nothing can be arranged until they can.`,
+          `Your kehikot could not be read: ${(error as Error).message}. Reload the window to try again.`,
         )
       }
     })()

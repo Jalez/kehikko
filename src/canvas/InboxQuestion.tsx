@@ -96,7 +96,7 @@ export function InboxQuestion({
               maxLength={LIMITS.MESSAGE_BODY}
               onChange={(event) => setText(event.target.value)}
               placeholder="Reply…"
-              aria-label="Your answer to the session"
+              aria-label="Your answer to the agent"
               className="border-input bg-background focus-visible:ring-ring/50 h-6 min-w-0 flex-1 rounded-sm border px-1.5 text-xs outline-none focus-visible:ring-[3px]"
             />
             <Button type="submit" size="sm" className="h-6 shrink-0 px-2 text-[11px]" disabled={sending || !text.trim()}>

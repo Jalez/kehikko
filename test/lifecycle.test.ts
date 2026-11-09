@@ -517,7 +517,7 @@ describe('asleep does not read like broken', () => {
   test('and a start in flight says so, and says it will resolve', () => {
     const said = startingLine('kehikot.notes', 'http://127.0.0.1:7860')
     expect(said).toContain('starting')
-    expect(said).toContain('resolves on its own')
+    expect(said).toContain('clears up by itself')
   })
 })
 
@@ -643,8 +643,8 @@ describe('a host the app is stopping takes what it started with it', () => {
 describe('a module somebody else was running, just gone', () => {
   test('the sentence says who is expected to bring it back, for how long, and that it can be started now', () => {
     expect(theirsLine('kehikot.notes', 'http://127.0.0.1:7920')).toBe(
-      'kehikot.notes stopped answering at http://127.0.0.1:7920 a moment ago. This host did not start it, so it is giving whoever did '
-        + '8 seconds to bring it back before it starts it itself — or start it now.',
+      'kehikot.notes stopped answering at http://127.0.0.1:7920 a moment ago. Kehikot did not start it, so it gives whoever did '
+        + '8 seconds to bring it back before starting it itself — or press Start now.',
     )
     /* Longer than a dev server takes to come back, far shorter than the watch. */
     expect(THEIRS_TO_RESTART_MS).toBeGreaterThanOrEqual(6_000)

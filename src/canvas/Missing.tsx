@@ -45,7 +45,7 @@ export function Missing({ id, onRemove }: { id: string; onRemove(): void }) {
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`take ${id} off the canvas`}
+            aria-label={`take ${id} off this kehikko`}
             className="text-muted-foreground hover:text-foreground -mr-1 size-6 cursor-default"
             onMouseDown={(event) => event.stopPropagation()}
             onClick={onRemove}
@@ -56,8 +56,8 @@ export function Missing({ id, onRemove }: { id: string; onRemove(): void }) {
       </header>
       <div className="bg-card/80 pointer-events-auto flex min-h-0 flex-1 items-center justify-center p-3">
         <p className="text-muted-foreground max-w-prose text-center text-xs leading-snug">
-          <span className="font-mono">{id}</span> is not registered on this computer. The container is kept in
-          the layout so it is still there where it is; register the module here, or take it off.
+          <span className="font-mono">{id}</span> is not installed on this computer. Its container stays where it
+          is; install the module from Kehikko modules, or take it off this kehikko.
         </p>
       </div>
     </div>

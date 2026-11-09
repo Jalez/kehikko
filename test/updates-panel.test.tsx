@@ -419,7 +419,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
       expect(panels()).toHaveLength(1)
       const row = document.querySelector('[data-testid="updates-row"]')
       expect(row?.textContent).toContain('Updated')
-      const restart = [...panels()[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Restart the host')
+      const restart = [...panels()[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Restart Kehikot')
       expect(restart).toBe(restartable)
     })
   }
@@ -881,7 +881,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await act(async () => update.click())
     await settle()
     /* The host's own checkout, in the host's own words — never the app's. */
-    expect(indicatorText()).toBe('Restart the host')
+    expect(indicatorText()).toBe('Restart Kehikot')
     return { host, posts }
   }
 

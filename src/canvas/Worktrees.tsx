@@ -24,7 +24,7 @@ export interface WorktreesApi {
 
 async function answered<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => null)) as (T & { ok?: boolean; why?: unknown }) | null
-  if (!response.ok || !body) throw new Error(typeof body?.why === 'string' ? body.why : `the host's server answered ${response.status}`)
+  if (!response.ok || !body) throw new Error(typeof body?.why === 'string' ? body.why : `Kehikot answered with error ${response.status}`)
   return body
 }
 

@@ -343,7 +343,7 @@ export async function fetchCanvases(
 ): Promise<{ canvases: Canvas[]; projects: Project[]; trouble: string[]; subjects: Subjects }> {
   const where = remembered === null ? '' : `?open=${remembered}`
   const response = await fetch(`/host/canvases${where}`, { signal, cache: 'no-store' })
-  if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
+  if (!response.ok) throw new Error(`Kehikot answered with error ${response.status}`)
   const body = await response.json()
   return z
     .object({
@@ -367,7 +367,7 @@ export async function createCanvas(name?: string, project?: number | null, place
     /* `placements`: made from a suggested layout (`src/host/layouts.ts`). */
     body: JSON.stringify({ name, project, ...(placements ? { placements } : {}) }),
   })
-  if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
+  if (!response.ok) throw new Error(`Kehikot answered with error ${response.status}`)
   return z.object({ canvas: canvasSchema }).parse(await response.json()).canvas
 }
 
@@ -415,7 +415,7 @@ export async function removeCanvas(id: number): Promise<void> {
 async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
-  return `the host's server answered ${response.status}`
+  return `Kehikot answered with error ${response.status}`
 }
 
 /**

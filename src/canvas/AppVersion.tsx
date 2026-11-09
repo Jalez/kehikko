@@ -141,7 +141,7 @@ function AppReleases({ app, host }: { app: AppUpdateStatus | null; host: string 
         <p className="text-xs font-medium">{APP_NAME} releases</p>
         <p className="text-muted-foreground text-[11px] leading-snug">
           {host
-            ? `This page is served by a development host (${host}), not an app release.`
+            ? `This page is served by a development build (${host}), not an app release.`
             : 'What each version brought. The app updates itself; nothing here installs one.'}
         </p>
       </div>

@@ -45,7 +45,7 @@ export function Locate({
         setRefused({ why: found.why, anyway: found.anyway, path })
       }
     } catch (error) {
-      setRefused({ why: `The host did not answer: ${(error as Error).message}`, anyway: false, path })
+      setRefused({ why: `Kehikot did not answer: ${(error as Error).message}. Try again.`, anyway: false, path })
     } finally {
       setBusy(false)
     }

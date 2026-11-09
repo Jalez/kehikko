@@ -431,7 +431,7 @@ describe('the Updates menu says', () => {
   })
 
   test('what an agent is told', () => {
-    expect(releaseForAgents(view())).toContain('runs release v1.5.0; the newest release this host can run is v1.6.0')
+    expect(releaseForAgents(view())).toContain('runs release v1.5.0; the newest release this Kehikot can run is v1.6.0')
     expect(releaseForAgents(view({ follows: 'main', installed: null, newest: null, target: null }))).toContain('no releases yet')
     expect(releaseForAgents(view({ follows: 'ahead', installed: null, target: null }))).toContain('main ahead of v1.6.0')
   })

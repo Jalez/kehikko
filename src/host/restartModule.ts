@@ -59,7 +59,7 @@ export async function askRestart(id: string): Promise<RestartAnswer> {
   if (body?.ok) return { ok: true }
   return {
     ok: false,
-    why: body?.why ?? 'it could not be restarted, and the host did not say why',
+    why: body?.why ?? 'it could not be restarted, and Kehikot did not say why',
     detail: Array.isArray(body?.detail) ? body.detail.filter((line): line is string => typeof line === 'string') : [],
     ...(body?.busy ? { busy: true as const } : {}),
   }

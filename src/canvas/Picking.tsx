@@ -112,7 +112,7 @@ export function Picking({
           <DialogTitle>{asking ?? 'A module'} is asking for a project</DialogTitle>
           <DialogDescription>
             It will be told where the one you choose is on this machine, and nothing about the rest. Nothing
-            is opened here — the canvas stays on the project it is on.
+            is opened here — the kehikko stays on the project it is on.
           </DialogDescription>
         </DialogHeader>
 

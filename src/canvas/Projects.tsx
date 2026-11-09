@@ -109,7 +109,7 @@ export function Projects({
             open
               ? open.missing
                 ? `project — ${open.path}: ${MISSING_SAID}`
-                : `project — ${open.path}${open.epics ? '' : ' (no .kehikot/host/epics here)'}`
+                : `project — ${open.path}${open.epics ? '' : ' (no epics yet)'}`
               : 'no project is open'
           }
           align="start"
@@ -214,7 +214,7 @@ export function Projects({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setCleaning(true)}>
             <GitBranch className="text-muted-foreground size-3 shrink-0" />
-            <span className="min-w-0 flex-1">clean up worktrees…</span>
+            <span className="min-w-0 flex-1">clean up finished worktrees…</span>
           </DropdownMenuItem>
           {/* How Kehikot works with the person's agents, for every project at
               once — so beside storage, which is about all of them too. */}
@@ -424,9 +424,8 @@ export function Browser({
           <DialogDescription>
             {description ?? (
               <>
-                A project is a folder — a repository, a git worktree, or any directory with work in it. Epics
-                come from <span className="font-mono">.kehikot/host/epics</span> under it, and a project that has none is
-                still a project.
+                A project is a folder — a repository, a git worktree, or any folder with work in it. It does
+                not need epics to be a project; you can make them once it is open.
               </>
             )}
           </DialogDescription>

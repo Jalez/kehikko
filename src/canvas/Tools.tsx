@@ -116,7 +116,7 @@ export function ToolsMark({
   if (!agent || agent.kind === 'none') return null
 
   const wrong = agent.kind !== 'told'
-  const thing = about === 'host' ? 'this host' : 'this module'
+  const thing = about === 'host' ? 'Kehikot' : 'this module'
 
   const label =
     agent.kind === 'untold'
@@ -289,7 +289,7 @@ export function ToolsDialog({
         command?: string
       }
       if (!body.ok) {
-        setSaid(body.why ?? body.said ?? 'It did not work, and the host did not say why.')
+        setSaid(body.why ?? body.said ?? 'It did not work, and Kehikot did not say why. Try again.')
       } else {
         /* With a door on screen the sentence about the next session is
            already standing above this, and saying it twice read as two
@@ -323,7 +323,7 @@ export function ToolsDialog({
             Tools from {name}
           </DialogTitle>
           <DialogDescription>
-            What {door?.about === 'host' ? 'this host' : 'this module'} offers an agent through its
+            What {door?.about === 'host' ? 'Kehikot' : 'this module'} offers an agent through its
             MCP door, and whether any agent has been told the door exists.
           </DialogDescription>
         </DialogHeader>
@@ -400,7 +400,7 @@ export function ToolsDialog({
             {door.agent.kind === 'told' && door.tools.ok && door.tools.tools.length > 0 ? (
               <p className="text-muted-foreground text-xs leading-relaxed">
                 This list was read from {name} just now. An agent mid-session is using the list from
-                when its session started — if {door.about === 'host' ? 'the host' : 'the module'} has
+                when its session started — if {door.about === 'host' ? 'Kehikot' : 'the module'} has
                 reloaded since, the two can differ, and only a new session catches the agent up.
               </p>
             ) : null}
@@ -451,7 +451,7 @@ function Connection({
   const where = whereSaid(door.configuredIn)
   /* "this module" is false of the host, and the host's is the one door whose
      stale address is the host's OWN port having moved — see `hostDoor`. */
-  const thing = door.about === 'host' ? 'this host' : 'this module'
+  const thing = door.about === 'host' ? 'Kehikot' : 'this module'
 
   return (
     <div className="min-w-0 space-y-2 rounded-md border p-3">
@@ -477,7 +477,7 @@ function Connection({
             {where ? ` ${where}` : null}, and it points at{' '}
             <span className="font-mono text-xs">{door.agent.pointsAt}</span> rather than at{' '}
             {thing}. An agent will reach that address and get nothing — which looks like a broken
-            {door.about === 'host' ? ' host' : ' module'} rather than a stale line in a config file.
+            {door.about === 'host' ? ' Kehikot' : ' module'} rather than a stale line in a config file.
           </>
         ) : (
           <>
@@ -567,7 +567,7 @@ function Connection({
           <p className="text-xs leading-relaxed">
             This writes to <span className="font-mono">{door.writesTo}</span> scope
             {door.agent.kind === 'elsewhere'
-              ? ', and rewrites an entry this host did not create.'
+              ? ', and rewrites an entry Kehikot did not create.'
               : door.agent.kind === 'renamed'
                 ? `, and removes the entry called “${door.agent.as}” first.`
                 : ', which is global to this machine rather than tied to one directory.'}
@@ -629,7 +629,7 @@ function ToolList({
         </p>
         <p className="text-muted-foreground min-w-0 text-xs leading-relaxed break-words">
           {about === 'host'
-            ? `This host serves its own door at ${at}, on the same port that answered this window — so if it did not answer, the reason is in the terminal the host was started from.`
+            ? `Kehikot serves its own tools at ${at}, on the same port that answered this window — so if they did not answer, the reason is in the terminal Kehikot was started from.`
             : tools.why === 'not-mcp'
               ? `${name} says its MCP door is at ${at}. A dev server answering its own index page at that path looks exactly like this.`
               : `${name}'s manifest says its door is at ${at}.`}

@@ -55,7 +55,7 @@ export function Trouble({
           type="button"
           onClick={onLookAgain}
           disabled={looking}
-          title="Ask the host's server again, now, rather than waiting for the page to retry."
+          title="Try again now, rather than waiting for the page to retry."
           className="border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 h-4 shrink-0 rounded-sm border px-1.5 text-[10px] leading-none"
         >
           {looking ? 'looking…' : 'look again'}
