@@ -2,6 +2,7 @@ import {
   LIMITS,
   messageMineParams,
   messageMineResult,
+  messageNotifyParams,
   messagePostParams,
   messageSayParams,
   messageReadParams,
@@ -27,6 +28,10 @@ import type { Database } from 'bun:sqlite'
  *    another, so sessions read and send within their own project only. The
  *    sender is stamped from the token's record: module, registered name,
  *    session, place.
+ *  - `messages.notify` (protocol 2.54.0), from a module's SERVER: its own
+ *    notice to the one session whose token came with its request — any
+ *    module's token, since a session hands it to every door it calls. Sent to
+ *    that session only, stamped with no session and the asker's place.
  *  - `POST /host/place` with `messages: true` (`placeRoutes.ts`): the session's
  *    unread, handed for its notes and counted delivered (`forNotes`).
  *  - `GET  /host/messages?project=N[&limit=]` — every message of the project,
@@ -107,8 +112,38 @@ export function messageDesk(deps: MessageDeps) {
     return { here }
   }
 
-  /** `messages.send` or `messages.read`, from a module's server whose pass and grant were held already. */
+  /**
+   * `messages.notify` (protocol 2.54.0): a module's own notice to the ONE
+   * session whose token came with its request. The token may be any module's:
+   * a session hands its token to every door it calls, so a module holds only
+   * the tokens of sessions that called it. The notice goes to that session
+   * alone, in the token's project, stamped as the asking module's with no
+   * session and the asker's place; the module that runs the session delivers
+   * it as any message.
+   */
+  async function notify(module: string, params: unknown): Promise<MessageAsked> {
+    const asked = messageNotifyParams.safeParse(params ?? {})
+    if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.notify: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+    const { token } = asked.data
+    if (!issuerOf(db, token)) return { ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noSession }
+    const { here } = await deps.resolve(token).catch(() => ({ here: null }))
+    if (!here || here.via !== 'token' || !here.module) return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.noPlace }
+    const to = { session: { module: here.module, session: sessionIdOf(here.conversation, token) } }
+    const sent = messages.send(
+      here.project.id,
+      { module, session: '', name: deps.nameOf(module) ?? module, epic: here.epic, parts: here.parts, kehikko: here.key },
+      asked.data.body,
+      to,
+      asked.data.thread ?? null,
+      { ...(asked.data.kind !== undefined ? { kind: asked.data.kind } : {}), notice: true },
+    )
+    if (sent.ok) deps.changed(here.project.id)
+    return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
+  }
+
+  /** `messages.send`, `messages.read` or `messages.notify`, from a module's server whose pass and grant were held already. */
   async function serverAnswer(module: string, method: string, params: unknown): Promise<MessageAsked> {
+    if (method === 'messages.notify') return notify(module, params)
     if (method === 'messages.send') {
       const asked = messageSendParams.safeParse(params ?? {})
       if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.send: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }

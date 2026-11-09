@@ -77,6 +77,10 @@ export const ANSWERED_BY_THE_SERVER = [
      `server/messageRoutes.ts` (`pageAnswer`) before `answer` is reached. */
   'messages.mine',
   'messages.post',
+  /* Protocol 2.54.0: a module's SERVER tells the one session whose token asked
+     it how that came out (`notify` in `server/messageRoutes.ts`). A page has no
+     asker's token: `answer` declines it there. */
+  'messages.notify',
 ] as const
 
 /**

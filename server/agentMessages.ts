@@ -74,6 +74,8 @@ export interface Extras {
    * message (`replyTo` says that). The host's fact, set only by the Inbox's answer (`inboxRoutes.ts`).
    */
   answers?: string
+  /** Protocol 2.54.0: a module's notice to the one session that asked it, bounded per module and receiving session. */
+  notice?: boolean
 }
 
 /** One message as the person's view lists it: the protocol's shape. */
@@ -214,6 +216,8 @@ export function keptBody(body: string): string {
 export const MESSAGES_SAY = {
   rate: (per: 'minute' | 'hour') =>
     `Too many messages from this session in the last ${per}: at most ${per === 'minute' ? LIMITS.MESSAGES_PER_MINUTE : LIMITS.MESSAGES_PER_HOUR}. Nothing was sent; send fewer, longer ones.`,
+  noticeRate: (per: 'minute' | 'hour') =>
+    `Too many notices from this module to that session in the last ${per}: at most ${per === 'minute' ? LIMITS.NOTICES_PER_MINUTE : LIMITS.NOTICES_PER_HOUR}. Nothing was sent; send fewer.`,
   personRate: () => `Too many of your messages through this module in the last minute: at most ${LIMITS.PERSON_MESSAGES_PER_MINUTE}. Nothing was sent; wait a moment.`,
   empty: 'A message says something: the body was empty once its control characters were taken out. Nothing was sent.',
 } as const
@@ -240,6 +244,15 @@ export class AgentMessages {
         .query<{ n: number }, [number, string, number]>('select count(*) as n from agent_messages where project = ? and from_module = ? and person = 1 and at > ?')
         .get(project, from.module, now - 60_000)!.n
       if (recent >= LIMITS.PERSON_MESSAGES_PER_MINUTE) return { ok: false, why: MESSAGES_SAY.personRate() }
+    } else if (extras.notice && from.session === '' && to?.session) {
+      /* A module's notices are counted per receiving session: one busy session does not use up another's. */
+      const target = JSON.stringify(messageToSchema.parse(to))
+      const count = (since: number) =>
+        this.db
+          .query<{ n: number }, [number, string, string, number]>("select count(*) as n from agent_messages where project = ? and from_module = ? and from_session = '' and person = 0 and copy_of is null and to_json = ? and at > ?")
+          .get(project, from.module, target, since)!.n
+      if (count(now - 60_000) >= LIMITS.NOTICES_PER_MINUTE) return { ok: false, why: MESSAGES_SAY.noticeRate('minute') }
+      if (count(now - 3_600_000) >= LIMITS.NOTICES_PER_HOUR) return { ok: false, why: MESSAGES_SAY.noticeRate('hour') }
     } else {
       const count = (since: number) =>
         this.db
