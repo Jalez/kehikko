@@ -126,8 +126,8 @@ describe('the retired list', () => {
     expect(mergeRetired([LIST[0]!], null, [entry('kehikot.gone')])).toEqual([])
   })
 
-  test('the built-in list retires two modules and no longer offers them', () => {
-    expect(RETIRED.map((one) => one.id).sort()).toEqual(['kehikot.atlas', 'kehikot.notifications'])
+  test('the built-in list retires three modules and no longer offers them', () => {
+    expect(RETIRED.map((one) => one.id).sort()).toEqual(['kehikot.atlas', 'kehikot.notifications', 'kehikot.tests'])
     expect(OFFICIAL.some((one) => RETIRED.some((gone) => gone.id === one.id))).toBe(false)
   })
 })

@@ -51,7 +51,7 @@ out the rest.
 | [Diff](https://github.com/Jalez/kehikko-diff) | the changes in whatever you have selected |
 | [References](https://github.com/Jalez/kehikko-references) | your project's issues and pull requests |
 | [Paper](https://github.com/Jalez/kehikko-paper) | your paper or thesis, as real pages |
-| [Tests](https://github.com/Jalez/kehikko-tests) | what was actually run against a change |
+| [Queue](https://github.com/Jalez/kehikko-queue) | test suites, builds and other heavy work, started when there's room |
 
 And more: citations, notifications, learning questions, an orchestrator that
 starts agent sessions. Or build your own: read

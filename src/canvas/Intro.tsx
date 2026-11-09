@@ -152,7 +152,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'scope',
     title: 'Every module says what it belongs to',
-    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. A queue of test runs belongs to this computer, your files to the project, a plan to its epic. Each container’s menu says its scope, and a module that can work at more than one lets you pick.',
+    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. A queue of heavy work belongs to this computer, your files to the project, a plan to its epic. Each container’s menu says its scope, and a module that can work at more than one lets you pick.',
     art: () => (
       <Art label="three modules, each with a small label on its header saying what its content belongs to">
         {[
