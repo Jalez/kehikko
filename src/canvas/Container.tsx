@@ -133,6 +133,7 @@ export function Container({
   activity = null,
   onActivitySeen,
   inboxUse,
+  expand,
 }: {
   presence: Presence
   /**
@@ -349,6 +350,11 @@ export function Container({
    * person's change. A checkbox row of the Container menu at every width and fold. Absent: no row.
    */
   inboxUse?: { on: boolean; onChange(on: boolean): void }
+  /**
+   * "Expand" (`host/expand.ts`): whether this container is shown large over the canvas now, and the
+   * person's change. A row of the Container menu while its page is showing and it is not folded.
+   */
+  expand?: { on: boolean; onChange(on: boolean): void }
 }) {
   const name = presence.name ?? presence.id
   /* How much of the header's left side there is room for (`host/headerFit.ts`): what the header's
@@ -429,6 +435,7 @@ export function Container({
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
     inbox: inboxUse,
+    expand: expand && showing.kind === 'page' && !collapsed && !oneEpic ? expand : undefined,
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
     controls: controlParts,
     onRemove,

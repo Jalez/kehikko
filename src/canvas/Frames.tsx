@@ -142,6 +142,7 @@ export function Frames({
   still = false,
   layer,
   reveals = null,
+  raised = null,
 }: {
   framings: readonly Framing[]
   context: ModuleContext
@@ -208,6 +209,11 @@ export function Frames({
    * the moves inside it, and that is all this needs.
    */
   reveals?: Reveals | null
+  /**
+   * The page of the container shown large (`host/expand.ts`), drawn over the canvas and its dimmed
+   * backdrop. Raised in place, never moved in the DOM: the document in it is the same one.
+   */
+  raised?: string | null
 }) {
   /* A page that is hidden while it has the focus gives it back: `inert` makes
      it unfocusable, but a browser leaves the focus where it was, and a module
@@ -258,6 +264,7 @@ export function Frames({
                events it did nothing to deserve. */
             visibility: visible ? 'visible' : 'hidden',
             pointerEvents: visible && moving === null && !still ? 'auto' : 'none',
+            ...(raised === module.id ? { zIndex: 41 } : {}),
           }}
         >
           <ModuleFrame

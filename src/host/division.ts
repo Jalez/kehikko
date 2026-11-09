@@ -168,6 +168,9 @@ export const ANSWERED_BY_THE_VIEW = [
      those, and the person watching is the point. See `asked` in
      `host/folds.ts`. */
   'view.fold',
+  /* Showing a container large over the canvas (protocol 2.58.0): the page's alone, never written,
+     and it needs the person's press in the frame, which only this page sees. See `host/expand.ts`. */
+  'view.expand',
   /* What a module's things are doing now. Held per project beside the seen
      set, marked on the pickers and containers and listed in one menu — all of
      which are the page's. See `host/activity.ts`. */

@@ -790,6 +790,19 @@
 - The header row has no scope chip: the scope is the Container menu's "Scope:"
   row at every width, which opens the settings window.
 
+## A container shown large
+
+- "Expand" (protocol 2.58.0, `view.expand`) shows one container over the canvas
+  for a while: `host/expand.ts` holds the rules, `canvas/Expanded.tsx` draws the
+  panel. It is page state only — never a placement, never written. Folding,
+  removing, switching kehikko, Escape on the host's page, a press outside or
+  "Shrink back" put it back.
+- The iframe is never moved in the DOM: its framing is measured against the
+  panel's body (`EXPANDED_BODY`) and raised (`raised` in `Frames.tsx`). Keep it
+  that way, or a terminal session in the page is lost.
+- A page may expand only its own container, only on the person's fresh press
+  (`how.pressed`); putting back is always allowed.
+
 ## What a module may ask
 
 - Every method is held to the capability the protocol files it under
