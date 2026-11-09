@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 
 /**
@@ -70,7 +71,10 @@ export function isSshRemote(remote: string | null | undefined): boolean {
 
 const identities = new Map<string, string | null>()
 
-/** The first IdentityFile ssh would try for a host (`ssh -G`, which only reads configuration), or null. */
+/**
+ * The first IdentityFile ssh would try for a host that exists on disk (`ssh -G`,
+ * which only reads configuration), or null when none does.
+ */
 export function identityFor(host: string, read: (host: string) => string | null = sshConfigRead): string | null {
   if (!identities.has(host)) identities.set(host, read(host))
   return identities.get(host) ?? null
@@ -81,18 +85,36 @@ export function forgetIdentities(): void {
   identities.clear()
 }
 
+/**
+ * The first `identityfile` in `ssh -G` output whose file exists. With no
+ * IdentityFile configured, ssh lists every default name (`id_rsa` first)
+ * whether the file is there or not, so the first line alone names a key the
+ * person may not have.
+ */
+export function existingIdentity(output: string, exists: (path: string) => boolean = existsSync, home: string = homedir()): string | null {
+  for (const line of output.split('\n')) {
+    if (!line.startsWith('identityfile ')) continue
+    const path = line
+      .slice('identityfile '.length)
+      .trim()
+      .replace(/^~(?=\/)/, home)
+      .replaceAll('%d', home)
+    if (path && !path.includes('%') && exists(path)) return path
+  }
+  return null
+}
+
+/** The key ssh itself named in what it said ("Enter passphrase for key '…'", "Load key \"…\""), or null. */
+export function identityInSaid(text: string): string | null {
+  return /passphrase for key '([^']+)'/i.exec(text)?.[1] ?? /Load key "([^"]+)"/i.exec(text)?.[1] ?? null
+}
+
 function sshConfigRead(host: string): string | null {
   if (!/^[A-Za-z0-9.-]+$/.test(host)) return null
   try {
     const run = Bun.spawnSync(['ssh', '-G', host], { stdout: 'pipe', stderr: 'ignore', stdin: 'ignore', timeout: 3_000 })
     if (run.exitCode !== 0) return null
-    const files = run.stdout
-      .toString()
-      .split('\n')
-      .filter((line) => line.startsWith('identityfile '))
-      .map((line) => line.slice('identityfile '.length).trim())
-      .filter(Boolean)
-    return files[0]?.replace(/^~(?=\/)/, homedir()) ?? null
+    return existingIdentity(run.stdout.toString())
   } catch {
     return null
   }
@@ -136,16 +158,18 @@ export function explainGitFailure(
   }
 
   if (SSH_KEY.some((rule) => rule.test(text))) {
-    const key = (host && identity(host)) || '~/.ssh/id_ed25519'
-    const path = tilde(key)
-    const command = `ssh-add --apple-use-keychain ${path}`
+    const key = identityInSaid(text) ?? (host ? identity(host) : null)
+    const command = key ? `ssh-add --apple-use-keychain ${tilde(key)}` : null
     const wrong = /incorrect passphrase|bad passphrase/i.test(text)
     return {
       kind: 'ssh-key',
       command,
       said:
         `Your SSH key is locked with a passphrase that isn't in your keychain, so Kehikot can't use it${wrong ? ' (the passphrase it tried was not right)' : ''}. ` +
-        `In a terminal, run \`${command}\` once, then press Retry. ${KEYCHAIN_HINT}` +
+        (command
+          ? `In a terminal, run \`${command}\` once, then press Retry. `
+          : `No SSH key was found where ssh looks for one, so in a terminal, run \`ssh-add --apple-use-keychain\` followed by the path to your private key once, then press Retry. `) +
+        KEYCHAIN_HINT +
         (host ? ` If the key is already loaded, ${host} may not have its public key on your account.` : ''),
     }
   }

@@ -8,6 +8,7 @@ import {
   decide,
   doneSaid,
   freedSaid,
+  generated,
   keptSaid,
   type Change,
   type Facts,
@@ -205,6 +206,49 @@ const mtime = (path: string): number => {
   }
 }
 
+const readText = (path: string): string => {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+/** Tracked files statted per worktree, at most: enough for any working tree a person edits by hand. */
+const TRACKED_MAX = 20_000
+
+/** The newest entry's own time in a reflog (`<old> <new> <who> <seconds> <zone>\t<what>`), ms, or 0. */
+export function newestReflogEntry(text: string): number {
+  let newest = 0
+  for (const line of text.split('\n')) {
+    const at = /> (\d+) [+-]\d{4}(?:\t|$)/.exec(line)
+    if (at) newest = Math.max(newest, Number(at[1]) * 1000)
+  }
+  return newest
+}
+
+/**
+ * When work last happened in a worktree, ms: its newest commit, its newest
+ * checkout or commit as the reflog's entries record them, and the files in its
+ * working tree. Never a file git writes for itself — the index, HEAD, the
+ * reflog file's own time — since git rewrites those in housekeeping (`gc`,
+ * `reflog expire`, `status`) with nobody working there; never the generated
+ * folders either, which an install rewrites.
+ */
+export function workChangedAt(work: {
+  path: string
+  committedAt: number
+  reflog: string
+  tracked: readonly string[]
+  untracked: readonly string[]
+}): number {
+  const files = [
+    ...work.tracked.filter((p) => !generated(p)).slice(0, TRACKED_MAX),
+    ...work.untracked.filter((p) => !generated(p)).slice(0, 200),
+  ]
+  return Math.max(work.committedAt, newestReflogEntry(work.reflog), ...files.map((p) => mtime(join(work.path, p))))
+}
+
 /** The worktree's own folder in the repository (`.git/worktrees/<name>`), from its `.git` file. */
 function gitDirOf(path: string): string | null {
   try {
@@ -246,13 +290,15 @@ export async function factsOf(
   /* Unknown is not "none": a count that could not be read keeps the worktree. */
   const unpushed = counted.ok ? Number(counted.out) || 0 : 1
   const committed = await git(['git', '-C', repo, 'log', '-1', '--format=%ct', entry.head])
+  const listed = await git(['git', '-C', entry.path, 'ls-files', '-z'], { timeoutMs: 60_000 })
   const gitDir = gitDirOf(entry.path)
-  const times = [
-    committed.ok ? Number(committed.out) * 1000 || 0 : 0,
-    mtime(entry.path),
-    ...(gitDir ? [mtime(join(gitDir, 'index')), mtime(join(gitDir, 'HEAD')), mtime(join(gitDir, 'logs', 'HEAD'))] : []),
-    ...untracked.slice(0, 200).map((p) => mtime(join(entry.path, p))),
-  ]
+  const changedAt = workChangedAt({
+    path: entry.path,
+    committedAt: committed.ok ? Number(committed.out) * 1000 || 0 : 0,
+    reflog: gitDir ? readText(join(gitDir, 'logs', 'HEAD')) : '',
+    tracked: listed.ok ? listed.out.split('\0').filter(Boolean) : [],
+    untracked,
+  })
   let busy: number | null = null
   for (const [pid, cwd] of cwds) {
     if (cwd === entry.path || cwd.startsWith(`${entry.path}/`)) {
@@ -272,7 +318,7 @@ export async function factsOf(
     untracked,
     unpushed,
     contained,
-    changedAt: Math.max(...times),
+    changedAt,
     busy,
     changes: branch ? states.changes.filter((c) => c.branch === branch).map(({ branch: _, ...c }) => c) : [],
     issues: branch ? states.issues.filter((i) => i.branch === branch).map(({ branch: _, ...i }) => i) : [],

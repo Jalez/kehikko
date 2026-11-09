@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 
 import { checkOnOrigin } from '../server/baseBranch.ts'
 import type { Runner } from '../server/feedback.ts'
-import { explainGitFailure, forgetIdentities, hostOfRemote, identityFor, isSshRemote, whyOfFailure } from '../server/gitAuth.ts'
+import { existingIdentity, explainGitFailure, forgetIdentities, hostOfRemote, identityFor, identityInSaid, isSshRemote, whyOfFailure } from '../server/gitAuth.ts'
 import { QUIET_ENV } from '../server/updates.ts'
 import { run } from '../server/versions.ts'
 import { isGitReason, splitSaid } from '../src/host/gitSaid.ts'
@@ -29,8 +29,44 @@ describe('the classifier', () => {
     expect(said.said).toContain('AddKeysToAgent yes')
   })
 
-  test('with no key found, ~/.ssh/id_ed25519', () => {
-    expect(explainGitFailure(LOCKED, 'git@github.com:a/b.git', keyAt(null))!.command).toBe('ssh-add --apple-use-keychain ~/.ssh/id_ed25519')
+  test('with no key found, no key is named: a generic instruction, nothing to copy', () => {
+    const said = explainGitFailure(LOCKED, 'git@github.com:a/b.git', keyAt(null))!
+    expect(said.kind).toBe('ssh-key')
+    expect(said.command).toBeNull()
+    expect(said.said).not.toContain('id_rsa')
+    expect(said.said).not.toContain('id_ed25519')
+    expect(said.said).toContain('No SSH key was found where ssh looks for one')
+    expect(said.said).toContain('`ssh-add --apple-use-keychain` followed by the path to your private key')
+  })
+
+  test('the key ssh itself named comes first', () => {
+    const said = explainGitFailure(PASSPHRASE, 'git@github.com:a/b.git', keyAt('/Users/me/.ssh/id_rsa'))!
+    expect(said.command).toBe('ssh-add --apple-use-keychain /Users/me/.ssh/id_ed25519')
+    expect(identityInSaid('Load key "/k/x": invalid format')).toBe('/k/x')
+    expect(identityInSaid(LOCKED)).toBeNull()
+  })
+
+  test('the key is the first identityfile that exists, not the first ssh -G lists (#267)', () => {
+    const G = [
+      'user git',
+      'hostname github.com',
+      'identityfile ~/.ssh/id_rsa',
+      'identityfile ~/.ssh/id_ecdsa',
+      'identityfile ~/.ssh/id_ecdsa_sk',
+      'identityfile ~/.ssh/id_ed25519',
+      'identityfile ~/.ssh/id_ed25519_sk',
+      'identityfile %d/.ssh/id_work',
+      'identityfile ~/.ssh/%h_key',
+      '',
+    ].join('\n')
+    const has = (...paths: string[]) => (path: string) => paths.includes(path)
+    expect(existingIdentity(G, has('/h/.ssh/id_ed25519'), '/h')).toBe('/h/.ssh/id_ed25519')
+    expect(existingIdentity(G, has('/h/.ssh/id_ed25519', '/h/.ssh/id_rsa'), '/h')).toBe('/h/.ssh/id_rsa')
+    expect(existingIdentity(G, has('/h/.ssh/id_work'), '/h')).toBe('/h/.ssh/id_work')
+    /* A path with a token ssh fills in per host is not guessed at. */
+    expect(existingIdentity(G, () => false, '/h')).toBeNull()
+    expect(existingIdentity(G, (p) => p.includes('%'), '/h')).toBeNull()
+    expect(existingIdentity('', () => true, '/h')).toBeNull()
   })
 
   test('the host comes from ssh’s own line when the caller has no URL', () => {
