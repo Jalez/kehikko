@@ -9,6 +9,7 @@ import { ensureSettings, settingsRoute } from '../server/agentSettings.ts'
 import { open } from '../server/canvases.ts'
 import type { Ran, Runner } from '../server/feedback.ts'
 import { Inbox } from '../server/inbox.ts'
+import { inboxDesk } from '../server/inboxRoutes.ts'
 import { addProject } from '../server/projects.ts'
 import { readNotices, TrackerNotices, writeNotices } from '../server/trackerNotices.ts'
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
@@ -169,25 +170,25 @@ describe('the item: words, state and priority', () => {
   test('changes requested and your review asked: needs you, while still true', () => {
     const row = gh(20, { reviewers: [{ login: 'mona', state: 'changes' }] })
     const item = noticeItem(seenOf(row, T0, { events: [ev('changes-requested', 'mona')], since: T0 }), DEFAULT_NOTICES)!
-    expect(item).toMatchObject({ state: 'attention', priority: 'normal', label: 'gh#20 changes requested by mona', refs: ['gh#20'], since: T0, detail: 'change 20' })
+    expect(item).toMatchObject({ state: 'attention', priority: 'normal', label: 'gh#20 · changes requested by mona', refs: ['gh#20'], since: T0, detail: 'change 20' })
     /* mona approved since: the change request is no longer true. */
     const after = gh(20, { reviewers: [{ login: 'mona', state: 'approved' }] })
     expect(noticeItem(seenOf(after, T0, { events: [ev('changes-requested', 'mona')], since: T0 }), DEFAULT_NOTICES)).toBeNull()
     const asked = gh(21, { myRoles: ['reviewer-asked'] })
     expect(noticeItem(seenOf(asked, T0, { events: [ev('review-requested')], since: T0 }), DEFAULT_NOTICES)).toMatchObject({
       state: 'attention',
-      label: 'gh#21 review requested from you',
+      label: 'gh#21 · review requested from you',
     })
   })
 
   test('approved and merged: done at normal priority; comments and the rest: done at low', () => {
     const row = gl(22)
     const good = noticeItem(seenOf(row, T0, { events: [ev('approved', 'mona'), ev('commented', 'bob'), ev('commented', 'bob')], since: T0 }), DEFAULT_NOTICES)!
-    expect(good).toMatchObject({ state: 'done', priority: 'normal', label: '!22 approved by mona · 2 new comments from bob' })
+    expect(good).toMatchObject({ state: 'done', priority: 'normal', label: '!22 · approved by mona · 2 new comments from bob' })
     const info = noticeItem(seenOf(row, T0, { events: [ev('commented', 'bob')], since: T0 }), DEFAULT_NOTICES)!
-    expect(info).toMatchObject({ state: 'done', priority: 'low', label: '!22 a new comment from bob' })
+    expect(info).toMatchObject({ state: 'done', priority: 'low', label: '!22 · a new comment from bob' })
     const merged = noticeItem(seenOf(gl(22, { state: 'merged' }), T0, { events: [ev('merged', 'mona')], since: T0 }), DEFAULT_NOTICES)!
-    expect(merged).toMatchObject({ state: 'done', priority: 'normal', label: '!22 merged by mona' })
+    expect(merged).toMatchObject({ state: 'done', priority: 'normal', label: '!22 · merged by mona' })
   })
 
   test('the setting’s per-event switches leave events out', () => {
@@ -252,29 +253,29 @@ describe('the store and the Inbox', () => {
   })
   afterEach(() => rmSync(folder, { recursive: true, force: true }))
 
-  test('the first reading is silent; the next tells, by-lined Kehikot, placed in the epic naming the ref', () => {
+  test('the first reading is silent; the next tells, by-lined Tracker, placed in the epic naming the ref', () => {
     const asked = gh(30, { reviewers: [{ login: 'mona', state: 'requested' }] })
     land([asked, gl(31, { reviewers: [{ login: 'bob', state: 'requested' }] })], new Map([['gh#30', 'thesis']]))
     expect(mine()).toEqual([])
     clock += 60_000
     land([gh(30, { reviewers: [{ login: 'mona', state: 'approved' }] }), gl(31, { reviewers: [{ login: 'bob', state: 'changes' }] })], new Map([['gh#30', 'thesis']]))
     const [a, b] = mine().sort((x, y) => x.label.localeCompare(y.label))
-    expect(a).toMatchObject({ name: 'Kehikot', state: 'attention', label: '!31 changes requested by bob', refs: ['!31'] })
+    expect(a).toMatchObject({ name: 'Tracker', state: 'attention', label: '!31 · changes requested by bob', refs: ['!31'] })
     expect(a!.place).toBeUndefined()
-    expect(b).toMatchObject({ name: 'Kehikot', state: 'done', priority: 'normal', label: 'gh#30 approved by mona', refs: ['gh#30'], place: { epic: 'thesis' } })
+    expect(b).toMatchObject({ name: 'Tracker', state: 'done', priority: 'normal', label: 'gh#30 · approved by mona', refs: ['gh#30'], place: { epic: 'thesis' } })
   })
 
   test('one item per ref, accruing; a burst in one reading is one update', () => {
     land([gh(32, { reviewers: [{ login: 'mona', state: 'requested' }] })])
     clock += 1000
     land([gh(32, { reviewers: [{ login: 'mona', state: 'approved' }], lastActivity: { login: 'bob', at: at(clock), kind: 'comment', mine: false } })])
-    expect(mine().map((one) => one.label)).toEqual(['gh#32 approved by mona · a new comment from bob'])
+    expect(mine().map((one) => one.label)).toEqual(['gh#32 · approved by mona · a new comment from bob'])
     const moves = inbox.moves(project).filter((one) => one.module === TRACKER_NOTICES_MODULE)
     expect(moves).toHaveLength(1)
     clock += 1000
     land([gh(32, { reviewers: [{ login: 'mona', state: 'approved' }], lastActivity: { login: 'carol', at: at(clock), kind: 'comment', mine: false } })])
     expect(mine()).toHaveLength(1)
-    expect(mine()[0]!.label).toBe('gh#32 approved by mona · 2 new comments from bob and carol')
+    expect(mine()[0]!.label).toBe('gh#32 · approved by mona · 2 new comments from bob and carol')
   })
 
   test('nothing for an item where the person has no role, unless the setting takes the epics too', () => {
@@ -286,7 +287,7 @@ describe('the store and the Inbox', () => {
     writeNotices(db, { ...DEFAULT_NOTICES, scope: 'epics' })
     clock += 1000
     land([gh(33, { authorLogin: 'mona', myRoles: [], reviewers: [{ login: 'bob', state: 'approved' }], state: 'merged' })], new Map([['gh#33', 'thesis']]))
-    expect(mine().map((one) => one.label)).toEqual(['gh#33 merged'])
+    expect(mine().map((one) => one.label)).toEqual(['gh#33 by mona · merged'])
   })
 
   test('dismissed: put away until a NEW event; then only the new one is told', () => {
@@ -301,7 +302,7 @@ describe('the store and the Inbox', () => {
     clock += 1000
     land([gl(34, { lastActivity: { login: 'carol', at: at(clock), kind: 'comment', mine: false } })])
     const back = mine().filter(isLive)
-    expect(back.map((one) => one.label)).toEqual(['!34 a new comment from carol'])
+    expect(back.map((one) => one.label)).toEqual(['!34 · a new comment from carol'])
   })
 
   test('a finished item that was seen is let go, and comes back with the next event', () => {
@@ -330,14 +331,91 @@ describe('the store and the Inbox', () => {
     land([gh(37, { authorLogin: 'mona', myRoles: [], reviewers: [] })])
     clock += 1000
     land([gh(37, asked)])
-    expect(mine()[0]).toMatchObject({ state: 'attention', label: 'gh#37 review requested from you' })
+    expect(mine()[0]).toMatchObject({ state: 'attention', label: 'gh#37 by mona · review requested from you' })
     clock += 1000
     land([gh(37, { authorLogin: 'mona', myRoles: ['reviewer-done'], reviewers: [{ login: ME, state: 'approved' }] })])
     expect(mine().filter(isLive)).toEqual([])
   })
 
+  test('a review asked of you stops needing you when the change drops out of a reading of its repository', () => {
+    const asked = { authorLogin: 'mona', myRoles: ['reviewer-asked' as const], reviewers: [{ login: ME, state: 'requested' as const }] }
+    land([gl(38, { authorLogin: 'mona', myRoles: [], reviewers: [] }), gl(39)])
+    clock += 1000
+    land([gl(38, asked), gl(39)])
+    expect(mine().filter(isLive)).toHaveLength(1)
+    /* A reading that did not read the repository at all says nothing. */
+    clock += 1000
+    land([gh(40)])
+    expect(mine().filter(isLive)).toHaveLength(1)
+    /* Read again, and the change is not among what the tracker lists for the person: merged, closed or no longer asked. */
+    clock += 1000
+    land([gl(39)])
+    expect(mine().filter(isLive)).toEqual([])
+  })
+
+  test('each item keeps where it is — forge, project path, number, page — and whose it is; read back by its Inbox id', () => {
+    const asked = { authorLogin: 'mona', myRoles: ['reviewer-asked' as const], reviewers: [{ login: ME, state: 'requested' as const }], people: { mona: { name: 'Mona Lisa' } } }
+    land([gl(4454, { authorLogin: 'mona', myRoles: [], reviewers: [] })])
+    clock += 1000
+    land([gl(4454, asked)])
+    const entry = mine()[0]!
+    expect(entry).toMatchObject({ name: 'Tracker', state: 'attention', label: '!4454 by Mona Lisa · review requested from you', refs: ['!4454'] })
+    expect(notices.link(project, entry.id)).toEqual({
+      ref: '!4454',
+      tracker: 'gitlab',
+      host: 'gitlab.example.org',
+      repo: 'group/sub/project',
+      number: 4454,
+      kind: 'change',
+      url: 'https://gitlab.example.org/group/sub/project/-/merge_requests/4454',
+      title: 'change 4454',
+    })
+    expect(notices.link(project, 'nothing')).toBeNull()
+  })
+
+  test('GET /host/inbox/link answers a notice’s link for the page', async () => {
+    land([gl(41, { authorLogin: 'mona', myRoles: [], reviewers: [] })])
+    clock += 1000
+    land([gl(41, { authorLogin: 'mona', myRoles: ['reviewer-asked'], reviewers: [{ login: ME, state: 'requested' }] })])
+    const desk = inboxDesk({
+      inbox,
+      pathOf: () => folder,
+      changed: () => {},
+      linkOf: (p, module, id) => (module === TRACKER_NOTICES_MODULE ? notices.link(p, id) : null),
+    })
+    const id = mine()[0]!.id
+    const ask = async (query: string) => {
+      const url = new URL(`http://127.0.0.1/host/inbox/link?project=${project}${query}`)
+      const response = (await desk.route(new Request(url), url))!
+      return { status: response.status, body: (await response.json()) as { ok: boolean; link?: { url: string } | null } }
+    }
+    const got = await ask(`&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}`)
+    expect(got.status).toBe(200)
+    expect(got.body.link?.url).toBe('https://gitlab.example.org/group/sub/project/-/merge_requests/41')
+    expect((await ask(`&module=kehikot.other&id=${encodeURIComponent(id)}`)).body.link).toBeNull()
+    expect((await ask('')).status).toBe(400)
+  })
+
+  test('going to a notice: a kehikko where a module reacts to picks, the epic, then the pick; else its page', () => {
+    const reacts: Record<string, string[]> = { 'kehikot.a': ['parts'], 'kehikot.b': ['selection'] }
+    const reactsOf = (module: string) => reacts[module]
+    const here = { project: 1, epic: 'other', parts: [], kehikko: 'k1' }
+    const both = { project: 1, kehikot: [{ key: 'k1', name: 'One', modules: ['kehikot.a'] }, { key: 'k2', name: 'Two', modules: ['kehikot.b'] }], epics: ['thesis', 'other'] }
+    const item = { module: TRACKER_NOTICES_MODULE, refs: ['!9'] }
+    expect(planGo(item, here, both, reactsOf)).toEqual({ steps: [{ kind: 'kehikko', key: 'k2' }, { kind: 'pick', refs: ['!9'] }], note: null })
+    expect(planGo({ ...item, place: { epic: 'thesis' } }, here, both, reactsOf).steps).toEqual([
+      { kind: 'kehikko', key: 'k2' },
+      { kind: 'epic', epic: 'thesis', parts: [] },
+      { kind: 'pick', refs: ['!9'] },
+    ])
+    const none = { ...both, kehikot: [both.kehikot[0]!] }
+    expect(planGo(item, here, none, reactsOf)).toEqual({ steps: [{ kind: 'outside' }], note: null })
+    /* Another project: switched first, the rest planned again on arrival. */
+    expect(planGo(item, here, { ...both, project: 2 }, reactsOf).steps[0]).toEqual({ kind: 'project', project: 2 })
+  })
+
   test('going to an item goes to its epic and lights nothing; without an epic it says so', () => {
-    const item = { module: TRACKER_NOTICES_MODULE, name: 'Kehikot', place: { epic: 'thesis' } }
+    const item = { module: TRACKER_NOTICES_MODULE, name: 'Tracker', place: { epic: 'thesis' } }
     const here = { project: 1, epic: 'other', parts: [], kehikko: 'k1' }
     const target = { project: 1, kehikot: [{ key: 'k1', name: 'One', modules: ['kehikot.references'] }], epics: ['thesis', 'other'] }
     expect(planGo(item, here, target)).toEqual({ steps: [{ kind: 'epic', epic: 'thesis', parts: [] }], note: null })

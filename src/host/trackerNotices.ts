@@ -39,9 +39,12 @@ import {
  *    something to know, nothing to do.
  */
 
-/** The module id the host files these items under; the by-line is `TRACKER_NOTICES_BY`. */
+/**
+ * The module id the host files these items under; the by-line is `TRACKER_NOTICES_BY`. Not an
+ * agent speaking, so the row says "Tracker · needs you", never "… says" (`byLine` in `inbox.ts`).
+ */
 export const TRACKER_NOTICES_MODULE = 'kehikko.trackers'
-export const TRACKER_NOTICES_BY = 'Kehikot'
+export const TRACKER_NOTICES_BY = 'Tracker'
 
 export const NOTICE_EVENTS = [
   'review-requested',
@@ -149,11 +152,36 @@ export interface Happening {
   at: number
 }
 
+/**
+ * Where a tracker item is: its forge, project path, number and page. What pressing its Inbox item
+ * picks (`ref`) or opens (`url`, through the host's own safe open). Read back by the page at
+ * `GET /host/inbox/link`; absent on a record from before it, until the next reading.
+ */
+export interface NoticeLink {
+  ref: string
+  tracker: TrackerRow['tracker']
+  host: string
+  repo: string
+  number: number
+  kind: TrackerRow['kind']
+  url: string
+  title: string
+}
+
+/** The link of a row, as a notice keeps it. */
+export function linkOf(row: TrackerRow): NoticeLink {
+  return { ref: row.ref, tracker: row.tracker, host: row.host, repo: row.repo, number: row.number, kind: row.kind, url: row.url, title: row.title }
+}
+
 /** The record of one tracker item between readings. */
 export interface Seen {
   id: string
   ref: string
   title: string
+  /** Where it is (`NoticeLink`); absent on a record from before it. */
+  link?: NoticeLink
+  /** Whose it is — its author's name or login — when that is somebody other than the person. */
+  author?: string
   /** The epic naming the ref, when one does. */
   epic?: string
   facts: Facts
@@ -215,6 +243,14 @@ function nameOf(row: TrackerRow, login: string): string | undefined {
   if (!people) return undefined
   const one = people[login] ?? Object.entries(people).find(([key]) => same(key, login))?.[1]
   return one?.name?.trim() || undefined
+}
+
+/** Whose the item is, by name where the row carries one: absent when unknown or the person's own. */
+export function authorOf(row: TrackerRow, me: string | null): string | undefined {
+  const login = row.authorLogin ?? undefined
+  if (row.myRoles?.includes('author') || (login && me !== null && same(login, me))) return undefined
+  if (!login) return row.author?.trim() || undefined
+  return nameOf(row, login) || row.author?.trim() || login
 }
 
 /** Whether the person has any role on the item, before or now. */
@@ -382,7 +418,8 @@ export function noticeItem(seen: Seen, settings: NoticeSettings): ActivityItem |
   if (!events.length || seen.since === null) return null
   const needs = events.some((one) => one.kind === 'review-requested' || one.kind === 'changes-requested')
   const good = events.some((one) => one.kind === 'approved' || one.kind === 'merged')
-  const label = clip(`${seen.ref} ${phrases(events).join(' · ')}`, LIMITS.ACTIVITY_LABEL)
+  /* "!4454 by mona · review requested from you": which change, whose, and what happened. */
+  const label = clip(`${seen.ref}${seen.author ? ` by ${seen.author}` : ''} · ${phrases(events).join(' · ')}`, LIMITS.ACTIVITY_LABEL)
   return {
     id: seen.id,
     state: needs ? 'attention' : 'done',

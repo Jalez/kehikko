@@ -251,9 +251,11 @@ describe('the dots', () => {
     expect(unknown).toContain('Claude says')
   })
 
-  test('items that name no kehikko are shown on this kehikko, and said so', () => {
+  test('items that name no kehikko are shown on this kehikko, grouped under This project — not apologised for', () => {
     const html = renderToStaticMarkup(<InboxPanel view={view([entry('p', 'attention')], { scope: 'here' })} />)
-    expect(html).toContain('does not say which kehikko it belongs to')
+    expect(html).not.toContain('does not say which kehikko')
+    expect(html).toContain('data-inbox-group="project"')
+    expect(html).toContain('This project')
     expect(html).toContain('Claude says')
   })
 

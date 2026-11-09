@@ -8,12 +8,15 @@ import {
   TRACKER_NOTICES_BY,
   TRACKER_NOTICES_MODULE,
   factsOf,
+  authorOf,
   happenings,
   hasRole,
   itemId,
+  linkOf,
   noticeItem,
   noticesStored,
   stillTrue,
+  type NoticeLink,
   type NoticeSettings,
   type Seen,
 } from '../src/host/trackerNotices.ts'
@@ -169,10 +172,13 @@ export class TrackerNotices {
           since = Math.max(now, (since ?? 0) + 1)
         }
         events = stillTrue(events, facts)
+        const author = authorOf(row, me)
         const next: Seen = {
           id,
           ref: row.ref,
           title: row.title,
+          link: linkOf(row),
+          ...(author ? { author } : {}),
           ...(epic ? { epic } : {}),
           facts,
           events,
@@ -183,10 +189,28 @@ export class TrackerNotices {
         this.#put(project, next)
       }
 
-      /* Items not in this reading keep their facts; one put away is let go. */
+      /*
+       * Items not in this reading keep their facts; one put away is let go. What
+       * asked something of the person — a review, changes — is let go too when
+       * the item is gone from a reading that did read its repository: a change
+       * merged or closed, or the review no longer asked, drops out of what the
+       * tracker lists for the person, and "needs you" must not outlive it. A
+       * repository that was not read at all (a source down) says nothing.
+       */
+      const repos = new Set([...items.values()].map((row) => `${row.tracker}|${row.host}|${row.repo}`))
       for (const [id, seen] of held) {
-        if (items.has(id) || !seen.events.length || !away.has(id)) continue
-        const next = { ...seen, events: [], since: null }
+        if (items.has(id) || !seen.events.length) continue
+        if (away.has(id)) {
+          const next = { ...seen, events: [], since: null }
+          held.set(id, next)
+          this.#put(project, next)
+          continue
+        }
+        const link = seen.link
+        if (!link || !repos.has(`${link.tracker}|${link.host}|${link.repo}`)) continue
+        const kept = seen.events.filter((one) => one.kind !== 'review-requested' && one.kind !== 'changes-requested')
+        if (kept.length === seen.events.length) continue
+        const next = { ...seen, events: kept, since: kept.length ? seen.since : null }
         held.set(id, next)
         this.#put(project, next)
       }
@@ -198,6 +222,17 @@ export class TrackerNotices {
       return this.#report(project, [...held.values()], settings)
     })
     return run()
+  }
+
+  /** Where one item is (`NoticeLink`), by its Inbox id: what pressing it picks or opens. Null when not held. */
+  link(project: number, id: string): NoticeLink | null {
+    const row = this.db.query<{ data: string }, [number, string]>('select data from tracker_seen where project = ? and id = ?').get(project, id)
+    if (!row) return null
+    try {
+      return (JSON.parse(row.data) as Seen).link ?? null
+    } catch {
+      return null
+    }
   }
 
   /** The setting changed: every project's list again, from what is held. */

@@ -170,7 +170,7 @@ export function readInboxText(
   )
   lines.push(
     options.scope === 'here'
-      ? 'scope: this kehikko — what is here, and what does not say which kehikko it belongs to. '
+      ? 'scope: this kehikko — what is here, and what is about the whole project (names no kehikko and no epic). '
         + `${open.length - shown.length} other${open.length - shown.length === 1 ? '' : 's'} are elsewhere; scope: "everywhere" lists them.`
       : 'scope: everywhere in this project.',
   )

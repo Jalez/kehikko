@@ -124,6 +124,7 @@ import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
 import { TrackerNotices } from './trackerNotices.ts'
+import { TRACKER_NOTICES_MODULE } from '../src/host/trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
@@ -2944,6 +2945,8 @@ const inboxRoutes = inboxDesk({
   messages: agentMessages,
   messagesChanged: (project) => wakes.messagesChanged(project),
   changed: (project, rev) => wakes.inboxChanged(project, rev),
+  /* A tracker notice's ref and page: what pressing it picks on a kehikko, or opens. */
+  linkOf: (project, module, id) => (module === TRACKER_NOTICES_MODULE ? trackerNotices.link(project, id) : null),
 })
 
 /* What the official list retired is taken off this machine, once the list is read: see

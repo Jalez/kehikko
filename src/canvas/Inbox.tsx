@@ -8,7 +8,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils'
 import type { Namer } from '@/host/activity.ts'
 import {
+  PROJECT_GROUP,
   STATE_WORDS,
+  aboutProject,
   ageWords,
   byLine,
   closedWords,
@@ -33,6 +35,7 @@ import { MessagesSection, type MessagesView } from './Messages.tsx'
 import { Hint } from './Hint.tsx'
 import { MuteChime } from './ChimeSettings.tsx'
 import { InboxQuestion } from './InboxQuestion.tsx'
+import { InboxChoices } from './InboxChoices.tsx'
 import type { Said } from '@/host/inboxClient.ts'
 
 /**
@@ -74,6 +77,8 @@ export interface InboxView {
   onDismissElsewhere?(project: number, entries: readonly Entry[]): void
   /** How many closed entries the record holds: whether there is an Earlier at all. */
   earlierCount: number
+  /** The open project's name: what a row about the whole project says as its place. */
+  projectName?: string
   at: { epic: string | null; kehikko: string | null }
   scope: Scope
   onScope(scope: Scope): void
@@ -188,16 +193,29 @@ interface RowProps {
   data: string
 }
 
+/**
+ * A row's detail, in a tooltip to the LEFT of the row: never under the pointer, where it would
+ * cover the row's own answers and the rows below.
+ */
+function RowDetail({ detail, children }: { detail: string | undefined; children: React.ReactElement }) {
+  if (!detail) return children
+  return (
+    <Hint label={<span className="block max-w-64 break-words whitespace-normal">{detail}</span>} side="left" align="start">
+      {children}
+    </Hint>
+  )
+}
+
 function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, mute, choices, question, dim, data }: RowProps) {
   return (
     <li
       data-inbox-row={data}
       className={cn('group/row hover:bg-accent/60 flex flex-wrap items-start gap-1 rounded-sm px-1.5 py-1', dim && 'opacity-80')}
     >
+      <RowDetail detail={detail}>
       <button
         type="button"
         onClick={onPress}
-        title={detail ?? undefined}
         aria-expanded={count && count > 1 ? expanded : undefined}
         className="focus-visible:ring-ring/50 flex min-w-0 flex-1 cursor-pointer flex-col items-stretch rounded-sm text-left outline-none focus-visible:ring-[3px]"
       >
@@ -225,6 +243,7 @@ function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, c
         </span>
         {place ? <span className="text-muted-foreground/80 mt-px truncate pl-3 text-[11px]">{place}</span> : null}
       </button>
+      </RowDetail>
       {mute ? (
         <button
           type="button"
@@ -248,15 +267,7 @@ function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, c
           <X className="size-3" />
         </button>
       ) : null}
-      {choices?.length ? (
-        <span role="group" aria-label={`answers to ${label}`} className="flex basis-full flex-wrap gap-1 pl-4" data-inbox-choices>
-          {choices.map((choice) => (
-            <Button key={choice.label} type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={choice.run}>
-              {choice.label}
-            </Button>
-          ))}
-        </span>
-      ) : null}
+      {choices?.length ? <InboxChoices label={`answers to ${label}`} choices={choices} inset data="inbox-choices" /> : null}
       {question ?? null}
     </li>
   )
@@ -314,10 +325,21 @@ export function InboxPanel({ view }: { view: InboxView }) {
     () => view.entries.filter((one) => inScope(one.place, scope, at)),
     [view.entries, scope, at],
   )
-  const s = useMemo(() => sections(shown), [shown])
+  const all = useMemo(() => sections(shown), [shown])
   const unknownKehikko = at.kehikko === null
-  const unplaced = scope === 'here' ? shown.filter((one) => one.place?.kehikko === undefined && one.place?.epic === undefined).length : 0
-  const nothing = s.needs.length + s.working.length + s.finished.length === 0
+  /* In "This kehikko", what is about the whole project — names no kehikko and no epic — is its own
+     group, "This project": that is where it belongs, not a fault to apologise for. */
+  const grouping = scope === 'here' && !unknownKehikko
+  const s = useMemo(
+    () => (grouping ? { ...sections(shown.filter((one) => !aboutProject(one))), seen: all.seen } : all),
+    [grouping, shown, all],
+  )
+  const ofProject = useMemo(() => {
+    if (!grouping) return []
+    const p = sections(shown.filter(aboutProject))
+    return [...p.needs, ...p.working, ...p.finished]
+  }, [grouping, shown])
+  const nothing = all.needs.length + all.working.length + all.finished.length === 0
   const elsewhere = view.tally.needElsewhere
 
   /* "Stop showing <module> here": a module's rows only, never the host's own lists. */
@@ -337,9 +359,14 @@ export function InboxPanel({ view }: { view: InboxView }) {
       />
     ) : null
 
-  const row = (entry: Entry, kind: 'now' | 'member'): React.ReactElement => {
+  /** A row's place: parts · kehikko, the epic; or, for one about the whole project, the project's name. */
+  const placeOf = (entry: Pick<Entry, 'place'>): string => {
     const { here, epic } = placeLines(entry, names)
-    const place = [here, epic].filter(Boolean).join(' · ') || 'the project'
+    return [here, epic].filter(Boolean).join(' · ') || view.projectName || PROJECT_GROUP
+  }
+
+  const row = (entry: Entry, kind: 'now' | 'member'): React.ReactElement => {
+    const place = placeOf(entry)
     const dismissable = entry.state !== 'working'
     return (
       <Row
@@ -380,8 +407,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
         continue
       }
       const open = unfolded.has(group.key)
-      const { here, epic } = placeLines(group.head, names)
-      const place = [here, epic].filter(Boolean).join(' · ') || 'the project'
+      const place = placeOf(group.head)
       out.push(
         <Row
           key={group.key}
@@ -440,8 +466,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
   }
 
   const logRow = (one: LogRow): React.ReactElement => {
-    const { here, epic } = placeLines(one, names)
-    const place = [here, epic].filter(Boolean).join(' · ') || 'the project'
+    const place = placeOf(one)
     const what =
       one.kind === 'closed'
         ? closedWords({ state: one.state, how: one.how, origin: one.origin })
@@ -572,11 +597,6 @@ export function InboxPanel({ view }: { view: InboxView }) {
           <p className="text-muted-foreground px-2 py-1 text-[11px]">
             Kehikot cannot tell which kehikko is open, so everything is shown.
           </p>
-        ) : scope === 'here' && unplaced > 0 ? (
-          <p className="text-muted-foreground px-2 py-1 text-[11px]">
-            {sayNames(unplaced, 'item does', 'items do')} not say which kehikko {unplaced === 1 ? 'it belongs' : 'they belong'} to,
-            so {unplaced === 1 ? 'it is' : 'they are'} shown here.
-          </p>
         ) : null}
 
         {s.needs.length ? (
@@ -595,6 +615,12 @@ export function InboxPanel({ view }: { view: InboxView }) {
           <section aria-label="finished">
             <SectionHeading count={s.finished.length}>Finished</SectionHeading>
             <ul>{folded(s.finished, 'finished')}</ul>
+          </section>
+        ) : null}
+        {ofProject.length ? (
+          <section aria-label="this project" data-inbox-group="project">
+            <SectionHeading count={ofProject.length}>{PROJECT_GROUP}</SectionHeading>
+            <ul>{folded(ofProject, 'project')}</ul>
           </section>
         ) : null}
 

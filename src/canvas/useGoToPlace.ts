@@ -28,6 +28,12 @@ export interface GoToPlaceDeps {
    * `later` as for `highlight`. Not called when the plan stopped short.
    */
   arrived?(entry: Entry, later: boolean): void
+  /** What a module reacts to, by its manifest (`reacts`): where a tracker notice's ref can be picked. */
+  reactsOf?(module: string): readonly string[] | undefined
+  /** Pick refs as the open project's selection, after the move (`pick`). */
+  pick?(refs: readonly string[]): void
+  /** No kehikko takes the item's ref: show its page — a module that shows pages, or an offer (`outside`). */
+  outside?(entry: Entry, project: number): void
 }
 
 /** A short line the page shows after a press; `n` makes the same words said twice a new line. */
@@ -52,7 +58,7 @@ export function useGoToPlace(deps: GoToPlaceDeps) {
   const go = useCallback(
     (entry: Entry, project: number) => {
       const d = depsRef.current
-      const plan = planGo(entry, d.here, d.targetOf(project))
+      const plan = planGo(entry, d.here, d.targetOf(project), d.reactsOf)
       const first = plan.steps[0]
       if (first?.kind === 'project') {
         /* The rest is planned again on arrival, against what is read there. */
@@ -65,6 +71,8 @@ export function useGoToPlace(deps: GoToPlaceDeps) {
       const kehikko = of('kehikko')
       const epic = of('epic')
       const lit = of('highlight')
+      const pick = of('pick')
+      const outside = of('outside')
       if (epic) {
         const moved = d.goto({ epic: epic.epic, parts: epic.parts, ...(kehikko ? { kehikko: kehikko.key } : {}) })
         if (moved.outcome !== 'moved') {
@@ -78,6 +86,9 @@ export function useGoToPlace(deps: GoToPlaceDeps) {
         d.highlight(lit.module, Boolean(kehikko || epic))
         d.arrived?.(entry, Boolean(kehikko || epic))
       }
+      /* After the move: a different epic clears the selection, so the pick comes last. */
+      if (pick) d.pick?.(pick.refs)
+      if (outside) d.outside?.(entry, project)
       say(plan.note)
     },
     [say],

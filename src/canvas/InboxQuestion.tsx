@@ -3,6 +3,7 @@ import { LIMITS } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
+import { InboxChoices } from './InboxChoices.tsx'
 import { pressFresh } from '@/host/gesture.ts'
 import { askedOf, type Entry } from '@/host/inbox.ts'
 import type { Said } from '@/host/inboxClient.ts'
@@ -65,21 +66,12 @@ export function InboxQuestion({
       ) : onAnswer ? (
         <>
           {asked.choices.length ? (
-            <div role="group" aria-label="choices" className="flex flex-wrap gap-1" data-inbox-question-choices="">
-              {asked.choices.map((choice, at) => (
-                <Button
-                  key={choice}
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-auto min-h-6 max-w-full px-2 py-0.5 text-left text-[11px] whitespace-normal break-words"
-                  disabled={sending}
-                  onClick={() => send({ choice: at, answer: choice })}
-                >
-                  {choice}
-                </Button>
-              ))}
-            </div>
+            <InboxChoices
+              label="choices"
+              data="inbox-question-choices"
+              disabled={sending}
+              choices={asked.choices.map((choice, at) => ({ label: choice, run: () => send({ choice: at, answer: choice }) }))}
+            />
           ) : null}
           <form
             className="flex min-w-0 items-center gap-1"

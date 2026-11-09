@@ -75,11 +75,11 @@ export interface Arrival {
 /** The arrival's kind, or null when it is nothing to show (still working). */
 export const arrivalKind = (arrival: Arrival): Kind | null => kindOf(arrival.entry)
 
-/** The place in words, as the Inbox's rows say it. */
-export function placeWords(entry: Entry, names: Namer, elsewhere: string | null): string {
+/** The place in words, as the Inbox's rows say it: an item of the whole project says the project's name. */
+export function placeWords(entry: Entry, names: Namer, elsewhere: string | null, project?: string | null): string {
   if (elsewhere) return elsewhere
   const { here, epic } = placeLines(entry, names)
-  return [here, epic].filter(Boolean).join(' · ') || 'the project'
+  return [here, epic].filter(Boolean).join(' · ') || project || 'the project'
 }
 
 /** One batch of arrivals as one toast: the most urgent first (the earlier of equals). Null for nothing. */
