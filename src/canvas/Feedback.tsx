@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -298,15 +299,20 @@ export function FeedbackDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !sending && onOpenChange(next)}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Feedback on {name}</DialogTitle>
-          <DialogDescription>
-            This will be posted as a GitHub issue in{' '}
+      <ModalContent className="sm:max-w-lg">
+        <ModalHeader
+          title={<>Feedback on {name}</>}
+          titleClassName="text-base"
+          description={
+            <>
+              This will be posted as a GitHub issue in{' '}
             {repo ? <span className="font-mono">{repo}</span> : "this module's repository"} under your account, with a
             line saying which module version, kehikko and epic it came from.
-          </DialogDescription>
-        </DialogHeader>
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
 
         <Input
           value={title}
@@ -332,15 +338,16 @@ export function FeedbackDialog({
 
         {trouble ? <p className="text-destructive text-xs">{trouble}</p> : null}
 
-        <div className="flex items-center justify-end gap-2">
+        </ModalBody>
+        <ModalFooter>
           <Button variant="ghost" size="sm" disabled={sending} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button size="sm" disabled={sending || !title.trim()} onClick={() => void send()}>
             {sending ? 'Sending…' : 'Send feedback'}
           </Button>
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }

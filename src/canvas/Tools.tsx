@@ -4,13 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { Hint } from './Hint.tsx'
@@ -316,18 +311,20 @@ export function ToolsDialog({
           flex or grid child without it takes its min-content width from the
           longest unbreakable run, which is how a 220-pixel container elsewhere in
           this workspace ended up with a 1187-pixel floor under it. */}
-      <DialogContent className="max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
-            Tools from {name}
-          </DialogTitle>
-          <DialogDescription>
-            What {door?.about === 'host' ? 'Kehikot' : 'this module'} offers an agent through its
-            MCP door, and whether any agent has been told the door exists.
-          </DialogDescription>
-        </DialogHeader>
-
+      <ModalContent className="sm:max-w-2xl" data-tools-dialog="">
+        <ModalHeader
+          icon={<ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />}
+          title={<>Tools from {name}</>}
+          titleClassName="text-base"
+          description={
+            <>
+              What {door?.about === 'host' ? 'Kehikot' : 'this module'} offers an agent through its
+              MCP door, and whether any agent has been told the door exists.
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
         <KeptBySettings
           kind="tools"
           module={module}
@@ -408,7 +405,8 @@ export function ToolsDialog({
         ) : asking ? (
           <p className="text-muted-foreground text-sm">Asking {name} what it offers…</p>
         ) : null}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }

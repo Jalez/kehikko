@@ -2,7 +2,8 @@ import { Check, LayoutTemplate } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
@@ -243,17 +244,20 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl gap-3" data-layout-picker={mode}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LayoutTemplate className="size-4" />
-            {mode === 'fill' ? 'Start this kehikko from a layout' : 'New kehikko'}
-          </DialogTitle>
-          <DialogDescription>
-            A kehikko is one arrangement of modules over the project. Start from a suggested layout, or from nothing — you
+      <ModalContent className="sm:max-w-3xl" data-layout-picker={mode}>
+        <ModalHeader
+          icon={<LayoutTemplate className="size-4" />}
+          title={mode === 'fill' ? 'Start this kehikko from a layout' : 'New kehikko'}
+          titleClassName="text-base"
+          description={
+            <>
+              A kehikko is one arrangement of modules over the project. Start from a suggested layout, or from nothing — you
             can move, resize and add containers afterwards.
-          </DialogDescription>
-        </DialogHeader>
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody className="gap-3">
 
         {asking ? (
           <div className="flex flex-col gap-3" data-layout-confirm="">
@@ -359,7 +363,8 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
             </form>
           </>
         )}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -396,13 +401,18 @@ export function SaveLayoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-3" data-save-layout="">
-        <DialogHeader>
-          <DialogTitle>Save this kehikko as a layout</DialogTitle>
-          <DialogDescription>
-            A layout is the arrangement only — which modules, where and how big. New kehikot can start from it.
-          </DialogDescription>
-        </DialogHeader>
+      <ModalContent className="sm:max-w-md" data-save-layout="">
+        <ModalHeader
+          title="Save this kehikko as a layout"
+          titleClassName="text-base"
+          description={
+            <>
+              A layout is the arrangement only — which modules, where and how big. New kehikot can start from it.
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody className="gap-3">
         {kehikko ? (
           <LayoutPreview
             containers={kehikko.placements.map((p) => ({ module: p.i, x: p.x, y: p.y, w: p.w, h: p.wish || p.h }))}
@@ -481,7 +491,8 @@ export function SaveLayoutDialog({
             </div>
           </form>
         )}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }

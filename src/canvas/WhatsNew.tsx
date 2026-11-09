@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { Separator } from '@/components/ui/separator.tsx'
@@ -111,8 +112,8 @@ export function WhatsNewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose(dontShow)}>
-      <DialogContent
-        className="flex h-[min(620px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+      <ModalContent
+        className="h-[min(620px,calc(100dvh-2rem))] sm:max-w-3xl"
         data-whats-new
         onOpenAutoFocus={(event) => {
           /* "Got it" is what most people press: Enter takes it, Tab walks back to the list. */
@@ -122,6 +123,12 @@ export function WhatsNewDialog({
           got.focus()
         }}
       >
+        <ModalHeader
+          icon={<KehikkoMark working={false} className="text-muted-foreground size-4" />}
+          title="What’s new in Kehikot"
+          context={<span data-testid="whats-new-range">{headerSaid(items)}</span>}
+        />
+        <ModalBody scroll={false}>
         <Tabs
           value={selected}
           onValueChange={setSelected}
@@ -129,18 +136,10 @@ export function WhatsNewDialog({
           className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
         >
           <aside className="bg-muted/40 flex min-w-0 shrink-0 flex-col border-b sm:min-h-0 sm:w-60 sm:border-r sm:border-b-0">
-            <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
-              <DialogTitle className="flex items-center gap-2 text-sm">
-                <KehikkoMark working={false} className="text-muted-foreground size-4" />
-                What’s new in Kehikot
-              </DialogTitle>
-              <DialogDescription className="text-xs tabular-nums" data-testid="whats-new-range">
-                {headerSaid(items)}
-              </DialogDescription>
-            </DialogHeader>
             <TabsList
               aria-label="What changed"
-              className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent px-2 pb-2 sm:min-h-0 sm:flex-1 sm:flex-col sm:items-stretch sm:overflow-x-hidden sm:overflow-y-auto sm:overscroll-contain"
+              data-modal-scroll=""
+              className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none bg-transparent px-2 py-2 sm:min-h-0 sm:flex-1 sm:flex-col sm:items-stretch sm:overflow-x-hidden sm:overflow-y-auto sm:overscroll-contain"
             >
               {items.map((item) => (
                 <TabsTrigger
@@ -190,33 +189,34 @@ export function WhatsNewDialog({
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
               {items.map((item) => (
                 <TabsContent key={item.id} value={item.id} className="flex min-w-0 flex-col px-5 py-4 sm:px-6" data-pane={item.id}>
                   <Pane item={item} load={load} focus={focus && focus.item === item.id ? focus : null} />
                 </TabsContent>
               ))}
             </ScrollArea>
-            <footer className="bg-background flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3 sm:px-6">
-              <div className="flex min-w-0 items-center gap-2">
-                <Checkbox
-                  id={box}
-                  checked={dontShow}
-                  onCheckedChange={(on) => setDontShow(on === true)}
-                  className="size-4"
-                  data-testid="whats-new-dont-show"
-                />
-                <Label htmlFor={box} className="text-muted-foreground text-xs font-normal">
-                  Don’t show this after updates
-                </Label>
-              </div>
-              <Button size="sm" onClick={() => onClose(dontShow)} data-testid="whats-new-got-it">
-                Got it
-              </Button>
-            </footer>
           </div>
         </Tabs>
-      </DialogContent>
+        </ModalBody>
+        <ModalFooter className="justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Checkbox
+              id={box}
+              checked={dontShow}
+              onCheckedChange={(on) => setDontShow(on === true)}
+              className="size-4"
+              data-testid="whats-new-dont-show"
+            />
+            <Label htmlFor={box} className="text-muted-foreground text-xs font-normal">
+              Don’t show this after updates
+            </Label>
+          </div>
+          <Button size="sm" onClick={() => onClose(dontShow)} data-testid="whats-new-got-it">
+            Got it
+          </Button>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }

@@ -2,13 +2,8 @@ import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderS
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import {
   DropdownMenu,
   DropdownMenuCheck,
@@ -418,18 +413,20 @@ export function Browser({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {description ?? (
+      <ModalContent className="sm:max-w-2xl">
+        <ModalHeader
+          title={title}
+          titleClassName="text-base"
+          description={description ?? (
               <>
                 A project is a folder — a repository, a git worktree, or any folder with work in it. It does
                 not need epics to be a project; you can make them once it is open.
               </>
             )}
-          </DialogDescription>
-        </DialogHeader>
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        {/* The folder list is what scrolls; the path above it and the buttons below stay put. */}
+        <ModalBody scroll={false} className="gap-4 px-4 py-4 sm:px-5">
 
         {/* The path this dialog is standing in. `break-all` and its own row,
             because a path is the long unbreakable string that sets a
@@ -440,7 +437,7 @@ export function Browser({
 
         {trouble ? <p className="text-destructive text-xs">{trouble}</p> : null}
 
-        <div className="max-h-[50vh] overflow-auto rounded-md border">
+        <div className="min-h-24 flex-1 overflow-y-auto overscroll-contain rounded-md border" data-modal-scroll="">
           <ul className="divide-y">
             {listing?.parent ? (
               <li>
@@ -474,7 +471,8 @@ export function Browser({
 
         {children}
 
-        <div className="flex items-center justify-end gap-2">
+        </ModalBody>
+        <ModalFooter>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             cancel
           </Button>
@@ -485,8 +483,8 @@ export function Browser({
           <Button size="sm" disabled={!listing} onClick={() => listing && onPick(listing.path)} data-tour="add-folder">
             {pick}
           </Button>
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }

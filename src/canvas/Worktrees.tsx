@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { bytesSaid } from '@/host/storage.ts'
 import {
   agoSaid,
@@ -47,16 +48,20 @@ export const worktreesApi: WorktreesApi = {
 export function Worktrees({ open, onOpenChange, api = worktreesApi }: { open: boolean; onOpenChange(open: boolean): void; api?: WorktreesApi }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{WORKTREE_CLEANUP.open}</DialogTitle>
-          <DialogDescription>
-            Worktrees whose pull or merge request is merged or closed, or whose work is already in the default branch.
-            The main checkout and remote branches are never touched.
-          </DialogDescription>
-        </DialogHeader>
-        {open ? <WorktreesBody api={api} /> : null}
-      </DialogContent>
+      <ModalContent className="sm:max-w-2xl" data-worktrees-dialog="">
+        <ModalHeader
+          title={WORKTREE_CLEANUP.open}
+          titleClassName="text-base"
+          description={
+            <>
+              Worktrees whose pull or merge request is merged or closed, or whose work is already in the default branch.
+              The main checkout and remote branches are never touched.
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        {open ? <WorktreesBody api={api} /> : <ModalBody />}
+      </ModalContent>
     </Dialog>
   )
 }
@@ -126,7 +131,8 @@ export function WorktreesBody({ api, pollMs = 1000, now = Date.now }: { api: Wor
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-3 text-sm" data-worktrees>
+    <>
+    <ModalBody className="gap-3 text-sm" data-worktrees>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground min-w-0 flex-1" role="status">
           {state === null || state.scanning
@@ -149,10 +155,12 @@ export function WorktreesBody({ api, pollMs = 1000, now = Date.now }: { api: Wor
       {report ? <Report answer={report} /> : null}
 
       {scan ? <ScanList scan={scan} unchecked={unchecked} onToggle={toggle} now={now()} disabled={removing} /> : null}
+    </ModalBody>
 
       {scan && offered.length > 0 ? (
-        confirming ? (
-          <div role="alertdialog" aria-label="Confirm removal" className="flex flex-col gap-2 rounded-lg border p-3" data-worktrees-confirm>
+        <ModalFooter className="justify-start text-sm">
+        {confirming ? (
+          <div role="alertdialog" aria-label="Confirm removal" className="flex min-w-0 flex-col gap-2" data-worktrees-confirm>
             <p>
               {removeSaid(chosen.length, bytes, unmeasured)}? Their folders are deleted, with files git ignores such as{' '}
               <span className="font-mono">node_modules</span>. A local branch is deleted only when it is merged or its request is
@@ -168,14 +176,13 @@ export function WorktreesBody({ api, pollMs = 1000, now = Date.now }: { api: Wor
             </div>
           </div>
         ) : (
-          <div>
-            <Button size="sm" disabled={chosen.length === 0 || state?.scanning} onClick={() => setConfirming(true)}>
-              {removeSaid(chosen.length, bytes, unmeasured)}
-            </Button>
-          </div>
-        )
+          <Button size="sm" disabled={chosen.length === 0 || state?.scanning} onClick={() => setConfirming(true)}>
+            {removeSaid(chosen.length, bytes, unmeasured)}
+          </Button>
+        )}
+        </ModalFooter>
       ) : null}
-    </div>
+    </>
   )
 }
 

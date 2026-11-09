@@ -14,6 +14,9 @@ import { cn } from '@/lib/utils'
  *
  * So anything that has to be BIGGER than a container belongs to the host, and this
  * is the component it uses for that. See `Prompts.tsx` for the first such thing.
+ *
+ * A window is not built from these directly: `modal.tsx` lays every one out
+ * (a header row with the close, a body that scrolls, a footer).
  */
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {

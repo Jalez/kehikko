@@ -3,13 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { MISSING_SAID, MISSING_WORDS } from './MissingProject.tsx'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import type { Project } from '@/host/projects.ts'
 
@@ -97,8 +92,8 @@ export function Picking({
 
   return (
     <Dialog open={asking !== null} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent
-        className="max-w-lg"
+      <ModalContent
+        className="sm:max-w-lg"
         onOpenAutoFocus={(event) => {
           /* The box, not the first row. A person who knows which project they
              want types three letters; a person who does not reads the list, and
@@ -108,13 +103,19 @@ export function Picking({
           box.current?.focus()
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{asking ?? 'A module'} is asking for a project</DialogTitle>
-          <DialogDescription>
-            It will be told where the one you choose is on this machine, and nothing about the rest. Nothing
-            is opened here — the kehikko stays on the project it is on.
-          </DialogDescription>
-        </DialogHeader>
+        <ModalHeader
+          title={<>{asking ?? 'A module'} is asking for a project</>}
+          titleClassName="text-base"
+          description={
+            <>
+              It will be told where the one you choose is on this machine, and nothing about the rest. Nothing
+              is opened here — the kehikko stays on the project it is on.
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        {/* The filter stays put; only the list under it scrolls. */}
+        <ModalBody scroll={false} className="gap-4 px-4 py-4 sm:px-5">
 
         <Input
           ref={box}
@@ -135,7 +136,7 @@ export function Picking({
         ) : shown.length === 0 ? (
           <p className="text-muted-foreground text-sm">Nothing here matches “{typing.trim()}”.</p>
         ) : (
-          <ul className="max-h-72 divide-y overflow-y-auto rounded border" data-picking="projects">
+          <ul className="min-h-24 flex-1 divide-y overflow-y-auto overscroll-contain rounded border" data-picking="projects" data-modal-scroll="">
             {shown.map((project) => (
               <li key={project.id}>
                 <button
@@ -165,12 +166,13 @@ export function Picking({
           </ul>
         )}
 
-        <div className="flex justify-end">
+        </ModalBody>
+        <ModalFooter>
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }

@@ -2,7 +2,8 @@ import { CircleHelp } from 'lucide-react'
 import type { Help } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { helpTitle } from '@/host/moduleHelp.ts'
 import { introTitle } from '@/host/moduleIntro.ts'
 import { Hint } from './Hint.tsx'
@@ -34,16 +35,10 @@ export function ModuleHelpDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-module-help=""
-        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg flex-col gap-3 overflow-hidden p-4 sm:p-5"
-      >
-        <DialogHeader className="pr-6 text-left">
-          <DialogTitle className="text-base [overflow-wrap:anywhere]">{helpTitle(name)}</DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed [overflow-wrap:anywhere]">{help.summary}</DialogDescription>
-        </DialogHeader>
+      <ModalContent data-module-help="" className="w-[calc(100vw-2rem)] max-w-lg">
+        <ModalHeader title={helpTitle(name)} titleClassName="text-base" description={help.summary} descriptionClassName="text-sm leading-relaxed" />
         {help.sections.length ? (
-          <div className="-mr-2 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2" data-help-sections="">
+          <ModalBody data-help-sections="">
             {help.sections.map((section, at) => (
               <section key={at} aria-labelledby={`module-help-${at}`}>
                 <h3 id={`module-help-${at}`} className="text-foreground mb-1.5 text-sm font-semibold [overflow-wrap:anywhere]">
@@ -58,9 +53,9 @@ export function ModuleHelpDialog({
                 </ul>
               </section>
             ))}
-          </div>
+          </ModalBody>
         ) : null}
-      </DialogContent>
+      </ModalContent>
     </Dialog>
   )
 }

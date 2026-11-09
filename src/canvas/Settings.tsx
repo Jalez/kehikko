@@ -23,7 +23,8 @@ import { Loading } from '@/components/ui/loading.tsx'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Card } from '@/components/ui/card.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
@@ -299,15 +300,15 @@ export function FirstQuestion({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-[calc(100%-2rem)] gap-5 overflow-y-auto sm:max-w-lg" data-first-question>
-        <DialogHeader className="pr-6">
-          <DialogTitle className="flex items-center gap-2">
-            <KehikkoMark working={false} className="text-muted-foreground size-4 shrink-0" />
-            {FIRST_QUESTION.title}
-          </DialogTitle>
-          <DialogDescription>{FIRST_QUESTION.lead}</DialogDescription>
-        </DialogHeader>
-        <div className="flex min-w-0 flex-col gap-4 text-sm">
+      <ModalContent className="sm:max-w-lg" data-first-question>
+        <ModalHeader
+          icon={<KehikkoMark working={false} className="text-muted-foreground size-4 shrink-0" />}
+          title={FIRST_QUESTION.title}
+          titleClassName="text-base"
+          description={FIRST_QUESTION.lead}
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody className="text-sm">
           <Rows>
             <SettingRow label={FIRST_QUESTION.toolsBox} checked={tools} onChange={setTools} disabled={busy} />
             <SettingRow label={FIRST_QUESTION.skillsBox} checked={skills} onChange={setSkills} disabled={busy} />
@@ -322,16 +323,16 @@ export function FirstQuestion({
           </div>
           <p className="text-muted-foreground text-xs leading-relaxed">{FIRST_QUESTION.after}</p>
           {trouble ? <Trouble>{trouble}</Trouble> : null}
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="ghost" size="sm" disabled={busy} data-answer="self" onClick={() => void answer(null)}>
-              {FIRST_QUESTION.self}
-            </Button>
-            <Button size="sm" disabled={busy} data-answer="keep" onClick={() => void answer({ tools, skills })}>
-              {FIRST_QUESTION.keep}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" size="sm" disabled={busy} data-answer="self" onClick={() => void answer(null)}>
+            {FIRST_QUESTION.self}
+          </Button>
+          <Button size="sm" disabled={busy} data-answer="keep" onClick={() => void answer({ tools, skills })}>
+            {FIRST_QUESTION.keep}
+          </Button>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -393,10 +394,14 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex h-[min(720px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
-        data-settings
-      >
+      <ModalContent className="h-[min(720px,calc(100dvh-2rem))] sm:max-w-4xl" data-settings>
+        <ModalHeader
+          icon={<KehikkoMark working={false} className="text-muted-foreground size-4" />}
+          title="Settings"
+          description="How Kehikot works with your agents and what the Inbox tells you, on this computer, and the open project’s own settings."
+          descriptionClassName="max-sm:sr-only"
+        />
+        <ModalBody scroll={false}>
         <SettingsBody
           answer={answer}
           trouble={trouble}
@@ -410,7 +415,8 @@ export function SettingsDialog({
           baseBranch={baseBranch}
           modules={modules}
         />
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -457,19 +463,10 @@ export function SettingsBody({
       orientation="vertical"
       className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
     >
-      <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:w-56 sm:border-r sm:border-b-0">
-        <DialogHeader className="gap-0.5 px-4 pt-4 pb-2 pr-12 sm:pr-4 sm:pb-3">
-          <DialogTitle className="flex items-center gap-2 text-sm">
-            <KehikkoMark working={false} className="text-muted-foreground size-4" />
-            Settings
-          </DialogTitle>
-          <DialogDescription className="text-xs leading-snug max-sm:sr-only">
-            How Kehikot works with your agents and what the Inbox tells you, on this computer, and the open project’s own settings.
-          </DialogDescription>
-        </DialogHeader>
+      <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:border-r sm:border-b-0">
         <TabsList
           aria-label="Settings sections"
-          className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent px-2 pb-2 sm:flex-col sm:items-stretch sm:overflow-visible"
+          className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent px-2 py-2 sm:flex-col sm:items-stretch sm:overflow-visible"
         >
           {sections.map((key) => {
             const { title, icon: Icon } = SECTION_SAID[key]
@@ -499,7 +496,7 @@ export function SettingsBody({
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-busy={busy}>
         <SavedNote saved={saved} />
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
             {trouble ? <Trouble>{trouble}</Trouble> : null}
             {answer && !answer.settings.asked && shown !== 'about' ? (

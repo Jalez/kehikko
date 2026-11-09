@@ -1,7 +1,8 @@
 import { ExternalLink, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { offerWords, type Offer } from '@/host/address.ts'
 
 /**
@@ -44,20 +45,19 @@ export function AddressOffer({
         if (!open) onDismiss()
       }}
     >
-      <DialogContent data-address-offer="" className="sm:max-w-md">
+      <ModalContent data-address-offer="" className="sm:max-w-md">
         {offer && words ? (
           <>
-            <DialogHeader>
-              <DialogTitle>{words.title}</DialogTitle>
-              <DialogDescription>{words.lede}</DialogDescription>
-            </DialogHeader>
+            <ModalHeader title={words.title} titleClassName="text-base" description={words.lede} descriptionClassName="text-sm leading-relaxed" />
+            <ModalBody>
             <div className="bg-muted/40 rounded-md border px-3 py-2 text-xs">
               {offer.title ? <p className="text-foreground font-medium break-words">{offer.title}</p> : null}
               <p className="text-muted-foreground font-mono text-[11px] break-all" data-address-url="">
                 {offer.url}
               </p>
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            </ModalBody>
+            <ModalFooter>
               <Button variant="ghost" size="sm" onClick={onDismiss}>
                 Not now
               </Button>
@@ -73,10 +73,10 @@ export function AddressOffer({
                   Add {one.name} to this kehikko
                 </Button>
               ))}
-            </div>
+            </ModalFooter>
           </>
         ) : null}
-      </DialogContent>
+      </ModalContent>
     </Dialog>
   )
 }

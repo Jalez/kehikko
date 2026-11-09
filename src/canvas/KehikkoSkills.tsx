@@ -2,7 +2,8 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
@@ -110,11 +111,14 @@ export function KehikkoSkillsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-lg gap-3 overflow-auto" data-kehikko-skills="">
-        <DialogHeader>
-          <DialogTitle>Skills for {kehikko ? kehikko.name : 'this kehikko'}</DialogTitle>
-          <DialogDescription>{DELIVERY_SAID}</DialogDescription>
-        </DialogHeader>
+      <ModalContent className="sm:max-w-lg" data-kehikko-skills="">
+        <ModalHeader
+          title={<>Skills for {kehikko ? kehikko.name : 'this kehikko'}</>}
+          titleClassName="text-base"
+          description={DELIVERY_SAID}
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
 
         {draft ? (
           <form
@@ -258,7 +262,8 @@ export function KehikkoSkillsDialog({
             {full ? <p className="text-muted-foreground text-xs">A kehikko keeps at most {LIMITS_SAID.most} skills.</p> : null}
           </div>
         )}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }
