@@ -47,6 +47,7 @@ const CASES = [
   'Several release notes',
   'Moved notes',
   'Introduction',
+  'A module’s introduction',
 ] as const
 
 if (!inChild) {
@@ -99,6 +100,8 @@ beforeAll(async () => {
   const { ModuleSettingsDialog } = await import('../src/canvas/ModuleSettings.tsx')
   const Notes = await import('../src/canvas/ReleaseNotes.tsx')
   const { IntroDialog } = await import('../src/canvas/Intro.tsx')
+  const { ModuleIntroDialog } = await import('../src/canvas/ModuleIntro.tsx')
+  const { introFor } = await import('../src/host/moduleIntro.ts')
 
   const never = <T,>() => new Promise<T>(() => {})
   const finished = {
@@ -231,6 +234,15 @@ beforeAll(async () => {
       <Notes.MovedNotesDialog open={open} onOpenChange={onChange(close)} repo="owner/any" name="Any" from="v1.0.0" to="v1.1.0" load={never} list={never} />
     )),
     Introduction: held((open, close) => <IntroDialog open={open} onOpenChange={onChange(close)} onTour={() => {}} onExplore={() => {}} />),
+    'A module’s introduction': held((open, close) => (
+      <ModuleIntroDialog
+        open={open}
+        onOpenChange={onChange(close)}
+        id="kehikot.any"
+        name="Any"
+        intro={introFor({ intro: { slides: [{ title: 'One list', body: 'Everything still to do.' }, { title: 'Then', body: 'More.' }] } })}
+      />
+    )),
   }
 })
 
@@ -302,8 +314,9 @@ describe('every window', () => {
       /* The title the dialog is labelled by is in the header; the introduction's is each
          slide's own, under its picture, and its header row says where in the slides you are. */
       const title = document.getElementById(dialog!.getAttribute('aria-labelledby') ?? '')
-      expect(title).not.toBeNull()
-      expect(header.contains(title)).toBe(name !== 'Introduction')
+      /* A module's introduction is named by `aria-label`, "Introduction to …", instead. */
+      if (!dialog!.hasAttribute('aria-label')) expect(title).not.toBeNull()
+      if (title) expect(header.contains(title)).toBe(!name.includes('ntroduction'))
 
       /* Only the body scrolls: not the window, not the header, not the footer. */
       expect(scrolls(dialog!)).toBe(false)
