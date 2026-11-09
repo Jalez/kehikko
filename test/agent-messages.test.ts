@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LIMITS, MESSAGES_HEAD, SERVER_ASK_PATH, SERVER_PASS_PATH, sessionNotes, type AgentMessage } from 'kehikot-module-protocol'
-import { answerMessageTool, forgetMessageHosts, messageToolsFor, serverPassReply } from 'kehikot-module-protocol/serve'
+import { answerMessageTool, askHost, forgetMessageHosts, messageToolsFor, serverPassReply } from 'kehikot-module-protocol/serve'
 
 import { AgentMessages, isFor, sessionIdOf } from '../server/agentMessages.ts'
 import { answer } from '../server/answers.ts'
@@ -230,6 +230,65 @@ describe('who may send and read', () => {
     expect(line).toContain('1 is kept')
     expect(line).not.toContain('secret words')
     expect(messagingWords({ messages: store }, { via: 'session', project })).toBe('')
+  })
+})
+
+describe('a module’s notice to the session that asked (protocol 2.54.0)', () => {
+  test('goes to the session the token names and no other, stamped as the module with the asker’s place', async () => {
+    await issue(A, TOKEN_A)
+    await issue(B, TOKEN_B)
+    const said = await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'Run "unit" passed (exit 0).', kind: 'report' })
+    expect(said).toMatchObject({ ok: true, data: { outcome: 'sent' } })
+    const [kept] = store.all(project.id)
+    expect(kept!.from).toEqual({ module: B, name: 'Beta', session: null, place: { epic: 'methods', parts: [], kehikko: writing.key }, person: false })
+    expect(kept!.to).toEqual({ session: { module: A, session: 'conv-alpha' } })
+    expect(kept!.kind).toBe('report')
+    expect(changed).toEqual([project.id])
+    /* The asker reads it once; the module's own session at the same place does not. */
+    expect(store.deliver(project.id, reader(A, 'conv-alpha')).messages.map((one) => one.body)).toEqual(['Run "unit" passed (exit 0).'])
+    expect(store.deliver(project.id, reader(B, 'conv-beta')).messages).toEqual([])
+    expect(store.deliver(project.id, reader(A, 'someone-else')).messages).toEqual([])
+  })
+
+  test('through /host/server-ask, on the module’s pass and grant', async () => {
+    await issue(A, TOKEN_A)
+    const said = await askHost('messages.notify', { token: TOKEN_A, body: 'Build failed (exit 1).' }, { module: B, env: { KEHIKOT_ORIGINS: HOST }, fetch: net })
+    expect(said).toMatchObject({ ok: true, data: { outcome: 'sent' } })
+    expect(store.all(project.id)[0]!.to).toEqual({ session: { module: A, session: 'conv-alpha' } })
+  })
+
+  test('a token this host does not hold is refused as a project; one with no record now, as failed', async () => {
+    expect(await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'x' })).toEqual({ ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noSession })
+    await issue(A, TOKEN_A)
+    delete records[TOKEN_A]
+    expect(await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'x' })).toMatchObject({ ok: false, error: MESSAGE_ROUTE_SAYS.noPlace })
+    expect(store.count(project.id)).toBe(0)
+  })
+
+  test('it tells, it does not ask: no question, no addressing of its own', async () => {
+    await issue(A, TOKEN_A)
+    expect((await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'x', kind: 'question' })).ok).toBe(false)
+    await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'x', to: { project: true }, once: true })
+    const [kept] = store.all(project.id)
+    expect(kept!.to).toEqual({ session: { module: A, session: 'conv-alpha' } })
+    expect(kept!.once).toBe(false)
+  })
+
+  test('bounded per module and receiving session', async () => {
+    await issue(A, TOKEN_A)
+    await issue(B, TOKEN_B)
+    for (let i = 0; i < LIMITS.NOTICES_PER_MINUTE; i++) {
+      expect(await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: `n${i}` })).toMatchObject({ data: { outcome: 'sent' } })
+    }
+    expect(await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'more' })).toMatchObject({ data: { outcome: 'declined' } })
+    /* Another session is not held to that one's count. */
+    expect(await desk.serverAnswer(A, 'messages.notify', { token: TOKEN_B, body: 'other' })).toMatchObject({ data: { outcome: 'sent' } })
+    now += 61_000
+    expect(await desk.serverAnswer(B, 'messages.notify', { token: TOKEN_A, body: 'later' })).toMatchObject({ data: { outcome: 'sent' } })
+  })
+
+  test('a page is no asker: messages.notify is declined there', () => {
+    expect(answer(A, 'messages.notify', { token: TOKEN_A, body: 'hi' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
   })
 })
 

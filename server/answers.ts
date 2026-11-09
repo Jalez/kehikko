@@ -107,6 +107,7 @@ const nothingToShow = (method: string, data: unknown): Answer => {
   return held.ok ? { ok: true, data: held.data } : { ok: false, reason: 'failed', error: held.why }
 }
 const notMineToSay = (error: string): Answer => ({ ok: false, reason: 'failed', error })
+const NOTICE_FROM_A_PAGE = 'A notice goes from a module’s server to the session whose token asked it for something (askHost). A page has no such token.'
 const NO_MESSAGES = 'This host was not given a record of messages to answer from.'
 const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
@@ -664,6 +665,10 @@ export function answer(
     return notMineToSay(NO_MESSAGES)
   case 'messages.post':
     return nothingToShow('messages.post', { outcome: 'declined', why: NO_MESSAGES })
+  /* Protocol 2.54.0: a module's server's notice to the session that asked it;
+     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page is no asker. */
+  case 'messages.notify':
+    return nothingToShow('messages.notify', { outcome: 'declined', why: NOTICE_FROM_A_PAGE })
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the

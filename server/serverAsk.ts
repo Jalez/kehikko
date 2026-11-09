@@ -53,8 +53,9 @@ export interface ServerAskDeps {
   /** The page's answer to the call, in that project — or in none, for a question about this computer (`traffic.*`, 2.20.0). */
   answer(module: string, method: string, params: unknown, root: string | null): Answer
   /**
-   * `messages.send` and `messages.read` (protocol 2.41.0), answered for the session the call's token
-   * names (`messageRoutes.ts`): the project is the token's, so these name none. Absent: refused.
+   * `messages.send` and `messages.read` (protocol 2.41.0), and `messages.notify` (2.54.0), answered for
+   * the session the call's token names (`messageRoutes.ts`): the project is the token's, so these name
+   * none. Absent: refused.
    */
   messages?(module: string, method: string, params: unknown): Promise<MessageAsked>
   /** Injected by tests. */
@@ -141,7 +142,7 @@ export function serverAskDesk(deps: ServerAskDeps) {
     if ('undeclared' in held) deps.undeclared?.(module, method, held.undeclared)
     /* Messages (protocol 2.41.0): the session, and so the project, is the one the token names. A
        token this host does not hold is refused as a project it does not hold: another host may. */
-    if (method === 'messages.send' || method === 'messages.read') {
+    if (method === 'messages.send' || method === 'messages.read' || method === 'messages.notify') {
       if (!deps.messages) return reply({ ok: false, reason: 'failed', error: 'This host keeps no messages.' })
       const said = await deps.messages(module, method, params)
       if (said.ok) return reply({ ok: true, data: said.data })
