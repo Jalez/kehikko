@@ -2873,6 +2873,11 @@ const inboxRoutes = inboxDesk({
   }),
   /* What a module's items may name as an event: its manifest's, as last seen. */
   eventsOf: (module) => lastPresences.get(module)?.module?.events,
+  /* A module that relays other sessions' questions may name their sessions in an item's question. */
+  relays: (module) => declared(module, 'messages:as-person'),
+  /* The person's answer from the Inbox goes to the session as their message (protocol 2.55.0). */
+  messages: agentMessages,
+  messagesChanged: (project) => wakes.messagesChanged(project),
   changed: (project, rev) => wakes.inboxChanged(project, rev),
 })
 

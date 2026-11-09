@@ -17,11 +17,13 @@ import {
 import {
   fetchInbox,
   postAct,
+  postAnswer,
   postMigrate,
   postNotice,
   postReport,
   postUse,
   type Narrowing,
+  type Said,
   type Snapshot,
 } from '@/host/inboxClient.ts'
 import { unmuted } from '@/host/inboxUse.ts'
@@ -470,6 +472,24 @@ export function useInbox(options: {
     [act],
   )
 
+  /**
+   * The person's answer to an entry's question (protocol 2.55.0). `pressed` is read by the caller,
+   * synchronously, in the press's own handler (`pressFresh`): no press, nothing is sent. The server
+   * sends it to the session the question names and marks the entry answered; its record is adopted.
+   */
+  const answer = useCallback(
+    async (entry: Entry, said: Said, pressed: boolean, inProject?: number): Promise<{ ok: true } | { ok: false; why: string }> => {
+      if (!pressed) return { ok: false, why: 'An answer is sent only on your own press.' }
+      const id = inProject ?? projectRef.current
+      if (id === null) return { ok: false, why: 'No project is open.' }
+      const got = await queue(() => postAnswer({ project: id, module: entry.module, item: entry.id, said, pressed: true }))
+      if (!got.ok) return got
+      adopt(id, got.snapshot)
+      return { ok: true }
+    },
+    [adopt, queue],
+  )
+
   /* What a module that stopped answering had open is closed, after the grace. */
   const modules = useMemo(
     () => [...new Set(open.filter(isOpen).map((one) => one.module))].sort().join('\u0001'),
@@ -577,5 +597,5 @@ export function useInbox(options: {
     [takeMuted],
   )
 
-  return { open: shown, all: open, live, others, rev, earlier, muted, use, receive, greeted, notice, see, dismiss, act, refresh }
+  return { open: shown, all: open, live, others, rev, earlier, muted, use, receive, greeted, notice, see, dismiss, act, answer, refresh }
 }

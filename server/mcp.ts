@@ -810,7 +810,12 @@ function activityText(row: ActivityRow): string {
     (row.priority === 'urgent' ? ' — URGENT' : row.priority === 'low' ? ' — low priority' : '') +
     (row.state === 'done' ? (row.seen ? ' [seen]' : ' [not seen yet]') : '') +
     (row.muted ? ' (muted by the person)' : '') +
-    (row.detail ? ` — ${quoted(row.detail)}` : '')
+    (row.detail ? ` — ${quoted(row.detail)}` : '') +
+    (row.question
+      ? ` — asks the person ${quoted(row.question)}` +
+        (row.choices?.length ? ` (choices: ${row.choices.map(quoted).join(', ')})` : '') +
+        (row.answered ? ' — the person answered it' : ' — they answer it in their Inbox')
+      : '')
   )
 }
 

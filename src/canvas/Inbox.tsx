@@ -32,6 +32,8 @@ import { ActivityDot } from './Activity.tsx'
 import { MessagesSection, type MessagesView } from './Messages.tsx'
 import { Hint } from './Hint.tsx'
 import { MuteChime } from './ChimeSettings.tsx'
+import { InboxQuestion } from './InboxQuestion.tsx'
+import type { Said } from '@/host/inboxClient.ts'
 
 /**
  * The Inbox: ONE control in the bar and a panel opened on demand. No standing
@@ -105,6 +107,12 @@ export interface InboxView {
   muted?: readonly { id: string; name: string }[]
   /** The person's "Use inbox" for a module. Absent: no "Stop showing" and no Show again. */
   onUse?(module: string, on: boolean): void
+  /**
+   * The person's answer to an entry's question (protocol 2.55.0), from its row. `pressed` is read in
+   * the press's handler (`pressFresh`); `project` is another project's, absent for the open one.
+   * Absent: the question is shown with no way to answer it here.
+   */
+  onAnswer?(entry: Entry, said: Said, pressed: boolean, project?: number): Promise<{ ok: true } | { ok: false; why: string }>
 }
 
 const PAGE = 20
@@ -174,11 +182,13 @@ interface RowProps {
   /** "Stop showing <module> here": "Use inbox" off for the row's module. */
   mute?: { label: string; title: string; run(): void }
   choices?: { label: string; run(): void }[] | null
+  /** The question the entry asks, drawn whole under it (`InboxQuestion`). */
+  question?: React.ReactNode
   dim?: boolean
   data: string
 }
 
-function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, mute, choices, dim, data }: RowProps) {
+function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, mute, choices, question, dim, data }: RowProps) {
   return (
     <li
       data-inbox-row={data}
@@ -247,6 +257,7 @@ function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, c
           ))}
         </span>
       ) : null}
+      {question ?? null}
     </li>
   )
 }
@@ -317,6 +328,15 @@ export function InboxPanel({ view }: { view: InboxView }) {
   const [mutedOpen, setMutedOpen] = useState(false)
   const muted = view.muted ?? []
 
+  /* A question an entry asks: whole, with its choices and a reply field (`InboxQuestion`). */
+  const questionFor = (entry: Entry, project?: number): React.ReactNode =>
+    entry.question ? (
+      <InboxQuestion
+        entry={entry}
+        onAnswer={view.onAnswer ? (said, pressed) => view.onAnswer!(entry, said, pressed, project) : undefined}
+      />
+    ) : null
+
   const row = (entry: Entry, kind: 'now' | 'member'): React.ReactElement => {
     const { here, epic } = placeLines(entry, names)
     const place = [here, epic].filter(Boolean).join(' · ') || 'the project'
@@ -335,6 +355,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
         priority={entry.priority}
         onPress={() => view.onGo(entry)}
         choices={view.choicesFor?.(entry) ?? null}
+        question={questionFor(entry)}
         {...muteFor(entry)}
         {...(dismissable
           ? {
@@ -598,6 +619,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
                       age={ageWords(now, entry.entered)}
                       priority={entry.priority}
                       onPress={() => view.onGoElsewhere?.(project.id, entry)}
+                      question={questionFor(entry, project.id)}
                       {...muteFor(entry)}
                       {...(entry.state !== 'working' && view.onDismissElsewhere
                         ? { action: { label: `dismiss ${entry.label}`, title: 'Dismiss — it returns only if it changes', run: () => view.onDismissElsewhere?.(project.id, [entry]) } }

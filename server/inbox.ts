@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import {
   activityItemsSchema,
+  activityQuestionSchema,
   type ActivityItem,
   type ActivityState,
   type InboxEvent,
@@ -9,6 +10,7 @@ import {
 import {
   ENTRIES_MAX,
   applyList,
+  isAskable,
   inScope,
   isDismissed,
   isOpen,
@@ -20,7 +22,9 @@ import {
   rowKey,
   type Closing,
   type Entry,
+  type EntryAnswer,
   type EntryEvent,
+  type EntryQuestion,
   type LogRow,
   type Move,
   type NoticeLine,
@@ -72,6 +76,8 @@ interface ItemRow {
   refs: string
   grp: string | null
   event: string | null
+  question: string | null
+  answered: string | null
   entered: number
   opened: number
   closed: number | null
@@ -103,6 +109,24 @@ function eventOf(text: string | null): { named?: EntryEvent } {
   return typeof id === 'string' && id && typeof says === 'string' && says ? { named: { id, says } } : {}
 }
 
+/** The stored question (protocol 2.55.0), read leniently: held to the protocol's shape again, else none. */
+function questionOf(text: string | null): { question?: EntryQuestion } {
+  const read = activityQuestionSchema.safeParse(parseJson<unknown>(text, null))
+  if (!read.success) return {}
+  const { text: said, choices, to, replyTo } = read.data
+  return { question: { text: said, choices: choices ?? [], to: { module: to.module, session: to.session }, ...(replyTo !== undefined ? { replyTo } : {}) } }
+}
+
+/** The stored answer, read leniently: anything but `{ entered, at, text }` is no answer. */
+function answeredOf(text: string | null): { answered?: EntryAnswer } {
+  const value = parseJson<unknown>(text, null)
+  if (typeof value !== 'object' || value === null) return {}
+  const { entered, at, text: said } = value as Record<string, unknown>
+  return typeof entered === 'number' && typeof at === 'number' && typeof said === 'string' && said
+    ? { answered: { entered, at, text: said } }
+    : {}
+}
+
 function toEntry(row: ItemRow): Entry {
   const place = parseJson<Place | null>(row.place, null)
   const refs = parseJson<unknown>(row.refs, [])
@@ -118,6 +142,8 @@ function toEntry(row: ItemRow): Entry {
     refs: Array.isArray(refs) ? refs.filter((one): one is string => typeof one === 'string') : [],
     ...(row.grp ? { group: row.grp } : {}),
     ...eventOf(row.event),
+    ...questionOf(row.question ?? null),
+    ...answeredOf(row.answered ?? null),
     entered: row.entered,
     opened: row.opened,
     closed: row.closed,
@@ -275,7 +301,7 @@ export class Inbox {
   moves(project: number): Move[] {
     return this.db
       .query<{ module: string; id: string; state: string; at: number; label: string }, [number]>(
-        'select module, id, state, at, label from inbox_moves where project = ? order by seq',
+        'select module, id, state, at, label from inbox_moves where project = ? and act is null order by seq',
       )
       .all(project)
       .map((row) => ({ ...row, state: row.state as ActivityState }))
@@ -326,12 +352,13 @@ export class Inbox {
     this.db
       .query(
         `insert into inbox_items
-           (project, module, id, name, state, label, detail, place, priority, refs, grp, event,
+           (project, module, id, name, state, label, detail, place, priority, refs, grp, event, question, answered,
             entered, opened, closed, how, seen, dismissed, origin, touched)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict (project, module, id) do update set
            name = excluded.name, state = excluded.state, label = excluded.label, detail = excluded.detail,
            place = excluded.place, priority = excluded.priority, refs = excluded.refs, grp = excluded.grp, event = excluded.event,
+           question = excluded.question, answered = excluded.answered,
            entered = excluded.entered, closed = excluded.closed, how = excluded.how,
            seen = excluded.seen, dismissed = excluded.dismissed, touched = excluded.touched`,
       )
@@ -348,6 +375,9 @@ export class Inbox {
         JSON.stringify(entry.refs),
         entry.group ?? null,
         entry.named ? JSON.stringify(entry.named) : null,
+        /* As the protocol spells it: no choices is no `choices` (an empty list is not one it takes). */
+        entry.question ? JSON.stringify({ ...entry.question, choices: entry.question.choices.length ? entry.question.choices : undefined }) : null,
+        entry.answered ? JSON.stringify(entry.answered) : null,
         entry.entered,
         entry.opened,
         entry.closed,
@@ -381,7 +411,15 @@ export class Inbox {
     module: string,
     name: string,
     items: readonly ActivityItem[],
-    options: { silent?: boolean; unreported?: boolean; loadedAt?: number; present?: Present | null; events?: readonly InboxEvent[] } = {},
+    options: {
+      silent?: boolean
+      unreported?: boolean
+      loadedAt?: number
+      present?: Present | null
+      events?: readonly InboxEvent[]
+      /** The module relays other sessions' questions (`messages:as-person`): see `heldQuestion`. */
+      relays?: boolean
+    } = {},
   ): Reported {
     const id = module
     const now = this.clock()
@@ -398,6 +436,7 @@ export class Inbox {
         ...(options.loadedAt !== undefined ? { loadedAt: options.loadedAt } : {}),
         told: (module, itemId, state) => told[`${module}\u0000${itemId}\u0000${state}`],
         ...(options.events ? { events: options.events } : {}),
+        ...(options.relays ? { relays: true } : {}),
       })
       let usedSeen = false
       for (const entry of applied.puts) {
@@ -482,6 +521,36 @@ export class Inbox {
     this.db.query('delete from inbox_items where project = ? and module = ? and id = ?').run(project, module, id)
   }
 
+  /** One entry, open or closed, or null. */
+  entry(project: number, module: string, id: string): Entry | null {
+    const row = this.db
+      .query<ItemRow, [number, string, string]>('select * from inbox_items where project = ? and module = ? and id = ?')
+      .get(project, module, id)
+    return row ? this.#named([toEntry(row)])[0]! : null
+  }
+
+  /**
+   * The person answered an open entry's question from the Inbox (the answer itself went to the
+   * session already, `inboxRoutes.ts`). Held against the `entered` it answered, and recorded in the
+   * entry's timeline as an act (`inbox_moves.act = 'answered'`, the answer as its label), which the
+   * state timeline (`moves`) leaves out. The entry stays open: it closes when its module withdraws
+   * it, as any other. Null when there is nothing open to answer.
+   */
+  answer(project: number, module: string, id: string, text: string): { rev: number; entry: Entry } | null {
+    const run = this.db.transaction(() => {
+      const was = this.entry(project, module, id)
+      if (!was || !isAskable(was)) return null
+      const at = this.clock()
+      const entry: Entry = { ...was, answered: { entered: was.entered, at, text } }
+      this.#write(project, entry)
+      this.db
+        .query("insert into inbox_moves (project, module, id, state, at, label, act) values (?, ?, ?, ?, ?, ?, 'answered')")
+        .run(project, module, id, was.state, at, text)
+      return { rev: this.#bump(project), entry }
+    })
+    return run()
+  }
+
   /** The person was told of these `done` entries (pressed, or arrived at their place). */
   see(project: number, keys: readonly { module: string; id: string }[]): { changed: number; rev: number } {
     return this.#mark(project, keys, (entry) => (entry.state === 'done' && !isSeen(entry) ? { seen: entry.entered } : null))
@@ -555,7 +624,7 @@ export class Inbox {
         /* The states it has left: everything but the latest move. */
         const moves = this.db
           .query<{ seq: number }, [number, string, string]>(
-            'select seq from inbox_moves where project = ? and module = ? and id = ? order by at desc, seq desc',
+            'select seq from inbox_moves where project = ? and module = ? and id = ? and act is null order by at desc, seq desc',
           )
           .all(project, entry.module, entry.id)
         for (const old of moves.slice(1)) {
@@ -664,6 +733,12 @@ export function ensureInbox(db: Database): void {
   /* The module's named event (protocol 2.31.0), as `{ id, says }` JSON: added to a store from before it. */
   const columns = db.query<{ name: string }, []>('pragma table_info(inbox_items)').all()
   if (!columns.some((one) => one.name === 'event')) db.exec('alter table inbox_items add column event text')
+  /* An item's question (protocol 2.55.0) and the person's answer to it from the Inbox, as JSON. */
+  if (!columns.some((one) => one.name === 'question')) db.exec('alter table inbox_items add column question text')
+  if (!columns.some((one) => one.name === 'answered')) db.exec('alter table inbox_items add column answered text')
+  /* An act in an entry's timeline that is not a state it entered ('answered'); null for a state. */
+  const moveColumns = db.query<{ name: string }, []>('pragma table_info(inbox_moves)').all()
+  if (!moveColumns.some((one) => one.name === 'act')) db.exec('alter table inbox_moves add column act text')
 }
 
 /** A list of items read off a request body: refused whole when the protocol would refuse it. */

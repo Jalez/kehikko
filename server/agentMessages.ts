@@ -69,6 +69,11 @@ export interface Extras {
   replyTo?: number
   /** A module's introduction: each session is handed at most one from the same module. */
   once?: boolean
+  /**
+   * The question from the Inbox this message answers (protocol 2.55.0, `answers`), when it was not a
+   * message (`replyTo` says that). The host's fact, set only by the Inbox's answer (`inboxRoutes.ts`).
+   */
+  answers?: string
   /** Protocol 2.54.0: a module's notice to the one session that asked it, bounded per module and receiving session. */
   notice?: boolean
 }
@@ -128,6 +133,8 @@ export function ensureAgentMessages(db: Database): void {
     ['person', 'integer not null default 0'],
     ['once', 'integer not null default 0'],
     ['copy_of', 'integer'],
+    /* Protocol 2.55.0: the Inbox question a person's answer answers. */
+    ['answers', 'text'],
   ]
   for (const [name, type] of columns) if (!has.has(name)) db.exec(`alter table agent_messages add column ${name} ${type}`)
 }
@@ -148,6 +155,7 @@ interface Row {
   person: number
   once: number
   copy_of: number | null
+  answers: string | null
 }
 
 const parse = (text: string): unknown => {
@@ -177,6 +185,7 @@ function toMessage(row: Row): AgentMessage | null {
     choices: parse(row.choices) ?? [],
     replyTo: row.reply_to,
     once: row.once === 1,
+    answers: row.answers ?? null,
   })
   return read.success ? read.data : null
 }
@@ -271,6 +280,8 @@ export class AgentMessages {
       /* An introduction is a module's own, never a session's or the person's. */
       once: Boolean(extras.once) && !person && from.session === '',
       copyOf: null,
+      /* What it answers is the person's alone: an answer from the Inbox, with no message to reply to. */
+      answers: person && extras.answers && extras.replyTo === undefined ? extras.answers.slice(0, LIMITS.ACTIVITY_QUESTION) : null,
     })
     this.trim(project, now)
     return { ok: true, id }
@@ -279,14 +290,14 @@ export class AgentMessages {
   private insert(
     project: number,
     at: number,
-    row: { module: string; name: string; session: string; place: string; to: string; thread: string | null; body: string; kind: string; choices: string; replyTo: number | null; person: boolean; once: boolean; copyOf: number | null },
+    row: { module: string; name: string; session: string; place: string; to: string; thread: string | null; body: string; kind: string; choices: string; replyTo: number | null; person: boolean; once: boolean; copyOf: number | null; answers?: string | null },
   ): number {
     return this.db
-      .query<{ id: number }, [number, number, string, string, string, string, string, string | null, string, string, string, number | null, number, number, number | null]>(
-        `insert into agent_messages (project, at, from_module, from_name, from_session, from_place, to_json, thread, body, kind, choices, reply_to, person, once, copy_of)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`,
+      .query<{ id: number }, [number, number, string, string, string, string, string, string | null, string, string, string, number | null, number, number, number | null, string | null]>(
+        `insert into agent_messages (project, at, from_module, from_name, from_session, from_place, to_json, thread, body, kind, choices, reply_to, person, once, copy_of, answers)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`,
       )
-      .get(project, at, row.module, row.name, row.session, row.place, row.to, row.thread, row.body, row.kind, row.choices, row.replyTo, row.person ? 1 : 0, row.once ? 1 : 0, row.copyOf)!.id
+      .get(project, at, row.module, row.name, row.session, row.place, row.to, row.thread, row.body, row.kind, row.choices, row.replyTo, row.person ? 1 : 0, row.once ? 1 : 0, row.copyOf, row.answers ?? null)!.id
   }
 
   /** The once-message from `from` that this reader was handed (its id), or null: at most one per sending module, ever. */
