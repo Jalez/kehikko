@@ -89,7 +89,7 @@ export function pinsFor(width: number | null): boolean {
  * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
  * no body to hold it, it is the first rows of this menu, so it stays reachable.
  */
-export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'intro', 'help', 'feedback', 'prompts', 'remove'] as const
+export const FRAME_ENTRIES = ['standing', 'expand', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'intro', 'help', 'feedback', 'prompts', 'remove'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /**
@@ -102,6 +102,7 @@ export const FRAME_TITLE = 'Container'
 /** What each of the host's entries is called in the Container trigger's tooltip. */
 export const FRAME_SAID: Record<FrameEntry, string> = {
   standing: 'its state',
+  expand: 'show large',
   scope: 'scope',
   settings: 'settings',
   tools: 'tools',

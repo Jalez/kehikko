@@ -9,6 +9,7 @@ import {
   type LocationSetResult,
   type FilterChoice,
   type FoldResult,
+  type ExpandResult,
   type Passage,
   type ProjectPickResult,
   type Showing,
@@ -261,6 +262,13 @@ export interface CanvasControls {
    */
   fold(from: string, call: { fold: string[]; unfold: string[] }): Folded
   /**
+   * Show the asker's own container large over the canvas for a while, or put it back (`view.expand`,
+   * protocol 2.58.0). `from` out of the registration: a module expands only its own container.
+   * `pressed` is whether the person's press in its page was fresh when the call came — expanding
+   * needs one. See `host/expand.ts`. Absent: declined.
+   */
+  expand?(from: string, call: { expand: boolean }, pressed: boolean): ExpandResult
+  /**
    * Hold one module's whole list of activity (`activity.set`, protocol 1.5.0),
    * replacing its last one. `from` is out of the registration, as for `emit`:
    * a module can only say what its own things are doing. Declined with a
@@ -389,7 +397,7 @@ export function makeAsk(
         if (!may) return notAskedFor(method, SAY_SAYS.noManifest)
         return sayAsPerson(moduleId, rawParams, how, canvas)
       }
-      return answerInTheView(moduleId, method, rawParams, canvas)
+      return answerInTheView(moduleId, method, rawParams, canvas, how)
     }
 
     /* Protocol 2.51.0: a module's kept string is for one container — the
@@ -464,6 +472,8 @@ function answerInTheView(
   method: string,
   rawParams: unknown,
   canvas: CanvasControls,
+  /** Whether the person's press in the frame was fresh when the call came (`view.expand`). */
+  how?: { pressed: boolean },
 ): Answer | Promise<Answer> {
   const schema = params.get(method)
   if (!schema) return failed('The canvas claims to answer that method and has no shape for it.')
@@ -627,6 +637,17 @@ function answerInTheView(
     return succeeded(method, canvas.fold(moduleId, call))
   }
 
+  /*
+   * A module asking for its own container to be shown large, or put back (protocol 2.58.0). An act
+   * on the view like `view.fold`, answered with an outcome; to expand, only while the person's press
+   * in its page is fresh (`how.pressed`, read when the call arrived).
+   */
+  if (method === 'view.expand') {
+    const call = parsed.data as { expand: boolean }
+    if (!canvas.expand) return succeeded(method, { outcome: 'declined', why: 'This canvas shows nothing large.' })
+    return succeeded(method, canvas.expand(moduleId, call, how?.pressed === true))
+  }
+
   if (method === 'activity.set') {
     const { items } = parsed.data as { items: ActivityItem[] }
     if (!canvas.activity) {
@@ -703,6 +724,7 @@ function answerInTheView(
 function notAskedFor(method: string, why: string): Answer {
   if (method === 'view.goto') return succeeded(method, { outcome: 'declined', epic: null, why })
   if (method === 'view.fold') return succeeded(method, { outcome: 'declined', folded: [], unfolded: [], why })
+  if (method === 'view.expand') return succeeded(method, { outcome: 'declined', why })
   if (method === 'projects.pick') return succeeded(method, { outcome: 'declined', project: null, why })
   if (method === 'messages.say') return succeeded(method, { outcome: 'declined', id: null, why })
   return failed(why)

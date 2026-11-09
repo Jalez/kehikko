@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own, type ModuleScope } from 'kehikot-module-protocol'
-import type { Build, ContentChange, Disposition, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, ExpandResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -156,6 +156,8 @@ import {
 } from './host/footer.ts'
 import { FooterStore, useFooted } from './host/footerStore.ts'
 import { Reveals, coversFor } from './host/reveal.ts'
+import { EXPANDED_BODY, expandAsked, shrinksOn, type Expanded as ExpandedOne } from './host/expand.ts'
+import { Expanded } from './canvas/Expanded.tsx'
 import { barRows, rowsShown, watchClicks, withMode, type ClickEvent, type FoldRows, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
@@ -569,6 +571,13 @@ export function App() {
      the pages stop taking the pointer for the duration, and why the one under
      the hand is hidden rather than chased. */
   const [moving, setMoving] = useState<string | null>(null)
+  /* Which container is shown large over the canvas, for a while (`host/expand.ts`). The page's
+     alone: never a placement, never written. */
+  const [expanded, setExpanded] = useState<ExpandedOne | null>(null)
+  const expandedRef = useRef<ExpandedOne | null>(null)
+  expandedRef.current = expanded
+  /* The framings as last made, for `expandRef`, which is called between renders. */
+  const framingsRef = useRef<Framing[]>([])
   /* Which container's TOP edge a hand is pulling, if any: a top corner trades
      rows with what is on top of the container rather than with what is below
      it, so how far it may travel is a different number (`mostUp`). Known only
@@ -2141,6 +2150,27 @@ export function App() {
    * arrangement the first one already changed. Every render puts it back to
    * what is drawn.
    */
+  /**
+   * A module asking for its own container to be shown large, or put back (`view.expand`). The
+   * deciding is `expandAsked` in `host/expand.ts`; what is here is what only the page knows: the open
+   * kehikko, whether the asker's page is what its container shows, and a hand on a container.
+   */
+  const expandRef = useRef<(from: string, call: { expand: boolean }, pressed: boolean) => ExpandResult>(() => ({
+    outcome: 'declined',
+    why: 'This host is not ready to show anything large yet.',
+  }))
+  expandRef.current = (from, call, pressed) => {
+    const on = open?.id ?? null
+    const onOpen = framingsRef.current.some((one) => one.module.id === from && one.shown && !one.away)
+    const busy = moving !== null ? 'A container is being moved or resized. Ask again when it has been let go.' : null
+    const { result, next } = expandAsked(expandedRef.current, { from, expand: call.expand, pressed, kehikko: on, onOpen, busy })
+    if (next !== expandedRef.current) {
+      expandedRef.current = next
+      setExpanded(next)
+    }
+    return result
+  }
+
   rowsModeRef.current = (id) => {
     const placement = open?.placements.find((p) => p.i === id)
     return placement ? rowsShown(placement, focus) : barRows(focus)
@@ -2292,6 +2322,8 @@ export function App() {
          fold anything there, and its name is what the control then says.
          Through a ref — see `foldRef`. */
       fold: (from, call) => foldRef.current(from, call),
+      /* Its own container only, and to expand only on the person's press: see `expandRef`. */
+      expand: (from, call, pressed) => expandRef.current(from, call, pressed),
       goto: (call, from) => gotoRef.current(call, from),
       activity: (from, items) => activityRef.current(from, items),
       /* The steps of a provider the person switched off for this module here are not handed to it. */
@@ -4378,6 +4410,8 @@ export function App() {
       if (!anywhere.has(id) || !byId.has(id) || !kept.has(id)) loaded.delete(id)
     }
     const onOpen = new Set<string>()
+    /* The container shown large on this kehikko, if any: its page is measured against the panel. */
+    const big = expanded !== null && open !== null && expanded.kehikko === open.id ? expanded.id : null
     /* The presence a page is framed from: the module's own, or its pinned
        version's — which on the open kehikko is that kehikko's pin view, so a
        version the data guard blocks here is never framed here. */
@@ -4410,7 +4444,9 @@ export function App() {
              version is served by another process, which an update of the
              checkout does not touch. */
           generation: loadedVersion.get(id) ? 0 : (generations[id] ?? 0),
-          rect: rects[id] ?? null,
+          /* Shown large (`host/expand.ts`): measured against the large panel's body instead, the
+             same frame moved and never reloaded. Until the panel is measured, where it was. */
+          rect: (big === id ? rects[EXPANDED_BODY] : undefined) ?? rects[id] ?? null,
           away: !onOpen.has(id),
           /* A folded container's page is HIDDEN, by the same path a page on another
              kehikko is hidden — kept at its size, kept running, and not shown.
@@ -4444,7 +4480,7 @@ export function App() {
              and the page is told how much they cover. Which rows: the header
              unless the container is selected (then it never hides), the footer
              when the module declared one. See `host/reveal.ts`. */
-          covers: coversFor(module, placements.find((p) => p.i === id), footed.has(id), focus),
+          covers: big === id ? null : coversFor(module, placements.find((p) => p.i === id), footed.has(id), focus),
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
@@ -4463,7 +4499,26 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, focus, keptHere])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, focus, keptHere, expanded])
+  framingsRef.current = framings
+  /* The container shown large now: on the open kehikko and showing its page. One that is not
+     (folded, removed, another kehikko, its page gone to a cover) is put back. */
+  const expandedNow = expanded !== null && open !== null && expanded.kehikko === open.id ? (framings.find((one) => one.module.id === expanded.id && one.shown) ?? null) : null
+  useEffect(() => {
+    if (expanded !== null && expandedNow === null) setExpanded(null)
+  }, [expanded, expandedNow])
+  /* Escape on the host's own page puts it back. One pressed inside the module's page is the module's
+     (a terminal's Escape is its own), and one a dialog or menu took is not this. */
+  useEffect(() => {
+    if (!expandedNow) return
+    const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !shrinksOn(event.key)) return
+      if (document.querySelector('[role=dialog]:not([data-expanded]), [role=menu]')) return
+      setExpanded(null)
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [expandedNow !== null])
 
   /*
    * A switch of kehikko or project, without the fidget: the kehikko being left
@@ -5078,6 +5133,15 @@ export function App() {
                       ? { on: !inbox.muted.has(presence.id), onChange: (on) => inbox.use(presence.id, on) }
                       : undefined
                   }
+                  /* "Expand": shown large over the canvas for a while, and put back (`host/expand.ts`). */
+                  expand={
+                    open
+                      ? {
+                          on: expandedNow?.module.id === presence.id,
+                          onChange: (on) => setExpanded(on ? { kehikko: open.id, id: presence.id } : null),
+                        }
+                      : undefined
+                  }
                   onActivitySeen={() =>
                     inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
                   }
@@ -5130,7 +5194,19 @@ export function App() {
           reveals={reveals}
           still={calm.pagesStill}
           layer={layerStyle(calm.pages)}
+          raised={expandedNow?.module.id ?? null}
         />
+        {/* The container shown large (`host/expand.ts`): its panel, whose hollow body the page above is laid over. */}
+        {expandedNow && open ? (
+          <Expanded
+            key={`${open.id}|${expandedNow.module.id}`}
+            id={expandedNow.module.id}
+            name={byId.get(expandedNow.module.id)?.name ?? expandedNow.module.id}
+            body={body(EXPANDED_BODY)}
+            onShrink={() => setExpanded(null)}
+            onMoved={remeasure}
+          />
+        ) : null}
           </>
         )}
         {/* The still copy of the kehikko being left, while the next is

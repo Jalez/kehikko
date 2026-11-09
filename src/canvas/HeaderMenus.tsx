@@ -28,8 +28,10 @@ import {
   ListTree,
   LoaderCircle,
   Maximize,
+  Maximize2,
   MessageSquare,
   MessageSquareText,
+  Minimize2,
   Monitor,
   MonitorPlay,
   PanelLeft,
@@ -87,6 +89,7 @@ import {
   type PressValue,
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
+import { EXPAND_WORD, SHRINK_WORD } from '@/host/expand.ts'
 import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, type Control, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
 import { ControlRows, RemoveRow, type ControlParts } from './HeaderControls.tsx'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
@@ -1206,6 +1209,11 @@ export interface FrameParts {
    */
   inbox?: { on: boolean; onChange(on: boolean): void }
   /**
+   * "Expand" / "Shrink back" (`host/expand.ts`): the container shown large over the canvas for a
+   * while, and put back. Nothing in the arrangement changes. Absent: no row.
+   */
+  expand?: { on: boolean; onChange(on: boolean): void }
+  /**
    * The module's settings (protocol 2.15.0). A "Settings…" row only where the header's gear is not
    * drawn (`layoutOf`): one entry, never two.
    */
@@ -1249,6 +1257,7 @@ export interface FrameParts {
 export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   const out: FrameEntry[] = []
   if (parts.standing?.length) out.push('standing')
+  if (parts.expand) out.push('expand')
   if (parts.scope) out.push('scope')
   if (parts.onSettings) out.push('settings')
   if (toolsSaying(parts.agent, parts.name)) out.push('tools')
@@ -1283,6 +1292,18 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           ))}
           <DropdownMenuSeparator />
         </DropdownMenuGroup>
+      ) : null}
+      {has('expand') && parts.expand ? (
+        <DropdownMenuItem
+          className={ROW}
+          title={parts.expand.on ? `put ${name} back in its place on the kehikko (Esc)` : `show ${name} large over the canvas for a while; nothing in the arrangement changes`}
+          data-frame="expand"
+          data-on={parts.expand.on ? 'true' : 'false'}
+          onSelect={() => parts.expand?.onChange(!parts.expand.on)}
+        >
+          {parts.expand.on ? <Minimize2 className="text-muted-foreground size-3.5" /> : <Maximize2 className="text-muted-foreground size-3.5" />}
+          <span className="flex-1">{parts.expand.on ? SHRINK_WORD : EXPAND_WORD}</span>
+        </DropdownMenuItem>
       ) : null}
       {has('scope') && scope ? (
         <DropdownMenuItem className={ROW} title={scopeTooltip(scope)} data-frame="scope" data-scope={scope.active} disabled={!onSettings} onSelect={onSettings}>

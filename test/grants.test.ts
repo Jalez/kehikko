@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { foldResult, messageSendResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, trackerRefreshResult } from 'kehikot-module-protocol'
+import { expandResult, foldResult, messageSendResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, trackerRefreshResult } from 'kehikot-module-protocol'
 
 import { answer, answerCall, type Grants } from '../server/answers.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
@@ -33,6 +33,7 @@ const PARAMS: Record<string, unknown> = {
   'parts.set': { epic: 'one', add: { name: 'A part' } },
   'view.goto': { epic: 'one' },
   'view.fold': { fold: [ME] },
+  'view.expand': { expand: false },
   'selection.set': { refs: [] },
   'passage.set': { passage: null },
   'location.set': { location: null },
@@ -147,6 +148,7 @@ describe('the canvas holds every method it answers', () => {
     filter: () => (calls.push('filter'), { ok: true, filters: {} }),
     pickProject: async () => (calls.push('pick'), { outcome: 'cancelled', project: null, why: '' }),
     fold: () => (calls.push('fold'), { outcome: 'unchanged', folded: [], unfolded: [], why: '' }),
+    expand: () => (calls.push('expand'), { outcome: 'unchanged', why: '' }),
     activity: () => (calls.push('activity'), { outcome: 'taken', taken: 0, why: '' }),
     project: () => null,
   }
@@ -156,7 +158,7 @@ describe('the canvas holds every method it answers', () => {
       calls.length = 0
       const out = await makeAsk(ME, canvas, () => false)(method, PARAMS[method])
       expect(calls).toEqual([])
-      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'projects.pick': projectPickResult, 'messages.say': messageSendResult }
+      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'view.expand': expandResult, 'projects.pick': projectPickResult, 'messages.say': messageSendResult }
       if (Object.hasOwn(shapes, method)) {
         expect(out.ok).toBe(true)
         if (!out.ok) return
