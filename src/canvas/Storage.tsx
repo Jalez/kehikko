@@ -9,6 +9,7 @@ import {
   modifiedSaid,
   moduleTotalSaid,
   READ_ONLY_SAID,
+  savedSaid,
   tallySaid,
   type MachinePart,
   type ProjectStorage,
@@ -208,6 +209,7 @@ export function StorageBody({
           Kehikot on this computer: {bytesSaid(report.machine.bytes)}
         </h3>
         <p className="text-muted-foreground mb-1 font-mono text-[11px] break-all">{report.machine.path}</p>
+        {savedSaid(report.machine.saved) ? <p className="text-muted-foreground mb-1 text-xs">{savedSaid(report.machine.saved)}</p> : null}
         <ul className="flex flex-col gap-1">
           {report.machine.parts.map((part) => (
             <MachineRow key={part.key} part={part} />

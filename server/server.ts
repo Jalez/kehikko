@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
@@ -90,7 +90,7 @@ import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
 import { WORKTREES_INBOX_MODULE } from '../src/host/worktrees.ts'
-import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
+import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, buildBun, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
@@ -151,6 +151,7 @@ import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myMo
 import { appProtocolSource, appProtocolsOn } from './appProtocols.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
 import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
+import { ownBytes, packageCache, privateBytes, recordVersions, slimPass, type PassCopy } from './sharedFiles.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
 import { within } from './takeover.ts'
 import { resolve } from 'node:path'
@@ -1907,7 +1908,55 @@ function backfill(): void {
         const built = done.filter((one) => one.kind === 'built').length
         if (built) console.log(`kehikko: built ${built} installed module${built === 1 ? '' : 's'} that had no build of their release`)
       })
+      .finally(() => void because('the host slims installed copies', () => slim(copies)))
   }), BACKFILL_AFTER_MS).unref?.()
+}
+
+/**
+ * After the background builds: installed copies and prepared versions that
+ * are not running share identical package files again, a built copy loses the
+ * Vite cache it does not use, and versions no container has pinned for two
+ * weeks are taken away. See `sharedFiles.ts` and `prune` in `versionRuns.ts`.
+ * Never a checkout somebody registered, never a module running or wanted.
+ */
+async function slim(copies: readonly Copy[]): Promise<void> {
+  const own = privateBytes()
+  const cache = copies[0] ? await packageCache(runQuietly, buildBun(), copies[0].dir) : null
+  const wanted = () => {
+    const { needed, warm } = wantedNow()
+    return new Set([...needed, ...warm])
+  }
+  const byDir = new Map(copies.map((copy) => [copy.dir, copy.id]))
+  const versionTrees: PassCopy[] = []
+  for (const id of (existsSync(VERSIONS) ? readdirSync(VERSIONS, { withFileTypes: true }) : []).filter((one) => one.isDirectory()).map((one) => one.name)) {
+    for (const tag of readdirSync(join(VERSIONS, id)).filter((name) => existsSync(join(VERSIONS, id, `${name}.ready`)))) {
+      const dir = join(VERSIONS, id, tag)
+      byDir.set(dir, `${id}@${tag}`)
+      versionTrees.push({ dir, head: tag, built: false })
+    }
+  }
+  const pass: PassCopy[] = [
+    ...(await Promise.all(copies.map(async (copy) => {
+      const head = await headOf(copy.dir)
+      return { dir: copy.dir, head, built: head !== null && builtAt(copy.dir, head) }
+    }))),
+    ...versionTrees,
+  ]
+  await slimPass(pass, {
+    root: installsDir(),
+    cache,
+    privateBytes: own,
+    busy(dir) {
+      const key = byDir.get(dir)
+      if (!key) return true
+      if (key.includes('@')) return versionRuns.all().some((one) => one.key === key)
+      return nursery.holds(key) || builds.state(key) !== null || wanted().has(key)
+    },
+    log: (line) => console.log(line),
+  })
+  const pinned = new Set(pinUses(listCanvases(db)).keys())
+  const freed = await materialiser.prune(pinned, new Set(versionRuns.all().map((one) => one.key)), { measure: (dir) => ownBytes(dir, own) })
+  recordVersions(installsDir(), freed)
 }
 /** The open kehikko's modules are up: one is needed, and each needed one answers, failed, or cannot be started here. */
 function openUp(standing: readonly Standing[]): boolean {

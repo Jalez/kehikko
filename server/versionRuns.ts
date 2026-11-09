@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MODULE_ID } from 'kehikot-module-protocol'
 
@@ -184,6 +184,73 @@ export class SourceMaterialiser implements Materialiser {
     }
     writeFileSync(ready, `${tag}\n`)
     return { ok: true, tree: { dir, script } }
+  }
+
+  /**
+   * Take away the prepared versions no container has pinned for `graceMs`.
+   *
+   * A version found unpinned is marked (`<tag>.unpinned`, holding when) and
+   * left; once the mark is older than the grace period, its tree and its files
+   * beside it are removed. A pin that comes back before then takes the mark
+   * off, and nothing is prepared again. `running` (version keys) is never
+   * touched, pinned or not. The mirror and what each tag's manifest said
+   * (`facts.json`) stay: pinning the version again is a checkout and an
+   * install, nothing more. `measure` says how much room a tree gave back.
+   * Returns the room given back.
+   */
+  async prune(
+    pinned: ReadonlySet<string>,
+    running: ReadonlySet<string>,
+    options: { now?: number; graceMs?: number; measure?: (dir: string) => Promise<number> } = {},
+  ): Promise<number> {
+    const now = options.now ?? Date.now()
+    const grace = options.graceMs ?? PRUNE_AFTER_MS
+    let freed = 0
+    for (const id of readdirSafe(this.#root)) {
+      if (!MODULE_ID.test(id) || id.includes('..')) continue
+      const home = this.#module(id)
+      const mirror = join(home, 'repo.git')
+      let removed = false
+      for (const tag of readdirSafe(home)) {
+        if (!safe(id, tag)) continue
+        const key = `${id}@${tag}`
+        const mark = join(home, `${tag}.unpinned`)
+        if (pinned.has(key) || running.has(key)) {
+          rmSync(mark, { force: true })
+          continue
+        }
+        let since = Number.NaN
+        try {
+          since = Number(readFileSync(mark, 'utf8').trim())
+        } catch {
+          /* Not marked yet. */
+        }
+        if (!Number.isFinite(since)) {
+          writeFileSync(mark, `${now}\n`)
+          continue
+        }
+        if (now - since < grace) continue
+        const dir = this.tree(id, tag)
+        freed += (await options.measure?.(dir).catch(() => 0)) ?? 0
+        if (existsSync(join(mirror, 'HEAD'))) await this.#run(['git', '-C', mirror, 'worktree', 'remove', '--force', dir])
+        rmSync(dir, { recursive: true, force: true })
+        for (const suffix of ['.ready', '.log', '.port', '.registry', '.unpinned']) rmSync(join(home, `${tag}${suffix}`), { recursive: true, force: true })
+        removed = true
+      }
+      if (removed && existsSync(join(mirror, 'HEAD'))) await this.#run(['git', '-C', mirror, 'worktree', 'prune'])
+    }
+    return freed
+  }
+}
+
+/** How long a prepared version nobody pins is kept before `prune` takes it away. */
+export const PRUNE_AFTER_MS = 14 * 24 * 60 * 60_000
+
+function readdirSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+  } catch {
+    return []
   }
 }
 

@@ -92,7 +92,31 @@ export interface StorageReport {
   missing: { id: number; name: string; path: string }[]
   /** Per module across projects, largest first. Kehikot's own files are one of them. */
   modules: ModuleTotal[]
-  machine: { path: string; bytes: number; parts: MachinePart[] }
+  machine: { path: string; bytes: number; parts: MachinePart[]; saved?: DiskSaved }
+}
+
+/**
+ * What keeping the installed copies small has come to (`server/sharedFiles.ts`):
+ * how much the copies' package files count as files and how much of that is
+ * their own room on the disk, and what was given back, all passes together.
+ */
+export interface DiskSaved {
+  /** When a pass last finished; null when none has. */
+  at: number | null
+  /** Package files of the copies looked at, every byte counted. */
+  counted: number
+  /** Of those, the room that is theirs alone; the rest is shared with identical files. */
+  own: number
+  /** Given back by sharing identical files, removing unused caches and versions nobody pins. */
+  given: number
+}
+
+/** The Storage view's line about it; null before the first pass. */
+export function savedSaid(saved: DiskSaved | undefined): string | null {
+  if (!saved || saved.at === null) return null
+  const shared = saved.counted > saved.own ? ` Their package files count ${bytesSaid(saved.counted)}, but only ${bytesSaid(saved.own)} of that is their own room on the disk; the rest is shared with identical files.` : ''
+  const given = saved.given > 0 ? ` Kehikot has given back ${bytesSaid(saved.given)} by sharing identical files and removing caches and versions nothing uses.` : ''
+  return shared || given ? `Module copies take less room than they count.${shared}${given}` : null
 }
 
 /** The name the host's own data is listed under. */
