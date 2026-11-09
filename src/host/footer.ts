@@ -56,6 +56,61 @@ export function footerDeclared(held: Footers, id: string, items: readonly Footer
   return { ...held, [id]: items }
 }
 
+/**
+ * The footers posted to the server (`POST /host/headers`, as `[id, items][]` JSON) without what
+ * their readouts say: a `text` item's words, a `meter`'s value, words and level, and either one's
+ * tooltip. What is left is everything `press_item` judges and `read_canvas` lists as an offer —
+ * which items there are, of which kind, and every pressable item whole.
+ *
+ * A module with a live readout (a call rate, a load, a context count) re-declares its footer every
+ * second or so, and each re-declaration was a posting of the whole open kehikko's headers and
+ * footers (some 12 kB), once a second, all day. Compared by this, a change to readouts alone waits
+ * (`readoutsWait`); every other change is posted at once.
+ */
+export function footerShape(footed: string): string {
+  const parsed = JSON.parse(footed) as [string, FooterItem[]][]
+  return JSON.stringify(
+    parsed.map(([id, items]) => [
+      id,
+      items.map((item) => {
+        if (item.kind === 'text') {
+          const { text: _text, level: _level, tooltip: _tooltip, ...rest } = item
+          return rest
+        }
+        if (item.kind === 'meter') {
+          const { text: _text, value: _value, level: _level, tooltip: _tooltip, ...rest } = item
+          return rest
+        }
+        return item
+      }),
+    ]),
+  )
+}
+
+/** How often a change to footer readouts alone is told to the server: what `read_canvas` says of a readout is at most this old. */
+export const READOUTS_POSTED_EVERY_MS = 15_000
+
+/**
+ * How long to wait before posting a change, in ms; 0 is now. Only a change to readouts alone (the
+ * same `footerShape` as last posted) waits, until `READOUTS_POSTED_EVERY_MS` after the last posting.
+ */
+export function readoutsWait(sameShape: boolean, sincePostedMs: number): number {
+  if (!sameShape) return 0
+  return Math.max(0, READOUTS_POSTED_EVERY_MS - sincePostedMs)
+}
+
+/**
+ * The containers that have a footer, as one word that changes only when that set does. What a
+ * container is told it is covered by needs whether it has a footer, never what the footer says, so
+ * the framings are not made again each time a readout ticks.
+ */
+export function footedIds(held: Footers): string {
+  return Object.keys(held)
+    .filter((id) => (held[id]?.length ?? 0) > 0)
+    .sort()
+    .join('\n')
+}
+
 /** The footers without one module's: its document is gone, and so is what it declared. */
 export function footerWithdrawn(held: Footers, id: string): Footers {
   if (!Object.hasOwn(held, id)) return held

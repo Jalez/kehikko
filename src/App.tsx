@@ -144,7 +144,18 @@ import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
-import { agentFooterRefusal, footerDeclared, footerPressing, footerWithdrawn, NO_FOOTER, NO_FOOTERS, type Footers as HeldFooters } from './host/footer.ts'
+import {
+  agentFooterRefusal,
+  footedIds,
+  footerDeclared,
+  footerPressing,
+  footerShape,
+  footerWithdrawn,
+  NO_FOOTER,
+  NO_FOOTERS,
+  readoutsWait,
+  type Footers as HeldFooters,
+} from './host/footer.ts'
 import { Reveals, coversFor } from './host/reveal.ts'
 import { barRows, rowsShown, watchClicks, withMode, type ClickEvent, type FoldRows, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
@@ -523,6 +534,9 @@ export function App() {
   footersRef.current = footers
   /* Whether the host draws this container's footer now: a corner pulled to two rows is then a two-row fold (`dragged`). */
   const twoRowsFor = useCallback((id: string) => (footersRef.current[id]?.length ?? 0) > 0, [])
+  /* Which containers have a footer, changing only when that set does (`footedIds`): what the framings need, so a ticking readout does not make them again. */
+  const footedKey = useMemo(() => footedIds(footers), [footers])
+  const footed = useMemo(() => new Set(footedKey ? footedKey.split('\n') : []), [footedKey])
   /* In focus mode, which containers have their header and footer revealed (`host/reveal.ts`). One for the page. */
   const reveals = useMemo(() => new Reveals(), [])
   /* Reveal on click (`host/rows.ts`): a click into a module's page or onto a container's own chrome
@@ -4211,12 +4225,22 @@ export function App() {
   /* What this page last posted: a posting that says what the server already holds is not made
      (`headerPosting`), unless the stream reopened and the server may have forgotten it. */
   const postedRef = useRef(NOTHING_POSTED)
-  const postDeclared = useCallback((again = false) => {
-    if (openId === null || declaredHere === null) return
+  /* And what it said less its footers' readouts (`footerShape`), and when: a change to readouts
+     alone is posted at most every `READOUTS_POSTED_EVERY_MS` (`readoutsWait`). */
+  const shapePostedRef = useRef(NOTHING_POSTED)
+  const postedAtRef = useRef(0)
+  /** Post what is declared now; or, for a change to readouts alone that came too soon, how many ms until it may be. */
+  const postDeclared = useCallback((again = false): number => {
+    if (openId === null || declaredHere === null) return 0
     const base = headerPosting(openId, declaredHere, codeAt, addressAt)
     const said = footedHere === '[]' ? base : JSON.stringify([base, footedHere])
-    if (!again && said === postedRef.current) return
+    if (!again && said === postedRef.current) return 0
+    const shape = footedHere === '[]' ? base : JSON.stringify([base, footerShape(footedHere)])
+    const wait = again ? 0 : readoutsWait(shape === shapePostedRef.current, Date.now() - postedAtRef.current)
+    if (wait > 0) return wait
     postedRef.current = said
+    shapePostedRef.current = shape
+    postedAtRef.current = Date.now()
     void postHeaders(
       openId,
       Object.fromEntries(JSON.parse(declaredHere) as [string, Headers[string]][]),
@@ -4224,14 +4248,18 @@ export function App() {
       addressAt ? (JSON.parse(addressAt) as SharedAddress) : null,
       Object.fromEntries(JSON.parse(footedHere) as [string, HeldFooters[string]][]),
     )
+    return 0
   }, [openId, declaredHere, footedHere, codeAt, addressAt])
   /* A moment after the last change: the modules of a kehikko greet one after another, and each
      greeting is a change, but one posting of the whole map says all of them. */
   useEffect(() => {
-    const later = setTimeout(() => postDeclared(), HEADERS_SETTLE_MS)
+    let later = setTimeout(function post() {
+      const wait = postDeclared()
+      if (wait > 0) later = setTimeout(post, wait)
+    }, HEADERS_SETTLE_MS)
     return () => clearTimeout(later)
   }, [postDeclared])
-  repostRef.current = () => postDeclared(true)
+  repostRef.current = () => void postDeclared(true)
 
   /**
    * Every module page that currently has a document, and where each one goes.
@@ -4390,7 +4418,7 @@ export function App() {
              and the page is told how much they cover. Which rows: the header
              unless the container is selected (then it never hides), the footer
              when the module declared one. See `host/reveal.ts`. */
-          covers: coversFor(module, placements.find((p) => p.i === id), (footers[id]?.length ?? 0) > 0, focus),
+          covers: coversFor(module, placements.find((p) => p.i === id), footed.has(id), focus),
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
@@ -4409,7 +4437,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footers, focus, keptHere])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, focus, keptHere])
 
   /*
    * A switch of kehikko or project, without the fidget: the kehikko being left
