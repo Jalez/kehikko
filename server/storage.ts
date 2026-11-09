@@ -16,6 +16,7 @@ import {
   type Tally,
 } from '../src/host/storage.ts'
 import { HOST_ID } from './kehikot.ts'
+import { readRecord } from './sharedFiles.ts'
 import {
   browserProfileDir,
   frameDbFile,
@@ -274,7 +275,15 @@ async function measureMachine(at: Locations, modules: readonly Named[], walk: Wa
     await part('official-list', 'The official module list, as last read', at.officialList),
   ]
   const bytes = parts.reduce((sum, one) => sum + (one.tally?.bytes ?? 0), 0)
-  return { path: at.machine, bytes, parts }
+  const record = readRecord(at.installed)
+  const copies = Object.values(record.copies)
+  const saved = {
+    at: record.at,
+    counted: copies.reduce((sum, one) => sum + one.counted, 0),
+    own: copies.reduce((sum, one) => sum + one.own, 0),
+    given: record.reshared + record.caches + record.versions,
+  }
+  return { path: at.machine, bytes, parts, ...(record.at !== null ? { saved } : {}) }
 }
 
 /** One whole report: every project that is there, then the machine. */
