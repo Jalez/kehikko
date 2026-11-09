@@ -990,13 +990,31 @@
   `Conversation.sendOpened`). `attention` still ends only by the module's word;
   the message is how a module learns the person came for it.
 - Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
-- Tracker notices are the host's own items (`kehikko.trackers`, by-line Kehikot):
+- Tracker notices are the host's own items (`kehikko.trackers`, by-line "Tracker", never "… says" — `byLine`):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts
   it last saw (`tracker_seen` in `frame.sqlite`, per project; the first reading
   is silent) and reports ONE item per ref through `Inbox.report`. The rules and
   words are `src/host/trackerNotices.ts`; the setting is `tracker-notices` in
   `settings`, changed only through `POST /host/settings` (`{ notices }`). Whether
   the person put an item away is read from the Inbox's record, never kept twice.
+- Pressing a tracker notice leads to the change (`planNotice` in `src/host/goToPlace.ts`): a
+  kehikko of the project where a module REACTS to what is picked (`reacts` includes `selection`,
+  by manifest — never by a module's name), this one first; its epic when one names the ref; then
+  the ref is picked as the project's selection (the host's pick: nobody is its setter). With no
+  such kehikko the item's page goes through the address rules (`showLinkRef` in `App.tsx`,
+  `handed`): a module on the kehikko that shows pages, else the offer (the person's browser,
+  https only, or add a module that shows pages). Where the item is — forge, project path, number,
+  URL — is kept on its `tracker_seen` row (`NoticeLink`) and read by the page at
+  `GET /host/inbox/link`; never a column of `inbox_items`.
+- A notice's label says which change and whose ("!4454 by Mona · review requested from you");
+  its place, when no epic names it, is the project's name. A review or changes asked of the
+  person need them only while still true (`stillTrue`), and also end when the item drops out of a
+  reading that did read its repository (merged, closed, no longer asked).
+- In "This kehikko", entries about the whole project (`aboutProject`: no kehikko, no epic) are
+  grouped under "This project" (`PROJECT_GROUP`). They belong to the project; never word them as
+  a fault. Quick answers and a question's choices are `InboxChoices`: they wrap, a long one is cut
+  with an ellipsis, and its whole text is its name and a tooltip to the LEFT (never a native
+  `title`, which lands on the next line of buttons). A row's detail is the same kind of tooltip.
 - The chime is derived from that record, never kept beside it: `useInbox`'s
   `notify` (what entered attention or done as news, minus a place that is on
   screen) and a legacy notice line feed `useChime`, which collapses a burst to

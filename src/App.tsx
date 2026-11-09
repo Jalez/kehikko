@@ -103,7 +103,7 @@ import { NOTHING_SAID, forgotten, passageOn, pointed, pointedBy, shown, type Sai
 import { NO_LOCATIONS, located, locationOn, readLocations, stillStanding, writeLocations, type Locations } from '@/host/location.ts'
 import { ARRIVAL_WAIT_MS, NAVIGATE_SAYS, planJump, showReceivers, shownBy, type HeldShow } from '@/host/navigate.ts'
 import { navigatesOf, type ShowingManifest } from 'kehikot-module-protocol'
-import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
+import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
@@ -133,7 +133,8 @@ import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import { epicMarks, kehikkoMarks, moduleMark, partMarks, type Namer } from './host/activity.ts'
 import { isHostModule, nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
 import { placeOpened } from './host/activity.ts'
-import { fetchLog } from './host/inboxClient.ts'
+import { fetchLink, fetchLog } from './host/inboxClient.ts'
+import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE, type NoticeLink } from './host/trackerNotices.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import type { BarActivity } from './canvas/Bar.tsx'
 import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
@@ -2097,6 +2098,32 @@ export function App() {
     return out.answer
   }
 
+  /**
+   * A tracker notice's page, when no kehikko here takes its ref as a pick: into a module on the open
+   * kehikko that shows pages, else the address offer (open in the person's browser, https only, or
+   * add a module that shows pages). The host's own handing, so not held to connections.
+   */
+  const showLinkRef = useRef<(link: NoticeLink) => void>(() => undefined)
+  showLinkRef.current = (link) => {
+    if (openId === null || !open) {
+      if (opensOutside(link.url)) openExternal(link.url)
+      return
+    }
+    const out = handed(addressesRef.current, {
+      kehikko: openId,
+      url: link.url,
+      ...(link.title ? { title: `${link.ref} ${link.title}`.slice(0, 200) } : {}),
+      asker: { by: TRACKER_NOTICES_MODULE },
+      at: new Date().toISOString(),
+      readers: readersOn(open.placements.map((p) => p.i), reactsOf),
+    })
+    if (out.next !== addressesRef.current) {
+      addressesRef.current = out.next
+      setAddresses(out.next)
+    }
+    if (out.offer) setOffer(out.offer)
+  }
+
   const filterRef = useRef<(from: string, choice: FilterChoice) => Filtered>(() => ({
     ok: false,
     error: 'this host is not ready to hold a filter yet',
@@ -3945,7 +3972,7 @@ export function App() {
       project,
       /* The host's own lists have no presence: their by-line is the name they were filed with. */
       by: isHostModule(entry.module) && entry.name ? entry.name : moduleName(entry.module),
-      place: placeWords(entry, activityNames, elsewhere),
+      place: placeWords(entry, activityNames, elsewhere, projects.find((one) => one.id === project)?.name ?? null),
     })
   }
   const activityMarks = useMemo(() => {
@@ -4026,6 +4053,20 @@ export function App() {
       const tell = () => void presses.opened(entry.module, entry.id)
       if (later) window.setTimeout(() => whenShownRef.current(tell), 300)
       else tell()
+    },
+    /* A tracker notice goes to a kehikko where a module reacts to what is picked, and picks its
+       ref there — the host's own pick, so nobody is its setter. */
+    reactsOf,
+    pick: (refs) => {
+      changeSubjectRef.current({ selection: [...refs] })
+      const id = projectRef.current
+      if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
+    },
+    outside: (entry, project) => {
+      void fetchLink(project, entry.module, entry.id).then((link) => {
+        if (link) showLinkRef.current(link)
+        else setTrouble(`Where ${entry.label} is could not be read yet. It is read with the next tracker reading.`)
+      })
     },
   })
   const goToEntry = useCallback(
@@ -4180,6 +4221,7 @@ export function App() {
         onGoElsewhere: goToElsewhere,
         onDismissElsewhere: (project, entries) => inbox.dismiss(entries, project),
         earlierCount: inbox.earlier,
+        ...(project?.name ? { projectName: project.name } : {}),
         at: { epic: about.epic, kehikko: open?.key ?? null },
         scope: inboxScope,
         onScope: setInboxScope,
@@ -4217,6 +4259,7 @@ export function App() {
       },
     }
   }, [
+    project?.name,
     messageCount,
     moduleName,
     mutedModules,
@@ -5232,7 +5275,7 @@ export function App() {
           chooses. Nothing is opened before a press. See `AddressOffer.tsx`. */}
       <AddressOffer
         offer={offer !== null && offer.kehikko === openId ? offer : null}
-        askerName={registry?.presences.find((one) => one.id === offer?.by)?.name ?? offer?.by ?? ''}
+        askerName={offer?.by === TRACKER_NOTICES_MODULE ? TRACKER_NOTICES_BY : (registry?.presences.find((one) => one.id === offer?.by)?.name ?? offer?.by ?? '')}
         addable={(registry?.presences ?? [])
           .filter((one) => reactsOf(one.id)?.includes(SHOWS_PAGES) && !(open?.placements ?? []).some((p) => p.i === one.id))
           .map((one) => ({ id: one.id, name: one.name ?? one.id }))}

@@ -50,6 +50,13 @@ export type GoStep =
   | { kind: 'kehikko'; key: string }
   | { kind: 'epic'; epic: string; parts: string[] }
   | { kind: 'highlight'; module: string }
+  /** Pick these refs as the project's selection, after any move (a new epic clears it). */
+  | { kind: 'pick'; refs: string[] }
+  /** No kehikko here takes a picked ref: show the item's page instead (a module that shows pages, or the person's browser). */
+  | { kind: 'outside' }
+
+/** The reaction that makes a kehikko the place to pick a ref on: a module on it reacts to what is picked. */
+export const PICKS = 'selection'
 
 export interface GoPlan {
   steps: GoStep[]
@@ -62,8 +69,21 @@ const NO_EPIC = 'No epic of this project names it.'
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((one) => b.includes(one))
 
-/** The steps from `here` to the place of an item of `module`, in `target`'s project. */
-export function planGo(item: { module: string; name?: string; place?: Place }, here: Here, target: Target): GoPlan {
+/**
+ * The steps from `here` to the place of an item of `module`, in `target`'s project.
+ *
+ * A tracker notice (the host's own, on no kehikko) is about a ref, so it goes where that ref can be
+ * looked at: a kehikko of the project with a module that reacts to what is picked (`reactsOf`
+ * answers a module's manifest `reacts`; never chosen by a module's name) — this one first — and
+ * picks the ref there. With none, `outside`: the page offers the item's page through the host's
+ * own way of showing an address.
+ */
+export function planGo(
+  item: { module: string; name?: string; place?: Place; refs?: readonly string[] },
+  here: Here,
+  target: Target,
+  reactsOf?: (module: string) => readonly string[] | undefined,
+): GoPlan {
   const who = item.name || item.module
   const place = item.place
   const steps: GoStep[] = []
@@ -75,7 +95,7 @@ export function planGo(item: { module: string; name?: string; place?: Place }, h
   const named = place?.kehikko !== undefined || place?.epic !== undefined
   /* The host's own tracker notices are on no kehikko: they go to the epic naming the ref, and light nothing. */
   const own = item.module === TRACKER_NOTICES_MODULE
-  if (!named && own) return { steps, note: NO_EPIC }
+  if (own) return planNotice(item, at, target, steps, reactsOf)
   if (!named) {
     /* Today's behaviour: the module where it is, this kehikko first. */
     const on = target.kehikot.find((one) => one.key === at.kehikko && one.modules.includes(item.module))
@@ -120,5 +140,30 @@ export function planGo(item: { module: string; name?: string; place?: Place }, h
   }
   if (epicStep) steps.push(epicStep)
   if (lit) steps.push({ kind: 'highlight', module: item.module })
+  return { steps, note: notes.length ? notes.join(' ') : null }
+}
+
+/** A tracker notice: the kehikko that takes a picked ref, its epic when one names it, and the pick. */
+function planNotice(
+  item: { place?: Place; refs?: readonly string[] },
+  at: Here,
+  target: Target,
+  steps: GoStep[],
+  reactsOf?: (module: string) => readonly string[] | undefined,
+): GoPlan {
+  const ref = item.refs?.[0]
+  const notes: string[] = []
+  const takes = (one: KehikkoAt) => one.modules.some((module) => reactsOf?.(module)?.includes(PICKS) === true)
+  const pickers = ref !== undefined && reactsOf ? target.kehikot.filter(takes) : []
+  const on = pickers.find((one) => one.key === at.kehikko) ?? pickers[0] ?? null
+  if (on && on.key !== at.kehikko) steps.push({ kind: 'kehikko', key: on.key })
+  const epic = item.place?.epic
+  if (epic !== undefined) {
+    if (target.epics !== null && !target.epics.includes(epic)) notes.push(`This project has no epic ${epic} any more.`)
+    else if (epic !== at.epic) steps.push({ kind: 'epic', epic, parts: [] })
+  }
+  if (on && ref !== undefined) steps.push({ kind: 'pick', refs: [ref] })
+  else if (ref !== undefined) steps.push({ kind: 'outside' })
+  else if (epic === undefined) notes.push(NO_EPIC)
   return { steps, note: notes.length ? notes.join(' ') : null }
 }

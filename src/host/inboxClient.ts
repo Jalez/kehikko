@@ -2,6 +2,7 @@ import type { ActivityItem } from 'kehikot-module-protocol'
 
 import { hostRead } from './hostRead.ts'
 import type { Entry, LogRow, NoticeLine, Scope } from './inbox.ts'
+import type { NoticeLink } from './trackerNotices.ts'
 
 /**
  * The page's side of the Inbox routes (`server/inboxRoutes.ts`). Every call
@@ -78,6 +79,15 @@ export async function fetchLog(
     `/host/inbox/log?project=${project}&offset=${offset}&limit=${limit}${query(narrowing)}`,
   )
   return got && Array.isArray(got.rows) ? got : null
+}
+
+/** Where one of the host's own items points (a tracker notice's ref and page), or null. */
+export async function fetchLink(project: number, module: string, id: string): Promise<NoticeLink | null> {
+  const got = await ask<{ link: NoticeLink | null }>(
+    `/host/inbox/link?project=${project}&module=${encodeURIComponent(module)}&id=${encodeURIComponent(id)}`,
+  )
+  const link = got?.link
+  return link && typeof link.url === 'string' && typeof link.ref === 'string' ? link : null
 }
 
 export async function postReport(body: {

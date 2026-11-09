@@ -6,6 +6,7 @@ import type { Narrowing, Inbox } from './inbox.ts'
 import { answerFor, type Entry, type Present, type Scope } from '../src/host/inbox.ts'
 import { itemsIn } from './inbox.ts'
 import { HOST_ID } from './kehikot.ts'
+import type { NoticeLink } from '../src/host/trackerNotices.ts'
 
 /**
  * The Inbox's routes: what the page says its modules are doing, and what the
@@ -13,6 +14,8 @@ import { HOST_ID } from './kehikot.ts'
  *
  *  - `GET  /host/inbox?project=N` — the open entries and a revision.
  *  - `GET  /host/inbox/log?project=N&scope=&epic=&kehikko=&offset=&limit=` — Earlier, a page of it.
+ *  - `GET  /host/inbox/link?project=N&module=M&id=I` — where one of the host's own items points
+ *    (a tracker notice's ref, forge, project path, number and page: `linkOf`), or `link: null`.
  *  - `POST /host/inbox/report` — one module's whole list, or that it went
  *    silent (`silent: true`), or that its new page did not say it again
  *    (`unreported: true`).
@@ -62,6 +65,8 @@ export interface InboxDeps {
   messagesChanged?(project: number): void
   /** Say that a project's inbox is not what the pages last read. */
   changed(project: number, rev: number): void
+  /** Where one of the host's own items points (a tracker notice's `NoticeLink`), or null. */
+  linkOf?(project: number, module: string, id: string): NoticeLink | null
 }
 
 export const ANSWER_SAYS = {
@@ -162,6 +167,12 @@ export function inboxDesk(deps: InboxDeps) {
         const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0))
         const limit = Math.min(LOG_PAGE_MAX, Math.max(1, Math.floor(Number(url.searchParams.get('limit')) || 20)))
         return reply({ ok: true, ...inbox.log(project, narrowing, offset, limit) })
+      }
+      if (url.pathname === '/host/inbox/link') {
+        const module = url.searchParams.get('module') ?? ''
+        const id = url.searchParams.get('id') ?? ''
+        if (!module || !id || module.length > 64 || id.length > 128) return reply({ ok: false, why: 'A link is read for one item: &module=&id=.' }, 400)
+        return reply({ ok: true, link: deps.linkOf?.(project, module, id) ?? null })
       }
       return null
     }

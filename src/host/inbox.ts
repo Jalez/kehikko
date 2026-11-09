@@ -9,6 +9,7 @@ import {
 } from 'kehikot-module-protocol'
 
 import { placeOpened, placeSplit, type Namer, type Where } from './activity.ts'
+import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE } from './trackerNotices.ts'
 
 /**
  * The Inbox: the host's one record of what its modules need from a person,
@@ -672,8 +673,23 @@ export function ageWords(now: number, at: number): string {
   return `${Math.floor(ms / DAY)} d ago`
 }
 
-/** The by-line, which comes BEFORE the claim and is the host's word for who said it. */
-export const byLine = (entry: Pick<Entry, 'name' | 'module'>): string => `${entry.name || entry.module} says`
+/**
+ * The by-line, which comes BEFORE the claim and is the host's word for who said it. The tracker
+ * notices are nobody speaking — what a tracker shows, read by the host — so they are by-lined with
+ * their name alone ("Tracker"), never "… says".
+ */
+export const byLine = (entry: Pick<Entry, 'name' | 'module'>): string =>
+  entry.module === TRACKER_NOTICES_MODULE ? TRACKER_NOTICES_BY : `${entry.name || entry.module} says`
+
+/**
+ * An entry about the project as a whole: it names no kehikko and no epic (a tracker notice of a ref
+ * no epic names, a question about which epic a conversation is for). In "This kehikko" these are
+ * grouped under "This project" — they belong there, it is not a fault.
+ */
+export const aboutProject = (entry: Pick<Entry, 'place'>): boolean => entry.place?.kehikko === undefined && entry.place?.epic === undefined
+
+/** The heading of the project-level group, and the place a row of it says when it says none. */
+export const PROJECT_GROUP = 'This project'
 
 /** The place in words for a row: parts · kehikko first, then the epic. */
 export function placeLines(entry: Pick<Entry, 'place'>, names: Namer): { here: string; epic: string } {
