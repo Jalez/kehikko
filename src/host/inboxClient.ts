@@ -129,3 +129,35 @@ export async function postMigrate(project: number, seen: object, told: object): 
   const got = (await post('/host/inbox/migrate', { project, seen, told })) as (Snapshot & { ok?: boolean }) | null
   return got && got.ok && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, ...mutedOf(got) } : null
 }
+
+/** What the person said to an entry's question: one of its choices (by index), or words of their own. */
+export type Said = { choice: number; answer?: string } | { answer: string; choice?: undefined }
+
+/**
+ * The person's answer to an entry's question (`POST /host/inbox/answer`, the page's alone, protocol
+ * 2.55.0). `pressed` is the page's word that it came on their fresh press (`pressFresh`); the server
+ * refuses without it. Answers the record after it, or why it was not sent.
+ */
+export async function postAnswer(body: {
+  project: number
+  module: string
+  item: string
+  said: Said
+  pressed: true
+}): Promise<{ ok: true; snapshot: Snapshot } | { ok: false; why: string }> {
+  const { said, ...rest } = body
+  try {
+    const response = await fetch('/host/inbox/answer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...rest, ...said }),
+    })
+    const got = (await response.json().catch(() => null)) as (Snapshot & { ok?: boolean; why?: unknown }) | null
+    if (got && got.ok && Array.isArray(got.open)) {
+      return { ok: true, snapshot: { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, ...mutedOf(got) } }
+    }
+    return { ok: false, why: typeof got?.why === 'string' ? got.why : 'The answer was not sent.' }
+  } catch {
+    return { ok: false, why: 'The host could not be reached; the answer was not sent.' }
+  }
+}

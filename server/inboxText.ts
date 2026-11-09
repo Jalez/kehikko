@@ -11,6 +11,7 @@ import {
   inScope,
   isDismissed,
   isOpen,
+  isAnswered,
   isSeen,
   logRows,
   sections,
@@ -72,6 +73,8 @@ export function activityRowsFor(inbox: Inbox, db: Database, project: number): Ac
     seen: isSeen(entry),
     priority: entry.priority,
     ...(entry.named ? { event: { ...entry.named } } : {}),
+    ...(entry.question && entry.state === 'attention' ? { question: entry.question.text, ...(entry.question.choices.length ? { choices: [...entry.question.choices] } : {}) } : {}),
+    ...(entry.answered && isAnswered(entry) ? { answered: true } : {}),
     entered: entry.entered,
     ...(muted.has(entry.module) ? { muted: true } : {}),
   }))
@@ -127,7 +130,15 @@ function entryLine(entry: Entry, names: Namer, now: number, here: string | null,
     + (entry.refs.length ? ` — refs ${entry.refs.join(', ')}` : '')
     + (flags.length ? ` — ${flags.join(', ')}` : '')
     + (entry.detail ? ` — ${quoted(entry.detail)}` : '')
+    + questionWords(entry)
   )
+}
+
+/** An item's question (protocol 2.55.0), in words: the person answers it in their Inbox, never an agent. */
+function questionWords(entry: Entry): string {
+  if (!entry.question || entry.state !== 'attention') return ''
+  const choices = entry.question.choices.length ? ` (choices: ${entry.question.choices.map(quoted).join(', ')})` : ''
+  return ` — asks the person ${quoted(entry.question.text)}${choices}` + (isAnswered(entry) ? ' — the person answered it' : '')
 }
 
 /** `read_inbox`: the whole inbox as a person sees it, in words. */

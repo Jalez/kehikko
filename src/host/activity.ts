@@ -235,4 +235,9 @@ export interface ActivityRow {
   entered?: number
   /** The person turned "Use inbox" off for its module: kept, and not shown to them. */
   muted?: boolean
+  /** The question it asks the person (protocol 2.55.0), answered in their Inbox. */
+  question?: string
+  choices?: string[]
+  /** The person answered that question. */
+  answered?: boolean
 }

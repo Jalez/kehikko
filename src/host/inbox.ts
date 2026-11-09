@@ -1,4 +1,12 @@
-import { declaredEvent, worstActivity, type ActivityItem, type ActivityState, type InboxEvent } from 'kehikot-module-protocol'
+import {
+  LIMITS,
+  activityQuestionSchema,
+  declaredEvent,
+  worstActivity,
+  type ActivityItem,
+  type ActivityState,
+  type InboxEvent,
+} from 'kehikot-module-protocol'
 
 import { placeOpened, placeSplit, type Namer, type Where } from './activity.ts'
 
@@ -86,6 +94,26 @@ export interface EntryEvent {
   says: string
 }
 
+/**
+ * A question an `attention` item asks the person (protocol 2.55.0, `question`), as the record
+ * holds it: the whole text, its choices (none is a free answer only), the agent session the answer
+ * goes to, and the message it answers when the question was one. Text throughout: drawn as text,
+ * never as markup or a link.
+ */
+export interface EntryQuestion {
+  text: string
+  choices: string[]
+  to: { module: string; session: string }
+  replyTo?: number
+}
+
+/** The person's answer to an entry's question from the Inbox, held against the `entered` it answered. */
+export interface EntryAnswer {
+  entered: number
+  at: number
+  text: string
+}
+
 export interface Entry {
   module: string
   /** What the host knew the module as when it last said anything: the by-line's word. */
@@ -107,6 +135,13 @@ export interface Entry {
    * an event names a case, it is not a kind of its own.
    */
   named?: EntryEvent
+  /**
+   * The question it asks the person (protocol 2.55.0), held to the module that reported it
+   * (`heldQuestion`). Only on an `attention` item.
+   */
+  question?: EntryQuestion
+  /** The person answered the question from the Inbox; it counts while `entered` is the one answered. */
+  answered?: EntryAnswer
   /** When it entered `state`: the module's own `since`, else when the host first held it there. */
   entered: number
   /** When it was first reported. */
@@ -140,6 +175,69 @@ export const isDismissed = (entry: Entry): boolean => entry.dismissed === entry.
 /** Open, and not put away by the person: what still asks for them or reports on something. */
 export const isLive = (entry: Entry): boolean => isOpen(entry) && !isSeen(entry) && !isDismissed(entry)
 
+/** Whether the person answered the question the entry asks now (not one it asked in an earlier state). */
+export const isAnswered = (entry: Pick<Entry, 'answered' | 'entered'>): boolean => entry.answered?.entered === entry.entered
+/** Whether the entry's question can be answered from the Inbox now: open, needing the person, asked, not answered. */
+export const isAskable = (entry: Entry): boolean =>
+  isOpen(entry) && entry.state === 'attention' && entry.question !== undefined && !isAnswered(entry)
+
+/**
+ * An item's question as the record keeps it, or none (protocol 2.55.0). Only on an `attention`
+ * item. Its `to.module` is the reporting module's own: an answer goes only to a session of the
+ * module that asked, unless the module relays other sessions' questions — its manifest declares
+ * `messages:as-person` (`relays`). Anything else is dropped, and the item is kept.
+ */
+export function heldQuestion(item: Pick<ActivityItem, 'state' | 'question'>, module: string, relays: boolean): EntryQuestion | undefined {
+  if (item.state !== 'attention' || !item.question) return undefined
+  const read = activityQuestionSchema.safeParse(item.question)
+  if (!read.success) return undefined
+  const { text, choices, to, replyTo } = read.data
+  if (!relays && to.module !== module) return undefined
+  return {
+    text,
+    choices: choices ? [...choices] : [],
+    to: { module: to.module, session: to.session },
+    ...(replyTo !== undefined ? { replyTo } : {}),
+  }
+}
+
+const sameQuestion = (a: EntryQuestion | undefined, b: EntryQuestion | undefined): boolean =>
+  JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * What the person answered, read off a press: one of the question's choices (`choice`, its
+ * index), or words of their own (`answer`, at most `LIMITS.MESSAGE_BODY`, not empty). Refused,
+ * with why, for anything else.
+ */
+export function answerFor(entry: Entry, said: { answer?: unknown; choice?: unknown }): { ok: true; text: string } | { ok: false; why: string } {
+  if (!isOpen(entry) || entry.state !== 'attention' || !entry.question) return { ok: false, why: 'That item asks nothing to answer from the Inbox now.' }
+  if (isAnswered(entry)) return { ok: false, why: 'That question was answered already.' }
+  if (said.choice !== undefined) {
+    const at = said.choice
+    const choice = typeof at === 'number' && Number.isInteger(at) ? entry.question.choices[at] : undefined
+    if (choice === undefined) return { ok: false, why: 'That is not one of the question’s choices.' }
+    if (said.answer !== undefined && said.answer !== choice) return { ok: false, why: 'The answer is not the choice pressed.' }
+    return { ok: true, text: choice }
+  }
+  const text = typeof said.answer === 'string' ? said.answer.trim() : ''
+  if (!text) return { ok: false, why: 'An answer says something.' }
+  if (text.length > LIMITS.MESSAGE_BODY) return { ok: false, why: `An answer is at most ${LIMITS.MESSAGE_BODY} characters.` }
+  return { ok: true, text }
+}
+
+/** The row's words once the person answered. */
+export const answeredWords = (answer: Pick<EntryAnswer, 'text'>): string => `Answered: ${answer.text}`
+
+/** What a row or a toast draws of an entry's question: the whole text, its choices, and the answer once given. Null for none. */
+export function askedOf(entry: Entry): { text: string; choices: string[]; answered: string | null } | null {
+  if (!isOpen(entry) || entry.state !== 'attention' || !entry.question) return null
+  return {
+    text: entry.question.text,
+    choices: entry.question.choices,
+    answered: entry.answered && isAnswered(entry) ? answeredWords(entry.answered) : null,
+  }
+}
+
 const PRIORITY_RANK: Record<Priority, number> = { urgent: 0, normal: 1, low: 2 }
 
 /* ---- the life of an entry ---- */
@@ -156,6 +254,11 @@ export interface ListOptions {
   told?(module: string, id: string, state: ActivityState): number | undefined
   /** The events the module's manifest declares (protocol 2.31.0): what an item's `event` is held to. */
   events?: readonly InboxEvent[]
+  /**
+   * The module relays other sessions' questions (its manifest declares `messages:as-person`): a
+   * question may name another module's session (`heldQuestion`). Absent: only its own.
+   */
+  relays?: boolean
 }
 
 export interface Applied {
@@ -200,6 +303,9 @@ export function applyList(
     const was = byId.get(item.id)
     const entered = item.since ?? (was && was.state === item.state ? was.entered : now)
     const event = declaredEvent(options.events, item)
+    const question = heldQuestion(item, module, options.relays ?? false)
+    /* An answer stays with the question it answered: a new question is asked afresh. */
+    const answered = was?.answered && sameQuestion(was.question, question) ? was.answered : undefined
     const next: Entry = {
       module,
       name,
@@ -212,6 +318,8 @@ export function applyList(
       refs: item.refs ? [...item.refs] : [],
       ...(item.group ? { group: item.group } : {}),
       ...(event ? { named: { id: event.id, says: event.says } } : {}),
+      ...(question ? { question } : {}),
+      ...(answered ? { answered } : {}),
       entered,
       opened: was?.opened ?? now,
       closed: null,
@@ -231,6 +339,8 @@ export function applyList(
       was.group !== next.group ||
       was.named?.id !== next.named?.id ||
       was.named?.says !== next.named?.says ||
+      !sameQuestion(was.question, next.question) ||
+      was.answered !== next.answered ||
       !sameList(was.refs, next.refs) ||
       !samePlace(was.place, next.place)
     if (!changed) continue

@@ -87,6 +87,9 @@ export interface Refusal {
  *    are doing, and what a person did with it: seen, put away, forgotten, and
  *    whether a module is shown in the Inbox at all (`inbox.ts`). Those acts
  *    are the person's, so no program may make them.
+ *  - `/host/inbox/answer` — the person's answer to a question an item asks
+ *    (protocol 2.55.0, `inboxRoutes.ts`): sent to an agent session as the
+ *    person's own message, so only this page, on their press, sends it.
  *  - `/host/place/answer` — a person's answer to "which epic is this
  *    conversation for?" in the Inbox (`placeRoutes.ts`). An agent says its own
  *    with `set_my_place`; it never answers the person's ask.
@@ -141,6 +144,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/act',
   '/host/inbox/migrate',
   '/host/inbox/use',
+  '/host/inbox/answer',
   '/host/messages/clear',
   '/host/messages/say',
   '/host/trackers',

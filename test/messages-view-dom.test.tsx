@@ -33,6 +33,7 @@ const message = (id: number, body: string): AgentMessage => ({
   choices: [],
   replyTo: null,
   once: false,
+  answers: null,
 })
 
 let React: typeof import('react')

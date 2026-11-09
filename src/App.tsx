@@ -4138,6 +4138,8 @@ export function App() {
         /* "Use inbox", the person's per module: off from a row's by-line, back on from the muted list. */
         muted: mutedModules,
         onUse: inbox.use,
+        /* An item's question, answered from its row on the person's press (protocol 2.55.0). */
+        onAnswer: (entry, said, pressed, project) => inbox.answer(entry, said, pressed, project),
         onForget: (keys) => inbox.act('forget', keys ?? undefined, narrowing),
         onSeeAll: () => inbox.act('seen-all', undefined, narrowing),
         loadLog: (offset, limit) =>
@@ -5072,6 +5074,7 @@ export function App() {
         toasts={toasts.toasts}
         onClose={toasts.close}
         onCloseAll={toasts.closeAll}
+        onAnswer={(toast, said, pressed) => inbox.answer(toast.entry, said, pressed, toast.project)}
         onOpen={(toast) => {
           toasts.close(toast.id)
           goToEntry(toast.entry, toast.project)

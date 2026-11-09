@@ -924,9 +924,21 @@
   never closed for having no container.
 - The page posts a module's whole list (`/host/inbox/report`), a legacy notice
   (`/host/inbox/notice`), the person's acts (`/host/inbox/act`: seen,
-  dismiss, forget) and their "Use inbox" switch (`/host/inbox/use`). All five
-  POSTs are in `PAGE_ONLY` (`server/guard.ts`) — a new write here gets the
-  same. No MCP tool may see, dismiss, forget or mute.
+  dismiss, forget), their "Use inbox" switch (`/host/inbox/use`) and their
+  answer to an item's question (`/host/inbox/answer`). All six POSTs are in
+  `PAGE_ONLY` (`server/guard.ts`) — a new write here gets the same. No MCP tool
+  may see, dismiss, forget, mute or answer.
+- An `attention` item may ask a question (protocol 2.55.0, `question`): kept as
+  `Entry.question` only when `to.module` is the reporting module's own, or the
+  reporter declares `messages:as-person` (`heldQuestion`); else dropped and the
+  item kept. The row and the toast show it whole, its choices as buttons and a
+  reply field (`src/canvas/InboxQuestion.tsx`). An answer goes only on the
+  person's fresh press (`pressFresh`, read in the handler; `pressed: true`, the
+  server refuses without it) and is sent through the messages store to the ONE
+  session `question.to` names, as the person's (`from: { module: HOST_ID, name:
+  INBOX_VIA, person: true }`, `replyTo` or else `answers`). The entry is marked
+  `answered` against its `entered` (and an `inbox_moves` row with `act =
+  'answered'`, which `moves()` leaves out); it closes when its module withdraws it.
 - "Use inbox" is the person's switch per module id, machine-wide (not per
   project or kehikko): `inbox_muted` in `frame.sqlite`, `Inbox.use`; the rules
   and words are `src/host/inboxUse.ts`. Off KEEPS recording — the module's

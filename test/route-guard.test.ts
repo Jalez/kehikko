@@ -208,6 +208,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
       { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
       { method: 'POST', path: '/host/inbox/use', body: { module: 'kehikot.nothing', use: false } },
+      { method: 'POST', path: '/host/inbox/answer', body: { project, module: 'kehikot.nothing', item: 'a', answer: 'Unwanted', pressed: true } },
       { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
       { method: 'POST', path: '/host/base-branch', body: { project, branch: null } },
       { method: 'POST', path: '/host/storage', body: {} },
@@ -308,6 +309,8 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/inbox/notice', { project, module: 'kehikot.nothing', name: 'Nothing', line: { epic: 'one', message: 'Said once', level: 'done' } })).body.ok).toBe(true)
     expect((await pressed('POST', '/host/inbox/act', { project, do: 'dismiss', keys: [{ module: 'kehikot.nothing', id: 'a' }] })).body.changed).toBe(1)
     expect((await pressed('POST', '/host/inbox/migrate', { project, seen: {}, told: {} })).body.ok).toBe(true)
+    /* An answer from the page reaches its route, which refuses an item that asks nothing. */
+    expect((await pressed('POST', '/host/inbox/answer', { project, module: 'kehikot.nothing', item: 'a', answer: 'Yes', pressed: true })).status).toBe(409)
     expect((await send('GET', `/host/inbox/log?project=${project}&scope=everywhere`, undefined, {})).body.rows).toHaveLength(1)
     /* "Use inbox": the person's switch, from the page only; off and back on, so the record reads as before. */
     expect((await pressed('POST', '/host/inbox/use', { module: 'kehikot.nothing', use: false })).body).toMatchObject({ ok: true, muted: ['kehikot.nothing'] })

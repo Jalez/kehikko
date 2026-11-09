@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button.tsx'
 import type { Kind } from '@/host/chime.ts'
 import { useChimeSettings } from '@/host/chimeStore.ts'
 import { countWords, toastMs, toastWord, withToast, type Toast } from '@/host/toasts.ts'
+import type { Said } from '@/host/inboxClient.ts'
+import { InboxQuestion } from './InboxQuestion.tsx'
 
 /**
  * The Inbox toast, drawn: bottom right, a polite live region, at most three.
@@ -12,13 +14,17 @@ import { countWords, toastMs, toastWord, withToast, type Toast } from '@/host/to
  * dismissed unless the person chose a time; a timed toast times itself out, and
  * hover or keyboard focus on it pauses the timer. The words are plain text
  * (a module's label is never markup or a link), the kind is an icon AND a
- * word, and Open / Dismiss are the only controls. Dismiss closes the toast and
- * nothing more.
+ * word, and Open / Dismiss are its controls. Dismiss closes the toast and
+ * nothing more. An item that asks the person a question (protocol 2.55.0)
+ * shows it whole, with its choices and a reply field (`InboxQuestion`); a sent
+ * answer closes the toast, and its row says "Answered: …".
  */
+
+type AnswerToast = (toast: Toast, said: Said, pressed: boolean) => Promise<{ ok: true } | { ok: false; why: string }>
 
 const ICONS: Record<Kind, typeof Bell> = { urgent: AlertTriangle, attention: Bell, done: CheckCircle2, notice: Info }
 
-function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast: Toast): void; onClose(id: number): void; ms: number | null }) {
+function ToastCard({ toast, onOpen, onClose, onAnswer, ms }: { toast: Toast; onOpen(toast: Toast): void; onClose(id: number): void; onAnswer?: AnswerToast | undefined; ms: number | null }) {
   const Icon = ICONS[toast.kind]
   const left = useRef(ms ?? 0)
   const since = useRef<number | null>(null)
@@ -86,6 +92,16 @@ function ToastCard({ toast, onOpen, onClose, ms }: { toast: Toast; onOpen(toast:
           {toast.place}
         </p>
       </div>
+      {toast.entry.question ? (
+        <div data-toast-question>
+          <InboxQuestion
+            inset={false}
+            entry={toast.entry}
+            onAnswer={onAnswer ? (said, pressed) => onAnswer(toast, said, pressed) : undefined}
+            onAnswered={() => onClose(toast.id)}
+          />
+        </div>
+      ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" size="sm" onClick={() => onOpen(toast)} data-toast-open>
           Open
@@ -104,11 +120,14 @@ export function InboxToasts({
   onOpen,
   onClose,
   onCloseAll,
+  onAnswer,
   scale = 1000,
 }: {
   toasts: readonly Toast[]
   onOpen(toast: Toast): void
   onClose(id: number): void
+  /** The person's answer to the toast's question (`pressed`: read in the press's handler). Absent: shown, not answerable here. */
+  onAnswer?: AnswerToast
   /** Closes every toast; offered when more than one shows. */
   onCloseAll(): void
   /** Milliseconds to a second: 1000 unless a test shortens it. */
@@ -131,7 +150,7 @@ export function InboxToasts({
         </Button>
       ) : null}
       {toasts.map((toast) => (
-        <ToastCard key={toast.id} toast={toast} onOpen={onOpen} onClose={onClose} ms={ms} />
+        <ToastCard key={toast.id} toast={toast} onOpen={onOpen} onClose={onClose} onAnswer={onAnswer} ms={ms} />
       ))}
     </div>
   )

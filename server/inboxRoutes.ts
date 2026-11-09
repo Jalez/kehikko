@@ -1,9 +1,11 @@
 import { z } from 'zod'
-import type { InboxEvent } from 'kehikot-module-protocol'
+import { INBOX_VIA, messageFromPlaceSchema, type InboxEvent } from 'kehikot-module-protocol'
 
+import type { AgentMessages } from './agentMessages.ts'
 import type { Narrowing, Inbox } from './inbox.ts'
-import type { Present, Scope } from '../src/host/inbox.ts'
+import { answerFor, type Entry, type Present, type Scope } from '../src/host/inbox.ts'
 import { itemsIn } from './inbox.ts'
+import { HOST_ID } from './kehikot.ts'
 
 /**
  * The Inbox's routes: what the page says its modules are doing, and what the
@@ -23,8 +25,11 @@ import { itemsIn } from './inbox.ts'
  *  - `POST /host/inbox/migrate` — what the page kept in its own storage, once.
  *  - `POST /host/inbox/use` — `{ module, use }`: the person's "Use inbox" switch for one module,
  *    machine-wide (`Inbox.use`). Every project's record is said to have changed.
+ *  - `POST /host/inbox/answer` — `{ project, module, item, answer?, choice?, pressed: true }`: the
+ *    person's answer to an entry's question (protocol 2.55.0), sent to the session the question
+ *    names as the PERSON's message, by `INBOX_VIA`, and the entry marked answered (`answer` below).
  *
- * The five POSTs are the page's alone (`PAGE_ONLY` in `guard.ts`): a module's
+ * The six POSTs are the page's alone (`PAGE_ONLY` in `guard.ts`): a module's
  * frame is another origin, and an agent has no tool that sees or dismisses.
  * What a page posts is a browser's word and is held to the protocol's own
  * schema before anything is kept.
@@ -46,8 +51,49 @@ export interface InboxDeps {
    * held: the item is an ordinary item of its state.
    */
   eventsOf?(module: string): readonly InboxEvent[] | undefined
+  /**
+   * Whether a module's manifest, as last seen, declares `messages:as-person`: a module that relays
+   * other sessions' questions, whose item may name another module's session (`heldQuestion`).
+   */
+  relays?(module: string): boolean
+  /** The messages between agent sessions: where an answer from the Inbox is kept for its session. */
+  messages?: Pick<AgentMessages, 'send'>
+  /** The project's messages changed: pages, and the module that delivers them, read them again. */
+  messagesChanged?(project: number): void
   /** Say that a project's inbox is not what the pages last read. */
   changed(project: number, rev: number): void
+}
+
+export const ANSWER_SAYS = {
+  noPress: 'An answer from the Inbox goes only on the person’s own press in this page, and none came with it. Nothing was sent.',
+  noItem: 'That names no open item of this module in this project.',
+  noMessages: 'This host keeps no messages between agent sessions, so there is nowhere to send an answer.',
+} as const
+
+/**
+ * The person's answer to an entry's question, as the message it is sent as: the person's own
+ * (`person`), by the name `INBOX_VIA`, from the host and no session, at the item's place; to the
+ * one session the question names; answering its message (`replyTo`) or else its text (`answers`).
+ */
+export function answerMessage(entry: Entry, text: string): {
+  from: Parameters<AgentMessages['send']>[1]
+  body: string
+  to: { session: { module: string; session: string } }
+  extras: Parameters<AgentMessages['send']>[5]
+} {
+  const question = entry.question!
+  const place = messageFromPlaceSchema.safeParse({
+    epic: entry.place?.epic || null,
+    parts: entry.place?.parts ?? [],
+    kehikko: entry.place?.kehikko ?? null,
+  })
+  const at = place.success ? place.data : { epic: null, parts: [], kehikko: null }
+  return {
+    from: { module: HOST_ID, name: INBOX_VIA, session: '', epic: at.epic, parts: at.parts, kehikko: at.kehikko, person: true },
+    body: text,
+    to: { session: { module: question.to.module, session: question.to.session } },
+    extras: question.replyTo !== undefined ? { replyTo: question.replyTo } : { answers: question.text },
+  }
 }
 
 const reply = (body: unknown, status = 200): Response =>
@@ -163,6 +209,7 @@ export function inboxDesk(deps: InboxDeps) {
         unreported,
         present: now,
         events: deps.eventsOf?.(module) ?? [],
+        relays: deps.relays?.(module) ?? false,
         ...(loadedAt !== undefined ? { loadedAt } : {}),
       })
       if (out.rev !== before) deps.changed(project, out.rev)
@@ -200,6 +247,30 @@ export function inboxDesk(deps: InboxDeps) {
       }
       if (changed) deps.changed(project, inbox.rev(project))
       return reply({ ok: true, changed, ...inbox.snapshot(project) })
+    }
+
+    /*
+     * The person's answer to a question an item asks. No module's grant applies: this page is the
+     * person, and only this page reaches the route (`PAGE_ONLY`). The page sends it only on their
+     * fresh press (`pressFresh`) and says so; without that it is refused. No MCP tool answers.
+     */
+    if (url.pathname === '/host/inbox/answer') {
+      if (body.pressed !== true) return reply({ ok: false, why: ANSWER_SAYS.noPress }, 403)
+      if (module === null) return reply({ ok: false, why: 'An answer names the module.' }, 400)
+      const id = typeof body.item === 'string' && body.item.length > 0 && body.item.length <= 128 ? body.item : null
+      if (id === null) return reply({ ok: false, why: 'An answer names the item.' }, 400)
+      const entry = inbox.entry(project, module, id)
+      if (!entry || entry.closed !== null) return reply({ ok: false, why: ANSWER_SAYS.noItem }, 404)
+      const said = answerFor(entry, { answer: body.answer, choice: body.choice })
+      if (!said.ok) return reply({ ok: false, why: said.why }, 409)
+      if (!deps.messages) return reply({ ok: false, why: ANSWER_SAYS.noMessages }, 503)
+      const message = answerMessage(entry, said.text)
+      const sent = deps.messages.send(project, message.from, message.body, message.to, null, message.extras)
+      if (!sent.ok) return reply({ ok: false, why: sent.why }, 429)
+      deps.messagesChanged?.(project)
+      const marked = inbox.answer(project, module, id, said.text)
+      if (marked) deps.changed(project, marked.rev)
+      return reply({ ok: true, message: sent.id, ...inbox.snapshot(project) })
     }
 
     if (url.pathname === '/host/inbox/migrate') {
