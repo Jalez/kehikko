@@ -154,7 +154,7 @@ describe('the dialog', () => {
 describe('the modules list', () => {
   if (!inChild) return
 
-  test('a "?" on the row of each module that says how, and only there; it opens that module’s', async () => {
+  test('a "?" on every row (protocol 2.57.0: it opens the introduction, or How to use, or the summary); it opens that module’s', async () => {
     const presence = (id: string, name: string, module: object): Presence =>
       ({ id, name, at: 'http://127.0.0.1:7870', condition: 'ready', reached: true, line: '', module: manifestSchema.parse({ kind: 'kehikot.module', protocol: 2, entry: '/', partless: 'x', id, name, modes: [{ id: 'main', label: 'Main' }], ...module }) }) as unknown as Presence
     const registry: RegistryView = {
@@ -164,10 +164,10 @@ describe('the modules list', () => {
     }
     const asked: string[] = []
     await render(
-      <Lists.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} onHelp={(id) => asked.push(id)} />,
+      <Lists.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} onIntro={(id) => asked.push(id)} />,
     )
     const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-module-help-button]')]
-    expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['How to use Lists'])
+    expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['Introduction to Lists', 'Introduction to Plain'])
     await act(async () => buttons[0]!.click())
     expect(asked).toEqual(['kehikot.lists'])
   })

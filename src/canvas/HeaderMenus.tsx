@@ -1230,6 +1230,12 @@ export interface FrameParts {
    * that says how: a "How to use…" row at every width, folded too, in the one list `layoutOf` places.
    */
   onHelp?(): void
+  /**
+   * Open the module's own introduction (protocol 2.57.0, `intro` in its manifest), in the app's
+   * introduction dialog. Given only for a module that has one: an "Introduction…" row beside "How to
+   * use…", at every width, folded too, in the one list `layoutOf` places.
+   */
+  onIntro?(): void
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
@@ -1249,6 +1255,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
   if (parts.rows) out.push('rows')
   if (parts.inbox) out.push('inbox')
+  if (parts.onIntro) out.push('intro')
   if (parts.onHelp) out.push('help')
   out.push('feedback', 'prompts')
   if (parts.onRemove) out.push('remove')
@@ -1333,6 +1340,12 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           <span className="flex-1">Use inbox</span>
           {parts.inbox.on ? null : <span className="text-muted-foreground text-[10px]">muted</span>}
         </DropdownMenuCheckboxItem>
+      ) : null}
+      {has('intro') && parts.onIntro ? (
+        <DropdownMenuItem className={ROW} title={`a short introduction to ${name}, in its own words`} data-frame="intro" onSelect={parts.onIntro}>
+          <Presentation className="text-muted-foreground size-3.5" />
+          <span className="flex-1">Introduction…</span>
+        </DropdownMenuItem>
       ) : null}
       {has('help') && parts.onHelp ? (
         <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-frame="help" onSelect={parts.onHelp}>

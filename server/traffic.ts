@@ -368,6 +368,8 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/whats-new/mentions': 'what’s new: are you mentioned',
   '/host/whats-new': 'what’s new',
   '/host/onboarding': 'the introduction and the tour',
+  '/host/module-intro': 'a module\'s introduction, read without running it',
+  '/host/module-intros': 'which module introductions were watched',
   '/host/pinned-places': 'the person’s pinned places',
   '/host/settings': 'settings',
   '/host/visits': 'when places were last visited',

@@ -18,7 +18,7 @@ import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
 import { Hint } from './Hint.tsx'
-import { ModuleList } from './Modules.tsx'
+import { ModuleList, type IntroAbout } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
 import { WhatsNewNotice } from './WhatsNew.tsx'
 import { HelpMenu } from './Help.tsx'
@@ -117,7 +117,7 @@ export function Bar({
   onTools,
   trouble,
   onLookAgain,
-  onHelp,
+  onIntro,
   looking,
   tracker = null,
   onRefreshTrackers = () => {},
@@ -180,8 +180,8 @@ export function Bar({
   trouble: string | null
   /** Sweep the registry now. */
   onLookAgain(): void
-  /** Open a module's "How to use" (protocol 2.52.0): the "?" on its row in the modules list. */
-  onHelp?(id: string): void
+  /** Open a module's introduction (protocol 2.57.0), or its "How to use": the "?" on its row in the modules list. */
+  onIntro?(id: string, about: IntroAbout): void
   looking: boolean
   /** The open project's tracker reading, or null with no project open. See `TrackerReading.tsx`. */
   tracker?: TrackerState | null
@@ -504,7 +504,7 @@ export function Bar({
               onPlace={onPlace}
               onUnplace={onUnplace}
               onLookAgain={onLookAgain}
-              onHelp={onHelp}
+              onIntro={onIntro}
             />
           </PopoverContent>
         </Popover>
