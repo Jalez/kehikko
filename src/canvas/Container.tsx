@@ -9,9 +9,10 @@ import { RESTART_ITEM, withRestart, type RestartState } from '@/host/restartModu
 import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
 import { revealModeOf, type FilterGroup, type FooterItem, type HeaderItem } from 'kehikot-module-protocol'
-import { NO_FOOTER, drawsFooter } from '@/host/footer.ts'
+import { NO_FOOTER, footerRowDrawn } from '@/host/footer.ts'
+import { fixedFooter, type FooterSource } from '@/host/footerStore.ts'
 import { focusHandlers, revealHandlers, useRevealed, type Reveals } from '@/host/reveal.ts'
-import { FooterBar } from './FooterBar.tsx'
+import { SourcedFooterBar } from './FooterBar.tsx'
 import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
@@ -34,7 +35,7 @@ import { foldChoices, foldDrawn, rowsHide, type FoldRows, type ShowRows } from '
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
@@ -92,6 +93,7 @@ export function Container({
   header = NO_HEADER,
   onPress = unpressable,
   footer = NO_FOOTER,
+  footerSource,
   onFooterPress = unpressable,
   reveals = null,
   onKeyboard,
@@ -206,6 +208,12 @@ export function Container({
    * draws no row: a module that declared nothing has no footer at all.
    */
   footer?: readonly FooterItem[]
+  /**
+   * The same, read from where the page holds it (`FooterStore.source`), in place of `footer`: a
+   * readout ticking then re-renders the footer row alone, and this container only when the module
+   * starts or stops declaring a footer at all.
+   */
+  footerSource?: FooterSource
   /** Send one press on a footer item. See `footerPressing` in `host/footer.ts`. */
   onFooterPress?(press: Pressing): Promise<Pressed>
   /**
@@ -387,9 +395,11 @@ export function Container({
   const revealed = useRevealed(reveals, presence.id, mode)
   /* Whether the module's footer can be drawn at all, and then how the fold is drawn: two rows only
      when that was chosen and there is a footer to draw (`host/rows.ts`). */
-  const footerDrawn = drawsFooter(footer, showing.kind === 'page' && !oneEpic, false)
+  const source = footerSource ?? fixedFooter(footer)
+  const declaredFooter = useSyncExternalStore(source.subscribe, () => source.get().length > 0)
+  const footerDrawn = footerRowDrawn(declaredFooter, showing.kind === 'page' && !oneEpic, false)
   const fold = foldDrawn(collapsed, foldRows, footerDrawn)
-  const footed = drawsFooter(footer, showing.kind === 'page' && !oneEpic, fold)
+  const footed = footerRowDrawn(declaredFooter, showing.kind === 'page' && !oneEpic, fold)
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
   /* Everything the header offers, as one list, and where each entry goes at this width
@@ -999,7 +1009,7 @@ export function Container({
       {fold === 2 ? (
         <div className="container-footer-reveal min-h-0 flex-1" data-collapsed="true" data-revealed={revealed ? 'true' : undefined}>
           {/* No `onKeyboard`: the page is hidden, so the keyboard stays where the press was made. */}
-          <FooterBar items={footer} name={name} onPress={onFooterPress} dense />
+          <SourcedFooterBar source={source} name={name} onPress={onFooterPress} dense />
         </div>
       ) : null}
       {collapsed ? null : (
@@ -1070,7 +1080,7 @@ export function Container({
           header, from the same wrapper rules (`index.css`). */}
       {footed ? (
         <div className="container-footer-reveal shrink-0" data-revealed={revealed ? 'true' : undefined}>
-          <FooterBar items={footer} name={name} onPress={onFooterPress} onKeyboard={onKeyboard} />
+          <SourcedFooterBar source={source} name={name} onPress={onFooterPress} onKeyboard={onKeyboard} />
         </div>
       ) : null}
 

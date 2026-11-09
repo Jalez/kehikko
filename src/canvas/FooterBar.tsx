@@ -1,6 +1,6 @@
 import { LIMITS, meterSaid, type FooterItem, type HeaderItem, type InputFooterItem, type PressValue } from 'kehikot-module-protocol'
 import { ChevronDown, LoaderCircle, OctagonAlert, TriangleAlert } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { carry } from '@/host/carry.ts'
 import { FOOTER_STEPS, fieldKey, fieldShows, footerCrowded, footerRow, type FooterPressable } from '@/host/footer.ts'
+import type { FooterSource } from '@/host/footerStore.ts'
 import { focusAfter, focusIsInModule, type Pressed, type Pressing } from '@/host/header.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { HEADER_ICONS, HeaderMenus, SAID_FOR_MS } from './HeaderMenus.tsx'
@@ -48,6 +49,15 @@ import { HEADER_ICONS, HeaderMenus, SAID_FOR_MS } from './HeaderMenus.tsx'
  * it stays in it, so no chord of the host's fires from a field. The rules are
  * `fieldShows` and `fieldKey` in `host/footer.ts`.
  */
+/**
+ * The row, reading its module's footer from where the page holds it (`FooterStore.source`): a
+ * re-declared readout re-renders this row and nothing above it.
+ */
+export function SourcedFooterBar({ source, ...rest }: { source: FooterSource } & Omit<Parameters<typeof FooterBar>[0], 'items'>) {
+  const items = useSyncExternalStore(source.subscribe, source.get)
+  return <FooterBar items={items} {...rest} />
+}
+
 export function FooterBar({
   items,
   name,
