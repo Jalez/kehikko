@@ -596,7 +596,7 @@ describe('in the container', () => {
     expect(content('frame')!.querySelector('[data-frame="skills"]')).toBeNull()
   })
   test('the remove button is lifted over the handle in the top right corner, folded or not', async () => {
-    const remove = () => document.querySelector('button[aria-label="take Paper off the canvas"]')!
+    const remove = () => document.querySelector('button[aria-label="take Paper off this kehikko"]')!
     for (const folded of [true, false]) {
       await container(folded, [])
       expect(remove().className).toContain('relative z-10')

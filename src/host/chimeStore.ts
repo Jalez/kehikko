@@ -43,7 +43,7 @@ async function send(path: string, body: unknown): Promise<Answer> {
     body: JSON.stringify(body),
   })
   const answer = (await response.json().catch(() => null)) as Answer | null
-  if (!response.ok || !answer?.ok) throw new Error(answer?.why ?? 'The host did not take that change.')
+  if (!response.ok || !answer?.ok) throw new Error(answer?.why ?? 'Kehikot did not save that change. Try again.')
   forgetRead('settings')
   adoptChime(answer.chime)
   return answer

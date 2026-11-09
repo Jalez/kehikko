@@ -89,7 +89,7 @@ export function useStart(module: string, onStarted: () => void) {
         /* The server's own words. Every refusal it produces names what to fix —
            no directory registered, no run.sh, not executable — and rewording
            them here would be this component guessing at which. */
-        setSaid(body.why ?? 'It could not be started, and the host did not say why.')
+        setSaid(body.why ?? 'It could not be started, and Kehikot did not say why. Press start it again, or check for updates.')
         return
       }
 
@@ -133,7 +133,7 @@ export function Update() {
         <CloudDownload className="size-3" />
         check for updates
       </Button>
-      <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">Starting it again would serve the same manifest.</p>
+      <p className="text-muted-foreground max-w-[46ch] text-xs leading-relaxed">Starting it again would run the same version, so check for updates first.</p>
     </div>
   )
 }

@@ -342,7 +342,7 @@ export function indicator(rows: readonly UpdateRow[]): Indicator | null {
 /** The desktop app has an update downloaded: the one thing these words mean. */
 export const RESTART_TO_UPDATE = 'Restart to update'
 /** The host's own checkout moved under a running server. */
-export const RESTART_THE_HOST = 'Restart the host'
+export const RESTART_THE_HOST = 'Restart Kehikot'
 
 /** One row's state in words, the same words for the app and a module. */
 export function stateText(row: UpdateRow): string {
@@ -368,7 +368,7 @@ export function stateText(row: UpdateRow): string {
     case 'ready':
       return `${kehikot(row.version)} is ready — restart to update`
     case 'reopen':
-      return 'Updated — restart the host to run it'
+      return 'Updated — restart Kehikot to run it'
     case 'failed':
       return `Failed: ${row.reason ?? 'no reason given'}`
     case 'blocked':
@@ -412,7 +412,7 @@ export function previewText(preview: Preview): string {
     case 'self':
       return 'It restarts itself on this change, which ends anything it is running.'
     case 'kept':
-      return 'It is kept, so the host will not restart it — its page may still reload.'
+      return 'It is kept, so Kehikot will not restart it — its page may still reload.'
   }
 }
 

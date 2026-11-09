@@ -196,7 +196,7 @@ describe('the header indicator', () => {
     expect(indicator(modules.filter((row) => row.id !== 'd'))).toBeNull()
     /* The host's own checkout says it is the host. */
     const host = updateRows(null, [checkout('host', 0)], { host: { kind: 'updated', note: '', restart: 'host', installFailed: null } }, null)
-    expect(indicator(host)).toEqual({ label: 'Restart the host', tone: 'action' })
+    expect(indicator(host)).toEqual({ label: 'Restart Kehikot', tone: 'action' })
     /* And the app's own update still wins the words. */
     const both = updateRows(status({ state: 'ready', version: '0.1.2' }), [checkout('host', 0)], { host: { kind: 'updated', note: '', restart: 'host', installFailed: null } }, null)
     expect(indicator(both)?.label).toBe('Restart to update')
@@ -278,7 +278,7 @@ describe('what an update will do, said before the press', () => {
     expect(previewText('restart')).toBe('It will be restarted, which ends anything it is running.')
     expect(previewText('page')).toBe('Only its page changes; nothing is restarted.')
     expect(previewText('self')).toBe('It restarts itself on this change, which ends anything it is running.')
-    expect(previewText('kept')).toBe('It is kept, so the host will not restart it — its page may still reload.')
+    expect(previewText('kept')).toBe('It is kept, so Kehikot will not restart it — its page may still reload.')
   })
 
   test('"Update all" names the ones that end what they are running, and says nothing when none do', () => {

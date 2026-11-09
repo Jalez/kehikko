@@ -949,7 +949,7 @@ export function Container({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={`take ${name} off the canvas`}
+            aria-label={`take ${name} off this kehikko`}
             data-remove-button=""
             /* The container resizes from all four corners, and the top right one
                lies over this button: the handle is a small square at the very

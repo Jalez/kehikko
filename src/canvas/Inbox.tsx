@@ -570,7 +570,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
 
         {scope === 'here' && unknownKehikko ? (
           <p className="text-muted-foreground px-2 py-1 text-[11px]">
-            This host cannot tell which kehikko is open, so everything is shown.
+            Kehikot cannot tell which kehikko is open, so everything is shown.
           </p>
         ) : scope === 'here' && unplaced > 0 ? (
           <p className="text-muted-foreground px-2 py-1 text-[11px]">

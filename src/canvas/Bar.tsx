@@ -381,14 +381,14 @@ export function Bar({
         <Hint
           label={
             focus === 'on'
-              ? 'container headers are out of the way — they appear when you reach for them. Press to keep them drawn'
-              : 'drop the container headers, and show one when the pointer is near the top of its container'
+              ? 'headers and footers are hidden until the pointer is over a container. Press to always show them'
+              : 'hide every container’s header and footer until the pointer is over it'
           }
         >
           <Button
             variant="ghost"
             size="icon"
-            aria-label={focus === 'on' ? 'keep the container headers drawn' : 'drop the container headers'}
+            aria-label={focus === 'on' ? 'always show headers and footers' : 'hide headers and footers'}
             aria-pressed={focus === 'on'}
             data-tour="focus"
             className={
@@ -441,7 +441,7 @@ export function Bar({
             Its own control, beside the gear and apart from it. See `Help.tsx`. */}
         <HelpMenu />
 
-        <ToolsMark agent={registry?.host?.agent} name="this host" about="host" onOpen={onTools} />
+        <ToolsMark agent={registry?.host?.agent} name="Kehikot" about="host" onOpen={onTools} />
 
         {/* Feedback on Kehikot itself, beside its plug — the same control every
             container header has for its module, filed in the host's own

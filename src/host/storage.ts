@@ -184,7 +184,7 @@ export function storageText(report: StorageReport): string {
     lines.push('', `Project ${project.name} (${project.path}): ${tallySaid(project.total)}${project.total.modified ? `, ${modifiedSaid(project.total.modified)}` : ''}.`)
     if (project.shares.length === 0) lines.push('  No .kehikot/ data here.')
     for (const share of project.shares) {
-      const whose = share.owner.id === null ? `${share.folder}/ (no module this host knows claims it)` : `${share.owner.name} (.kehikot/${share.folder}/)`
+      const whose = share.owner.id === null ? `${share.folder}/ (no installed module claims it)` : `${share.owner.name} (.kehikot/${share.folder}/)`
       const big = share.tally.largest.slice(0, 3).map((file) => `${file.path} ${bytesSaid(file.bytes)}`)
       lines.push(`  ${whose}: ${tallySaid(share.tally)}${big.length ? `; largest: ${big.join(', ')}` : ''}.`)
     }

@@ -82,7 +82,7 @@ export function versionRows(listing: VersionListing): VersionRow[] {
     const mark: VersionRow['mark'] = one.compatible === false ? 'incompatible' : one.blocked ? 'blocked' : null
     const why =
       one.compatible === false
-        ? (one.incompatible ?? 'this host cannot speak its protocol')
+        ? (one.incompatible ?? 'this Kehikot cannot run it')
         : one.blocked
     const detail = [
       one.running ? 'running' : one.prepared ? 'ready' : null,
@@ -111,7 +111,7 @@ export async function fetchVersions(module: string, kehikko: number, fresh = fal
   const response = await fetch(`/host/versions?${query}`, { cache: 'no-store' })
   const body = (await response.json().catch(() => null)) as (VersionListing & { error?: string }) | null
   if (!response.ok || !body || !Array.isArray(body.versions)) {
-    throw new Error(body?.error ?? `the host answered ${response.status}`)
+    throw new Error(body?.error ?? `Kehikot answered with error ${response.status}`)
   }
   return body
 }
@@ -124,7 +124,7 @@ export async function pinVersion(module: string, kehikko: number, version: strin
     body: JSON.stringify({ module, kehikko, version }),
   })
   const body = (await response.json().catch(() => null)) as { text?: string; error?: string } | null
-  if (!response.ok) throw new Error(body?.error ?? `the host answered ${response.status}`)
+  if (!response.ok) throw new Error(body?.error ?? `Kehikot answered with error ${response.status}`)
   return body?.text ?? ''
 }
 

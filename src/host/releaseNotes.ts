@@ -62,7 +62,7 @@ export function versionShown(input: {
 export function versionHintFor(shown: VersionShown): string {
   return shown.kind === 'app'
     ? `${APP_NAME} ${shown.version} — press for its releases and what's new`
-    : `This page is served by a development host (version ${shown.version}), not a ${APP_NAME} release — press for ${APP_NAME}'s releases`
+    : `This page is served by a development build (version ${shown.version}), not a ${APP_NAME} release — press for ${APP_NAME}'s releases`
 }
 
 /** The tag a version is released under: `0.1.24` → `v0.1.24`; a tag is left as it is. */
@@ -142,7 +142,7 @@ export async function fetchNotes(repo: string, tag: string, signal?: AbortSignal
   const response = await fetch(`/host/release-notes?${query}`, { signal })
   const body = (await response.json().catch(() => null)) as (Release & { error?: string; url?: string }) | null
   if (!response.ok || !body || typeof body.body !== 'string') {
-    throw new NotesTrouble(body?.error ?? `the host answered ${response.status}`, body?.url ?? releasePage(repo, tag), response.status === 404)
+    throw new NotesTrouble(body?.error ?? `Kehikot answered with error ${response.status}`, body?.url ?? releasePage(repo, tag), response.status === 404)
   }
   return body
 }
@@ -160,7 +160,7 @@ export async function fetchReleaseList(repo: string, signal?: AbortSignal): Prom
     | null
   if (!response.ok || !body || !Array.isArray(body.releases)) {
     throw new NotesTrouble(
-      body?.error ?? `Couldn't read ${repo === APP_REPO ? `${APP_NAME}'s releases` : `the releases of ${repo}`} (the host answered ${response.status}); try again in a moment.`,
+      body?.error ?? `Couldn't read ${repo === APP_REPO ? `${APP_NAME}'s releases` : `the releases of ${repo}`} (error ${response.status}); try again in a moment.`,
       body?.url ?? releasePage(repo),
       false,
       body?.waiting === true,
@@ -194,7 +194,7 @@ export function fetchHostVersion(signal?: AbortSignal): Promise<string | null> {
     throw error
   })
 }
-const NOT_SAID = new Error('the host did not say its version')
+const NOT_SAID = new Error('Kehikot did not say its version')
 
 /**
  * Open a web address in the person's browser.

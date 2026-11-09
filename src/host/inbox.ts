@@ -210,7 +210,7 @@ const sameQuestion = (a: EntryQuestion | undefined, b: EntryQuestion | undefined
  * with why, for anything else.
  */
 export function answerFor(entry: Entry, said: { answer?: unknown; choice?: unknown }): { ok: true; text: string } | { ok: false; why: string } {
-  if (!isOpen(entry) || entry.state !== 'attention' || !entry.question) return { ok: false, why: 'That item asks nothing to answer from the Inbox now.' }
+  if (!isOpen(entry) || entry.state !== 'attention' || !entry.question) return { ok: false, why: 'This no longer asks a question you can answer here.' }
   if (isAnswered(entry)) return { ok: false, why: 'That question was answered already.' }
   if (said.choice !== undefined) {
     const at = said.choice
@@ -220,7 +220,7 @@ export function answerFor(entry: Entry, said: { answer?: unknown; choice?: unkno
     return { ok: true, text: choice }
   }
   const text = typeof said.answer === 'string' ? said.answer.trim() : ''
-  if (!text) return { ok: false, why: 'An answer says something.' }
+  if (!text) return { ok: false, why: 'Write an answer first.' }
   if (text.length > LIMITS.MESSAGE_BODY) return { ok: false, why: `An answer is at most ${LIMITS.MESSAGE_BODY} characters.` }
   return { ok: true, text }
 }

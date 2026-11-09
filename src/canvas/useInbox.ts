@@ -405,7 +405,7 @@ export function useInbox(options: {
       return {
         outcome: 'taken' as const,
         taken,
-        why: unknown ? `${unknown} of these name a project this host does not know, and were not kept.` : '',
+        why: unknown ? `${unknown} of these name a project Kehikot does not know, and were not kept.` : '',
         projects: true,
       }
     },

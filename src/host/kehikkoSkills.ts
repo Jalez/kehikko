@@ -68,7 +68,7 @@ async function post(body: Record<string, unknown>): Promise<string> {
 async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
-  return `the host's server answered ${response.status}`
+  return `Kehikot answered with error ${response.status}`
 }
 
 const OPEN = 'kehikot:open-kehikko-skills'

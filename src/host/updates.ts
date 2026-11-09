@@ -227,7 +227,7 @@ export async function postAutoUpdates(auto: boolean): Promise<boolean> {
     body: JSON.stringify({ updates: { auto } }),
   })
   const body = (await response.json().catch(() => null)) as { ok?: boolean; why?: string; updates?: { auto?: unknown } } | null
-  if (!response.ok || !body?.ok) throw new Error(body?.why ?? 'The host did not take that change.')
+  if (!response.ok || !body?.ok) throw new Error(body?.why ?? 'Kehikot did not save that change. Try again.')
   /* Settings reads its own answer afresh next time it opens. */
   forgetRead('settings')
   return typeof body.updates?.auto === 'boolean' ? body.updates.auto : auto
@@ -370,7 +370,7 @@ async function restarted(response: Response): Promise<NotRestarted | null> {
   const detail = Array.isArray(body?.detail) ? body.detail : []
   if (body?.ok) return { why: 'It was started and has not answered yet.', detail }
   return {
-    why: body?.why ?? 'it could not be restarted, and the host did not say why',
+    why: body?.why ?? 'it could not be restarted, and Kehikot did not say why',
     detail,
     ...(body?.kept === true ? { kept: true } : {}),
   }
@@ -414,7 +414,7 @@ export async function armRestartAnyway(id: string): Promise<{ armed: Armed } | N
     return { armed: { token: armed.token, sentence: armed.sentence, forMs: armed.forMs } }
   }
   return {
-    why: body?.why ?? 'the host did not say whether it could be restarted',
+    why: body?.why ?? 'Kehikot did not say whether it could be restarted',
     detail: [],
     ...(body?.kept === true ? { kept: true } : {}),
   }
@@ -522,7 +522,7 @@ export function ago(then: Date, now: Date): string {
 async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
-  return `the host's server answered ${response.status}`
+  return `Kehikot answered with error ${response.status}`
 }
 
 /**

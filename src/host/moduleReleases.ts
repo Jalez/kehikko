@@ -214,13 +214,13 @@ function releaseStanding(release: ModuleRelease): string {
   }
   const on = release.installed ? `release ${release.installed}` : 'main'
   if (release.back && release.target) {
-    return `The installed copy runs ${on}, which needs a newer Kehikot than this one; it steps back to ${release.target}, the newest release this host can run, at its next start${unread}.`
+    return `The installed copy runs ${on}, which needs a newer Kehikot than this one; it steps back to ${release.target}, the newest release this Kehikot can run, at its next start${unread}.`
   }
   if (release.back) {
     return `The installed copy runs ${on}, which needs a newer Kehikot than this one. ${release.back.to} works here, but stepping back waits for the person: ${release.back.ask}${unread}`
   }
-  if (release.target) return `The installed copy runs ${on}; the newest release this host can run is ${release.target}, which it moves to at its next start${unread}.${newer}`
-  return `The installed copy runs ${on}, the newest release this host can run${unread}.${newer}`
+  if (release.target) return `The installed copy runs ${on}; the newest release this Kehikot can run is ${release.target}, which it moves to at its next start${unread}.${newer}`
+  return `The installed copy runs ${on}, the newest release this Kehikot can run${unread}.${newer}`
 }
 
 /** One sentence per release an agent is told about: installed, the newest it can run, and the one it cannot. */

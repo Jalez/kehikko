@@ -113,7 +113,7 @@ export function ModuleList({
   const [query, setQuery] = useState('')
   const official = useOfficial(onLookAgain)
 
-  if (!registry) return <p className="text-muted-foreground p-4 text-sm">Asking the host…</p>
+  if (!registry) return <p className="text-muted-foreground p-4 text-sm">Reading the modules…</p>
 
   const { presences, sweep } = registry
   const rows = rowsOf(presences, onCanvas, official.list, official.mine?.modules ?? null)

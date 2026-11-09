@@ -123,7 +123,7 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
     async () => {
       const response = await fetch('/host/settings', { cache: 'no-store' })
       const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
-      if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'The host would not say its settings.')
+      if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'Kehikot could not read its settings. Close Settings and open it again.')
       adoptChime(body.chime)
       adoptSorts(body.picker)
       adoptVisits(body.visits)
@@ -140,7 +140,7 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
     body: JSON.stringify(change),
   })
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
-  if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'The host did not take that change.')
+  if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'Kehikot did not save that change. Try again.')
   adoptChime(body.chime)
   adoptSorts(body.picker)
   if (body.status) keepRead('settings', body)
@@ -464,7 +464,7 @@ export function SettingsBody({
             Settings
           </DialogTitle>
           <DialogDescription className="text-xs leading-snug max-sm:sr-only">
-            How Kehikot works with your coding agents, and what the Inbox tells you, for every module and every project on this computer; and the open project’s own.
+            How Kehikot works with your agents and what the Inbox tells you, on this computer, and the open project’s own settings.
           </DialogDescription>
         </DialogHeader>
         <TabsList
@@ -800,14 +800,14 @@ function TrackerNotices({
         <p className="text-sm" data-status="notices">
           {notices.on
             ? `On · ${notices.scope === 'roles' ? 'only where you have a role' : 'also everything your epics name'} · ${told} of ${NOTICE_EVENTS.length} events`
-            : 'Off · nothing from the trackers is told in the Inbox'}
+            : 'Off · the Inbox says nothing from your issue trackers'}
         </p>
       </Summary>
       <Rows>
         <SettingRow label={NOTICE_WORDS.on} checked={notices.on} onChange={(on) => onChange({ on })} />
       </Rows>
       <fieldset className="min-w-0" data-notices-scope={notices.scope} disabled={off}>
-        <legend className="mb-2 text-sm font-medium">Which items</legend>
+        <legend className="mb-2 text-sm font-medium">Which issues and changes</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {(['roles', 'epics'] as const).map((scope) => (
             <label
@@ -918,7 +918,7 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
 
   return (
     <>
-      <Heading id="project" lead={`Settings for ${project.name}, kept in the project’s own .kehikot/host/settings.json so everyone working on it shares them.`}>
+      <Heading id="project" lead={`Settings for ${project.name}, kept in the project folder so everyone working on it shares them.`}>
         Project
       </Heading>
       {unavailable ? (
@@ -1005,7 +1005,7 @@ function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: 
         <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]" data-about>
           <dt className="text-muted-foreground">Version</dt>
           <dd className="font-mono" data-version={shown?.kind ?? 'unknown'}>
-            {shown ? (shown.kind === 'app' ? shown.version : `${shown.text} (a development host, not an app release)`) : 'Not known yet'}
+            {shown ? (shown.kind === 'app' ? shown.version : `${shown.text} (a development build, not an app release)`) : 'Not known yet'}
           </dd>
           <dt className="text-muted-foreground">Module protocol</dt>
           <dd data-protocol>
@@ -1015,7 +1015,7 @@ function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: 
             </span>
           </dd>
           <dt className="text-muted-foreground">Settings kept</dt>
-          <dd>On this computer, for every project; the Project section’s in the project itself.</dd>
+          <dd>On this computer, for every project. The Project section’s settings are kept in the project itself.</dd>
         </dl>
       </Summary>
       <div data-whats-new-setting className="divide-y rounded-lg border px-4">

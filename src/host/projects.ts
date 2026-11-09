@@ -132,7 +132,7 @@ export async function locateProject(id: number, path: string, anyway = false): P
     const body = (await response.json().catch(() => null)) as { error?: unknown; anyway?: unknown } | null
     return {
       ok: false,
-      why: typeof body?.error === 'string' ? body.error : `the host's server answered ${response.status}`,
+      why: typeof body?.error === 'string' ? body.error : `Kehikot answered with error ${response.status}`,
       anyway: body?.anyway === true,
     }
   }
@@ -504,7 +504,7 @@ export function chooseProject(projects: readonly Project[], remembered: number |
 async function reason(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
   if (body && typeof body.error === 'string') return body.error
-  return `the host's server answered ${response.status}`
+  return `Kehikot answered with error ${response.status}`
 }
 
 /**

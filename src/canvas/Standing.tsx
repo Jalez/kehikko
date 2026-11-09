@@ -218,7 +218,7 @@ function Compact({
  */
 export function StandingChip({ standing, said, running }: { standing: Standing; said: string | null; running: boolean }) {
   const word = running ? 'Starting' : standing.word
-  const where = standing.action ? `\n${standing.action.label} is in the frame menu.` : ''
+  const where = standing.action ? `\n${standing.action.label} is in the Container menu.` : ''
   return (
     <Hint label={<span className="whitespace-pre-line">{`${standingHint(standing, said)}${where}`}</span>} side="bottom" align="start">
       <span

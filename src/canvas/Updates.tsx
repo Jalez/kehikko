@@ -648,9 +648,9 @@ export function Updates({
   const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
   const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
   const status = restarting
-    ? 'Restarting Kehikot so the updated host runs…'
+    ? 'Restarting Kehikot to run the update…'
     : phase.kind === 'checking'
-      ? 'Asking GitHub what is new for the host and each module…'
+      ? 'Asking GitHub what is new for Kehikot and each module…'
       : updating
         ? `${updating.reached === 'restarting' ? 'Restarting' : updating.reached === 'preparing' ? 'Preparing' : 'Updating'} ${nameOf(checkouts, current ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
         : summaryOf(check, lastFailed, count, unfetched)
@@ -1330,7 +1330,7 @@ function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): O
       kind: 'updated',
       note:
         done.restart === 'host'
-          ? `Updated — ${files} The page reloads itself, but the host’s server changed too: quit and reopen Kehikot to run it.`
+          ? `Updated — ${files} The page reloads itself, but Kehikot itself changed too: quit and reopen Kehikot to run it.`
           : `Updated — ${files} The page reloads itself with the new code.`,
       restart: done.restart,
       installFailed: done.installFailed,

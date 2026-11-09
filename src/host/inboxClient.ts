@@ -158,6 +158,6 @@ export async function postAnswer(body: {
     }
     return { ok: false, why: typeof got?.why === 'string' ? got.why : 'The answer was not sent.' }
   } catch {
-    return { ok: false, why: 'The host could not be reached; the answer was not sent.' }
+    return { ok: false, why: 'Kehikot could not be reached, so the answer was not sent. Try again in a moment.' }
   }
 }

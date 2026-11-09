@@ -124,8 +124,8 @@ function ClearRow({ name, label, onClear }: { name: string; label: string; onCle
 /** What the remove row says, at rest and armed. */
 export function removeSaying(name: string, armed: boolean): { label: string; name: string } {
   return armed
-    ? { label: 'Press again to remove', name: `press again to take ${name} off the canvas — the program keeps running` }
-    : { label: 'Remove from this kehikko', name: `take ${name} off the canvas` }
+    ? { label: 'Press again to remove', name: `press again to take ${name} off this kehikko — the module keeps running` }
+    : { label: 'Remove from this kehikko', name: `take ${name} off this kehikko` }
 }
 
 /**

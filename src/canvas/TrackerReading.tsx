@@ -148,7 +148,7 @@ function Sources({
       )
       return done
     } catch (error) {
-      setSaid({ tone: 'bad', text: `The host did not answer: ${(error as Error).message}` })
+      setSaid({ tone: 'bad', text: `Kehikot did not answer: ${(error as Error).message}. Try again.` })
       return null
     } finally {
       setBusy(false)
