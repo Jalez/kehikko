@@ -121,7 +121,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'together',
     title: 'Every tool for one piece of work, together',
-    body: 'Your agent, your issues, your notes and your editor sit on one kehikko, all on the same project and epic. Pick a part of the work and every one of them narrows to it.',
+    body: 'Your tools and your agents sit side by side on one kehikko, each in a container of its own, all on the same project and epic. Pick a part of the work and every one of them narrows to it.',
     art: () => (
       <Art label="the bar's project, epic and part above three modules; picking the part narrows all three">
         <rect x="20" y="10" width="280" height="20" rx="4" className={box} strokeWidth="1.25" />
@@ -152,7 +152,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'scope',
     title: 'Every module says what it belongs to',
-    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. A queue of heavy work belongs to this computer, your files to the project, a plan to its epic. Each container’s menu says its scope, and a module that can work at more than one lets you pick.',
+    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. The Container menu says its scope, and a module that can work at more than one lets you pick.',
     art: () => (
       <Art label="three modules, each with a small label on its header saying what its content belongs to">
         {[
@@ -173,6 +173,41 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
             </g>
           </g>
         ))}
+      </Art>
+    ),
+  },
+  {
+    id: 'containers',
+    title: 'Containers that get out of the way',
+    body: 'Fold a container to its header, or to two rows that keep its status in view. Its header and footer can stay shown, or appear on hover, on a click or on a long press. The Container menu holds the rest: settings, Use inbox and How to use.',
+    art: () => (
+      <Art label="a container folding to its header while another one keeps its header and footer">
+        {/* Left: open, with its header and footer. */}
+        <Pane x={24} y={18} w={128} h={114} header="fill-primary/30" />
+        <g className="ia-rise" style={after(0.3)}>
+          <Rows x={36} y={38} widths={[96, 70, 84, 58, 76]} gap={13} />
+        </g>
+        <rect x="24" y="122" width="128" height="10" rx="3" className="fill-muted-foreground/20" />
+        {/* Right: folded to two rows, its page out of the way, its status still showing. */}
+        <g className="ia-drop" style={after(0.6)}>
+          <rect x="168" y="18" width="128" height="30" rx="4" className={box} strokeWidth="1.25" />
+          <rect x="168" y="18" width="128" height="9" rx="3.5" className={head} />
+          <rect x="168" y="38" width="128" height="10" rx="3" className="fill-muted-foreground/20" />
+          <circle cx="178" cy="43" r="2.6" className="ia-blink fill-emerald-500" />
+          <rect x="186" y="41" width="48" height="4" rx="2" className={line} />
+          <path d="M284 21 l3 3 l3 -3" className="stroke-primary fill-none" strokeWidth="1.4" strokeLinecap="round" />
+        </g>
+        {/* Below it: folded to its header alone. */}
+        <g className="ia-drop" style={after(0.9)}>
+          <rect x="168" y="58" width="128" height="12" rx="4" className={box} strokeWidth="1.25" />
+          <rect x="168" y="58" width="128" height="9" rx="3.5" className={head} />
+          <path d="M284 61 l3 3 l3 -3" className="stroke-primary fill-none" strokeWidth="1.4" strokeLinecap="round" />
+        </g>
+        {/* The Container menu, open. */}
+        <g className="ia-pop" style={after(1.3)}>
+          <rect x="196" y="80" width="100" height="52" rx="4" className="fill-card stroke-border" strokeWidth="1.25" />
+          <Rows x={206} y={89} widths={[56, 70, 48, 62]} gap={10} />
+        </g>
       </Art>
     ),
   },
@@ -215,7 +250,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'agents',
     title: 'Agents that know where they are',
-    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. The skills follow what’s there: each module brings its own, and a skill that needs two modules arrives when both are on the kehikko.',
+    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. Agents message each other, and Skills for this kehikko… gives all of them instructions you write.',
     art: () => (
       <Art label="an agent conversation connected to the modules beside it">
         <Pane x={16} y={12} w={132} h={126} header="fill-primary/30" />
@@ -247,7 +282,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'inbox',
     title: 'One Inbox for what needs you',
-    body: 'Approvals, change requests and finished work from every module, in every project, arrive in one list. Alt+Shift+N takes you to the next thing that needs you.',
+    body: 'Questions, approvals and finished work from every module, in every project, arrive in one list. Answer an agent right there with a choice or a reply, and mute a module you would rather not hear from. Alt+Shift+N takes you to the next thing that needs you.',
     art: () => (
       <Art label="an Inbox filling with what needs you, what is working and what has finished">
         <rect x="70" y="10" width="180" height="130" rx="6" className={box} strokeWidth="1.5" />
@@ -305,9 +340,31 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
     ),
   },
   {
+    id: 'settings',
+    title: 'Set up once, tidied for you',
+    body: 'Settings connects your agents to every module’s tools and skills, and chooses how the Inbox tells you. It can also clean up finished worktrees, by hand or every day.',
+    art: () => (
+      <Art label="a settings window with switches turning on, one after another">
+        <rect x="60" y="12" width="200" height="126" rx="6" className={box} strokeWidth="1.5" />
+        <rect x="72" y="22" width="48" height="6" rx="3" className="fill-foreground/55" />
+        {[0, 1, 2].map((i) => (
+          <g key={i}>
+            <rect x="72" y={42 + i * 30} width="176" height="22" rx="4" className="fill-muted/60" />
+            <rect x="82" y={50 + i * 30} width={[96, 74, 110][i]} height="5" rx="2.5" className="fill-foreground/45" />
+            <rect x="222" y={47 + i * 30} width="18" height="10" rx="5" className="fill-muted-foreground/25" />
+            <g className="ia-pop" style={after(0.4 + i * 0.5)}>
+              <rect x="222" y={47 + i * 30} width="18" height="10" rx="5" className="fill-primary/70" />
+              <circle cx="235" cy={52 + i * 30} r="3.5" className="fill-card" />
+            </g>
+          </g>
+        ))}
+      </Art>
+    ),
+  },
+  {
     id: 'yours',
     title: 'Yours, and easy to share',
-    body: 'Your data stays in your project’s folder and on your computer. A kehikko’s layout travels with the project, so your team can start from it, while what you pick and fold stays your own view.',
+    body: 'Your data stays in your project’s folder and on your computer. A kehikko’s layout travels with the project, so your team can start from it, while what you pick, fold and view stays your own.',
     art: () => (
       <Art label="a layout carried from your project's folder to a teammate, while your own view stays with you">
         {/* The project folder, holding .kehikot/. */}

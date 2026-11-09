@@ -14,9 +14,9 @@
  *     projects, epics and kehikot starts at the first one they have not, or
  *     goes straight to the explanations.
  *   - SHOW — the explanations after: what each control of the top bar is for
- *     (project, epic, parts, kehikko, Pinned, Kehikko modules), a container's
- *     menus and corners, then the Inbox, headers, Updates, Settings, theme and
- *     Help. Next and Back; a stop whose element is not on screen (Parts on
+ *     (project, epic, parts, kehikko and its skills, Pinned, Kehikko modules), a
+ *     container's header, fold, menus and corners, then the Inbox, headers,
+ *     Updates, Settings, theme and Help. Next and Back; a stop whose element is not on screen (Parts on
  *     "All epics", a bar too narrow to draw one) is left out. Someone who
  *     already has a project, an epic and a kehikko gets only these, so the
  *     bar is explained to them too; the waiting steps are the first run's.
@@ -268,7 +268,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
         selectors: ['[data-tour="kehikko"]', 'button[aria-label="switch kehikko"]'],
         title: 'Your kehikot',
         body:
-          'An epic can have several arrangements of modules; switch between them here, or choose new kehikko… to make another. The list orders A–Z or by Recent.',
+          'An epic can have several kehikot, each its own arrangement of modules. Switch between them here, or choose new kehikko… to make another.',
+        side: 'bottom',
+        align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'kehikko-skills',
+    kind: 'show',
+    frames: [
+      {
+        selectors: ['[data-tour="kehikko"]', 'button[aria-label="switch kehikko"]'],
+        title: 'Skills for this kehikko',
+        body: 'Write instructions of your own for a kehikko with Skills for this kehikko… in this menu. Every agent working on it follows them.',
         side: 'bottom',
         align: 'start',
       },
@@ -282,7 +295,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
         selectors: ['[data-tour="pinned"]', '[data-testid="pinned-menu"]'],
         title: 'Pinned places',
         body:
-          'Pin the place you are on — project, epic, parts and kehikko — with the pin button or Alt+Shift+P, and come back to it in one click from this menu. Unpin from the menu.',
+          'Pin the place you are on — project, epic, parts and kehikko — with the pin button or Alt+Shift+P. Come back to it in one click from this menu.',
         side: 'bottom',
         align: 'start',
       },
@@ -310,9 +323,23 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] header.container-grip'],
         title: 'A container’s header',
-        body: 'Drag a container by its header. Tick the box to point an agent at it; fold it down to its header with the chevron.',
+        body: 'Drag a container by its header to move it. Tick its box to point your agents at it.',
         side: 'bottom',
         align: 'start',
+      },
+    ],
+  },
+  {
+    id: 'fold',
+    kind: 'show',
+    example: 'header',
+    frames: [
+      {
+        selectors: ['[data-tour-example] [data-tour="fold"]'],
+        title: 'Fold it out of the way',
+        body: 'Press the chevron to fold the container. Hold it to fold to one row or two, and to choose when the header and footer show: always, on hover, on a click or on a long press.',
+        side: 'bottom',
+        align: 'end',
       },
     ],
   },
@@ -324,7 +351,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] [data-menu="frame"]'],
         title: 'The Container menu',
-        body: 'Everything about the container itself: its scope, its settings, its tools for agents, how to use it, feedback.',
+        body: 'Everything about the container itself: its scope, its settings, Use inbox, Header and footer, How to use, and Remove from this kehikko.',
         side: 'bottom',
         align: 'end',
       },
@@ -338,7 +365,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] [data-header-menus]'],
         title: 'The module’s own menus',
-        body: 'View, Run and the rest are the module’s: switch what it shows, run what it offers.',
+        body: 'View, Go and Run belong to the module: switch what it shows, run what it offers. Each kehikko keeps its own view.',
         side: 'bottom',
         align: 'end',
       },
@@ -367,7 +394,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-inbox-control]'],
         title: 'The Inbox',
-        body: 'What modules need from you, are doing, and have finished — in every project. Alt+Shift+N goes to the next thing that needs you.',
+        body: 'What modules need from you, are doing and have finished, in every project. Answer an agent’s question right here; Alt+Shift+N goes to the next thing that needs you.',
         side: 'bottom',
         align: 'end',
       },
@@ -379,9 +406,9 @@ export const TOUR_STEPS: readonly TourStep[] = [
     frames: [
       {
         selectors: ['[data-tour="focus"]', 'button[aria-label="drop the container headers"]', 'button[aria-label="keep the container headers drawn"]'],
-        title: 'Container headers',
+        title: 'Headers and footers',
         body:
-          'Drop the headers out of the way and a container shows its own when the pointer nears its top. Press again to keep them drawn.',
+          'Hide every container’s header and footer until the pointer is over it; press again to keep them shown. A container can choose its own way in its Container menu.',
         side: 'bottom',
         align: 'end',
       },
@@ -407,7 +434,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour="settings"]', 'button[aria-label="Settings"]'],
         title: 'Settings',
-        body: 'How Kehikot works with your agents. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
+        body: 'How Kehikot works with your agents, how the Inbox tells you, and cleaning up finished worktrees. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
         side: 'bottom',
         align: 'end',
       },
@@ -591,7 +618,7 @@ export function inView(element: Element, view: Window | null = element.ownerDocu
 }
 
 /**
- * The container the header, Container, menus and corner stops all point at: an
+ * The container the header, fold, Container, menus and corner stops all point at: an
  * unfolded one that is drawn, whose header has menus (and a Container menu), the
  * one in the window before one that is not. Null when no container is
  * unfolded: those stops are then left out.
