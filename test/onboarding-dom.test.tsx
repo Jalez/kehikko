@@ -200,7 +200,7 @@ describe('the introduction', () => {
     expect(Intro.INTRO_SLIDES[0]!.title).toBe('Welcome to Kehikot')
     expect(dialog()?.getAttribute('data-intro')).toBe('welcome')
     expect(dialog()?.textContent).toContain('Welcome to Kehikot')
-    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'scope', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'yours'])
+    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'scope', 'containers', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'settings', 'yours'])
     expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(Intro.INTRO_SLIDES.length)
     /* It pitches; it does not explain controls — that is the tour's job. */
     const words = Intro.INTRO_SLIDES.map((one) => one.body).join(' ').toLowerCase()
@@ -211,8 +211,8 @@ describe('the introduction', () => {
     for (const name of ['This computer', 'Project', 'Epic', 'Part', 'Kehikko']) expect(scoped.body).toContain(name)
     expect(scoped.body).toContain('menu says its scope')
     /* The host names no module and no vendor (`module-agnostic-text.test.ts`). */
-    expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs belong to/)
-    for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'each module brings its own', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
+    expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs|queue of heavy work/)
+    for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'agents message each other', 'skills for this kehikko', 'answer an agent', 'use inbox', 'two rows', 'clean up finished worktrees', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
     /* A module of your own: how one is made and where it is added. */
@@ -247,7 +247,7 @@ describe('the introduction', () => {
       await render(host())
       await act(async () => onboarding.openIntro())
       expect(document.querySelector('[data-intro]')?.getAttribute('data-motion')).toBe('still')
-      for (let i = 0; i < 4; i++) await press(document.querySelector('[data-intro-next]'))
+      for (let i = 0; i < Intro.INTRO_SLIDES.findIndex((one) => one.id === 'ways'); i++) await press(document.querySelector('[data-intro-next]'))
       expect(document.querySelector('[data-intro]')?.getAttribute('data-intro')).toBe('ways')
       expect([...document.querySelectorAll('[data-way]')].map((one) => one.getAttribute('data-way'))).toEqual([...Intro.WAYS])
       /* The first way stands for all five when still. */
@@ -358,7 +358,7 @@ function add(html: string): HTMLElement {
 }
 
 const CONTAINER =
-  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span></header></div>' +
+  '<div class="react-grid-item"><div data-module="kehikot.paper"><header class="container-grip">h<button data-menu="frame">f</button><span data-header-menus>m</span><button data-tour="fold">v</button></header></div>' +
   ['nw', 'ne', 'sw', 'se'].map((c) => `<span class="react-resizable-handle react-resizable-handle-${c} corner-handle"></span>`).join('') +
   '</div>'
 
@@ -385,9 +385,11 @@ const EXISTING_USER = [
   'epic-bar',
   'parts-bar',
   'kehikko-bar',
+  'kehikko-skills',
   'pinned',
   'modules',
   'header',
+  'fold',
   'frame',
   'menus',
   'corners',
@@ -977,6 +979,8 @@ describe('the tour and container headers', () => {
       expect(stepOf(rec)).toBe('header')
       expect(HIDDEN()).toBe(false)
       expect(rec.last?.note).toBe(tour.HEADERS_NOTE)
+      rec.last!.onNext()
+      expect(stepOf(rec)).toBe('fold')
       rec.last!.onNext()
       expect(stepOf(rec)).toBe('frame')
       expect(HIDDEN()).toBe(false)
