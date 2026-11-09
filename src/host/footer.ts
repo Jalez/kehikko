@@ -127,7 +127,12 @@ export function footerWithdrawn(held: Footers, id: string): Footers {
  * `true`) to the header alone, `2` to header and footer.
  */
 export function drawsFooter(items: readonly FooterItem[], showingPage: boolean, folded: boolean | 0 | 1 | 2): boolean {
-  return items.length > 0 && showingPage && (folded === false || folded === 0 || folded === 2)
+  return footerRowDrawn(items.length > 0, showingPage, folded)
+}
+
+/** `drawsFooter`, from whether the module declared any item: all a container needs to read of its footer to lay itself out. */
+export function footerRowDrawn(declared: boolean, showingPage: boolean, folded: boolean | 0 | 1 | 2): boolean {
+  return declared && showingPage && (folded === false || folded === 0 || folded === 2)
 }
 
 /**
