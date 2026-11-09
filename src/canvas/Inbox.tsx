@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
-import { ChevronDown, ChevronRight, X } from 'lucide-react'
+import { BellOff, ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { ActivityState } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -27,6 +27,7 @@ import {
   type Scope,
   type Tally,
 } from '@/host/inbox.ts'
+import { mayMute, mutedWords, stopTitle, stopWords } from '@/host/inboxUse.ts'
 import { ActivityDot } from './Activity.tsx'
 import { MessagesSection, type MessagesView } from './Messages.tsx'
 import { Hint } from './Hint.tsx'
@@ -50,6 +51,9 @@ import { MuteChime } from './ChimeSettings.tsx'
  *    **Finished** (unseen), and **Earlier** (the log; collapsed, paged).
  *  - Each row says WHO before it says what ("<module> says …"): the by-line
  *    is the host's word, the label the module's claim.
+ *  - A module's row offers "Stop showing <module> here" ("Use inbox" off,
+ *    `host/inboxUse.ts`); the foot says "N modules muted" and lists them,
+ *    each with Show again. Never muted silently.
  *
  * Never colour alone: every dot is beside the state in words. Working
  * pulses only where motion is welcome (`ActivityDot`).
@@ -97,6 +101,10 @@ export interface InboxView {
   choicesFor?(entry: Entry): { label: string; run(): void }[] | null
   /** The open project's messages between agent sessions (protocol 2.41.0), read-only, folded at the foot. */
   messages?: MessagesView
+  /** The modules "Use inbox" is off for, named (`host/inboxUse.ts`). Absent or empty: none muted. */
+  muted?: readonly { id: string; name: string }[]
+  /** The person's "Use inbox" for a module. Absent: no "Stop showing" and no Show again. */
+  onUse?(module: string, on: boolean): void
 }
 
 const PAGE = 20
@@ -163,12 +171,14 @@ interface RowProps {
   expanded?: boolean
   onPress(): void
   action?: { label: string; title: string; run(): void }
+  /** "Stop showing <module> here": "Use inbox" off for the row's module. */
+  mute?: { label: string; title: string; run(): void }
   choices?: { label: string; run(): void }[] | null
   dim?: boolean
   data: string
 }
 
-function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, choices, dim, data }: RowProps) {
+function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, count, expanded, onPress, action, mute, choices, dim, data }: RowProps) {
   return (
     <li
       data-inbox-row={data}
@@ -205,6 +215,18 @@ function Row({ dot, ringLabel, by, state, label, detail, place, age, priority, c
         </span>
         {place ? <span className="text-muted-foreground/80 mt-px truncate pl-3 text-[11px]">{place}</span> : null}
       </button>
+      {mute ? (
+        <button
+          type="button"
+          onClick={mute.run}
+          aria-label={mute.label}
+          title={mute.title}
+          data-inbox-mute=""
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mt-0.5 shrink-0 rounded-sm p-0.5 opacity-0 outline-none group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px]"
+        >
+          <BellOff className="size-3" />
+        </button>
+      ) : null}
       {action ? (
         <button
           type="button"
@@ -287,6 +309,14 @@ export function InboxPanel({ view }: { view: InboxView }) {
   const nothing = s.needs.length + s.working.length + s.finished.length === 0
   const elsewhere = view.tally.needElsewhere
 
+  /* "Stop showing <module> here": a module's rows only, never the host's own lists. */
+  const muteFor = (entry: Pick<Entry, 'module' | 'name'>): Pick<RowProps, 'mute'> =>
+    view.onUse && mayMute(entry.module)
+      ? { mute: { label: stopWords(entry.name || entry.module), title: stopTitle, run: () => view.onUse?.(entry.module, false) } }
+      : {}
+  const [mutedOpen, setMutedOpen] = useState(false)
+  const muted = view.muted ?? []
+
   const row = (entry: Entry, kind: 'now' | 'member'): React.ReactElement => {
     const { here, epic } = placeLines(entry, names)
     const place = [here, epic].filter(Boolean).join(' · ') || 'the project'
@@ -305,6 +335,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
         priority={entry.priority}
         onPress={() => view.onGo(entry)}
         choices={view.choicesFor?.(entry) ?? null}
+        {...muteFor(entry)}
         {...(dismissable
           ? {
               action: {
@@ -343,6 +374,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
           priority={group.head.priority}
           count={group.members.length}
           expanded={open}
+          {...muteFor(group.head)}
           onPress={() =>
             setUnfolded((was) => {
               const next = new Set(was)
@@ -566,6 +598,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
                       age={ageWords(now, entry.entered)}
                       priority={entry.priority}
                       onPress={() => view.onGoElsewhere?.(project.id, entry)}
+                      {...muteFor(entry)}
                       {...(entry.state !== 'working' && view.onDismissElsewhere
                         ? { action: { label: `dismiss ${entry.label}`, title: 'Dismiss — it returns only if it changes', run: () => view.onDismissElsewhere?.(project.id, [entry]) } }
                         : {})}
@@ -623,6 +656,43 @@ export function InboxPanel({ view }: { view: InboxView }) {
         ) : null}
 
         {view.messages ? <MessagesSection view={view.messages} /> : null}
+
+        {muted.length ? (
+          <section aria-label="muted modules" data-inbox-muted={muted.length}>
+            <h3 className="px-1 pt-2 pb-0.5">
+              <button
+                type="button"
+                aria-expanded={mutedOpen}
+                onClick={() => setMutedOpen((was) => !was)}
+                title="Modules you turned “Use inbox” off for: nothing they say is shown, sounded or counted here"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex w-full items-center gap-1 rounded-sm px-0.5 text-[11px] outline-none focus-visible:ring-[3px]"
+              >
+                {mutedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                <BellOff className="size-3" aria-hidden />
+                {mutedWords(muted.length)}
+              </button>
+            </h3>
+            {mutedOpen ? (
+              <ul>
+                {muted.map((one) => (
+                  <li key={one.id} data-inbox-muted-module={one.id} className="flex items-center gap-2 px-2 py-0.5 text-xs">
+                    <span className="min-w-0 flex-1 truncate">{one.name}</span>
+                    {view.onUse ? (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground text-[11px] underline underline-offset-2"
+                        aria-label={`show ${one.name} in the inbox again`}
+                        onClick={() => view.onUse?.(one.id, true)}
+                      >
+                        Show again
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
       </div>
 
       {unseenFinished > 0 || forgettable ? (

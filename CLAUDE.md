@@ -923,9 +923,25 @@
   held). The host's own lists (`isHostModule`: `kehikko`, `kehikko.*`) are
   never closed for having no container.
 - The page posts a module's whole list (`/host/inbox/report`), a legacy notice
-  (`/host/inbox/notice`) and the person's acts (`/host/inbox/act`: seen,
-  dismiss, forget). All four POSTs are in `PAGE_ONLY` (`server/guard.ts`) — a
-  new write here gets the same. No MCP tool may see, dismiss or forget.
+  (`/host/inbox/notice`), the person's acts (`/host/inbox/act`: seen,
+  dismiss, forget) and their "Use inbox" switch (`/host/inbox/use`). All five
+  POSTs are in `PAGE_ONLY` (`server/guard.ts`) — a new write here gets the
+  same. No MCP tool may see, dismiss, forget or mute.
+- "Use inbox" is the person's switch per module id, machine-wide (not per
+  project or kehikko): `inbox_muted` in `frame.sqlite`, `Inbox.use`; the rules
+  and words are `src/host/inboxUse.ts`. Off KEEPS recording — the module's
+  reports still land in `inbox_items`/`inbox_moves`, so turning it back on
+  shows what it says now — and the page leaves it out of what it draws:
+  `useInbox`'s `open`, `live` and `others` (so no row, dot, count or Next) and
+  `notify` (no chime, no toast); its log rows and Earlier count are left out
+  by the server. A switch moves every project's revision so every page
+  re-reads. Never silent: a "Use inbox" checkbox row in the Container menu
+  (`inbox` in `FRAME_ENTRIES`, for a module that declares `activity:report` or
+  `events:emit`, or is muted), "Stop showing <name> here" on a module's Inbox
+  row, and "N modules muted" with Show again at the panel's foot (which keeps
+  the bar's control drawn). `read_inbox` and `read_canvas` still list a muted
+  module's lines, marked "(muted by the person)". The host's own lists
+  (`isHostModule`) are not muted here; they have their own settings.
 - The host names no module and no vendor: the by-line is the module's registered
   name, the label is its claim. Never colour alone; no standing rows.
 - A module's named event (protocol 2.31.0, `events` in its manifest, `event` on an

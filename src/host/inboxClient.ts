@@ -13,7 +13,13 @@ export interface Snapshot {
   rev: number
   open: Entry[]
   earlier: number
+  /** The modules "Use inbox" is off for, machine-wide, when the answer said (`inboxUse.ts`). */
+  muted?: string[]
 }
+
+/** The muted list of an answer, when it carried one. */
+const mutedOf = (got: { muted?: unknown } | null): { muted?: string[] } =>
+  got && Array.isArray(got.muted) ? { muted: got.muted.filter((one): one is string => typeof one === 'string') } : {}
 
 export interface Narrowing {
   scope: Scope
@@ -50,7 +56,16 @@ const query = (narrowing: Narrowing | null): string =>
  */
 export async function fetchInbox(project: number, { join = false }: { join?: boolean } = {}): Promise<Snapshot | null> {
   const got = await hostRead(`inbox:${project}`, () => ask<Snapshot & { ok: boolean }>(`/host/inbox?project=${project}`), { keep: false, fresh: !join })
-  return got && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0 } : null
+  return got && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, ...mutedOf(got) } : null
+}
+
+/**
+ * The person's "Use inbox" switch for one module (`POST /host/inbox/use`, the page's alone).
+ * Answers the muted list after it, or null when it was not taken.
+ */
+export async function postUse(module: string, use: boolean): Promise<string[] | null> {
+  const got = (await post('/host/inbox/use', { module, use })) as { ok?: boolean; muted?: unknown } | null
+  return got && got.ok ? (mutedOf(got).muted ?? []) : null
 }
 
 export async function fetchLog(
@@ -106,11 +121,11 @@ export async function postAct(body: {
     : {}
   const got = (await post('/host/inbox/act', { ...rest, ...scope })) as (Snapshot & { changed?: number; ok?: boolean }) | null
   return got && got.ok && Array.isArray(got.open)
-    ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, changed: got.changed ?? 0 }
+    ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, changed: got.changed ?? 0, ...mutedOf(got) }
     : null
 }
 
 export async function postMigrate(project: number, seen: object, told: object): Promise<Snapshot | null> {
   const got = (await post('/host/inbox/migrate', { project, seen, told })) as (Snapshot & { ok?: boolean }) | null
-  return got && got.ok && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0 } : null
+  return got && got.ok && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0, ...mutedOf(got) } : null
 }

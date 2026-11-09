@@ -127,6 +127,7 @@ export function Container({
   onVersion = () => {},
   activity = null,
   onActivitySeen,
+  inboxUse,
 }: {
   presence: Presence
   /**
@@ -321,6 +322,11 @@ export function Container({
   activity?: ActivityState | null
   /** The finished dot was pressed: this module's finished items were seen. */
   onActivitySeen?(): void
+  /**
+   * "Use inbox" for this module (`host/inboxUse.ts`): whether what it says reaches the Inbox, and the
+   * person's change. A checkbox row of the Container menu at every width and fold. Absent: no row.
+   */
+  inboxUse?: { on: boolean; onChange(on: boolean): void }
 }) {
   const name = presence.name ?? presence.id
   /* How much of the header's left side there is room for (`host/headerFit.ts`): what the header's
@@ -397,6 +403,7 @@ export function Container({
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
+    inbox: inboxUse,
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
     controls: controlParts,
     onRemove,

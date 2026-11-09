@@ -83,9 +83,10 @@ export interface Refusal {
  *    said, and what came of a press (`headers.ts`). A module's frame is
  *    another origin, and so is every other site.
  *  - `/host/inbox/report`, `/host/inbox/notice`, `/host/inbox/act`,
- *    `/host/inbox/migrate` — what the page says its modules are doing, and
- *    what a person did with it: seen, put away, forgotten (`inbox.ts`). The
- *    last is the person's, so no program may make it.
+ *    `/host/inbox/migrate`, `/host/inbox/use` — what the page says its modules
+ *    are doing, and what a person did with it: seen, put away, forgotten, and
+ *    whether a module is shown in the Inbox at all (`inbox.ts`). Those acts
+ *    are the person's, so no program may make them.
  *  - `/host/place/answer` — a person's answer to "which epic is this
  *    conversation for?" in the Inbox (`placeRoutes.ts`). An agent says its own
  *    with `set_my_place`; it never answers the person's ask.
@@ -139,6 +140,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/notice',
   '/host/inbox/act',
   '/host/inbox/migrate',
+  '/host/inbox/use',
   '/host/messages/clear',
   '/host/messages/say',
   '/host/trackers',

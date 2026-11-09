@@ -233,4 +233,6 @@ export interface ActivityRow {
   event?: { id: string; says: string }
   /** When it entered its state, in ms since the epoch. */
   entered?: number
+  /** The person turned "Use inbox" off for its module: kept, and not shown to them. */
+  muted?: boolean
 }
