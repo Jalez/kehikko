@@ -2,6 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { footerItemsSchema, type FooterItem } from 'kehikot-module-protocol'
 
 import {
+  READOUTS_POSTED_EVERY_MS,
+  footedIds,
+  footerShape,
+  readoutsWait,
   FOOTER_STEPS,
   NO_FOOTER,
   footerCrowded,
@@ -193,5 +197,36 @@ describe('a field (protocol 2.46.0)', () => {
     expect(agentFooterRefusal(field(), { item: 'address', text: 'x' }, 'Viewer')).toContain("the person's")
     expect(agentFooterRefusal(field({ agents: true }), { item: 'address' }, 'Viewer')).toContain('give the text')
     expect(agentFooterRefusal(field({ agents: true }), { item: 'address', text: 'https://example.org/' }, 'Viewer')).toBeNull()
+  })
+})
+
+describe('a ticking readout is not posted every tick', () => {
+  const footer = (rate: string, value: number, run: 'idle' | 'busy' = 'idle') =>
+    footerItemsSchema.parse([
+      { kind: 'text', id: 'rate', text: rate },
+      { kind: 'meter', id: 'cpu', label: 'CPU', value, text: `${Math.round(value * 100)}%` },
+      { kind: 'run', id: 'clear', label: 'Clear', state: run },
+    ])
+  const posting = (items: FooterItem[]) => JSON.stringify([['kehikot.monitor', items]])
+
+  test('a readout changing alone keeps the shape; an offer changing does not', () => {
+    const a = footerShape(posting(footer('208/min', 0.5)))
+    expect(footerShape(posting(footer('212/min', 0.56)))).toBe(a)
+    expect(footerShape(posting(footer('212/min', 0.56, 'busy')))).not.toBe(a)
+    expect(footerShape(JSON.stringify([['kehikot.monitor', footer('1/min', 0.1).slice(0, 2)]]))).not.toBe(a)
+  })
+
+  test('the same shape waits out the interval; another goes at once', () => {
+    expect(readoutsWait(false, 0)).toBe(0)
+    expect(readoutsWait(true, 1_000)).toBe(READOUTS_POSTED_EVERY_MS - 1_000)
+    expect(readoutsWait(true, READOUTS_POSTED_EVERY_MS + 1)).toBe(0)
+  })
+
+  test('which containers have a footer, not what they say', () => {
+    const one = { a: footer('1/min', 0.1), b: [] as FooterItem[] }
+    const two = { a: footer('2/min', 0.2), b: [] as FooterItem[] }
+    expect(footedIds(one)).toBe('a')
+    expect(footedIds(two)).toBe(footedIds(one))
+    expect(footedIds({ ...one, c: footer('x', 0) })).toBe('a\nc')
   })
 })
