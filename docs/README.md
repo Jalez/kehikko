@@ -705,12 +705,12 @@ starts, so any of this applies to the next session and not to one already open.
 | [checklist](https://github.com/Jalez/kehikko-checklist) | what a change or a paper is held to | 7860 |
 | [paper](https://github.com/Jalez/kehikko-paper) | the epic's paper, as A4 pages rather than markup | 7870 |
 | [diff](https://github.com/Jalez/kehikko-diff) | the diff of whichever change is selected | 7890 |
-| [tests](https://github.com/Jalez/kehikko-tests) | what was actually run against the change you are looking at | 7900 |
 | [notifications](https://github.com/Jalez/kehikko-notifications) | what happened, and on which kehikko | 7910 |
 | [terminal](https://github.com/Jalez/kehikko-terminal) | a real shell, in a container | 7920 |
 | [citations](https://github.com/Jalez/kehikko-citations) | what the paper cites, and what it cites that does not exist | 7930 |
 | [notes](https://github.com/Jalez/kehikko-notes) | notes anchored to a passage, including the author's own | 7940 |
 | [learning](https://github.com/Jalez/kehikko-learning) | questions about what you are reading | 7950 |
+| [queue](https://github.com/Jalez/kehikko-queue) | one queue for heavy work on this computer: test suites, builds, other heavy commands | 8110 |
 
 ## Writing your own module
 

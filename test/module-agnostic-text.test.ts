@@ -108,7 +108,7 @@ describe('the host names no module and no vendor', () => {
   test('the list of names is read from modules.json', () => {
     expect(officialNames.length).toBeGreaterThan(10)
     expect(NAMES).toContain('Claude')
-    expect(NAMES).toContain('Test runs')
+    expect(NAMES).toContain('Queue')
   })
 
   test('the matcher finds a name as a word, and leaves ids and paths alone', () => {
