@@ -5,7 +5,8 @@ import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { notAnswering } from '@/host/reachable.ts'
 import { lineDiff, NEXT_SESSION_SKILLS, OWN_SKILLS_MODULE, pressFor, removable, whyNot, type SkillRow } from '@/host/skills.ts'
 
@@ -105,14 +106,14 @@ export function SkillsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
-            Skills from {name}
-          </DialogTitle>
-          <DialogDescription>
-            Agent skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your agent’s personal skills folder for every project
+      <ModalContent className="sm:max-w-2xl">
+        <ModalHeader
+          icon={<ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />}
+          title={<>Skills from {name}</>}
+          titleClassName="text-base"
+          description={
+            <>
+              Agent skills {module === OWN_SKILLS_MODULE ? 'Kehikot itself' : 'this module'} offers. Installed, a skill is in your agent’s personal skills folder for every project
             {answer ? (
               <>
                 {' '}
@@ -120,8 +121,11 @@ export function SkillsDialog({
               </>
             ) : null}
             , so read what it says before you install it.
-          </DialogDescription>
-        </DialogHeader>
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
 
         <KeptBySettings
           kind="skills"
@@ -157,7 +161,8 @@ export function SkillsDialog({
         ) : asking ? (
           <Loading className="text-sm" label={`Asking ${name} what it offers…`} />
         ) : null}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }

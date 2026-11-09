@@ -2,7 +2,8 @@ import { ArrowLeft, ArrowRight, XIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog, DialogClose, DialogDescription, DialogTitle } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter } from '@/components/ui/modal.tsx'
 
 /**
  * The introduction dialog: the one modal both the app's own introduction (`Intro.tsx`) and a
@@ -74,19 +75,27 @@ export function IntroModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showClose={false}
-        className="max-w-[calc(100%-2rem)] gap-0 overflow-hidden p-0 sm:max-w-lg [&>*]:min-w-0"
+      <ModalContent
+        className="sm:max-w-lg [&>*]:min-w-0"
         data-intro={slide.id}
         data-motion={still ? 'still' : 'moving'}
         aria-label={label}
+        onOpenAutoFocus={(event) => {
+          /* The close, first in the row and in tab order. */
+          const close = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-intro-close]')
+          if (!close) return
+          event.preventDefault()
+          close.focus()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowRight' && !isLast) setAt(now + 1)
           if (event.key === 'ArrowLeft' && now > 0) setAt(now - 1)
         }}
       >
-        {/* The close has this row to itself: the picture starts below it. */}
-        <div className="flex h-11 items-center gap-2 pr-2 pl-4" data-intro-top="">
+        {/* The close has this row to itself: the picture starts below it. The shared
+            header (`ModalHeader`) is not used because the title here is each slide's
+            own, drawn under the picture; this row is the header all the same. */}
+        <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4" data-intro-top="" data-modal-header="">
           {icon}
           <span className="text-muted-foreground min-w-0 truncate text-xs font-medium" data-intro-name="">
             {name}
@@ -102,12 +111,14 @@ export function IntroModal({
               className="text-muted-foreground hover:text-foreground size-7"
               aria-label={closeLabel}
               data-intro-close=""
+              data-modal-close=""
             >
               <XIcon className="size-4" />
             </Button>
           </DialogClose>
         </div>
 
+        <ModalBody className="gap-0 px-0 py-0 sm:px-0">
         {slide.art ? (
           <div className="px-4" data-intro-art="">
             {/* Keyed, so each slide's picture plays from its start. */}
@@ -128,8 +139,9 @@ export function IntroModal({
             </ul>
           ) : null}
         </div>
+        </ModalBody>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 px-5 pt-4 pb-4">
+        <ModalFooter className="border-t-0 px-5 pt-4 pb-4 sm:px-5">
           <div className="flex min-w-24 flex-1 items-center gap-1.5" role="group" aria-label={`slide ${now + 1} of ${count}`}>
             {slides.map((one, i) => (
               <button
@@ -164,8 +176,8 @@ export function IntroModal({
               </Button>
             </>
           )}
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }

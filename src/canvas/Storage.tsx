@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import {
   bytesSaid,
   CUT_SAID,
@@ -103,14 +104,19 @@ export function Storage({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Storage</DialogTitle>
-          <DialogDescription>
-            How much room Kehikot data takes on this computer: each module’s folder in every project, and Kehikot’s own
-            data. {READ_ONLY_SAID}
-          </DialogDescription>
-        </DialogHeader>
+      <ModalContent className="sm:max-w-2xl" data-storage-dialog="">
+        <ModalHeader
+          title="Storage"
+          titleClassName="text-base"
+          description={
+            <>
+              How much room Kehikot data takes on this computer: each module’s folder in every project, and Kehikot’s own
+              data. {READ_ONLY_SAID}
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground min-w-0 flex-1">
@@ -137,7 +143,8 @@ export function Storage({
         ) : null}
 
         {report ? <StorageBody report={report} views={views} onOpenView={(module) => void openView(module)} /> : null}
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }

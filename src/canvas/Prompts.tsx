@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { promptFor, type Placement } from '@/host/canvases.ts'
 import type { Presence } from '@/host/registry.ts'
@@ -108,13 +103,18 @@ export function Prompts({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>Prompts for {mine}</DialogTitle>
-          <DialogDescription>
-            What this container says to another module on this kehikko, and what this one is being told.
-          </DialogDescription>
-        </DialogHeader>
+      <ModalContent aria-describedby={undefined}>
+        <ModalHeader
+          title={<>Prompts for {mine}</>}
+          titleClassName="text-base"
+          description={
+            <>
+              What this container says to another module on this kehikko, and what this one is being told.
+            </>
+          }
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -183,7 +183,8 @@ export function Prompts({
             </p>
           )}
         </div>
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }

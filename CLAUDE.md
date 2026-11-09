@@ -1413,3 +1413,13 @@
   nothing acts on one, and no MCP tool here reads, sends or clears them —
   `my_place` says only where they go and how many are kept. Clearing is
   `POST /host/messages/clear`, in `PAGE_ONLY`.
+
+## Host windows
+
+- Every host modal is drawn on `src/components/ui/modal.tsx`: `ModalContent`,
+  `ModalHeader` (title, optional context, the close button in the row),
+  `ModalBody` (the only thing that scrolls; `scroll={false}` when it holds a
+  list and a pane that scroll on their own, marked `data-modal-scroll`) and an
+  optional `ModalFooter` for actions. Never a bare `DialogContent` or a close
+  placed over the content; `test/modal-layout-dom.test.tsx` holds every window
+  to it, and a new window gets a case there.

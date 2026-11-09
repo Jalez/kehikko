@@ -3,7 +3,8 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { isBuiltFrom, isWorksWithSentence, parseMarkdown, plainText, whatsNew, type Block, type Inline } from '@/host/markdown.ts'
 import { releaseNotesTitle, releaseVersion, releasesMoved } from '@/host/moduleReleases.ts'
@@ -172,8 +173,8 @@ export function ReleaseNotesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex max-h-[min(40rem,85vh)] max-w-xl flex-col gap-3 p-0"
+      <ModalContent
+        className="max-h-[min(40rem,calc(100dvh-2rem))] sm:max-w-xl"
         data-testid="release-notes"
         onCloseAutoFocus={(event) => {
           /* Radix returns focus to a DialogTrigger, and this dialog has none:
@@ -185,15 +186,16 @@ export function ReleaseNotesDialog({
           delete opener.dataset.quietFocus
         }}
       >
-        <DialogHeader className="border-b px-5 pt-4 pb-3 pr-10">
-          <DialogTitle>{notesTitle(name, version)}</DialogTitle>
-          <DialogDescription className="text-xs">
-            {reading.kind === 'read'
+        <ModalHeader
+          title={notesTitle(name, version)}
+          titleClassName="text-base"
+          context={
+            reading.kind === 'read'
               ? [reading.release.name && reading.release.name !== tag ? reading.release.name : tag, published].filter(Boolean).join(' · ')
-              : `${repo} · ${tag}`}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
+              : `${repo} · ${tag}`
+          }
+        />
+        <ModalBody className="gap-0 py-2 text-sm sm:px-5" data-testid="release-notes-body">
           {reading.kind === 'reading' ? (
             <Loading className="py-2" label="Reading the release notes…" />
           ) : reading.kind === 'failed' ? (
@@ -208,8 +210,8 @@ export function ReleaseNotesDialog({
           ) : (
             <p className="text-muted-foreground py-2 text-xs">This release has no notes.</p>
           )}
-        </div>
-        <div className="flex justify-end border-t px-5 py-3">
+        </ModalBody>
+        <ModalFooter>
           <Button
             variant="outline"
             size="sm"
@@ -221,8 +223,8 @@ export function ReleaseNotesDialog({
             <ExternalLink className="size-3" />
             Open on GitHub
           </Button>
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -290,8 +292,8 @@ export function ModuleNotesDialog({
   const page = tags.length === 1 ? releasePage(repo, tags[0]) : releasePage(repo)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex max-h-[min(40rem,85vh)] max-w-xl flex-col gap-3 p-0"
+      <ModalContent
+        className="max-h-[min(40rem,calc(100dvh-2rem))] sm:max-w-xl"
         data-testid="release-notes"
         onCloseAutoFocus={(event) => {
           event.preventDefault()
@@ -301,16 +303,15 @@ export function ModuleNotesDialog({
           delete opener.dataset.quietFocus
         }}
       >
-        <DialogHeader className="border-b px-5 pt-4 pb-3 pr-10">
-          <DialogTitle>{releaseNotesTitle(name, tags)}</DialogTitle>
-          <DialogDescription className="text-xs">
-            {tags.length === 1 ? `${repo} · ${tags[0]}` : `${repo} · ${tags.length} releases, newest first`}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
+        <ModalHeader
+          title={releaseNotesTitle(name, tags)}
+          titleClassName="text-base"
+          context={tags.length === 1 ? `${repo} · ${tags[0]}` : `${repo} · ${tags.length} releases, newest first`}
+        />
+        <ModalBody className="gap-0 py-2 text-sm sm:px-5" data-testid="release-notes-body">
           <ReleaseSections repo={repo} name={name} tags={tags} works={works} open={open} load={load} />
-        </div>
-        <div className="flex justify-end border-t px-5 py-3">
+        </ModalBody>
+        <ModalFooter>
           <Button
             variant="outline"
             size="sm"
@@ -322,8 +323,8 @@ export function ModuleNotesDialog({
             <ExternalLink className="size-3" />
             Open on GitHub
           </Button>
-        </div>
-      </DialogContent>
+        </ModalFooter>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -602,8 +603,8 @@ export function MovedNotesDialog({
   const page = repo ? releasePage(repo) : null
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex max-h-[min(40rem,85vh)] max-w-xl flex-col gap-3 p-0"
+      <ModalContent
+        className="max-h-[min(40rem,calc(100dvh-2rem))] sm:max-w-xl"
         data-testid="release-notes"
         onCloseAutoFocus={(event) => {
           event.preventDefault()
@@ -613,13 +614,12 @@ export function MovedNotesDialog({
           delete opener.dataset.quietFocus
         }}
       >
-        <DialogHeader className="border-b px-5 pt-4 pb-3 pr-10">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="text-xs">
-            {`${name} ${from ? releaseVersion(from) : 'main'} → ${releaseVersion(to)}`}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-auto px-5 text-sm" data-testid="release-notes-body">
+        <ModalHeader
+          title={title}
+          titleClassName="text-base"
+          context={`${name} ${from ? releaseVersion(from) : 'main'} → ${releaseVersion(to)}`}
+        />
+        <ModalBody className="gap-0 py-2 text-sm sm:px-5" data-testid="release-notes-body">
           {!repo ? (
             <p className="text-muted-foreground py-2 text-xs" data-testid="release-notes-trouble">
               The release notes for this update could not be read: this module does not say where its releases are published.
@@ -629,16 +629,16 @@ export function MovedNotesDialog({
           ) : (
             <ReleaseSections repo={repo} name={name} tags={tags} oneTrouble headings={tags.length > 1} />
           )}
-        </div>
+        </ModalBody>
         {page ? (
-          <div className="flex justify-end border-t px-5 py-3">
+          <ModalFooter>
             <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" data-testid="release-notes-github" data-href={page} onClick={() => openExternal(page)}>
               <ExternalLink className="size-3" />
               Open on GitHub
             </Button>
-          </div>
+          </ModalFooter>
         ) : null}
-      </DialogContent>
+      </ModalContent>
     </Dialog>
   )
 }

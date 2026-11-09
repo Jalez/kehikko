@@ -3,7 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactEl
 import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx'
+import { Dialog } from '@/components/ui/dialog.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select.tsx'
@@ -364,15 +365,14 @@ function Line({ value, busy, label, onChange }: { value: string; busy: boolean; 
 function FileDialog({ shown, name, onClose }: { shown: { file: string; text: string } | null; name: string; onClose(): void }) {
   return (
     <Dialog open={shown !== null} onOpenChange={(open) => (open ? null : onClose())}>
-      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-2xl" data-settings-file>
-        <DialogHeader>
-          <DialogTitle className="font-mono text-sm">{shown?.file}</DialogTitle>
-          <DialogDescription className="text-xs">Read-only. {name} writes this file; change its settings in the form.</DialogDescription>
-        </DialogHeader>
-        <pre className="bg-muted/50 max-h-[60dvh] overflow-auto rounded-md p-3 font-mono text-xs whitespace-pre-wrap">
-          {shown?.text ? shown.text : '(The file is not there yet: every setting has its default.)'}
-        </pre>
-      </DialogContent>
+      <ModalContent className="sm:max-w-2xl" data-settings-file>
+        <ModalHeader title={shown?.file} titleClassName="font-mono" description={<>Read-only. {name} writes this file; change its settings in the form.</>} />
+        <ModalBody>
+          <pre className="bg-muted/50 rounded-md p-3 font-mono text-xs whitespace-pre-wrap">
+            {shown?.text ? shown.text : '(The file is not there yet: every setting has its default.)'}
+          </pre>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }
@@ -417,25 +417,27 @@ export function ModuleSettingsDialog({
   const shown = (tabs as readonly string[]).includes(tab) ? tab : (tabs[0] ?? 'settings')
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(720px,calc(100dvh-2rem))] max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden sm:max-w-xl" data-module-settings-dialog={module}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-sm">
-            <ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />
-            {settingsHint(name)}
-            {scope ? (
-              <span data-testid="settings-scope" data-scope={scope.value.active} title={scopeTooltip(scope.value)} className="text-muted-foreground mr-6 ml-auto inline-flex shrink-0 items-center gap-1 rounded border px-1 text-[10px] font-normal">
+      <ModalContent className="max-h-[min(720px,calc(100dvh-2rem))] sm:max-w-xl" data-module-settings-dialog={module}>
+        <ModalHeader
+          icon={<ModuleIcon id={module} name={name} className="text-muted-foreground size-4" />}
+          title={settingsHint(name)}
+          context={
+            scope ? (
+              <span data-testid="settings-scope" data-scope={scope.value.active} title={scopeTooltip(scope.value)} className="text-muted-foreground inline-flex shrink-0 items-center gap-1 rounded border px-1 text-[10px] font-normal">
                 <ScopeIcon scope={scope.value.active} />
                 {scope.value.name}
                 <span className="sr-only"> scope ({scope.value.isDefault ? 'default' : 'changed'})</span>
               </span>
-            ) : null}
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {shown === 'settings'
+            ) : null
+          }
+          description={
+            shown === 'settings'
               ? `${project ? `For ${project.name}. ` : ''}Each change is saved by ${name} as you make it.`
-              : `How ${name} and the other modules on this kehikko affect each other.`}
-          </DialogDescription>
-        </DialogHeader>
+              : `How ${name} and the other modules on this kehikko affect each other.`
+          }
+        />
+        {/* The scope and the tab strip stay put; only the tab's own content scrolls. */}
+        <ModalBody scroll={false} className="gap-4 px-4 py-4 sm:px-5">
         {scope ? <ScopeControl module={module} scope={scope.value} onPick={scope.onPick} /> : null}
         <Tabs value={shown} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
           {tabs.length > 1 ? (
@@ -449,18 +451,19 @@ export function ModuleSettingsDialog({
             </TabsList>
           ) : null}
           {hasSettings ? (
-            <TabsContent value="settings" className="min-h-0 overflow-y-auto pr-1">
+            <TabsContent value="settings" className="min-h-0 overflow-y-auto overscroll-contain pr-1" data-modal-scroll="">
               {open && shown === 'settings' ? <ModuleSettingsForm module={module} project={project?.id ?? null} api={api} onOpened={() => onOpenChange(false)} /> : null}
             </TabsContent>
           ) : null}
           {connections ? (
-            <TabsContent value="connections" className="min-h-0 overflow-y-auto pr-1">
+            <TabsContent value="connections" className="min-h-0 overflow-y-auto overscroll-contain pr-1" data-modal-scroll="">
               {open && shown === 'connections' ? <ConnectionsTab module={module} {...connections} /> : null}
             </TabsContent>
           ) : null}
           {!tabs.length && !scope ? <p className="text-muted-foreground text-xs">{name} has no settings, and no kehikko is open.</p> : null}
         </Tabs>
-      </DialogContent>
+        </ModalBody>
+      </ModalContent>
     </Dialog>
   )
 }
