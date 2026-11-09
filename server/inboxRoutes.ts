@@ -21,8 +21,10 @@ import { itemsIn } from './inbox.ts'
  *  - `POST /host/inbox/notice` — one legacy `kehikot.notifications@1` line (`events.emit`).
  *  - `POST /host/inbox/act` — see, dismiss, forget: the person's.
  *  - `POST /host/inbox/migrate` — what the page kept in its own storage, once.
+ *  - `POST /host/inbox/use` — `{ module, use }`: the person's "Use inbox" switch for one module,
+ *    machine-wide (`Inbox.use`). Every project's record is said to have changed.
  *
- * The four POSTs are the page's alone (`PAGE_ONLY` in `guard.ts`): a module's
+ * The five POSTs are the page's alone (`PAGE_ONLY` in `guard.ts`): a module's
  * frame is another origin, and an agent has no tool that sees or dismisses.
  * What a page posts is a browser's word and is held to the protocol's own
  * schema before anything is kept.
@@ -129,6 +131,17 @@ export function inboxDesk(deps: InboxDeps) {
       /* Refused below. */
     }
     if (!body) return reply({ ok: false, why: 'The body is a JSON object.' }, 400)
+
+    /* The person's switch is about a module, not a project: answered before a project is asked for. */
+    if (url.pathname === '/host/inbox/use') {
+      const module = typeof body.module === 'string' && body.module.length > 0 && body.module.length <= 64 ? body.module : null
+      if (module === null) return reply({ ok: false, why: 'Use inbox names the module.' }, 400)
+      if (typeof body.use !== 'boolean') return reply({ ok: false, why: 'use is true (show it in the Inbox) or false (do not).' }, 400)
+      const out = inbox.use(module, body.use)
+      for (const one of out.revs) deps.changed(one.project, one.rev)
+      return reply({ ok: true, changed: out.changed, muted: inbox.muted() })
+    }
+
     const project = projectIn(body.project)
     if (project === null || deps.pathOf(project) === undefined) {
       return reply({ ok: false, why: 'This names a project this host does not have.' }, 400)

@@ -1201,6 +1201,11 @@ export interface FrameParts {
    */
   rows?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
   /**
+   * "Use inbox" (`host/inboxUse.ts`): whether what this module says reaches the Inbox, machine-wide,
+   * and the person's change. A checkbox row at every width and fold, its state in the row. Absent: no row.
+   */
+  inbox?: { on: boolean; onChange(on: boolean): void }
+  /**
    * The module's settings (protocol 2.15.0). A "Settings…" row only where the header's gear is not
    * drawn (`layoutOf`): one entry, never two.
    */
@@ -1243,6 +1248,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (toolsSaying(parts.agent, parts.name)) out.push('tools')
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
   if (parts.rows) out.push('rows')
+  if (parts.inbox) out.push('inbox')
   if (parts.onHelp) out.push('help')
   out.push('feedback', 'prompts')
   if (parts.onRemove) out.push('remove')
@@ -1310,6 +1316,23 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
             <RevealChoices reveal={rows} />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+      ) : null}
+      {has('inbox') && parts.inbox ? (
+        <DropdownMenuCheckboxItem
+          className={ROW}
+          checked={parts.inbox.on}
+          data-frame="inbox"
+          data-on={parts.inbox.on ? 'true' : 'false'}
+          title={
+            parts.inbox.on
+              ? `what ${name} says is shown, sounded and counted in the Inbox — untick to stop, on this computer`
+              : `${name} is muted: nothing it says is shown, sounded or counted in the Inbox — tick to show it again`
+          }
+          onCheckedChange={(checked) => parts.inbox?.onChange(checked === true)}
+        >
+          <span className="flex-1">Use inbox</span>
+          {parts.inbox.on ? null : <span className="text-muted-foreground text-[10px]">muted</span>}
+        </DropdownMenuCheckboxItem>
       ) : null}
       {has('help') && parts.onHelp ? (
         <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-frame="help" onSelect={parts.onHelp}>

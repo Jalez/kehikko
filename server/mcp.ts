@@ -809,6 +809,7 @@ function activityText(row: ActivityRow): string {
     (row.place ? ` — at ${row.place}` : ' — the project, no place') +
     (row.priority === 'urgent' ? ' — URGENT' : row.priority === 'low' ? ' — low priority' : '') +
     (row.state === 'done' ? (row.seen ? ' [seen]' : ' [not seen yet]') : '') +
+    (row.muted ? ' (muted by the person)' : '') +
     (row.detail ? ` — ${quoted(row.detail)}` : '')
   )
 }
@@ -1031,7 +1032,9 @@ function tools() {
         + 'which kehikko it belongs to; "everywhere" is the whole project, which is how to see what is going on '
         + 'in other kehikot, epics and parts. earlier is how many earlier lines to list (0 to 100, default 10). '
         + 'A line whose module named the case says "(event <id>: \"<what the module calls it>\")", e.g. a finished '
-        + 'session that was research. Read-only: nothing an agent can do marks anything seen or puts it away — that is the person’s.',
+        + 'session that was research. A line whose module the person turned "Use inbox" off for says "(muted by the '
+        + 'person)": it is kept, and the person is not shown it, sounded or counted for it. Read-only: nothing an agent '
+        + 'can do marks anything seen, puts it away or mutes a module — that is the person’s.',
       annotations: { title: 'Read the inbox', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: {
         type: 'object',

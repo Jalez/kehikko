@@ -139,8 +139,13 @@ export interface Snapshot {
   rev: number
   /** Every open entry, dismissed and seen included: the page decides what to draw. */
   open: Entry[]
-  /** How many entries are closed: whether there is an Earlier to open. */
+  /** How many entries are closed, a muted module's left out: whether there is an Earlier to open. */
   earlier: number
+  /**
+   * The modules the person turned "Use inbox" off for, on this machine (`use`). Their entries are
+   * still in `open`: the record is kept whole, and the page leaves them out of what it draws.
+   */
+  muted: string[]
 }
 
 export interface Reported {
@@ -223,10 +228,48 @@ export class Inbox {
   }
 
   snapshot(project: number): Snapshot {
+    const muted = this.muted()
     const earlier = this.db
-      .query<{ n: number }, [number]>('select count(*) as n from inbox_items where project = ? and closed is not null')
-      .get(project)!.n
-    return { rev: this.rev(project), open: this.open(project), earlier }
+      .query<{ n: number }, [number, string]>(
+        `select count(*) as n from inbox_items where project = ? and closed is not null
+         and module not in (select value from json_each(?))`,
+      )
+      .get(project, JSON.stringify(muted))!.n
+    return { rev: this.rev(project), open: this.open(project), earlier, muted }
+  }
+
+  /* ---- "Use inbox": the person's switch per module ---- */
+
+  /**
+   * The modules the person turned "Use inbox" off for, sorted. Machine-wide, per module id, not per
+   * project or kehikko: a module that runs across projects is one switch.
+   */
+  muted(): string[] {
+    return this.db.query<{ module: string }, []>('select module from inbox_muted order by module').all().map((row) => row.module)
+  }
+
+  /**
+   * Turn "Use inbox" on or off for one module: the person's act, and nothing else's.
+   *
+   * Nothing in the record is dropped or closed. A muted module's reports are still kept — its items,
+   * their moves, what was seen — so turning it back on shows what it says now, not what it said the
+   * moment it was muted, and an agent reading the inbox still learns of them (marked muted). What
+   * the switch changes is what the page draws, sounds and counts.
+   *
+   * Every project's revision moves when the switch does, so every page re-reads and every project's
+   * Inbox hides or shows the module at once. Answers whether anything changed and the revisions.
+   */
+  use(module: string, on: boolean): { changed: boolean; revs: { project: number; rev: number }[] } {
+    const id = module
+    const run = this.db.transaction(() => {
+      const was = this.db.query<{ n: number }, [string]>('select 1 as n from inbox_muted where module = ?').get(id) !== null
+      if (was === !on) return { changed: false, revs: [] }
+      if (on) this.db.query('delete from inbox_muted where module = ?').run(id)
+      else this.db.query('insert into inbox_muted (module, at) values (?, ?)').run(id, this.clock())
+      const projects = this.db.query<{ id: number }, []>('select id from projects').all()
+      return { changed: true, revs: projects.map((one) => ({ project: one.id, rev: this.#bump(one.id) })) }
+    })
+    return run()
   }
 
   moves(project: number): Move[] {
@@ -240,8 +283,10 @@ export class Inbox {
 
   /** The log: closed entries and past states, newest first, narrowed by scope, a page of it. */
   log(project: number, narrowing: Narrowing | null, offset: number, limit: number): { rows: LogRow[]; more: boolean; total: number } {
+    /* What the person sees: a muted module's past is kept, and not drawn. */
+    const muted = new Set(this.muted())
     const rows = logRows(this.all(project), this.moves(project)).filter(
-      (row) => narrowing === null || inScope(row.place, narrowing.scope, narrowing.at),
+      (row) => !muted.has(row.module) && (narrowing === null || inScope(row.place, narrowing.scope, narrowing.at)),
     )
     return { rows: rows.slice(offset, offset + limit), more: rows.length > offset + limit, total: rows.length }
   }
@@ -609,6 +654,11 @@ export function ensureInbox(db: Database): void {
       key     text    not null,
       value   text    not null,
       primary key (project, key)
+    );
+    -- "Use inbox" off, per module, for the whole machine: the person's switch (Inbox.use).
+    create table if not exists inbox_muted (
+      module text    primary key,
+      at     integer not null
     );
   `)
   /* The module's named event (protocol 2.31.0), as `{ id, says }` JSON: added to a store from before it. */

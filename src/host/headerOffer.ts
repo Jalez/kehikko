@@ -5,7 +5,7 @@
  * A header holds two kinds of menus: the module's own (View, Go, Run, from what
  * it declared — `menusOf` in `host/header.ts`) and the host's Container menu
  * (the container's scope, the module's settings, its tools, skills, when its
- * header and footer show, how to use it, feedback, prompts). It was called
+ * header and footer show, whether it uses the Inbox, how to use it, feedback, prompts). It was called
  * "Frame"; "container" is the word the rest of the host's text uses for a
  * placed module, so the menu says what it is about. They used to be decided in
  * three places — the module's menus by width, the settings gear by width
@@ -89,7 +89,7 @@ export function pinsFor(width: number | null): boolean {
  * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
  * no body to hold it, it is the first rows of this menu, so it stays reachable.
  */
-export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'] as const
+export const FRAME_ENTRIES = ['standing', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'help', 'feedback', 'prompts', 'remove'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /**
@@ -107,6 +107,7 @@ export const FRAME_SAID: Record<FrameEntry, string> = {
   tools: 'tools',
   skills: 'skills',
   rows: 'header and footer',
+  inbox: 'inbox',
   help: 'how to use it',
   feedback: 'feedback',
   prompts: 'prompts',

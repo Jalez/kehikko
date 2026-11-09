@@ -20,12 +20,15 @@ import {
   postMigrate,
   postNotice,
   postReport,
+  postUse,
   type Narrowing,
   type Snapshot,
 } from '@/host/inboxClient.ts'
+import { unmuted } from '@/host/inboxUse.ts'
 import { MENTIONS_MODULE } from '@/host/whatsNewMentions.ts'
 
 const NONE: readonly Entry[] = []
+const NO_MODULES: ReadonlySet<string> = new Set()
 
 /** A project as the Inbox needs it: what a tagged item names (`path`) and what a person reads (`name`). */
 export interface ProjectRef {
@@ -152,6 +155,13 @@ export const DROP_GRACE_MS = 6000
  * across every project: each item is filed under the project it names, and a
  * project it reported to before and names nothing in now is told `[]`. The
  * answer says `projects: true`, which is how the module learns it may.
+ *
+ * ## "Use inbox"
+ *
+ * `muted` is the modules the person turned "Use inbox" off for (`host/inboxUse.ts`), as the server's
+ * last answer said. Their reports are still posted and kept; `open`, `live` and `others` leave them
+ * out, so nothing of theirs is drawn, counted or gone to by Next, and `notify` is never told of
+ * them. `all` is the record as held, for what keeps the record (`use` is the switch).
  */
 export function useInbox(options: {
   project: number | null
@@ -198,14 +208,26 @@ export function useInbox(options: {
    * back unchanged (its module's page restarted slowly, say) is not news again. See `sameItem`.
    */
   const held = useRef(new Set<string>())
+  /* The modules "Use inbox" is off for: machine-wide, so any project's answer says it. */
+  const [muted, setMuted] = useState<ReadonlySet<string>>(NO_MODULES)
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
+  const takeMuted = useCallback((list: readonly string[] | undefined) => {
+    if (!list) return
+    const was = mutedRef.current
+    if (list.length === was.size && list.every((one) => was.has(one))) return
+    mutedRef.current = new Set(list)
+    setMuted(mutedRef.current)
+  }, [])
   const adopt = useCallback(
     (id: number, snap: Snapshot | null) => {
       if (!snap) return
       for (const entry of snap.open) held.current.add(sameItem(id, entry))
+      takeMuted(snap.muted)
       if (waiting.current > 0) return
       setSnap(id, snap)
     },
-    [setSnap],
+    [setSnap, takeMuted],
   )
   const queue = useCallback(<T,>(work: () => Promise<T>): Promise<T> => {
     waiting.current += 1
@@ -220,8 +242,10 @@ export function useInbox(options: {
   }, [])
 
   const open = useMemo<readonly Entry[]>(() => (project === null ? NONE : (snaps[project]?.open ?? NONE)), [project, snaps])
-  const openRef = useRef(open)
-  openRef.current = open
+  /* What the person is shown: the record without the muted modules. */
+  const shown = useMemo(() => unmuted(open, muted), [open, muted])
+  const openRef = useRef(shown)
+  openRef.current = shown
   const rev = project === null ? 0 : (snaps[project]?.rev ?? 0)
   const earlier = project === null ? 0 : (snaps[project]?.earlier ?? 0)
 
@@ -253,6 +277,8 @@ export function useInbox(options: {
       held.current.add(said)
       if (told.current.has(said)) continue
       told.current.add(said)
+      /* Muted: held and told, so turning it back on does not sound what happened meanwhile. */
+      if (mutedRef.current.has(entry.module)) continue
       /* A place can only be open on screen in the open project. */
       if (id === projectRef.current && placeOpened(entry.place, atRef.current)) continue
       notifyRef.current?.(entry, id)
@@ -526,17 +552,30 @@ export function useInbox(options: {
     if (arrived.length) see(arrived)
   }, [here, see])
 
-  const live = useMemo(() => open.filter(isLive), [open])
+  const live = useMemo(() => shown.filter(isLive), [shown])
 
   /* The other projects' live entries, each under its project; the ones with nothing live are left out. */
   const others = useMemo<readonly Elsewhere[]>(
     () =>
       projects
         .filter((one) => one.id !== project)
-        .map((one) => ({ project: one, entries: (snaps[one.id]?.open ?? NONE).filter(isLive) }))
+        .map((one) => ({ project: one, entries: unmuted(snaps[one.id]?.open ?? NONE, muted).filter(isLive) }))
         .filter((one) => one.entries.length > 0),
-    [projects, project, snaps],
+    [projects, project, snaps, muted],
   )
 
-  return { open, live, others, rev, earlier, receive, greeted, notice, see, dismiss, act, refresh }
+  /**
+   * The person's "Use inbox" for one module: shown or hidden at once, then as the server answers.
+   * Not taken: back as it was.
+   */
+  const use = useCallback(
+    (module: string, on: boolean) => {
+      const was = [...mutedRef.current]
+      takeMuted(on ? was.filter((one) => one !== module) : [...new Set([...was, module])].sort())
+      void postUse(module, on).then((got) => takeMuted(got ?? was))
+    },
+    [takeMuted],
+  )
+
+  return { open: shown, all: open, live, others, rev, earlier, muted, use, receive, greeted, notice, see, dismiss, act, refresh }
 }

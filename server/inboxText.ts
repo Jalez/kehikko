@@ -60,6 +60,7 @@ export function activityRowsFor(inbox: Inbox, db: Database, project: number): Ac
   const names = namerFor(db, project)
   const open = inbox.open(project).filter((one) => !isDismissed(one))
   const s = sections(open)
+  const muted = new Set(inbox.muted())
   return [...s.needs, ...s.working, ...s.finished, ...s.seen].map((entry) => ({
     module: entry.module,
     name: entry.name,
@@ -72,6 +73,7 @@ export function activityRowsFor(inbox: Inbox, db: Database, project: number): Ac
     priority: entry.priority,
     ...(entry.named ? { event: { ...entry.named } } : {}),
     entered: entry.entered,
+    ...(muted.has(entry.module) ? { muted: true } : {}),
   }))
 }
 
@@ -82,12 +84,15 @@ const word = (row: LogRow): string =>
       ? 'finished, seen by the person'
       : wasWords(row.state)
 
-function logLine(row: LogRow, names: Namer, now: number, here?: (place: LogRow['place']) => string): string {
+/** Said of a line whose module the person turned "Use inbox" off for: kept, and not shown to them. */
+export const MUTED_WORDS = '(muted by the person)'
+
+function logLine(row: LogRow, names: Namer, now: number, muted: ReadonlySet<string>): string {
   const where = placeWords(row.place, names)
   return (
     `${quoted(row.name || row.module)} says ${quoted(row.label)} — ${word(row)}, ${ageWords(now, row.at)}` +
     (where ? ` — at ${where}` : '') +
-    (here ? ` — ${here(row.place)}` : '')
+    (muted.has(row.module) ? ` ${MUTED_WORDS}` : '')
   )
 }
 
@@ -101,16 +106,18 @@ export function earlierLines(inbox: Inbox, db: Database, project: number, take: 
     `earlier: ${rows.length} thing${rows.length === 1 ? '' : 's'} closed or past in this project's inbox`
       + `${rows.length > take ? `; the newest ${take}` : ''}. read_inbox lists more.`,
   ]
-  for (const row of rows.slice(0, take)) lines.push(`  ${logLine(row, names, now)}`)
+  const muted = new Set(inbox.muted())
+  for (const row of rows.slice(0, take)) lines.push(`  ${logLine(row, names, now, muted)}`)
   return lines
 }
 
-function entryLine(entry: Entry, names: Namer, now: number, here: string | null): string {
+function entryLine(entry: Entry, names: Namer, now: number, here: string | null, muted: ReadonlySet<string>): string {
   const where = placeWords(entry.place, names)
   const flags = [
     entry.priority === 'urgent' ? 'URGENT' : entry.priority === 'low' ? 'low priority' : null,
     entry.state === 'done' ? (isSeen(entry) ? 'seen' : 'not seen yet') : null,
     here,
+    muted.has(entry.module) ? MUTED_WORDS : null,
   ].filter(Boolean)
   return (
     `${quoted(entry.name || entry.module)} says ${quoted(entry.label)} — ${STATE_WORDS[entry.state]}`
@@ -156,6 +163,15 @@ export function readInboxText(
         + `${open.length - shown.length} other${open.length - shown.length === 1 ? '' : 's'} are elsewhere; scope: "everywhere" lists them.`
       : 'scope: everywhere in this project.',
   )
+  const muted = new Set(inbox.muted())
+  if (muted.size) {
+    const named = [...muted].map((module) => quoted(open.find((one) => one.module === module)?.name || module))
+    lines.push(
+      `Muted by the person: ${named.join(', ')} — "Use inbox" is off for ${muted.size === 1 ? 'it' : 'them'}, so the person's `
+        + 'Inbox shows, sounds and counts nothing of theirs. Their lines below are marked (muted by the person): the person '
+        + 'has not seen them there.',
+    )
+  }
   const total = s.needs.length + s.working.length + s.finished.length
   if (!total) lines.push('Nothing needs the person, and nothing is working or finished and unseen in this scope.')
 
@@ -165,10 +181,10 @@ export function readInboxText(
     lines.push(`${heading} (${list.length}):`)
     for (const row of fold(list)) {
       if (row.members.length === 1) {
-        lines.push(`  ${entryLine(row.head, names, now, label(row.head))}`)
+        lines.push(`  ${entryLine(row.head, names, now, label(row.head), muted)}`)
       } else {
         lines.push(`  ${row.members.length} from ${quoted(row.head.name || row.head.module)} in one group:`)
-        for (const member of row.members) lines.push(`    ${entryLine(member, names, now, label(member))}`)
+        for (const member of row.members) lines.push(`    ${entryLine(member, names, now, label(member), muted)}`)
       }
     }
   }
@@ -184,7 +200,7 @@ export function readInboxText(
     lines.push(
       `Earlier (${earlier.length}, newest first${earlier.length > take ? `; ${take} shown — earlier: n asks for more, up to 100` : ''}):`,
     )
-    for (const row of earlier.slice(0, take)) lines.push(`  ${logLine(row, names, now)}`)
+    for (const row of earlier.slice(0, take)) lines.push(`  ${logLine(row, names, now, muted)}`)
   }
   lines.push('')
   lines.push(

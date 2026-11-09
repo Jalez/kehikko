@@ -117,6 +117,7 @@ import { chosen, remembered, sameChoice, settle as settleFilters } from './host/
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
+import { offersInboxUse } from './host/inboxUse.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
 import { useChime } from './canvas/useChime.ts'
 import { visitFor, type Here } from './host/pickerOrder.ts'
@@ -3855,8 +3856,9 @@ export function App() {
       ...(line.place?.parts?.length ? { parts: [...line.place.parts] } : {}),
       kehikko: line.place?.kehikko ?? kehikkoRef.current?.key,
     }
-    /* A line about a place that is open on screen is not chimed for, like an item. */
-    if (!placeOpened(where as Place, activityAt)) {
+    /* A line about a place that is open on screen is not chimed for, like an item; nor is a line
+       of a module the person turned "Use inbox" off for (it is still kept). */
+    if (!placeOpened(where as Place, activityAt) && !inbox.muted.has(from)) {
       chime.offer(line.level === 'attention' ? 'attention' : 'notice', from)
       if (projectRef.current !== null) {
         const { entry } = noticeEntry(from, moduleName(from), line, `toast-${Date.now()}`, Date.now(), kehikkoRef.current?.key)
@@ -4099,8 +4101,14 @@ export function App() {
     }
   }, [projectId])
 
+  /* "Use inbox" off, named for the panel: the way back is where the muting is said. */
+  const mutedModules = useMemo(
+    () => [...inbox.muted].map((id) => ({ id, name: moduleName(id) })).sort((a, b) => a.name.localeCompare(b.name)),
+    [inbox.muted, moduleName],
+  )
   const barActivity = useMemo<BarActivity | null>(() => {
-    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen && messageCount === 0) return null
+    /* A muted module keeps the control there: never mute silently. */
+    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen && messageCount === 0 && mutedModules.length === 0) return null
     const narrowing = { scope: inboxScope, epic: about.epic, kehikko: open?.key ?? null }
     return {
       epics: activityMarks.epics,
@@ -4127,6 +4135,9 @@ export function App() {
         onNext: () => goNextRef.current(),
         onSee: inbox.see,
         onDismiss: inbox.dismiss,
+        /* "Use inbox", the person's per module: off from a row's by-line, back on from the muted list. */
+        muted: mutedModules,
+        onUse: inbox.use,
         onForget: (keys) => inbox.act('forget', keys ?? undefined, narrowing),
         onSeeAll: () => inbox.act('seen-all', undefined, narrowing),
         loadLog: (offset, limit) =>
@@ -4149,6 +4160,7 @@ export function App() {
   }, [
     messageCount,
     moduleName,
+    mutedModules,
     inbox,
     inboxOpen,
     inboxScope,
@@ -4987,6 +4999,12 @@ export function App() {
                      kehikko; looking again picks up what the version is doing. */
                   onVersion={() => void look(true)}
                   activity={activityMarks.modules.get(presence.id) ?? null}
+                  /* "Use inbox": the person's, per module and machine-wide; a row of the Container menu. */
+                  inboxUse={
+                    offersInboxUse(presence.module, inbox.muted.has(presence.id))
+                      ? { on: !inbox.muted.has(presence.id), onChange: (on) => inbox.use(presence.id, on) }
+                      : undefined
+                  }
                   onActivitySeen={() =>
                     inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
                   }
