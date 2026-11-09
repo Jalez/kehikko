@@ -127,7 +127,7 @@ export interface Facts {
   unpushed: number
   /** HEAD is contained in the default branch. */
   contained: boolean
-  /** When something in it last changed, ms. */
+  /** When work in it last happened, ms: its newest commit or checkout, or a file in its working tree. Not git's own housekeeping (`workChangedAt`). */
   changedAt: number
   /** A running process has its working directory here: its pid. */
   busy: number | null

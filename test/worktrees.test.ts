@@ -232,9 +232,9 @@ function deps(db: Database, told: Array<[number, string]> = []): WorktreeDeps {
 
 describe('the scan and the removal, on real repositories', () => {
   test('offers what is finished and safe, says why the rest are left alone, and never the main checkout', async () => {
-    const recent = join(wts, 'recent')
+    /* A file edited in the working tree is work; the folder's own time is not read. */
     const soon = new Date(later() - 60 * 60_000)
-    utimesSync(recent, soon, soon)
+    utimesSync(join(wts, 'recent', 'README'), soon, soon)
 
     const db = new Database(':memory:')
     const worktrees = new Worktrees(deps(db))
