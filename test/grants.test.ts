@@ -50,6 +50,7 @@ const PARAMS: Record<string, unknown> = {
   'messages.read': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
   'messages.mine': {},
   'messages.post': { body: 'hi', to: { project: true } },
+  'messages.notify': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', body: 'hi' },
   'messages.say': { body: 'hi', to: { project: true } },
 }
 
