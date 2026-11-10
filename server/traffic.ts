@@ -314,6 +314,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/call': 'a module asks',
   '/host/watch': 'the page waits for news',
   '/host/modules': 'the page reads the modules',
+  '/host/module-addresses': 'the page reads whether modules have stable addresses',
   '/host/quiet': 'the page asks whether modules are quiet',
   '/host/canvases': 'the page reads or saves the kehikot',
   '/host/connections': 'the person switches how a kehikko’s modules affect each other',

@@ -86,7 +86,8 @@
   `KEHIKOT_HOST_PATH` (the folders the host put first on an installed module's
   `PATH`, its own `bun`; a module takes them off with the protocol's `personEnv`
   for what it starts on the person's behalf),
-  `KEHIKOT_SEED_PROJECT`. Process plumbing between the desktop shell and this host
+  `KEHIKOT_SEED_PROJECT`, `KEHIKOT_MODULE_ADDRESSES` (`1` turns on the modules' stable
+  addresses, `server/moduleProxy.ts`; off by default). Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
   `KEHIKKO_PORT`, `KEHIKKO_API_PORT`) keeps its `KEHIKKO_` name.
 - Run `bun run check:storage` before finishing; it scans this host,
