@@ -486,7 +486,11 @@ container: its scope, the module's settings, tools (the plug), skills, when the
 header and footer show, how to use it, feedback to its authors, and prompts.
 Under 220 pixels the module's menus, its filter, clear and refresh ("Shown"),
 and Container are sections of one "⋯", and removing the container is
-Container's last row ("Remove from this kehikko", pressed twice).
+Container's last row ("Remove from this kehikko", pressed twice). Where the
+window has room, that menu stands its sections side by side — the module's
+menus, Shown, Container, up to three columns, each with its headings and
+scrolling on its own only when the window is short — and in a narrow window it
+is one list. Up and Down move within a column, Left and Right between columns.
 The checkbox, the dot, the module's icon and the name stay direct on the left,
 and fold and remove on the right; however narrow, the row keeps the checkbox,
 the icon, the "⋯", the fold button and the name, the name cut first.

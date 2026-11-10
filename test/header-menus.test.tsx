@@ -482,7 +482,7 @@ describe('narrow', () => {
     expect([...page.host.querySelectorAll('[data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['more'])
     expect(trigger('more')!.getAttribute('data-run')).toBe('failed')
     await open('more')
-    const parts = [...content('more')!.querySelectorAll(':scope > [data-section]')]
+    const parts = [...content('more')!.querySelectorAll('[data-section]')]
     expect(parts.map((part) => part.getAttribute('data-section'))).toEqual(['view', 'go', 'run'])
     expect(parts.map((part) => part.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run'])
     /* Twelve sections are one row here, not twelve. */
