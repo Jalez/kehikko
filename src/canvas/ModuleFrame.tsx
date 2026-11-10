@@ -290,8 +290,6 @@ export function ModuleFrame({
         header: (items) => watcherRef.current.header(items),
         footer: (items) => watcherRef.current.footer?.(items),
         pointer: (phase, at) => watcherRef.current.pointer?.(phase, at),
-        findResult: (result) => watcherRef.current.findResult?.(result),
-        findOpen: (open) => watcherRef.current.findOpen?.(open),
       },
       { name: framed.name },
     )
@@ -371,8 +369,6 @@ export function ModuleFrame({
       item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined, press.carried, press.text),
       /* And an Inbox item of its own that the person opened, once the host came to its place. */
       opened: (item) => conversation.sendOpened(item),
-      /* And a search for the find bar over its container (protocol 2.69.0, `host/find.ts`). */
-      find: (ask) => conversation.sendFind(ask),
       /* And the keyboard, after a press that closed its menu. The frame's
          window, which a parent may focus whatever origin is in it; the
          element is the fallback for a frame whose window is not there yet. */

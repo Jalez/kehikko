@@ -13,8 +13,6 @@ import { NO_FOOTER, footerRowDrawn } from '@/host/footer.ts'
 import { fixedFooter, type FooterSource } from '@/host/footerStore.ts'
 import { focusHandlers, revealHandlers, useRevealed, type Reveals } from '@/host/reveal.ts'
 import { SourcedFooterBar } from './FooterBar.tsx'
-import { FindBar } from './FindBar.tsx'
-import type { FindBar as FindBarState } from '@/host/find.ts'
 import { ClearButton } from './Clearing.tsx'
 import type { ActivityState } from 'kehikot-module-protocol'
 import { ActivityDot } from './Activity.tsx'
@@ -136,13 +134,7 @@ export function Container({
   onActivitySeen,
   inboxUse,
   expand,
-  find = null,
 }: {
-  /**
-   * The find bar over this container's page (protocol 2.69.0, `host/find.ts`): its state and what
-   * its controls do. Absent or closed: no bar.
-   */
-  find?: FindControls | null
   presence: Presence
   /**
    * The project is on "All epics" and this module works on one epic at a
@@ -1055,20 +1047,6 @@ export function Container({
           />
         ) : null}
 
-        {/* The find bar, over the top of the page (protocol 2.69.0): only while the page is showing. */}
-        {showing.kind === 'page' && find?.bar.open ? (
-          <FindBar
-            bar={find.bar}
-            name={name}
-            width={width}
-            mac={find.mac}
-            onQuery={find.onQuery}
-            onCase={find.onCase}
-            onStep={find.onStep}
-            onClose={find.onClose}
-          />
-        ) : null}
-
         {/* "All epics", and a module that cannot show them: one quiet sentence
             in place of a page that would be blank or on the last epic. Opaque
             and taking the pointer, like a notice; the page is hidden beneath
@@ -1107,16 +1085,6 @@ export function Container({
       )}
     </div>
   )
-}
-
-/** The find bar of one container, as the canvas hands it over (`useFinds`). */
-export interface FindControls {
-  bar: FindBarState
-  mac: boolean
-  onQuery(query: string): void
-  onCase(caseSensitive: boolean): void
-  onStep(direction: 'next' | 'prev'): void
-  onClose(): void
 }
 
 /** A container nobody wired a press to: said, rather than a row that does nothing. */

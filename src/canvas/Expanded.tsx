@@ -4,8 +4,6 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { EXPANDED_SHARE, SHRINK_WORD } from '@/host/expand.ts'
 import { ModuleIcon } from './ModuleIcon.tsx'
-import { FindBar } from './FindBar.tsx'
-import type { FindControls } from './Container.tsx'
 
 /**
  * The large panel a container is shown in while it is expanded (`host/expand.ts`): a dimmed canvas
@@ -24,10 +22,7 @@ export function Expanded({
   body,
   onShrink,
   onMoved,
-  find = null,
 }: {
-  /** The find bar over the page (protocol 2.69.0), drawn here while the container is shown large. */
-  find?: FindControls | null
   id: string
   name: string
   icon?: string | null
@@ -94,11 +89,7 @@ export function Expanded({
             {SHRINK_WORD}
           </Button>
         </header>
-        <div ref={body} className="pointer-events-none relative min-h-0 flex-1" data-expanded-body>
-          {find?.bar.open ? (
-            <FindBar bar={find.bar} name={name} width={box?.width ?? null} mac={find.mac} onQuery={find.onQuery} onCase={find.onCase} onStep={find.onStep} onClose={find.onClose} />
-          ) : null}
-        </div>
+        <div ref={body} className="pointer-events-none min-h-0 flex-1" data-expanded-body />
       </div>
     </>
   )
