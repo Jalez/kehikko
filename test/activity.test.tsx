@@ -237,7 +237,7 @@ describe('the dots', () => {
     const elsewhere = [entry('x', 'attention', { place: { kehikko: 'k2' } }), entry('y', 'working', { place: { kehikko: 'k2' } })]
     const here = renderToStaticMarkup(<InboxPanel view={view(elsewhere, { scope: 'here' })} />)
     expect(here).toContain('Nothing needs you here.')
-    expect(here).toContain('1 thing needs you elsewhere')
+    expect(here).toContain('1 entry needs you in another kehikko')
     expect(here).toContain('Show everywhere')
     const none = renderToStaticMarkup(<InboxPanel view={view([], { scope: 'everywhere', next: null })} />)
     expect(none).toContain('Nothing needs you.')

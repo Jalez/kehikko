@@ -366,6 +366,7 @@ describe('the fold control: one row or two', () => {
     expect(reveal.every((one) => one.getAttribute('role') === 'menuitemradio')).toBe(true)
     expect(reveal[0]!.getAttribute('aria-checked')).toBe('true')
     expect(reveal[0]!.textContent).toContain('now: always shown')
+    expect(reveal[0]!.textContent).toContain('As the bar’s Headers setting')
     expect(reveal[3]!.textContent).toBe('Reveal on clickthey hide, and come back when you click inside this container; Escape or a click elsewhere hides them.')
     await act(async () => reveal[3]!.click())
     expect(chosen).toEqual(['click'])

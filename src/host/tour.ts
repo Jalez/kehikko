@@ -405,7 +405,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-tour="focus"]', 'button[aria-label="hide headers and footers"]', 'button[aria-label="always show headers and footers"]'],
+        selectors: ['[data-tour="focus"]', 'button[aria-label="Headers: hide headers and footers"]', 'button[aria-label="Headers: always show headers and footers"]'],
         title: 'Headers and footers',
         body:
           'Hide every container’s header and footer until the pointer is over it; press again to keep them shown. A container can choose its own way in its Container menu.',

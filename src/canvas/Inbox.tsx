@@ -568,7 +568,7 @@ export function InboxPanel({ view }: { view: InboxView }) {
             <p>{view.tally.needHere + view.tally.needElsewhere + needingElsewhere(view) === 0 ? 'Nothing needs you.' : 'Nothing needs you here.'}</p>
             {scope === 'here' && elsewhere + view.tally.working + view.tally.finished > 0 ? (
               <p className="text-muted-foreground mt-0.5">
-                {elsewhere ? `${sayNames(elsewhere, 'thing needs', 'things need')} you elsewhere` : 'Nothing here'}
+                {elsewhere ? (elsewhere === 1 ? '1 entry needs you in another kehikko' : `${elsewhere} entries need you in other kehikot`) : 'Nothing here'}
                 {elsewhereWords(view.tally) ? `; ${elsewhereWords(view.tally)}` : ''}.{' '}
                 <button
                   type="button"

@@ -556,7 +556,7 @@ describe.skipIf(!inChild)('the dialog', () => {
     await render(<Host />)
     await openFromNotice()
     const pane = document.querySelector('[data-pane="kehikot.board"]')!
-    expect(pane.querySelector('[data-testid="whats-new-main"]')!.textContent).toContain('following main · no release notes')
+    expect(pane.querySelector('[data-testid="whats-new-main"]')!.textContent).toContain('tracks the latest code (no releases yet)')
     expect(pane.textContent).toContain('It moved from aaa1111 to bbb2222.')
   })
 

@@ -108,7 +108,6 @@ export function ConditionPanel({
   line,
   detail,
   at,
-  protocols,
   children,
 }: {
   condition: ModuleCondition
@@ -124,7 +123,6 @@ export function ConditionPanel({
   /** The last lines a module the host started printed, when its start failed. */
   detail?: string[]
   at: string
-  protocols?: { host: number; module: number | null; range: string }
   children?: React.ReactNode
 }) {
   /* A moon for a module the host put down, and the unplugged cable only for
@@ -172,27 +170,6 @@ export function ConditionPanel({
       >
         {line}
       </p>
-
-      {/*
-       * Both numbers, always, for an incompatible module — the brief's own
-       * requirement and a good one. "This module is incompatible" is a sentence
-       * a person can do nothing with. "It speaks 3, this host speaks 2" tells
-       * them which of the two programs to update, which is the entire decision
-       * in front of them.
-       */}
-      {condition === 'incompatible' && protocols ? (
-        /* Left-aligned inside the centred column, on purpose: it is a table of
-           three facts to be compared down the page, and centring the rows would
-           put the numbers on a ragged edge where the eye cannot line them up. */
-        <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-left font-mono text-xs">
-          <dt>module protocol</dt>
-          <dd className="text-foreground">{protocols.module ?? 'unstated'}</dd>
-          <dt>module speaks</dt>
-          <dd className="text-foreground">{protocols.range}</dd>
-          <dt>this Kehikot</dt>
-          <dd className="text-foreground">{protocols.host}</dd>
-        </dl>
-      ) : null}
 
       {/* What the program itself said before it stopped. Left-aligned and
           monospaced because it is output, not a sentence of the host's. */}

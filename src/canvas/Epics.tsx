@@ -318,7 +318,7 @@ export function Epics({
             maxLength={200}
             note={
               <>
-                the slug stays <span className="text-foreground break-all font-mono">{retitling.slug}</span> — it is
+                the short name (used in links) stays <span className="text-foreground break-all font-mono">{retitling.slug}</span> — it is
                 what this kehikko, and every module’s own material, files this epic under.
               </>
             }
@@ -485,13 +485,13 @@ function Create({
         value={chosen}
         disabled={saving}
         onChange={(event) => setSlug(event.target.value === '' ? null : event.target.value)}
-        aria-label="what the new epic is filed under — its slug"
-        placeholder="its slug"
+        aria-label="Short name (used in links)"
+        placeholder="Short name (used in links)"
         spellCheck={false}
         className="mt-1.5 h-7 w-full font-mono text-xs"
       />
       <p className="text-muted-foreground pt-1.5 text-[11px] leading-snug">
-        {slug === null ? 'the slug follows the title until you edit it. ' : 'the slug is yours. '}
+        {slug === null ? 'the short name follows the title until you edit it. ' : 'the short name is yours. '}
         It is what this kehikko, and every module’s own material, will file this epic under, and it does not
         change afterwards.
       </p>

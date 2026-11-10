@@ -91,6 +91,6 @@ export function offerOfCreate(
   return {
     offered: true,
     makesDirectory: false,
-    note: 'a file in this project’s .kehikot/host/epics, named by the slug',
+    note: 'a file in this project’s .kehikot/host/epics, named by its short name',
   }
 }

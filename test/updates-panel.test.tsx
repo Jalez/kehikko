@@ -206,7 +206,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     /* The level module says it follows main. */
     const level = [...document.querySelectorAll('[data-testid="updates-level"] button')].find((b) => b.textContent === 'show') as HTMLButtonElement
     await act(async () => level.click())
-    expect(document.querySelector('[data-testid="updates-release"]')?.textContent).toBe('following main · no releases yet')
+    expect(document.querySelector('[data-testid="updates-release"]')?.textContent).toBe('tracks the latest code (no releases yet)')
 
     const whatsNew = document.querySelector('[data-testid="updates-whats-new"]') as HTMLButtonElement
     await act(async () => whatsNew.click())

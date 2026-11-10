@@ -1,6 +1,7 @@
 import { LayoutGrid, Moon, PanelTop, PanelTopClose, Settings as Gear, Sun } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { chordSaid, onMac, openSettings } from '@/host/agentSettings.ts'
@@ -374,9 +375,10 @@ export function Bar({
          * look at it, kept in a cookie, and true of the whole application
          * rather than of one kehikko.
          *
-         * The label says what it does to the headers rather than naming the
+         * The tooltip says what it does to the headers rather than naming the
          * mode. "Focus mode" is a phrase that means something different in
-         * every program that has one, and this control has room for a sentence.
+         * every program that has one. Its visible name is "Headers", which is
+         * what each container's reveal choice points at.
          */}
         <Hint
           label={
@@ -387,18 +389,19 @@ export function Bar({
         >
           <Button
             variant="ghost"
-            size="icon"
-            aria-label={focus === 'on' ? 'always show headers and footers' : 'hide headers and footers'}
+            size="sm"
+            aria-label={focus === 'on' ? 'Headers: always show headers and footers' : 'Headers: hide headers and footers'}
             aria-pressed={focus === 'on'}
             data-tour="focus"
-            className={
-              focus === 'on'
-                ? 'text-foreground size-6'
-                : 'text-muted-foreground hover:text-foreground size-6'
-            }
+            className={cn(
+              'h-6 gap-1 px-1.5 text-[11px] font-normal max-[640px]:w-6 max-[640px]:px-0',
+              focus === 'on' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
             onClick={onFocus}
           >
             {focus === 'on' ? <PanelTopClose className="size-3" /> : <PanelTop className="size-3" />}
+            {/* Its visible name, so the containers' "As the bar’s Headers setting" names something on screen. */}
+            <span className="max-[640px]:sr-only">Headers</span>
           </Button>
         </Hint>
 
