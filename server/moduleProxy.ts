@@ -1,6 +1,6 @@
 import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-module-protocol'
 
-import { frameOriginFor, machineBaseFor, routeOf, type ModuleRoute } from '../src/host/moduleAddress.ts'
+import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeOf, type ModuleRoute } from '../src/host/moduleAddress.ts'
 
 /**
  * The host forwarding a request for a module to the process it knows is that module, at whatever
@@ -55,15 +55,40 @@ export const SOCKET_OPEN_TIMEOUT_MS = 5_000
 /** Messages held for a socket whose other side has not opened yet. More, and the socket is closed. */
 export const SOCKET_QUEUE_MOST = 256
 
+/**
+ * How far one side of a relayed socket may fall behind the other, in bytes, before the relay
+ * closes it (1013, "try again later"). Neither side's reading can be paused (Bun's sockets read
+ * as data arrives), so this is the backpressure: memory is bounded, and a reader that cannot keep
+ * up is told so instead of being fed until the host runs out. A terminal's output, at the pace a
+ * person reads, is nowhere near it.
+ */
+export const SOCKET_BUFFER_MOST = 4 * 1024 * 1024
+
 /** What the proxy is told about one module: where it answers, and the token this host handed it (null: it did not start it). */
 export interface ProxyTarget {
   origin: string
   token: string | null
 }
 
+/** Which program a route is for: a module, or a pinned version of it (its tag or the tag's slug). */
+export interface Wanted {
+  id: string
+  version?: string
+}
+
 export interface ProxyDeps {
-  /** Where a module answers and its token, or null when nothing is registered under that id. */
-  target(id: string): ProxyTarget | null | Promise<ProxyTarget | null>
+  /**
+   * Where a module (or a pinned version) answers and its token, or null when nothing is registered
+   * under that id or no such version runs. `fresh`: read the registration again, not what was last
+   * swept. Asked again fresh once when what it said does not answer as the module: a module bound
+   * a new port since the last sweep.
+   */
+  target(wanted: Wanted, fresh: boolean): ProxyTarget | null | Promise<ProxyTarget | null>
+  /**
+   * What this host answers on `ADDRESS_CHECK_PATH` under any frame name: a value minted per start,
+   * which the page compares with what `/host/module-addresses` told it (`src/host/addressCheck.ts`).
+   */
+  check?: string
   /** This host's own port: the stable addresses are on it. */
   port: number
   fetch?: typeof fetch
@@ -110,8 +135,8 @@ export function fromABrowser(headers: Headers): boolean {
 
 /** The address the request came by, as an origin plus base path, for putting a `Location` back. */
 function cameBy(route: ModuleRoute, port: number): { origin: string | null; base: string } {
-  if (route.kind === 'frame') return { origin: frameOriginFor(route.id, port), base: '' }
-  return { origin: `http://127.0.0.1:${port}`, base: new URL(machineBaseFor(route.id, port)).pathname }
+  if (route.kind === 'frame') return { origin: frameOriginOf(route, port), base: '' }
+  return { origin: `http://127.0.0.1:${port}`, base: new URL(machineBaseFor(route.id, port, route.version)).pathname }
 }
 
 /**
@@ -128,7 +153,7 @@ export function forwardHeaders(incoming: Headers, route: ModuleRoute, real: URL,
     out.set(key, value)
   }
   out.set('host', real.host)
-  const own = frameOriginFor(route.id, port)
+  const own = frameOriginOf(route, port)
   const origin = incoming.get('origin')
   if (origin !== null && own !== null && route.kind === 'frame' && origin === own) out.set('origin', real.origin)
   const referer = incoming.get('referer')
@@ -170,24 +195,41 @@ export class ModuleProxy {
     this.#now = deps.now ?? Date.now
   }
 
-  /** Forget what was found about one module, or all: its process changed. */
+  /** Forget what was found about one module (all its versions), or all: its process changed. */
   forget(id?: string): void {
     if (id === undefined) this.#found.clear()
-    else this.#found.delete(id)
+    else for (const key of [...this.#found.keys()]) if (key === id || key.startsWith(`${id}@`)) this.#found.delete(key)
   }
 
-  /** The target and its identity, or a refusal. */
-  async #reach(id: string): Promise<{ ok: true; target: ProxyTarget; real: URL } | { ok: false; response: Response }> {
-    const target = await this.#deps.target(id)
-    if (!target) return { ok: false, response: refused(404, `No module called ${id} is registered on this computer.`) }
+  /** The target and its identity, or a refusal. Asks once more, fresh, when the target did not answer as the module. */
+  async #reach(route: ModuleRoute): Promise<{ ok: true; target: ProxyTarget; real: URL } | { ok: false; response: Response }> {
+    const wanted: Wanted = { id: route.id, ...(route.version ? { version: route.version } : {}) }
+    const name = said(route)
+    let target = await this.#deps.target(wanted, false)
+    let identity: Identity | null = null
+    for (const fresh of [false, true]) {
+      if (fresh) {
+        const again = await this.#deps.target(wanted, true)
+        if (!again || (target && again.origin === target.origin && again.token === target.token)) break
+        target = again
+      }
+      if (!target) break
+      identity = await this.identify(name, keyOf(wanted), target)
+      if (identity.ok) break
+    }
+    if (!target) {
+      return {
+        ok: false,
+        response: refused(404, route.version ? `No version ${route.version} of ${route.id} is running on this computer.` : `No module called ${route.id} is registered on this computer.`),
+      }
+    }
     let real: URL
     try {
       real = new URL(target.origin)
     } catch {
-      return { ok: false, response: refused(502, `${id} is registered at ${target.origin}, which is not an address.`) }
+      return { ok: false, response: refused(502, `${name} is registered at ${target.origin}, which is not an address.`) }
     }
-    const identity = await this.identify(id, target)
-    if (!identity.ok) return { ok: false, response: refused(identity.status, identity.why) }
+    if (!identity || !identity.ok) return { ok: false, response: refused(identity?.status ?? 503, identity?.why ?? `${name} is not running.`) }
     return { ok: true, target, real }
   }
 
@@ -195,15 +237,15 @@ export class ModuleProxy {
    * Who answers at a module's origin: this module, or not. Kept for `KEEP_MS` per origin and token.
    * Never throws.
    */
-  async identify(id: string, target: ProxyTarget): Promise<Identity> {
-    const kept = this.#found.get(id)
+  async identify(name: string, key: string, target: ProxyTarget): Promise<Identity> {
+    const kept = this.#found.get(key)
     if (kept && kept.origin === target.origin && kept.token === target.token && this.#now() - kept.at < KEEP_MS) return kept.identity
-    const identity = await this.#ask(id, target)
-    this.#found.set(id, { origin: target.origin, token: target.token, at: this.#now(), identity })
+    const identity = await this.#ask(name, key.split('@')[0]!, target)
+    this.#found.set(key, { origin: target.origin, token: target.token, at: this.#now(), identity })
     return identity
   }
 
-  async #ask(id: string, target: ProxyTarget): Promise<Identity> {
+  async #ask(name: string, id: string, target: ProxyTarget): Promise<Identity> {
     const control = new AbortController()
     const timer = setTimeout(() => control.abort(), IDENTIFY_TIMEOUT_MS)
     let response: Response
@@ -211,10 +253,10 @@ export class ModuleProxy {
       response = await this.#fetch(`${target.origin}${WELL_KNOWN}`, { signal: control.signal, redirect: 'manual' })
     } catch {
       clearTimeout(timer)
-      return { ok: false, status: 503, why: `${id} is not running: nothing answers at ${target.origin}.` }
+      return { ok: false, status: 503, why: `${name} is not running: nothing answers at ${target.origin}.` }
     }
     try {
-      const stranger = `Something else is answering at ${target.origin}, where ${id} is registered, so nothing was sent there. ${id} is not running, or moved to another port.`
+      const stranger = `Something else is answering at ${target.origin}, where ${name} is registered, so nothing was sent there. ${name} is not running, or moved to another port.`
       if (!response.ok) return { ok: false, status: 502, why: stranger }
       const body = (await response.json().catch(() => null)) as { id?: unknown; build?: unknown } | null
       if (!body || typeof body.id !== 'string' || body.id !== id) return { ok: false, status: 502, why: stranger }
@@ -223,7 +265,7 @@ export class ModuleProxy {
         return {
           ok: false,
           status: 502,
-          why: `The ${id} answering at ${target.origin} is not the process this host started there, so nothing was sent to it. It may be an older copy that is still running.`,
+          why: `The ${name} answering at ${target.origin} is not the process this host started there, so nothing was sent to it. It may be an older copy that is still running.`,
         }
       }
       return { ok: true }
@@ -242,7 +284,14 @@ export class ModuleProxy {
    */
   async handle(request: Request, srv: Upgrader, own: ReadonlySet<string>, patient: (request: Request) => void = () => {}): Promise<Response | 'upgraded' | null> {
     const host = request.headers.get('host')
-    const route = routeOf(host, new URL(request.url).pathname)
+    const pathname = new URL(request.url).pathname
+    /* The page's self-check, under any frame name: this host is the one answering there. */
+    if (pathname === ADDRESS_CHECK_PATH && isModuleHost(host) && this.#deps.check) {
+      return new Response(JSON.stringify({ host: this.#deps.check }), {
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' },
+      })
+    }
+    const route = routeOf(host, pathname)
     if (!route) return null
     if (route.kind === 'machine' && host !== null && !own.has(host.trim().toLowerCase())) return null
     patient(request)
@@ -263,7 +312,7 @@ export class ModuleProxy {
     if (machine && fromABrowser(request.headers)) {
       return refused(403, 'This address is for programs on this computer. A page reaches a module at its own address.', true)
     }
-    const reached = await this.#reach(route.id)
+    const reached = await this.#reach(route)
     if (!reached.ok) return machine ? sandbox(reached.response) : reached.response
     const { target, real } = reached
     const url = new URL(request.url)
@@ -286,12 +335,12 @@ export class ModuleProxy {
     } catch (error) {
       this.forget(route.id)
       if ((error as Error)?.name === 'AbortError') return refused(499, 'The request was given up before the module answered.', machine)
-      return refused(503, `${route.id} stopped answering at ${target.origin}.`, machine)
+      return refused(503, `${said(route)} stopped answering at ${target.origin}.`, machine)
     }
     if (startVerdict(target.token, answer.headers.get(START_HEADER)) === 'other') {
       void answer.body?.cancel().catch(() => {})
       this.forget(route.id)
-      return refused(502, `That answer came from another process than the ${route.id} this host started, so it was not passed on.`, machine)
+      return refused(502, `That answer came from another process than the ${said(route)} this host started, so it was not passed on.`, machine)
     }
     const status = answer.status
     const body = status === 204 || status === 304 || method === 'HEAD' ? null : answer.body
@@ -312,7 +361,7 @@ export class ModuleProxy {
     if (route.kind === 'machine' && fromABrowser(request.headers)) {
       return { ok: false, response: refused(403, 'This address is for programs on this computer. A page reaches a module at its own address.', true) }
     }
-    const reached = await this.#reach(route.id)
+    const reached = await this.#reach(route)
     if (!reached.ok) return reached
     const { real } = reached
     const url = new URL(request.url)
@@ -324,7 +373,7 @@ export class ModuleProxy {
     try {
       upstream = open(socketUrl, { headers, protocols })
     } catch {
-      return { ok: false, response: refused(502, `${route.id} did not take the connection.`) }
+      return { ok: false, response: refused(502, `${said(route)} did not take the connection.`) }
     }
     upstream.binaryType = 'arraybuffer'
     return await new Promise((resolve) => {
@@ -334,7 +383,7 @@ export class ModuleProxy {
         } catch {
           /* Never opened. */
         }
-        resolve({ ok: false, response: refused(504, `${route.id} did not accept the connection in time.`) })
+        resolve({ ok: false, response: refused(504, `${said(route)} did not accept the connection in time.`) })
       }, SOCKET_OPEN_TIMEOUT_MS)
       upstream.addEventListener('open', () => {
         clearTimeout(timer)
@@ -342,12 +391,22 @@ export class ModuleProxy {
       })
       const fail = () => {
         clearTimeout(timer)
-        resolve({ ok: false, response: refused(502, `${route.id} refused the connection.`) })
+        resolve({ ok: false, response: refused(502, `${said(route)} refused the connection.`) })
       }
       upstream.addEventListener('error', fail)
       upstream.addEventListener('close', fail)
     })
   }
+}
+
+/** A route's program in words: the id, and the version when it is one. */
+function said(route: ModuleRoute): string {
+  return route.version ? `${route.id} ${route.version}` : route.id
+}
+
+/** What an identity is kept under: the id, or `id@version`. */
+function keyOf(wanted: Wanted): string {
+  return wanted.version ? `${wanted.id}@${wanted.version}` : wanted.id
 }
 
 /** The same refusal, sandboxed. */
@@ -366,6 +425,8 @@ export interface ClientSocket {
   readonly data: SocketData
   send(data: string | ArrayBuffer | Uint8Array): number
   close(code?: number, reason?: string): void
+  /** Bytes queued to the client and not yet sent. */
+  getBufferedAmount(): number
 }
 
 /** What a relayed client socket carries: the module's side, the client once it opened, and what arrived before. */
@@ -376,6 +437,28 @@ export interface SocketData {
   client: ClientSocket | null
   /** Messages from the module that arrived before the client's `open`. */
   early: Array<string | ArrayBuffer>
+  /** Their bytes, held to `SOCKET_BUFFER_MOST` with the rest. */
+  earlyBytes: number
+}
+
+/** A message's size in bytes, near enough to bound a buffer by. */
+function bytesOf(payload: string | ArrayBuffer | Uint8Array): number {
+  return typeof payload === 'string' ? payload.length * 2 : payload.byteLength
+}
+
+/** Close both sides of a relay whose reader fell too far behind. */
+function tooFarBehind(data: SocketData): void {
+  const why = 'The other side could not keep up, so the connection was closed.'
+  try {
+    data.upstream.close(1013, why)
+  } catch {
+    /* Already closing. */
+  }
+  try {
+    data.client?.close(1013, why)
+  } catch {
+    /* Already closed. */
+  }
 }
 
 /** Whether a close code may be sent by an endpoint (1005, 1006 and 1015 may only be reported). */
@@ -395,14 +478,17 @@ export const moduleSockets = {
    * wired now, before the client is upgraded, so nothing it sends in between is lost.
    */
   data(upstream: WebSocket): SocketData {
-    const data: SocketData = { relay: true, upstream, client: null, early: [] }
+    const data: SocketData = { relay: true, upstream, client: null, early: [], earlyBytes: 0 }
     upstream.addEventListener('message', (event) => {
       const payload = event.data as string | ArrayBuffer
       if (data.client) {
-        data.client.send(payload)
+        /* -1 is queued behind backpressure, 0 dropped: either way the client is behind. */
+        const sent = data.client.send(payload)
+        if (sent === 0 || data.client.getBufferedAmount() > SOCKET_BUFFER_MOST) tooFarBehind(data)
         return
       }
-      if (data.early.length >= SOCKET_QUEUE_MOST) {
+      data.earlyBytes += bytesOf(payload)
+      if (data.early.length >= SOCKET_QUEUE_MOST || data.earlyBytes > SOCKET_BUFFER_MOST) {
         try {
           upstream.close(1011, 'The page did not open in time.')
         } catch {
@@ -425,6 +511,7 @@ export const moduleSockets = {
   open(socket: ClientSocket): void {
     socket.data.client = socket
     for (const payload of socket.data.early.splice(0)) socket.send(payload)
+    socket.data.earlyBytes = 0
     /* The module may have closed while the client was being upgraded. */
     const state = socket.data.upstream.readyState
     if (state === 2 || state === 3) socket.close(1011, 'The module closed the connection.')
@@ -434,6 +521,8 @@ export const moduleSockets = {
     const upstream = socket.data.upstream
     if (upstream.readyState !== 1) return
     upstream.send(typeof message === 'string' ? message : new Uint8Array(message))
+    /* The module is not reading what the client sends: bounded, as the other way round. */
+    if (upstream.bufferedAmount > SOCKET_BUFFER_MOST) tooFarBehind(socket.data)
   },
 
   close(socket: ClientSocket, code: number, reason: string): void {

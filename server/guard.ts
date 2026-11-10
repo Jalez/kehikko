@@ -131,6 +131,9 @@ export interface Refusal {
  *    finished worktrees (`worktrees.ts`): a scan fetches every repository with
  *    the person's login, and a removal deletes folders. Only a press in the
  *    page does either; no MCP tool removes.
+ *  - `/host/module-addresses/check` — what the page's own self-check of the
+ *    modules' frame addresses found (`moduleAddresses.ts`). Only the page
+ *    checks how it reaches this host.
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
@@ -178,6 +181,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/pinned-places',
   '/host/worktrees/scan',
   '/host/worktrees/remove',
+  '/host/module-addresses/check',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

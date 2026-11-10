@@ -207,6 +207,12 @@ export interface FramedModule {
   guidance: string
   /** Absolute, on the module's own origin, ready to be a frame's `src`. */
   entry: string
+  /**
+   * The module's stable frame address on this host (`src/host/moduleAddress.ts`), when the host
+   * gives it one. Never set here: `server.ts` adds it to the page's view. The page frames the
+   * module there, on `entry`'s path, once its self-check reached the host at such an address.
+   */
+  address?: string
   /** The manifest's icon when it is a key of `MODULE_ICONS` (protocol 2.14.0); null otherwise. Never a URL. */
   icon: string | null
   health: string | null

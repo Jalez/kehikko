@@ -103,7 +103,7 @@ function aStranger(port = 0) {
 
 /** The host's side, as `server.ts` wires it: `handle` first, the relay for sockets. */
 function aHost(targets: Map<string, ProxyTarget>) {
-  const deps = { port: 0, target: (id: string) => targets.get(id) ?? null }
+  const deps = { port: 0, check: 'host-check-value', target: (wanted: { id: string; version?: string }) => targets.get(wanted.version ? `${wanted.id}@${wanted.version}` : wanted.id) ?? null }
   const proxy = new ModuleProxy(deps)
   let ownHosts: ReadonlySet<string> = new Set<string>()
   const server = Bun.serve<SocketData>({
@@ -172,8 +172,8 @@ describe('the addresses', () => {
     expect(machineBaseFor('kehikot.notes', 4170)).toBe('http://127.0.0.1:4170/m/kehikot.notes')
   })
 
-  test('off unless KEHIKOT_MODULE_ADDRESSES=1, and saying so', () => {
-    expect(addressesOn({})).toBe(false)
+  test('on unless KEHIKOT_MODULE_ADDRESSES=0, and saying so', () => {
+    expect(addressesOn({})).toBe(true)
     expect(addressesOn({ KEHIKOT_MODULE_ADDRESSES: '0' })).toBe(false)
     expect(addressesOn({ KEHIKOT_MODULE_ADDRESSES: '1' })).toBe(true)
     moduleAddresses.reset()
