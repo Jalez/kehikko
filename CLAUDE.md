@@ -571,6 +571,14 @@
   fold state (folding moves nothing), each in exactly one place (a pinned run
   button is not also a Run row; the settings gear is not also a Container row).
   A new header control gets an entry there, not a width check of its own.
+- Every container has a Help menu that mirrors the app's own ("?" in the bar,
+  `src/canvas/Help.tsx`): the same icon, title, order and words, spelled once in
+  `src/host/helpMenu.ts` — Introduction…, How to use… (where the app has the
+  tour), What's new… (`openWhatsNew({ item })`), Feedback (`HELP_ENTRIES`). Its
+  own "?" trigger while the header has room, the "⋯"'s "Help" section (a column
+  of its own) under 220. Introduction, How to use and Feedback are never
+  Container rows, and there is no banner on a container offering an
+  introduction. A help-like row added to one menu goes in the other too.
 - `press_item` (`server/mcp.ts`) presses only an item marked `agents: true`,
   never a `confirm` run, and refuses an item with `tool` by naming it. The
   server judges against what the page posted (`server/headers.ts`); the page

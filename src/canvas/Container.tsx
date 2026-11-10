@@ -1,5 +1,5 @@
 import { helpFor } from '@/host/moduleHelp.ts'
-import { Presentation, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { introFor } from '@/host/moduleIntro.ts'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -21,7 +21,7 @@ import { StandingBox, StandingChip, standingRows, useStandingPress } from './Sta
 import { standingOf } from '@/host/coverFit.ts'
 import { ONE_EPIC_AT_A_TIME } from '@/host/scope.ts'
 import { FilterButton } from './Filters.tsx'
-import { FrameMenu, HeaderMenus, frameEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
+import { ContainerHelpMenu, FrameMenu, HeaderMenus, frameEntriesOf, helpEntriesOf, type FrameParts, type PressNote, type Surface } from './HeaderMenus.tsx'
 import { controlsOf, type ControlParts } from './HeaderControls.tsx'
 import { FeedbackDialog, useFeedback } from './Feedback.tsx'
 import { layoutOf, modeFor, overflowOf, pinsFor } from '@/host/headerOffer.ts'
@@ -118,7 +118,7 @@ export function Container({
   onSkills,
   onHelp,
   onIntro,
-  introOffer = null,
+  onNotes,
   onSettings,
   onStarted,
   onRemove,
@@ -289,21 +289,17 @@ export function Container({
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
   /**
-   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in the Container menu only when
+   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in its Help menu only when
    * the module's manifest says how (`helpFor`); absent: never.
    */
   onHelp?(): void
   /**
    * Open the module's own introduction (protocol 2.57.0) in the app's introduction dialog. An
-   * "Introduction…" row in the Container menu only when the module has one (`introFor`); absent: never.
+   * "Introduction…" row in its Help menu only when the module has one (`introFor`); absent: never.
    */
   onIntro?(): void
-  /**
-   * The offer made once per module, machine-wide, on a container whose module has an introduction
-   * the person has neither watched nor dismissed: a strip under the header with what it is and ×.
-   * Never played by itself. Null: no strip.
-   */
-  introOffer?: { said: string; onWatch(): void; onDismiss(): void } | null
+  /** Open What's new at this module's release notes: "What's new…" in its Help menu. Absent: no row. */
+  onNotes?(): void
   /**
    * Open this module's settings (protocol 2.15.0): a gear in the row at 220 px and wider, folded or
    * not; under that, "Settings…" in the Container rows (in "⋯" when the module has menus). One entry at
@@ -431,6 +427,7 @@ export function Container({
     onSkills,
     onHelp: onHelp && helpFor(presence.module) ? onHelp : undefined,
     onIntro: onIntro && introFor(presence.module) ? onIntro : undefined,
+    onNotes,
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
@@ -442,7 +439,7 @@ export function Container({
   }
   const page = showing.kind === 'page'
   const layout = layoutOf(
-    { items: page ? items : [], frame: frameEntriesOf(frameParts), controls: page ? controlsOf(controlParts) : [] },
+    { items: page ? items : [], frame: frameEntriesOf(frameParts), help: helpEntriesOf(frameParts), controls: page ? controlsOf(controlParts) : [] },
     modeFor(width),
     pinsFor(width),
     fold,
@@ -453,6 +450,9 @@ export function Container({
   const ownOverflow = overflow.sections.every((section) => section.kind !== 'module') ? overflow : null
   const frameEntries = ownOverflow?.sections.flatMap((section) => (section.kind === 'frame' ? section.entries : []))
   const overflowControls = ownOverflow?.sections.flatMap((section) => (section.kind === 'controls' ? section.controls : [])) ?? []
+  const overflowHelp = ownOverflow?.sections.flatMap((section) => (section.kind === 'help' ? section.entries : [])) ?? []
+  /* Help's own "?" while the header has room; under that its rows are a section of the "⋯". */
+  const helpEntries = layout.triggers.find((trigger) => trigger.which === 'help')?.sections.flatMap((section) => (section.kind === 'help' ? section.entries : [])) ?? null
 
   return (
     /*
@@ -902,7 +902,7 @@ export function Container({
 
         {/*
          * Container: what the host offers about the placed module — its scope,
-         * tools, feedback to its authors, prompts. One trigger where three
+         * tools, prompts. One trigger where three
          * icons stood, on every container, folded too; under 220 pixels the
          * "⋯" (`ROW_PRIORITY`). What each of the three said at a glance, and
          * where that went, is in `FrameMenu`.
@@ -923,8 +923,15 @@ export function Container({
           />
         ) : null}
 
-        {ownOverflow && frameEntries ? <FrameMenu parts={frameParts} entries={frameEntries} which={ownOverflow.which as 'frame' | 'more'} controls={overflowControls} /> : null}
-        {/* The Feedback row's dialog: once, wherever the row was drawn from. */}
+        {/* Help: the app's own "?" menu, scoped to this module — its introduction, how to use it, its
+            release notes and feedback to its authors (`HELP_ENTRIES`). After the gear, as the app's
+            "?" stands after its gear; folded into the "⋯" as a "Help" section under 220 px. */}
+        {helpEntries?.length ? <ContainerHelpMenu parts={frameParts} entries={helpEntries} /> : null}
+
+        {ownOverflow && frameEntries ? (
+          <FrameMenu parts={frameParts} entries={frameEntries} which={ownOverflow.which as 'frame' | 'more'} controls={overflowControls} help={overflowHelp} />
+        ) : null}
+        {/* The Help menu's Feedback dialog: once, wherever the row was drawn from. */}
         <FeedbackDialog feedback={feedback} module={presence.id} name={name} kehikko={kehikko} epic={epic} />
 
         {/*
@@ -1025,31 +1032,6 @@ export function Container({
           positioned to match it — and to stay out of the way of what is
           showing through it. A notice, when there is one, is opaque and takes
           the pointer again; there is no page behind it worth seeing. */}
-      {/* The module's introduction, offered once (protocol 2.57.0): a strip, never played by itself. */}
-      {introOffer && showing.kind === 'page' ? (
-        <div className="bg-muted/40 pointer-events-auto flex shrink-0 items-center gap-1.5 border-b py-1 pr-1 pl-2.5 text-[11px]" data-intro-offer="">
-          <Presentation className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-          <button
-            type="button"
-            className="text-foreground min-w-0 flex-1 truncate text-left font-medium underline-offset-2 hover:underline"
-            title={introOffer.said}
-            onClick={introOffer.onWatch}
-            data-intro-watch=""
-          >
-            {introOffer.said}
-          </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground size-5 shrink-0"
-            aria-label="Dismiss the introduction offer"
-            onClick={introOffer.onDismiss}
-            data-intro-dismiss=""
-          >
-            <X className="size-3" />
-          </Button>
-        </div>
-      ) : null}
       <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
         {/* Not ready yet, and on its way, or not ready and nothing on its way: one cover or one
             notice, drawn for the room this body has (`Standing.tsx`, `host/coverFit.ts`). */}

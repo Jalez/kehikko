@@ -309,20 +309,20 @@ describe('the introduction', () => {
 describe('the help menu', () => {
   if (!inChild) return
 
-  test('the introduction and the tour, Continue only while paused, and no layouts', async () => {
+  test('the introduction, the tour, What’s new and Feedback, Continue only while paused, and no layouts', async () => {
     const { HelpMenu } = await import('../src/canvas/Help.tsx')
     let state: OnboardingState = { intro: 2, tour: { step: null, paused: false, finished: false } }
     await render(<HelpMenu read={async () => state} />)
     const items = () => [...document.querySelectorAll('[data-help]')].map((one) => one.getAttribute('data-help'))
     await openMenu(document.querySelector('[data-tour="help"]'))
-    expect(items()).toEqual(['intro', 'restart'])
+    expect(items()).toEqual(['intro', 'restart', 'notes', 'feedback'])
     expect(document.querySelector('[data-help="restart"]')?.textContent).toBe('Take the tour')
     expect(document.querySelector('[data-help-menu]')?.textContent?.toLowerCase()).not.toContain('layout')
     await escape()
 
     state = { intro: 2, tour: { step: 'epic', paused: true, finished: false } }
     await openMenu(document.querySelector('[data-tour="help"]'))
-    expect(items()).toEqual(['intro', 'continue', 'restart'])
+    expect(items()).toEqual(['intro', 'continue', 'restart', 'notes', 'feedback'])
     expect(document.querySelector('[data-help="continue"]')?.textContent).toContain('Continue tour')
     expect(document.querySelector('[data-help="restart"]')?.textContent).toBe('Restart tour')
   })

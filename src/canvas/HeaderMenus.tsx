@@ -34,6 +34,7 @@ import {
   Minimize2,
   Monitor,
   MonitorPlay,
+  Newspaper,
   PanelLeft,
   Pencil,
   Play,
@@ -90,7 +91,8 @@ import {
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
 import { EXPAND_WORD, SHRINK_WORD } from '@/host/expand.ts'
-import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, sizeOf, type Control, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, sizeOf, type Control, type FrameEntry, type HeaderLayout, type HelpEntry, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { HELP_SAID, HELP_TITLE, helpHint } from '@/host/helpMenu.ts'
 import { ControlRows, RemoveRow, type ControlParts } from './HeaderControls.tsx'
 import { OverflowSection, OverflowSections, contentClass, onColumnKeys, useColumns, type OverflowPart } from './OverflowColumns.tsx'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
@@ -664,6 +666,7 @@ function Menu({
   const menus = trigger.sections.flatMap((section) => (section.kind === 'module' ? [section.menu] : []))
   const framed = frame ? trigger.sections.find((section) => section.kind === 'frame')?.entries ?? null : null
   const controlled = frame?.controls ? trigger.sections.find((section) => section.kind === 'controls')?.controls ?? null : null
+  const helped = frame ? trigger.sections.find((section) => section.kind === 'help')?.entries ?? null : null
   const tools = framed ? toolsSaying(frame!.agent, name) : null
   const loud = tools?.loud === true
   const [open, setOpen] = useOpen(onClosed, rows.closing)
@@ -683,6 +686,7 @@ function Menu({
       }),
     ),
     ...(controlled ? [{ key: 'controls', kind: 'controls' as const, size: controlled.length + 1, draw: (first: boolean) => <ControlRows parts={frame!.controls!} controls={controlled} first={first} /> }] : []),
+    ...(helped ? [helpPart(frame!, helped)] : []),
     ...(framed
       ? [
           {
@@ -706,7 +710,12 @@ function Menu({
   const why = failed ? failedWhy(menus) : ''
   const state = busy ? ' — running' : failed ? ` — the last run failed${why ? `: ${why}` : ''}` : ''
   const at = where(menus)
-  const titles = [...menus.map((menu) => menu.title.toLowerCase()), ...(controlled ? [CONTROLS_TITLE.toLowerCase()] : []), ...(framed ? [FRAME_TITLE.toLowerCase()] : [])]
+  const titles = [
+    ...menus.map((menu) => menu.title.toLowerCase()),
+    ...(controlled ? [CONTROLS_TITLE.toLowerCase()] : []),
+    ...(helped ? [HELP_TITLE.toLowerCase()] : []),
+    ...(framed ? [FRAME_TITLE.toLowerCase()] : []),
+  ]
   const hint =
     which === 'more'
       ? `${name}'s menus: ${titles.join(', ')}${at ? ` — ${at}` : ''}${state}${loud ? `. ${tools!.hint}` : ''}`
@@ -1226,7 +1235,7 @@ export interface FrameParts {
    * or empty: no rows.
    */
   standing?: readonly StandingRow[]
-  /** The feedback list behind the "Feedback" row: one per container, so its dialog is drawn once (`Container`). */
+  /** The feedback list behind the Help menu's "Feedback" row: one per container, so its dialog is drawn once (`Container`). */
   feedback: FeedbackState
   /**
    * When this container's header and footer show (`host/rows.ts`): its own
@@ -1266,15 +1275,16 @@ export interface FrameParts {
   onSkills?(): void
   /**
    * Open the module's "How to use" (protocol 2.52.0, `help` in its manifest). Given only for a module
-   * that says how: a "How to use…" row at every width, folded too, in the one list `layoutOf` places.
+   * that says how: a "How to use…" row of the Help menu, at every width, folded too.
    */
   onHelp?(): void
   /**
    * Open the module's own introduction (protocol 2.57.0, `intro` in its manifest), in the app's
-   * introduction dialog. Given only for a module that has one: an "Introduction…" row beside "How to
-   * use…", at every width, folded too, in the one list `layoutOf` places.
+   * introduction dialog. Given only for a module that has one: "Introduction…", first in the Help menu.
    */
   onIntro?(): void
+  /** Open What's new at this module's release notes, as the app's Help menu opens the app's. Absent: no row. */
+  onNotes?(): void
   /** Whether this module has said it uses a prompt. */
   prompted: boolean
   onPrompts(): void
@@ -1295,11 +1305,122 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
   if (parts.rows) out.push('rows')
   if (parts.inbox) out.push('inbox')
-  if (parts.onIntro) out.push('intro')
-  if (parts.onHelp) out.push('help')
-  out.push('feedback', 'prompts')
+  out.push('prompts')
   if (parts.onRemove) out.push('remove')
   return out
+}
+
+/** Which of the Help menu's rows a container has, for `layoutOf`. Feedback always: every module has authors. */
+export function helpEntriesOf(parts: FrameParts): HelpEntry[] {
+  const out: HelpEntry[] = []
+  if (parts.onIntro) out.push('intro')
+  if (parts.onHelp) out.push('help')
+  if (parts.onNotes) out.push('notes')
+  out.push('feedback')
+  return out
+}
+
+/**
+ * The container's Help rows, in `HELP_ENTRIES` order and with the app Help menu's words
+ * (`host/helpMenu.ts`): drawn in its "?" menu, and as the Help section of the merged "⋯".
+ */
+function HelpRows({ parts, entries }: { parts: FrameParts; entries: readonly HelpEntry[] }) {
+  const { name, feedback } = parts
+  const has = (entry: HelpEntry) => entries.includes(entry)
+  return (
+    <>
+      {has('intro') && parts.onIntro ? (
+        <DropdownMenuItem className={ROW} title={`a short introduction to ${name}, in its own words`} data-help="intro" onSelect={parts.onIntro}>
+          <Presentation className="text-muted-foreground size-3.5" />
+          <span className="flex-1">{HELP_SAID.intro}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('help') && parts.onHelp ? (
+        <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-help="help" onSelect={parts.onHelp}>
+          <BookOpen className="text-muted-foreground size-3.5" />
+          <span className="flex-1">{HELP_SAID.help}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('notes') && parts.onNotes ? (
+        <DropdownMenuItem className={ROW} title={`the notes of ${name}'s releases`} data-help="notes" onSelect={parts.onNotes}>
+          <Newspaper className="text-muted-foreground size-3.5" />
+          <span className="flex-1">{HELP_SAID.notes}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {has('feedback') ? (
+        <DropdownMenuSub onOpenChange={feedback.opened}>
+          <DropdownMenuSubTrigger className={ROW} data-help="feedback" title={`what you have told ${name}'s authors, and something new`}>
+            <MessageSquare className="text-muted-foreground size-3.5" />
+            <span className="flex-1">{HELP_SAID.feedback}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-72 max-w-[calc(100vw-1rem)]">
+            <FeedbackRows feedback={feedback} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      ) : null}
+    </>
+  )
+}
+
+/** The Help section of an overflow: the same rows, under the same title as the "?" menu. */
+export function helpPart(parts: FrameParts, entries: readonly HelpEntry[]): OverflowPart {
+  return {
+    key: 'help',
+    kind: 'help',
+    size: entries.length + 1,
+    draw: (first: boolean) => (
+      <OverflowSection name="help" title={HELP_TITLE} first={first}>
+        <HelpRows parts={parts} entries={entries} />
+      </OverflowSection>
+    ),
+  }
+}
+
+/**
+ * The container's "?": the app's Help menu ("?" in the bar), scoped to the module — the same icon,
+ * label, order and words. Drawn while the header has room (`layoutOf`); under that its rows are the
+ * Help section of the "⋯".
+ */
+export function ContainerHelpMenu({ parts, entries }: { parts: FrameParts; entries: readonly HelpEntry[] }) {
+  const { name } = parts
+  const closing = useRef<Closing>('dismissed')
+  const quiet = useRef(false)
+  const [open, setOpen] = useOpen(() => {}, closing)
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Word hint={helpHint(name, entries)} word={null} quiet={quiet}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`${HELP_TITLE.toLowerCase()} for ${name}`}
+            data-menu="help"
+            {...modal}
+            className={`text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground pointer-events-auto relative size-6 shrink-0 cursor-default ${KEYBOARD_RING}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <CircleHelp className="size-3" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+      </Word>
+      <DropdownMenuContent
+        align="end"
+        className="max-w-64 min-w-48"
+        data-menu-content="help"
+        onCloseAutoFocus={(event) => {
+          const to = focusAfter(closing.current, focusIsInModule(document.activeElement))
+          closing.current = 'dismissed'
+          if (to === 'trigger') returning(quiet)
+          else event.preventDefault()
+        }}
+      >
+        <DropdownMenuLabel className="truncate py-1 text-[11px] font-normal" title={name}>
+          {HELP_TITLE}
+        </DropdownMenuLabel>
+        <HelpRows parts={parts} entries={entries} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 /**
@@ -1307,7 +1428,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
  * last section of the merged "⋯" under 220 px — the same rows, words and order in both.
  */
 function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
-  const { name, scope, onSettings, onTools, onSkills, rows, feedback, prompted, onPrompts } = parts
+  const { name, scope, onSettings, onTools, onSkills, rows, prompted, onPrompts } = parts
   const tools = toolsSaying(parts.agent, name)
   const offered = onSkills ? skillsSaying(parts.skills, name) : null
   const has = (entry: FrameEntry) => entries.includes(entry)
@@ -1393,29 +1514,6 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           {parts.inbox.on ? null : <span className="text-muted-foreground text-[10px]">muted</span>}
         </DropdownMenuCheckboxItem>
       ) : null}
-      {has('intro') && parts.onIntro ? (
-        <DropdownMenuItem className={ROW} title={`a short introduction to ${name}, in its own words`} data-frame="intro" onSelect={parts.onIntro}>
-          <Presentation className="text-muted-foreground size-3.5" />
-          <span className="flex-1">Introduction…</span>
-        </DropdownMenuItem>
-      ) : null}
-      {has('help') && parts.onHelp ? (
-        <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-frame="help" onSelect={parts.onHelp}>
-          <CircleHelp className="text-muted-foreground size-3.5" />
-          <span className="flex-1">How to use…</span>
-        </DropdownMenuItem>
-      ) : null}
-      {has('feedback') ? (
-        <DropdownMenuSub onOpenChange={feedback.opened}>
-          <DropdownMenuSubTrigger className={ROW} data-frame="feedback">
-            <MessageSquare className="text-muted-foreground size-3.5" />
-            <span className="flex-1">Feedback</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-72 max-w-[calc(100vw-1rem)]">
-            <FeedbackRows feedback={feedback} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      ) : null}
       {has('prompts') ? (
         <DropdownMenuItem
           className={ROW}
@@ -1452,12 +1550,15 @@ export function FrameMenu({
   entries,
   which = 'frame',
   controls = [],
+  help = [],
 }: {
   parts: FrameParts
   entries: readonly FrameEntry[]
   which?: 'frame' | 'more'
   /** The module's row controls, a section before Container's in the "⋯". */
   controls?: readonly Control[]
+  /** The Help rows, a section just before Container's in the "⋯". */
+  help?: readonly HelpEntry[]
 }) {
   const { name } = parts
   const closing = useRef<Closing>('dismissed')
@@ -1466,11 +1567,15 @@ export function FrameMenu({
   const tools = toolsSaying(parts.agent, name)
   const more = which === 'more'
   const Glyph = more ? Ellipsis : AppWindow
-  const said = more ? `${name}'s menus: ${[...(controls.length ? [CONTROLS_TITLE.toLowerCase()] : []), FRAME_TITLE.toLowerCase()].join(', ')}` : frameHint(entries)
+  const helped = more && help.length ? help : null
+  const said = more
+    ? `${name}'s menus: ${[...(controls.length ? [CONTROLS_TITLE.toLowerCase()] : []), ...(helped ? [HELP_TITLE.toLowerCase()] : []), FRAME_TITLE.toLowerCase()].join(', ')}`
+    : frameHint(entries)
   const label = more ? `menus of ${name}` : `${FRAME_TITLE.toLowerCase()} menu of ${name}`
   const shown = more && controls.length && parts.controls ? parts.controls : null
   const sections: OverflowPart[] = [
     ...(shown ? [{ key: 'controls', kind: 'controls' as const, size: controls.length + 1, draw: (first: boolean) => <ControlRows parts={shown} controls={controls} first={first} /> }] : []),
+    ...(helped ? [helpPart(parts, helped)] : []),
     {
       key: 'frame',
       kind: 'frame' as const,

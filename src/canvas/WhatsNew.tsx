@@ -89,7 +89,7 @@ export function WhatsNewDialog({
 }: {
   open: boolean
   items: readonly NewsItem[]
-  /** Opened at a release, with a handle marked in its notes: the row is selected and the release scrolled to. */
+  /** Opened at a row (a container's Help → What's new…), or at a release with a handle marked in its notes: the row is selected, and the release scrolled to. */
   focus?: OpenAt | null
   /** The setting as it stands: the checkbox starts as its opposite. */
   show: boolean
@@ -315,7 +315,7 @@ function Pane({ item, load, focus }: { item: NewsItem; load: typeof fetchNotes; 
             oneTrouble
             headings={!single}
             onDate={single ? onDate : undefined}
-            focus={focus ? { tag: focus.tag, login: focus.login } : null}
+            focus={focus?.tag && focus.login ? { tag: focus.tag, login: focus.login } : null}
           />
         )}
       </div>
@@ -658,7 +658,7 @@ function Host({
           if (answer.record) setShow(answer.record.show)
           const listed = itemsOf(answer.record ? answer : { ...answer, record: { app, modules: {}, show: true, told: Object.keys(NOTES) } }, true)
           /* Opened at a release (an Inbox mention): that release is among its row's, whatever was acknowledged. */
-          const all = at ? listed.map((one) => (one.id === at.item ? { ...one, tags: withTag(one.tags, at.tag) } : one)) : listed
+          const all = at?.tag ? listed.map((one) => (one.id === at.item ? { ...one, tags: withTag(one.tags, at.tag!) } : one)) : listed
           setFocus(at && all.some((one) => one.id === at.item) ? at : null)
           allRef.current = true
           setItems(openRef.current ? mergeItems(itemsRef.current, all) : all)

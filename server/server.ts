@@ -170,8 +170,7 @@ import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSetting
 import { readShelves, saveLayout } from './layouts.ts'
 import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
-import { ensureModuleIntros, moduleIntros, readModuleIntros, writeModuleIntros } from './moduleIntros.ts'
-import { moduleIntrosEditSchema } from '../src/host/moduleIntro.ts'
+import { moduleIntros } from './moduleIntros.ts'
 import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
@@ -286,7 +285,6 @@ const trackerNotices = new TrackerNotices(db, inbox)
 ensureSettings(db)
 ensurePickerOrder(db)
 ensureOnboarding(db)
-ensureModuleIntros(db)
 ensureWhatsNew(db)
 /* The person's pinned places, across projects. `pinnedPlaces.ts`. */
 ensurePinnedPlaces(db)
@@ -3831,20 +3829,11 @@ async function answerRequest(request: Request): Promise<Response> {
 
     /* A module's own introduction (protocol 2.57.0), read without running it: its manifest, its
        installed copy's intro.json, or that file at the release an install would take
-       (`server/moduleIntros.ts`). And which ones the person watched or dismissed; that POST is in
-       `PAGE_ONLY`. */
+       (`server/moduleIntros.ts`). */
     if (url.pathname === '/host/module-intro' && request.method === 'GET') {
       const id = url.searchParams.get('module') ?? ''
       if (!id || id.length > 200) return json({ error: 'Name a module: ?module=<id>.' }, 400)
       return json(await intros.introFor(id))
-    }
-    if (url.pathname === '/host/module-intros' && request.method === 'GET') {
-      return json(readModuleIntros(db))
-    }
-    if (url.pathname === '/host/module-intros' && request.method === 'POST') {
-      const edit = moduleIntrosEditSchema.safeParse(await request.json().catch(() => null))
-      if (!edit.success) return json({ error: 'A change is { done: "<module id>" }.' }, 400)
-      return json(writeModuleIntros(db, edit.data))
     }
 
     /* Whether the introduction was seen and where the tour was left

@@ -237,7 +237,6 @@ describe('the routes that are the page’s alone', () => {
       '/host/mine/install',
       '/host/mine/remove',
       '/host/module-addresses/check',
-      '/host/module-intros',
       '/host/module-settings',
       '/host/module-settings/file',
       '/host/module-settings/list',

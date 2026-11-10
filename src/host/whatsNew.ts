@@ -517,12 +517,14 @@ const SHOW_CHANGED = 'kehikot:whats-new-show'
 
 /** Where What's new opens: a row, one of its releases, and a handle marked in its notes (an Inbox mention). */
 export interface OpenAt {
+  /** The row to open at: `APP_ITEM`, or a module's id (a container's Help → What's new…). */
   item: string
-  tag: string
-  login: string
+  /** With a release and a handle (an Inbox mention): that release, scrolled to and marked. */
+  tag?: string
+  login?: string
 }
 
-/** Open "What's new" now, on demand: Settings → About, the Updates menu; with `at`, at that release (the Inbox). */
+/** Open "What's new" now, on demand: Settings → About, the Updates menu, a Help menu; with `at`, at that row (a container's Help) or release (the Inbox). */
 export function openWhatsNew(at?: OpenAt): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(OPEN_WHATS_NEW, { detail: at ?? null }))
 }
@@ -530,7 +532,8 @@ export function openWhatsNew(at?: OpenAt): void {
 export function onOpenWhatsNew(then: (at: OpenAt | null) => void): () => void {
   const listener = (event: Event) => {
     const detail = (event as CustomEvent).detail as OpenAt | null | undefined
-    then(detail && typeof detail.item === 'string' && typeof detail.tag === 'string' && typeof detail.login === 'string' ? detail : null)
+    const optional = (value: unknown) => value === undefined || typeof value === 'string'
+    then(detail && typeof detail.item === 'string' && optional(detail.tag) && optional(detail.login) ? detail : null)
   }
   window.addEventListener(OPEN_WHATS_NEW, listener)
   return () => window.removeEventListener(OPEN_WHATS_NEW, listener)

@@ -1,84 +1,31 @@
-import { MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu.tsx'
+import { DropdownMenuItem, DropdownMenuLabel } from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Loading, Skeleton, useSlow } from '@/components/ui/loading.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { cachedFeedback, fetchFeedback, sendFeedback, type Listing, type Status } from '@/host/feedback.ts'
-import { Hint } from './Hint.tsx'
 import { AddItem } from './Menu.tsx'
 
-/**
- * Feedback on a module: the GitHub issues this person opened in its
- * repository, each with its live status, and a way to open a new one.
- *
- * A host control rather than the module's — every module has a repository and
- * none has to ask for this — so it is on every container, folded or not, and
- * sits beside the tools plug, the other thing the host says about a module as
- * a program rather than about what it is showing. The repository and the
- * account are the server's business; see `server/feedback.ts`.
+/*
+ * Feedback on a module, or on Kehikot itself: the GitHub issues this person opened in its
+ * repository, each with its live status, and a way to open a new one. The "Feedback" row of a Help
+ * menu — the bar's for Kehikot (`Help.tsx`), a container's for its module (`HeaderMenus.tsx`) — with
+ * the list beside it. A host control rather than the module's: every module has a repository and
+ * none has to ask for this. The repository and the account are the server's business; see
+ * `server/feedback.ts`.
  */
-export function FeedbackButton({
-  module,
-  name,
-  kehikko,
-  epic,
-}: {
-  module: string
-  name: string
-  /** The open kehikko's name and epic slug, for the line under the issue. */
-  kehikko: string | null
-  epic: string | null
-}) {
-  const feedback = useFeedback(module)
-
-  return (
-    <>
-      <DropdownMenu onOpenChange={feedback.opened}>
-        <Hint label={`feedback: what you have told ${name}'s authors, and something new`} side="bottom">
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`feedback on ${name}`}
-              /* `pointer-events-auto` because the container is not — see `Tools.tsx`. */
-              className="text-muted-foreground hover:text-foreground pointer-events-auto size-6 cursor-default"
-              /* Stops the grid reading the press as the start of a drag. */
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <MessageSquare className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-        </Hint>
-
-        <DropdownMenuContent align="end" className="w-80">
-          <FeedbackRows feedback={feedback} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <FeedbackDialog feedback={feedback} module={module} name={name} kehikko={kehikko} epic={epic} />
-    </>
-  )
-}
 
 /**
  * What one module's feedback list holds, for whichever menu is showing it.
  *
- * Two menus do: the button above, which the host's own strip still has, and
- * the Feedback row of a container's Container menu (`HeaderMenus.tsx`), where the
- * same list opens beside the menu. One reading and one dialog behind both, so
- * the list is the same list wherever it is opened from.
+ * One per Help menu, and wherever that menu's Feedback row is drawn — a container's "?" or the
+ * Help section of its "⋯" — one reading and one dialog behind it, so the list is the same list
+ * wherever it is opened from.
  */
 export interface FeedbackState {
   listing: Listing | null
