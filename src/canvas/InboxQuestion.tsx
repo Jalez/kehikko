@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { LIMITS } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 import { cn } from '@/lib/utils'
 import { InboxChoices } from './InboxChoices.tsx'
 import { pressFresh } from '@/host/gesture.ts'
@@ -82,14 +83,14 @@ export function InboxQuestion({
               if (said) send({ answer: said })
             }}
           >
-            <input
+            <Input
               type="text"
               value={text}
               maxLength={LIMITS.MESSAGE_BODY}
               onChange={(event) => setText(event.target.value)}
               placeholder="Reply…"
               aria-label="Your answer to the agent"
-              className="border-input bg-background focus-visible:ring-ring/50 h-6 min-w-0 flex-1 rounded-sm border px-1.5 text-xs outline-none focus-visible:ring-[3px]"
+              className="bg-background h-6 flex-1 rounded-sm px-1.5 py-0 text-xs md:text-xs"
             />
             <Button type="submit" size="sm" className="h-6 shrink-0 px-2 text-[11px]" disabled={sending || !text.trim()}>
               Send

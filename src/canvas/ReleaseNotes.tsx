@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { Loading } from '@/components/ui/loading.tsx'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Separator } from '@/components/ui/separator.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
@@ -505,7 +506,7 @@ function drawBlock(block: Block, key: number, mark: string | null = null): React
         </p>
       )
     case 'rule':
-      return <hr key={key} className="border-border" />
+      return <Separator key={key} />
   }
 }
 

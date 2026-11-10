@@ -1,6 +1,8 @@
 import { MapPinOff, X } from 'lucide-react'
 import { useEffect } from 'react'
 
+import { Button } from '@/components/ui/button.tsx'
+
 import type { WentNote } from './useGoToPlace.ts'
 
 /** How long the line stays before it goes by itself. */
@@ -28,9 +30,9 @@ export function WentTo({ note, onClose }: { note: WentNote | null; onClose(): vo
     >
       <MapPinOff className="text-muted-foreground mt-px size-3.5 shrink-0" aria-hidden />
       <p className="min-w-0">{note.text}</p>
-      <button type="button" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0">
+      <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground size-5 shrink-0 rounded">
         <X className="size-3.5" aria-hidden />
-      </button>
+      </Button>
     </div>
   )
 }
