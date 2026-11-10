@@ -84,7 +84,9 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import {
   HEADER_MENUS,
+  optionSections,
   type HeaderItem,
+  type HeaderOption,
   type HeaderMenu,
   type PressValue,
 } from 'kehikot-module-protocol'
@@ -1106,7 +1108,34 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
   }
 
   /* A switch and a go item are both a list of options under the item's own
-     label; a switch has one of them on, and a go item holds nothing. */
+     label; a switch has one of them on, and a go item holds nothing. Since
+     protocol 2.68.0 an option may name a `group`, a heading it is drawn under
+     (`optionSections` is the rule: a heading wherever the group changes, a
+     rule before every run after the first), and a `detail`, a quieter second
+     line. Both are a stranger's strings: drawn as text, cut, whole in a title. */
+  const optionText = (option: HeaderOption) =>
+    option.detail ? (
+      <span className="flex min-w-0 flex-1 flex-col" title={`${option.label}\n${option.detail}`}>
+        <Cut>{option.label}</Cut>
+        <span className="text-muted-foreground truncate text-[10px] leading-tight" data-option-detail>
+          {option.detail}
+        </span>
+      </span>
+    ) : (
+      <Cut className="flex-1">{option.label}</Cut>
+    )
+  const sectioned = (draw: (option: HeaderOption) => ReactNode) =>
+    optionSections(item.options).map((section, at) => (
+      <DropdownMenuGroup key={`${at}:${section.group ?? ''}`} data-option-group={section.group ?? undefined}>
+        {at > 0 ? <DropdownMenuSeparator /> : null}
+        {section.group ? (
+          <DropdownMenuLabel className="text-muted-foreground truncate py-1 text-[11px] font-normal" title={section.group} data-option-group-label>
+            {section.group}
+          </DropdownMenuLabel>
+        ) : null}
+        {section.options.map(draw)}
+      </DropdownMenuGroup>
+    ))
   const options =
     item.kind === 'switch' ? (
       /* The press is each row's own, not the group's "value changed": the
@@ -1114,7 +1143,7 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
          PDF" again is how somebody asks to be taken back to it — and whether
          that changes anything is the module's to say. */
       <DropdownMenuRadioGroup value={item.value}>
-        {item.options.map((option) => (
+        {sectioned((option) => (
           <DropdownMenuRadioItem
             key={option.id}
             value={option.id}
@@ -1127,12 +1156,12 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
               rows.press(item, option.id)
             }}
           >
-            <Cut className="flex-1">{option.label}</Cut>
+            {optionText(option)}
           </DropdownMenuRadioItem>
         ))}
       </DropdownMenuRadioGroup>
     ) : (
-      item.options.map((option) => (
+      sectioned((option) => (
         <DropdownMenuItem
           key={option.id}
           className={ROW}
@@ -1141,7 +1170,7 @@ function Row({ item, alone, rows, slot }: { item: HeaderItem; alone: boolean; ro
           data-option={option.id}
           onSelect={() => rows.press(item, option.id)}
         >
-          <Cut className="flex-1">{option.label}</Cut>
+          {optionText(option)}
         </DropdownMenuItem>
       ))
     )
