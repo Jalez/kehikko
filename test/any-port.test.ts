@@ -12,13 +12,13 @@ import { ANY_PORT_SINCE, answersAs, atLeast, installedProtocol, takesAnyPort } f
 
 describe('which modules take any port', () => {
   test('versions compare as numbers', () => {
-    expect(ANY_PORT_SINCE).toBe('2.63.0')
-    expect(atLeast('2.63.0', '2.63.0')).toBe(true)
-    expect(atLeast('2.63.1', '2.63.0')).toBe(true)
-    expect(atLeast('2.100.0', '2.63.0')).toBe(true)
-    expect(atLeast('3.0.0', '2.63.0')).toBe(true)
-    expect(atLeast('2.62.9', '2.63.0')).toBe(false)
-    expect(atLeast('nonsense', '2.63.0')).toBe(false)
+    expect(ANY_PORT_SINCE).toBe('2.65.0')
+    expect(atLeast('2.65.0', '2.65.0')).toBe(true)
+    expect(atLeast('2.65.1', '2.65.0')).toBe(true)
+    expect(atLeast('2.100.0', '2.65.0')).toBe(true)
+    expect(atLeast('3.0.0', '2.65.0')).toBe(true)
+    expect(atLeast('2.64.9', '2.65.0')).toBe(false)
+    expect(atLeast('nonsense', '2.65.0')).toBe(false)
   })
 
   function checkout(version: string | null): string {
@@ -30,11 +30,14 @@ describe('which modules take any port', () => {
     return dir
   }
 
-  test('read from the checkout that will run: 2.63.0 and newer, nothing else', () => {
-    expect(installedProtocol(checkout('2.63.0'))).toBe('2.63.0')
-    expect(takesAnyPort(checkout('2.63.0'))).toBe(true)
-    expect(takesAnyPort(checkout('2.64.2'))).toBe(true)
-    /* Older: it reads PORT=0 as no port and keeps its preferred port and the drift rules. */
+  test('read from the checkout that will run: 2.65.0 and newer, nothing else', () => {
+    expect(installedProtocol(checkout('2.65.0'))).toBe('2.65.0')
+    expect(takesAnyPort(checkout('2.65.0'))).toBe(true)
+    expect(takesAnyPort(checkout('2.66.2'))).toBe(true)
+    /* Older: it reads PORT=0 as no port and keeps its preferred port and the drift rules. 2.63 and
+       2.64 were released before the protocol read PORT=0 as any free port. */
+    expect(takesAnyPort(checkout('2.64.2'))).toBe(false)
+    expect(takesAnyPort(checkout('2.63.0'))).toBe(false)
     expect(takesAnyPort(checkout('2.62.0'))).toBe(false)
     /* No protocol package at all: a module that may bind 0 without saying where. */
     expect(takesAnyPort(checkout(null))).toBe(false)

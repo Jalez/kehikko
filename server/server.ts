@@ -2102,7 +2102,7 @@ function run(id: string, runnable: Runnable): Started {
   const at = Date.now()
   /* Run now — by a press, an update, or the ordinary rule — so no longer waited for. */
   theirs.delete(id)
-  /* Any free port (protocol 2.63.0) for a module that reads `PORT=0` so, while nothing names its
+  /* Any free port (protocol 2.65.0) for a module that reads `PORT=0` so, while nothing names its
      port: it registers where it went (`anyPort.ts`). Any other keeps its port and the drift rules. */
   const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
   if (anyPort) runnable = { ...runnable, port: 0, command: `PORT=0 ${runnable.script}` }

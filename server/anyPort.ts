@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-module-protocol'
 
 /**
- * Starting a module on ANY free port (protocol 2.63.0, `PORT=0`), and finding where it went.
+ * Starting a module on ANY free port (protocol 2.65.0, `PORT=0`), and finding where it went.
  *
  * With the stable addresses on, nothing that reaches a module names its port: frames, agents'
  * doors and session configs all go through this host (`moduleProxy.ts`). So a module no longer
@@ -13,7 +13,7 @@ import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-modul
  * understands it, and the module binds what the system gives and writes that port into its
  * registration, where the host (and the proxy) read it.
  *
- * Only to a module whose INSTALLED protocol package is 2.63.0 or newer (`takesAnyPort`): a module
+ * Only to a module whose INSTALLED protocol package is 2.65.0 or newer (`takesAnyPort`): a module
  * built before then reads `PORT=0` as no port and takes its preferred port and the drift rules (the
  * fallback, exactly as before), and a module that does not use the protocol's serving might bind
  * port 0 without saying where. Read from the checkout the host is about to run, so it is the code
@@ -21,7 +21,7 @@ import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-modul
  */
 
 /** The protocol package that reads `PORT=0` as any free port. */
-export const ANY_PORT_SINCE = '2.63.0'
+export const ANY_PORT_SINCE = '2.65.0'
 
 /** `major.minor.patch` as numbers, or null. */
 function parts(version: string): [number, number, number] | null {
