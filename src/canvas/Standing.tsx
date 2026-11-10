@@ -37,6 +37,7 @@ const TONE_ICONS: Record<Exclude<Standing['tone'], 'working'>, LucideIcon> = {
 const ACTION_ICONS: Record<StandingAction['kind'], LucideIcon> = {
   start: Play,
   retry: RotateCcw,
+  restart: RotateCcw,
   update: CloudDownload,
   fix: CloudDownload,
 }
@@ -63,6 +64,7 @@ export function useStandingPress(
     case 'start':
       return { press: () => void start.press(), running: start.running, said: start.said }
     case 'retry':
+    case 'restart':
       return { press: onRestart ?? null, running: false, said: null }
     case 'update':
       return { press: () => openUpdates(), running: false, said: null }
@@ -100,6 +102,8 @@ export function StandingBox({
   coverDetail,
   onStarted,
   onRestart,
+  restartWhy,
+  onReload,
 }: {
   showing: Exclude<Showing, { kind: 'page' }>
   notice: ReturnType<typeof noticeOf> | null
@@ -107,7 +111,11 @@ export function StandingBox({
   presence: Pick<Presence, 'id' | 'at' | 'protocols'>
   coverDetail?: string
   onStarted(): void
+  /** Restart the module. Absent when this host may not, and `restartWhy` says why. */
   onRestart?(): void
+  restartWhy?: string | null
+  /** A new document for the frame, from the server that answers. */
+  onReload?(): void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const box = useBox(ref)
@@ -118,7 +126,7 @@ export function StandingBox({
         showing.kind === 'cover' ? (
           <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} />
         ) : notice ? (
-          <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} onRestart={onRestart} />
+          <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} onRestart={onRestart} restartWhy={restartWhy} onReload={onReload} />
         ) : null
       ) : (
         <Compact layout={layout === 'small' ? 'small' : 'line'} standing={standing} state={showing.kind === 'cover' ? showing.state : undefined} module={presence.id} onStarted={onStarted} onRestart={onRestart} />

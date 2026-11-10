@@ -1,7 +1,8 @@
-import { RotateCcw } from 'lucide-react'
+import { RefreshCw, RotateCcw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
 import type { Presence } from '@/host/registry.ts'
+import { RESTART_LABEL } from '@/host/restartModule.ts'
 import type { noticeOf, Showing } from '@/host/standing.ts'
 import { ConditionPanel } from './Conditions.tsx'
 import { Start, Update, UpdateFor } from './Start.tsx'
@@ -23,6 +24,8 @@ export function ContainerNotice({
   presence,
   onStarted,
   onRestart,
+  restartWhy,
+  onReload,
 }: {
   showing: Extract<Showing, { kind: 'notice' }>
   notice: ReturnType<typeof noticeOf>
@@ -30,6 +33,10 @@ export function ContainerNotice({
   onStarted(): void
   /** Press the restart again, for a notice that says one did not bring the module back. */
   onRestart?(): void
+  /** Why the module cannot be restarted from here: the button is drawn disabled, with this under it. */
+  restartWhy?: string | null
+  /** A new document for the frame, from the server that answers ("Reload page"). */
+  onReload?(): void
 }) {
   return (
     <ConditionPanel
@@ -57,6 +64,37 @@ export function ContainerNotice({
           <RotateCcw className="size-3" />
           Retry
         </Button>
+      ) : null}
+      {/* The server answers and its page does not: a new document, or the module restarted. Restart
+          is disabled, with the reason, for a module this host did not start. See `noticeOf`. */}
+      {notice.offer === 'restart' ? (
+        <div className="pointer-events-auto flex flex-col items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {notice.reload && onReload ? (
+              <Button variant="secondary" size="sm" className="h-7 px-3 text-xs" data-notice="reload" onClick={onReload}>
+                <RefreshCw className="size-3" />
+                Reload page
+              </Button>
+            ) : null}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 px-3 text-xs"
+              data-notice="restart"
+              disabled={!onRestart}
+              title={restartWhy ?? undefined}
+              onClick={onRestart}
+            >
+              <RotateCcw className="size-3" />
+              {RESTART_LABEL}
+            </Button>
+          </div>
+          {!onRestart && restartWhy ? (
+            <p className="text-muted-foreground max-w-[46ch] text-[11px]" data-reason>
+              {restartWhy}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {/* Running, and refused: an update changes that, a start does not. See `noticeOf`. */}
       {notice.offer === 'update' ? <Update /> : null}

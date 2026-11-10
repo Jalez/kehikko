@@ -2,7 +2,7 @@ import type { Runnable, Startable } from './launch.ts'
 import type { Registration } from './registrations.ts'
 
 /**
- * "Restart module": the item at the foot of every module's Run menu.
+ * "Restart module": a row of every container's Container menu, drawn by the host.
  *
  * ## One path
  *
@@ -16,11 +16,16 @@ import type { Registration } from './registrations.ts'
  *
  * ## Who it is for
  *
- * A module this host starts: a registration with a directory and a `run.sh`
- * (`startable`). One registered with only a URL is somebody else's program; the
- * answer names that and nothing is signalled. A `keep` module is refused by
- * `restart` with its own sentence — "Restart anyway" (`anyway.ts`) is how a
- * person overrides that.
+ * A module this host started and holds (`held`: its child is in the nursery),
+ * or one that is not running at all, which a restart simply starts. Anything
+ * else that answers at the module's address was started outside Kehikot (a
+ * dev server in a terminal, a copy a previous host left) and is refused with
+ * `STARTED_OUTSIDE` before anything is signalled. The server's `restart` is
+ * called `heldOnly` from here, so it neither proves nor takes over such a
+ * program either: only the held child is ever stopped, by its pid. One
+ * registered with only a URL is somebody else's program in every case. A
+ * `keep` module is refused by `restart` with its own sentence; "Restart
+ * anyway" (`anyway.ts`) is how a person overrides that.
  *
  * ## One at a time
  *
@@ -37,8 +42,8 @@ import type { Registration } from './registrations.ts'
 /** How long the host waits for the module to answer again before saying it did not. */
 export const RESTART_WITHIN_MS = 30_000
 
-/** What a module registered without a directory is told. */
-export const NOT_STARTED_BY_US = "Kehikot didn't start this module, so it can't restart it."
+/** What a module this host did not start is told. The page says the same on the disabled row. */
+export const STARTED_OUTSIDE = 'Started outside Kehikot: restart it where it runs'
 
 export type Restarted =
   | { ok: true; answered: boolean; detail: string[]; presence: unknown }
@@ -50,7 +55,11 @@ export interface RestartModuleDeps {
   startable(registration: Registration | null): Startable
   /** An update, a start or a restart of it is already in hand somewhere else. */
   busy(id: string): boolean
-  /** Stop the process this host started for it and start it again: `restart` in `server.ts`. */
+  /** Whether this host holds a live child for it (`Nursery.holds`). */
+  held(id: string): boolean
+  /** Whether anything at all answers at the registration's address. */
+  reached(registration: Registration): Promise<boolean>
+  /** Stop the process this host started for it and start it again: `restart` in `server.ts`, `heldOnly`. */
   restart(id: string, registration: Registration, run: Runnable, within: number): Promise<Restarted>
   /** Before the wait for it to come back, which outlasts an idle connection. */
   patient?(request: Request): void
@@ -75,10 +84,12 @@ export function restartModuleDesk(deps: RestartModuleDeps) {
     try {
       const registration = await deps.registration(id)
       if (!registration) return reply({ ok: false, why: 'There is no registration for that module.' }, 409)
-      if (!registration.dir) return reply({ ok: false, external: true, why: NOT_STARTED_BY_US }, 409)
+      if (!registration.dir) return reply({ ok: false, external: true, why: STARTED_OUTSIDE }, 409)
       const can = deps.startable(registration)
       if (!can.ok) return reply({ ok: false, why: can.why }, 409)
       if (deps.busy(id)) return reply({ ok: false, busy: true, why: `${id} is already being started, restarted or updated. Nothing more was done.` }, 409)
+      /* Something answers that this host did not start: it is left alone. */
+      if (!deps.held(id) && (await deps.reached(registration))) return reply({ ok: false, external: true, why: STARTED_OUTSIDE }, 409)
 
       deps.patient?.(request)
       const done = await deps.restart(id, registration, can.run, RESTART_WITHIN_MS)

@@ -33,6 +33,8 @@ export type Showing =
     restartFailed?: string[]
     /** The page's own stack, when it said why it failed (`Found.more`): under "Show details". */
     more?: string
+    /** The module's server answers and its page does not: what the frame found, not the sweep. */
+    page?: true
   }
 
 /** What the host's server said about the module. */
@@ -87,7 +89,7 @@ export function showing(said: Said, found: Found | undefined, asked = true, rest
   }
   if (!found) return { kind: 'cover', state: 'loading' }
   if (found.condition === 'ready') return found.stale ? { kind: 'cover', state: 'restarting' } : { kind: 'page' }
-  return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line, ...(found.more ? { more: found.more } : {}) }
+  return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line, page: true, ...(found.more ? { more: found.more } : {}) }
 }
 
 /**
@@ -109,7 +111,9 @@ export function noticeOf(
   /** Above the line, for a module that does not fit: "Monitor needs a newer Kehikot". */
   title?: string
   detail?: string[]
-  offer: 'start' | 'update' | 'retry-restart' | null
+  offer: 'start' | 'update' | 'retry-restart' | 'restart' | null
+  /** "Reload page" beside the offer: the frame gets a new document from the server that answers. */
+  reload?: true
   /** The fit's button: "Update Kehikot", or "Update <Module>" with `module` set to open its row. */
   fix?: { label: string; module?: true }
   /** The page's own stack, behind "Show details", for a page that said why it failed. */
@@ -134,6 +138,9 @@ export function noticeOf(
   const more = notice.more ? { more: notice.more } : {}
   if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update', ...more }
   if (presence.remedy) return { line: notice.line, offer: null, ...more }
+  /* The server answers and its page went silent or failed: a new document, or the module restarted
+     by the host that started it. Not Start: something is running, and it is not a start it needs. */
+  if (notice.page) return { line: notice.line, offer: 'restart', reload: true, ...more }
   return { line: notice.line, detail: presence.detail, offer: 'start', ...more }
 }
 

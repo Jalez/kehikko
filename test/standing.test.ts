@@ -54,6 +54,7 @@ describe('what a container shows', () => {
       condition: 'silent',
       asleep: false,
       line: 'did not answer',
+      page: true,
     })
     expect(showing(said(), { condition: 'silent', line: null })).toMatchObject({ line: 'the server’s line' })
   })
