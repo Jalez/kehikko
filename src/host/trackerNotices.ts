@@ -150,6 +150,11 @@ export interface Happening {
   name?: string
   /** When the host noticed it. */
   at: number
+  /** A comment's place on a change's diff, when the reading said (protocol 2.67.0). */
+  path?: string
+  line?: number
+  /** How many commits a push added, when the reading said (protocol 2.67.0). */
+  commits?: number
 }
 
 /**
@@ -331,7 +336,8 @@ export function happenings(was: Seen | undefined, row: TrackerRow, me: string | 
     const after = facts.activity ? time(facts.activity.at) : was.at
     const known = activity.mine === false || (activity.mine === undefined && me !== null && !mine(activity.login))
     if (time(activity.at) > after && known && !(activity.kind === 'review' && reviewed.has(lower(activity.login)))) {
-      out.push({ kind: 'commented', ...by(activity.login), at: now })
+      const place = activity.kind === 'comment' && activity.path ? { path: activity.path, ...(activity.line ? { line: activity.line } : {}) } : {}
+      out.push({ kind: 'commented', ...by(activity.login), at: now, ...place })
     }
   }
 
@@ -339,7 +345,8 @@ export function happenings(was: Seen | undefined, row: TrackerRow, me: string | 
   if (row.kind === 'change' && row.lastPushAt && facts.pushAt && time(row.lastPushAt) > time(facts.pushAt)) {
     const reviewing = [...(row.myRoles ?? []), ...(facts.roles ?? [])].some((one) => REVIEWING.includes(one))
     const self = (activity?.kind === 'commit' && (activity.mine === true || mine(activity.login))) || mine(row.authorLogin ?? undefined)
-    if (reviewing && !self) out.push({ kind: 'pushed', ...by(activity?.kind === 'commit' ? activity.login : undefined), at: now })
+    const pushed = activity?.kind === 'commit' && time(activity.at) > time(facts.pushAt) && activity.commits ? { commits: activity.commits } : {}
+    if (reviewing && !self) out.push({ kind: 'pushed', ...by(activity?.kind === 'commit' ? activity.login : undefined), at: now, ...pushed })
   }
 
   return out
@@ -396,12 +403,23 @@ export function phrases(events: readonly Happening[]): string[] {
   const last = states[states.length - 1]
   if (last) out.push(withBy(last.kind, [last]))
   const comments = of('commented')
-  if (comments.length) {
+  const one = comments.length === 1 ? comments[0]! : null
+  if (one?.path && one.by) {
+    /* "mona commented on line 42 of api.ts": where, when the reading said. */
+    const file = one.path.split('/').filter(Boolean).at(-1) ?? one.path
+    out.push(`${one.name ?? one.by} commented ${one.line ? `on line ${one.line} of ${file}` : `on ${file}`}`)
+  } else if (comments.length) {
     const who = namesSaid(comments)
     const said = comments.length === 1 ? 'a new comment' : `${comments.length} new comments`
     out.push(who ? `${said} from ${who}` : said)
   }
-  if (of('pushed').length) out.push('new commits')
+  const pushes = of('pushed')
+  const push = pushes.length === 1 ? pushes[0]! : null
+  if (push?.commits) {
+    /* "ali pushed 3 commits", or "3 new commits" when who is not known. */
+    const count = `${push.commits} ${push.commits === 1 ? 'commit' : 'commits'}`
+    out.push(push.by ? `${push.name ?? push.by} pushed ${count}` : `${push.commits} new ${push.commits === 1 ? 'commit' : 'commits'}`)
+  } else if (pushes.length) out.push('new commits')
   return out
 }
 

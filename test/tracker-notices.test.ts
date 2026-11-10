@@ -25,6 +25,7 @@ import {
   noticeItem,
   noticesPatched,
   noticesStored,
+  phrases,
   TRACKER_NOTICES_MODULE,
   type Seen,
 } from '../src/host/trackerNotices.ts'
@@ -142,6 +143,25 @@ describe('what changed between two readings', () => {
     /* Your own change: a push is yours, never told. */
     const own = gh(13, { lastPushAt: at(T0 - 100) })
     expect(happenings(seenOf(own), gh(13, { lastPushAt: at(T0 + 100) }), ME, NOW, LAST)).toEqual([])
+  })
+
+  test('the words say where a comment is and how many commits a push added, when the reading said', () => {
+    const was = gh(15, { lastActivity: { login: ME, at: at(T0 - 10), kind: 'comment', mine: true } })
+    const there = gh(15, {
+      lastActivity: { login: 'mona', at: at(T0 + 10), kind: 'comment', mine: false, path: 'server/api.ts', line: 42 },
+      people: { mona: { name: 'Mona' } },
+    })
+    const said = happenings(seenOf(was), there, ME, NOW, LAST)
+    expect(said).toMatchObject([{ kind: 'commented', by: 'mona', path: 'server/api.ts', line: 42 }])
+    expect(phrases(said)).toEqual(['Mona commented on line 42 of api.ts'])
+    const base = { authorLogin: 'mona', reviewers: [{ login: ME, state: 'commented' as const }], myRoles: ['reviewer-done' as const] }
+    const before = gh(16, { ...base, lastPushAt: at(T0 - 100) })
+    const pushed = gh(16, { ...base, lastPushAt: at(T0 + 100), lastActivity: { login: 'ali', at: at(T0 + 100), kind: 'commit', mine: false, commits: 3 } })
+    expect(phrases(happenings(seenOf(before), pushed, ME, NOW, LAST))).toEqual(['ali pushed 3 commits'])
+    /* Several, or no detail: the old words. */
+    expect(phrases([{ kind: 'commented', by: 'a', at: NOW, path: 'x.ts' }, { kind: 'commented', by: 'b', at: NOW }])).toEqual(['2 new comments from a and b'])
+    expect(phrases([{ kind: 'pushed', at: NOW }])).toEqual(['new commits'])
+    expect(phrases([{ kind: 'pushed', at: NOW, commits: 1 }])).toEqual(['1 new commit'])
   })
 
   test('your own review is not an event', () => {

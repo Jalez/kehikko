@@ -68,7 +68,7 @@ describe('GitHub', () => {
       expect(q).toContain('author { login avatarUrl(size: 48) ... on User { fullName: name } }')
       expect(q).toContain('assignees(first: 16) { nodes { login name avatarUrl(size: 48) } }')
       expect(q).toContain('... on User { login name avatarUrl(size: 48) } ... on Bot { login avatarUrl(size: 48) } ... on Mannequin { login avatarUrl(size: 48) }')
-      expect(q).toContain('latestReviews(first: 32) { nodes { state author { login avatarUrl(size: 48) ... on User { name } } } }')
+      expect(q).toContain('latestReviews(first: 32) { nodes { state submittedAt author { login avatarUrl(size: 48) ... on User { name } } } }')
       expect(q).toContain('actor { login avatarUrl(size: 48) }')
       expect(q).not.toMatch(/author \{ login \}/)
     }
@@ -129,7 +129,7 @@ describe('GitLab', () => {
     const q = glRefsQuery(gl, [1], [8])
     expect(q).toContain('assignees { nodes { name username avatarUrl } } author { name username avatarUrl }')
     expect(q).toContain('approvedBy(first: 32) { nodes { username name avatarUrl } }')
-    expect(q).toContain('createdAt author { username avatarUrl } } }')
+    expect(q).toContain('createdAt author { username avatarUrl } position { filePath newLine oldLine } } }')
     expect(glRefsQuery(gl, [1], [8], false)).not.toContain('avatarUrl')
   })
 
