@@ -123,8 +123,14 @@ const REVIEW_STATE: Record<string, TrackerReviewer['state']> = {
   REVIEWED: 'commented',
 }
 
-/** The reviewers of a merge request, and those who approved it without being asked. */
-export function reviewersOf(reviewers: unknown, approvedBy: unknown): TrackerReviewer[] {
+/**
+ * The reviewers of a merge request, and those who approved it without being asked.
+ *
+ * Each says what the newest notes hold of them (protocol 2.66.0): `reviewedAt`, their latest
+ * approval or changes requested; `activeAt`, their latest comment, thread note or review note. A
+ * reviewer GitLab still calls unreviewed who left discussion notes has started.
+ */
+export function reviewersOf(reviewers: unknown, approvedBy: unknown, notes?: unknown): TrackerReviewer[] {
   const out = new Map<string, TrackerReviewer>()
   const put = (person: Record<string, unknown>, state: TrackerReviewer['state']) => {
     const who = login(person)
@@ -137,7 +143,23 @@ export function reviewersOf(reviewers: unknown, approvedBy: unknown): TrackerRev
     put(person, with_.approved === true ? 'approved' : (REVIEW_STATE[str(with_.reviewState).toUpperCase()] ?? 'requested'))
   }
   for (const person of nodes(approvedBy).map(obj)) put(person, 'approved')
-  return [...out.values()].slice(0, LIMITS.REVIEWERS)
+  const reviewed = new Map<string, string>()
+  const active = new Map<string, string>()
+  for (const note of nodes(notes).map(obj)) {
+    const kind = noteKind(note)
+    if (kind !== 'comment' && kind !== 'review') continue
+    const key = login(note.author).toLowerCase()
+    const at = instant(note.createdAt)
+    if (!key || !at) continue
+    if (!active.has(key) || active.get(key)! < at) active.set(key, at)
+    if (kind === 'review' && (!reviewed.has(key) || reviewed.get(key)! < at)) reviewed.set(key, at)
+  }
+  return [...out.values()].slice(0, LIMITS.REVIEWERS).map((r) => {
+    const key = r.login.toLowerCase()
+    const reviewedAt = reviewed.get(key)
+    const activeAt = active.get(key)
+    return { ...r, ...(reviewedAt ? { reviewedAt } : {}), ...(activeAt ? { activeAt } : {}) }
+  })
 }
 
 /** GitLab's resolvable and resolved discussion counts, or nothing when it did not give both. */
@@ -212,6 +234,22 @@ export function noteKind(note: Record<string, unknown>): LastActivityKind | null
   return null
 }
 
+/** What a note says beyond its kind (protocol 2.66.0): a review's verdict, a push's commits, a diff comment's place. */
+export function noteDetail(note: Record<string, unknown>, kind: LastActivityKind): Pick<TrackerActivity, 'verdict' | 'commits' | 'path' | 'line'> {
+  const body = str(note.body).trim().toLowerCase()
+  if (kind === 'review') return /^approved this merge request/.test(body) ? { verdict: 'approved' } : /^requested changes/.test(body) ? { verdict: 'changes' } : {}
+  if (kind === 'commit') {
+    const n = Number(/^added (\d+) (?:new )?commits?\b/.exec(body)?.[1])
+    return Number.isInteger(n) && n > 0 ? { commits: n } : {}
+  }
+  if (kind !== 'comment') return {}
+  const at = obj(note.position)
+  const path = clip(str(at.filePath ?? at.newPath ?? at.oldPath), LIMITS.PATH)
+  if (!path) return {}
+  const line = at.newLine ?? at.oldLine
+  return { path, ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}) }
+}
+
 /** The last activity from the newest notes, oldest first as GitLab gives them. Undefined when not asked. */
 export function activityOf(notes: unknown, author: unknown, createdAt: unknown): TrackerActivity | undefined {
   if (!connection(notes)) return undefined
@@ -221,7 +259,7 @@ export function activityOf(notes: unknown, author: unknown, createdAt: unknown):
     if (!kind) continue
     const by = login(all[i]!.author)
     const at = instant(all[i]!.createdAt)
-    return by && at ? { login: by, at, kind } : undefined
+    return by && at ? { login: by, at, kind, ...noteDetail(all[i]!, kind) } : undefined
   }
   if (all.length >= NOTES) return undefined
   const by = login(author)
@@ -360,7 +398,7 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
     pipelineUrl: pipelineUrlOf(head, url, pipeline),
     pipelineAt: pipelineAtOf(head, pipeline),
     /* GraphQL only (see "People" above): the REST list's `reviewers` say nobody's state. */
-    reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy) : undefined,
+    reviewers: connection(r.reviewers) || connection(r.approvedBy) ? reviewersOf(r.reviewers, r.approvedBy, r.notes) : undefined,
     discussions: discussionsOf(r.resolvableDiscussionsCount, r.resolvedDiscussionsCount),
     lastPushAt: lastPushOf(r.commits, r.headPipeline),
     baseBranch: branchOf(r.targetBranch ?? r.target_branch),
@@ -440,7 +478,7 @@ const GRAPH_PEOPLE = (people: boolean) => {
 }
 
 /** The newest notes, for the last activity: see "Branches and last activity" above. */
-const NOTES_GRAPH = `notes(last: ${NOTES}) { nodes { system body createdAt author { username avatarUrl } } }`
+const NOTES_GRAPH = `notes(last: ${NOTES}) { nodes { system body createdAt author { username avatarUrl } position { filePath newLine oldLine } } }`
 
 /** A merge request's reviewers, approvers, discussions, newest commit and notes: see "People" above. */
 const MERGE_PEOPLE = `reviewers(first: 32) { nodes { username name avatarUrl mergeRequestInteraction { approved reviewState } } }

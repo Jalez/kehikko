@@ -58,7 +58,7 @@ describe('GitHub: branches and last activity', () => {
   test('the queries ask for both branches, whether it is a fork, and the newest timeline item', () => {
     for (const q of [ghRefsQuery(gh, [42]), listQuery(gh, { issues: null, pulls: null })]) {
       expect(q).toContain('baseRefName headRefName isCrossRepository')
-      expect(q).toContain('timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT')
+      expect(q).toContain('timelineItems(last: 10, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT')
       expect(q).toContain('timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT, REOPENED_EVENT])')
     }
   })
@@ -89,7 +89,7 @@ describe('GitHub: branches and last activity', () => {
     expect(ghActivityOf({ nodes: [{ __typename: 'HeadRefForcePushedEvent', createdAt: '2026-10-21T01:00:00Z', actor: { login: 'a' } }] }, null, null)?.kind).toBe('commit')
     expect(
       ghActivityOf({ nodes: [{ __typename: 'PullRequestCommit', commit: { committedDate: '2026-10-21T01:00:00Z', author: { user: { login: 'b' } } } }] }, null, null),
-    ).toEqual({ login: 'b', at: '2026-10-21T01:00:00.000Z', kind: 'commit' })
+    ).toEqual({ login: 'b', at: '2026-10-21T01:00:00.000Z', kind: 'commit', commits: 1 })
     expect(ghActivityOf({ nodes: [] }, { login: 'Jalez' }, '2026-10-19T12:30:56Z')).toEqual({ login: 'Jalez', at: '2026-10-19T12:30:56.000Z', kind: 'state' })
   })
 
@@ -161,7 +161,7 @@ describe('GitLab: branches and last activity', () => {
     const mr = read.rows[0]!
     expect(mr.baseBranch).toBe('df-go-3-command')
     expect(mr.headBranch).toBe('df-go-4-upstream')
-    expect(mr.lastActivity).toEqual({ login: 'arpit', at: '2026-10-21T13:10:00.000Z', kind: 'commit' })
+    expect(mr.lastActivity).toEqual({ login: 'arpit', at: '2026-10-21T13:10:00.000Z', kind: 'commit', commits: 1 })
   })
 
   test('a merge request from a fork has no head branch', async () => {

@@ -143,18 +143,30 @@ const REVIEW_STATE: Record<string, TrackerReviewer['state']> = {
   DISMISSED: 'commented',
 }
 
-/** The reviewers of a pull request: its latest reviews, then its open requests, which win. */
-export function reviewersOf(requests: unknown, reviews: unknown): TrackerReviewer[] {
+/**
+ * The reviewers of a pull request: its latest reviews, then its open requests, which win.
+ *
+ * Each says what else the reading holds of them (protocol 2.66.0): `reviewedAt`, their latest
+ * review's `submittedAt`; `activeAt`, the newest of that and their items among the newest
+ * timeline items (a comment on the conversation counts: a reviewer still asked who commented has
+ * started); `openThreads`, the unresolved threads whose first comment is theirs, only when every
+ * thread was read.
+ */
+export function reviewersOf(requests: unknown, reviews: unknown, timeline?: unknown, threads?: unknown): TrackerReviewer[] {
   const out = new Map<string, TrackerReviewer>()
-  const put = (person: Record<string, unknown>, state: TrackerReviewer['state']) => {
+  const put = (person: Record<string, unknown>, state: TrackerReviewer['state'], reviewedAt?: string) => {
     const who = login(person)
     if (!who) return
     const name = clip(str(person.name).trim(), LIMITS.TRACKER_PERSON)
-    out.set(who.toLowerCase(), { login: who, ...(name ? { name } : {}), state })
+    out.set(who.toLowerCase(), { login: who, ...(name ? { name } : {}), state, ...(reviewedAt ? { reviewedAt } : {}) })
   }
+  const reviewedAt = new Map<string, string>()
   for (const review of nodes(reviews).map(obj)) {
     const state = REVIEW_STATE[str(review.state).toUpperCase()]
-    if (state) put(obj(review.author), state)
+    const at = instant(review.submittedAt) ?? undefined
+    const key = login(obj(review.author)).toLowerCase()
+    if (at && key) reviewedAt.set(key, at)
+    if (state) put(obj(review.author), state, at)
   }
   const asked = nodes(requests).map((one) => obj(obj(one).requestedReviewer))
   for (const person of asked) {
@@ -164,8 +176,46 @@ export function reviewersOf(requests: unknown, reviews: unknown): TrackerReviewe
   }
   const reviewed = [...out.values()]
   out.clear()
-  for (const person of asked) put(person, 'requested')
-  return [...out.values(), ...reviewed].slice(0, LIMITS.REVIEWERS)
+  for (const person of asked) put(person, 'requested', reviewedAt.get(login(person).toLowerCase()))
+  const active = actedAt(timeline)
+  const open = openThreadsOf(threads)
+  return [...out.values(), ...reviewed].slice(0, LIMITS.REVIEWERS).map((r) => {
+    const key = r.login.toLowerCase()
+    const times = [r.reviewedAt, active.get(key)].filter((t): t is string => Boolean(t)).sort()
+    const activeAt = times.at(-1)
+    const threadsOpened = open?.get(key) ?? (open ? 0 : undefined)
+    return { ...r, ...(activeAt ? { activeAt } : {}), ...(threadsOpened !== undefined ? { openThreads: threadsOpened } : {}) }
+  })
+}
+
+/** Each login's newest comment or review among the timeline items read, by lower-cased login. */
+function actedAt(timeline: unknown): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const item of nodes(timeline).map(obj)) {
+    const type = str(item.__typename)
+    if (type !== 'IssueComment' && type !== 'PullRequestReview') continue
+    const key = login(item.author).toLowerCase()
+    const at = instant(item.submittedAt ?? item.createdAt)
+    if (key && at && (!out.has(key) || out.get(key)! < at)) out.set(key, at)
+  }
+  return out
+}
+
+/** Unresolved threads by whoever wrote each one's first comment; null unless every thread was read and each open one has an author. */
+export function openThreadsOf(threads: unknown): Map<string, number> | null {
+  const t = obj(threads)
+  if (!Array.isArray(t.nodes)) return null
+  const all = nodes(threads).map(obj)
+  if (typeof t.totalCount === 'number' && t.totalCount !== all.length) return null
+  const out = new Map<string, number>()
+  for (const thread of all) {
+    if (thread.isResolved === true) continue
+    const key = login(obj(nodes(thread.comments)[0]).author).toLowerCase()
+    /* An open thread nobody can be named for: no count for anybody rather than a low one. */
+    if (!key) return null
+    out.set(key, (out.get(key) ?? 0) + 1)
+  }
+  return out
 }
 
 /** Resolved and unresolved review threads, or nothing when not all of them were read. */
@@ -205,21 +255,52 @@ const ACTED: Record<string, LastActivityKind> = {
   MergedEvent: 'state',
 }
 
-/** The newest timeline item as the protocol's last activity, or the opening when there is none. */
+/** A review's verdict, in a reviewer state's words (protocol 2.66.0). */
+const VERDICT: Record<string, 'approved' | 'changes' | 'commented'> = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes', COMMENTED: 'commented' }
+
+/**
+ * The newest timeline item as the protocol's last activity, or the opening when there is none.
+ *
+ * What it was, where the timeline says (protocol 2.66.0): a review's `verdict`; a review that only
+ * commented on lines of the diff is a `comment` on its first comment's `path` and `line`; a run of
+ * commits by one person at the end of the timeline is one push of that many `commits` (counted
+ * among the items read).
+ */
 export function activityOf(timeline: unknown, author: unknown, createdAt: unknown): TrackerActivity | undefined {
-  const last = nodes(timeline).map(obj).at(-1)
+  const items = nodes(timeline).map(obj)
+  const last = items.at(-1)
   if (!last) {
     const by = login(author)
     const at = instant(createdAt)
     return by && at ? { login: by, at, kind: 'state' } : undefined
   }
-  const kind = ACTED[str(last.__typename)]
+  const type = str(last.__typename)
+  const kind = ACTED[type]
   if (!kind) return undefined
   const commit = obj(last.commit)
-  const by = login(last.author) || login(last.actor) || login(obj(obj(commit.author).user))
+  const committer = (item: Record<string, unknown>) => login(obj(obj(obj(item.commit).author).user))
+  const by = login(last.author) || login(last.actor) || committer(last)
   const at = instant(last.submittedAt ?? last.createdAt ?? commit.committedDate)
-  return by && at ? { login: by, at, kind } : undefined
+  if (!by || !at) return undefined
+  if (type === 'PullRequestReview') {
+    const verdict = VERDICT[str(last.state).toUpperCase()]
+    const first = obj(nodes(last.comments)[0])
+    const path = clip(str(first.path), LIMITS.PATH)
+    const line = first.line ?? first.originalLine
+    if (verdict === 'commented' && path && !str(last.body).trim()) {
+      return { login: by, at, kind: 'comment', path, ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}) }
+    }
+    return { login: by, at, kind, ...(verdict ? { verdict } : {}) }
+  }
+  if (type === 'PullRequestCommit') {
+    let commits = 0
+    for (let i = items.length - 1; i >= 0 && str(items[i]!.__typename) === 'PullRequestCommit' && same(committer(items[i]!), by); i -= 1) commits += 1
+    return { login: by, at, kind, commits }
+  }
+  return { login: by, at, kind }
 }
+
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /**
  * Every person object an issue or pull request answer carries, for its row's
@@ -389,7 +470,7 @@ export function pullRow(source: Source, raw: unknown, now: string): TrackerRow |
     pipelineUrl: checksUrl(url, pipeline),
     review: reviewOf(r.reviewDecision),
     /* Absent when the answer did not carry them, which is not the same as nobody. */
-    reviewers: read('reviewRequests') || read('latestReviews') ? reviewersOf(r.reviewRequests, r.latestReviews) : undefined,
+    reviewers: read('reviewRequests') || read('latestReviews') ? reviewersOf(r.reviewRequests, r.latestReviews, r.timelineItems, r.reviewThreads) : undefined,
     discussions: read('reviewThreads') ? discussionsOf(r.reviewThreads) : undefined,
     lastPushAt: instant(head.committedDate) ?? undefined,
     baseBranch: branchOf(r.baseRefName),
@@ -519,11 +600,16 @@ const AUTHOR = `{ login ${AVATAR} ... on User { fullName: name } }`
 const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author ${ACTOR} }
       ... on ClosedEvent { createdAt actor ${ACTOR} } ... on ReopenedEvent { createdAt actor ${ACTOR} }`
 const PULL_ACTS = `${ISSUE_ACTS}
-      ... on PullRequestReview { submittedAt createdAt author ${ACTOR} }
+      ... on PullRequestReview { submittedAt createdAt state body author ${ACTOR} comments(first: 1) { nodes { path line originalLine } } }
       ... on PullRequestCommit { commit { committedDate author { user ${ACTOR} } } }
       ... on HeadRefForcePushedEvent { createdAt actor ${ACTOR} } ... on MergedEvent { createdAt actor ${ACTOR} }`
+/**
+ * How many of a pull request's newest timeline items are read: the newest is its last activity,
+ * and the rest say which reviewers commented and how many commits the last push added (2.66.0).
+ */
+export const TIMELINE = 10
 const ISSUE_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, CLOSED_EVENT, REOPENED_EVENT]) { nodes { ${ISSUE_ACTS} } }`
-const PULL_ACTIVITY = `timelineItems(last: 1, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT]) { nodes { ${PULL_ACTS} } }`
+const PULL_ACTIVITY = `timelineItems(last: ${TIMELINE}, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT]) { nodes { ${PULL_ACTS} } }`
 
 const ISSUE_GRAPH = (boards: boolean, branches = true) => `number state stateReason title url createdAt updatedAt closedAt
     author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
@@ -531,8 +617,8 @@ const ISSUE_GRAPH = (boards: boolean, branches = true) => `number state stateRea
     ${ISSUE_ACTIVITY}${branches ? `\n    ${LINKED_BRANCHES}` : ''}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }
-    latestReviews(first: 32) { nodes { state author { login ${AVATAR} ... on User { name } } } }
-    reviewThreads(first: 100) { totalCount nodes { isResolved } }`
+    latestReviews(first: 32) { nodes { state submittedAt author { login ${AVATAR} ... on User { name } } } }
+    reviewThreads(first: 100) { totalCount nodes { isResolved comments(first: 1) { nodes { author ${ACTOR} } } } }`
 /* `body` for the issues a pull request says it is part of (protocol 2.26.0): a field of the node, at no cost in GitHub's points. */
 const PULL_GRAPH = (boards: boolean) => `number state title url body createdAt updatedAt closedAt mergedAt isDraft reviewDecision
     baseRefName headRefName isCrossRepository ${PULL_ACTIVITY}

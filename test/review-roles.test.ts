@@ -138,7 +138,7 @@ describe('GitHub: the people of a pull request', () => {
     for (const q of [ghRefsQuery(gh, [41]), listQuery(gh, { issues: null, pulls: null })]) {
       expect(q).toContain('reviewRequests(first: 32)')
       expect(q).toContain('latestReviews(first: 32)')
-      expect(q).toContain('reviewThreads(first: 100) { totalCount nodes { isResolved } }')
+      expect(q).toContain('reviewThreads(first: 100) { totalCount nodes { isResolved comments(first: 1) { nodes { author { login avatarUrl(size: 48) } } } } }')
       expect(q).toContain('committedDate')
       expect(q).not.toContain('Team')
       expect(q).not.toContain('pushedDate')
