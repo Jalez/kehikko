@@ -46,6 +46,7 @@ import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
+import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
 import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
@@ -1042,7 +1043,34 @@ const nursery = new Nursery()
  * (`ended`), and when the liveness check sees one go, come back or answer from another build
  * (`watch`). See `manifests.ts`.
  */
-const manifests = new ManifestCache((registration) => look(registration))
+const manifests = new ManifestCache((registration) => look(registration).then((presence) => strangerNotHeld(presence, registration)))
+
+/**
+ * A module started on any port (`anyPort.ts`) whose registration still names the port of the process
+ * before, where another program now answers: that program is not holding anything of the module's,
+ * which binds wherever it is given. So it is not "reached" for the rules that will not start a
+ * module into a taken port. Only when what answered is plainly not the module (`served`) and this
+ * host holds no process for it, so a module of its own that is still booting is never started twice.
+ */
+function strangerNotHeld(presence: Presence, registration: Registration): Presence {
+  if (!ADDRESSES || presence.module || !presence.reached || !presence.served || nursery.holds(presence.id)) return presence
+  return takesAnyPort(registration.dir) ? { ...presence, reached: false } : presence
+}
+
+/**
+ * Wait, up to `within`, for a module started on any port to answer where its registration says
+ * now, as the process started with `token`. The registration is read from disk on each ask: the
+ * module rewrites it once it has bound.
+ */
+async function answeredAnywhere(id: string, token: string, within: number): Promise<boolean> {
+  const until = Date.now() + within
+  for (;;) {
+    const registration = (await readRegistrations()).registrations.find((one) => one.id === id)
+    if (registration && (await answersAsStarted(registration.url, id, token))) return true
+    if (Date.now() >= until) return false
+    await new Promise((wake) => setTimeout(wake, Math.min(300, Math.max(0, until - Date.now()))))
+  }
+}
 
 /** When each module was last on a kehikko somebody had open. */
 const idleness = new Idleness()
@@ -2074,12 +2102,17 @@ function run(id: string, runnable: Runnable): Started {
   const at = Date.now()
   /* Run now — by a press, an update, or the ordinary rule — so no longer waited for. */
   theirs.delete(id)
+  /* Any free port (protocol 2.63.0) for a module that reads `PORT=0` so, while nothing names its
+     port: it registers where it went (`anyPort.ts`). Any other keeps its port and the drift rules. */
+  const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
+  if (anyPort) runnable = { ...runnable, port: 0, command: `PORT=0 ${runnable.script}` }
   const ran = start(logged ? { ...runnable, log } : runnable, (code) => {
     exits.set(id, code)
     void ended(id, at, code)
   })
   if (!ran.ok || !ran.child) return ran
   nursery.keep(id, { child: ran.child, at, url: runnable.url, ...(ran.token ? { token: ran.token } : {}) })
+  if (anyPort) ran.anyPort = true
   manifests.forget(id)
   runs.set(id, at)
   starting.set(id, at)
@@ -2750,11 +2783,12 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
       onInstalling?.()
     }
     if (now >= until && !busy) break
-    up = await answered(runnable.url, paths, busy ? 1500 : Math.max(1, Math.min(1500, until - now)))
+    const budget = busy ? 1500 : Math.max(1, Math.min(1500, until - now))
+    up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, budget) : await answered(runnable.url, paths, budget)
   }
   /* The process ended and something else may answer there: the module was
      already running, and the copy just started stepped aside. */
-  if (!up && !alive()) up = await answered(runnable.url, paths, 600)
+  if (!up && !alive()) up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, 600) : await answered(runnable.url, paths, 600)
   if (!up && !alive()) {
     const detail = tail(log)
     starting.delete(id)

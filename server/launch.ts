@@ -172,6 +172,8 @@ export interface Started {
    * start, so the process that says it back is this one and no other. An identity, not a secret.
    */
   token?: string
+  /** Started on any free port (`PORT=0`, `anyPort.ts`): where it answers is its registration's to say. */
+  anyPort?: boolean
 }
 
 /** A fresh start token: 32 hex characters, which `START_TOKEN` in the protocol accepts. */

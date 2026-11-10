@@ -1478,6 +1478,10 @@
   (`src/host/addressCheck.ts`); never move a frame's `entry` anywhere else.
 - `/m/…` is this host's own origin: it refuses a browser and sandboxes every
   answer. Keep both.
+- With the addresses on, a module whose installed protocol package reads
+  `PORT=0` as any free port (2.63.0, `server/anyPort.ts`) is started with
+  `PORT=0` and found where it registers, as the process started with its token.
+  Every other module keeps its port and the drift rules.
 - `KEHIKOT_MODULE_ADDRESSES=0` is the way out: every address is a module's own
   origin again.
 
