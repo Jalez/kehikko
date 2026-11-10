@@ -476,6 +476,7 @@ export function myModulesDesk(deps: Deps) {
       repo: found.repo,
       host: where.host,
       ...(described.protocol ? { protocol: described.protocol } : {}),
+      ...(app ? { app } : {}),
       ...(newer ? { newer } : {}),
       private: found.private,
     }

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { notesBetween, pickNewest, protocolPin, releaseFollower, ASK_AT_MOST_EVERY_MS } from '../server/moduleReleases.ts'
+import { noneRunsSaid, notesBetween, pickNewest, protocolPin, releaseFollower, ASK_AT_MOST_EVERY_MS } from '../server/moduleReleases.ts'
 import { releaseNotesDesk } from '../server/releaseNotes.ts'
 import { hasUpdate, readCheckout, update, type Checkout, type Place } from '../server/updates.ts'
 import { tagsFromLsRemote, type Tags } from '../server/versions.ts'
@@ -227,8 +227,12 @@ describe('an installed copy', () => {
     const f = followerOf(m.origin, { have: '2.5.0' })
     expect(await f.follower.settle(m.place(f))).toEqual({
       ok: false,
-      why: 'every release of it needs a newer Kehikot (module protocol 2.9 or later; this one has 2.5). Update the app first.',
+      why: 'every release of it needs a newer Kehikot. Update the app first.',
     })
+    /* With the apps known, the app that first runs it, never the protocol. */
+    expect(noneRunsSaid('2.9.0', [{ app: '0.1.40', protocol: '2.8.0' }, { app: '0.1.41', protocol: '2.9.0' }])).toBe(
+      'every release of it needs Kehikot 0.1.41 or later. Update the app first.',
+    )
   })
 
   test('on a release, a newer one is fetched and checked out at its tag', async () => {
@@ -306,7 +310,7 @@ describe('an installed copy', () => {
     expect(needsNewerSaid(release, { app: '0.1.40' })).toBe('1.2.0 is out; it needs a Kehikot newer than 0.1.39.')
     expect(worksLineSaid(release, 'v1.0.0')).toBe('1.0.0 works with Kehikot 0.1.22 and later')
     expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('1.2.0 needs a Kehikot newer than 0.1.39 (module protocol 2.11 or later)')
-    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('v1.1.0: Works with Kehikot 0.1.37 and later.')
+    expect(releaseForAgents(release, { protocol: '2.10.0' })).toContain('v1.1.0: Works with Kehikot 0.1.37 and later (module protocol 2.6 or later).')
   })
 
   test('an entry protocol higher than the pin is the need it is said with', async () => {

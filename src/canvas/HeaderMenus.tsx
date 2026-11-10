@@ -22,6 +22,7 @@ import {
   GitCommitHorizontal,
   History,
   Image,
+  Info,
   LayoutList,
   Link,
   List,
@@ -95,7 +96,7 @@ import {
 import { whenLeft } from '@/host/surface.ts'
 import { EXPAND_WORD, SHRINK_WORD } from '@/host/expand.ts'
 import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, sizeOf, type Control, type FrameEntry, type HeaderLayout, type HelpEntry, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
-import { HELP_SAID, HELP_TITLE, helpHint } from '@/host/helpMenu.ts'
+import { HELP_SAID, HELP_TITLE, helpHint, helpRowSaid } from '@/host/helpMenu.ts'
 import { ControlRows, RemoveRow, type ControlParts } from './HeaderControls.tsx'
 import { OverflowSection, OverflowSections, contentClass, onColumnKeys, useColumns, type OverflowPart } from './OverflowColumns.tsx'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
@@ -1304,10 +1305,13 @@ export interface FrameParts {
   skills?: readonly { name: string }[]
   onSkills?(): void
   /**
-   * Open the module's "How to use" (protocol 2.52.0, `help` in its manifest). Given only for a module
-   * that says how: a "How to use…" row of the Help menu, at every width, folded too.
+   * Open the module's "How to use" (protocol 2.52.0, `help` in its manifest), or — for a module that
+   * wrote none — "About <name>", the same dialog filled from its summary and list entry. Given for
+   * every module, so the Help menu always has this row, at every width, folded too.
    */
   onHelp?(): void
+  /** The module wrote a how-to (`help`): the row says "How to use…"; otherwise "About <name>…". */
+  helpWritten?: boolean
   /**
    * Open the module's own introduction (protocol 2.57.0, `intro` in its manifest), in the app's
    * introduction dialog. Given only for a module that has one: "Introduction…", first in the Help menu.
@@ -1373,9 +1377,15 @@ function HelpRows({ parts, entries }: { parts: FrameParts; entries: readonly Hel
         </DropdownMenuItem>
       ) : null}
       {has('help') && parts.onHelp ? (
-        <DropdownMenuItem className={ROW} title={`how to use ${name}, in its own words`} data-help="help" onSelect={parts.onHelp}>
-          <BookOpen className="text-muted-foreground size-3.5" />
-          <span className="flex-1">{HELP_SAID.help}</span>
+        <DropdownMenuItem
+          className={ROW}
+          title={parts.helpWritten ? `how to use ${name}, in its own words` : `what ${name} is, from its own summary and the module list`}
+          data-help="help"
+          data-help-written={parts.helpWritten ? 'yes' : 'no'}
+          onSelect={parts.onHelp}
+        >
+          {parts.helpWritten ? <BookOpen className="text-muted-foreground size-3.5" /> : <Info className="text-muted-foreground size-3.5" />}
+          <span className="flex-1">{helpRowSaid(name, parts.helpWritten === true)}</span>
         </DropdownMenuItem>
       ) : null}
       {has('notes') && parts.onNotes ? (
@@ -1425,7 +1435,7 @@ export function ContainerHelpMenu({ parts, entries }: { parts: FrameParts; entri
   const [open, setOpen] = useOpen(() => {}, closing)
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Word hint={helpHint(name, entries)} word={null} quiet={quiet}>
+      <Word hint={helpHint(name, entries, parts.helpWritten === true)} word={null} quiet={quiet}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"

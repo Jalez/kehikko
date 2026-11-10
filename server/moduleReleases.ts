@@ -11,7 +11,7 @@ import {
   releaseVersion,
   type ModuleRelease,
 } from '../src/host/moduleReleases.ts'
-import { higherNeed, protocolSaid, withRunningHost, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
+import { higherNeed, needsAppSaid, withRunningHost, worksWith, type AppProtocol, type WorksWith } from '../src/host/worksWith.ts'
 
 /**
  * Installed modules run their RELEASES, not `main`.
@@ -195,9 +195,12 @@ function packageRelease(pkg: string | null): string | null {
   }
 }
 
-/** Why a fresh clone was not put on a release: every release it has needs a newer Kehikot. */
-export function noneRunsSaid(protocol: string, have: string | undefined): string {
-  return `every release of it needs a newer Kehikot (module protocol ${protocolSaid(protocol)} or later${have ? `; this one has ${protocolSaid(have)}` : ''}). Update the app first.`
+/**
+ * Why a fresh clone was not put on a release: every release it has needs a newer Kehikot. Said in app
+ * versions — "every release of it needs Kehikot 0.1.110 or later" — when the apps are known.
+ */
+export function noneRunsSaid(protocol: string, apps?: readonly AppProtocol[] | null): string {
+  return `every release of it needs ${needsAppSaid(protocol, apps)}. Update the app first.`
 }
 
 /**
@@ -505,7 +508,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
     const needs = await needOfAll(dir, releases)
     const { newest, needsNewer } = pickNewest(releases, (tag) => needs.get(tag) ?? null, { have, entry: deps.entryProtocol(place.id) })
     /* Releases, and none this host can run: never left on `main` in their place, which is newer still. */
-    if (!newest && needsNewer) return { ok: false, why: noneRunsSaid(needsNewer.protocol, have) }
+    if (!newest && needsNewer) return { ok: false, why: noneRunsSaid(needsNewer.protocol, deps.apps?.()) }
     if (!newest) return { ok: true, tag: null }
     const moved = await git(dir, ['checkout', '--quiet', '--detach', `refs/tags/${newest}`])
     return moved.ok ? { ok: true, tag: newest } : { ok: false, why: `could not check out ${newest}: ${moved.why}` }

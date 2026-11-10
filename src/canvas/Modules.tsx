@@ -9,7 +9,7 @@ import { appEngine } from '@/host/appUpdate.ts'
 import type { Canvas } from '@/host/canvases.ts'
 import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
-import { protocolDetailSaid, protocolSaid } from '@/host/worksWith.ts'
+import { protocolDetailSaid } from '@/host/worksWith.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
 import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
@@ -906,16 +906,17 @@ function Found({ checked, adding, onInstall, onCancel }: { checked: Checked; add
           {from}
           {checked.private ? ' (private)' : ''}
         </dd>
-        <dt>module protocol</dt>
-        <dd className="font-mono break-all">{checked.protocol ? `needs ${checked.protocol}` : 'does not say'}</dd>
+        <dt>works with</dt>
+        <dd className="break-all" title={checked.protocol ? protocolDetailSaid(checked.protocol) : undefined} data-works-with>
+          {checked.protocol ? (checked.app ? `Kehikot ${checked.app} and later` : checked.newer ? 'a newer Kehikot than this one' : 'this Kehikot') : 'does not say'}
+        </dd>
       </dl>
       {checked.newer ? (
         <p className="leading-relaxed text-amber-600 dark:text-amber-400">
           <span title={protocolDetailSaid(checked.newer.protocol, checked.newer.has)}>
             It needs {checked.newer.app ? `Kehikot ${checked.newer.app} or later` : 'a newer Kehikot than this one'}
           </span>
-          {' '}(module protocol {protocolSaid(checked.newer.protocol)}; this one has {protocolSaid(checked.newer.has)}), so it
-          cannot be installed here.
+          , so it cannot be installed here.
         </p>
       ) : (
         <p className="text-muted-foreground leading-relaxed">

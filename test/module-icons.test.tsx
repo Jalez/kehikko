@@ -35,6 +35,16 @@ describe('the official list', () => {
     for (const entry of entries) expect({ id: entry.id, known: isModuleIcon(entry.icon) }).toEqual({ id: entry.id, known: true })
   })
 
+  test('every icon in modules.json, as written, is a key this host draws — never the fallback', () => {
+    const raw = (listed as { modules: { id: string; icon?: unknown }[] }).modules
+    expect(raw.length).toBeGreaterThan(0)
+    for (const entry of raw) {
+      const known = typeof entry.icon === 'string' && isModuleIcon(entry.icon) && (MODULE_ICONS as readonly string[]).includes(entry.icon)
+      expect({ id: entry.id, icon: entry.icon, known }).toEqual({ id: entry.id, icon: entry.icon, known: true })
+      expect(renderToStaticMarkup(<ModuleIcon icon={entry.icon as string} name="M" />)).toContain(`data-module-icon="${entry.icon as string}"`)
+    }
+  })
+
   test('gives no two modules the same icon, Flows included', () => {
     const icons = [...entries.map((entry) => entry.icon), FLOWS]
     expect(new Set(icons).size).toBe(icons.length)
@@ -187,7 +197,8 @@ describe('the agent brand marks', () => {
     expect(byId.get('kehikot.codex')).toBe('brand:openai')
     expect(byId.get('kehikot.antigravity')).toBe('brand:googlegemini')
     expect(byId.get('kehikot.opencode')).toBe('brand:opencode')
-    expect(byId.get('kehikot.vibe')).toBe('brand:mistralai')
+    /* The list says what the module's manifest declares, so it is drawn the same before it answers. */
+    expect(byId.get('kehikot.vibe')).toBe('lucide:zap')
   })
 })
 

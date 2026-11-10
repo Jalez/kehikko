@@ -29,6 +29,21 @@ export type AppHelpRow = (typeof APP_HELP_ROWS)[number]
 /** The app menu's tour rows: one of them stands in the tour's place. */
 export const TOUR_SAID = { take: 'Take the tour', restart: 'Restart tour', resume: 'Continue tour' } as const
 
+/**
+ * The "How to use…" row of a module that has written none: "About Notes…". Help is never missing, so
+ * a container's menu always has the same shape — the row opens the same dialog, filled with what the
+ * module and the list say it is (`aboutHelp` in `host/moduleHelp.ts`). The module's registered name,
+ * inside this one fixed phrase.
+ */
+export function aboutSaid(name: string): string {
+  return `About ${name}…`
+}
+
+/** The help row's words: "How to use…" when the module wrote a how-to, "About <name>…" when it did not. */
+export function helpRowSaid(name: string, written: boolean): string {
+  return written ? HELP_SAID.help : aboutSaid(name)
+}
+
 /** What each row is called in the trigger's tooltip. */
 const HELP_HINTS: Record<HelpEntry, string> = {
   intro: 'introduction',
@@ -37,9 +52,9 @@ const HELP_HINTS: Record<HelpEntry, string> = {
   feedback: 'feedback',
 }
 
-/** A container's "?" tooltip: what its Help menu holds, in order. */
-export function helpHint(name: string, entries: readonly HelpEntry[]): string {
-  return `Help with ${name}: ${entries.map((entry) => HELP_HINTS[entry]).join(', ')}`
+/** A container's "?" tooltip: what its Help menu holds, in order. `written: false` says "about it" for the help row. */
+export function helpHint(name: string, entries: readonly HelpEntry[], written = true): string {
+  return `Help with ${name}: ${entries.map((entry) => (entry === 'help' && !written ? 'about it' : HELP_HINTS[entry])).join(', ')}`
 }
 
 /** The app's "?" tooltip, in the same pattern. */

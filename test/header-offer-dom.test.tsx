@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 15
+const TESTS = 16
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -748,5 +748,75 @@ describe('the container’s Help menu mirrors the app’s', () => {
     expect(menu.querySelector('[data-help="intro"]')!.textContent).toBe(HELP_SAID.intro)
     /* No banner under the header offers it. */
     expect(document.querySelector('[data-intro-offer]')).toBeNull()
+  })
+  test('help is never missing: "About <name>…" when the module wrote no how-to, "How to use…" when it did', async () => {
+    const { Container } = Box
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList?.contains('container-grip') ? 380 : 0
+      },
+    })
+    const rowsFor = async (which: import('../src/host/registry.ts').Presence) => {
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      const root = createRoot(host)
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <Container
+              presence={which}
+              showing={{ kind: 'page' }}
+              fault={null}
+              body={nothing as never}
+              grow={false}
+              onGrow={nothing}
+              pinned={false}
+              onPin={nothing}
+              collapsed={false}
+              onFold={nothing}
+              onCollapse={nothing}
+              header={[]}
+              filters={[]}
+              chosen={{}}
+              onChoose={nothing}
+              onEverything={nothing}
+              clear={null}
+              onClear={nothing}
+              refresh={undefined}
+              refreshEvery={null}
+              onRefresh={nothing}
+              onRefreshEvery={nothing}
+              selected={false}
+              onSelect={nothing}
+              onPrompts={nothing}
+              onTools={nothing}
+              onHelp={nothing}
+              onIntro={nothing}
+              onStarted={nothing}
+              onRemove={nothing}
+              kehikko="thesis"
+              epic={null}
+            />
+          </TooltipProvider>,
+        )
+      })
+      await openAt(host.querySelector<HTMLElement>('header [data-menu="help"]')!)
+      const menu = document.querySelector('[data-menu-content="help"]')!
+      const rows = [...menu.querySelectorAll('[data-help]')].map((row) => row.getAttribute('data-help'))
+      const help = menu.querySelector('[data-help="help"]')!
+      const out = { rows, said: help.textContent, written: help.getAttribute('data-help-written') }
+      await act(async () => root.unmount())
+      host.remove()
+      return out
+    }
+    const without = { ...presence, module: { ...presence.module, help: undefined, intro: undefined } } as unknown as import('../src/host/registry.ts').Presence
+    const withHelp = {
+      ...presence,
+      module: { ...presence.module, help: { summary: 'How it goes.', sections: [{ title: 'Start', points: ['Press it.'] }] }, intro: undefined },
+    } as unknown as import('../src/host/registry.ts').Presence
+    /* Same shape either way; Introduction stays out when there is none. */
+    expect(await rowsFor(without)).toEqual({ rows: ['help', 'feedback'], said: 'About Paper…', written: 'no' })
+    expect(await rowsFor(withHelp)).toEqual({ rows: ['help', 'feedback'], said: 'How to use…', written: 'yes' })
   })
 })

@@ -4,9 +4,10 @@ import type { Help } from 'kehikot-module-protocol'
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
 import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
-import { helpTitle } from '@/host/moduleHelp.ts'
+import { aboutHelp, aboutTitle, helpTitle } from '@/host/moduleHelp.ts'
 import { introTitle } from '@/host/moduleIntro.ts'
 import { Hint } from './Hint.tsx'
+import { useListed } from './ModuleIntro.tsx'
 
 /**
  * A module's "How to use" (protocol 2.52.0): what its manifest's `help` says, drawn by the host.
@@ -26,17 +27,20 @@ export function ModuleHelpDialog({
   onOpenChange,
   name,
   help,
+  title,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
   /** The module's registered name, the dialog's title. */
   name: string
   help: Help
+  /** The title in place of "How to use <name>": "About <name>" for a module that wrote no how-to. */
+  title?: string
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <ModalContent data-module-help="" className="w-[calc(100vw-2rem)] max-w-lg">
-        <ModalHeader title={helpTitle(name)} titleClassName="text-base" description={help.summary} descriptionClassName="text-sm leading-relaxed" />
+        <ModalHeader title={title ?? helpTitle(name)} titleClassName="text-base" description={help.summary} descriptionClassName="text-sm leading-relaxed" />
         {help.sections.length ? (
           <ModalBody data-help-sections="">
             {help.sections.map((section, at) => (
@@ -57,6 +61,38 @@ export function ModuleHelpDialog({
         ) : null}
       </ModalContent>
     </Dialog>
+  )
+}
+
+/**
+ * "About <name>" for a module that wrote no how-to: the same dialog, filled from its manifest's summary
+ * and `agentSays` and its entry on the official list (or the person's own), read while it is open,
+ * ending with `NO_HOW_TO`. So the container's Help menu always has this row, and it is never empty.
+ */
+export function ModuleAboutDialog({
+  open,
+  onOpenChange,
+  id,
+  name,
+  summary,
+  says,
+}: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  id: string
+  name: string
+  summary?: string | null
+  says?: string | null
+}) {
+  const listed = useListed(id, open)
+  return (
+    <ModuleHelpDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      name={name}
+      title={aboutTitle(name)}
+      help={aboutHelp({ summary, says, listed: listed ? { summary: listed.summary, tags: listed.tags } : null })}
+    />
   )
 }
 

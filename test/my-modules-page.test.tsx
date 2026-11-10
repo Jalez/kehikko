@@ -150,6 +150,7 @@ if (inChild) {
       repo: 'someone/second',
       host: 'github.com',
       protocol: '2.6.0',
+      app: '0.1.39',
       private: true,
     })
     const host = await render()
@@ -159,7 +160,9 @@ if (inChild) {
     expect(sent).toEqual([{ url: '/host/mine/check', body: { repo: 'someone/second' } }])
     expect(host.textContent).toContain('Second')
     expect(host.textContent).toContain('someone/second (private)')
-    expect(host.textContent).toContain('needs 2.6.0')
+    expect(host.textContent).toContain('Kehikot 0.1.39 and later')
+    expect(host.querySelector('[data-works-with]')?.getAttribute('title')).toBe('module protocol 2.6 needed')
+    expect(host.textContent).not.toContain('protocol')
     expect(host.textContent).toContain('Added by you: Kehikot does not vouch for it.')
     await press(button(host, 'Install'))
     expect(sent.map((one) => one.url)).toEqual(['/host/mine/check', '/host/mine/add'])

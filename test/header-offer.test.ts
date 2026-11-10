@@ -360,4 +360,37 @@ describe('the two Help menus, side by side', () => {
     expect(Object.keys(HELP_SAID)).toEqual([...HELP_ENTRIES])
     expect(helpHint('Paper', ['intro', 'notes', 'feedback'])).toBe("Help with Paper: introduction, what's new, feedback")
   })
+
+  test('a module that wrote no how-to has "About <name>…" in its place, and the hint says so', async () => {
+    const { helpHint, helpRowSaid, HELP_SAID } = await import('../src/host/helpMenu.ts')
+    expect(helpRowSaid('Paper', true)).toBe(HELP_SAID.help)
+    expect(helpRowSaid('Paper', false)).toBe('About Paper…')
+    expect(helpHint('Paper', ['help', 'feedback'], false)).toBe('Help with Paper: about it, feedback')
+  })
+})
+
+describe('About <name>, for a module with no how-to', () => {
+  test('filled from the summary, what it tells agents, the list’s summary and tags, then the missing how-to', async () => {
+    const { aboutHelp, aboutTitle, NO_HOW_TO } = await import('../src/host/moduleHelp.ts')
+    expect(aboutTitle('Paper')).toBe('About Paper')
+    expect(
+      aboutHelp({ summary: 'Writes papers.', says: 'Use it to draft a paper.', listed: { summary: 'A paper editor.', tags: ['writing', 'research'] } }),
+    ).toEqual({
+      summary: 'Writes papers.',
+      sections: [
+        { title: 'What it does', points: ['Use it to draft a paper.', 'A paper editor.'] },
+        { title: 'Filed under', points: ['writing, research'] },
+        { title: 'How to use', points: [NO_HOW_TO] },
+      ],
+    })
+  })
+
+  test('never empty, and says nothing twice', async () => {
+    const { aboutHelp, NO_HOW_TO } = await import('../src/host/moduleHelp.ts')
+    expect(aboutHelp({})).toEqual({ summary: 'It says nothing more about itself.', sections: [{ title: 'How to use', points: [NO_HOW_TO] }] })
+    expect(aboutHelp({ listed: { summary: 'Same.' }, says: 'Same.' })).toEqual({
+      summary: 'Same.',
+      sections: [{ title: 'How to use', points: [NO_HOW_TO] }],
+    })
+  })
 })

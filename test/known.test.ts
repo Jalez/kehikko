@@ -169,15 +169,34 @@ describe('a module that is not answering', () => {
   const stale = { name: 'Codex', summary: 'old', tags: ['old'], icon: 'lucide:bot' }
   const listed = { name: 'Codex', summary: 'new', tags: ['agents'], icon: 'brand:openai' }
 
-  test('the official list outranks a stale remembered icon', async () => {
+  test('the module’s own icon, as it last declared it, outranks the list’s', async () => {
     const { settle } = await import('../server/known.ts')
-    expect(settle({ listed, was: stale })).toEqual({ name: 'Codex', summary: 'new', tags: ['agents'], icon: 'brand:openai' })
+    expect(settle({ listed, was: stale })).toEqual({ name: 'Codex', summary: 'new', tags: ['agents'], icon: 'lucide:bot', own: 'lucide:bot' })
   })
 
-  test('the installed copy outranks what was remembered, and the list outranks the installed copy', async () => {
+  test('the installed copy outranks what was remembered, and both outrank the list', async () => {
     const { settle } = await import('../server/known.ts')
     expect(settle({ installed: { name: 'Codex', icon: 'brand:openai' }, was: stale })?.icon).toBe('brand:openai')
-    expect(settle({ listed, installed: { name: 'Codex', icon: 'brand:claude' }, was: stale })?.icon).toBe('brand:openai')
+    expect(settle({ listed, installed: { name: 'Codex', icon: 'brand:claude' }, was: stale })?.icon).toBe('brand:claude')
+  })
+
+  test('the list’s icon only for a module that never declared one, and it is never what is remembered', async () => {
+    const { settle } = await import('../server/known.ts')
+    const said = settle({ listed, installed: { name: 'Codex' } })!
+    expect(said.icon).toBe('brand:openai')
+    expect(said.own).toBeNull()
+    const db = fresh()
+    remember(db, 'kehikot.codex', said.name, { ...said, icon: said.own })
+    expect(known(db).get('kehikot.codex')?.icon).toBeNull()
+  })
+
+  test('the same icon before the module answers and after', async () => {
+    const { settle } = await import('../server/known.ts')
+    const declared = { name: 'Vibe', icon: 'lucide:zap' }
+    const before = settle({ listed: { name: 'Vibe', icon: 'brand:mistralai' }, installed: declared })!.icon
+    const after = settle({ live: declared, listed: { name: 'Vibe', icon: 'brand:mistralai' } })!.icon
+    expect(before).toBe('lucide:zap')
+    expect(after).toBe(before)
   })
 
   test('a live manifest still wins', async () => {

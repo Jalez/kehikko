@@ -816,9 +816,11 @@ async function survey(kept = false): Promise<{
         presence.summary = said.summary
         presence.tags = said.tags
         presence.icon = said.icon
+        /* What is remembered of the icon is only ever the module's own (`own`), never the list's: the
+           machine directory's last-known icon is what the module itself last declared. */
         const changed =
-          !was || was.name !== said.name || was.summary !== said.summary || was.icon !== said.icon || was.tags.join('\n') !== said.tags.join('\n')
-        if (changed && (was || entry || installed)) remember(db, presence.id, said.name, { summary: said.summary, tags: said.tags, icon: said.icon })
+          !was || was.name !== said.name || was.summary !== said.summary || was.icon !== said.own || was.tags.join('\n') !== said.tags.join('\n')
+        if (changed && (was || entry || installed)) remember(db, presence.id, said.name, { summary: said.summary, tags: said.tags, icon: said.own })
       }
     }
     /* The icon the page draws: the module's own (as it answered, or as it last

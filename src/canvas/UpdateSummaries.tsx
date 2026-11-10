@@ -144,7 +144,12 @@ export function CompatBadgeView({ badge }: { badge: CompatBadge }) {
           {badge.text}
         </span>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{badge.tip}</TooltipContent>
+      <TooltipContent side="bottom">
+        <span className="block">{badge.tip}</span>
+        <span className="block opacity-70" data-compat-detail>
+          {badge.detail}
+        </span>
+      </TooltipContent>
     </Tooltip>
   )
 }

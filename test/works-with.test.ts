@@ -12,7 +12,7 @@ import {
   RETRY_AFTER_MS,
 } from '../server/appProtocols.ts'
 import type { Runner } from '../server/versions.ts'
-import { appVersionsIn, firstAppWith, installRefusedSaid, needsAppSaid, needsNewerKehikotSaid, protocolDetailSaid, needsKehikotSaid, protocolSaid, satisfies, withRunningHost, worksWith, worksWithSaid, type AppProtocol } from '../src/host/worksWith.ts'
+import { appVersionsIn, firstAppWith, installRefusedSaid, needsAppSaid, needsNewerKehikotSaid, protocolDetailSaid, needsKehikotSaid, protocolSaid, satisfies, withRunningHost, worksWith, worksWithDetail, worksWithSaid, type AppProtocol } from '../src/host/worksWith.ts'
 
 /*
  * Which Kehikot a module release works with: the app tags of the host
@@ -60,8 +60,9 @@ describe('the first Kehikot a release works with', () => {
   test('an upper bound only when an app on a higher major exists', () => {
     const one = worksWith('1.1.0', APPS)
     expect(one).toEqual({ kind: 'from', need: '1.1.0', from: '0.1.15', until: { last: '0.1.21', next: '0.1.22', major: 2 } })
-    expect(worksWithSaid(one)).toBe('Works with Kehikot 0.1.15 to 0.1.21 (0.1.22 moved to module protocol 2)')
-    expect(worksWithSaid(worksWith('0.30.0', APPS))).toBe('Works with Kehikot 0.1.11 (0.1.12 moved to module protocol 1)')
+    expect(worksWithSaid(one)).toBe('Works with Kehikot 0.1.15 to 0.1.21 (not 0.1.22 and later)')
+    expect(worksWithDetail(one)).toBe('module protocol 1.1 or later; 0.1.22 moved to module protocol 2')
+    expect(worksWithSaid(worksWith('0.30.0', APPS))).toBe('Works with Kehikot 0.1.11 (not 0.1.12 and later)')
     /* On the newest major: no bound, whatever comes later. */
     expect(worksWith('2.0.0', APPS)).toMatchObject({ from: '0.1.22', until: null })
   })
@@ -69,14 +70,16 @@ describe('the first Kehikot a release works with', () => {
   test('a need no app has yet, and one no app ever had', () => {
     const later = worksWith('2.11.0', APPS)
     expect(later).toEqual({ kind: 'unreleased', need: '2.11.0', newest: { app: '0.1.41', protocol: '2.10.0' } })
-    expect(worksWithSaid(later)).toBe('Needs a Kehikot newer than 0.1.41 (module protocol 2.11 or later)')
+    expect(worksWithSaid(later)).toBe('Needs a Kehikot newer than 0.1.41')
+    expect(worksWithDetail(later)).toBe('module protocol 2.11 or later')
     expect(worksWith('3.0.0', APPS).kind).toBe('unreleased')
     expect(worksWith('1.8.0', APPS).kind).toBe('none')
   })
 
   test('without the mapping, the protocol and never a guessed app', () => {
-    expect(worksWithSaid(worksWith('2.6.0', null))).toBe('Needs a newer Kehikot (module protocol 2.6 or later)')
-    expect(worksWithSaid(worksWith('2.6.1', []))).toBe('Needs a newer Kehikot (module protocol 2.6.1 or later)')
+    expect(worksWithSaid(worksWith('2.6.0', null))).toBe('Needs a newer Kehikot')
+    expect(worksWithDetail(worksWith('2.6.0', null))).toBe('module protocol 2.6 or later')
+    expect(worksWithSaid(worksWith('2.6.1', []))).toBe('Needs a newer Kehikot')
     expect(needsKehikotSaid('1.2.0', worksWith('2.11.0', null), { protocol: '2.10.0' })).toBe(
       '1.2.0 needs a newer Kehikot (module protocol 2.11 or later); this Kehikot has module protocol 2.10.',
     )
@@ -276,7 +279,7 @@ describe('the running Kehikot is always part of the answer', () => {
 
   test('a stale map plus a running host that meets the need never says "needs a newer Kehikot"', () => {
     const stale = worksWith('2.16.0', STALE)
-    expect(worksWithSaid(stale)).toBe('Needs a Kehikot newer than 0.1.50 (module protocol 2.16 or later)')
+    expect(worksWithSaid(stale)).toBe('Needs a Kehikot newer than 0.1.50')
     const fixed = withRunningHost(stale, { app: '0.1.55', protocol: '2.17.0' })
     expect(worksWithSaid(fixed)).toBe('Works with Kehikot 0.1.55 and later')
     /* The server does not know the app version: "this Kehikot". */
@@ -285,7 +288,7 @@ describe('the running Kehikot is always part of the answer', () => {
   })
 
   test('a host that does not meet the need still needs a newer one; a map that knows the app keeps saying it', () => {
-    expect(worksWithSaid(withRunningHost(worksWith('2.18.0', STALE), { protocol: '2.17.0' }))).toBe('Needs a Kehikot newer than 0.1.50 (module protocol 2.18 or later)')
+    expect(worksWithSaid(withRunningHost(worksWith('2.18.0', STALE), { protocol: '2.17.0' }))).toBe('Needs a Kehikot newer than 0.1.50')
     const known = worksWith('2.15.0', STALE)
     expect(withRunningHost(known, { app: '0.1.55', protocol: '2.17.0' })).toBe(known)
   })
@@ -346,11 +349,30 @@ describe('what people read says the app, not the protocol', () => {
   test('the protocol is the detail', () => {
     expect(protocolDetailSaid('2.50.0', '2.49.0')).toBe('module protocol 2.50 needed; this Kehikot has 2.49')
     expect(installRefusedSaid('Notes', { protocol: '2.50.0', has: '2.49.0', app: '0.1.110' })).toBe(
-      'Notes needs Kehikot 0.1.110 or later (module protocol 2.50 needed; this one has 2.49).',
+      'Notes needs Kehikot 0.1.110 or later.',
     )
     expect(installRefusedSaid('Notes', { protocol: '2.60.0', has: '2.49.0' })).toBe(
-      'Notes needs a newer Kehikot than this one (module protocol 2.60 needed; this one has 2.49).',
+      'Notes needs a newer Kehikot than this one.',
     )
+  })
+
+  test('every sentence, old and new, is recognised as the works-with line a release body leaves out', async () => {
+    const { isWorksWithSentence } = await import('../src/host/markdown.ts')
+    const cases = [worksWith('2.6.0', null), worksWith('2.11.0', APPS), worksWith('1.8.0', APPS), worksWith('1.1.0', APPS), worksWith('2.6.0', APPS)]
+    for (const works of cases) expect(isWorksWithSentence(`${worksWithSaid(works)}.`)).toBe(true)
+    /* What releases already published say. */
+    expect(isWorksWithSentence('Works with Kehikot 0.1.15 to 0.1.21 (0.1.22 moved to protocol 2).')).toBe(true)
+    expect(isWorksWithSentence('Needs a Kehikot newer than 0.1.41 (protocol 2.11 or later).')).toBe(true)
+    expect(isWorksWithSentence('Works with Kehikot 0.1.39 and later, and faster.')).toBe(false)
+  })
+
+  test('no sentence a person reads leads with, or names, a protocol number', () => {
+    const cases = [worksWith('2.6.0', null), worksWith('2.11.0', APPS), worksWith('1.8.0', APPS), worksWith('1.1.0', APPS), worksWith('2.6.0', APPS)]
+    for (const works of cases) {
+      expect(worksWithSaid(works)).not.toMatch(/protocol|\b2\.\d+\b(?!\.)/)
+      expect(worksWithDetail(works)).toMatch(/^module protocol \d/)
+    }
+    expect(installRefusedSaid('Notes', { protocol: '2.60.0', has: '2.49.0' })).not.toMatch(/protocol/)
   })
 
   test('a note that names a protocol is shown with the app; the rest is left alone', () => {

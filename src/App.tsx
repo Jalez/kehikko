@@ -16,7 +16,7 @@ import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
 import { ToolsDialog } from './canvas/Tools.tsx'
 import { SkillsDialog } from './canvas/Skills.tsx'
-import { ModuleHelpDialog } from './canvas/ModuleHelp.tsx'
+import { ModuleAboutDialog, ModuleHelpDialog } from './canvas/ModuleHelp.tsx'
 import { helpFor as helpOfModule } from './host/moduleHelp.ts'
 import { ModuleIntroDialog } from './canvas/ModuleIntro.tsx'
 import type { IntroAbout } from './canvas/Modules.tsx'
@@ -5370,13 +5370,23 @@ export function App() {
         />
       ) : null}
 
-      {/* A module's "How to use": its manifest's own words, drawn as text. Closed when it has none. */}
+      {/* A module's "How to use": its manifest's own words, drawn as text. "About <name>" in the same
+          dialog when it wrote none, from its summary and its list entry: help is never missing. */}
       {helpFor && helpOfModule(byId.get(helpFor)?.module) ? (
         <ModuleHelpDialog
           open
           onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
           name={byId.get(helpFor)?.name ?? helpFor}
           help={helpOfModule(byId.get(helpFor)?.module)!}
+        />
+      ) : helpFor ? (
+        <ModuleAboutDialog
+          open
+          onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
+          id={helpFor}
+          name={byId.get(helpFor)?.name ?? helpFor}
+          summary={byId.get(helpFor)?.module?.summary ?? byId.get(helpFor)?.summary ?? null}
+          says={byId.get(helpFor)?.module?.agentSays ?? null}
         />
       ) : null}
 

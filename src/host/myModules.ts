@@ -46,6 +46,8 @@ const checkedSchema = z.union([
     repo: z.string(),
     host: z.string(),
     protocol: z.string().optional(),
+    /** The first Kehikot app whose protocol meets `protocol`, when the apps are known. */
+    app: z.string().optional(),
     newer: z.object({ protocol: z.string(), has: z.string(), app: z.string().optional() }).optional(),
     private: z.boolean(),
   }),
