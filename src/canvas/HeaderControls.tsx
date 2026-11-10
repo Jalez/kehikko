@@ -2,10 +2,7 @@ import { Filter, RefreshCw, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -16,6 +13,7 @@ import type { Choice } from '@/host/filters.ts'
 import { DISARM_AFTER_MS, saying as clearSaying } from './Clearing.tsx'
 import { FilterChoices, saying as filterSaying } from './Filters.tsx'
 import { RefreshChoices } from './Refreshing.tsx'
+import { OverflowSection } from './OverflowColumns.tsx'
 
 /**
  * The module's own row controls — filter, clear, refresh — and the host's remove, as rows of the
@@ -52,9 +50,7 @@ export function controlsOf(parts: ControlParts): Control[] {
 export function ControlRows({ parts, controls, first }: { parts: ControlParts; controls: readonly Control[]; first: boolean }) {
   const { name, filter, clear, refresh } = parts
   return (
-    <DropdownMenuGroup data-section="controls">
-      {first ? null : <DropdownMenuSeparator />}
-      <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{CONTROLS_TITLE}</DropdownMenuLabel>
+    <OverflowSection name="controls" title={CONTROLS_TITLE} first={first}>
       {controls.includes('filter') && filter.groups.length ? (
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className={ROW} data-control="filter" title={filterSaying(name, false).hint}>
@@ -78,7 +74,7 @@ export function ControlRows({ parts, controls, first }: { parts: ControlParts; c
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       ) : null}
-    </DropdownMenuGroup>
+    </OverflowSection>
   )
 }
 

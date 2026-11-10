@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 10
+const TESTS = 13
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -272,7 +272,7 @@ describe('the same header at every width and fold', () => {
         document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
       })
       const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
-      const sections = [...content.querySelectorAll(':scope > [data-section]')]
+      const sections = [...content.querySelectorAll('[data-section]')]
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'frame'])
       expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Container'])
       expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'])
@@ -490,5 +490,128 @@ describe('the same header at every width and fold', () => {
         document.body.innerHTML = ''
       }
     }
+  })
+
+  /* The "⋯" is a popover: under 220 px of container it can still be as wide as the window. */
+  const opened = async () => {
+    const trigger = document.querySelector<HTMLElement>('header [data-menu="more"]')!
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+    })
+    return document.querySelector<HTMLElement>('[data-menu-content="more"]')!
+  }
+  const windowWide = async (width: number, run: () => Promise<void>) => {
+    const was = Object.getOwnPropertyDescriptor(window, 'innerWidth')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    try {
+      await run()
+    } finally {
+      if (was) Object.defineProperty(window, 'innerWidth', was)
+      else delete (window as { innerWidth?: number }).innerWidth
+    }
+  }
+  const ROWS = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
+  const focusable = (el: Element) => [...el.querySelectorAll<HTMLElement>(ROWS)].filter((row) => !row.hasAttribute('data-disabled'))
+
+  test('in a wide window the "⋯" stands in columns: the module’s menus, Shown, Container, each section a vertical group named by its heading', async () => {
+    await windowWide(1280, async () => {
+      await header(160, 'open', items, CONTROLS())
+      const content = await opened()
+      expect(content.getAttribute('role')).toBe('menu')
+      const columns = [...content.querySelectorAll('[data-column]')]
+      expect(columns).toHaveLength(3)
+      expect(columns.map((column) => [...column.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section')))).toEqual([['view', 'go', 'run'], ['controls'], ['frame']])
+      for (const section of content.querySelectorAll('[data-section]')) {
+        expect(section.getAttribute('role')).toBe('group')
+        expect(section.getAttribute('aria-orientation')).toBe('vertical')
+        const heading = document.getElementById(section.getAttribute('aria-labelledby')!)
+        expect(heading && section.contains(heading)).toBe(true)
+      }
+      expect([...content.querySelectorAll('[data-section] > [data-slot="dropdown-menu-label"]')].map((el) => el.textContent)).toEqual(['View', 'Go', 'Run', 'Shown', 'Container'])
+      /* A column says nothing to a screen reader, and scrolls on its own when the window is short. */
+      for (const column of columns) {
+        expect(column.getAttribute('role')).toBe('none')
+        expect(column.className).toMatch(/overflow-y-auto/)
+      }
+      expect(content.className).toMatch(/overflow-hidden/)
+      expect(content.className).not.toMatch(/max-w-64/)
+      /* The top of each column has no separator over it. */
+      for (const column of columns) expect(column.querySelector('[data-section]')!.firstElementChild!.getAttribute('data-slot')).toBe('dropdown-menu-label')
+      /* Every row is still there, once. */
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      const found = await offered()
+      expect([...found.keys()].sort()).toEqual([...EVERYTHING, 'control:clear', 'control:filter', 'control:refresh'].sort())
+      for (const [key, places] of found) expect(places, key).toHaveLength(1)
+    })
+  })
+
+  test('in columns the arrows move within a column and Left and Right between them; Home and End stay in the column', async () => {
+    await windowWide(1280, async () => {
+      await header(160, 'open', items, CONTROLS())
+      const content = await opened()
+      const columns = [...content.querySelectorAll('[data-column]')].map(focusable)
+      const press = async (key: string) => {
+        const at = document.activeElement as HTMLElement
+        await act(async () => {
+          at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+        })
+      }
+      const where = () => {
+        const at = document.activeElement as HTMLElement
+        const column = columns.findIndex((rows) => rows.includes(at))
+        return [column, column < 0 ? -1 : columns[column]!.indexOf(at)]
+      }
+      await act(async () => columns[0]![0]!.focus())
+      expect(where()).toEqual([0, 0])
+      await press('ArrowDown')
+      expect(where()).toEqual([0, 1])
+      await press('End')
+      expect(where()).toEqual([0, columns[0]!.length - 1])
+      /* Down at the bottom of a column stays there: it does not run on into Shown. */
+      await press('ArrowDown')
+      expect(where()).toEqual([0, columns[0]!.length - 1])
+      await press('Home')
+      expect(where()).toEqual([0, 0])
+      await press('ArrowRight')
+      expect(where()).toEqual([1, 0])
+      await press('ArrowRight')
+      expect(where()).toEqual([2, 0])
+      await press('ArrowDown')
+      await press('ArrowDown')
+      expect(where()).toEqual([2, 2])
+      /* Left keeps the row where the column beside has it, or takes its last. */
+      await press('ArrowLeft')
+      expect(where()).toEqual([1, Math.min(2, columns[1]!.length - 1)])
+      await press('ArrowLeft')
+      expect(where()).toEqual([0, Math.min(2, columns[1]!.length - 1)])
+      await press('ArrowLeft')
+      expect(where()[0]).toBe(0)
+      /* Still open: none of these closed the menu. */
+      expect(document.querySelector('[data-menu-content="more"]')).not.toBeNull()
+    })
+  })
+
+  test('in a narrow window the "⋯" is the one list it was, with its separators', async () => {
+    await windowWide(360, async () => {
+      await header(160, 'open', items, CONTROLS())
+      const content = await opened()
+      expect(content.querySelector('[data-column]')).toBeNull()
+      expect(content.className).toMatch(/max-w-64/)
+      const sections = [...content.querySelectorAll(':scope > [data-section]')]
+      expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'controls', 'frame'])
+      expect(sections.slice(1).every((one) => one.firstElementChild!.getAttribute('role') === 'separator')).toBe(true)
+      /* The columns' keys are not taken: Left and Right are the menu's own again (it opens a submenu with Right, and moves nothing here). */
+      const row = focusable(sections[0]!).find((one) => one.getAttribute('aria-haspopup') === null)!
+      await act(async () => row.focus())
+      const key = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })
+      await act(async () => {
+        row.dispatchEvent(key)
+      })
+      expect(key.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(row)
+    })
   })
 })

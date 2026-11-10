@@ -2,11 +2,16 @@ import { describe, expect, test } from 'bun:test'
 import { headerItemsSchema } from 'kehikot-module-protocol'
 
 import {
+  COLUMN_WIDTH,
   CONTROLS,
   FRAME_ENTRIES,
   FRAME_TITLE,
   ROW_PRIORITY,
+  columnsFor,
+  columnsOf,
   frameHint,
+  sizeOf,
+  stepIn,
   layoutOf,
   overflowOf,
   modeFor,
@@ -228,5 +233,67 @@ describe('the module’s row controls and remove', () => {
   test('the controls keep their order whatever order they are offered in', () => {
     const layout = layoutOf({ items: [], frame: [], controls: ['refresh', 'filter'] }, 'words', true)
     expect(layout.controls).toEqual(['filter', 'refresh'])
+  })
+})
+
+describe('the "⋯" in columns where the window has room', () => {
+  test('the number of columns follows the width the window leaves it: a list when narrow, at most three', () => {
+    expect(columnsFor(null, 5)).toBe(1)
+    expect(columnsFor(COLUMN_WIDTH * 2 - 1, 5)).toBe(1)
+    expect(columnsFor(320, 5)).toBe(1)
+    expect(columnsFor(COLUMN_WIDTH * 2, 5)).toBe(2)
+    expect(columnsFor(COLUMN_WIDTH * 3 - 1, 5)).toBe(2)
+    expect(columnsFor(COLUMN_WIDTH * 3, 5)).toBe(3)
+    expect(columnsFor(1920, 5)).toBe(3)
+    /* Never more columns than sections, and one section is a list. */
+    expect(columnsFor(1920, 2)).toBe(2)
+    expect(columnsFor(1920, 1)).toBe(1)
+  })
+
+  test('Container stands in a column of its own, last; the sections before it are cut in order, tallest as short as can be', () => {
+    const M = (size: number) => ({ size, kind: 'module' as const })
+    const SHOWN = (size: number) => ({ size, kind: 'controls' as const })
+    const C = (size: number) => ({ size, kind: 'frame' as const })
+    /* View, Go and Run; Shown; Container. */
+    expect(columnsOf([M(4), M(3), M(3), SHOWN(4), C(10)], 3)).toEqual([[0, 1, 2], [3], [4]])
+    expect(columnsOf([M(4), M(3), M(3), SHOWN(4), C(10)], 2)).toEqual([[0, 1, 2, 3], [4]])
+    expect(columnsOf([M(4), M(3), M(3), SHOWN(4), C(10)], 1)).toEqual([[0, 1, 2, 3, 4]])
+    /* No Shown: the module's menus take two columns, cut where the taller is shortest; a menu is never split. */
+    expect(columnsOf([M(12), M(2), M(2), C(10)], 3)).toEqual([[0], [1, 2], [3]])
+    expect(columnsOf([M(2), M(2), M(12), C(10)], 3)).toEqual([[0, 1], [2], [3]])
+    /* Shown with nothing before it, as in a module with no menus: two columns. */
+    expect(columnsOf([SHOWN(4), C(10)], 3)).toEqual([[0], [1]])
+    expect(columnsOf([C(10)], 3)).toEqual([[0]])
+    /* Every section once, in order, whatever the count. */
+    for (const count of [1, 2, 3]) expect(columnsOf([M(5), M(1), M(7), SHOWN(2), C(9)], count).flat()).toEqual([0, 1, 2, 3, 4])
+  })
+
+  test('the sizes the columns are balanced by count each section\'s rows and heading', () => {
+    const layout = layoutOf({ items: ITEMS, frame: ['scope', 'settings', 'feedback', 'prompts'], controls: ['filter', 'refresh'] }, 'merged', false)
+    const sizes = overflowOf(layout).sections.map(sizeOf)
+    expect(sizes.at(-1)).toBe(5)
+    expect(sizes.at(-2)).toBe(3)
+    /* Run: its heading, Compile (no pinned buttons here) and Clean, then the "More" group's heading and its row. */
+    expect(sizes.at(-3)).toBe(5)
+  })
+
+  test('the keys: Up and Down within a column, Left and Right between, Home and End in the column; the rest is the menu\'s', () => {
+    const columns = [6, 3, 9]
+    expect(stepIn(columns, { column: 0, row: 2 }, 'ArrowDown')).toEqual({ column: 0, row: 3 })
+    expect(stepIn(columns, { column: 0, row: 5 }, 'ArrowDown')).toEqual({ column: 0, row: 5 })
+    expect(stepIn(columns, { column: 1, row: 0 }, 'ArrowUp')).toEqual({ column: 1, row: 0 })
+    expect(stepIn(columns, { column: 0, row: 4 }, 'ArrowRight')).toEqual({ column: 1, row: 2 })
+    expect(stepIn(columns, { column: 1, row: 2 }, 'ArrowRight')).toEqual({ column: 2, row: 2 })
+    expect(stepIn(columns, { column: 2, row: 8 }, 'ArrowLeft')).toEqual({ column: 1, row: 2 })
+    expect(stepIn(columns, { column: 2, row: 1 }, 'Home')).toEqual({ column: 2, row: 0 })
+    expect(stepIn(columns, { column: 2, row: 1 }, 'End')).toEqual({ column: 2, row: 8 })
+    /* Right from the last column opens a submenu as it always did; Left from the first does nothing here. */
+    expect(stepIn(columns, { column: 2, row: 4 }, 'ArrowRight')).toBeNull()
+    expect(stepIn(columns, { column: 0, row: 4 }, 'ArrowLeft')).toBeNull()
+    /* Typing is the menu's: it finds a row by its letters. */
+    expect(stepIn(columns, { column: 0, row: 0 }, 's')).toBeNull()
+    expect(stepIn(columns, { column: 0, row: 0 }, 'Enter')).toBeNull()
+    /* A column with nothing to focus is stepped over. */
+    expect(stepIn([2, 0, 4], { column: 0, row: 1 }, 'ArrowRight')).toEqual({ column: 2, row: 1 })
   })
 })

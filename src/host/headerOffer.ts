@@ -33,6 +33,9 @@
  *   menus. Remove is a Container row there ("Remove from this kehikko", two
  *   presses). A module with no menus gets the same "⋯": the Container menu is
  *   never a trigger of its own when there is no room.
+ *   Where the window has room the "⋯" stands those sections side by side
+ *   (`columnsFor`, `columnsOf`), and is one list where it has not: where the
+ *   sections stand, never which rows they hold.
  * - **What the row keeps is a list, in order** (`ROW_PRIORITY`): the selection
  *   checkbox, the module's icon, the overflow, the fold button and the name.
  *   Everything else gives way before those — pinned runs, the gear, the
@@ -244,4 +247,136 @@ export function placesOf(layout: HeaderLayout): { key: string; place: Place }[] 
 /** What a layout lets a person reach, sorted. The same for every mode and fold of one offer. */
 export function reachable(layout: HeaderLayout): string[] {
   return [...new Set(placesOf(layout).map((one) => one.key))].sort()
+}
+
+/* ------------------------------------------------------------------ *
+ * The overflow's columns
+ * ------------------------------------------------------------------ */
+
+/*
+ * The "⋯" is drawn under 220 pixels of CONTAINER, but it is a popover anchored to its trigger, so
+ * it can be as wide as the WINDOW. Drawn as one list it held View, Go, Run, Shown and Container one
+ * under another, and a person scrolled through all of it. Where the window has room, its sections
+ * stand side by side instead — each column with its headings, Container in a column of its own,
+ * last — and each column scrolls on its own only when the window is too short for it. Narrow, it
+ * is the one list it was. Same rows, same order, same words either way: only where they stand.
+ */
+
+/** How wide one column of the overflow is, in pixels: the one list's own width, give or take. */
+export const COLUMN_WIDTH = 208
+/** At most this many columns: the module's menus, Shown, Container. */
+export const COLUMNS_MAX = 3
+
+/**
+ * How many columns the overflow stands in, with `available` pixels of window for it and `sections`
+ * sections to draw. One is the vertical list: under two columns' width, or with one section.
+ * `null` is "not measured", which is the list.
+ */
+export function columnsFor(available: number | null, sections: number): number {
+  if (available === null || !Number.isFinite(available)) return 1
+  const fit = Math.floor(available / COLUMN_WIDTH)
+  const count = Math.min(COLUMNS_MAX, sections, fit)
+  return count >= 2 ? count : 1
+}
+
+/** How many rows a section draws, heading included: what the columns are balanced by. */
+export function sizeOf(section: Section): number {
+  if (section.kind === 'frame') return section.entries.length + 1
+  if (section.kind === 'controls') return section.controls.length + 1
+  return section.menu.groups.reduce((sum, group) => sum + group.items.length + (group.name ? 1 : 0), 1)
+}
+
+/** What `columnsOf` needs to know of a section: how many rows it draws, and what kind it is. */
+export interface Sized {
+  size: number
+  kind: Section['kind']
+}
+
+/**
+ * Which sections stand in which column, in order: the indexes of `sections` (in drawn order) for
+ * each of up to `count` columns. The last section (Container) is a column of its own. Shown is a
+ * column of its own too when there is a column for it and something before it; what is left, the
+ * module's menus, is cut in order into the remaining columns so the tallest is as short as it can
+ * be — a section is never split. One column is every section, in order.
+ */
+export function columnsOf(sections: readonly Sized[], count: number): number[][] {
+  const all = sections.map((_, index) => index)
+  if (count <= 1 || sections.length <= 1) return [all]
+  const last = all.at(-1)!
+  let rest = all.slice(0, -1)
+  let room = count - 1
+  const tail: number[][] = [[last]]
+  const shown = rest.at(-1)
+  if (shown !== undefined && sections[shown]!.kind === 'controls' && rest.length > 1 && room > 1) {
+    tail.unshift([shown])
+    rest = rest.slice(0, -1)
+    room -= 1
+  }
+  return [...balanced(rest, sections.map((one) => one.size), Math.min(room, rest.length)), ...tail]
+}
+
+/** `indexes` cut in order into `runs` runs, the tallest by `sizes` as short as it can be. */
+function balanced(indexes: readonly number[], sizes: readonly number[], runs: number): number[][] {
+  if (!indexes.length) return []
+  /* Every way to cut; there are at most four sections before Container. */
+  let best: number[][] = [[...indexes]]
+  let tallest = Infinity
+  const cut = (from: number, left: number, done: number[][]) => {
+    if (left === 1) {
+      const all = [...done, indexes.slice(from)]
+      const height = Math.max(...all.map((run) => run.reduce((sum, index) => sum + sizes[index]!, 0)))
+      if (height < tallest) {
+        tallest = height
+        best = all
+      }
+      return
+    }
+    for (let to = from + 1; to <= indexes.length - left + 1; to++) cut(to, left - 1, [...done, indexes.slice(from, to)])
+  }
+  cut(0, runs, [])
+  return best
+}
+
+/** Where focus is among the overflow's columns: which column, and which of its rows that take focus. */
+export interface Cell {
+  column: number
+  row: number
+}
+
+/**
+ * Where a key moves focus in the overflow's columns, given how many rows that take focus each column
+ * has. Up and Down stay in the column and stop at its ends (the one list does not wrap either); Home
+ * and End go to its first and last row; Left and Right go to the column beside it, at the same row
+ * or its last. `null` is "not this rule's key here": Right from the last column, Left from the
+ * first, and any other key are left to the menu — so Right still opens a submenu where there is no
+ * column to go to, and typing still finds a row by its first letters.
+ */
+export function stepIn(columns: readonly number[], at: Cell, key: string): Cell | null {
+  const rows = columns[at.column] ?? 0
+  if (rows === 0) return null
+  const beside = (to: number): Cell | null => {
+    for (let column = to; column >= 0 && column < columns.length; column += to > at.column ? 1 : -1) {
+      const count = columns[column]!
+      if (count > 0) return { column, row: Math.min(at.row, count - 1) }
+    }
+    return null
+  }
+  switch (key) {
+    case 'ArrowDown':
+      return { column: at.column, row: Math.min(at.row + 1, rows - 1) }
+    case 'ArrowUp':
+      return { column: at.column, row: Math.max(at.row - 1, 0) }
+    case 'Home':
+    case 'PageUp':
+      return { column: at.column, row: 0 }
+    case 'End':
+    case 'PageDown':
+      return { column: at.column, row: rows - 1 }
+    case 'ArrowRight':
+      return beside(at.column + 1)
+    case 'ArrowLeft':
+      return beside(at.column - 1)
+    default:
+      return null
+  }
 }

@@ -90,8 +90,9 @@ import {
 } from 'kehikot-module-protocol'
 import { whenLeft } from '@/host/surface.ts'
 import { EXPAND_WORD, SHRINK_WORD } from '@/host/expand.ts'
-import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, type Control, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
+import { CONTROLS_TITLE, FRAME_TITLE, frameHint, layoutOf, modeFor, pinsFor, sizeOf, type Control, type FrameEntry, type HeaderLayout, type MenuMode, type Trigger } from '@/host/headerOffer.ts'
 import { ControlRows, RemoveRow, type ControlParts } from './HeaderControls.tsx'
+import { OverflowSection, OverflowSections, contentClass, onColumnKeys, useColumns, type OverflowPart } from './OverflowColumns.tsx'
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
@@ -667,6 +668,37 @@ function Menu({
   const loud = tools?.loud === true
   const [open, setOpen] = useOpen(onClosed, rows.closing)
   const quiet = useRef(false)
+  /* Under 220 px, the "⋯": the module's menus, then Shown, then Container — one under another, or side by side where the window has room. */
+  const parts: OverflowPart[] = [
+    ...menus.map(
+      (menu): OverflowPart => ({
+        key: menu.menu,
+        kind: 'module',
+        size: sizeOf({ kind: 'module', menu }),
+        draw: (first) => (
+          <OverflowSection name={menu.menu} title={menu.title} first={first}>
+            <MenuGroups menu={menu} alone={false} rows={rows} />
+          </OverflowSection>
+        ),
+      }),
+    ),
+    ...(controlled ? [{ key: 'controls', kind: 'controls' as const, size: controlled.length + 1, draw: (first: boolean) => <ControlRows parts={frame!.controls!} controls={controlled} first={first} /> }] : []),
+    ...(framed
+      ? [
+          {
+            key: 'frame',
+            kind: 'frame' as const,
+            size: framed.length + 1,
+            draw: (first: boolean) => (
+              <OverflowSection name="frame" title={FRAME_TITLE} first={first}>
+                <FrameRows parts={frame!} entries={framed} />
+              </OverflowSection>
+            ),
+          },
+        ]
+      : []),
+  ]
+  const columns = useColumns(open && which === 'more', parts.length)
   const busy = menus.some((menu) => menu.busy)
   const failed = !busy && menus.some((menu) => menu.failed)
   const title = which === 'more' ? 'Menus' : menus[0]!.title
@@ -738,8 +770,9 @@ function Menu({
 
       <DropdownMenuContent
         align="end"
-        className="max-w-64 min-w-44"
+        className={contentClass(columns, 'max-w-64 min-w-44')}
         data-menu-content={which}
+        onKeyDownCapture={columns > 1 ? onColumnKeys : undefined}
         onCloseAutoFocus={(event) => {
           const to = focusAfter(rows.closing.current, focusIsInModule(document.activeElement))
           rows.closing.current = 'dismissed'
@@ -749,49 +782,47 @@ function Menu({
           if (to === 'module') rows.keyboard()
         }}
       >
-        {menus.map((menu, index) => (
-          <DropdownMenuGroup key={menu.menu} data-section={menu.menu}>
-            {which === 'more' ? (
-              <>
-                {index > 0 ? <DropdownMenuSeparator /> : null}
-                <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{menu.title}</DropdownMenuLabel>
-              </>
-            ) : null}
-            {menu.groups.map((group, at) => (
-              <DropdownMenuGroup key={group.name ?? ''} data-group={group.name ?? undefined}>
-                {at > 0 ? <DropdownMenuSeparator /> : null}
-                {group.name ? (
-                  <DropdownMenuLabel className="text-muted-foreground truncate py-1 text-[11px] font-normal" title={group.name} data-group-label>
-                    {group.name}
-                  </DropdownMenuLabel>
-                ) : null}
-                {group.items.map((item, nth) => {
-                  const alone = which !== 'more' && menu.count === 1
-                  const before = group.items[nth - 1]
-                  return (
-                    <div key={item.id} className="contents">
-                      {/* A list of options drawn in the menu is fenced off from
-                          its neighbours: a toggle straight after Source / PDF
-                          reads as a third thing the pane could be. */}
-                      {before && (listed(before, alone) || listed(item, alone)) ? <DropdownMenuSeparator /> : null}
-                      <Row item={item} alone={alone} rows={rows} slot={slotted(menu)} />
-                    </div>
-                  )
-                })}
-              </DropdownMenuGroup>
-            ))}
-          </DropdownMenuGroup>
-        ))}
-        {controlled ? <ControlRows parts={frame!.controls!} controls={controlled} first={!menus.length} /> : null}
-        {framed ? (
-          <DropdownMenuGroup data-section="frame">
-            {menus.length || controlled ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
-            <FrameRows parts={frame!} entries={framed} />
-          </DropdownMenuGroup>
-        ) : null}
+        {which === 'more' ? (
+          <OverflowSections parts={parts} columns={columns} />
+        ) : (
+          menus.map((menu) => (
+            <DropdownMenuGroup key={menu.menu} data-section={menu.menu}>
+              <MenuGroups menu={menu} alone={menu.count === 1} rows={rows} />
+            </DropdownMenuGroup>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** A module menu's groups and rows, as one trigger's menu draws them and as a section of the "⋯". */
+function MenuGroups({ menu, alone: single, rows }: { menu: ModuleMenu; alone: boolean; rows: Pressable }) {
+  return (
+    <>
+      {menu.groups.map((group, at) => (
+        <DropdownMenuGroup key={group.name ?? ''} data-group={group.name ?? undefined}>
+          {at > 0 ? <DropdownMenuSeparator /> : null}
+          {group.name ? (
+            <DropdownMenuLabel className="text-muted-foreground truncate py-1 text-[11px] font-normal" title={group.name} data-group-label>
+              {group.name}
+            </DropdownMenuLabel>
+          ) : null}
+          {group.items.map((item, nth) => {
+            const before = group.items[nth - 1]
+            return (
+              <div key={item.id} className="contents">
+                {/* A list of options drawn in the menu is fenced off from
+                    its neighbours: a toggle straight after Source / PDF
+                    reads as a third thing the pane could be. */}
+                {before && (listed(before, single) || listed(item, single)) ? <DropdownMenuSeparator /> : null}
+                <Row item={item} alone={single} rows={rows} slot={slotted(menu)} />
+              </div>
+            )
+          })}
+        </DropdownMenuGroup>
+      ))}
+    </>
   )
 }
 
@@ -1437,6 +1468,21 @@ export function FrameMenu({
   const Glyph = more ? Ellipsis : AppWindow
   const said = more ? `${name}'s menus: ${[...(controls.length ? [CONTROLS_TITLE.toLowerCase()] : []), FRAME_TITLE.toLowerCase()].join(', ')}` : frameHint(entries)
   const label = more ? `menus of ${name}` : `${FRAME_TITLE.toLowerCase()} menu of ${name}`
+  const shown = more && controls.length && parts.controls ? parts.controls : null
+  const sections: OverflowPart[] = [
+    ...(shown ? [{ key: 'controls', kind: 'controls' as const, size: controls.length + 1, draw: (first: boolean) => <ControlRows parts={shown} controls={controls} first={first} /> }] : []),
+    {
+      key: 'frame',
+      kind: 'frame' as const,
+      size: entries.length + 1,
+      draw: (first: boolean) => (
+        <OverflowSection name="frame" title={FRAME_TITLE} first={first}>
+          <FrameRows parts={parts} entries={entries} />
+        </OverflowSection>
+      ),
+    },
+  ]
+  const columns = useColumns(open && more, sections.length)
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -1466,8 +1512,9 @@ export function FrameMenu({
 
       <DropdownMenuContent
         align="end"
-        className="max-w-64 min-w-48"
+        className={contentClass(columns, 'max-w-64 min-w-48')}
         data-menu-content={which}
+        onKeyDownCapture={columns > 1 ? onColumnKeys : undefined}
         onCloseAutoFocus={(event) => {
           /* The host's own rows open a dialog or act in this document: focus
              returns to the trigger, quietly — unless it has gone to a module. */
@@ -1481,16 +1528,7 @@ export function FrameMenu({
           {name}
         </DropdownMenuLabel>
         {/* In the "⋯", the section says what it is, as it does beside a module's menus. */}
-        {more && controls.length && parts.controls ? <ControlRows parts={parts.controls} controls={controls} first /> : null}
-        {more ? (
-          <DropdownMenuGroup data-section="frame">
-            {controls.length ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuLabel className="text-foreground py-1 text-[11px] font-semibold">{FRAME_TITLE}</DropdownMenuLabel>
-            <FrameRows parts={parts} entries={entries} />
-          </DropdownMenuGroup>
-        ) : (
-          <FrameRows parts={parts} entries={entries} />
-        )}
+        {more ? <OverflowSections parts={sections} columns={columns} /> : <FrameRows parts={parts} entries={entries} />}
       </DropdownMenuContent>
     </DropdownMenu>
   )
