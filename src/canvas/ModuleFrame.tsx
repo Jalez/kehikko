@@ -269,7 +269,8 @@ export function ModuleFrame({
       /* Held to what the manifest asks for, as the registry last read it. */
       (capability) => usesRef.current.includes(capability)),
       {
-        ready: (p, build) => watcherRef.current.ready(p, build),
+        ready: (p, build, hold) => watcherRef.current.ready(p, build, hold),
+        drawn: () => watcherRef.current.drawn?.(),
         silent: (line, more) => watcherRef.current.silent(line, more),
         fault: (line) => watcherRef.current.fault(line),
         height: (px) => watcherRef.current.height(px),
@@ -296,6 +297,8 @@ export function ModuleFrame({
           const src = frame.getAttribute('src')
           if (src) frame.setAttribute('src', src)
         },
+        findResult: (result) => watcherRef.current.findResult?.(result),
+        findOpen: (open) => watcherRef.current.findOpen?.(open),
       },
       { name: framed.name, entry: framed.entry },
     )
@@ -375,6 +378,8 @@ export function ModuleFrame({
       item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined, press.carried, press.text),
       /* And an Inbox item of its own that the person opened, once the host came to its place. */
       opened: (item) => conversation.sendOpened(item),
+      /* And a search for the find bar over its container (protocol 2.69.0, `host/find.ts`). */
+      find: (ask) => conversation.sendFind(ask),
       /* And the keyboard, after a press that closed its menu. The frame's
          window, which a parent may focus whatever origin is in it; the
          element is the fallback for a frame whose window is not there yet. */
