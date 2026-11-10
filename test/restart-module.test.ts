@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { PAGE_ONLY } from '../server/guard.ts'
 import { Nursery, start, startable } from '../server/launch.ts'
-import { NOT_STARTED_BY_US, restartModuleDesk, RESTART_WITHIN_MS, type Restarted } from '../server/restartModule.ts'
+import { STARTED_OUTSIDE, restartModuleDesk, RESTART_WITHIN_MS, type Restarted } from '../server/restartModule.ts'
 import type { Registration } from '../server/registrations.ts'
 
 /**
@@ -61,8 +61,9 @@ function realRestart(calls: string[]) {
   return async (id: string, _registration: Registration, run: import('../server/launch.ts').Runnable): Promise<Restarted> => {
     calls.push(id)
     const before = pids(run.dir).length
-    nursery.stop(id)
+    calls.push(`stop ${nursery.stop(id)}`)
     const ran = start(run)
+    calls.push('start')
     if (ran.child) nursery.keep(id, { child: ran.child, at: Date.now(), url: run.url })
     await until(() => pids(run.dir).length > before && alive(pids(run.dir).at(-1)!))
     return { ok: true, answered: true, detail: [], presence: null }
@@ -90,6 +91,8 @@ describe('Restart module', () => {
         registration: async () => registration,
         startable,
         busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID),
         restart: realRestart(calls),
       })
       const answer = await press(desk)
@@ -104,7 +107,8 @@ describe('Restart module', () => {
       expect(alive(old!)).toBe(false)
       expect(alive(fresh)).toBe(true)
       expect(nursery.pidOf(ID)).toBe(fresh)
-      expect(calls).toEqual([ID])
+      /* Stop (the held child, by its handle), then start. */
+      expect(calls).toEqual([ID, 'stop stopped', 'start'])
       /* Nothing else was signalled. */
       expect(alive(bystander.pid)).toBe(true)
     } finally {
@@ -119,24 +123,30 @@ describe('Restart module', () => {
       registration: async () => external,
       startable,
       busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID),
       restart: realRestart(calls),
     })
     const answer = await press(desk)
     expect(answer.status).toBe(409)
     const body = (await answer.json()) as { ok: boolean; why: string; external?: boolean }
-    expect(body).toEqual({ ok: false, external: true, why: NOT_STARTED_BY_US })
-    expect(NOT_STARTED_BY_US).toBe("Kehikot didn't start this module, so it can't restart it.")
+    expect(body).toEqual({ ok: false, external: true, why: STARTED_OUTSIDE })
+    expect(STARTED_OUTSIDE).toBe('Started outside Kehikot: restart it where it runs')
     expect(calls).toEqual([])
   })
 
   test('an unknown module, a body that names nothing, and a module in hand elsewhere do nothing', async () => {
     const { registration } = module()
     const calls: string[] = []
-    const none = restartModuleDesk({ registration: async () => null, startable, busy: () => false, restart: realRestart(calls) })
+    const none = restartModuleDesk({ registration: async () => null, startable, busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID), restart: realRestart(calls) })
     expect((await press(none)).status).toBe(409)
     const bad = await none.route(new Request('http://host/host/restart-module', { method: 'POST', body: '{}' }), new URL('http://host/host/restart-module'))
     expect(bad!.status).toBe(400)
-    const hand = restartModuleDesk({ registration: async () => registration, startable, busy: () => true, restart: realRestart(calls) })
+    const hand = restartModuleDesk({ registration: async () => registration, startable, busy: () => true,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID), restart: realRestart(calls) })
     const answer = await press(hand)
     expect(answer.status).toBe(409)
     expect(((await answer.json()) as { busy?: boolean }).busy).toBe(true)
@@ -152,6 +162,8 @@ describe('Restart module', () => {
       registration: async () => registration,
       startable,
       busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID),
       restart: async () => {
         calls += 1
         await gate
@@ -179,6 +191,8 @@ describe('Restart module', () => {
       registration: async () => registration,
       startable,
       busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID),
       restart: async () => ({ ok: true, answered: false, detail: ['Error: EADDRINUSE', 'listen failed'], presence: null }),
     })
     const answer = await press(desk)
@@ -196,9 +210,81 @@ describe('Restart module', () => {
       registration: async () => registration,
       startable,
       busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => nursery.holds(ID),
       restart: async () => ({ ok: false, why: 'kept, so not stopped', refused: true, kept: true }),
     })
     const body = (await (await press(desk)).json()) as { ok: boolean; why: string; kept?: boolean }
     expect(body).toMatchObject({ ok: false, why: 'kept, so not stopped', kept: true })
+  })
+
+  test('something answering that this host did not start (a dev server) is refused, and nothing is stopped or started', async () => {
+    const { registration } = module()
+    const calls: string[] = []
+    /* The program somebody runs in their own terminal: alive, answering, and not in the nursery. */
+    const theirs = Bun.spawn(['sleep', '300'], { stdio: ['ignore', 'ignore', 'ignore'] })
+    try {
+      const desk = restartModuleDesk({
+        registration: async () => registration,
+        startable,
+        busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => true,
+        restart: realRestart(calls),
+      })
+      const answer = await press(desk)
+      expect(answer.status).toBe(409)
+      expect(await answer.json()).toEqual({ ok: false, external: true, why: STARTED_OUTSIDE })
+      expect(calls).toEqual([])
+      expect(alive(theirs.pid)).toBe(true)
+      expect(nursery.holds(ID)).toBe(false)
+    } finally {
+      theirs.kill()
+    }
+  })
+
+  test('a module that is not running at all, with a run script, is started by a restart', async () => {
+    const { root, registration } = module()
+    const calls: string[] = []
+    const desk = restartModuleDesk({
+      registration: async () => registration,
+      startable,
+      busy: () => false,
+      held: (id) => nursery.holds(id),
+      reached: async () => false,
+      restart: realRestart(calls),
+    })
+    const answer = await press(desk)
+    expect(answer.status).toBe(200)
+    expect(calls).toEqual([ID, 'stop not-ours', 'start'])
+    expect(pids(root)).toHaveLength(1)
+    expect(nursery.pidOf(ID)).toBe(pids(root)[0]!)
+  })
+
+  test('a restart of one module never touches another module’s held process', async () => {
+    const one = module()
+    const other = module()
+    const OTHER = 'kehikot.other'
+    const otherRun = (startable({ ...other.registration, id: OTHER }) as { run: import('../server/launch.ts').Runnable }).run
+    const otherStarted = start(otherRun)
+    nursery.keep(OTHER, { child: otherStarted.child!, at: Date.now(), url: other.registration.url })
+    try {
+      await until(() => pids(other.root).length === 1)
+      const [otherPid] = pids(other.root)
+      const calls: string[] = []
+      const desk = restartModuleDesk({
+        registration: async () => one.registration,
+        startable,
+        busy: () => false,
+        held: (id) => nursery.holds(id),
+        reached: async () => false,
+        restart: realRestart(calls),
+      })
+      expect((await press(desk)).status).toBe(200)
+      expect(alive(otherPid!)).toBe(true)
+      expect(nursery.pidOf(OTHER)).toBe(otherPid!)
+    } finally {
+      nursery.stop(OTHER)
+    }
   })
 })

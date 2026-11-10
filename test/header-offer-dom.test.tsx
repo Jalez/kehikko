@@ -211,6 +211,7 @@ async function offered(): Promise<Map<string, string[]>> {
 const EVERYTHING = [
   'frame:prompts',
   'frame:remove',
+  'frame:restart',
   'frame:rows',
   'frame:scope',
   'frame:settings',
@@ -279,7 +280,7 @@ describe('the same header at every width and fold', () => {
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'help', 'frame'])
       expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Help', 'Container'])
       expect([...sections.at(-2)!.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'remove'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'restart', 'remove'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())
@@ -336,7 +337,7 @@ describe('the same header at every width and fold', () => {
         const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
         const section = content.querySelector('[data-section="frame"]')!
         expect(section.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Container')
-        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'remove'])
+        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'restart', 'remove'])
         const help = content.querySelector('[data-section="help"]')!
         expect(help.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Help')
         expect([...help.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])

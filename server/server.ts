@@ -64,7 +64,7 @@ import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
-import { restartModuleDesk } from './restartModule.ts'
+import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -2684,6 +2684,7 @@ async function haltForRestart(
   registration: Registration | null,
   runnable: Runnable,
   anyway?: { pid: number },
+  heldOnly = false,
 ): Promise<Halted> {
   const standing = registration ? await look(registration) : null
   if (!standing?.reached) {
@@ -2692,6 +2693,9 @@ async function haltForRestart(
     if (nursery.holds(id)) halt(id)
     return { ok: true, was: 'not-running' }
   }
+  /* "Restart module" (`heldOnly`): something answers, and it is not the child this host holds.
+     Nothing is proven, taken over or moved off — that program is left exactly as it is. */
+  if (heldOnly && !nursery.holds(id)) return { ok: false, why: STARTED_OUTSIDE }
   /* Something answers there. When it is not the module — no manifest, or
      another module's, from somewhere other than the module's directory —
      the module is run on another port instead, and the program there is left
@@ -2720,7 +2724,10 @@ async function haltForRestart(
     await gone(runnable.url, WELL_KNOWN)
     return { ok: true, was: 'running' }
   }
-  if (halt(id) === 'not-ours') {
+  const stopped = halt(id)
+  /* Its child ended between the look and the stop, and something else answers there now. */
+  if (heldOnly && stopped !== 'stopped') return { ok: false, why: STARTED_OUTSIDE }
+  if (stopped === 'not-ours') {
     const taken = await takeOver(id, runnable, systemProcesses)
     if (taken.kind === 'refused') return { ok: false, why: taken.why }
     if (taken.kind === 'stopped') {
@@ -2826,11 +2833,12 @@ async function restart(
   runnable: Runnable,
   within: number,
   anyway?: { pid: number },
+  heldOnly = false,
 ): Promise<Restarted> {
   const mine = !inHand.has(id)
   inHand.add(id)
   try {
-    const halted = await haltForRestart(id, registration, runnable, anyway)
+    const halted = await haltForRestart(id, registration, runnable, anyway, heldOnly)
     if (!halted.ok) return { ...halted, refused: true }
     /* Said only of a module that was running: one that was not is starting. */
     if (halted.was === 'running') working.set(id, 'restarting')
@@ -3230,12 +3238,15 @@ const anyway = anywayDesk({
   patient: (request) => patient(request),
 })
 
-/* "Restart module", on every module's Run menu: the same `restart`, behind a person's press. `restartModule.ts`. */
+/* "Restart module", in every container's Container menu: the same `restart`, behind a person's press,
+   held to the child this host started (`heldOnly`). `restartModule.ts`. */
 const restartModuleDoor = restartModuleDesk({
   registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
   startable,
   busy: (id) => inHand.has(id) || working.has(id),
-  restart: (id, registration, runnable, within) => restart(id, registration, runnable, within),
+  held: (id) => nursery.holds(id),
+  reached: async (registration) => (await look(registration)).reached,
+  restart: (id, registration, runnable, within) => restart(id, registration, runnable, within, undefined, true),
   patient: (request) => patient(request),
 })
 

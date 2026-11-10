@@ -102,7 +102,7 @@ describe.skipIf(!inChild)('the rest of the waits', () => {
   test('no header spinner turns without the motion-safe guard', async () => {
     const source = await Bun.file(new URL('../src/canvas/HeaderMenus.tsx', import.meta.url)).text()
     const spins = source.match(/LoaderCircle className="[^"]*"/g) ?? []
-    expect(spins.length).toBe(3)
+    expect(spins.length).toBe(4)
     for (const one of spins) expect(one).toContain('motion-safe:animate-spin')
   })
 })

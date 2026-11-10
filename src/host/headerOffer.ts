@@ -92,8 +92,10 @@ export function pinsFor(width: number | null): boolean {
  * the press a folded container's cover or notice would have offered in its body
  * (Start, Retry, Show details — `standingRows` in `canvas/Standing.tsx`): with
  * no body to hold it, it is the first rows of this menu, so it stays reachable.
+ * `restart` is "Restart module", on every container whatever the module declared
+ * (`host/restartModule.ts`): disabled with its reason, never left out.
  */
-export const FRAME_ENTRIES = ['standing', 'expand', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'prompts', 'remove'] as const
+export const FRAME_ENTRIES = ['standing', 'expand', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'prompts', 'restart', 'remove'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /**
@@ -114,6 +116,7 @@ export const FRAME_SAID: Record<FrameEntry, string> = {
   rows: 'header and footer',
   inbox: 'inbox',
   prompts: 'prompts',
+  restart: 'restart',
   remove: 'remove',
 }
 

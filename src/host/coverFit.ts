@@ -1,4 +1,5 @@
 import type { Fold } from './headerOffer.ts'
+import { RESTART_LABEL } from './restartModule.ts'
 import { COVER_WORDS, type Showing, type Waiting, type noticeOf } from './standing.ts'
 
 /**
@@ -62,6 +63,7 @@ export const COVER_SHORT: Record<Waiting, string> = {
 export type StandingAction =
   | { kind: 'start'; label: string }
   | { kind: 'retry'; label: string }
+  | { kind: 'restart'; label: string }
   | { kind: 'update'; label: string }
   | { kind: 'fix'; label: string; module: boolean }
 
@@ -106,9 +108,11 @@ export function standingOf(
       ? { kind: 'start', label: 'Start' }
       : said.offer === 'retry-restart'
         ? { kind: 'retry', label: 'Retry restart' }
-        : said.offer === 'update'
-          ? { kind: 'update', label: 'Check for updates' }
-          : null
+        : said.offer === 'restart'
+          ? { kind: 'restart', label: RESTART_LABEL }
+          : said.offer === 'update'
+            ? { kind: 'update', label: 'Check for updates' }
+            : null
   if (said.offer === 'retry-restart') return { tone: 'failed', word: 'Failed', sentence, more, action }
   if (showing.condition === 'incompatible') return { tone: 'incompatible', word: 'Needs update', sentence, more, action }
   if (showing.asleep) return { tone: 'asleep', word: 'Asleep', sentence, more, action }

@@ -114,7 +114,7 @@ describe('where it was thrown', () => {
 describe('the notice for it', () => {
   test('carries the stack to the panel, which folds it under "Show details" as text', () => {
     const shown = showing({ condition: 'ready', line: 'answers' }, { condition: 'silent', line: 'Notes’ page failed to start: <b>x</b>', more: '<script>alert(1)</script>\n    at f' })
-    expect(shown).toEqual({ kind: 'notice', condition: 'silent', asleep: false, line: 'Notes’ page failed to start: <b>x</b>', more: '<script>alert(1)</script>\n    at f' })
+    expect(shown).toEqual({ kind: 'notice', condition: 'silent', asleep: false, line: 'Notes’ page failed to start: <b>x</b>', page: true, more: '<script>alert(1)</script>\n    at f' })
     if (shown.kind !== 'notice') throw new Error('a notice')
     const notice = noticeOf(shown, {})
     expect(notice.more).toBe('<script>alert(1)</script>\n    at f')

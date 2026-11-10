@@ -122,6 +122,7 @@ import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
 import { offersInboxUse } from './host/inboxUse.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
+import { PINNED_VERSION } from './host/restartModule.ts'
 import { useChime } from './canvas/useChime.ts'
 import { visitFor, type Here } from './host/pickerOrder.ts'
 import { noteVisit } from './host/pickerStore.ts'
@@ -3919,7 +3920,7 @@ export function App() {
   const toastRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   /* A module's page answered a greeting: it is a new page, whose list the Inbox waits for. */
   const inboxGreetedRef = useRef<(module: string) => void>(() => undefined)
-  /* "Restart module" on a Run menu: one word per module while it is out, and a look when it is in. */
+  /* "Restart module" in the Container menu: one word per module while it is out, and a look when it is in. */
   const restarts = useRestarts(useCallback(() => void look(true), [look]))
   const inbox = useInbox({
     project: projectId,
@@ -5081,6 +5082,10 @@ export function App() {
                   showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found) }, askedFor === openId, restarts.of(presence.id))}
                   restart={restarts.of(presence.id)}
                   onRestart={() => restarts.restart(presence.id)}
+                  /* A pinned version's process is the version's, not the module's own copy a restart names. */
+                  restartBlocked={placement.version ? PINNED_VERSION : undefined}
+                  /* "Reload page" on a page that went silent or failed: a new document, as a restart gives. */
+                  onReload={() => setGenerations((was) => ({ ...was, [presence.id]: (was[presence.id] ?? 0) + 1 }))}
                   coverDetail={waiting ? presence.line : undefined}
                   fault={found?.fault ?? null}
                   body={body(presence.id)}

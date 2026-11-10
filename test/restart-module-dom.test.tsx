@@ -6,17 +6,18 @@ import type { RestartState } from '../src/host/restartModule.ts'
 import { noticeOf, showing } from '../src/host/standing.ts'
 
 /*
- * "Restart module" on a module's Run menu, rendered: the row and its icon, a
- * press that is the host's and never the module's, the row disabled with its
- * reason for a module this host did not start, the restarting and failed
- * states, the cover and the notice with Retry, and the menu at 380, 280 and 200
- * pixels. That the header stays one row without overlap is measured in a
+ * "Restart module" in every container's Container menu, rendered: the row on
+ * every kind of module whatever it declared, a press that is the host's and
+ * never the module's, the row disabled with its reason for a module this host
+ * did not start, the restarting and failed states, the cover and the notice
+ * with Retry, the silent page's Restart module and Reload page, and the menu
+ * at 380, 280 and 200 pixels. That the header stays one row without overlap is measured in a
  * browser (`dev/header-fit.drive.mjs`, run on bee).
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives.
  */
 const inChild = process.env.RESTART_MODULE_DOM === '1'
-const TESTS = 10
+const TESTS = 12
 
 if (!inChild) {
   test('restart module, rendered in a process of their own', () => {
@@ -72,11 +73,13 @@ const presence = {
   name: 'Scratch',
   line: '',
   dir: '/somewhere/scratch',
+  run: 1_700_000_000_000,
   agent: { kind: 'untold' },
 } as unknown as Presence
 
 interface Mounted {
   restarted: { n: number }
+  reloaded: { n: number }
   pressed: string[]
 }
 
@@ -88,6 +91,7 @@ async function mount(
     at?: number
     shown?: ReturnType<typeof showing>
     header?: import('kehikot-module-protocol').HeaderItem[]
+    blocked?: string
   } = {},
 ): Promise<Mounted> {
   width = over.at ?? 380
@@ -95,7 +99,7 @@ async function mount(
   document.body.appendChild(host)
   const root = createRoot(host)
   const nothing = () => {}
-  const out: Mounted = { restarted: { n: 0 }, pressed: [] }
+  const out: Mounted = { restarted: { n: 0 }, reloaded: { n: 0 }, pressed: [] }
   await act(async () => {
     root.render(
       <TooltipProvider>
@@ -135,6 +139,8 @@ async function mount(
           epic={null}
           restart={over.restart}
           onRestart={over.asked === false ? undefined : () => void (out.restarted.n += 1)}
+          restartBlocked={over.blocked}
+          onReload={() => void (out.reloaded.n += 1)}
         />
       </TooltipProvider>,
     )
@@ -144,7 +150,7 @@ async function mount(
 }
 
 const trigger = (menu: string) => document.querySelector<HTMLElement>(`header [data-menu="${menu}"]`)
-const rowOf = () => document.querySelector<HTMLElement>('[data-item="kehikot.host.restart-module"]')
+const rowOf = () => document.querySelector<HTMLElement>('[data-frame="restart"]')
 async function open(menu: string) {
   await act(async () => {
     trigger(menu)!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
@@ -153,66 +159,92 @@ async function open(menu: string) {
   expect(document.querySelector(`[data-menu-content="${menu}"]`), `the ${menu} menu did not open`).not.toBeNull()
 }
 const menus = () => [...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
+const again = () => {
+  act(() => unmount?.())
+  unmount = null
+  document.body.innerHTML = ''
+}
 
-describe('the row in the Run menu', () => {
+describe('the row in the Container menu', () => {
   if (!inChild) return
 
-  test('every module’s Run menu has "Restart module" with its icon, and a module that declared nothing gets the Run menu for it', async () => {
+  test('every container’s Container menu has "Restart module", and a module that declared nothing gets no Run menu for it', async () => {
     await mount()
-    expect(menus()).toEqual(['run', 'help', 'frame'])
-    await open('run')
+    expect(menus()).toEqual(['help', 'frame'])
+    await open('frame')
     expect(rowOf()!.textContent).toContain('Restart module')
-    expect(rowOf()!.querySelector('[data-icon="rotate-ccw"]')).not.toBeNull()
-    expect(rowOf()!.getAttribute('data-disabled')).toBeNull()
+    expect(rowOf()!.hasAttribute('data-disabled')).toBe(false)
   })
 
-  test('it follows what the module declared in the same menu, and the module’s own runs are untouched', async () => {
+  test('the module’s own Run menu is what it declared, and nothing of the host’s is in it', async () => {
     const { headerItemsSchema } = await import('kehikot-module-protocol')
     await mount({ header: headerItemsSchema.parse([{ kind: 'run', id: 'compile', label: 'Compile' }]) })
     await open('run')
     const ids = [...document.querySelectorAll('[data-menu-content="run"] [data-item]')].map((el) => el.getAttribute('data-item'))
-    expect(ids).toEqual(['compile', 'kehikot.host.restart-module'])
+    expect(ids).toEqual(['compile'])
+    expect(document.querySelector('[data-menu-content="run"] [data-frame="restart"]')).toBeNull()
   })
 
   test('a press is the host’s: onRestart once, and nothing sent to the module', async () => {
     const out = await mount()
-    await open('run')
+    await open('frame')
     await act(async () => rowOf()!.click())
     await act(async () => {})
     expect(out.restarted.n).toBe(1)
     expect(out.pressed).toEqual([])
   })
 
-  test('a module the host did not start has the row disabled, with the reason as text', async () => {
-    const out = await mount({ presence: { dir: undefined } })
-    await open('run')
-    const row = rowOf()!
-    expect(row.hasAttribute('data-disabled')).toBe(true)
-    expect(row.getAttribute('title')).toBe("Kehikot didn't start this module, so it can't restart it.")
-    expect(row.querySelector('[data-reason]')!.textContent).toBe("Kehikot didn't start this module, so it can't restart it.")
-    await act(async () => row.click())
-    expect(out.restarted.n).toBe(0)
+  test('every kind of module has the row: pressable when this host started it or nothing runs, disabled with the reason otherwise', async () => {
+    const { STARTED_OUTSIDE, PINNED_VERSION } = await import('../src/host/restartModule.ts')
+    const kinds: { said: string; presence: Partial<Presence>; blocked?: string; why: string | null }[] = [
+      { said: 'started by this host', presence: { run: 1 }, why: null },
+      { said: 'not running, with a directory', presence: { run: undefined, reached: false, condition: 'silent' }, why: null },
+      { said: 'a dev server this host did not start', presence: { run: undefined, reached: true }, why: STARTED_OUTSIDE },
+      { said: 'registered by its address only', presence: { run: undefined, dir: undefined }, why: STARTED_OUTSIDE },
+      { said: 'a pinned version', presence: { run: 1 }, blocked: PINNED_VERSION, why: PINNED_VERSION },
+    ]
+    for (const kind of kinds) {
+      const out = await mount({ presence: kind.presence, blocked: kind.blocked })
+      await open('frame')
+      const row = rowOf()
+      expect(row, kind.said).not.toBeNull()
+      if (kind.why === null) {
+        expect(row!.hasAttribute('data-disabled'), kind.said).toBe(false)
+      } else {
+        expect(row!.hasAttribute('data-disabled'), kind.said).toBe(true)
+        expect(row!.getAttribute('title'), kind.said).toBe(kind.why)
+        expect(row!.querySelector('[data-reason]')!.textContent, kind.said).toBe(kind.why)
+        await act(async () => row!.click())
+        expect(out.restarted.n, kind.said).toBe(0)
+      }
+      again()
+    }
+    expect(STARTED_OUTSIDE).toBe('Started outside Kehikot: restart it where it runs')
   })
 
   test('while restarting the row is busy with a spinner and cannot be pressed again; after a failure it says so', async () => {
     const out = await mount({ restart: { kind: 'restarting' } })
-    await open('run')
+    await open('frame')
     expect(rowOf()!.getAttribute('data-state-run')).toBe('busy')
     expect(rowOf()!.hasAttribute('data-disabled')).toBe(true)
     expect(rowOf()!.querySelector('[aria-label="running"]')).not.toBeNull()
     await act(async () => rowOf()!.click())
     expect(out.restarted.n).toBe(0)
-    act(() => unmount?.())
-    document.body.innerHTML = ''
+    again()
     await mount({ restart: { kind: 'failed', why: 'it did not answer', detail: [] } })
-    await open('run')
+    await open('frame')
     expect(rowOf()!.getAttribute('data-state-run')).toBe('failed')
     expect(rowOf()!.hasAttribute('data-disabled')).toBe(false)
   })
 
-  test('a container that does not offer a restart draws none, and a module that declared nothing keeps its header', async () => {
+  test('never hidden: a container handed no restart still draws the row, and a folded or silent one too', async () => {
     await mount({ asked: false })
-    expect(menus()).toEqual(['help', 'frame'])
+    await open('frame')
+    expect(rowOf()).not.toBeNull()
+    again()
+    await mount({ shown: { kind: 'notice', condition: 'silent', asleep: false, line: 'Nothing is answering.' }, presence: { run: undefined, reached: false, condition: 'silent' } })
+    await open('frame')
+    expect(rowOf()).not.toBeNull()
   })
 })
 
@@ -252,31 +284,54 @@ describe('the restarting state and the failure', () => {
   })
 })
 
-describe('the Run menu at the narrow widths', () => {
+describe('a page that went silent or failed', () => {
   if (!inChild) return
 
-  test('380 draws Run in words, 280 as an icon, 200 under the one "⋯" menu; the row is there in each', async () => {
-    await mount({ at: 380 })
-    expect(trigger('run')!.textContent).toBe('Run')
-    await open('run')
-    expect(rowOf()).not.toBeNull()
-    act(() => unmount?.())
-    document.body.innerHTML = ''
+  test('the notice offers Reload page and Restart module, not Start; each press is its own', async () => {
+    const shown = showing({ condition: 'ready', line: '' }, { condition: 'silent', line: 'The page did not answer.', more: 'Error: boom' })
+    expect(shown).toMatchObject({ kind: 'notice', page: true })
+    expect(noticeOf(shown as Extract<typeof shown, { kind: 'notice' }>, {})).toMatchObject({ offer: 'restart', reload: true, more: 'Error: boom' })
+    const out = await mount({ shown })
+    const reload = document.querySelector<HTMLButtonElement>('[data-notice="reload"]')!
+    const restart = document.querySelector<HTMLButtonElement>('[data-notice="restart"]')!
+    expect(reload.textContent).toContain('Reload page')
+    expect(restart.textContent).toContain('Restart module')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Start')).toBe(false)
+    await act(async () => reload.click())
+    expect(out.reloaded.n).toBe(1)
+    expect(out.restarted.n).toBe(0)
+    await act(async () => restart.click())
+    expect(out.restarted.n).toBe(1)
+  })
 
-    await mount({ at: 280 })
-    expect(trigger('run')!.textContent).toBe('')
-    expect(trigger('run')!.getAttribute('aria-label')).toContain('run')
-    await open('run')
-    expect(rowOf()).not.toBeNull()
-    act(() => unmount?.())
-    document.body.innerHTML = ''
+  test('for a module this host did not start, Restart module is there, disabled, with the reason; Reload page still works', async () => {
+    const { STARTED_OUTSIDE } = await import('../src/host/restartModule.ts')
+    const shown = showing({ condition: 'ready', line: '' }, { condition: 'silent', line: 'The page did not answer.' })
+    const out = await mount({ shown, presence: { run: undefined, reached: true } })
+    const restart = document.querySelector<HTMLButtonElement>('[data-notice="restart"]')!
+    expect(restart.disabled).toBe(true)
+    expect(restart.getAttribute('title')).toBe(STARTED_OUTSIDE)
+    expect(document.querySelector('[data-reason]')!.textContent).toBe(STARTED_OUTSIDE)
+    await act(async () => restart.click())
+    expect(out.restarted.n).toBe(0)
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-notice="reload"]')!.click())
+    expect(out.reloaded.n).toBe(1)
+  })
+})
 
+describe('the Container menu at the narrow widths', () => {
+  if (!inChild) return
+
+  test('380 and 280 draw Container as its own trigger, 200 as the last section of the one "⋯"; the row is there in each', async () => {
+    for (const at of [380, 280]) {
+      await mount({ at })
+      await open('frame')
+      expect(rowOf(), `${at}`).not.toBeNull()
+      again()
+    }
     await mount({ at: 200 })
-    /* One "⋯" for everything that did not fit: the module's menus, then the Container rows. */
     expect(menus()).toEqual(['more'])
     await open('more')
-    expect(document.querySelector('[data-menu-content="more"] [data-section="run"]')).not.toBeNull()
-    expect(document.querySelector('[data-menu-content="more"] [data-section="frame"]')).not.toBeNull()
-    expect(rowOf()).not.toBeNull()
+    expect(document.querySelector('[data-menu-content="more"] [data-section="frame"] [data-frame="restart"], [data-menu-content="more"] [data-frame="restart"]')).not.toBeNull()
   })
 })

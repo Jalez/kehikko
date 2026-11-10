@@ -62,6 +62,7 @@ import {
 } from 'lucide-react'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { ScopeIcon } from './Scope.tsx'
+import { RESTART_LABEL, type Restartable, type RestartState } from '@/host/restartModule.ts'
 import { SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
@@ -1319,6 +1320,12 @@ export interface FrameParts {
   onPrompts(): void
   /** The module's own row controls (filter, clear, refresh), for the "⋯" that holds them under 220 px. */
   controls?: ControlParts
+  /**
+   * "Restart module" (`host/restartModule.ts`): the host's row, on every container whatever the
+   * module declared. `can` says whether this host may restart it, and why not; `state` is a press in
+   * hand or one that failed. Disabled with its reason, never left out. Absent: no row.
+   */
+  restart?: { can: Restartable; state?: RestartState; onRestart(): void }
   /** Take the container off the kehikko: a "Remove from this kehikko" row where the × is not drawn (`layoutOf`). */
   onRemove?(): void
 }
@@ -1335,6 +1342,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.rows) out.push('rows')
   if (parts.inbox) out.push('inbox')
   out.push('prompts')
+  if (parts.restart) out.push('restart')
   if (parts.onRemove) out.push('remove')
   return out
 }
@@ -1559,6 +1567,7 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           {prompted ? <span className="text-[10px] font-medium">uses one</span> : null}
         </DropdownMenuItem>
       ) : null}
+      {has('restart') && parts.restart ? <RestartRow name={name} restart={parts.restart} /> : null}
       {has('remove') && parts.onRemove ? (
         <>
           <DropdownMenuSeparator />
@@ -1566,6 +1575,47 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
         </>
       ) : null}
     </>
+  )
+}
+
+/**
+ * "Restart module": stop the process this host started for the module and start it again. A
+ * spinner while a press is in hand, a mark after one that did not bring it back, and disabled with
+ * the reason as text for a module this host did not start. Every string here is the host's.
+ */
+function RestartRow({ name, restart }: { name: string; restart: NonNullable<FrameParts['restart']> }) {
+  const { can, state, onRestart } = restart
+  const busy = state?.kind === 'restarting'
+  const failed = state?.kind === 'failed'
+  const why = can.ok ? null : can.why
+  return (
+    <DropdownMenuItem
+      className={`${ROW} data-[disabled]:pointer-events-auto`}
+      title={why ?? (failed ? state.why : `stop ${name} and start it again; its page reloads once it answers`)}
+      data-frame="restart"
+      data-state-run={busy ? 'busy' : failed ? 'failed' : 'idle'}
+      disabled={why !== null || busy}
+      onSelect={onRestart}
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-2">
+          {busy ? (
+            <LoaderCircle className="size-3.5 motion-safe:animate-spin" aria-label="running" />
+          ) : failed ? (
+            <TriangleAlert className="text-destructive size-3.5" aria-label="failed" />
+          ) : (
+            <RotateCcw className="text-muted-foreground size-3.5" aria-hidden />
+          )}
+          <span className="flex-1">{RESTART_LABEL}</span>
+          {failed ? <span className="text-destructive shrink-0 text-[10px]">did not come back</span> : null}
+        </span>
+        {why ? (
+          <span className="text-[10px] leading-tight whitespace-normal" data-reason>
+            {why}
+          </span>
+        ) : null}
+      </span>
+    </DropdownMenuItem>
   )
 }
 

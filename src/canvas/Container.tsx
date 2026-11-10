@@ -5,7 +5,7 @@ import { introFor } from '@/host/moduleIntro.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
 import type { Choice } from '@/host/filters.ts'
-import { RESTART_ITEM, withRestart, type RestartState } from '@/host/restartModule.ts'
+import { restartable, type RestartState } from '@/host/restartModule.ts'
 import { NO_HEADER, type Pressed, type Pressing } from '@/host/header.ts'
 import type { Presence } from '@/host/registry.ts'
 import { revealModeOf, type FilterGroup, type FooterItem, type HeaderItem } from 'kehikot-module-protocol'
@@ -35,7 +35,7 @@ import { foldChoices, foldDrawn, rowsHide, type FoldRows, type ShowRows } from '
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
@@ -101,6 +101,8 @@ export function Container({
   pressNote = null,
   restart,
   onRestart,
+  restartBlocked,
+  onReload,
   filters,
   chosen,
   onChoose,
@@ -315,12 +317,17 @@ export function Container({
   /** Look again, after this module has been started. */
   onStarted(): void
   /**
-   * Restart this module (`/host/restart-module`). Given, its Run menu ends with "Restart module" —
-   * disabled with a reason for a module this host does not start. Left out, no such row.
+   * Restart this module (`/host/restart-module`): "Restart module" in the Container menu, which every
+   * container has whatever the module declared (`host/restartModule.ts`). Disabled with the reason for
+   * a module this host did not start. Left out, a press does nothing (a test that does not look).
    */
   onRestart?(): void
   /** What the page knows of a restart it asked for here. See `host/restartModule.ts`. */
   restart?: RestartState
+  /** Why this container's module cannot be restarted from here though the host started it (a pinned version). */
+  restartBlocked?: string
+  /** "Reload page" on a notice over a page that went silent or failed: a new document for the frame. */
+  onReload?(): void
   onRemove(): void
   /** The open kehikko's name and epic, written under any feedback filed from here. */
   kehikko: string | null
@@ -388,9 +395,11 @@ export function Container({
   /* The cover or notice in every size's words (`host/coverFit.ts`): the body draws it for its own
      box, and folded, the header carries its word and the Container menu its press. */
   const standing = showing.kind === 'page' ? null : standingOf(showing, notice, presence.at, coverDetail)
-  const pressing = useStandingPress(standing?.action ?? null, presence.id, onStarted, onRestart)
-  /* The module's own items, and the host's row after them: a module this host starts is the one `dir` names. */
-  const items = useMemo(() => (onRestart ? withRestart(header, restart, presence.dir !== undefined) : header), [header, restart, onRestart !== undefined, presence.dir])
+  /* "Restart module", on every container: pressable only for a module this host may restart. */
+  const can = restartBlocked ? { ok: false as const, why: restartBlocked } : restartable(presence)
+  const pressing = useStandingPress(standing?.action ?? null, presence.id, onStarted, can.ok ? onRestart : undefined)
+  /* What the module declared, as it declared it: the host's own rows are the Container menu's. */
+  const items = header
   /* For the dot and the header's controls, which are the page's and are
      offered only while the page is what is showing. */
   const mode: ShowRows = rowsMode ?? (reveals ? 'hover' : 'always')
@@ -435,6 +444,7 @@ export function Container({
     expand: expand && showing.kind === 'page' && !collapsed && !oneEpic ? expand : undefined,
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
     controls: controlParts,
+    restart: { can, state: restart, onRestart: () => onRestart?.() },
     onRemove,
   }
   const page = showing.kind === 'page'
@@ -790,7 +800,7 @@ export function Container({
           <HeaderMenus
             items={items}
             name={name}
-            onPress={(press) => (press.item === RESTART_ITEM && onRestart ? (onRestart(), Promise.resolve({ ok: true, why: '' })) : onPress(press))}
+            onPress={onPress}
             onKeyboard={onKeyboard}
             surface={surface}
             note={pressNote}
@@ -1043,7 +1053,9 @@ export function Container({
             presence={presence}
             coverDetail={coverDetail}
             onStarted={onStarted}
-            onRestart={onRestart}
+            onRestart={can.ok ? onRestart : undefined}
+            restartWhy={can.ok ? null : can.why}
+            onReload={onReload}
           />
         ) : null}
 
