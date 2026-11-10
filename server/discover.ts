@@ -6,6 +6,7 @@ import {
   manifestSchema,
   helpOf,
   introOf,
+  type Guard,
   type Intro,
   type Help,
   PACKAGE_VERSION,
@@ -236,6 +237,8 @@ export interface FramedModule {
   agentSays?: string
   /** What it says to agent sessions on a kehikko it is NOT on (protocol 2.36.0). Absent: nothing. */
   absentSays?: string
+  /** The shell commands it guards in agent sessions on a kehikko it is placed on (protocol 2.61.0). Absent: none. */
+  guards?: Guard[]
   /** How to use the module, for a person (protocol 2.52.0): plain text the page draws as headings and bullets. Absent: none, and no "How to use". */
   help?: Help
   /** The module's own introduction (protocol 2.57.0), as `introOf` read it. */
@@ -598,6 +601,7 @@ export async function look(
       ...(manifest.reveal ? { reveal: manifest.reveal } : {}),
       ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
       ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),
+      ...(manifest.guards?.length ? { guards: manifest.guards.map((one) => ({ ...one })) } : {}),
       ...(helpOf(manifest) ? { help: helpOf(manifest)! } : {}),
       ...(introOf(manifest) ? { intro: introOf(manifest)! } : {}),
       declares: manifest.declares,

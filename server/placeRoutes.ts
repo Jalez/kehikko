@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { doorsHanded, meetingSkill } from '../src/host/connections.ts'
-import { LIMITS, installsSkills, isKehikkoBound, oneLine, skillsThatLoad, type AbsentModule, type EverywhereSkill, type ModuleSkill } from 'kehikot-module-protocol'
+import { LIMITS, installsSkills, isKehikkoBound, oneLine, skillsThatLoad, type AbsentModule, type EverywhereSkill, type Guard, type ModuleSkill, type PlacedGuard, GUARD_LIMITS } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
@@ -82,6 +82,8 @@ export interface ModuleAbout {
   agentSays?: string
   /** What it says to agents on a kehikko it is NOT on (`absentSays`, protocol 2.36.0), when it says anything. */
   absentSays?: string
+  /** The shell commands it guards in agent sessions on a kehikko it is placed on (`guards`, protocol 2.61.0). */
+  guards?: readonly Guard[]
   /** Whether it is on the official list this host vouches for: only such a module is heard where it is absent. */
   official?: boolean
   /** The skills it declares (protocol 2.5.0); empty for one that is not answering. */
@@ -179,6 +181,29 @@ export function absentFrom(canvas: Pick<Canvas, 'placements'> | null, about: rea
     if (!says) continue
     out.push({ module: one.id, name: oneLine(one.name, 80) || one.id, says })
     if (out.length >= LIMITS.ABSENT_MODULES) break
+  }
+  return out
+}
+
+/**
+ * The guards of the modules PLACED on a session's kehikko (protocol 2.61.0), in the order the canvas
+ * is read, each with its module's id and name: what the module that runs the session holds every
+ * shell command to. Only placed modules — one installed but not on the kehikko guards nothing — and
+ * nothing for a place with no kehikko. At most `GUARD_LIMITS.PLACED`.
+ */
+export function guardsOn(canvas: Pick<Canvas, 'placements'> | null, about: readonly ModuleAbout[]): PlacedGuard[] {
+  if (!canvas) return []
+  const known = new Map(about.map((one) => [one.id, one]))
+  const out: PlacedGuard[] = []
+  const seen = new Set<string>()
+  for (const p of [...canvas.placements].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    if (seen.has(p.i)) continue
+    seen.add(p.i)
+    const one = known.get(p.i)
+    for (const guard of one?.guards ?? []) {
+      if (out.length >= GUARD_LIMITS.PLACED) return out
+      out.push({ module: p.i, name: oneLine(one?.name, 80) || p.i, guard })
+    }
   }
   return out
 }
@@ -388,7 +413,9 @@ export function placeDesk(deps: PlaceDeps) {
       const told = body.messages === true && deps.messagesFor ? deps.messagesFor((await resolve(token, null)).here, token) : undefined
       /* The person's skills for that kehikko (2.53.0): to every module, whatever epic the session is on. Read on every ask, so an edit reaches the next one. */
       const kehikkoSkills = canvas ? skillsForSession(project.path, canvas.key) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(told ?? {}) })
+      /* The guards of the modules placed there (2.61.0): only placed ones, none without a kehikko. */
+      const guards = about ? guardsOn(canvas, about) : undefined
+      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(guards ? { guards } : {}), ...(told ?? {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {
