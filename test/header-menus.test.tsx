@@ -16,7 +16,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
  */
 
 const inChild = process.env.HEADER_MENUS_DOM === '1'
-const TESTS = 46
+const TESTS = 48
 
 if (!inChild) {
   test('the header menus, rendered in a process of their own', () => {
@@ -191,6 +191,43 @@ describe('each kind is drawn as its part', () => {
     expect(places).toHaveLength(12)
     expect(places.every((place) => place.getAttribute('role') === 'menuitem')).toBe(true)
     expect(places[3]!.textContent).toBe('Section 3')
+  })
+
+  test('a switch draws its options under their groups, each with its detail as a second line (2.68.0)', async () => {
+    const items = headerItemsSchema.parse([
+      {
+        kind: 'switch',
+        id: 'conversation',
+        label: 'Conversation: Fix login bug',
+        value: 'a',
+        options: [
+          { id: 'a', label: 'Fix login bug', group: 'This kehikko’s conversation', detail: 'needs you · 5 min ago' },
+          { id: 'b', label: 'Draft the results', group: 'Other conversations here', detail: 'idle · 2 h ago' },
+          { id: 'c', label: '<b>Tidy</b>', group: 'Other conversations here' },
+          { id: 'new', label: 'New conversation' },
+        ],
+      },
+    ])
+    await mount(items)
+    await open('view')
+    const groups = [...content('view')!.querySelectorAll('[data-option-group-label]')].map((el) => el.textContent)
+    expect(groups).toEqual(['This kehikko’s conversation', 'Other conversations here'])
+    expect(content('view')!.querySelector('[data-option-group="Other conversations here"]')!.querySelectorAll('[data-option]')).toHaveLength(2)
+    expect(row('conversation', 'a')!.querySelector('[data-option-detail]')!.textContent).toBe('needs you · 5 min ago')
+    expect(row('conversation', 'a')!.getAttribute('aria-checked')).toBe('true')
+    expect(row('conversation', 'c')!.querySelector('[data-option-detail]')).toBeNull()
+    /* A stranger's strings: text, never elements. */
+    expect(row('conversation', 'c')!.querySelector('b')).toBeNull()
+    expect(row('conversation', 'c')!.textContent).toBe('<b>Tidy</b>')
+    /* The ungrouped option after them is set apart, with no heading of its own. */
+    expect(row('conversation', 'new')!.closest('[data-option-group]')).toBeNull()
+    expect(row('conversation', 'new')!.textContent).toBe('New conversation')
+  })
+
+  test('a switch with no groups and no details draws as it always did', async () => {
+    await mount(paper())
+    await open('view')
+    expect(content('view')!.querySelector('[data-option-group-label], [data-option-detail], [data-option-group]')).toBeNull()
   })
 
   test('a run says its result and its shortcut; a disabled one is flat and says why', async () => {
