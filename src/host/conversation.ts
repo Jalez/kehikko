@@ -1,6 +1,7 @@
 import {
   clampHeight,
   FOOTER_KINDS,
+  HOLD_COVER_MS,
   HOST_MESSAGES,
   LIMITS,
   looksLikeWireMessage,
@@ -100,8 +101,18 @@ export type Ask = (method: string, params: unknown, how?: { pressed: boolean }) 
  * the same in either case — go and look at the program.
  */
 export interface ConversationWatcher {
-  /** `build` is what served the page, when it says: see `isStale` in `standing.ts`. */
-  ready(moduleProtocol: number, build?: Build | null): void
+  /**
+   * `build` is what served the page, when it says: see `isStale` in `standing.ts`.
+   * `hold` (protocol 2.70.0): the page asked for the cover to stay up until it is
+   * drawn; `drawn` follows, when it says so or `holdCoverMs` passes.
+   */
+  ready(moduleProtocol: number, build?: Build | null, hold?: boolean): void
+  /**
+   * The page that answered with `hold: true` is drawn (`kehikot.drawn`), or the
+   * host stopped waiting for it (`holdCoverMs`): take the cover off. Called once
+   * per held greeting, never for a `ready` that did not hold.
+   */
+  drawn?(): void
   /**
    * `more` (protocol 2.59.0): the first lines of the stack of the error the
    * page said it failed with (`kehikot.page.error`), for "Show details".
@@ -186,6 +197,16 @@ export interface ConversationWatcher {
    * refusal, and nothing else ever loads it again. Absent: never retried.
    */
   retry?(): void
+  /**
+   * What a search came to (`kehikot.find.result`, protocol 2.69.0): the count,
+   * or `unsupported`, for the `kehikot.find` whose id it carries. See `host/find.ts`.
+   */
+  findResult?(result: { id: string; total: number; current: number; unsupported: boolean }): void
+  /**
+   * The person pressed ⌘F (or ⌘G, `step`) inside this module's page
+   * (`kehikot.find.open`, protocol 2.69.0): open the find bar for its container.
+   */
+  findOpen?(open: { query?: string; step?: 'next' | 'prev' }): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -243,6 +264,8 @@ export class Conversation {
   private readonly presses = new Map<string, PendingPress>()
   private nextPress = 1
   private readyTimer: ReturnType<typeof setTimeout> | null = null
+  /* The page answered with `hold: true` and has not said it is drawn (protocol 2.70.0). */
+  private holdTimer: ReturnType<typeof setTimeout> | null = null
   private greeted = false
   /** An opened item waiting for the page to answer its greeting (`sendOpened`). */
   private openedLater: { item: string; at: number } | null = null
@@ -265,6 +288,7 @@ export class Conversation {
   private failure: { message: string; where: string; stack: string } | null = null
   private closed = false
   private nextGoto = 1
+  private nextFind = 1
 
   /**
    * @param frame       The element the host mounted. The identity, and the only one.
@@ -287,6 +311,7 @@ export class Conversation {
   /** The address the frame was given (`server/quiet.ts` checks that one), or null when not said. */
   private readonly entry: string | null
   private readonly readyTimeoutMs: number
+  private readonly holdCoverMs: number
   private readonly wentTimeoutMs: number
   private readonly pressedTimeoutMs: number
   private readonly pressed: () => boolean
@@ -310,6 +335,8 @@ export class Conversation {
       entry?: string
       session?: string
       readyTimeoutMs?: number
+      /** How long a cover held by `ready { hold: true }` waits for `kehikot.drawn` (`HOLD_COVER_MS`). */
+      holdCoverMs?: number
       wentTimeoutMs?: number
       pressedTimeoutMs?: number
       /** Whether the person's press into this frame is fresh now (`pressFreshFor`); replaced in tests. */
@@ -321,6 +348,7 @@ export class Conversation {
     this.entry = options.entry ?? null
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
+    this.holdCoverMs = options.holdCoverMs ?? HOLD_COVER_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
     this.pressedTimeoutMs = options.pressedTimeoutMs ?? PRESSED_TIMEOUT_MS
   }
@@ -336,6 +364,7 @@ export class Conversation {
     if (this.closed) return
     this.greeted = true
     this.answered = false
+    this.letHold()
     this.silenced = false
     this.failure = null
 
@@ -375,6 +404,9 @@ export class Conversation {
       /* Protocol 2.49.0: tell me when the person presses inside the page, so a container's rows can be
          revealed on a click or a held press in it (`host/rows.ts`). An older module sends nothing. */
       pointer: true,
+      /* Protocol 2.69.0: this host draws a find bar over the container (`host/find.ts`), so the
+         page hears ⌘F and answers `kehikot.find`. An older module strips it and searches nothing. */
+      find: true,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -598,6 +630,20 @@ export class Conversation {
   }
 
   /**
+   * Ask this module to search what it shows (protocol 2.69.0, `kehikot.find`),
+   * for the find bar over its container. Returns the id the answer will carry,
+   * or `null` when there is no page that has answered its greeting to ask — the
+   * bar then says the module cannot be searched. A `close` is sent likewise and
+   * not answered. See `host/find.ts`.
+   */
+  sendFind(ask: { query: string; caseSensitive: boolean; wholeWord: boolean; direction: 'first' | 'next' | 'prev' | 'close' }): string | null {
+    if (this.closed || !this.greeted || !this.answered) return null
+    const id = `find-${this.nextFind++}`
+    this.post({ type: MESSAGE.FIND, protocol: PROTOCOL, id, query: ask.query.slice(0, LIMITS.FIND_QUERY), caseSensitive: ask.caseSensitive, wholeWord: ask.wholeWord, direction: ask.direction })
+    return id
+  }
+
+  /**
    * Tell this module how much of its frame the host's own rows cover now
    * (protocol 2.42.0, `kehikot.covered`), for a module whose manifest says
    * `reveal: 'over'`: its frame keeps its size when focus mode reveals the
@@ -815,7 +861,27 @@ export class Conversation {
           `The page framed as ${this.moduleId} answered as ${message.id}. The host is talking to the frame it mounted; the name is wrong somewhere.`,
         )
       }
-      this.watcher.ready(message.protocol, message.build ?? null)
+      /* Protocol 2.70.0: a page still reading what it shows asks the cover to
+         stay until it is drawn. Held for `holdCoverMs` at most, so a page that
+         never says it is drawn is not covered for good. A `ready` without
+         `hold` is a page drawn now: the cover comes off at once, as before. */
+      const hold = message.hold === true
+      this.letHold()
+      if (hold) {
+        this.holdTimer = setTimeout(() => {
+          this.holdTimer = null
+          if (!this.closed) this.watcher.drawn?.()
+        }, this.holdCoverMs)
+      }
+      this.watcher.ready(message.protocol, message.build ?? null, hold)
+      return true
+    }
+
+    case MESSAGE.DRAWN: {
+      /* Only a held cover is lifted by it; one sent without a held `ready`, or twice, is dropped. */
+      if (!this.holdTimer) return true
+      this.letHold()
+      this.watcher.drawn?.()
       return true
     }
 
@@ -906,6 +972,18 @@ export class Conversation {
       return true
     }
 
+    case MESSAGE.FIND_RESULT: {
+      /* Handed on as parsed: the schema has held `current` inside `total`. Which search it answers is
+         the bar's to judge, by the id (`host/find.ts`). */
+      this.watcher.findResult?.({ id: message.id, total: message.total, current: message.current, unsupported: message.unsupported })
+      return true
+    }
+
+    case MESSAGE.FIND_OPEN: {
+      this.watcher.findOpen?.({ ...(message.query ? { query: message.query } : {}), ...(message.step ? { step: message.step } : {}) })
+      return true
+    }
+
     case MESSAGE.PAGE_ERROR: {
       /*
        * The page failed, and says how (protocol 2.59.0). Before it answered
@@ -957,10 +1035,18 @@ export class Conversation {
     }
   }
 
+  /** Forget a held cover without lifting it: a new greeting holds again, or the conversation ended. */
+  private letHold(): void {
+    if (!this.holdTimer) return
+    clearTimeout(this.holdTimer)
+    this.holdTimer = null
+  }
+
   /** Stop. Every timer cleared, every promise settled rather than dropped. */
   close(): void {
     this.closed = true
     if (this.readyTimer) clearTimeout(this.readyTimer)
+    this.letHold()
     for (const [, waiting] of this.pending) {
       clearTimeout(waiting.timer)
       waiting.resolve({ found: false, why: 'the frame was taken off the canvas' })

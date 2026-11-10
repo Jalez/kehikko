@@ -59,6 +59,12 @@ export interface Found {
    * it. Covered as `restarting` until the new document answers.
    */
   stale?: boolean
+  /**
+   * The page answered with `hold: true` (protocol 2.70.0) and has not said it
+   * is drawn: covered as `loading` until `kehikot.drawn`, or until the host
+   * stops waiting (`HOLD_COVER_MS`, in `Conversation`).
+   */
+  held?: boolean
 }
 
 /**
@@ -88,7 +94,10 @@ export function showing(said: Said, found: Found | undefined, asked = true, rest
     return { kind: 'notice', condition: said.condition, asleep: said.lifecycle === 'asleep', line: said.line }
   }
   if (!found) return { kind: 'cover', state: 'loading' }
-  if (found.condition === 'ready') return found.stale ? { kind: 'cover', state: 'restarting' } : { kind: 'page' }
+  if (found.condition === 'ready') {
+    if (found.stale) return { kind: 'cover', state: 'restarting' }
+    return found.held ? { kind: 'cover', state: 'loading' } : { kind: 'page' }
+  }
   return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line, page: true, ...(found.more ? { more: found.more } : {}) }
 }
 

@@ -77,6 +77,8 @@ import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
 import { targetOf } from './host/pinnedPlaces.ts'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
+import { canBeAsked } from './host/find.ts'
+import { findControls, useFinds } from './canvas/useFinds.ts'
 import {
   addProject,
   chooseProject,
@@ -527,6 +529,18 @@ export function App() {
    */
   const [rewritten, setRewritten] = useState<ContentChange[]>([])
   const [live, setLive] = useState<Record<string, Live>>({})
+  /* The frames whose page answered `ready { hold: true }` and has not said it is
+     drawn (protocol 2.70.0): their cover stays up. See `Found.held`. */
+  const [drawing, setDrawing] = useState<ReadonlySet<string>>(() => new Set())
+  const setDrawingOf = useCallback((id: string, on: boolean) => {
+    setDrawing((was) => {
+      if (was.has(id) === on) return was
+      const next = new Set(was)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
   /* What each frame found, for `Runs.seen` inside `take`: a ref, because reading it should cause no render. */
   const liveRef = useRef(live)
   liveRef.current = live
@@ -4515,7 +4529,7 @@ export function App() {
             !placements.find((p) => p.i === id)?.collapsed &&
             /* The same decision the container's body draws from, so a page
                and a cover are never both up, or neither. */
-            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found) }, askedFor === openId, restarts.of(id)).kind === 'page' &&
+            showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found), held: drawing.has(id) }, askedFor === openId, restarts.of(id)).kind === 'page' &&
             /* "All epics", and a module that works on one epic at a time: its
                container draws the sentence and the page is hidden under it —
                kept, as a folded page is, so it is all still there when an epic
@@ -4648,19 +4662,35 @@ export function App() {
       }
       covers[event](id)
       if (event === 'unmounted') {
+        setDrawingOf(id, false)
         setSaid((was) => forgotten(was, id))
         setHeaders((was) => withdrawn(was, id))
         footerStore.withdraw(id)
         reveals.forget(id)
       }
     },
-    [covers],
+    [covers, setDrawingOf],
   )
+
+  /* The find bars over the containers (protocol 2.69.0, `host/find.ts`). ⌘F on the host's page opens
+     the bar of the container focus is in, else the one picked out, else the one shown large; a module
+     whose page was built before Find is not asked and is said not to be searchable. */
+  const findTargetRef = useRef<() => string | null>(() => null)
+  findTargetRef.current = () =>
+    expandedNow?.module.id ?? (open?.placements ?? []).find((placement) => placement.selected)?.i ?? null
+  const finds = useFinds(
+    presses,
+    (id) => canBeAsked(liveRef.current[id]?.build?.protocol ?? null),
+    () => findTargetRef.current(),
+  )
+  const findsRef = useRef(finds)
+  findsRef.current = finds
 
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
-      ready: (_protocol, build) => {
+      ready: (_protocol, build, hold) => {
         covers.answered(id)
+        setDrawingOf(id, hold === true)
         inboxGreetedRef.current(id)
         setLive((was) => ({
           ...was,
@@ -4675,7 +4705,10 @@ export function App() {
           },
         }))
       },
+      /* The held page is drawn, or the host stopped waiting: its cover comes off. */
+      drawn: () => setDrawingOf(id, false),
       silent: (sentence, more) => {
+        setDrawingOf(id, false)
         /* Its menus go with its offers: see `host/header.ts`. And its footer. */
         setHeaders((was) => withdrawn(was, id))
         footerStore.withdraw(id)
@@ -4724,8 +4757,11 @@ export function App() {
         pressedAtRef.current.delete(id)
         onClickMove(phase === 'up' && since !== undefined ? { kind: 'release', held: at - since } : { kind: 'release', held: 0 })
       },
+      /* Find (protocol 2.69.0): what a search came to, and ⌘F pressed inside the page. */
+      findResult: (result) => findsRef.current.result(id, result),
+      findOpen: (asked) => findsRef.current.open(id, asked),
     }),
-    [covers, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
+    [covers, setDrawingOf, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
   )
 
   return (
@@ -5079,7 +5115,7 @@ export function App() {
                      module that has been framed and has not spoken, which
                      `condition` alone cannot express: discovery said `ready`
                      because the manifest read, not because the page answered. */
-                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found) }, askedFor === openId, restarts.of(presence.id))}
+                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found), held: drawing.has(presence.id) }, askedFor === openId, restarts.of(presence.id))}
                   restart={restarts.of(presence.id)}
                   onRestart={() => restarts.restart(presence.id)}
                   /* A pinned version's process is the version's, not the module's own copy a restart names. */
@@ -5193,6 +5229,7 @@ export function App() {
                   onActivitySeen={() =>
                     inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
                   }
+                  find={findControls(finds, presence.id)}
                 />
               </div>
             )
@@ -5253,6 +5290,7 @@ export function App() {
             body={body(EXPANDED_BODY)}
             onShrink={() => setExpanded(null)}
             onMoved={remeasure}
+            find={findControls(finds, expandedNow.module.id)}
           />
         ) : null}
           </>
