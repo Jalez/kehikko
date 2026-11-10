@@ -27,11 +27,16 @@ import type { ExpandResult } from 'kehikot-module-protocol'
  *
  * The person, from the container's menu ("Expand"), and the module's own page with `view.expand` —
  * only for its own container, only on the kehikko that is open, and, to expand, only on the person's
- * fresh press in that page (`pressFresh`). A module may always ask to be put back.
+ * fresh press in that page (`pressFreshFor` in `host/gesture.ts`: the browser's activation, or a press
+ * into the frame this page saw itself). A module may always ask to be put back. The person's own
+ * "Expand" in the Container menu is the host's press, and asks no witness.
  */
 
 /** The key the large panel's body is measured under, beside the containers' (`useRects().body`). Never a module id. */
 export const EXPANDED_BODY = '#expanded'
+
+/** Why a module's `view.expand` was declined without the person's press: said on the module's tile. */
+export const EXPAND_NO_PRESS = 'Shown large only on your own press, and the host did not see one. Press again, or choose Expand in the Container menu.'
 
 /** What the row and the button say. */
 export const EXPAND_WORD = 'Expand'
@@ -65,7 +70,7 @@ export function expandAsked(
     return { result: { outcome: 'declined', why: 'This container is not showing on the kehikko that is open.' }, next: now }
   }
   if (!call.pressed) {
-    return { result: { outcome: 'declined', why: 'A container is shown large only when the person presses to.' }, next: now }
+    return { result: { outcome: 'declined', why: EXPAND_NO_PRESS }, next: now }
   }
   if (call.busy) return { result: { outcome: 'declined', why: call.busy }, next: now }
   return { result: { outcome: 'expanded', why: '' }, next: { kehikko: call.kehikko, id: call.from } }

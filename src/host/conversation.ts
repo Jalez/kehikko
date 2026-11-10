@@ -15,7 +15,7 @@ import {
   type ModuleContext,
   type PressValue,
 } from 'kehikot-module-protocol'
-import { pressFresh } from './gesture.ts'
+import { pressFreshFor } from './gesture.ts'
 import { CARRIES } from './carry.ts'
 
 /**
@@ -85,8 +85,8 @@ export type Answer =
 
 /**
  * `how` (protocol 2.50.0): what only the moment of arrival can say — whether
- * the person's press was fresh when the request came (`pressFresh`). Read by
- * `messages.say` alone.
+ * the person's press was fresh when the request came (`pressFreshFor`). Read by
+ * `messages.say` and `view.expand`.
  */
 export type Ask = (method: string, params: unknown, how?: { pressed: boolean }) => Promise<Answer>
 
@@ -299,11 +299,11 @@ export class Conversation {
       readyTimeoutMs?: number
       wentTimeoutMs?: number
       pressedTimeoutMs?: number
-      /** Whether the person's press is fresh now (`pressFresh`); replaced in tests. */
+      /** Whether the person's press into this frame is fresh now (`pressFreshFor`); replaced in tests. */
       pressed?: () => boolean
     } = {},
   ) {
-    this.pressed = options.pressed ?? pressFresh
+    this.pressed = options.pressed ?? (() => pressFreshFor(moduleId))
     this.name = options.name ?? moduleId
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
