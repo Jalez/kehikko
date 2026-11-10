@@ -46,7 +46,8 @@ import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
-import { ModuleProxy, moduleSockets, type SocketData, type Upgrader } from './moduleProxy.ts'
+import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
+import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
 import { sourceOf } from './source.ts'
 import { proveListener, systemProcesses, takeOver } from './takeover.ts'
@@ -870,7 +871,7 @@ async function survey(kept = false): Promise<{
     const mcp = presence.module?.mcp ?? null
     const refusal = mcp ? nameRefusal(presence.id, mcp.as, held) : null
     if (refusal) return { kind: 'refused', why: refusal }
-    return awarenessOf(mcp?.url ?? null, presence.id, knows, mcp?.as)
+    return awarenessOf(mcp ? agentDoorUrl(presence.id, mcp.url) : null, presence.id, knows, mcp?.as)
   }
 
   return {
@@ -949,7 +950,8 @@ const ownOrigin = `http://127.0.0.1:${PORT}`
  */
 async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
   if (id === HOST_ID) return { ok: true, door: own }
-  return doorFor(id, lastPresences)
+  const found = await doorFor(id, lastPresences)
+  return found.ok ? { ok: true, door: { ...found.door, url: agentDoorUrl(id, found.door.url) } } : found
 }
 
 /**
@@ -1114,6 +1116,13 @@ const peers = new PeerLookup({
 const receivedFrom: ReceivedFrom = {
   pageOrigins: OWN.origins,
   moduleAt: (origin) => {
+    /* A frame on its stable address names its module in its name. */
+    try {
+      const framed = idOfHost(new URL(origin).host)
+      if (framed) return framed
+    } catch {
+      /* Not an address. */
+    }
     for (const [id, url] of callers) {
       try {
         if (new URL(url).origin === origin) return id
@@ -1252,7 +1261,7 @@ const versionRuns = new VersionRuns({
       log,
     })
     if (!ran.ok || !ran.child) return { ok: false, why: ran.why ?? 'it could not be started' }
-    versionNursery.keep(key, { child: ran.child, at: Date.now(), url })
+    versionNursery.keep(key, { child: ran.child, at: Date.now(), url, ...(ran.token ? { token: ran.token } : {}) })
     writeFileSync(portFile(id, tag), `${port}\n`)
     return { ok: true }
   },
@@ -2433,7 +2442,13 @@ async function pageView(view: Swept, press = false): Promise<Swept & { pins: Awa
   pins.recordLatest(open, view.presences)
   /* The pinned versions' manifests are kept as the registered modules' are (`Pins`): this
      answer is read on every look, and every look used to ask every running version. */
-  return { ...told(view), pins: await pins.views(open, press) }
+  const page = told(view)
+  const pinned = await pins.views(open, press)
+  return {
+    ...page,
+    presences: page.presences.map((presence) => addressed(presence)),
+    pins: pinned.map((pin) => (pin.presence ? { ...pin, presence: addressed(pin.presence, pin.version) } : pin)),
+  }
 }
 
 /** A sweep as the page receives it, with the host's own lifecycle words on it. */
@@ -2873,7 +2888,7 @@ function seenOf(presences: readonly Presence[]): ModuleSeen[] {
         name: presence.module?.name ?? presence.name ?? presence.id,
         answering: Boolean(presence.module),
         version: presence.module?.version ?? null,
-        door: mcp && !refusal ? { module: presence.id, as: doorName(presence.id, mcp.as), url: mcp.url, transport: mcp.transport } : null,
+        door: mcp && !refusal ? { module: presence.id, as: doorName(presence.id, mcp.as), url: agentDoorUrl(presence.id, mcp.url), transport: mcp.transport } : null,
         refusal,
         origin: registered.get(presence.id)?.url ?? '',
         skills: presence.module?.declares.skills ?? [],
@@ -3012,7 +3027,7 @@ const placeRoutes = placeDesk({
   doors: async () =>
     (await sweep()).presences.flatMap((presence) =>
       presence.module?.mcp
-        ? [{ module: presence.id, declared: presence.module.mcp.as ?? null, url: presence.module.mcp.url, transport: presence.module.mcp.transport === 'sse' ? ('sse' as const) : ('http' as const) }]
+        ? [{ module: presence.id, declared: presence.module.mcp.as ?? null, url: agentDoorUrl(presence.id, presence.module.mcp.url), transport: presence.module.mcp.transport === 'sse' ? ('sse' as const) : ('http' as const) }]
         : [],
     ),
   /* Asked right after `doors`: that sweep's presences, not thirteen more requests. */
@@ -3327,15 +3342,25 @@ function moduleIn(value: unknown): string | null {
 
 /*
  * Modules at stable addresses on this host (`moduleProxy.ts`, `src/host/moduleAddress.ts`): a
- * frame's at `<label>.kehikot.localhost:<port>`, a program's at `/m/<id>/…`. OFF unless
- * `KEHIKOT_MODULE_ADDRESSES=1` (`moduleAddresses.ts`): nothing hands those addresses out yet,
- * and with it off a request for one is answered as it always was.
+ * frame's at `<label>.kehikot.localhost:<port>`, a program's at `/m/<id>/…`, and a pinned
+ * version's at `at--<tag>.<label>…` and `/m/<id>@<tag>/…`. ON unless `KEHIKOT_MODULE_ADDRESSES=0`
+ * (`moduleAddresses.ts`): agents' doors are written on the program's address, and the page frames
+ * modules on theirs once its self-check reached this host there (`src/host/addressCheck.ts`).
+ * With it off, every address is a module's own origin, as before.
  */
 const ADDRESSES = addressesOn(process.env)
+/** What this host answers on the self-check path under any frame name: this start's, and no other host's. */
+const ADDRESS_CHECK = crypto.randomUUID()
 const moduleProxy = new ModuleProxy({
   port: PORT,
-  async target(id) {
-    const registration = await registrationOf(id)
+  check: ADDRESS_CHECK,
+  async target(wanted, fresh) {
+    if (wanted.version) {
+      const tag = wanted.version
+      const instance = versionRuns.all().find((one) => one.id === wanted.id && one.state === 'running' && one.origin && sameVersion(tag, one.tag))
+      return instance?.origin ? { origin: instance.origin, token: versionNursery.tokenOf(instance.key) } : null
+    }
+    const registration = fresh ? ((await readRegistrations()).registrations.find((r) => r.id === wanted.id) ?? null) : await registrationOf(wanted.id)
     if (!registration) return null
     let origin: string
     try {
@@ -3343,9 +3368,25 @@ const moduleProxy = new ModuleProxy({
     } catch {
       return null
     }
-    return { origin, token: nursery.tokenOf(id) }
+    return { origin, token: nursery.tokenOf(wanted.id) }
   },
 })
+
+/**
+ * A module's door as an agent is given it (agentSync, the session's doors, `/host/agent`): on
+ * the module's program address while the addresses are on, so an agent's entry outlives a port
+ * change; its own origin otherwise.
+ */
+function agentDoorUrl(id: string, url: string): string {
+  return ADDRESSES ? (stableDoorUrl(id, url, PORT) ?? url) : url
+}
+
+/** A framed module with its frame address, when it has one and the addresses are on (the page decides whether to use it). */
+function addressed<T extends { id: string; module?: FramedModule }>(presence: T, tag?: string): T {
+  if (!ADDRESSES || !presence.module) return presence
+  const address = frameOriginFor(presence.id, PORT, tag)
+  return address ? { ...presence, module: { ...presence.module, address } } : presence
+}
 
 /** A request for a module at one of its stable addresses (`ModuleProxy.handle`), or null: not one, or the addresses are off. */
 async function forModule(request: Request, srv: Upgrader): Promise<Response | 'upgraded' | null> {
@@ -3375,6 +3416,9 @@ const serving = {
 
   /* A module's WebSocket, relayed frame by frame. Nothing else here is a socket. */
   websocket: {
+    /* Bounded both ways (`SOCKET_BUFFER_MOST`): a client that cannot keep up is closed, not fed. */
+    backpressureLimit: SOCKET_BUFFER_MOST,
+    closeOnBackpressureLimit: true,
     open: (socket: import('bun').ServerWebSocket<SocketData>) => moduleSockets.open(socket),
     message: (socket: import('bun').ServerWebSocket<SocketData>, message: string | Buffer) => moduleSockets.message(socket, message),
     close: (socket: import('bun').ServerWebSocket<SocketData>, code: number, reason: string) => moduleSockets.close(socket, code, reason),
@@ -3453,7 +3497,13 @@ async function answerRequest(request: Request): Promise<Response> {
     if (refused) return json({ ok: false, error: refused.why, why: refused.why }, refused.status)
 
     /* Whether modules are at stable addresses here, and whether a frame may be given one (`moduleAddresses.ts`). */
-    if (url.pathname === '/host/module-addresses' && request.method === 'GET') return json(moduleAddresses.said(ADDRESSES))
+    if (url.pathname === '/host/module-addresses' && request.method === 'GET') return json(moduleAddresses.said(ADDRESSES, ADDRESS_CHECK))
+    /* The page's self-check did not reach this host at a frame's address: why, for the log. Its frames keep their ports. */
+    if (url.pathname === '/host/module-addresses/check' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { ok?: unknown; why?: unknown } | null
+      moduleAddresses.checked(body?.ok === true, typeof body?.why === 'string' ? body.why : null)
+      return json({ ok: true })
+    }
 
     /* What is registered, and what the host made of each of them. The page asks
        for this on load and whenever the person asks it to look again; there is

@@ -1,5 +1,7 @@
 import type { Build, ModuleCondition, SettingField } from 'kehikot-module-protocol'
 
+import { checkAddresses, onAddresses } from './addressCheck.ts'
+
 /**
  * What the page knows about what is registered.
  *
@@ -23,6 +25,8 @@ export interface FramedModule {
   /** What this module says its presence implies for an agent. */
   guidance?: string
   entry: string
+  /** Its stable frame address on the host, when it has one (`src/host/moduleAddress.ts`). `addressCheck.ts` moves `entry` onto it once the page reached the host there. */
+  address?: string
   icon: string | null
   health: string | null
   mcp: { url: string; transport: string; about: string; as?: string } | null
@@ -272,6 +276,8 @@ export interface RegistryView {
 export async function fetchRegistry(signal?: AbortSignal, fresh = false): Promise<RegistryView> {
   /* `fresh`: a person pressed something, so the host asks every module again rather than reading
      the manifests it keeps (`server/manifests.ts`). */
+  /* Once per page, before the first reading is used: whether frames can be on their stable addresses. */
+  await checkAddresses()
   const response = await fetch(fresh ? '/host/modules?fresh=1' : '/host/modules', { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = registryIn(await response.json())
@@ -288,7 +294,7 @@ export function registryIn(value: unknown): RegistryView | null {
   const body = value as RegistryView | null
   if (!body || typeof body !== 'object' || !Array.isArray(body.presences)) return null
   if (body.swept !== undefined && !Number.isInteger(body.swept)) return null
-  return body
+  return onAddresses(body)
 }
 
 /**

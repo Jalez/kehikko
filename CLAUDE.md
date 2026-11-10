@@ -86,8 +86,8 @@
   `KEHIKOT_HOST_PATH` (the folders the host put first on an installed module's
   `PATH`, its own `bun`; a module takes them off with the protocol's `personEnv`
   for what it starts on the person's behalf),
-  `KEHIKOT_SEED_PROJECT`, `KEHIKOT_MODULE_ADDRESSES` (`1` turns on the modules' stable
-  addresses, `server/moduleProxy.ts`; off by default). Process plumbing between the desktop shell and this host
+  `KEHIKOT_SEED_PROJECT`, `KEHIKOT_MODULE_ADDRESSES` (`0` turns the modules' stable
+  addresses off, `server/moduleProxy.ts`; on by default). Process plumbing between the desktop shell and this host
   (`KEHIKKO_RESTART_FILE`, and the shell's own `KEHIKKO_HOST_DIR`,
   `KEHIKKO_PORT`, `KEHIKKO_API_PORT`) keeps its `KEHIKKO_` name.
 - Run `bun run check:storage` before finishing; it scans this host,
@@ -1455,3 +1455,20 @@
   optional `ModalFooter` for actions. Never a bare `DialogContent` or a close
   placed over the content; `test/modal-layout-dom.test.tsx` holds every window
   to it, and a new window gets a case there.
+
+## Modules at stable addresses
+
+- A module is reached through this host, never by its port: a frame at
+  `<label>.kehikot.localhost:<port>`, a program (agents' MCP doors, session
+  configs) at `127.0.0.1:<port>/m/<id>/…`, a pinned version at
+  `at--<tag>.<label>…` and `/m/<id>@<tag>/…`. Spelled once, in
+  `src/host/moduleAddress.ts`; forwarded by `server/moduleProxy.ts` only to the
+  process that is the module (its manifest's id, and the start token this host
+  handed it). Never hand-build one of these addresses elsewhere.
+- A door URL given to an agent goes through `agentDoorUrl` in `server/server.ts`.
+  The page frames on the stable address only after its self-check
+  (`src/host/addressCheck.ts`); never move a frame's `entry` anywhere else.
+- `/m/…` is this host's own origin: it refuses a browser and sandboxes every
+  answer. Keep both.
+- `KEHIKOT_MODULE_ADDRESSES=0` is the way out: every address is a module's own
+  origin again.
