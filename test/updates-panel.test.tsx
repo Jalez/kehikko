@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b29 pass/)
+    expect(out).toMatch(/\b31 pass/)
   }, 60_000)
 }
 
@@ -43,6 +43,7 @@ let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let Updates: typeof import('../src/canvas/Updates.tsx').Updates
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
+let forgetSummaries: () => void
 
 beforeAll(async () => {
   if (!inChild) return
@@ -59,6 +60,7 @@ beforeAll(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   ;({ Updates } = await import('../src/canvas/Updates.tsx'))
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
+  ;({ forgetSummaries } = await import('../src/canvas/UpdateSummaries.tsx'))
 })
 
 afterAll(async () => {
@@ -72,6 +74,7 @@ afterEach(() => {
   act(() => unmount?.())
   unmount = null
   aborted = []
+  forgetSummaries()
   document.body.innerHTML = ''
   delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 })
@@ -203,6 +206,9 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(title?.textContent).toBe('Journeys1.4.0 → 1.6.0')
     expect(text()).not.toContain('new commits on')
     expect(text()).toContain('Update')
+    /* What each release brings, newest first, from the notes' bullets. */
+    expect([...document.querySelectorAll('[data-testid="updates-summary"]')].map((one) => one.textContent?.replace('•', '').trim())).toEqual(['in v1.6.0', 'in v1.5.0'])
+    expect(document.querySelector('[data-testid="updates-summaries-more"]')).toBeNull()
     /* The level module says it follows main. */
     const level = [...document.querySelectorAll('[data-testid="updates-level"] button')].find((b) => b.textContent === 'show') as HTMLButtonElement
     await act(async () => level.click())
@@ -216,7 +222,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const sections = [...dialog.querySelectorAll('[data-testid="release-notes-release"]')].map((one) => one.getAttribute('data-tag'))
     expect(sections).toEqual(['v1.6.0', 'v1.5.0'])
     expect(dialog.textContent).toContain('in v1.5.0')
-    expect(notesAsked.sort()).toEqual(['v1.5.0', 'v1.6.0'])
+    expect([...new Set(notesAsked)].sort()).toEqual(['v1.5.0', 'v1.6.0'])
     /* Markdown only: the footer is small text, never markup. */
     expect(dialog.querySelector('sub')).toBeNull()
   })
@@ -261,7 +267,11 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const host = await mount()
     await press(host)
     await settle()
-    expect(document.querySelector('[data-testid="updates-works"]')?.textContent).toBe('1.6.0 works with Kehikot 0.1.39 and later')
+    /* The sentence is a badge now: the first app it works with, quiet when this one meets it. */
+    expect(document.querySelector('[data-testid="updates-works"]')).toBeNull()
+    const badge = document.querySelector('[data-testid="updates-compat"]') as HTMLElement
+    expect(badge.textContent).toBe('Kehikot 0.1.39+')
+    expect(badge.hasAttribute('data-warn')).toBe(false)
     const needs = document.querySelector('[data-testid="updates-needs-newer"]') as HTMLElement
     expect(needs.textContent).toBe('1.7.0 is out; it needs a Kehikot newer than 0.1.41.')
     expect(needs.title).toBe('Module protocol 2.11 or later is needed; this Kehikot has module protocol 2.10.')
@@ -307,9 +317,94 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(row.querySelector('[data-testid="updates-needs-newer"]')?.getAttribute('title')).toBe('Module protocol 2.37 or later is needed; this Kehikot has module protocol 2.36.')
     /* Not the installed release's "works with", not "waits for a newer Kehikot", not the protocol in the line. */
     expect(row.querySelector('[data-testid="updates-works"]')).toBeNull()
+    expect(row.querySelector('[data-testid="updates-compat"]')).toBeNull()
     expect(row.querySelector('[data-testid="updates-auto-waiting"]')).toBeNull()
     expect(row.textContent).not.toContain('waits for')
     expect(row.textContent).not.toContain('Works with')
+  })
+
+  test('an update that skips releases lists every one\'s bold summaries as text, newest first, capped with "+N more" that opens the notes', async () => {
+    const release = {
+      follows: 'release',
+      installed: 'v1.4.0',
+      newest: 'v1.6.0',
+      target: 'v1.6.0',
+      notes: ['v1.6.0', 'v1.5.0'],
+      needsNewer: null,
+      repo: 'Jalez/kehikko-journeys',
+      error: null,
+      works: { 'v1.6.0': { kind: 'from', need: '2.10.0', from: '0.1.39', until: null } },
+    }
+    const bodies: Record<string, string> = {
+      'v1.6.0': "### What's new\n- **Sixth, first** and more.\n- **<b>Sixth, second</b>** [linked](https://example.com).\n- No bold here. Second sentence.",
+      'v1.5.0': "### What's new\n- **Fifth, first**\n- **Fifth, second**",
+    }
+    answer = async (url) => {
+      if (url.startsWith('/host/updates')) {
+        return { ...check([checkout('kehikot.journeys', 3, { name: 'Journeys', branch: null, upstream: 'v1.6.0', blocked: null, release })]), protocol: '2.10.0' }
+      }
+      if (url.startsWith('/host/release-notes')) {
+        const tag = new URL(url, 'http://x').searchParams.get('tag')!
+        return { repo: 'Jalez/kehikko-journeys', tag, name: null, body: bodies[tag], url: '', publishedAt: null, prerelease: false }
+      }
+      return {}
+    }
+    /* Inside an app older than the release needs: the badge warns. */
+    standIn({ current: '0.1.38' })
+    const host = await mount()
+    await press(host)
+    await settle()
+    const row = document.querySelector('[data-testid="updates-row"]') as HTMLElement
+    const lines = [...row.querySelectorAll('[data-testid="updates-summary"]')]
+    expect(lines.map((one) => one.textContent?.replace('•', '').trim())).toEqual(['Sixth, first', '<b>Sixth, second</b>', 'No bold here.'])
+    expect(lines.map((one) => one.getAttribute('data-tag'))).toEqual(['v1.6.0', 'v1.6.0', 'v1.6.0'])
+    /* Text, never markup or a link. */
+    expect(row.querySelector('[data-testid="updates-summaries"] b')).toBeNull()
+    expect(row.querySelector('[data-testid="updates-summaries"] a')).toBeNull()
+    const more = row.querySelector('[data-testid="updates-summaries-more"]') as HTMLButtonElement
+    expect(more.textContent).toBe('+2 more')
+
+    const badge = row.querySelector('[data-testid="updates-compat"]') as HTMLElement
+    expect(badge.textContent).toBe('Kehikot 0.1.39+')
+    expect(badge.hasAttribute('data-warn')).toBe(true)
+    expect(badge.getAttribute('aria-label')).toBe('Kehikot 0.1.39+. Needs a newer Kehikot: update the app first')
+
+    await act(async () => more.click())
+    await settle()
+    const dialog = document.querySelector('[data-testid="release-notes"]')!
+    expect(dialog.textContent).toContain("What's new in Journeys 1.5.0 → 1.6.0")
+  })
+
+  test('while the notes are read the row keeps their place with quiet lines, and the menu scrolls', async () => {
+    let let_go: (() => void) | null = null
+    const release = {
+      follows: 'release',
+      installed: 'v1.4.0',
+      newest: 'v1.6.0',
+      target: 'v1.6.0',
+      notes: ['v1.6.0', 'v1.5.0'],
+      needsNewer: null,
+      repo: 'Jalez/kehikko-journeys',
+      error: null,
+    }
+    answer = async (url) => {
+      if (url.startsWith('/host/updates')) {
+        return check(Array.from({ length: 12 }, (_, i) => checkout(`kehikot.m${i}`, 1, { name: `M${i}`, branch: null, upstream: 'v1.6.0', blocked: null, release })))
+      }
+      if (url.startsWith('/host/release-notes')) {
+        await new Promise<void>((resolve) => (let_go = resolve))
+        return { repo: 'Jalez/kehikko-journeys', tag: 'v1.6.0', name: null, body: '- **One**', url: '', publishedAt: null, prerelease: false }
+      }
+      return {}
+    }
+    const host = await mount()
+    await press(host)
+    await settle()
+    expect(document.querySelectorAll('[data-testid="updates-row"]').length).toBe(12)
+    const waiting = document.querySelector('[data-testid="updates-summaries-reading"]') as HTMLElement
+    expect(waiting.querySelectorAll('li').length).toBe(2)
+    expect(document.querySelector('.updates-panel .overflow-auto')).not.toBeNull()
+    void let_go
   })
 
   test('checking turns into the results in the same panel, listing only what needs attention', async () => {

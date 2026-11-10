@@ -65,12 +65,14 @@ import {
   type UpdateRow,
 } from '@/host/updateModel.ts'
 import { GitSaid } from './GitSaid.tsx'
+import { CompatBadgeView, UpdateSummaries, useAppTags } from './UpdateSummaries.tsx'
+import { compatBadge, summaryTags } from '@/host/updateSummaries.ts'
 import { Hint } from './Hint.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from './ReleaseNotes.tsx'
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
-import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, stepBackAsked, worksLineSaid, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, stepBackAsked, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
 
 /**
@@ -925,6 +927,7 @@ export function AppRow({
   const offered = appNotes(row)
   const running = offered.find((one) => !one.pending)
   const coming = offered.find((one) => one.pending)
+  const comingTags = useAppTags(row.current ?? null, coming?.version ?? null)
   return (
     <div className="mb-2 rounded-md border px-3 py-2 text-xs" data-testid="updates-app" data-state={row.state}>
       <div className="flex items-center gap-2">
@@ -960,6 +963,7 @@ export function AppRow({
           <NotesButton version={coming.version} onShow={(opener) => onNotes(coming.version, opener)} />
         </div>
       ) : null}
+      {coming ? <UpdateSummaries repo={APP_REPO} tags={comingTags} onMore={onNotes ? (opener) => onNotes(coming.version, opener) : undefined} /> : null}
       {row.state === 'ready' ? (
         <div className="flex justify-end pt-1.5">
           <Button size="sm" className="h-6 px-2 text-xs" onClick={onApply}>
@@ -1037,6 +1041,8 @@ function Row({
   const release = one.release
   /* A copy that runs releases says them — "Journeys 1.5.0 → 1.6.0" — in place of commits. */
   const releases = release !== undefined && release.follows !== 'main'
+  /* Which Kehikot the release in view works with, as a badge. Left out when that is the one installed and a newer one is said below: "up to date" already says it works. */
+  const badge = release && !(needsNewerSaid(release, have) && !release.target) ? compatBadge(release, releaseInView(release), have) : null
   return (
     <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
       <div className="flex items-center gap-2">
@@ -1050,20 +1056,18 @@ function Row({
             {one.branch ?? 'detached'} @ {one.commit}
           </span>
         )}
+        {badge ? <CompatBadgeView badge={badge} /> : null}
         {release?.repo && release.notes.length && onNotes ? (
           <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
         ) : null}
       </div>
+      {release && summaryTags(release).length ? (
+        <UpdateSummaries repo={release.repo} tags={summaryTags(release)} onMore={onNotes ? (opener) => onNotes(release, opener) : undefined} />
+      ) : null}
       {release && !release.back && needsNewerSaid(release, have) ? (
         /* One sentence for the newer release's need, with the protocol in the tooltip. */
         <p className="text-muted-foreground pt-1" data-testid="updates-needs-newer" title={needsNewerTip(release, have) ?? undefined}>
           {needsNewerSaid(release, have)}
-        </p>
-      ) : null}
-      {/* The release the row speaks of, with its version. Left out when that is the one installed and a newer one is said just above: "up to date" already says it works. */}
-      {release && worksLineSaid(release, releaseInView(release)) && !(needsNewerSaid(release, have) && !release.target) ? (
-        <p className="text-muted-foreground pt-1" data-testid="updates-works">
-          {worksLineSaid(release, releaseInView(release))}
         </p>
       ) : null}
       {row.fromSource ? (

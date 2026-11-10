@@ -122,6 +122,9 @@ describe('the Updates menu’s app row', () => {
     const ready = draw(status({ state: 'ready', version: '0.1.25' }))
     expect(labels(ready)).toEqual(['Show release notes for 0.1.24', 'Show release notes for 0.1.25'])
     expect(ready).toContain('Kehikot 0.1.25 — what&#x27;s new')
+    /* The coming version's summaries keep their place while they are read; nothing for an app that is up to date. */
+    expect(ready).toContain('data-testid="updates-summaries-reading"')
+    expect(draw(status())).not.toContain('updates-summaries')
   })
 })
 

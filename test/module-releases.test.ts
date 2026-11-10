@@ -198,6 +198,39 @@ describe('an installed copy', () => {
     expect((await read(m.place(f))).release).toMatchObject({ follows: 'release', installed: 'v1.1.0', target: null })
   })
 
+  test('install picks the newest release this Kehikot can run: the latest when all can run', async () => {
+    const m = module()
+    m.release('1.0.0', '2.0.0')
+    m.release('1.1.0', '2.4.0')
+    m.clone()
+    const f = followerOf(m.origin, { have: '2.5.0' })
+    expect(await f.follower.settle(m.place(f))).toEqual({ ok: true, tag: 'v1.1.0' })
+  })
+
+  test('install skips a latest release that needs a newer Kehikot and takes the one before it', async () => {
+    const m = module()
+    m.release('1.0.0', '2.0.0')
+    m.release('1.1.0', '2.4.0')
+    m.release('1.2.0', '2.9.0')
+    m.clone()
+    const f = followerOf(m.origin, { have: '2.5.0' })
+    expect(await f.follower.settle(m.place(f))).toEqual({ ok: true, tag: 'v1.1.0' })
+    expect(git(m.copy, 'describe', '--exact-match', '--tags', 'HEAD')).toBe('v1.1.0')
+    expect((await read(m.place(f))).release).toMatchObject({ installed: 'v1.1.0', target: null, needsNewer: { tag: 'v1.2.0', protocol: '2.9.0' } })
+  })
+
+  test('install refuses, clearly, when no release can run on this Kehikot, instead of leaving the clone on main', async () => {
+    const m = module()
+    m.release('1.0.0', '2.8.0')
+    m.release('1.1.0', '2.9.0')
+    m.clone()
+    const f = followerOf(m.origin, { have: '2.5.0' })
+    expect(await f.follower.settle(m.place(f))).toEqual({
+      ok: false,
+      why: 'every release of it needs a newer Kehikot (module protocol 2.9 or later; this one has 2.5). Update the app first.',
+    })
+  })
+
   test('on a release, a newer one is fetched and checked out at its tag', async () => {
     const m = module()
     m.release('1.5.0')
