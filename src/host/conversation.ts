@@ -179,6 +179,16 @@ export interface ConversationWatcher {
    * a held press inside its page (`host/rows.ts`).
    */
   pointer?(phase: 'down' | 'up' | 'cancel', at: number): void
+  /**
+   * What a search came to (`kehikot.find.result`, protocol 2.69.0): the count,
+   * or `unsupported`, for the `kehikot.find` whose id it carries. See `host/find.ts`.
+   */
+  findResult?(result: { id: string; total: number; current: number; unsupported: boolean }): void
+  /**
+   * The person pressed ⌘F (or ⌘G, `step`) inside this module's page
+   * (`kehikot.find.open`, protocol 2.69.0): open the find bar for its container.
+   */
+  findOpen?(open: { query?: string; step?: 'next' | 'prev' }): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -256,6 +266,7 @@ export class Conversation {
   private failure: { message: string; where: string; stack: string } | null = null
   private closed = false
   private nextGoto = 1
+  private nextFind = 1
 
   /**
    * @param frame       The element the host mounted. The identity, and the only one.
@@ -361,6 +372,9 @@ export class Conversation {
       /* Protocol 2.49.0: tell me when the person presses inside the page, so a container's rows can be
          revealed on a click or a held press in it (`host/rows.ts`). An older module sends nothing. */
       pointer: true,
+      /* Protocol 2.69.0: this host draws a find bar over the container (`host/find.ts`), so the
+         page hears ⌘F and answers `kehikot.find`. An older module strips it and searches nothing. */
+      find: true,
     })
 
     if (this.readyTimer) clearTimeout(this.readyTimer)
@@ -540,6 +554,20 @@ export class Conversation {
     }
     this.openedLater = null
     this.post({ type: MESSAGE.OPENED, protocol: PROTOCOL, item })
+  }
+
+  /**
+   * Ask this module to search what it shows (protocol 2.69.0, `kehikot.find`),
+   * for the find bar over its container. Returns the id the answer will carry,
+   * or `null` when there is no page that has answered its greeting to ask — the
+   * bar then says the module cannot be searched. A `close` is sent likewise and
+   * not answered. See `host/find.ts`.
+   */
+  sendFind(ask: { query: string; caseSensitive: boolean; wholeWord: boolean; direction: 'first' | 'next' | 'prev' | 'close' }): string | null {
+    if (this.closed || !this.greeted || !this.answered) return null
+    const id = `find-${this.nextFind++}`
+    this.post({ type: MESSAGE.FIND, protocol: PROTOCOL, id, query: ask.query.slice(0, LIMITS.FIND_QUERY), caseSensitive: ask.caseSensitive, wholeWord: ask.wholeWord, direction: ask.direction })
+    return id
   }
 
   /**
@@ -847,6 +875,18 @@ export class Conversation {
 
     case MESSAGE.POINTER: {
       this.watcher.pointer?.(message.phase, message.at)
+      return true
+    }
+
+    case MESSAGE.FIND_RESULT: {
+      /* Handed on as parsed: the schema has held `current` inside `total`. Which search it answers is
+         the bar's to judge, by the id (`host/find.ts`). */
+      this.watcher.findResult?.({ id: message.id, total: message.total, current: message.current, unsupported: message.unsupported })
+      return true
+    }
+
+    case MESSAGE.FIND_OPEN: {
+      this.watcher.findOpen?.({ ...(message.query ? { query: message.query } : {}), ...(message.step ? { step: message.step } : {}) })
       return true
     }
 

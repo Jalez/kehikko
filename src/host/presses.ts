@@ -105,6 +105,20 @@ export interface Pressable {
    * A call like the others: made at the moment of arrival, never stored here.
    */
   opened?(item: string): void
+  /**
+   * Ask this module to search what it shows, for the find bar over its
+   * container (protocol 2.69.0). Returns the id the answer will carry, or
+   * `null` when its page cannot be asked. See `Conversation.sendFind`.
+   */
+  find?(ask: FindAsk): string | null
+}
+
+/** What the find bar asks a page for: see `host/find.ts`. */
+export interface FindAsk {
+  query: string
+  caseSensitive: boolean
+  wholeWord: boolean
+  direction: 'first' | 'next' | 'prev' | 'close'
 }
 
 /* The shapes of a header press are `header.ts`'s; they are named here for the frame that carries one. */
@@ -226,6 +240,11 @@ export class Presses {
   }
 
   /** Give the screen back, when that frame has it. */
+  /** Ask one module to search, if its frame is there: the id the answer will carry, or `null`. */
+  find(id: string, ask: FindAsk): string | null {
+    return this.frames.get(id)?.find?.(ask) ?? null
+  }
+
   leaveFullscreen(id: string): void {
     this.frames.get(id)?.leaveFullscreen?.()
   }
