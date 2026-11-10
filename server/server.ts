@@ -123,6 +123,7 @@ import { marksOf, setDisposition } from './dispositions.ts'
 import { whyQuiet } from './quiet.ts'
 import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
+import { moved, watchRegistry } from './registryWatch.ts'
 import { TrackerNotices } from './trackerNotices.ts'
 import { TRACKER_NOTICES_MODULE } from '../src/host/trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
@@ -2372,6 +2373,27 @@ async function watch(standing: readonly Standing[], only?: ReadonlySet<string>):
     watching = false
   }
 }
+
+/**
+ * A registration rewritten on disk — a module that moved itself off a taken
+ * port — is followed at once: the pages are pointed at the new address without
+ * waiting for a focus or a reload. See `registryWatch.ts`.
+ */
+watchRegistry(registryDir(), () => {
+  void because('a registration changed on disk', async () => {
+    try {
+      const now = await readRegistrations()
+      const known = new Map([...registered].map(([id, registration]) => [id, registration.url]))
+      if (!moved(known, new Map(now.registrations.map((registration) => [registration.id, registration.url])))) return
+      console.log('kehikko: a registration changed on disk — the host looked again')
+      const view = await sweep()
+      govern(view.presences)
+      wakes.registryChanged()
+    } catch {
+      /* Nothing found out; the next sweep reads the registry anyway. */
+    }
+  })
+})
 
 /**
  * What the host has done to a module lately, for the container to say.
