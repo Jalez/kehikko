@@ -122,7 +122,7 @@ export function releaseSaid(release: ModuleRelease): string {
   if (release.target && release.back) return `${release.installed ? releaseVersion(release.installed) : 'main'} → back to ${releaseVersion(release.target)}`
   if (release.back && release.installed) return `${releaseVersion(release.installed)} needs a newer Kehikot`
   if (release.target) return `${release.installed ? releaseVersion(release.installed) : 'main'} → ${releaseVersion(release.target)}`
-  if (release.follows === 'main') return 'following main · no releases yet'
+  if (release.follows === 'main') return 'tracks the latest code (no releases yet)'
   if (release.follows === 'ahead' && release.newest) return `running main ahead of ${releaseVersion(release.newest)}`
   const at = release.installed ?? release.newest
   /* A newer release exists that this Kehikot cannot run: "up to date" alone would read as "nothing newer". */

@@ -296,7 +296,7 @@ function Pane({ item, load, focus }: { item: NewsItem; load: typeof fetchNotes; 
             <div className="min-w-0 space-y-1">
               <p className="text-sm">{FOLLOWING_MAIN}</p>
               <p className="text-muted-foreground text-xs leading-relaxed">
-                {item.name} has no releases yet, so its copy follows main and there are no notes to show.
+                {item.name} has no release notes to show until its first release.
                 {item.from && item.from !== item.to ? ` It moved from ${item.from} to ${item.to}.` : ''}
               </p>
             </div>

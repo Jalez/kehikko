@@ -1,5 +1,6 @@
 import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu.tsx'
 import { SHOW_ROWS, SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
+import { Hint } from './Hint.tsx'
 
 /** When a container's header and footer show: its own choice (`null`: the bar's), what the bar says, and the change. */
 export interface Reveal {
@@ -23,14 +24,17 @@ export function RevealChoices({ reveal }: { reveal: Reveal }) {
       data-fold-group="reveal"
       onValueChange={(value) => reveal.onChange(value === 'bar' ? null : (value as ShowRows))}
     >
-      <DropdownMenuRadioItem value="bar" data-reveal-choice="bar" className="items-start py-1 text-xs">
-        <span className="flex min-w-0 flex-col">
-          <span className="font-medium">As the bar says</span>
-          <span className="text-muted-foreground text-[11px] leading-snug">
-            the bar’s focus control decides; now: {SHOW_ROWS_SAID[reveal.bar].label.toLowerCase()}.
+      {/* "Headers" is the bar control's visible name (`Bar.tsx`), so the choice names something on screen. */}
+      <Hint label={`The bar’s Headers setting is now: ${SHOW_ROWS_SAID[reveal.bar].label.toLowerCase()}.`} side="left">
+        <DropdownMenuRadioItem value="bar" data-reveal-choice="bar" className="items-start py-1 text-xs">
+          <span className="flex min-w-0 flex-col">
+            <span className="font-medium">As the bar’s Headers setting</span>
+            <span className="text-muted-foreground text-[11px] leading-snug">
+              now: {SHOW_ROWS_SAID[reveal.bar].label.toLowerCase()}.
+            </span>
           </span>
-        </span>
-      </DropdownMenuRadioItem>
+        </DropdownMenuRadioItem>
+      </Hint>
       {SHOW_ROWS.map((mode) => (
         <DropdownMenuRadioItem key={mode} value={mode} data-reveal-choice={mode} className="items-start py-1 text-xs">
           <span className="flex min-w-0 flex-col">

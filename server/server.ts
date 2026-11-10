@@ -66,6 +66,7 @@ import {
   inFlight,
   INSTALLING_FOR_MS,
   lifecycleLine,
+  namedLine,
   lifecycleOf,
   MIN_RUN_MS,
   silentSaid,
@@ -499,6 +500,11 @@ function updatePlaces(): Place[] {
   return places
 }
 
+/** A module's name as a person reads it in a sentence: as it calls itself, else from its id ("Notes"), never the id. */
+function spokenName(id: string): string {
+  return knownName(id) ?? nameFromId(id)
+}
+
 /** A module's name as it calls itself, else as the official list does; null when neither knows it. */
 function knownName(id: string): string | null {
   return lastPresences.get(id)?.name ?? lastPresences.get(id)?.module?.name ?? official.current().find((one) => one.id === id)?.name ?? null
@@ -813,6 +819,9 @@ async function survey(kept = false): Promise<{
        did), else the official list's. Resolved here, after remembering, so
        what is remembered is only ever what the module itself declared. */
     presence.icon = moduleIconFor(presence.icon, listed.find((one) => one.id === presence.id)?.icon)
+    /* `discover.ts` knows only the registration, so its sentences about a module that is not
+       running begin with the id. A person reads the name: "Notes is registered at…". */
+    presence.line = namedLine(presence.line, presence.id, presence.name ?? nameFromId(presence.id))
     /* What a module that is not answering reacts to: what it last said, else what the official list says. */
     if (!presence.module) {
       const reacts = remembered.get(presence.id)?.reacts ?? listed.find((one) => one.id === presence.id)?.reacts
@@ -2139,7 +2148,7 @@ async function ended(id: string, at: number, code: number | null): Promise<void>
     const neverAnswered = starting.has(id)
     if (neverAnswered || Date.now() - at < MIN_RUN_MS) {
       starting.delete(id)
-      failures.set(id, { line: exitedLine(id, presence.at, code, logFile(id)), detail: tail(logFile(id)) })
+      failures.set(id, { line: exitedLine(presence.name ?? spokenName(id), presence.at, code, logFile(id)), detail: tail(logFile(id)) })
       console.log(`kehikko: ${id} stopped again${code === null ? '' : ` (exit code ${code})`} without answering — see ${logFile(id)}`)
     } else {
       console.log(`kehikko: ${id} is no longer running — the process the host started ended`)
@@ -2415,7 +2424,7 @@ function told(view: Swept): Swept {
       if (!lifecycle) {
         if (presence.condition !== 'silent') return presence
         const log = logFile(presence.id)
-        const said = silentSaid(presence, {
+        const said = silentSaid({ ...presence, name: presence.name ?? nameFromId(presence.id) }, {
           failed: failures.get(presence.id) ?? null,
           theirs: theirs.has(presence.id),
           held: nursery.holds(presence.id),
@@ -2428,7 +2437,7 @@ function told(view: Swept): Swept {
          sentence about a program that is not running and does not know why;
          this host DOES know why, and showing both would be the container saying
          two things about one fact. See `lifecycle.ts` for the sentences. */
-      return { ...presence, lifecycle, line: lifecycleLine(lifecycle, presence.id, presence.at) }
+      return { ...presence, lifecycle, line: lifecycleLine(lifecycle, presence.name ?? nameFromId(presence.id), presence.at) }
     }),
   }
 }
@@ -2708,8 +2717,8 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
     const detail = tail(log)
     starting.delete(id)
     runs.delete(id)
-    failures.set(id, { line: exitedLine(id, runnable.url, exits.get(id) ?? null, log), detail })
-    return { ok: false, why: `${id} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
+    failures.set(id, { line: exitedLine(spokenName(id), runnable.url, exits.get(id) ?? null, log), detail })
+    return { ok: false, why: `${spokenName(id)} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
   }
   const view = told(await sweep())
   return {

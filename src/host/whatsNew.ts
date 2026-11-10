@@ -275,7 +275,7 @@ export function releasesSaid(count: number): string | null {
   return count === 1 ? '1 release' : `${count} releases`
 }
 
-export const FOLLOWING_MAIN = 'following main · no release notes'
+export const FOLLOWING_MAIN = 'tracks the latest code (no releases yet)'
 
 /** The app's releases after `from` up to `to`, newest first, from GitHub's list; null when the list is not known. */
 export function appRange(listed: readonly string[] | null, from: string | null, to: string): string[] | null {

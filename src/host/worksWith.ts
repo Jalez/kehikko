@@ -135,7 +135,7 @@ export function worksWithSaid(works: WorksWith): string {
     case 'unreleased':
       return `Needs a Kehikot newer than ${works.newest.app} (module protocol ${protocolSaid(works.need)} or later)`
     case 'none':
-      return `Built for module protocol ${protocolSaid(works.need)}, which no Kehikot release has`
+      return `Needs a Kehikot newer than any release so far (module protocol ${protocolSaid(works.need)} or later)`
     case 'unknown':
       return `Needs a newer Kehikot (module protocol ${protocolSaid(works.need)} or later)`
   }

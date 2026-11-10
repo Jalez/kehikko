@@ -17,7 +17,7 @@ import { forgetRead, hostRead, keepRead } from './hostRead.ts'
  * the number and is shown once again.
  */
 
-export const INTRO_VERSION = 2
+export const INTRO_VERSION = 3
 
 /** A tour step's id, as `src/host/tour.ts` names them. Kept as a string so a step added later reads in an older row. */
 const stepId = z.string().regex(/^[a-z][a-z-]{0,39}$/)

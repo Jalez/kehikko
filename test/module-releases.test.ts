@@ -180,7 +180,7 @@ describe('an installed copy', () => {
     expect(reading.release).toMatchObject({ follows: 'main', installed: null, newest: null, target: null })
     expect(reading.behind).toBe(1)
     expect(hasUpdate(reading)).toBe(true)
-    expect(releaseSaid(reading.release!)).toBe('following main · no releases yet')
+    expect(releaseSaid(reading.release!)).toBe('tracks the latest code (no releases yet)')
     const done = await update(m.place(f))
     expect(done.ok).toBe(true)
     expect(git(m.copy, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
@@ -409,7 +409,7 @@ describe('the Updates menu says', () => {
   test('each of the four ways a module can be', () => {
     expect(releaseLine('Journeys', view())).toBe('Journeys 1.5.0 → 1.6.0')
     expect(releaseSaid(view({ installed: 'v1.6.0', target: null, notes: ['v1.6.0'] }))).toBe('up to date · 1.6.0')
-    expect(releaseSaid(view({ follows: 'main', installed: null, newest: null, target: null }))).toBe('following main · no releases yet')
+    expect(releaseSaid(view({ follows: 'main', installed: null, newest: null, target: null }))).toBe('tracks the latest code (no releases yet)')
     expect(releaseSaid(view({ follows: 'ahead', installed: null, target: null }))).toBe('running main ahead of 1.6.0')
   })
 

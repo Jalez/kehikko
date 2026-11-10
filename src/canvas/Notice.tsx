@@ -39,13 +39,10 @@ export function ContainerNotice({
       line={notice.line}
       detail={notice.detail}
       at={presence.at}
-      /* A fit names what is missing in its line; the table of protocol
-         numbers would only say "2, 2, 2" beside it. */
-      protocols={notice.fix ? undefined : presence.protocols}
     >
       {/* Only for silence. An incompatible module is running and answering —
           starting it again would change nothing, and the panel already says
-          which protocol each side speaks, which is the thing to act on.
+          which side is behind and what to update, which is the thing to act on.
 
           A module the host is already starting never reaches here: it is a
           cover, with no button to spawn a second copy. `asleep` keeps the

@@ -10,6 +10,7 @@ import {
   inFlight,
   INSTALLING_FOR_MS,
   lifecycleLine,
+  namedLine,
   lifecycleOf,
   silentSaid,
   STARTING_FOR_MS,
@@ -504,7 +505,8 @@ describe('an owner saying keep', () => {
 
 describe('asleep does not read like broken', () => {
   test('the sentence says the host stopped it and that it comes back', () => {
-    const said = asleepLine('kehikot.notes', 'http://127.0.0.1:7860')
+    const said = asleepLine('Notes', 'http://127.0.0.1:7860')
+    expect(said.startsWith('Notes is asleep')).toBe(true)
     expect(said).toContain('asleep')
     expect(said).toContain('Nothing is wrong with it')
     expect(said).toContain('http://127.0.0.1:7860')
@@ -515,7 +517,8 @@ describe('asleep does not read like broken', () => {
   })
 
   test('and a start in flight says so, and says it will resolve', () => {
-    const said = startingLine('kehikot.notes', 'http://127.0.0.1:7860')
+    const said = startingLine('Notes', 'http://127.0.0.1:7860')
+    expect(said.startsWith('Notes is starting')).toBe(true)
     expect(said).toContain('starting')
     expect(said).toContain('clears up by itself')
   })
@@ -642,8 +645,8 @@ describe('a host the app is stopping takes what it started with it', () => {
 
 describe('a module somebody else was running, just gone', () => {
   test('the sentence says who is expected to bring it back, for how long, and that it can be started now', () => {
-    expect(theirsLine('kehikot.notes', 'http://127.0.0.1:7920')).toBe(
-      'kehikot.notes stopped answering at http://127.0.0.1:7920 a moment ago. Kehikot did not start it, so it gives whoever did '
+    expect(theirsLine('Notes', 'http://127.0.0.1:7920')).toBe(
+      'Notes stopped answering at http://127.0.0.1:7920 a moment ago. Kehikot did not start it, so it gives whoever did '
         + '8 seconds to bring it back before starting it itself — or press Start now.',
     )
     /* Longer than a dev server takes to come back, far shorter than the watch. */
@@ -716,5 +719,21 @@ describe('what a silent module is said to be', () => {
     const gone = await look({ id: ID, url: AT } as Parameters<typeof look>[0], down)
     expect(silentSaid(gone, { ...nothing, failed: { line: 'stopped again', detail: ['x'] } })).toEqual({ line: 'stopped again', detail: ['x'] })
     expect(silentSaid(gone, { ...nothing, theirs: true })?.line).toBe(theirsLine(ID, AT))
+    /* With the name the server fills in, the sentence says that, never the id. */
+    expect(silentSaid({ ...gone, name: 'Thing' }, { ...nothing, theirs: true })?.line).toBe(theirsLine('Thing', AT))
+  })
+})
+
+describe('a cover names the module as a person reads it', () => {
+  test('a sentence that begins with the id begins with the name instead', () => {
+    expect(namedLine('kehikot.notes is registered at http://127.0.0.1:7860 and nothing answered.', 'kehikot.notes', 'Notes')).toBe(
+      'Notes is registered at http://127.0.0.1:7860 and nothing answered.',
+    )
+  })
+
+  test('any other sentence is left as it is', () => {
+    const other = 'The program at http://127.0.0.1:7860 calls itself kehikot.paper, and the registration here is for kehikot.notes.'
+    expect(namedLine(other, 'kehikot.notes', 'Notes')).toBe(other)
+    expect(namedLine('kehikot.notesy is running', 'kehikot.notes', 'Notes')).toBe('kehikot.notesy is running')
   })
 })

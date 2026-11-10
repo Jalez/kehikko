@@ -563,49 +563,54 @@ export function lifecycleOf(silent: boolean, doing: Doing, now: number): Lifecyc
 export const THEIRS_TO_RESTART_MS = 8_000
 
 /** Said on a container whose module somebody else was running, for `THEIRS_TO_RESTART_MS` after it went. */
-export function theirsLine(id: string, at: string): string {
+export function theirsLine(name: string, at: string): string {
   return (
-    `${id} stopped answering at ${at} a moment ago. Kehikot did not start it, so it gives whoever did `
+    `${name} stopped answering at ${at} a moment ago. Kehikot did not start it, so it gives whoever did `
     + `${Math.round(THEIRS_TO_RESTART_MS / 1000)} seconds to bring it back before starting it itself — or press Start now.`
   )
 }
 
 /** Said on a container whose module the host has just run. */
-export function startingLine(id: string, at: string): string {
+export function startingLine(name: string, at: string): string {
   return (
-    `${id} is starting and has not answered at ${at} yet. ` +
+    `${name} is starting and has not answered at ${at} yet. ` +
     `This clears up by itself: the module appears here, or this says it started and did not answer.`
   )
 }
 
 /** Said while a module the host ran is installing its dependencies. */
-export function installingLine(id: string): string {
-  return `${id} is installing what it needs before it starts. The first time takes a minute.`
+export function installingLine(name: string): string {
+  return `${name} is installing what it needs before it starts. The first time takes a minute.`
 }
 
 /** Said from the moment an update decides the module must be restarted, until it is. */
-export function updatingLine(id: string): string {
-  return `${id} is being updated. Kehikot stopped it to move it to the new version, and starts it again when that is in place.`
+export function updatingLine(name: string): string {
+  return `${name} is being updated. Kehikot stopped it to move it to the new version, and starts it again when that is in place.`
 }
 
 /** Said while the host is stopping a running module and starting it again. */
-export function restartingLine(id: string): string {
-  return `${id} is restarting. The module appears here again when it answers.`
+export function restartingLine(name: string): string {
+  return `${name} is restarting. The module appears here again when it answers.`
 }
 
-/** The line for one in-flight word. */
-export function lifecycleLine(lifecycle: Lifecycle, id: string, at: string): string {
+/** `line` with a leading module id said as the module's name. Anything else is left as it is. */
+export function namedLine(line: string, id: string, name: string): string {
+  return line.startsWith(`${id} `) ? `${name}${line.slice(id.length)}` : line
+}
+
+/** The line for one in-flight word. `name` is the module's name as a person reads it, never its id. */
+export function lifecycleLine(lifecycle: Lifecycle, name: string, at: string): string {
   switch (lifecycle) {
     case 'starting':
-      return startingLine(id, at)
+      return startingLine(name, at)
     case 'installing':
-      return installingLine(id)
+      return installingLine(name)
     case 'updating':
-      return updatingLine(id)
+      return updatingLine(name)
     case 'restarting':
-      return restartingLine(id)
+      return restartingLine(name)
     case 'asleep':
-      return asleepLine(id, at)
+      return asleepLine(name, at)
   }
 }
 
@@ -613,17 +618,17 @@ export function lifecycleLine(lifecycle: Lifecycle, id: string, at: string): str
  * Said on a container whose module the host ran and which stopped again.
  * `code` is the script's exit code, or null when a signal ended it.
  */
-export function exitedLine(id: string, at: string, code: number | null, log: string): string {
+export function exitedLine(name: string, at: string, code: number | null, log: string): string {
   return (
-    `${id} was started and stopped again${code === null ? '' : ` (exit code ${code})`} without answering at ${at}. ` +
+    `${name} was started and stopped again${code === null ? '' : ` (exit code ${code})`} without answering at ${at}. ` +
     `The last of what it printed is below; all of it is in ${log}.`
   )
 }
 
 /** Said when the process is still running and has still not answered. */
-export function unansweringLine(id: string, at: string, log: string): string {
+export function unansweringLine(name: string, at: string, log: string): string {
   return (
-    `${id} was started and is still running, but has not answered at ${at}. ` +
+    `${name} was started and is still running, but has not answered at ${at}. ` +
     `The last of what it printed is below; all of it is in ${log}. Starting it again stops it first.`
   )
 }
@@ -649,7 +654,7 @@ export interface Known {
  * somebody else just did. It knows nothing better about one that answered.
  */
 export function silentSaid(
-  presence: { id: string; at: string; reached: boolean; served?: true },
+  presence: { id: string; at: string; reached: boolean; served?: true; name?: string },
   known: Known,
 ): { line: string; detail?: string[] } | null {
   /* A document came back, and `discover.ts` says what is wrong with it. That
@@ -660,17 +665,19 @@ export function silentSaid(
   /* Not running, and the host knows more than that: it ran it, and it
      stopped again or never answered. The last it printed goes with it. */
   if (known.failed) return { line: known.failed.line, detail: known.failed.detail }
+  /* Every sentence names the module as a person reads it: `name`, which
+     `server.ts` fills, and the id only when nothing better is known. */
   /* Somebody else's, only just gone, and not reached: who is expected to
      bring it back, and when the host will. */
-  if (known.theirs && !presence.reached) return { line: theirsLine(presence.id, presence.at) }
-  if (known.held) return { line: unansweringLine(presence.id, presence.at, known.log), detail: known.printed() }
+  if (known.theirs && !presence.reached) return { line: theirsLine(presence.name ?? presence.id, presence.at) }
+  if (known.held) return { line: unansweringLine(presence.name ?? presence.id, presence.at, known.log), detail: known.printed() }
   return null
 }
 
 /** Said on a container whose module the host stopped because nothing used it. */
-export function asleepLine(id: string, at: string): string {
+export function asleepLine(name: string, at: string): string {
   return (
-    `${id} is asleep: no open kehikko or project used it for ${Math.round(GRACE_MS / 60_000)} minutes, ` +
+    `${name} is asleep: no open kehikko or project used it for ${Math.round(GRACE_MS / 60_000)} minutes, ` +
     `so Kehikot stopped it to save memory. Nothing is wrong with it: open a kehikko it is on ` +
     `and it starts again at ${at}.`
   )
