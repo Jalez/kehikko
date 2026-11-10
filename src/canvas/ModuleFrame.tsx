@@ -270,7 +270,7 @@ export function ModuleFrame({
       (capability) => usesRef.current.includes(capability)),
       {
         ready: (p, build) => watcherRef.current.ready(p, build),
-        silent: (line) => watcherRef.current.silent(line),
+        silent: (line, more) => watcherRef.current.silent(line, more),
         fault: (line) => watcherRef.current.fault(line),
         height: (px) => watcherRef.current.height(px),
         /* Straight through to the canvas, which is the only thing that can

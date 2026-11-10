@@ -38,6 +38,7 @@ export function ContainerNotice({
       title={notice.title}
       line={notice.line}
       detail={notice.detail}
+      more={notice.more}
       at={presence.at}
     >
       {/* Only for silence. An incompatible module is running and answering —
