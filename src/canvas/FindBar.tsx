@@ -1,5 +1,10 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactElement } from 'react'
+
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Toggle } from '@/components/ui/toggle.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 
 import { CANNOT_SEARCH, findBarMode, findCount, findCountShort, inputKeyOf, type FindBar as Bar } from '@/host/find.ts'
 
@@ -47,7 +52,7 @@ export function FindBar({
   const mode = findBarMode(width)
   const unsupported = bar.result === 'unsupported'
   const count = mode === 'wide' ? findCount(bar) : findCountShort(bar)
-  const button = 'text-muted-foreground hover:text-foreground hover:bg-accent inline-flex size-6 shrink-0 cursor-default items-center justify-center rounded disabled:opacity-40'
+  const small = 'text-muted-foreground hover:text-foreground size-6 rounded'
 
   return (
     <div
@@ -69,7 +74,7 @@ export function FindBar({
         </p>
       ) : (
         <>
-          <input
+          <Input
             ref={input}
             type="text"
             value={bar.query}
@@ -77,7 +82,7 @@ export function FindBar({
             autoComplete="off"
             aria-label={`Find in ${name}`}
             placeholder="Find"
-            className="bg-background focus-visible:ring-ring h-6 min-w-0 flex-1 rounded border px-1.5 text-xs outline-none focus-visible:ring-1"
+            className="bg-background h-6 flex-1 rounded px-1.5 py-0 text-xs md:text-xs focus-visible:ring-1"
             onChange={(event) => onQuery(event.target.value)}
             onKeyDown={(event) => {
               const key = inputKeyOf(event, mac)
@@ -91,29 +96,46 @@ export function FindBar({
           <span className="text-muted-foreground shrink-0 px-0.5 text-[11px] tabular-nums" role="status" aria-live="polite">
             {count}
           </span>
-          <button type="button" className={button} aria-label="Previous match" title="Previous match (⇧Enter)" disabled={!bar.query} onClick={() => onStep('prev')}>
-            <ChevronUp className="size-3.5" />
-          </button>
-          <button type="button" className={button} aria-label="Next match" title="Next match (Enter)" disabled={!bar.query} onClick={() => onStep('next')}>
-            <ChevronDown className="size-3.5" />
-          </button>
+          <Tip label="Previous match (⇧Enter)">
+            <Button type="button" variant="ghost" size="icon" className={small} aria-label="Previous match" disabled={!bar.query} onClick={() => onStep('prev')}>
+              <ChevronUp className="size-3.5" />
+            </Button>
+          </Tip>
+          <Tip label="Next match (Enter)">
+            <Button type="button" variant="ghost" size="icon" className={small} aria-label="Next match" disabled={!bar.query} onClick={() => onStep('next')}>
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </Tip>
           {mode === 'tight' ? null : (
-            <button
-              type="button"
-              className={`${button} text-[11px] font-medium ${bar.caseSensitive ? 'bg-accent text-foreground' : ''}`}
-              aria-label="Match case"
-              aria-pressed={bar.caseSensitive}
-              title="Match case"
-              onClick={() => onCase(!bar.caseSensitive)}
-            >
-              Aa
-            </button>
+            <Tip label="Match case">
+              <Toggle
+                size="sm"
+                className="text-muted-foreground size-6 min-w-6 shrink-0 rounded px-0 text-[11px] font-medium"
+                aria-label="Match case"
+                pressed={bar.caseSensitive}
+                onPressedChange={onCase}
+              >
+                Aa
+              </Toggle>
+            </Tip>
           )}
         </>
       )}
-      <button ref={close} type="button" className={button} aria-label="Close find" title="Close (Escape)" onClick={onClose}>
-        <X className="size-3.5" />
-      </button>
+      <Tip label="Close (Escape)">
+        <Button ref={close} type="button" variant="ghost" size="icon" className={small} aria-label="Close find" onClick={onClose}>
+          <X className="size-3.5" />
+        </Button>
+      </Tip>
     </div>
+  )
+}
+
+/** A shadcn tooltip over one control; the control keeps its own aria-label. */
+function Tip({ label, children }: { label: string; children: ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   )
 }

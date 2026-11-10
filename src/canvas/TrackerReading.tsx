@@ -2,6 +2,7 @@ import { Plus, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { editTrackers, type TrackerState } from '@/host/projects.ts'
 import {
@@ -364,9 +365,9 @@ function AddRow({
 
   return (
     <div className="space-y-1 rounded border p-2">
-      <input
+      <Input
         aria-label="A repository link, or owner/repo"
-        className="h-6 w-full rounded border bg-background px-1.5 font-mono text-[11px]"
+        className="bg-background h-6 rounded px-1.5 py-0 font-mono text-[11px] md:text-[11px]"
         placeholder="https://github.com/owner/repo, or owner/repo"
         value={input}
         autoFocus={startOpen}
@@ -387,9 +388,9 @@ function AddRow({
             <option value="gitlab">GitLab</option>
           </select>
           {tracker === 'gitlab' && plain ? (
-            <input
+            <Input
               aria-label="Its host, when it is not gitlab.com"
-              className="h-5 min-w-0 flex-1 rounded border bg-background px-1 font-mono text-[11px]"
+              className="bg-background h-5 flex-1 rounded px-1 py-0 font-mono text-[11px] md:text-[11px]"
               placeholder="gitlab.example.org (blank is gitlab.com)"
               value={host}
               onChange={(e) => setHost(e.target.value)}

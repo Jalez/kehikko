@@ -1,5 +1,7 @@
 import { Footprints, Undo2, X } from 'lucide-react'
 
+import { Button } from '@/components/ui/button.tsx'
+
 import { jumpMarkText, type JumpMark as Mark } from '@/host/jump.ts'
 
 /**
@@ -22,18 +24,13 @@ export function JumpMark({ mark, onBack, onClose }: { mark: Mark | null; onBack(
     >
       <Footprints className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
       <p className="min-w-0">{jumpMarkText(mark)}</p>
-      <button
-        type="button"
-        data-jump-back=""
-        onClick={onBack}
-        className="hover:bg-accent inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium"
-      >
+      <Button type="button" variant="ghost" size="sm" data-jump-back="" onClick={onBack} className="h-auto shrink-0 gap-1 rounded px-1.5 py-0.5 text-xs">
         <Undo2 className="size-3" aria-hidden />
         Go back
-      </button>
-      <button type="button" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0">
+      </Button>
+      <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose} className="text-muted-foreground hover:text-foreground size-5 shrink-0 rounded">
         <X className="size-3.5" aria-hidden />
-      </button>
+      </Button>
     </div>
   )
 }
