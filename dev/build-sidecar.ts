@@ -94,6 +94,10 @@ try {
   }
 
   const lines = [
+    /* First: the binary given arguments is being asked to run a script, not to be a host
+       (`server/asBun.ts`). It never reaches the server below. */
+    `import { asBun, beBun } from ${JSON.stringify(join(ROOT, 'server', 'asBun.ts'))}`,
+    `{ const args = asBun(process.argv, Bun.main); if (args) beBun(args) }`,
     `import { embed } from ${JSON.stringify(join(ROOT, 'server', 'page.ts'))}`,
     ...files.map((file, i) => `import f${i} from ${JSON.stringify(file)} with { type: 'file' }`),
     'embed(new Map<string, string>([',
