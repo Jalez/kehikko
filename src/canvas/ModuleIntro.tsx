@@ -31,8 +31,8 @@ import { ModuleIcon } from './ModuleIcon.tsx'
  *
  * Opened from the "?" in the modules list, with "Add to this kehikko" in its footer on every slide
  * (`addable`): the picker's own add, or the list's own install followed by the add ("Install and
- * add", with the install's progress). From the Container menu and the offer on a container the
- * module is already placed, and there is no button.
+ * add", with the install's progress). From a container's Help menu the module is already placed,
+ * and there is no button.
  *
  * Every string is the module's and drawn as text.
  */

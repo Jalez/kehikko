@@ -159,7 +159,7 @@ describe('the row in the Run menu', () => {
 
   test('every module’s Run menu has "Restart module" with its icon, and a module that declared nothing gets the Run menu for it', async () => {
     await mount()
-    expect(menus()).toEqual(['run', 'frame'])
+    expect(menus()).toEqual(['run', 'help', 'frame'])
     await open('run')
     expect(rowOf()!.textContent).toContain('Restart module')
     expect(rowOf()!.querySelector('[data-icon="rotate-ccw"]')).not.toBeNull()
@@ -212,7 +212,7 @@ describe('the row in the Run menu', () => {
 
   test('a container that does not offer a restart draws none, and a module that declared nothing keeps its header', async () => {
     await mount({ asked: false })
-    expect(menus()).toEqual(['frame'])
+    expect(menus()).toEqual(['help', 'frame'])
   })
 })
 

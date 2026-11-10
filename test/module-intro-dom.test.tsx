@@ -8,21 +8,17 @@ import {
   addSaid,
   addStateOf,
   introFor,
-  introsEdited,
-  NO_INTROS_SEEN,
-  offerSaid,
-  offersIntro,
   slidesOfHelp,
   slidesOfIntro,
 } from '../src/host/moduleIntro.ts'
-import { FRAME_ENTRIES } from '../src/host/headerOffer.ts'
+import { FRAME_ENTRIES, HELP_ENTRIES } from '../src/host/headerOffer.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
  * A module's own introduction (protocol 2.57.0), shown by the host in the app's introduction dialog:
  * the "?" in the modules list opens it with "Add to this kehikko" (or "Install and add", "Already on
- * this kehikko", "Needs Kehikot …"); the Container menu's "Introduction…" opens it without; a placed
- * container offers it once. The module's words and pictures are drawn as text and the host's shapes.
+ * this kehikko", "Needs Kehikot …"); a container's Help menu's "Introduction…" opens it without. No
+ * banner offers it on a container: it is in the Help menu, as the app's own is in the app's. The module's words and pictures are drawn as text and the host's shapes.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives: Radix decides at load whether
  * it has a DOM.
@@ -72,18 +68,6 @@ describe('the pure rules', () => {
     expect(addDisabled({ kind: 'add' })).toBe(false)
   })
 
-  test('the offer is made once per module, for a module with an introduction', () => {
-    const intro = introFor({ intro: INTRO })!
-    expect(offersIntro('m', intro, NO_INTROS_SEEN)).toBe(true)
-    expect(offersIntro('m', null, NO_INTROS_SEEN)).toBe(false)
-    /* Not known yet: no offer rather than one that flashes. */
-    expect(offersIntro('m', intro, null)).toBe(false)
-    const seen = introsEdited(NO_INTROS_SEEN, { done: 'm' })
-    expect(offersIntro('m', intro, seen)).toBe(false)
-    expect(introsEdited(seen, { done: 'm' })).toBe(seen)
-    expect(offerSaid(intro)).toMatch(/^Watch a \d+-second introduction$/)
-  })
-
   test('slides: the introduction numbered; How to use as a summary and a slide per section', () => {
     expect(slidesOfIntro(introFor({ intro: INTRO })!).map((one) => one.id)).toEqual(['slide-1', 'slide-2', 'slide-3'])
     expect(slidesOfHelp('Lists', HELP)).toEqual([
@@ -92,8 +76,11 @@ describe('the pure rules', () => {
     ])
   })
 
-  test('the Container menu has Introduction just before How to use', () => {
-    expect(FRAME_ENTRIES.indexOf('intro')).toBe(FRAME_ENTRIES.indexOf('help') - 1)
+  test('the Help menu has Introduction first, then How to use; the Container menu has neither', () => {
+    expect(HELP_ENTRIES.indexOf('intro')).toBe(0)
+    expect(HELP_ENTRIES.indexOf('help')).toBe(1)
+    expect((FRAME_ENTRIES as readonly string[]).includes('intro')).toBe(false)
+    expect((FRAME_ENTRIES as readonly string[]).includes('help')).toBe(false)
   })
 })
 
@@ -107,7 +94,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(new RegExp(`\\b${TESTS + 4} pass`))
+    expect(out).toMatch(new RegExp(`\\b${TESTS + 3} pass`))
   }, 60_000)
 }
 
@@ -339,7 +326,7 @@ describe('the modules list and the container', () => {
     expect(placed).toEqual(['kehikot.lists'])
   })
 
-  test('a placed container: Introduction… before How to use… in its menu, and the offer strip once', async () => {
+  test('a placed container: Introduction… before How to use… in its Help menu, and no banner', async () => {
     Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
       configurable: true,
       get(this: HTMLElement) {
@@ -388,25 +375,32 @@ describe('the modules list and the container', () => {
         onTools={nothing}
         onHelp={() => did.push('help')}
         onIntro={() => did.push('intro')}
-        introOffer={{ said: 'Watch a 15-second introduction', onWatch: () => did.push('watch'), onDismiss: () => did.push('dismiss') }}
         onStarted={nothing}
         onRemove={nothing}
         kehikko="k"
         epic={null}
       />,
     )
-    const offer = document.querySelector('[data-intro-offer]')!
-    expect(offer.textContent).toContain('Watch a 15-second introduction')
-    await press(offer.querySelector('[data-intro-watch]')!)
-    await press(offer.querySelector('[data-intro-dismiss]')!)
-    expect(did).toEqual(['watch', 'dismiss'])
-    const trigger = document.querySelector<HTMLElement>('header [data-menu="frame"]')!
+    /* No strip under the header: the introduction is offered where the app offers its own, in Help. */
+    expect(document.querySelector('[data-intro-offer]')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/second introduction/)
+    const open = async (which: string) => {
+      const trigger = document.querySelector<HTMLElement>(`header [data-menu="${which}"]`)!
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+        document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+      })
+    }
+    await open('frame')
+    expect(document.querySelector('[data-menu-content="frame"] [data-frame="intro"], [data-menu-content="frame"] [data-help]')).toBeNull()
     await act(async () => {
-      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    const rows = [...document.querySelectorAll('[data-menu-content="frame"] [data-frame]')].map((one) => one.getAttribute('data-frame'))
-    expect(rows.indexOf('intro')).toBe(rows.indexOf('help') - 1)
-    expect(document.querySelector('[data-frame="intro"]')!.textContent).toBe('Introduction…')
+    await open('help')
+    const rows = [...document.querySelectorAll('[data-menu-content="help"] [data-help]')]
+    expect(rows.map((one) => one.getAttribute('data-help'))).toEqual(['intro', 'help', 'feedback'])
+    expect(rows.map((one) => one.textContent)).toEqual(['Introduction…', 'How to use…', 'Feedback'])
+    await act(async () => (rows[0] as HTMLElement).click())
+    expect(did).toEqual(['intro'])
   })
 })

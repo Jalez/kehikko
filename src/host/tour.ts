@@ -351,7 +351,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] [data-menu="frame"]'],
         title: 'The Container menu',
-        body: 'Everything about the container itself: its scope, its settings, Use inbox, Header and footer, How to use, and Remove from this kehikko.',
+        body: 'Everything about the container itself: its scope, its settings, Use inbox, Header and footer, and Remove from this kehikko. The ? beside it is its Help: the same menu as the app’s own, for this module.',
         side: 'bottom',
         align: 'end',
       },
@@ -461,7 +461,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour="help"]'],
         title: 'Help is here',
-        body: 'The introduction and this tour are in this menu whenever you want them again.',
+        body: 'The introduction, this tour, What’s new and feedback are in this menu whenever you want them. Every container has the same ? for its module.',
         side: 'bottom',
         align: 'end',
       },

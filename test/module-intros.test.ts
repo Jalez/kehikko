@@ -1,10 +1,9 @@
-import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ensureModuleIntros, moduleIntros, readModuleIntros, releaseCommit, writeModuleIntros } from '../server/moduleIntros.ts'
+import { moduleIntros, releaseCommit } from '../server/moduleIntros.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
 import type { Ran } from '../server/versions.ts'
 
@@ -81,14 +80,8 @@ describe('where an introduction is read from', () => {
   })
 })
 
-describe('watched or dismissed, machine-wide', () => {
-  test('kept in settings, one id at a time, and the POST is page-only', () => {
-    const db = new Database(':memory:')
-    ensureModuleIntros(db)
-    expect(readModuleIntros(db)).toEqual({ done: [] })
-    expect(writeModuleIntros(db, { done: 'kehikot.lists' })).toEqual({ done: ['kehikot.lists'] })
-    expect(writeModuleIntros(db, { done: 'kehikot.lists' })).toEqual({ done: ['kehikot.lists'] })
-    expect(writeModuleIntros(db, { done: 'kehikot.other' })).toEqual({ done: ['kehikot.lists', 'kehikot.other'] })
-    expect(PAGE_ONLY).toContain('/host/module-intros')
+describe('no record of which were watched', () => {
+  test('the offer on a container is gone, and so is the route that remembered it', () => {
+    expect(PAGE_ONLY).not.toContain('/host/module-intros')
   })
 })

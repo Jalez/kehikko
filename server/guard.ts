@@ -170,7 +170,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/layouts',
   '/host/kehikko-skills',
   '/host/onboarding',
-  '/host/module-intros',
   '/host/whats-new',
   '/host/whats-new/mentions',
   '/host/module-settings',

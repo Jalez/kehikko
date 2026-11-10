@@ -1,9 +1,8 @@
-import { z } from 'zod'
-import { introOf, introSeconds, type Help, type Intro, type IntroArt } from 'kehikot-module-protocol'
+import { introOf, type Help, type Intro, type IntroArt } from 'kehikot-module-protocol'
 
 /**
  * A module's own introduction (protocol 2.57.0), as the host offers it. Pure, shared by the page and
- * the server, so the "?", the Container menu, the offer on a container and the dialog cannot disagree.
+ * the server, so the modules list's "?", a container's Help menu and the dialog cannot disagree.
  *
  * The module WRITES it — slides of plain text and pictures said as shapes — and the host shows it in
  * its own introduction dialog (`IntroModal`). The host's words here name no module: a module is its
@@ -54,11 +53,6 @@ export function helpSlideTitle(name: string): string {
 /** The dialog's accessible name, and the "?"'s, for a module. */
 export function introTitle(name: string): string {
   return `Introduction to ${name}`
-}
-
-/** The offer on a container: about how long, in the host's own words. */
-export function offerSaid(intro: Intro): string {
-  return `Watch a ${introSeconds(intro)}-second introduction`
 }
 
 /* ------------------------------------------------------------------ *
@@ -124,31 +118,6 @@ export function addDisabled(state: AddState): boolean {
 }
 
 /* ------------------------------------------------------------------ *
- * Watched or dismissed, machine-wide (`server/moduleIntros.ts`)
- * ------------------------------------------------------------------ */
-
-export const moduleIntrosSchema = z.object({
-  /** Module ids whose introduction the person watched or waved away: offered no more. */
-  done: z.array(z.string().min(1).max(200)).max(1000).default([]),
-})
-export type ModuleIntros = z.infer<typeof moduleIntrosSchema>
-export const NO_INTROS_SEEN: ModuleIntros = Object.freeze({ done: [] }) as ModuleIntros
-
-export const moduleIntrosEditSchema = z.object({ done: z.string().min(1).max(200) })
-export type ModuleIntrosEdit = z.infer<typeof moduleIntrosEditSchema>
-
-/** One more id done; the same object when it already was. */
-export function introsEdited(was: ModuleIntros, edit: ModuleIntrosEdit): ModuleIntros {
-  if (was.done.includes(edit.done)) return was
-  return { done: [...was.done, edit.done].slice(-1000) }
-}
-
-/** Whether a placed container offers its module's introduction: it has one, and the person has not watched or dismissed it. */
-export function offersIntro(id: string, intro: Intro | null, seen: ModuleIntros | null): boolean {
-  return intro !== null && seen !== null && !seen.done.includes(id)
-}
-
-/* ------------------------------------------------------------------ *
  * The page's side of the wire
  * ------------------------------------------------------------------ */
 
@@ -158,22 +127,4 @@ export async function fetchIntro(id: string, signal?: AbortSignal): Promise<Intr
   if (!response.ok) return null
   const body = (await response.json().catch(() => null)) as { intro?: unknown } | null
   return introOf({ intro: body?.intro })
-}
-
-export async function fetchIntrosSeen(signal?: AbortSignal): Promise<ModuleIntros | null> {
-  const response = await fetch('/host/module-intros', { signal, cache: 'no-store' }).catch(() => null)
-  if (!response?.ok) return null
-  const parsed = moduleIntrosSchema.safeParse(await response.json().catch(() => null))
-  return parsed.success ? parsed.data : null
-}
-
-export async function markIntroDone(id: string): Promise<ModuleIntros | null> {
-  const response = await fetch('/host/module-intros', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ done: id }),
-  }).catch(() => null)
-  if (!response?.ok) return null
-  const parsed = moduleIntrosSchema.safeParse(await response.json().catch(() => null))
-  return parsed.success ? parsed.data : null
 }

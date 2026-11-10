@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.HEADER_OFFER_DOM === '1'
-const TESTS = 13
+const TESTS = 15
 
 if (!inChild) {
   test('what the header offers, rendered in a process of its own', () => {
@@ -162,6 +162,7 @@ async function header(width: number, fold: Fold, declared: () => ReturnType<type
           onTools={nothing}
           onSkills={nothing}
           onHelp={nothing}
+          onNotes={nothing}
           onSettings={nothing}
           showRows={null}
           barRows="always"
@@ -198,6 +199,7 @@ async function offered(): Promise<Map<string, string[]>> {
     const ids = new Set([...content.querySelectorAll('[data-item], [data-item-label]')].map((el) => el.getAttribute('data-item') ?? el.getAttribute('data-item-label')))
     for (const id of ids) note(`item:${id}`, which)
     for (const row of content.querySelectorAll('[data-frame]')) note(`frame:${row.getAttribute('data-frame')}`, which)
+    for (const row of content.querySelectorAll('[data-help]')) note(`help:${row.getAttribute('data-help')}`, which)
     for (const row of content.querySelectorAll('[data-control]')) note(`control:${row.getAttribute('data-control')}`, which)
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
@@ -207,8 +209,6 @@ async function offered(): Promise<Map<string, string[]>> {
 }
 
 const EVERYTHING = [
-  'frame:feedback',
-  'frame:help',
   'frame:prompts',
   'frame:remove',
   'frame:rows',
@@ -216,6 +216,9 @@ const EVERYTHING = [
   'frame:settings',
   'frame:skills',
   'frame:tools',
+  'help:feedback',
+  'help:help',
+  'help:notes',
   'item:clean',
   'item:compile',
   'item:pane',
@@ -258,7 +261,7 @@ describe('the same header at every width and fold', () => {
   test('under 220 one "⋯" holds the module’s menus and then Container, in the order the separate menus have', async () => {
     await header(380, 'open')
     const wide = [...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
-    expect(wide).toEqual(['view', 'go', 'run', 'frame'])
+    expect(wide).toEqual(['view', 'go', 'run', 'help', 'frame'])
     act(() => unmount?.())
     document.body.innerHTML = ''
     for (const [width, fold] of [[200, 'open'], [200, 'one row'], [160, 'open'], [160, 'two rows']] as const) {
@@ -273,9 +276,10 @@ describe('the same header at every width and fold', () => {
       })
       const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
       const sections = [...content.querySelectorAll('[data-section]')]
-      expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'frame'])
-      expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Container'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'])
+      expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'help', 'frame'])
+      expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Help', 'Container'])
+      expect([...sections.at(-2)!.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'remove'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())
@@ -316,7 +320,7 @@ describe('the same header at every width and fold', () => {
     await header(380, 'open', none)
     const wide = document.querySelector<HTMLElement>('header [data-menu="frame"]')!
     expect(wide.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
-    expect([...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['frame'])
+    expect([...document.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))).toEqual(['help', 'frame'])
     act(() => unmount?.())
     document.body.innerHTML = ''
     for (const width of [200, 160]) {
@@ -332,7 +336,10 @@ describe('the same header at every width and fold', () => {
         const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
         const section = content.querySelector('[data-section="frame"]')!
         expect(section.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Container')
-        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts', 'remove'])
+        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'remove'])
+        const help = content.querySelector('[data-section="help"]')!
+        expect(help.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Help')
+        expect([...help.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])
         act(() => unmount?.())
         unmount = null
         document.body.innerHTML = ''
@@ -346,7 +353,7 @@ describe('the same header at every width and fold', () => {
     expect(trigger.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
     /* Without a pointer the tooltip is not mounted; the words are the one rule's (`frameHint`). */
     const { frameHint } = await import('../src/host/headerOffer.ts')
-    expect(frameHint(['scope', 'tools', 'skills', 'rows', 'help', 'feedback', 'prompts'])).toBe('This container: scope, tools, skills, header and footer, how to use it, feedback, prompts')
+    expect(frameHint(['scope', 'tools', 'skills', 'rows', 'prompts'])).toBe('This container: scope, tools, skills, header and footer, prompts')
   })
 
   test('filter, clear, refresh and remove: buttons in the row at 220 and wider, and every one reachable once at every width', async () => {
@@ -390,7 +397,7 @@ describe('the same header at every width and fold', () => {
           })
           const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
           const sections = [...content.querySelectorAll('[data-section]')].map((el) => el.getAttribute('data-section')).filter((one) => one !== null)
-          expect(sections.slice(-2), at).toEqual(['controls', 'frame'])
+          expect(sections.slice(-3), at).toEqual(['controls', 'help', 'frame'])
           const shown = content.querySelector('[data-section="controls"]')!
           expect(shown.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Shown')
           expect([...shown.querySelectorAll('[data-control]')].map((el) => el.getAttribute('data-control'))).toEqual(['filter', 'clear', 'refresh'])
@@ -514,21 +521,21 @@ describe('the same header at every width and fold', () => {
   const ROWS = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
   const focusable = (el: Element) => [...el.querySelectorAll<HTMLElement>(ROWS)].filter((row) => !row.hasAttribute('data-disabled'))
 
-  test('in a wide window the "⋯" stands in columns: the module’s menus, Shown, Container, each section a vertical group named by its heading', async () => {
+  test('in a wide window the "⋯" stands in columns: the module’s menus, Shown, Help, Container, each section a vertical group named by its heading', async () => {
     await windowWide(1280, async () => {
       await header(160, 'open', items, CONTROLS())
       const content = await opened()
       expect(content.getAttribute('role')).toBe('menu')
       const columns = [...content.querySelectorAll('[data-column]')]
-      expect(columns).toHaveLength(3)
-      expect(columns.map((column) => [...column.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section')))).toEqual([['view', 'go', 'run'], ['controls'], ['frame']])
+      expect(columns).toHaveLength(4)
+      expect(columns.map((column) => [...column.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section')))).toEqual([['view', 'go', 'run'], ['controls'], ['help'], ['frame']])
       for (const section of content.querySelectorAll('[data-section]')) {
         expect(section.getAttribute('role')).toBe('group')
         expect(section.getAttribute('aria-orientation')).toBe('vertical')
         const heading = document.getElementById(section.getAttribute('aria-labelledby')!)
         expect(heading && section.contains(heading)).toBe(true)
       }
-      expect([...content.querySelectorAll('[data-section] > [data-slot="dropdown-menu-label"]')].map((el) => el.textContent)).toEqual(['View', 'Go', 'Run', 'Shown', 'Container'])
+      expect([...content.querySelectorAll('[data-section] > [data-slot="dropdown-menu-label"]')].map((el) => el.textContent)).toEqual(['View', 'Go', 'Run', 'Shown', 'Help', 'Container'])
       /* A column says nothing to a screen reader, and scrolls on its own when the window is short. */
       for (const column of columns) {
         expect(column.getAttribute('role')).toBe('none')
@@ -601,7 +608,7 @@ describe('the same header at every width and fold', () => {
       expect(content.querySelector('[data-column]')).toBeNull()
       expect(content.className).toMatch(/max-w-64/)
       const sections = [...content.querySelectorAll(':scope > [data-section]')]
-      expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'controls', 'frame'])
+      expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'controls', 'help', 'frame'])
       expect(sections.slice(1).every((one) => one.firstElementChild!.getAttribute('role') === 'separator')).toBe(true)
       /* The columns' keys are not taken: Left and Right are the menu's own again (it opens a submenu with Right, and moves nothing here). */
       const row = focusable(sections[0]!).find((one) => one.getAttribute('aria-haspopup') === null)!
@@ -613,5 +620,132 @@ describe('the same header at every width and fold', () => {
       expect(key.defaultPrevented).toBe(false)
       expect(document.activeElement).toBe(row)
     })
+  })
+})
+
+describe('the container’s Help menu mirrors the app’s', () => {
+  if (!inChild) return
+
+  const openAt = async (trigger: HTMLElement) => {
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+    })
+  }
+  const close = async () => {
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+  }
+  const rowsOf = (menu: Element) =>
+    Object.fromEntries([...menu.querySelectorAll('[data-help]')].map((row) => [row.getAttribute('data-help'), row.textContent?.trim() ?? '']))
+
+  test('the same "?" icon, title and words, in the same order: Introduction, then learning your way around, then What’s new, then Feedback', async () => {
+    /* The app's own, in the bar. */
+    const { HelpMenu } = await import('../src/canvas/Help.tsx')
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <HelpMenu read={async () => null} />
+        </TooltipProvider>,
+      )
+    })
+    const appTrigger = host.querySelector<HTMLElement>('[data-tour="help"]')!
+    const appIcon = appTrigger.querySelector('svg')!.getAttribute('class')!.match(/lucide-[a-z-]+/g)!.filter((one) => one !== 'lucide-icon')
+    await openAt(appTrigger)
+    const appMenu = document.querySelector('[data-help-menu]')!
+    const appTitle = appMenu.querySelector('[data-slot="dropdown-menu-label"]')!.textContent
+    const app = rowsOf(appMenu)
+    const appOrder = Object.keys(app)
+    await close()
+    act(() => root.unmount())
+    document.body.innerHTML = ''
+
+    /* A container's, with room for its own trigger. */
+    await header(380, 'open')
+    const trigger = document.querySelector<HTMLElement>('header [data-menu="help"]')!
+    const icon = trigger.querySelector('svg')!.getAttribute('class')!.match(/lucide-[a-z-]+/g)!.filter((one) => one !== 'lucide-icon')
+    await openAt(trigger)
+    const menu = document.querySelector('[data-menu-content="help"]')!
+    const mine = rowsOf(menu)
+
+    expect(icon).toEqual(appIcon)
+    expect(menu.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe(appTitle)
+    for (const shared of ['notes', 'feedback'] as const) expect(mine[shared], shared).toBe(app[shared])
+    expect(app.intro).toBe('Introduction…')
+    /* The module's "How to use…" stands where the app's tour does. */
+    expect(appOrder).toEqual(['intro', 'restart', 'notes', 'feedback'])
+    expect(Object.keys(mine)).toEqual(['help', 'notes', 'feedback'])
+    expect(mine.help).toBe('How to use…')
+  })
+
+  test('a module with an introduction has it first, worded as the app’s', async () => {
+    const { HELP_SAID } = await import('../src/host/helpMenu.ts')
+    const { Container } = Box
+    const withIntro = {
+      ...presence,
+      module: {
+        ...presence.module,
+        intro: { slides: [{ title: 'One', body: 'First.' }, { title: 'Two', body: 'Second.' }] },
+      },
+    } as unknown as import('../src/host/registry.ts').Presence
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList?.contains('container-grip') ? 380 : 0
+      },
+    })
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <Container
+            presence={withIntro}
+            showing={{ kind: 'page' }}
+            fault={null}
+            body={nothing as never}
+            grow={false}
+            onGrow={nothing}
+            pinned={false}
+            onPin={nothing}
+            collapsed={false}
+            onFold={nothing}
+            onCollapse={nothing}
+            header={[]}
+            filters={[]}
+            chosen={{}}
+            onChoose={nothing}
+            onEverything={nothing}
+            clear={null}
+            onClear={nothing}
+            refresh={undefined}
+            refreshEvery={null}
+            onRefresh={nothing}
+            onRefreshEvery={nothing}
+            selected={false}
+            onSelect={nothing}
+            onPrompts={nothing}
+            onTools={nothing}
+            onIntro={nothing}
+            onStarted={nothing}
+            onRemove={nothing}
+            kehikko="thesis"
+            epic={null}
+          />
+        </TooltipProvider>,
+      )
+    })
+    unmount = () => root.unmount()
+    await openAt(document.querySelector<HTMLElement>('header [data-menu="help"]')!)
+    const menu = document.querySelector('[data-menu-content="help"]')!
+    expect([...menu.querySelectorAll('[data-help]')].map((row) => row.getAttribute('data-help'))).toEqual(['intro', 'feedback'])
+    expect(menu.querySelector('[data-help="intro"]')!.textContent).toBe(HELP_SAID.intro)
+    /* No banner under the header offers it. */
+    expect(document.querySelector('[data-intro-offer]')).toBeNull()
   })
 })

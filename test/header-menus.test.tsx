@@ -553,18 +553,18 @@ describe('in the container', () => {
     return [...host.querySelectorAll('header [data-menu]')].map((el) => el.getAttribute('data-menu'))
   }
 
-  test('the module’s menus stand before the host’s Container menu, stay when folded, and a module that declares nothing has only Container', async () => {
-    expect(await container(false, paper())).toEqual(['view', 'go', 'run', 'frame'])
+  test('the module’s menus stand before the host’s Help and Container menus, stay when folded, and a module that declares nothing has only those', async () => {
+    expect(await container(false, paper())).toEqual(['view', 'go', 'run', 'help', 'frame'])
     act(() => unmount?.())
     /* Folded, the header is as wide as it was and offers the same (`host/headerOffer.ts`). */
-    expect(await container(true, paper())).toEqual(['view', 'go', 'run', 'frame'])
+    expect(await container(true, paper())).toEqual(['view', 'go', 'run', 'help', 'frame'])
     act(() => unmount?.())
-    expect(await container(false, [])).toEqual(['frame'])
+    expect(await container(false, [])).toEqual(['help', 'frame'])
     /* Tools nobody has been told about are said on the trigger, as the plug said them. */
     expect(trigger('frame')!.getAttribute('data-tools')).toBe('loud')
     expect(trigger('frame')!.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
     await open('frame')
-    expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'feedback', 'prompts'])
+    expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'prompts'])
     expect(Menus.toolsSaying({ kind: 'told', as: 'paper' }, 'Paper')).toMatchObject({ state: 'connected', loud: false })
     expect(Menus.toolsSaying({ kind: 'none' }, 'Paper')).toBeNull()
   })
@@ -573,15 +573,15 @@ describe('in the container', () => {
     const module = { declares: { protocol: '>=2', uses: [], storage: false, skills } } as never
     let opened = 0
     for (const [collapsed, items, menus] of [
-      [false, paper(), ['view', 'go', 'run', 'frame']],
-      [true, paper(), ['view', 'go', 'run', 'frame']],
-      [false, [], ['frame']],
+      [false, paper(), ['view', 'go', 'run', 'help', 'frame']],
+      [true, paper(), ['view', 'go', 'run', 'help', 'frame']],
+      [false, [], ['help', 'frame']],
     ] as const) {
       /* No mark of its own: the header gains nothing, at any width or folded. */
       expect(await container(collapsed, [...items], { module }, () => opened++)).toEqual([...menus])
       expect(document.querySelector('header [data-frame="skills"], header [aria-label*="skills" i]')).toBeNull()
       await open('frame')
-      expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'skills', 'feedback', 'prompts'])
+      expect([...content('frame')!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['tools', 'skills', 'prompts'])
       expect(content('frame')!.querySelector('[data-frame="skills"]')!.textContent).toContain('2 skills offered')
       act(() => unmount?.())
     }

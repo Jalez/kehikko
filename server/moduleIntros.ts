@@ -1,15 +1,12 @@
-import type { Database } from 'bun:sqlite'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { INTRO_FILE, INTRO_FILE_BYTES, introFromFile, introOf, type Intro } from 'kehikot-module-protocol'
 
 import { newestFirst, type Runner } from './versions.ts'
-import { moduleIntrosSchema, introsEdited, NO_INTROS_SEEN, type ModuleIntros, type ModuleIntrosEdit } from '../src/host/moduleIntro.ts'
 
 /**
- * A module's own introduction (protocol 2.57.0), read WITHOUT running the module, and which ones the
- * person has watched or waved away.
+ * A module's own introduction (protocol 2.57.0), read WITHOUT running the module.
  *
  * ## Where an introduction is read from
  *
@@ -28,12 +25,6 @@ import { moduleIntrosSchema, introsEdited, NO_INTROS_SEEN, type ModuleIntros, ty
  *
  * What comes back is `introFromFile` / `introOf`: plain text, bounded, every string one line. The
  * repository comes from the list on this side, never from a request.
- *
- * ## What the person has done with them
- *
- * One row of `settings` in `frame.sqlite`, machine-wide: the ids whose introduction the person
- * watched or dismissed, so the offer on a placed container is made once per module. `POST
- * /host/module-intros` is in `PAGE_ONLY`.
  */
 
 export const TAGS_FOR_MS = 10 * 60_000
@@ -133,36 +124,4 @@ export function moduleIntros(deps: IntroDeps) {
       return released ? { intro: released, from: 'release' } : { intro: null, from: null }
     },
   }
-}
-
-/* ------------------------------------------------------------------ *
- * Watched or dismissed, machine-wide
- * ------------------------------------------------------------------ */
-
-const KEY = 'module-intros'
-
-export function ensureModuleIntros(db: Database): void {
-  db.exec(`
-    create table if not exists settings (
-      key   text primary key,
-      value text not null
-    );
-  `)
-}
-
-export function readModuleIntros(db: Database): ModuleIntros {
-  try {
-    const row = db.query<{ value: string }, [string]>('select value from settings where key = ?').get(KEY)
-    return row ? moduleIntrosSchema.parse(JSON.parse(row.value)) : NO_INTROS_SEEN
-  } catch {
-    return NO_INTROS_SEEN
-  }
-}
-
-export function writeModuleIntros(db: Database, edit: ModuleIntrosEdit): ModuleIntros {
-  const was = readModuleIntros(db)
-  const next = introsEdited(was, edit)
-  if (next === was) return was
-  db.query('insert into settings (key, value) values (?, ?) on conflict (key) do update set value = excluded.value').run(KEY, JSON.stringify(next))
-  return readModuleIntros(db)
 }
