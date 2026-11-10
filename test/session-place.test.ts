@@ -10,7 +10,7 @@ import { createEpic, editParts } from '../server/holdings.ts'
 import { Inbox } from '../server/inbox.ts'
 import { call, mcp, type Door } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
-import { ASK_PREFIX, absentFrom, doorsFor, modulesOn, nameFor, placeDesk, withToken, type ModuleAbout } from '../server/placeRoutes.ts'
+import { ASK_PREFIX, absentFrom, doorsFor, guardsOn, modulesOn, nameFor, placeDesk, withToken, type ModuleAbout } from '../server/placeRoutes.ts'
 import { addProject, projectById, relinkProject, type Project } from '../server/projects.ts'
 import { askChoices, isPlaceAsk } from '../src/host/placeAsk.ts'
 
@@ -187,6 +187,24 @@ describe('a module that starts conversations issues a token, and gets the doors 
 
     /* No kehikko: nothing is absent from it, and the host does not say. */
     expect(((await (await issue(TOKEN_B, null))!.json()) as { absent?: unknown }).absent).toBeUndefined()
+  })
+
+  test('a guard is handed only while its module is placed on the session’s kehikko (protocol 2.61.0)', async () => {
+    const guard = { id: 'heavy', tool: 'shell' as const, match: { commands: ['tsc'] }, action: 'rewrite' as const, rewrite: 'q run -- sh -c {command}', why: 'Heavy runs are queued.' }
+    about.push({ id: 'k.guarding', name: 'Guarding', summary: 'Guards.', guards: [guard], official: true, skills: [] })
+    /* Installed, not placed: it guards nothing. */
+    const off = (await (await issue(TOKEN_A, canvas.key))!.json()) as { guards: unknown }
+    expect(off.guards).toEqual([])
+    /* Placed: its guards are handed, with its id and name. */
+    editCanvas(db, canvas.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }, { i: 'k.guarding', x: 6, y: 0, w: 6, h: 10 }] })
+    const on = (await (await issue(TOKEN_A, canvas.key))!.json()) as { guards: unknown }
+    expect(on.guards).toEqual([{ module: 'k.guarding', name: 'Guarding', guard }])
+    /* Taken off again: gone at the next ask. */
+    editCanvas(db, canvas.id, { placements: [{ i: 'a.one', x: 0, y: 0, w: 6, h: 10 }] })
+    expect(((await (await issue(TOKEN_A, canvas.key))!.json()) as { guards: unknown }).guards).toEqual([])
+    /* No kehikko: nothing is placed. */
+    expect(((await (await issue(TOKEN_B, null))!.json()) as { guards: unknown }).guards).toEqual([])
+    expect(guardsOn(null, about)).toEqual([])
   })
 
   test('an absent line is one line of text, clipped, and the list is capped', () => {
