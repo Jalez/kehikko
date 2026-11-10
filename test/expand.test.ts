@@ -3,7 +3,7 @@ import { expandResult } from 'kehikot-module-protocol'
 
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
 import { ANSWERED_BY_THE_VIEW } from '@/host/division.ts'
-import { EXPANDED_BODY, EXPAND_WORD, SHRINK_WORD, expandAsked, expandedHere, shrinksOn, type Expanded } from '@/host/expand.ts'
+import { EXPANDED_BODY, EXPAND_NO_PRESS, EXPAND_WORD, SHRINK_WORD, expandAsked, expandedHere, shrinksOn, type Expanded } from '@/host/expand.ts'
 import { FRAME_ENTRIES, FRAME_SAID, layoutOf, reachable } from '@/host/headerOffer.ts'
 import { frameEntriesOf, type FrameParts } from '@/canvas/HeaderMenus.tsx'
 
@@ -21,7 +21,7 @@ describe('expandAsked', () => {
   })
 
   test('declines without a press, off the open kehikko, or with a hand on a container', () => {
-    expect(expandAsked(null, { ...base, pressed: false }).result).toMatchObject({ outcome: 'declined', why: expect.stringContaining('presses') })
+    expect(expandAsked(null, { ...base, pressed: false }).result).toMatchObject({ outcome: 'declined', why: EXPAND_NO_PRESS })
     expect(expandAsked(null, { ...base, onOpen: false }).result.outcome).toBe('declined')
     expect(expandAsked(null, { ...base, kehikko: null }).result.outcome).toBe('declined')
     expect(expandAsked(null, { ...base, busy: 'A container is being moved.' })).toEqual({ result: { outcome: 'declined', why: 'A container is being moved.' }, next: null })

@@ -803,6 +803,14 @@
   that way, or a terminal session in the page is lost.
 - A page may expand only its own container, only on the person's fresh press
   (`how.pressed`); putting back is always allowed.
+- A fresh press from a frame (`view.expand`, `messages.say`) is `pressFreshFor`
+  in `host/gesture.ts`: the browser's activation OR a press into that frame this
+  page saw itself within `FRESH_PRESS_MS` (window blur with the frame active,
+  the focus poll, a pointerdown on the container's chrome — `sawPress` on what
+  `watchClicks` moves). A webview may give this document no activation from a
+  press in a cross-origin frame, so never go back to activation alone. A
+  module's `kehikot.pointer` is forgeable and never counts. The Container
+  menu's "Expand" is the host's own press and asks no witness.
 
 ## What a module may ask
 

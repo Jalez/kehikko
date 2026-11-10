@@ -157,8 +157,9 @@ import {
 } from './host/footer.ts'
 import { FooterStore, useFooted } from './host/footerStore.ts'
 import { Reveals, coversFor } from './host/reveal.ts'
-import { EXPANDED_BODY, expandAsked, shrinksOn, type Expanded as ExpandedOne } from './host/expand.ts'
+import { EXPANDED_BODY, EXPAND_NO_PRESS, expandAsked, shrinksOn, type Expanded as ExpandedOne } from './host/expand.ts'
 import { Expanded } from './canvas/Expanded.tsx'
+import { letGoOfFrame, sawPress } from './host/gesture.ts'
 import { barRows, rowsShown, watchClicks, withMode, type ClickEvent, type FoldRows, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
@@ -551,7 +552,17 @@ export function App() {
   /* Each container's mode, read at the moment of the press (set below, where the placements are). */
   const rowsModeRef = useRef<(id: string) => ShowRows>(() => 'click')
   const onClickMove = useCallback((event: ClickEvent) => reveals.click(withMode(event, rowsModeRef.current)), [reveals])
-  useEffect(() => watchClicks(document, window, onClickMove), [onClickMove])
+  /* The same events are this page's own witness of a press into a frame (`sawPress`, `host/gesture.ts`):
+     what a module asks on the person's press is fresh for a moment after one, whatever the engine does
+     with activation. A page's own `kehikot.pointer` (below) is not taken there: a module can post it. */
+  useEffect(
+    () =>
+      watchClicks(document, window, (event) => {
+        sawPress(event)
+        onClickMove(event)
+      }),
+    [onClickMove],
+  )
   /* A page's own presses (`kehikot.pointer`, protocol 2.49.0): where each press began on the page's
      clock, by module, so its release says how long it was held. */
   const pressedAtRef = useRef(new Map<string, number>())
@@ -2197,6 +2208,8 @@ export function App() {
     const onOpen = framingsRef.current.some((one) => one.module.id === from && one.shown && !one.away)
     const busy = moving !== null ? 'A container is being moved or resized. Ask again when it has been let go.' : null
     const { result, next } = expandAsked(expandedRef.current, { from, expand: call.expand, pressed, kehikko: on, onOpen, busy })
+    /* Refused for want of a press this page could see: the next press into the frame should be one. */
+    if (result.outcome === 'declined' && result.why === EXPAND_NO_PRESS) letGoOfFrame(document, from)
     if (next !== expandedRef.current) {
       expandedRef.current = next
       setExpanded(next)
