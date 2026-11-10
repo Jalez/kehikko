@@ -1,5 +1,6 @@
 import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-module-protocol'
 
+import { REFUSAL_HEADER } from './quiet.ts'
 import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeOf, type ModuleRoute } from '../src/host/moduleAddress.ts'
 
 /**
@@ -123,7 +124,8 @@ const HANDSHAKE = new Set(['sec-websocket-key', 'sec-websocket-version', 'sec-we
 
 /** A refusal as a response: a sentence and a status, and nothing forwarded. */
 export function refused(status: number, why: string, sandboxed = false): Response {
-  return new Response(`${why}\n`, { status, headers: { ...TEXT, ...(sandboxed ? { 'content-security-policy': 'sandbox' } : {}) } })
+  /* Marked as the host's own, so `whyQuiet` repeats the sentence rather than blaming the module. */
+  return new Response(`${why}\n`, { status, headers: { ...TEXT, [REFUSAL_HEADER]: '1', ...(sandboxed ? { 'content-security-policy': 'sandbox' } : {}) } })
 }
 
 /** Whether a browser sent this: it says `Origin` or a `Sec-Fetch-*` header on anything a page asks. A program says neither. */

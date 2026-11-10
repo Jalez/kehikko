@@ -48,7 +48,7 @@ import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as s
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
-import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
+import { frameOriginFor, idOfHost, routeOf, sameVersion, stableDoorUrl, type ModuleRoute } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
 import { sourceOf } from './source.ts'
 import { proveListener, systemProcesses, takeOver } from './takeover.ts'
@@ -127,7 +127,8 @@ import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
-import { whyQuiet } from './quiet.ts'
+import { InFlight, joinsStart } from './startOnce.ts'
+import { framedFetch, quietEntry, whyQuiet } from './quiet.ts'
 import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
 import { moved, watchRegistry } from './registryWatch.ts'
@@ -1680,6 +1681,9 @@ function begin(id: string): void {
   /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
      a module, so the start waits for that one build. Started when it ends. */
   if (builds.busy(id)) return
+  /* Already starting, by a press or an update, or a process of the host's is
+     there: a second copy would race it for the port (`startOnce.ts`). */
+  if (inHand.has(id) || pressedStarts.has(id) || nursery.holds(id)) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
@@ -2850,6 +2854,40 @@ async function restart(
   }
 }
 
+/** The presses on Start in flight, one per module (`startOnce.ts`). */
+const pressedStarts = new InFlight<Restarted>()
+
+/**
+ * Start on a person's press, once per module at a time: a press while one is in
+ * flight has its answer, and a press while the host's own start is still coming
+ * up waits for that one instead of stopping it. See `startOnce.ts`.
+ */
+function startOnce(id: string, registration: Registration | null, runnable: Runnable, within: number): Promise<Restarted> {
+  return pressedStarts.run(id, async () => {
+    if (joinsStart({ held: nursery.holds(id), starting: starting.has(id), inHand: inHand.has(id) })) {
+      console.log(`kehikko: ${id} is already starting — the press waits for that start instead of starting it again`)
+      const joined = await joinStart(id, runnable, within)
+      if (joined) return joined
+    }
+    return restart(id, registration, runnable, within)
+  })
+}
+
+/** Wait for a start already coming up, as `bringUp` waits; null when its process ended first. */
+async function joinStart(id: string, runnable: Runnable, within: number): Promise<Restarted | null> {
+  const token = nursery.tokenOf(id)
+  const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
+  const until = Date.now() + within
+  let up = false
+  while (!up && nursery.holds(id) && Date.now() < until) {
+    const budget = Math.max(1, Math.min(1500, until - Date.now()))
+    up = anyPort && token ? await answeredAnywhere(id, token, budget) : await answered(runnable.url, [WELL_KNOWN], budget)
+  }
+  if (!up && !nursery.holds(id)) return null
+  const view = told(await sweep())
+  return { ok: true, answered: up, detail: up ? [] : tail(logFile(id)), presence: view.presences.find((p) => p.id === id) ?? null }
+}
+
 /** The modules whose registration says `keep` and that answered the last sweep. */
 async function keptAndRunning(): Promise<string[]> {
   const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
@@ -3432,6 +3470,12 @@ function addressed<T extends { id: string; module?: FramedModule }>(presence: T,
   if (!ADDRESSES || !presence.module) return presence
   const address = frameOriginFor(presence.id, PORT, tag)
   return address ? { ...presence, module: { ...presence.module, address } } : presence
+}
+
+/** A frame's route at one of the stable frame addresses, or null: what `/host/quiet` asks through the proxy. */
+function frameRouteOf(host: string, pathname: string): ModuleRoute | null {
+  const route = routeOf(host, pathname)
+  return route?.kind === 'frame' ? route : null
 }
 
 /** A request for a module at one of its stable addresses (`ModuleProxy.handle`), or null: not one, or the addresses are off. */
@@ -4692,7 +4736,7 @@ async function answerRequest(request: Request): Promise<Response> {
        * the registered directory — the case of modules a previous host started
        * and this one inherited. The proof and its limits are in `takeover.ts`.
        */
-      const done = await restart(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
+      const done = await startOnce(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
       if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [], ...(done.kept ? { kept: true } : {}) }, 409)
       return json({
         ok: true,
@@ -4973,8 +5017,13 @@ async function answerRequest(request: Request): Promise<Response> {
            reading of the same fact. */
         return json({ ok: true, kind: 'gone', line: presence.line })
       }
-      const said = await whyQuiet(presence.module.name, presence.module.entry)
-      return json({ ok: true, kind: said.kind, line: said.line })
+      /* The address the frame was given, held to the module's stable one or its own
+         (`quietEntry`), and asked through the proxy when it is the stable one. */
+      const stable = ADDRESSES ? frameOriginFor(id, PORT) : null
+      const checked = quietEntry(presence.module.entry, url.searchParams.get('framed'), stable)
+      const via = checked === presence.module.entry ? fetch : framedFetch(frameRouteOf, (asked, route) => moduleProxy.answer(asked, route))
+      const said = await whyQuiet(presence.module.name, checked, via)
+      return json({ ok: true, kind: said.kind, line: said.line, checked })
     }
 
     if (url.pathname === '/host/open' && request.method === 'POST') {
