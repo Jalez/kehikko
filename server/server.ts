@@ -46,6 +46,8 @@ import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
+import { ModuleProxy, moduleSockets, type SocketData, type Upgrader } from './moduleProxy.ts'
+import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
 import { sourceOf } from './source.ts'
 import { proveListener, systemProcesses, takeOver } from './takeover.ts'
 import { answersAs, judge, movedLine, newPort, repoint as repointRegistration } from './portTaken.ts'
@@ -2065,7 +2067,7 @@ function run(id: string, runnable: Runnable): Started {
     void ended(id, at, code)
   })
   if (!ran.ok || !ran.child) return ran
-  nursery.keep(id, { child: ran.child, at, url: runnable.url })
+  nursery.keep(id, { child: ran.child, at, url: runnable.url, ...(ran.token ? { token: ran.token } : {}) })
   manifests.forget(id)
   runs.set(id, at)
   starting.set(id, at)
@@ -3124,7 +3126,7 @@ const anyway = anywayDesk({
   arms: new Arms(),
   /* As long as an update waits for the module it restarted. */
   restart: (id, registration, runnable, armed) => restart(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS, { pid: armed }),
-  patient: (request) => server.timeout(request, 0),
+  patient: (request) => patient(request),
 })
 
 /* "Restart module", on every module's Run menu: the same `restart`, behind a person's press. `restartModule.ts`. */
@@ -3133,7 +3135,7 @@ const restartModuleDoor = restartModuleDesk({
   startable,
   busy: (id) => inHand.has(id) || working.has(id),
   restart: (id, registration, runnable, within) => restart(id, registration, runnable, within),
-  patient: (request) => server.timeout(request, 0),
+  patient: (request) => patient(request),
 })
 
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
@@ -3321,17 +3323,64 @@ function moduleIn(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
 }
 
-const server = Bun.serve({
-  hostname: '127.0.0.1',
+/*
+ * Modules at stable addresses on this host (`moduleProxy.ts`, `src/host/moduleAddress.ts`): a
+ * frame's at `<label>.kehikot.localhost:<port>`, a program's at `/m/<id>/…`. OFF unless
+ * `KEHIKOT_MODULE_ADDRESSES=1` (`moduleAddresses.ts`): nothing hands those addresses out yet,
+ * and with it off a request for one is answered as it always was.
+ */
+const ADDRESSES = addressesOn(process.env)
+const moduleProxy = new ModuleProxy({
   port: PORT,
+  async target(id) {
+    const registration = await registrationOf(id)
+    if (!registration) return null
+    let origin: string
+    try {
+      origin = new URL(registration.url).origin
+    } catch {
+      return null
+    }
+    return { origin, token: nursery.tokenOf(id) }
+  },
+})
+
+/** A request for a module at one of its stable addresses (`ModuleProxy.handle`), or null: not one, or the addresses are off. */
+async function forModule(request: Request, srv: Upgrader): Promise<Response | 'upgraded' | null> {
+  if (!ADDRESSES) return null
+  return moduleProxy.handle(request, srv, OWN.hosts, patient)
+}
+
+/** Every listener this host has: 127.0.0.1, and `::1` when the module addresses are on. */
+const listeners: Array<{ timeout(request: Request, seconds: number): void }> = []
+
+/** No idle timeout for this request, on whichever listener it arrived. */
+function patient(request: Request): void {
+  for (const one of listeners) {
+    try {
+      one.timeout(request, 0)
+    } catch {
+      /* Not this listener's request. */
+    }
+  }
+}
+
+const serving = {
   /* Long enough for a module that is slow to answer its manifest, short enough
      that a module that accepted a connection and went quiet does not hold one
      of the host's own sockets forever. */
   idleTimeout: 30,
 
+  /* A module's WebSocket, relayed frame by frame. Nothing else here is a socket. */
+  websocket: {
+    open: (socket: import('bun').ServerWebSocket<SocketData>) => moduleSockets.open(socket),
+    message: (socket: import('bun').ServerWebSocket<SocketData>, message: string | Buffer) => moduleSockets.message(socket, message),
+    close: (socket: import('bun').ServerWebSocket<SocketData>, code: number, reason: string) => moduleSockets.close(socket, code, reason),
+  },
+
   /* Every request is answered by `answerRequest`, and recorded as received
      (`traffic.ts`): who asked, which route, the status and the time. */
-  async fetch(request, srv) {
+  async fetch(request: Request, srv: import('bun').Server<SocketData>): Promise<Response | undefined> {
     const at = Date.now()
     const began = performance.now()
     /* Who is at the other end, looked up now, as it arrives: a short-lived program (curl) is gone soon after its answer. */
@@ -3358,6 +3407,9 @@ const server = Bun.serve({
       return response
     }
     try {
+      const proxied = await forModule(request, srv)
+      if (proxied === 'upgraded') return undefined
+      if (proxied) return heard(proxied)
       /* What a route sets out to do is the reason for every call it makes, unless a call names a nearer one. */
       const asked = new URL(request.url)
       const path = asked.pathname
@@ -3370,7 +3422,25 @@ const server = Bun.serve({
       throw error
     }
   },
-})
+}
+
+const server = Bun.serve<SocketData>({ hostname: '127.0.0.1', port: PORT, ...serving })
+listeners.push(server)
+
+/*
+ * With the module addresses on, `::1` too. `*.localhost` resolves to `::1` FIRST on macOS, so a
+ * frame's address reaches whatever listens on `::1` at this port before it tries 127.0.0.1. When
+ * this host holds both, nothing else can answer a frame's address. When `::1` cannot be held,
+ * frames are not given those addresses (`moduleAddresses`).
+ */
+if (ADDRESSES) {
+  try {
+    listeners.push(Bun.serve<SocketData>({ hostname: '::1', port: PORT, ...serving }))
+    moduleAddresses.held(PORT)
+  } catch (error) {
+    moduleAddresses.notHeld(PORT, (error as Error).message)
+  }
+}
 
 async function answerRequest(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -3379,6 +3449,9 @@ async function answerRequest(request: Request): Promise<Response> {
        every route, so none can be added without it. See `guard.ts`. */
     const refused = refusal({ method: request.method, pathname: url.pathname, headers: request.headers }, OWN)
     if (refused) return json({ ok: false, error: refused.why, why: refused.why }, refused.status)
+
+    /* Whether modules are at stable addresses here, and whether a frame may be given one (`moduleAddresses.ts`). */
+    if (url.pathname === '/host/module-addresses' && request.method === 'GET') return json(moduleAddresses.said(ADDRESSES))
 
     /* What is registered, and what the host made of each of them. The page asks
        for this on load and whenever the person asks it to look again; there is
@@ -4409,7 +4482,7 @@ async function answerRequest(request: Request): Promise<Response> {
       }
       /* An install and a restart outlast the idle timeout, and a line is only
          written when something changes. */
-      server.timeout(request, 0)
+      patient(request)
       /* The update is the server's, not the request's: it runs to its end when
          the page closes the panel, reloads, or drops the connection. */
       const own = new AbortController()
@@ -4883,7 +4956,7 @@ async function answerRequest(request: Request): Promise<Response> {
          so the server's thirty seconds closed every quiet stream, and a wake
          sent while the page was reconnecting was a wake nobody heard — a
          container left on what was true before a restart. */
-      server.timeout(request, 0)
+      patient(request)
       const encoder = new TextEncoder()
       let stop: (() => void) | null = null
       const said = url.searchParams.get('page')

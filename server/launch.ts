@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { accessSync, closeSync, constants, openSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import { DEFAULT_FRAME_ORIGINS } from 'kehikot-module-protocol/serve'
+import { START_TOKEN_ENV } from 'kehikot-module-protocol'
 
 import type { Registration } from './registrations.ts'
 
@@ -166,6 +167,16 @@ export interface Started {
    * told it so.
    */
   child?: Child
+  /**
+   * The start token this process was handed in `KEHIKOT_START_TOKEN` (protocol 2.60.0): fresh per
+   * start, so the process that says it back is this one and no other. An identity, not a secret.
+   */
+  token?: string
+}
+
+/** A fresh start token: 32 hex characters, which `START_TOKEN` in the protocol accepts. */
+export function mintStartToken(): string {
+  return crypto.randomUUID().replaceAll('-', '')
 }
 
 /**
@@ -381,6 +392,7 @@ export function originEnv(
 export function start(run: Runnable, exited?: (code: number | null) => void): Started {
   try {
     const out = run.log ? openSync(run.log, 'a') : null
+    const token = mintStartToken()
     const child = spawn(run.script, [], {
       cwd: run.dir,
       env: {
@@ -388,6 +400,8 @@ export function start(run: Runnable, exited?: (code: number | null) => void): St
         ...originEnv(process.env),
         ...(run.port === null ? {} : { PORT: String(run.port) }),
         ...(run.env ?? {}),
+        /* Last, so nothing inherited or registered can name another process's token. */
+        [START_TOKEN_ENV]: token,
       },
       detached: true,
       stdio: out === null ? 'ignore' : ['ignore', out, out],
@@ -415,6 +429,7 @@ export function start(run: Runnable, exited?: (code: number | null) => void): St
       ok: true,
       command: run.command,
       child: { pid, alive: () => !gone && child.exitCode === null && child.signalCode === null },
+      token,
     }
   } catch (error) {
     return { ok: false, command: run.command, why: (error as Error).message }
@@ -489,6 +504,8 @@ export interface Held {
   at: number
   /** The origin it was started to answer on, so a log line can name it. */
   url: string
+  /** The start token it was handed (`Started.token`), which the proxy holds what answers to. */
+  token?: string
 }
 
 /** How long a module gets to leave on its own before it is killed outright. */
@@ -526,6 +543,14 @@ export class Nursery {
   /** When the host started it, or `null` if the host did not. */
   startedAt(id: string): number | null {
     return this.#alive(id)?.at ?? null
+  }
+
+  /**
+   * The start token of the live process this host holds for that module, or null: the host did
+   * not start what is there, or what it started has ended.
+   */
+  tokenOf(id: string): string | null {
+    return this.#alive(id)?.token ?? null
   }
 
   /** Whether this host holds a live process for that module. */
