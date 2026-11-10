@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { doorsHanded, meetingSkill } from '../src/host/connections.ts'
-import { LIMITS, installsSkills, isKehikkoBound, oneLine, skillsThatLoad, type AbsentModule, type EverywhereSkill, type Guard, type ModuleSkill, type PlacedGuard, GUARD_LIMITS } from 'kehikot-module-protocol'
+import { LIMITS, installsSkills, isKehikkoBound, oneLine, skillsThatLoad, type AbsentModule, type AgentChange, type EverywhereSkill, type HostChanges, type Guard, type ModuleSkill, type PlacedGuard, GUARD_LIMITS } from 'kehikot-module-protocol'
 
 import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/providers.ts'
 
@@ -94,6 +94,10 @@ export interface ModuleAbout {
    * Absent for one that is not answering: it meets only a need that names its id.
    */
   manifest?: Omit<ReadManifest, 'id'>
+  /** The version its copy runs (protocol 2.61.0, `agentChanges.ts`), when its `package.json` says one. */
+  version?: string
+  /** What its releases up to it say to agents, newest first (protocol 2.61.0). */
+  changes?: readonly AgentChange[]
 }
 
 /** One container on a session's kehikko, as `POST /host/place` lists it. */
@@ -115,6 +119,9 @@ export interface ModuleOn {
    * protocol's notes, 2.44.0).
    */
   skills: string[]
+  /** The version it runs, and what its releases up to it say to agents (protocol 2.61.0): told once to a session started before an update. */
+  version?: string
+  changes?: AgentChange[]
 }
 
 const SUMMARY_MAX = 200
@@ -158,6 +165,7 @@ export function modulesOn(
             skillsThatLoad([skill], meetingSkill(canvas.connections, p.i, skill.name, on)).load.length === 1,
         )
         .map((skill) => skill.name),
+      ...(one?.version ? { version: one.version, changes: [...(one.changes ?? [])] } : {}),
     })
   }
   return out
@@ -244,6 +252,8 @@ export interface PlaceDeps {
    * module says `messages: true`. Absent: this host keeps none, and the answer carries no `messages`.
    */
   messagesFor?(here: Here | null, token: string): { messages: unknown[]; messagesMore: number }
+  /** Kehikot's own changes for agents (protocol 2.61.0, `hostChanges` in agentChanges.ts); absent or null: none said. */
+  host?(): HostChanges | null
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -413,9 +423,11 @@ export function placeDesk(deps: PlaceDeps) {
       const told = body.messages === true && deps.messagesFor ? deps.messagesFor((await resolve(token, null)).here, token) : undefined
       /* The person's skills for that kehikko (2.53.0): to every module, whatever epic the session is on. Read on every ask, so an edit reaches the next one. */
       const kehikkoSkills = canvas ? skillsForSession(project.path, canvas.key) : undefined
+      /* Kehikot's own changes for agents (2.62.0): to every session, which is told those after the ones it was told, once. */
+      const host = deps.host?.() ?? null
       /* The guards of the modules placed there (2.61.0): only placed ones, none without a kehikko. */
       const guards = about ? guardsOn(canvas, about) : undefined
-      return reply({ ok: true, token, doors, ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(guards ? { guards } : {}), ...(told ?? {}) })
+      return reply({ ok: true, token, doors, ...(host ? { host } : {}), ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(guards ? { guards } : {}), ...(told ?? {}) })
     }
 
     if (url.pathname === '/host/place/answer' && request.method === 'POST') {

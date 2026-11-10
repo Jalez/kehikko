@@ -1480,3 +1480,16 @@
   answer. Keep both.
 - `KEHIKOT_MODULE_ADDRESSES=0` is the way out: every address is a module's own
   origin again.
+
+## What changed for agents
+
+- A session that started before an update is told, once at its next prompt, what
+  changed for it (protocol 2.61.0). The host hands it: each module's version and
+  the "For agents" section of its `notes/<version>.md` files, read from the copy
+  it runs (`server/agentChanges.ts`, beside the modules in `POST /host/place`),
+  and Kehikot's own as `host`, from `FOR_AGENTS.md`.
+- A host PR that changes what an agent session sees or may do (a tool on the
+  kehikko door, a rule, a guard) adds a `## <next number>` section at the top of
+  `FOR_AGENTS.md`, one or two bullets in the agent's terms, no module or vendor
+  named. People read a module's notes without that section (`withoutForAgents`
+  in the release-notes `shown` transform).
