@@ -25,7 +25,15 @@ export type Waiting = 'starting' | 'installing' | 'updating' | 'restarting' | 'l
 export type Showing =
   | { kind: 'page' }
   | { kind: 'cover'; state: Waiting }
-  | { kind: 'notice'; condition: ModuleCondition; asleep: boolean; line: string; restartFailed?: string[] }
+  | {
+    kind: 'notice'
+    condition: ModuleCondition
+    asleep: boolean
+    line: string
+    restartFailed?: string[]
+    /** The page's own stack, when it said why it failed (`Found.more`): under "Show details". */
+    more?: string
+  }
 
 /** What the host's server said about the module. */
 export interface Said {
@@ -38,6 +46,11 @@ export interface Said {
 export interface Found {
   condition: ModuleCondition
   line: string | null
+  /**
+   * The first lines of the stack of the error the page said it failed with
+   * (protocol 2.59.0, `kehikot.page.error`), when it said one. Text.
+   */
+  more?: string | null
   /**
    * The page that answered was served by a process that is no longer the one
    * answering at the module's address (`isStale`), and the host is replacing
@@ -74,7 +87,7 @@ export function showing(said: Said, found: Found | undefined, asked = true, rest
   }
   if (!found) return { kind: 'cover', state: 'loading' }
   if (found.condition === 'ready') return found.stale ? { kind: 'cover', state: 'restarting' } : { kind: 'page' }
-  return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line }
+  return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line, ...(found.more ? { more: found.more } : {}) }
 }
 
 /**
@@ -99,6 +112,8 @@ export function noticeOf(
   offer: 'start' | 'update' | 'retry-restart' | null
   /** The fit's button: "Update Kehikot", or "Update <Module>" with `module` set to open its row. */
   fix?: { label: string; module?: true }
+  /** The page's own stack, behind "Show details", for a page that said why it failed. */
+  more?: string
 } {
   /* A restart that did not bring it back: what it printed last, and the same press again. */
   if (notice.restartFailed) return { line: notice.line, detail: notice.restartFailed, offer: 'retry-restart' }
@@ -115,9 +130,11 @@ export function noticeOf(
     }
   }
   if (notice.condition !== 'silent') return { line: notice.line, detail: presence.detail, offer: null }
-  if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update' }
-  if (presence.remedy) return { line: notice.line, offer: null }
-  return { line: notice.line, detail: presence.detail, offer: 'start' }
+  /* The page said why it did not answer: its stack goes behind "Show details". */
+  const more = notice.more ? { more: notice.more } : {}
+  if (presence.refused) return { line: `${notice.line} Update the module to use it.`, offer: 'update', ...more }
+  if (presence.remedy) return { line: notice.line, offer: null, ...more }
+  return { line: notice.line, detail: presence.detail, offer: 'start', ...more }
 }
 
 /** What `noticeOf` reads of a presence's fit (`Presence.fit`). */

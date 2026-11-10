@@ -245,6 +245,12 @@ interface Live {
    * show the server's line.
    */
   line: string | null
+  /**
+   * The page's own account of why it did not answer (protocol 2.59.0,
+   * `kehikot.page.error`): the first lines of the error's stack, shown under
+   * "Show details" beside `line`. Text, never markup.
+   */
+  more?: string | null
   fault: string | null
   /**
    * The build that served the page that answered, when the page says — which
@@ -4661,7 +4667,7 @@ export function App() {
           },
         }))
       },
-      silent: (sentence) => {
+      silent: (sentence, more) => {
         /* Its menus go with its offers: see `host/header.ts`. And its footer. */
         setHeaders((was) => withdrawn(was, id))
         footerStore.withdraw(id)
@@ -4676,7 +4682,7 @@ export function App() {
              a way the others do not: what goes with it is a TIME, and a "last
              read 2 minutes ago" beside a module that has stopped answering is
              the host asserting freshness on behalf of a program that is gone. */
-          [id]: { condition: 'silent', line: sentence, fault: was[id]?.fault ?? null },
+          [id]: { condition: 'silent', line: sentence, more: more ?? null, fault: was[id]?.fault ?? null },
         }))
       },
       fault: (sentence) =>

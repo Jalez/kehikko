@@ -107,6 +107,7 @@ export function ConditionPanel({
   title,
   line,
   detail,
+  more,
   at,
   children,
 }: {
@@ -122,6 +123,12 @@ export function ConditionPanel({
   line: string
   /** The last lines a module the host started printed, when its start failed. */
   detail?: string[]
+  /**
+   * More about the line, folded under "Show details": the stack of the error
+   * a module's page said it failed with. Text, never markup — it is the
+   * module's own output.
+   */
+  more?: string
   at: string
   children?: React.ReactNode
 }) {
@@ -180,6 +187,15 @@ export function ConditionPanel({
         >
           {detail.join('\n')}
         </pre>
+      ) : null}
+
+      {more ? (
+        <details data-testid="condition-more" className="pointer-events-auto w-full max-w-[64ch] text-left">
+          <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-center text-xs">Show details</summary>
+          <pre className="bg-muted text-muted-foreground mt-1.5 max-h-40 overflow-x-hidden overflow-y-auto rounded px-2 py-1.5 font-mono text-[11px] leading-snug break-all whitespace-pre-wrap">
+            {more}
+          </pre>
+        </details>
       ) : null}
 
       <p className="text-muted-foreground/70 max-w-full font-mono text-[11px] break-all">{at}</p>

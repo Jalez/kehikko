@@ -102,7 +102,11 @@ export type Ask = (method: string, params: unknown, how?: { pressed: boolean }) 
 export interface ConversationWatcher {
   /** `build` is what served the page, when it says: see `isStale` in `standing.ts`. */
   ready(moduleProtocol: number, build?: Build | null): void
-  silent(line: string): void
+  /**
+   * `more` (protocol 2.59.0): the first lines of the stack of the error the
+   * page said it failed with (`kehikot.page.error`), for "Show details".
+   */
+  silent(line: string, more?: string): void
   /** Something the module did that is worth a line but is not a condition. */
   fault(line: string): void
   height(px: number): void
@@ -242,6 +246,14 @@ export class Conversation {
   private visible = true
   private visibleTold: boolean | null = null
   private answered = false
+  /** Whether the greeting's deadline has passed with no answer, so the container says so now. */
+  private silenced = false
+  /**
+   * What the page said it failed with since the greeting (protocol 2.59.0,
+   * `kehikot.page.error`), the first one: what failed first is what the rest
+   * followed from. Cleared by the next greeting; said only while unanswered.
+   */
+  private failure: { message: string; where: string; stack: string } | null = null
   private closed = false
   private nextGoto = 1
 
@@ -310,6 +322,8 @@ export class Conversation {
     if (this.closed) return
     this.greeted = true
     this.answered = false
+    this.silenced = false
+    this.failure = null
 
     this.post({
       type: MESSAGE.HELLO,
@@ -352,6 +366,12 @@ export class Conversation {
     if (this.readyTimer) clearTimeout(this.readyTimer)
     this.readyTimer = setTimeout(() => {
       if (this.answered || this.closed) return
+      this.silenced = true
+      /* The page said why (protocol 2.59.0): that, rather than a guess. */
+      if (this.failure) {
+        this.sayFailure()
+        return
+      }
       /*
        * Said immediately, then improved on.
        *
@@ -396,6 +416,8 @@ export class Conversation {
       /* It answered while the host was asking, or the container went away. Either
          way the sentence below would be describing a moment that has passed. */
       if (this.answered || this.closed) return
+      /* The page said why while the host was asking; its own words stand. */
+      if (this.failure) return
       if (said?.ok && typeof said.line === 'string' && said.line.length > 0) {
         this.watcher.silent(said.line)
       }
@@ -403,6 +425,22 @@ export class Conversation {
       /* The general sentence already stands. A host that threw while explaining
          a quiet module would be a worse failure than the one being explained. */
     }
+  }
+
+  /**
+   * The container's sentence for a page that said why it failed: the
+   * module's name, then the error as the page put it, and where it was thrown
+   * when the stack says. The module's words are text in a sentence; nothing
+   * here reads them as anything else.
+   */
+  private sayFailure(): void {
+    const failure = this.failure
+    if (!failure) return
+    const at = whereThrown(failure.stack, failure.message)
+    this.watcher.silent(
+      `${possessive(this.name)} page failed to start: ${failure.message}${at ? ` (${at})` : ''}`,
+      failure.stack || undefined,
+    )
   }
 
   /** Which epic the canvas is about now. Sent on every change. */
@@ -812,6 +850,30 @@ export class Conversation {
       return true
     }
 
+    case MESSAGE.PAGE_ERROR: {
+      /*
+       * The page failed, and says how (protocol 2.59.0). Before it answered
+       * the greeting this is why it has not: kept, and said at the deadline in
+       * place of "not answering" — or at once, when the deadline has passed.
+       * A page that goes on to answer was not stopped by it, and the next
+       * greeting forgets it.
+       *
+       * After it answered, only a greeting handler that threw is worth a line:
+       * the page sent `ready` and then failed to take what it was given. Any
+       * other rejection on a working page is the module's own to show, and a
+       * line for each would be a container blaming a page that works.
+       */
+      const failure = { message: message.message, where: message.where, stack: message.stack }
+      if (this.answered) {
+        if (failure.where === 'greeting') this.watcher.fault(`${possessive(this.name)} page failed after it was greeted: ${failure.message}`)
+        return true
+      }
+      if (this.failure) return true
+      this.failure = failure
+      if (this.silenced) this.sayFailure()
+      return true
+    }
+
     case MESSAGE.PRESSED: {
       /* The answer to a `kehikot.press`, paired by the id the press carried.
          One that pairs with nothing — a second answer, an answer after the
@@ -862,6 +924,27 @@ export class Conversation {
        the frame handle is the address that matters. */
     target.postMessage(message, this.origin ?? '*')
   }
+}
+
+/** "Notes’" for a name ending in s, "Mute’s" otherwise: a name as the module wrote it. */
+export function possessive(name: string): string {
+  return /s$/i.test(name) ? `${name}’` : `${name}’s`
+}
+
+/**
+ * Where an error was thrown, from its stack: the first frame, as the browser
+ * wrote it (`at f (http://…/app.tsx:3:9)` in Chromium, `f@http://…` in WebKit),
+ * or null when the stack names none or the message already says one.
+ * Bounded: this is somebody else's text going into a sentence.
+ */
+export function whereThrown(stack: string, message: string): string | null {
+  for (const raw of stack.split('\n').slice(0, 12)) {
+    const line = raw.trim()
+    if (!line || message.includes(line) || line.startsWith(message)) continue
+    const frame = line.startsWith('at ') ? line.slice(3) : /@\S+:\d+/.test(line) ? line : null
+    if (frame) return frame.length > 160 ? `${frame.slice(0, 159)}…` : frame
+  }
+  return null
 }
 
 /**
