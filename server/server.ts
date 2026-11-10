@@ -57,6 +57,8 @@ import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
 import { BY as HOST_BY, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
+import { changesOfCopy, hostChanges } from './agentChanges.ts'
+import { withoutForAgents } from 'kehikot-module-protocol'
 import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
@@ -1294,7 +1296,8 @@ const versionRuns = new VersionRuns({
 const remotesByDir = new Map<string, { at: number; repo: string | null }>()
 const releaseNotes = releaseNotesDesk({
   gateway: github,
-  shown: (body) => appVersionsIn(body, appProtocols.apps()),
+  /* What a module's release says to agents is theirs (protocol 2.61.0): people read the notes without it. */
+  shown: (body) => appVersionsIn(withoutForAgents(body), appProtocols.apps()),
   allowed: async (repo) => {
     const asked = repo.toLowerCase()
     if (official.current().some((one) => one.repo.toLowerCase() === asked)) return true
@@ -3020,6 +3023,13 @@ void official.refresh().then(() => retiring.sweep())
  * A conversation's place (protocol 2.4.0): the token a session carries on every
  * Kehikot door's URL, and the asks in the Inbox. See `placeRoutes.ts`.
  */
+/** A copy's version and lines for agents, as a module's fields in the place answer; nothing for a copy with no version. */
+const copyChanges = (dir: string | null | undefined) => {
+  const read = changesOfCopy(dir)
+  return read.version ? { version: read.version, changes: read.changes } : {}
+}
+const HOST_CHANGES = hostChanges()
+
 const placeRoutes = placeDesk({
   db,
   inbox,
@@ -3045,6 +3055,8 @@ const placeRoutes = placeDesk({
       skills: presence.module?.declares.skills ?? [],
       /* What a skill's needs are matched against (protocol 2.21.0). */
       ...(presence.module ? { manifest: presence.module } : {}),
+      /* The version its copy runs and what its releases say to agents (protocol 2.61.0), read from the copy. */
+      ...copyChanges(registered.get(presence.id)?.dir),
     })),
   /* What the Settings sync keeps installed for every conversation, told to a module that installs skills for its own agent (2.23.0). */
   everywhere: async (asker) => {
@@ -3073,6 +3085,8 @@ const placeRoutes = placeDesk({
   originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
   /* A session's unread messages, for its notes (protocol 2.41.0). */
   messagesFor: (here, token) => messageRoutes.forNotes(here, token),
+  /* Kehikot's own changes for agents (protocol 2.61.0), from FOR_AGENTS.md. */
+  host: () => HOST_CHANGES,
 })
 
 /*
