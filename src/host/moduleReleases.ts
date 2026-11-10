@@ -26,7 +26,7 @@
  * protocol meets the release's need, "Works with Kehikot 0.1.39 and later".
  */
 
-import { needsKehikotSaid, protocolSaid, worksWithSaid, type WorksWith } from './worksWith.ts'
+import { needsKehikotSaid, protocolSaid, worksWithDetail, worksWithSaid, type WorksWith } from './worksWith.ts'
 
 export type Follows = 'release' | 'main' | 'ahead'
 
@@ -231,7 +231,8 @@ function worksForAgents(release: ModuleRelease, have: { protocol?: string | null
     if (!tag || seen.has(tag)) continue
     seen.add(tag)
     const said = worksSaid(release, tag)
-    if (said) lines.push(`${tag}: ${said}.`)
+    /* An agent is told the protocol too; a person reads it only in a tooltip. */
+    if (said) lines.push(`${tag}: ${said} (${worksWithDetail(release.works![tag]!)}).`)
   }
   const newer = needsNewerForAgents(release, { protocol: have.protocol ?? null })
   if (newer && release.works && release.needsNewer && Object.hasOwn(release.works, release.needsNewer.tag)) lines.push(newer)

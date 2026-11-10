@@ -1,6 +1,6 @@
 import { isBuiltFrom, isWorksWithSentence, parseMarkdown, plainText, whatsNew, type Inline } from './markdown.ts'
 import type { ModuleRelease } from './moduleReleases.ts'
-import { compareVersions, protocolSaid, satisfies, worksWithSaid } from './worksWith.ts'
+import { compareVersions, satisfies, worksWithDetail, worksWithSaid } from './worksWith.ts'
 
 /**
  * What an update brings, in a few lines under its row in the Updates menu:
@@ -96,6 +96,8 @@ export interface CompatBadge {
   warn: boolean
   /** The tooltip. */
   tip: string
+  /** The module-protocol detail, drawn under the tooltip in a quieter line: the one place a protocol number is shown. */
+  detail: string
 }
 
 /**
@@ -107,18 +109,21 @@ export interface CompatBadge {
 export function compatBadge(release: ModuleRelease, tag: string | null, have: { app?: string | null; protocol?: string | null } = {}): CompatBadge | null {
   if (!tag || !release.works || !Object.hasOwn(release.works, tag)) return null
   const works = release.works[tag]!
-  const said = worksWithSaid(works)
+  /* The badge and the sentence say app versions; the protocol is the tooltip's quiet second line only. */
+  const detail = worksWithDetail(works)
   if (works.kind === 'from') {
     if (!works.from) return null
     const text = works.until ? `Kehikot ${works.from}–${works.until.last}` : `Kehikot ${works.from}+`
     const tooOld = Boolean(have.app) && compareVersions(have.app!, works.from) < 0
     const tooNew = Boolean(have.app) && works.until !== null && compareVersions(have.app!, works.until.last) > 0
-    return tooOld ? { text, warn: true, tip: NEEDS_NEWER_APP } : { text, warn: tooNew, tip: said }
+    return tooOld ? { text, warn: true, tip: NEEDS_NEWER_APP, detail } : { text, warn: tooNew, tip: worksWithSaid(works), detail }
   }
-  if (works.kind === 'unreleased') return { text: `Kehikot newer than ${works.newest.app}`, warn: true, tip: NEEDS_NEWER_APP }
+  if (works.kind === 'unreleased') return { text: `Kehikot newer than ${works.newest.app}`, warn: true, tip: NEEDS_NEWER_APP, detail }
   if (works.kind === 'unknown') {
-    const warn = Boolean(have.protocol) && !satisfies(works.need, have.protocol!)
-    return { text: `protocol ${protocolSaid(works.need)}+`, warn, tip: warn ? NEEDS_NEWER_APP : `Needs module protocol ${protocolSaid(works.need)} or later` }
+    /* No app versions could be read: whether THIS Kehikot runs it is still known from its protocol. */
+    if (!have.protocol) return { text: 'Kehikot version not known', warn: false, tip: 'Which Kehikot it needs could not be read', detail }
+    const warn = !satisfies(works.need, have.protocol)
+    return warn ? { text: 'Newer Kehikot', warn, tip: NEEDS_NEWER_APP, detail } : { text: 'This Kehikot', warn, tip: 'Works with this Kehikot', detail }
   }
   return null
 }

@@ -99,18 +99,47 @@ describe('the compatibility badge', () => {
   const works = { 'v1.6.0': { kind: 'from' as const, need: '2.10.0', from: '0.1.129', until: null } }
 
   test('quiet when the running Kehikot meets it', () => {
-    expect(compatBadge(release({ works }), 'v1.6.0', { app: '0.1.130' })).toEqual({ text: 'Kehikot 0.1.129+', warn: false, tip: 'Works with Kehikot 0.1.129 and later' })
+    expect(compatBadge(release({ works }), 'v1.6.0', { app: '0.1.130' })).toEqual({
+      text: 'Kehikot 0.1.129+',
+      warn: false,
+      tip: 'Works with Kehikot 0.1.129 and later',
+      detail: 'module protocol 2.10 or later',
+    })
     /* Outside the app, nothing to compare: quiet. */
     expect(compatBadge(release({ works }), 'v1.6.0', {})?.warn).toBe(false)
   })
 
   test('a warning, with what to do, when it does not', () => {
-    expect(compatBadge(release({ works }), 'v1.6.0', { app: '0.1.128' })).toEqual({ text: 'Kehikot 0.1.129+', warn: true, tip: NEEDS_NEWER_APP })
+    expect(compatBadge(release({ works }), 'v1.6.0', { app: '0.1.128' })).toEqual({
+      text: 'Kehikot 0.1.129+',
+      warn: true,
+      tip: NEEDS_NEWER_APP,
+      detail: 'module protocol 2.10 or later',
+    })
     const unreleased = { 'v1.6.0': { kind: 'unreleased' as const, need: '2.11.0', newest: { app: '0.1.41', protocol: '2.10.0' } } }
-    expect(compatBadge(release({ works: unreleased }), 'v1.6.0')).toMatchObject({ warn: true, tip: NEEDS_NEWER_APP })
+    expect(compatBadge(release({ works: unreleased }), 'v1.6.0')).toEqual({ text: 'Kehikot newer than 0.1.41', warn: true, tip: NEEDS_NEWER_APP, detail: 'module protocol 2.11 or later' })
     const unknown = { 'v1.6.0': { kind: 'unknown' as const, need: '2.11.0' } }
-    expect(compatBadge(release({ works: unknown }), 'v1.6.0', { protocol: '2.10.0' })).toMatchObject({ text: 'protocol 2.11+', warn: true })
-    expect(compatBadge(release({ works: unknown }), 'v1.6.0', { protocol: '2.12.0' })).toMatchObject({ warn: false })
+    expect(compatBadge(release({ works: unknown }), 'v1.6.0', { protocol: '2.10.0' })).toMatchObject({ text: 'Newer Kehikot', warn: true })
+    expect(compatBadge(release({ works: unknown }), 'v1.6.0', { protocol: '2.12.0' })).toMatchObject({ text: 'This Kehikot', warn: false })
+    expect(compatBadge(release({ works: unknown }), 'v1.6.0')).toMatchObject({ text: 'Kehikot version not known', warn: false })
+  })
+
+  test('the badge never shows a protocol number; only its tooltip does', () => {
+    const cases = {
+      'v1.0.0': { kind: 'from' as const, need: '2.10.0', from: '0.1.129', until: null },
+      'v1.1.0': { kind: 'from' as const, need: '1.1.0', from: '0.1.15', until: { last: '0.1.21', next: '0.1.22', major: 2 } },
+      'v1.2.0': { kind: 'unreleased' as const, need: '2.11.0', newest: { app: '0.1.41', protocol: '2.10.0' } },
+      'v1.3.0': { kind: 'unknown' as const, need: '2.11.0' },
+    }
+    for (const tag of Object.keys(cases)) {
+      for (const have of [{}, { app: '0.1.20' }, { protocol: '2.10.0' }, { protocol: '2.12.0' }]) {
+        const badge = compatBadge(release({ works: cases }), tag, have)!
+        expect(badge.text).toMatch(/Kehikot/)
+        expect(badge.text).not.toMatch(/protocol/i)
+        expect(badge.tip).not.toMatch(/protocol/i)
+        expect(badge.detail).toMatch(/^module protocol \d/)
+      }
+    }
   })
 
   test('nothing when nothing is known', () => {

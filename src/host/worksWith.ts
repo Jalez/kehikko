@@ -122,23 +122,33 @@ export function worksWith(need: string, apps: readonly AppProtocol[] | null): Wo
 }
 
 /**
- * The sentence: "Works with Kehikot 0.1.39 and later", "Works with Kehikot
- * 0.1.15 to 0.1.21 (0.1.22 moved to protocol 2)", "Needs a Kehikot newer than
- * 0.1.41 (module protocol 2.11 or later)", or, when the apps are not known,
- * "Needs a newer Kehikot (module protocol 2.6 or later)".
+ * The sentence, in app versions only: "Works with Kehikot 0.1.39 and later",
+ * "Works with Kehikot 0.1.15 to 0.1.21 (not 0.1.22 and later)", "Needs a
+ * Kehikot newer than 0.1.41", or, when the apps are not known, "Needs a newer
+ * Kehikot". The protocol behind it is `worksWithDetail`, for a tooltip.
  */
 export function worksWithSaid(works: WorksWith): string {
   switch (works.kind) {
     case 'from':
       if (!works.until) return works.runningOnly && !works.from ? 'Works with this Kehikot and later' : `Works with Kehikot ${works.from} and later`
-      return `Works with Kehikot ${works.from === works.until.last ? works.from : `${works.from} to ${works.until.last}`} (${works.until.next} moved to module protocol ${works.until.major})`
+      return `Works with Kehikot ${works.from === works.until.last ? works.from : `${works.from} to ${works.until.last}`} (not ${works.until.next} and later)`
     case 'unreleased':
-      return `Needs a Kehikot newer than ${works.newest.app} (module protocol ${protocolSaid(works.need)} or later)`
+      return `Needs a Kehikot newer than ${works.newest.app}`
     case 'none':
-      return `Needs a Kehikot newer than any release so far (module protocol ${protocolSaid(works.need)} or later)`
+      return 'Needs a Kehikot newer than any release so far'
     case 'unknown':
-      return `Needs a newer Kehikot (module protocol ${protocolSaid(works.need)} or later)`
+      return 'Needs a newer Kehikot'
   }
+}
+
+/**
+ * The module-protocol detail behind `worksWithSaid`, for a tooltip only: "module
+ * protocol 2.6 or later", "module protocol 1.4 or later; 0.1.22 moved to module
+ * protocol 2". A person reads app versions; this is for whoever wants the why.
+ */
+export function worksWithDetail(works: WorksWith): string {
+  const need = `module protocol ${protocolSaid(works.need)} or later`
+  return works.kind === 'from' && works.until ? `${need}; ${works.until.next} moved to module protocol ${works.until.major}` : need
 }
 
 /**
@@ -208,8 +218,10 @@ export function appVersionsIn(text: string, apps: readonly AppProtocol[] | null 
   })
 }
 
-/** An install refused for want of a newer app: "Notes needs Kehikot 0.1.110 or later (module protocol 2.50 needed; this one has 2.49)." */
+/**
+ * An install refused for want of a newer app, in app versions: "Notes needs Kehikot 0.1.110 or later."
+ * The protocol behind it is for a tooltip (`protocolDetailSaid`), never this sentence.
+ */
 export function installRefusedSaid(name: string, newer: { protocol: string; has: string; app?: string }): string {
-  const what = newer.app ? `Kehikot ${newer.app} or later` : 'a newer Kehikot than this one'
-  return `${name} needs ${what} (module protocol ${protocolSaid(newer.protocol)} needed; this one has ${protocolSaid(newer.has)}).`
+  return `${name} needs ${newer.app ? `Kehikot ${newer.app} or later` : 'a newer Kehikot than this one'}.`
 }

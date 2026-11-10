@@ -16,7 +16,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
  */
 
 const inChild = process.env.MODULE_HELP_DOM === '1'
-const TESTS = 4
+const TESTS = 5
 
 const HELP = {
   summary: 'Shows one list for the picked thing.',
@@ -114,6 +114,34 @@ function Opened({ onClosed }: { onClosed(): void }) {
 
 describe('the dialog', () => {
   if (!inChild) return
+
+  test('"About <name>" for a module with no how-to: its summary, what it tells agents, the list’s words and tags, and the missing how-to', async () => {
+    const was = globalThis.fetch
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).startsWith('/host/official')) {
+        return new Response(
+          JSON.stringify({ modules: [{ id: 'kehikot.lists', name: 'Lists', repo: 'o/lists', summary: 'Lists, kept per epic.', tags: ['planning'], installed: true }] }),
+        )
+      }
+      return new Response(JSON.stringify({ modules: [], adoptable: [] }))
+    }) as typeof fetch
+    try {
+      await render(<Help.ModuleAboutDialog open onOpenChange={() => {}} id="kehikot.lists" name="Lists" summary="Shows lists." says="Use it to keep a list." />)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+      expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)!.textContent).toBe('About Lists')
+      expect(document.getElementById(dialog.getAttribute('aria-describedby')!)!.textContent).toBe('Shows lists.')
+      expect([...dialog.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['What it does', 'Filed under', 'How to use'])
+      expect(dialog.textContent).toContain('Use it to keep a list.')
+      expect(dialog.textContent).toContain('Lists, kept per epic.')
+      expect(dialog.textContent).toContain('planning')
+      expect(dialog.textContent).toContain("This module hasn't written a how-to yet.")
+    } finally {
+      globalThis.fetch = was
+    }
+  })
 
   test('is a labelled dialog: the title, the summary, a heading per section and a bullet per point', async () => {
     await render(<Opened onClosed={() => {}} />)

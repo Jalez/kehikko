@@ -24,6 +24,8 @@ export interface FramedModule {
   tags?: string[]
   /** What this module says its presence implies for an agent. */
   guidance?: string
+  /** When an agent should use it, in one line (protocol 2.36.0): read here only for "About <name>". Absent: it says none. */
+  agentSays?: string
   entry: string
   /** Its stable frame address on the host, when it has one (`src/host/moduleAddress.ts`). `addressCheck.ts` moves `entry` onto it once the page reached the host there. */
   address?: string

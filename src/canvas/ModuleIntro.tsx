@@ -56,7 +56,7 @@ function asModal(slide: ShownSlide): ModalSlide {
 }
 
 /** The list's entry for a module not installed here, read while the dialog is open; polled while it installs. */
-function useListed(id: string, wanted: boolean, asked: number) {
+export function useListed(id: string, wanted: boolean, asked = 0) {
   const [entry, setEntry] = useState<OfficialModule | null>(null)
   useEffect(() => {
     if (!wanted) return

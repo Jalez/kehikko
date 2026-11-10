@@ -280,7 +280,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await act(async () => whatsNew.click())
     await settle()
     const said = [...document.querySelectorAll('[data-testid="release-notes-works"]')].map((one) => one.textContent)
-    expect(said).toEqual(['Works with Kehikot 0.1.39 and later', 'Needs a newer Kehikot (module protocol 2.6 or later)'])
+    expect(said).toEqual(['Works with Kehikot 0.1.39 and later', 'Needs a newer Kehikot'])
   })
 
   test('up to date, with a newer release that needs a newer Kehikot: said once, in two lines', async () => {

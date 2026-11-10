@@ -289,8 +289,8 @@ export function Container({
   /** Open the host's skills window for this module (protocol 2.5.0). Absent: no Skills row. */
   onSkills?(): void
   /**
-   * Open the module's "How to use" (protocol 2.52.0). A "How to use…" row in its Help menu only when
-   * the module's manifest says how (`helpFor`); absent: never.
+   * Open the module's "How to use" (protocol 2.52.0) when its manifest says how (`helpFor`), else its
+   * "About <name>" — the same row of its Help menu either way. Absent: no such row.
    */
   onHelp?(): void
   /**
@@ -425,7 +425,11 @@ export function Container({
     onTools,
     skills: presence.module?.declares.skills,
     onSkills,
-    onHelp: onHelp && helpFor(presence.module) ? onHelp : undefined,
+    /* Help is never missing: a module that wrote no how-to gets "About <name>…" in the same place.
+       Introduction is left out instead when there is none — a generic one would say only what About
+       says — and the menu's order stays the same either way (`HELP_ENTRIES`). */
+    onHelp,
+    helpWritten: helpFor(presence.module) !== null,
     onIntro: onIntro && introFor(presence.module) ? onIntro : undefined,
     onNotes,
     prompted: presence.module?.declares.prompt === true,

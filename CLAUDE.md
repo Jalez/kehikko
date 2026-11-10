@@ -278,7 +278,10 @@
   higher of its pin and the list entry's `protocol`; the first app on the same
   major that meets it is "Works with Kehikot 0.1.39 and later", with an upper
   bound only once an app on a higher major exists. Without the mapping it says
-  "Needs protocol 2.6 or later", never a guessed app. Words and rules:
+  "Needs a newer Kehikot", never a guessed app. A person reads APP versions
+  everywhere ("Kehikot 0.1.129+"); the protocol number is only in a tooltip
+  (`worksWithDetail`, `protocolDetailSaid`, the badge's `detail`) and in what
+  agents are told. Words and rules:
   `src/host/worksWith.ts`; per release on `ModuleRelease.works`. Shown in the
   Updates row, "What's new", a module's details (`/host/module-release`) and
   `module_versions`.
@@ -574,7 +577,11 @@
 - Every container has a Help menu that mirrors the app's own ("?" in the bar,
   `src/canvas/Help.tsx`): the same icon, title, order and words, spelled once in
   `src/host/helpMenu.ts` — Introduction…, How to use… (where the app has the
-  tour), What's new… (`openWhatsNew({ item })`), Feedback (`HELP_ENTRIES`). Its
+  tour), What's new… (`openWhatsNew({ item })`), Feedback (`HELP_ENTRIES`).
+  Help is never missing: a module with no `help` gets "About <name>…" in the
+  How to use row, the same dialog filled by `aboutHelp` (`src/host/moduleHelp.ts`)
+  from its summary, `agentSays` and list entry. Introduction is left out when a
+  module has none (a generic one would repeat About); the order never changes. Its
   own "?" trigger while the header has room, the "⋯"'s "Help" section (a column
   of its own) under 220. Introduction, How to use and Feedback are never
   Container rows, and there is no banner on a container offering an
@@ -727,8 +734,10 @@
   Simple Icons 16.33.0, CC0, `currentColor`). Never a path or URL; nothing is
   fetched. A key the protocol adds needs its entry in one of those two, which
   a test holds. A brand mark is only for a module that fronts that tool.
-- Which key: the module's manifest, then what it declared when it last
-  answered (`known_modules.icon`), then `icon` in its `modules.json` entry
+- Which key: the module's manifest, then its installed copy's, then what it
+  declared when it last answered (`known_modules.icon` in `frame.sqlite`, which
+  holds only the module's own word, never the list's — `settle` in
+  `server/known.ts`), then `icon` in its `modules.json` entry
   (`moduleIconFor`, `src/host/moduleIcon.ts`, resolved per presence in the
   sweep). Neither: the neutral frame with the name's initial. Each entry in
   `modules.json` has an icon, the same one its manifest declares, unique

@@ -145,18 +145,25 @@ export interface Said {
  * the module answered, so it must not outvote a list or a checkout that has moved on. A live
  * manifest, when there is one, outranks all of them (the server settles only a module that is not
  * answering, so it passes none). Null when nobody has a name.
+ *
+ * The ICON is the exception: it is the module's own word first — live, the installed copy, then the
+ * last one it declared (`own`, what is remembered) — and the list's only for a module that never said
+ * one. So a module is drawn the same before it answers and after, on every machine, and never flashes
+ * from the list's icon to its own.
  */
 export function settle(
   sources: { live?: Said | null; listed?: Said | null; installed?: Said | null; was?: Said | null },
-): { name: string; summary: string; tags: string[]; icon: string | null } | null {
+): { name: string; summary: string; tags: string[]; icon: string | null; own: string | null } | null {
   const order = [sources.live, sources.listed, sources.installed, sources.was].filter((one): one is Said => !!one)
   const name = order.find((one) => one.name)?.name
   if (!name) return null
+  const own = [sources.live, sources.installed, sources.was].find((one) => isModuleIcon(one?.icon))?.icon ?? null
   return {
     name,
     summary: order.find((one) => one.summary)?.summary ?? '',
     tags: [...(order.find((one) => one.tags?.length)?.tags ?? [])],
-    icon: order.find((one) => isModuleIcon(one.icon))?.icon ?? null,
+    icon: own ?? (isModuleIcon(sources.listed?.icon) ? sources.listed!.icon! : null),
+    own,
   }
 }
 
