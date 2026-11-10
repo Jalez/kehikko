@@ -118,6 +118,45 @@ export type Quiet =
   | { kind: 'script'; line: string }
   /** Everything loads, so the silence is the module's own. */
   | { kind: 'module'; line: string }
+  /** The host's own proxy refused the frame's address: the page never reached the module. */
+  | { kind: 'refused'; line: string }
+
+/**
+ * The header the host's module proxy puts on a refusal of its own (`refused` in
+ * `moduleProxy.ts`), so a refusal is told apart from a module that answered 502
+ * or 503 itself. Its body is the host's sentence, which is worth repeating.
+ */
+export const REFUSAL_HEADER = 'x-kehikot-refusal'
+
+/** As much of a refusal's sentence as is worth repeating. */
+const REFUSAL_CHARS = 400
+
+/**
+ * Which address to check for a quiet container: the one its frame was given.
+ *
+ * Since frames moved to stable addresses (`src/host/moduleAddress.ts`), a page
+ * is framed at `<label>.kehikot.localhost:<host port>` and reaches its module
+ * through the host's proxy (`moduleProxy.ts`), not at the module's own port.
+ * Checking the own port then misses everything the proxy refused — a frame that
+ * loaded before its module listened was given the proxy's 503 page, and the
+ * own port, asked a minute later, answered fine.
+ *
+ * `framed` is what the page says its frame was given. It is held to one of two
+ * addresses: the module's stable frame origin (`stable`, null while the
+ * addresses are off), or else its own entry. Only the ORIGIN of what the page
+ * said is compared; the path is always the module's own entry's, so a request
+ * cannot make the host fetch an address of its choosing.
+ */
+export function quietEntry(own: string, framed: string | null, stable: string | null): string {
+  if (!framed || !stable) return own
+  try {
+    if (new URL(framed).origin !== new URL(stable).origin) return own
+    const at = new URL(own)
+    return `${new URL(stable).origin}${at.pathname}${at.search}`
+  } catch {
+    return own
+  }
+}
 
 /**
  * Every script a document asks for, as written.
@@ -194,10 +233,29 @@ export function importsIn(js: string): string[] {
 }
 
 /**
+ * A fetch that asks the host's own proxy for a frame address, in process, with
+ * the frame's `Host` — what the browser's request for the frame went through —
+ * and an ordinary fetch for anything else. `answer` is `ModuleProxy.answer`.
+ */
+export function framedFetch<R>(
+  routeOf: (host: string, pathname: string) => R | null,
+  answer: (request: Request, route: R) => Promise<Response>,
+  plain: typeof fetch = fetch,
+): typeof fetch {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+    const route = routeOf(url.host, url.pathname)
+    if (route === null) return plain(input, init)
+    return answer(new Request(url, { headers: { host: url.host }, ...(init?.signal ? { signal: init.signal } : {}) }), route)
+  }) as unknown as typeof fetch
+}
+
+/**
  * The sentence a container should show instead of "it is not speaking".
  *
- * `entry` is the absolute URL the frame was given — the same one the host put
- * in `src`, so this asks for exactly what the browser asked for.
+ * `entry` is the absolute URL the frame was given (`quietEntry`): the stable
+ * frame address when the page frames modules there, so this asks for exactly
+ * what the browser asked for, through the same proxy (`framedFetch`).
  */
 export async function whyQuiet(
   name: string,
@@ -205,13 +263,19 @@ export async function whyQuiet(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<Quiet> {
-  const get = async (url: string): Promise<{ status: number; text: string; type: string } | null> => {
+  const get = async (url: string): Promise<{ status: number; text: string; type: string; refusal: string | null } | null> => {
     const abort = new AbortController()
     const timer = setTimeout(() => abort.abort(), timeoutMs)
     try {
       const response = await fetchImpl(url, { signal: abort.signal, redirect: 'follow' })
-      const text = response.ok ? (await response.text()).slice(0, PAGE_BYTES) : ''
-      return { status: response.status, text, type: response.headers.get('content-type') ?? '' }
+      const refusing = !response.ok && response.headers.get(REFUSAL_HEADER) !== null
+      const text = response.ok || refusing ? (await response.text()).slice(0, PAGE_BYTES) : ''
+      return {
+        status: response.status,
+        text: refusing ? '' : text,
+        type: response.headers.get('content-type') ?? '',
+        refusal: refusing ? text.trim().slice(0, REFUSAL_CHARS) || `it answered ${response.status}` : null,
+      }
     } catch {
       return null
     } finally {
@@ -226,6 +290,14 @@ export async function whyQuiet(
       line:
         `${name} answers at its address, but the page this container was given — ${entry} — did not come back. `
         + 'The module is running and is not serving what its manifest says it serves.',
+    }
+  }
+  if (page.refusal !== null) {
+    return {
+      kind: 'refused',
+      line:
+        `The host did not pass on the page this container was given — ${entry} answered ${page.status}: ${page.refusal} `
+        + 'The page never reached the module, so nothing in it could answer.',
     }
   }
   if (page.status !== 200) {
@@ -304,6 +376,7 @@ export async function whyQuiet(
           `${name} served its page, but a script that page needs did not load: ${broken.url} answered `
           + `${broken.got ? broken.got.status : 'nothing'}`
           + (from && from !== entry ? `, and ${from} imports it` : '')
+          + (broken.got?.refusal ? ` (the host refused it: ${broken.got.refusal.replace(/\.$/, '')})` : '')
           + '. The page fetches without running, so nothing in the module ever gets as far as answering. '
           + 'The container will stay blank until that resolves.',
       }
@@ -334,7 +407,7 @@ export async function whyQuiet(
   return {
     kind: 'module',
     line:
-      `${name} served its page and every script in it, so the page is loading and choosing not to answer. `
+      `${name} served its page at ${entry} and every script in it, so the page is loading and choosing not to answer. `
       + (scripts.length === 0
         ? 'Its page asks for no scripts at all, which would explain it.'
         : `That is a fault inside the module rather than in how it is served — ${seen.size} `

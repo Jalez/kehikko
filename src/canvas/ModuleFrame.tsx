@@ -290,8 +290,14 @@ export function ModuleFrame({
         header: (items) => watcherRef.current.header(items),
         footer: (items) => watcherRef.current.footer?.(items),
         pointer: (phase, at) => watcherRef.current.pointer?.(phase, at),
+        /* The page again, from the same address: setting `src` navigates even
+           when it is unchanged, and the new document is greeted on its `load`. */
+        retry: () => {
+          const src = frame.getAttribute('src')
+          if (src) frame.setAttribute('src', src)
+        },
       },
-      { name: framed.name },
+      { name: framed.name, entry: framed.entry },
     )
     conversationRef.current = conversation
     /* A new conversation for this frame starts from what the rows cover now. */

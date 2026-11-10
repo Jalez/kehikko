@@ -179,6 +179,13 @@ export interface ConversationWatcher {
    * a held press inside its page (`host/rows.ts`).
    */
   pointer?(phase: 'down' | 'up' | 'cancel', at: number): void
+  /**
+   * Load the frame's page again, once, before it is reported silent: asked when
+   * the greeting went unanswered and the host's server says the module answers
+   * now. A page that loaded before its module listened was given the proxy's
+   * refusal, and nothing else ever loads it again. Absent: never retried.
+   */
+  retry?(): void
 }
 
 /** How long a module has to answer a greeting before it is reported silent. */
@@ -246,6 +253,8 @@ export class Conversation {
   private visible = true
   private visibleTold: boolean | null = null
   private answered = false
+  /* Whether this frame's page was loaded again for an unanswered greeting (`retry`); cleared by an answer. */
+  private retried = false
   /** Whether the greeting's deadline has passed with no answer, so the container says so now. */
   private silenced = false
   /**
@@ -275,6 +284,8 @@ export class Conversation {
    * is a key; this is only ever printed.
    */
   private readonly name: string
+  /** The address the frame was given (`server/quiet.ts` checks that one), or null when not said. */
+  private readonly entry: string | null
   private readonly readyTimeoutMs: number
   private readonly wentTimeoutMs: number
   private readonly pressedTimeoutMs: number
@@ -295,6 +306,8 @@ export class Conversation {
     options: {
       /** What the module calls itself, for the sentences a person reads. */
       name?: string
+      /** The address the frame was given, for the server to check when it goes quiet (`server/quiet.ts`). */
+      entry?: string
       session?: string
       readyTimeoutMs?: number
       wentTimeoutMs?: number
@@ -305,6 +318,7 @@ export class Conversation {
   ) {
     this.pressed = options.pressed ?? (() => pressFreshFor(moduleId))
     this.name = options.name ?? moduleId
+    this.entry = options.entry ?? null
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
@@ -372,6 +386,11 @@ export class Conversation {
         this.sayFailure()
         return
       }
+      /* Once, before anything is said: load the page again if the module answers now. */
+      if (!this.retried && this.watcher.retry) {
+        void this.retryOrSay()
+        return
+      }
       /*
        * Said immediately, then improved on.
        *
@@ -407,24 +426,60 @@ export class Conversation {
    * checks after the await are for.
    */
   private async diagnose(): Promise<void> {
+    const said = await this.quiet()
+    /* It answered while the host was asking, or the container went away. Either
+       way the sentence below would be describing a moment that has passed. */
+    if (this.answered || this.closed) return
+    /* The page said why while the host was asking; its own words stand. */
+    if (this.failure) return
+    if (said) this.watcher.silent(said.line)
+  }
+
+  /**
+   * What the host's server makes of this quiet module, or null when it did not
+   * say. Never throws: a host that threw while explaining a quiet module would
+   * be a worse failure than the one being explained. `framed` is the address
+   * the frame was given; the server holds it to the module's own addresses.
+   */
+  private async quiet(): Promise<{ kind: string; line: string } | null> {
     try {
-      const response = await fetch(`/host/quiet?id=${encodeURIComponent(this.moduleId)}`, {
+      const framed = this.entry ? `&framed=${encodeURIComponent(this.entry)}` : ''
+      const response = await fetch(`/host/quiet?id=${encodeURIComponent(this.moduleId)}${framed}`, {
         headers: { accept: 'application/json' },
       })
-      if (!response.ok) return
-      const said = (await response.json()) as { ok?: boolean; line?: unknown }
-      /* It answered while the host was asking, or the container went away. Either
-         way the sentence below would be describing a moment that has passed. */
-      if (this.answered || this.closed) return
-      /* The page said why while the host was asking; its own words stand. */
-      if (this.failure) return
-      if (said?.ok && typeof said.line === 'string' && said.line.length > 0) {
-        this.watcher.silent(said.line)
-      }
+      if (!response.ok) return null
+      const said = (await response.json()) as { ok?: boolean; kind?: unknown; line?: unknown }
+      if (!said?.ok || typeof said.line !== 'string' || said.line.length === 0) return null
+      return { kind: typeof said.kind === 'string' ? said.kind : '', line: said.line }
     } catch {
-      /* The general sentence already stands. A host that threw while explaining
-         a quiet module would be a worse failure than the one being explained. */
+      return null
     }
+  }
+
+  /**
+   * The first unanswered greeting of this frame: when the server says the
+   * module answers now (anything but `gone`), the page is loaded again — it was
+   * very likely loaded before its module listened, and given the proxy's
+   * refusal — and greeted again on its `load`. Only once; an answer clears it.
+   * Otherwise, or after the one retry, what the server found is said.
+   */
+  private async retryOrSay(): Promise<void> {
+    const said = await this.quiet()
+    if (this.answered || this.closed) return
+    if (this.failure) {
+      this.sayFailure()
+      return
+    }
+    if (!this.retried && said && said.kind !== 'gone' && this.watcher.retry) {
+      this.retried = true
+      this.silenced = false
+      this.watcher.retry()
+      return
+    }
+    this.watcher.silent(
+      said?.line
+        ?? `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this container is not speaking.`,
+    )
   }
 
   /**
@@ -739,6 +794,7 @@ export class Conversation {
     switch (message.type) {
     case MESSAGE.READY: {
       this.answered = true
+      this.retried = false
       if (this.readyTimer) clearTimeout(this.readyTimer)
       const later = this.openedLater
       this.openedLater = null

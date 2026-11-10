@@ -161,20 +161,75 @@ export interface NoticeFit {
  * hand is looked at, so the new document is asked of a server that answers.
  * A run that goes away — the host itself restarted and holds nothing — is not
  * a restart of the module, and reloads nothing.
+ *
+ * And a module that comes back after a reading said it was not answering —
+ * the app starting, a frame loaded before its module listened — gets a new
+ * document when its page is not answering, as does one registered at another
+ * address. Debounced (`RELOAD_CALM_MS`).
  */
 export class Runs {
-  #settled = new Map<string, number | undefined>()
+  #settled = new Map<string, { run: number | undefined; at: string | undefined; down: boolean }>()
+  /* When each module's frame was last given a new document, and the ones owed one after the calm. */
+  #reloaded = new Map<string, number>()
+  #owed = new Set<string>()
 
-  seen(presences: readonly { id: string; condition: ModuleCondition; lifecycle?: Said['lifecycle']; run?: number }[]): string[] {
-    const again: string[] = []
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly calm: number = RELOAD_CALM_MS,
+  ) {}
+
+  /**
+   * `answering`: whether the module's page is answering now. A module that
+   * comes back on the same process is reloaded only when its page is not — it
+   * was very likely loaded while nothing listened, and given the proxy's
+   * refusal; a page that answers lost nothing.
+   */
+  seen(
+    presences: readonly { id: string; condition: ModuleCondition; lifecycle?: Said['lifecycle']; run?: number; at?: string }[],
+    answering: (id: string) => boolean = () => false,
+  ): string[] {
+    const again = new Set<string>()
+    const now = this.now()
     for (const one of presences) {
-      if (one.condition !== 'ready' || one.lifecycle) continue
-      if (one.run !== undefined && this.#settled.has(one.id) && this.#settled.get(one.id) !== one.run) again.push(one.id)
-      this.#settled.set(one.id, one.run)
+      const was = this.#settled.get(one.id)
+      if (one.condition !== 'ready') {
+        if (was) was.down = true
+        else this.#settled.set(one.id, { run: one.run, at: one.at, down: true })
+        continue
+      }
+      if (one.lifecycle) continue
+      if (was) {
+        /* Another process of the host's, or the same module at another address: the old document is the old server's. */
+        const moved = (one.run !== undefined && was.run !== one.run) || (one.at !== undefined && was.at !== undefined && was.at !== one.at)
+        /* Back from not answering, and its page never heard from it. */
+        const back = was.down && !answering(one.id)
+        if (moved || back) again.add(one.id)
+      }
+      this.#settled.set(one.id, { run: one.run, at: one.at, down: false })
     }
-    return again
+    for (const id of this.#owed) again.add(id)
+    const out: string[] = []
+    for (const id of again) {
+      const last = this.#reloaded.get(id)
+      /* Not in a loop: one new document per calm, and one owed after it. */
+      if (last !== undefined && now - last < this.calm) {
+        this.#owed.add(id)
+        continue
+      }
+      this.#owed.delete(id)
+      this.#reloaded.set(id, now)
+      out.push(id)
+    }
+    return out
   }
 }
+
+/**
+ * How long after giving a module's frame a new document another is held back
+ * (`Runs`): a module that is starting answers, drops and answers again, and its
+ * page must not be reloaded on every reading.
+ */
+export const RELOAD_CALM_MS = 5_000
 
 /** The sentence under the mark, one per state, in plain words. */
 export const COVER_WORDS: Record<Waiting, string> = {

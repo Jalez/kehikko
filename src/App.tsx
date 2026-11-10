@@ -526,6 +526,9 @@ export function App() {
    */
   const [rewritten, setRewritten] = useState<ContentChange[]>([])
   const [live, setLive] = useState<Record<string, Live>>({})
+  /* What each frame found, for `Runs.seen` inside `take`: a ref, because reading it should cause no render. */
+  const liveRef = useRef(live)
+  liveRef.current = live
   /**
    * What each module last declared for its container's menus
    * (`kehikot.header`), by module id. Held and handed to the container, which
@@ -1163,7 +1166,7 @@ export function App() {
     heldReading.current = view
     /* A module the host has restarted gets a new document, not the one the
        old server sent. See `Runs` in `host/standing.ts`. */
-    const again = runs.current.seen(view.presences)
+    const again = runs.current.seen(view.presences, (id) => liveRef.current[id]?.condition === 'ready')
     if (again.length) {
       setGenerations((was) => {
         const next = { ...was }
