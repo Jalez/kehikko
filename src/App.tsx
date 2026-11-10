@@ -77,6 +77,8 @@ import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
 import { targetOf } from './host/pinnedPlaces.ts'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
 import type { ConversationWatcher } from './host/conversation.ts'
+import { canBeAsked } from './host/find.ts'
+import { findControls, useFinds } from './canvas/useFinds.ts'
 import {
   addProject,
   chooseProject,
@@ -4653,6 +4655,22 @@ export function App() {
     [covers],
   )
 
+  /* The find bars over the containers (protocol 2.69.0, `host/find.ts`). ⌘F on the host's page opens
+     the bar of the container focus is in, else the one picked out, else the one shown large; a module
+     whose page was built before Find is not asked and is said not to be searchable. */
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const findTargetRef = useRef<() => string | null>(() => null)
+  findTargetRef.current = () =>
+    expandedNow?.module.id ?? (open?.placements ?? []).find((placement) => placement.selected)?.i ?? null
+  const finds = useFinds(
+    presses,
+    (id) => canBeAsked(liveRef.current[id]?.build?.protocol ?? null),
+    () => findTargetRef.current(),
+  )
+  const findsRef = useRef(finds)
+  findsRef.current = finds
+
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
       ready: (_protocol, build) => {
@@ -4720,6 +4738,9 @@ export function App() {
         pressedAtRef.current.delete(id)
         onClickMove(phase === 'up' && since !== undefined ? { kind: 'release', held: at - since } : { kind: 'release', held: 0 })
       },
+      /* Find (protocol 2.69.0): what a search came to, and ⌘F pressed inside the page. */
+      findResult: (result) => findsRef.current.result(id, result),
+      findOpen: (asked) => findsRef.current.open(id, asked),
     }),
     [covers, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
   )
@@ -5185,6 +5206,7 @@ export function App() {
                   onActivitySeen={() =>
                     inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
                   }
+                  find={findControls(finds, presence.id)}
                 />
               </div>
             )
@@ -5245,6 +5267,7 @@ export function App() {
             body={body(EXPANDED_BODY)}
             onShrink={() => setExpanded(null)}
             onMoved={remeasure}
+            find={findControls(finds, expandedNow.module.id)}
           />
         ) : null}
           </>
