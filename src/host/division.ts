@@ -97,6 +97,10 @@ export const ANSWERED_BY_THE_SERVER = [
   /* Protocol 2.81.0: who provides a service here, from the last sweep's
      manifests and the kehikko's placements. See `server/services.ts`. */
   'services.find',
+  /* Protocol 2.85.0: the place a session is filed under, by its own id, from
+     the records the door reads (`placeOfSession` in `server/placeRoutes.ts`).
+     A module's SERVER asks it; `answer` declines it from a page. */
+  'sessions.placeOf',
 ] as const
 
 /**

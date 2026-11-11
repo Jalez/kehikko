@@ -21,6 +21,7 @@ import {
   resolveHere,
   sessionOf,
   settledPlace,
+  tokensOf,
   wellFormed,
   type AskRecord,
   type Here,
@@ -453,5 +454,27 @@ export function placeDesk(deps: PlaceDeps) {
     return null
   }
 
-  return { route, places, resolve }
+  /**
+   * `sessions.placeOf` (protocol 2.85.0): the place the agent session with this id is filed under in
+   * the project at `root`, from the same records a door call is answered from — each token issued in
+   * that project, asked of the module that issued it (`ask`, kept for a moment like every other ask),
+   * the most recently used first. The record whose conversation is that session wins; none: null.
+   * Reads nothing in the project and names no module.
+   */
+  async function placeOfSession(root: string, session: string): Promise<{ epic: string | null; parts: string[]; kehikko: string | null } | null> {
+    const at = projectAt(db, root)
+    if (!at?.uid || !session) return null
+    const project = projectByUid(db, at.uid)
+    if (!project) return null
+    const tokens = tokensOf(db, at.uid)
+    for (let i = 0; i < tokens.length; i += 8) {
+      const batch = tokens.slice(i, i + 8)
+      const said = await Promise.all(batch.map((one) => ask(one.module, one.token, project).catch(() => null)))
+      const found = said.find((one) => one?.conversation === session)
+      if (found) return { epic: found.epic, parts: found.parts, kehikko: found.kehikko }
+    }
+    return null
+  }
+
+  return { route, places, resolve, placeOfSession }
 }

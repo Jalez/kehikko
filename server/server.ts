@@ -3227,6 +3227,8 @@ const serverAsk = serverAskDesk({
       servicesHere,
     ),
   messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
+  /* Where a session is filed (protocol 2.85.0): the records the door reads. */
+  placeOf: (root, session) => placeRoutes.placeOfSession(root, session),
 })
 
 /*

@@ -57,6 +57,7 @@ const PARAMS: Record<string, unknown> = {
   'projects.mine': {},
   'messages.notifySession': { session: 'conv-alpha-0001', body: 'hi' },
   'services.find': { service: 'work.queue' },
+  'sessions.placeOf': { session: 'conv-alpha-0001' },
   'inbox.read': {},
   'inbox.log': {},
   'inbox.act': { do: 'seen', keys: [{ module: 'a', id: 'b' }] },
