@@ -40,9 +40,11 @@ import {
   type BranchChange,
   type BoardsRead,
   type HeldBoard,
+  type ListHow,
   type Me,
   type Read,
 } from './common.ts'
+import { closedSince, kindOf, type Reads } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
 import type { Source } from './sources.ts'
 
@@ -671,12 +673,17 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
    * (`Pace`). A page that fails after the first keeps the pages already read,
    * with the sentence why (`partial`); only a first page that fails fails it.
    */
-  async function pages(source: Source, what: 'issues' | 'merge_requests', limit: number): Promise<{ items: unknown[]; partial?: string } | string> {
+  async function pages(
+    source: Source,
+    what: 'issues' | 'merge_requests',
+    limit: number,
+    filter = 'state=all',
+  ): Promise<{ items: unknown[]; partial?: string } | string> {
     const out: unknown[] = []
     const size = pace.size(source.host, PER_PAGE)
     for (let page = 1; out.length < limit; page += 1) {
       const ran = await glab(
-        [`${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=${size}&page=${page}`],
+        [`${project(source)}/${what}?${filter}&order_by=updated_at&sort=desc&per_page=${size}&page=${page}`],
         source,
       )
       const got = ran.code === 0 ? parsed(ran) : null
@@ -688,6 +695,36 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
       if (got.length < size) break
     }
     return { items: out.slice(0, limit) }
+  }
+
+  /**
+   * One collection as a source's `reads` narrow it (Jalez/kehikko#318): only
+   * what changed since, every state, so a closing is seen too; open only; or
+   * every open item and the ones updated inside the closed window (two
+   * listings, one answer); or every state, as before. Only tasks, when only
+   * tasks are read.
+   */
+  async function listing(
+    source: Source,
+    what: 'issues' | 'merge_requests',
+    limit: number,
+    now: string,
+    how?: ListHow,
+  ): Promise<{ items: unknown[]; partial?: string } | string> {
+    const reads: Reads | undefined = how?.reads
+    const only = what === 'issues' && reads && reads.kinds.includes('tasks') && !reads.kinds.includes('issues') ? '&issue_type=task' : ''
+    if (how?.since) return pages(source, what, limit, `state=all&updated_after=${encodeURIComponent(how.since)}${only}`)
+    if (!reads || reads.closed === true) return pages(source, what, limit, `state=all${only}`)
+    const open = await pages(source, what, limit, `state=opened${only}`)
+    if (reads.closed === false || typeof open === 'string') return open
+    const after = closedSince(reads, Date.parse(now))!
+    const closed = await pages(source, what, limit, `state=all&updated_after=${encodeURIComponent(after)}${only}`)
+    if (typeof closed === 'string') return { items: open.items, partial: open.partial ?? partlyRead(closed, open.items.length) }
+    const seen = new Set(open.items.map((one) => String(obj(one).iid)))
+    return {
+      items: [...open.items, ...closed.items.filter((one) => !seen.has(String(obj(one).iid)))],
+      ...(open.partial ?? closed.partial ? { partial: open.partial ?? closed.partial } : {}),
+    }
   }
 
   /**
@@ -788,15 +825,25 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
       return { why: ran.code === 0 ? `glab did not say who is logged in to ${host}.` : trouble(ran, 'glab', host) }
     },
 
-    async list(source, limit, now): Promise<Read> {
-      const [issues, merges] = await Promise.all([pages(source, 'issues', limit), pages(source, 'merge_requests', limit)])
+    async list(source, limit, now, how?: ListHow): Promise<Read> {
+      const reads = how?.reads
+      const wantIssues = !reads || reads.kinds.includes('issues') || reads.kinds.includes('tasks')
+      const wantMerges = !reads || reads.kinds.includes('changes')
+      const none: { items: unknown[]; partial?: string } = { items: [] }
+      const [issues, merges] = await Promise.all([
+        wantIssues ? listing(source, 'issues', limit, now, how) : none,
+        wantMerges ? listing(source, 'merge_requests', limit, now, how) : none,
+      ])
       if (typeof issues === 'string') return { ok: false, why: issues }
       if (typeof merges === 'string') return { ok: false, why: merges }
       const partial = issues.partial ?? merges.partial
       const rows = [
         ...issues.items.map((one) => issueRow(source, one, now)),
         ...merges.items.map((one) => mergeRow(source, one, now)),
-      ].filter((one): one is TrackerRow => one !== null)
+      ]
+        .filter((one): one is TrackerRow => one !== null)
+        /* Tasks and plain issues come in one listing; the kind not read is left out here. */
+        .filter((one) => !reads || reads.kinds.includes(kindOf(one)))
       /* The REST list has no pipeline, no approval and no notes; the open
          merge requests are read again, batched, for all three, and the open
          issues beside them in the same queries for their notes (the last

@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { LIMITS, TRACKERS, type Tracker } from 'kehikot-module-protocol'
 
+import { readsOf, readsSaid, writtenReads, type ReadsWritten } from '../../src/host/trackerReads.ts'
 import { isReadOnlyRoot, makeUnderRoot, MISSING_SAID, projectRootExists, READ_ONLY_SAID, refusedSaid, sayMissing, sayReadOnly } from '../projectRoot.ts'
 import { configFile, EVERY_DEFAULT, listSources, readConfig, sourceKey, sourceOfRemote, splitRemote, type Listed } from './sources.ts'
 
@@ -26,7 +27,17 @@ import { configFile, EVERY_DEFAULT, listSources, readConfig, sourceKey, sourceOf
 export type Edit =
   | { kind: 'add'; input: string; tracker?: Tracker; host?: string; default?: boolean; list?: boolean }
   | { kind: 'remove'; tracker: Tracker; host: string; repo: string }
-  | { kind: 'set'; tracker: Tracker; host: string; repo: string; default?: boolean; list?: boolean; off?: boolean }
+  | {
+      kind: 'set'
+      tracker: Tracker
+      host: string
+      repo: string
+      default?: boolean
+      list?: boolean
+      off?: boolean
+      /** What its listing reads (Jalez/kehikko#318); null: back to everything, whole. */
+      reads?: ReadsWritten | null
+    }
   | { kind: 'schedule'; every: number }
   | { kind: 'remotes'; on: boolean }
 
@@ -115,7 +126,7 @@ export function nextStep(why: string, tracker: Tracker, host: string): string {
 }
 
 const ORDER = ['version', 'sources', 'remotes', 'every']
-const ENTRY_ORDER = ['tracker', 'host', 'repo', 'default', 'list', 'off']
+const ENTRY_ORDER = ['tracker', 'host', 'repo', 'default', 'list', 'off', 'reads']
 
 type Json = Record<string, unknown>
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -268,8 +279,21 @@ export function editTrackers(
       if (there.origin === 'remote' && edit.list) delete e.list
       else e.list = edit.list
     }
+    let readsNow: string | null = null
+    if (edit.reads !== undefined) {
+      /* Only the choices that differ from reading everything are written; none at all, no key. */
+      const reads = edit.reads === null ? null : readsOf(edit.reads)
+      if (edit.reads !== null && !reads) return declined('That is not a choice of what to read: kinds, closed and since.')
+      const written = reads ? writtenReads(reads) : null
+      if (written) e.reads = written
+      else delete e.reads
+      readsNow = readsSaid(reads, edit.tracker)
+    }
     if (bare(e) && there.origin === 'remote') entries.splice(i, 1)
-    said = `${edit.repo}${edit.off === true ? ' is turned off' : edit.off === false ? ' is read again' : ' is changed'}.`
+    said =
+      readsNow !== null && edit.off === undefined
+        ? `${edit.repo} reads ${readsNow}.`
+        : `${edit.repo}${edit.off === true ? ' is turned off' : edit.off === false ? ' is read again' : ' is changed'}.`
   } else if (edit.kind === 'schedule') {
     if (!Number.isInteger(edit.every) || edit.every < 0 || edit.every > 24 * 60) {
       return declined('How often is minutes, from 0 (never on its own) to 1440.')

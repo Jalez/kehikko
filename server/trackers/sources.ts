@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { LIMITS, TRACKERS, readTrackerRef, type Tracker } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
+import { isDefaultReads, readsOf, type Reads } from '../../src/host/trackerReads.ts'
 import type { Runner } from '../feedback.ts'
 import { hostPath } from '../hostData.ts'
 
@@ -52,6 +53,11 @@ export interface Source {
   default: boolean
   /** Its recent issues and changes are read, beyond the refs somebody named. */
   listed: boolean
+  /**
+   * What its listing reads (Jalez/kehikko#318): kinds, states, only what
+   * changed. Absent: everything, whole, every time. See `src/host/trackerReads.ts`.
+   */
+  reads?: Reads
 }
 
 /** The file, named once. */
@@ -75,6 +81,11 @@ const entrySchema = z.object({
    * whole and simply goes on reading the repository.
    */
   off: z.boolean().optional(),
+  /**
+   * What its listing reads (Jalez/kehikko#318). Additive as `off` is; and one
+   * this host cannot make sense of is left out rather than breaking the file.
+   */
+  reads: z.unknown().optional(),
 })
 
 const fileSchema = z.object({
@@ -212,12 +223,14 @@ export function sourcesOf(config: TrackerConfig, remotes: readonly string[], nam
     const host = hostOf(entry)
     if (isOff({ tracker: entry.tracker, host, repo: entry.repo })) continue
     const before = out.find((s) => same(s, { tracker: entry.tracker, host, repo: entry.repo }))
+    const reads = entry.reads === undefined ? null : readsOf(entry.reads)
     add({
       tracker: entry.tracker,
       host,
       repo: entry.repo,
       default: entry.default ?? before?.default ?? false,
       listed: entry.list ?? before?.listed ?? false,
+      ...(reads && !isDefaultReads(reads) ? { reads } : {}),
     })
   }
   /* One default per tracker: the file's choice, or else the first source of

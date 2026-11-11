@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { readsOf, readsSaid, readsSchema } from './trackerReads.ts'
+
 /**
  * A project's tracker sources as a person is told about them, in one place.
  *
@@ -25,6 +27,8 @@ export const listedSourceSchema = z.object({
   changes: z.number().nullable(),
   /** The boards the last read saw this source's items on, with their columns in board order. */
   boards: z.array(z.object({ board: z.string(), columns: z.array(z.string()) })).optional(),
+  /** What its listing reads, as the file says it (Jalez/kehikko#318); absent or null: everything, whole. */
+  reads: readsSchema.nullable().optional(),
 })
 export type ListedSource = z.infer<typeof listedSourceSchema>
 
@@ -128,6 +132,7 @@ export function listingText(listing: TrackerListing, now: number): string {
     (s) =>
       `- ${s.tracker} ${sourceName(s)}: ${rolesOf(s).join('; ')}.`
       + (s.off ? '' : ` ${s.error ? `Last read failed — ${s.error}` : `Last read: ${readSaid(s, now)}.`}`)
+      + (!s.off && s.listed ? ` Its listing reads ${readsSaid(readsOf(s.reads ?? {}), s.tracker)}.` : '')
       + (!s.off && s.boards?.length ? ` Boards — ${s.boards.map(boardSaid).join('; ')}.` : ''),
   )
   const schedule = listing.every > 0 ? `reads again every ${listing.every} minutes while somebody is looking` : 'does not read on a schedule'
@@ -160,6 +165,8 @@ export const trackerEditSchema = z.discriminatedUnion('kind', [
     default: z.boolean().optional(),
     list: z.boolean().optional(),
     off: z.boolean().optional(),
+    /** What its listing reads (Jalez/kehikko#318); null puts it back to everything, whole. */
+    reads: readsSchema.nullable().optional(),
   }),
   z.object({ kind: z.literal('schedule'), every: z.number().int().min(0).max(1440) }),
   z.object({ kind: z.literal('remotes'), on: z.boolean() }),

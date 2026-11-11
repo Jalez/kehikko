@@ -38,9 +38,11 @@ import {
   type Adapter,
   type BoardsRead,
   type BranchChange,
+  type ListHow,
   type Me,
   type Read,
 } from './common.ts'
+import { closedSince } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
 import type { Source } from './sources.ts'
 
@@ -663,21 +665,43 @@ export const PAGE = 50
  * newest created first, after the cursors given. `null` asks for the first
  * page; `false` leaves that half out (it has run out or is not wanted).
  */
+/**
+ * Which states and order one listing pass asks for (Jalez/kehikko#318). Absent:
+ * every state, newest created first, as a whole listing always was.
+ */
+export interface ListPass {
+  /** `open`: open only. `closed`: closed and merged only. Absent: every state. */
+  states?: 'open' | 'closed'
+  /** Newest updated first, so a pass can stop at an instant; issues are also filtered from it (`since`). */
+  updatedFrom?: string
+}
+
+/** The GraphQL states for a pass's half: GitHub spells an issue's and a pull request's apart. */
+const statesOf = (pass: ListPass, half: 'issues' | 'pulls'): string =>
+  pass.states === 'open' ? ', states: [OPEN]' : pass.states === 'closed' ? (half === 'issues' ? ', states: [CLOSED]' : ', states: [CLOSED, MERGED]') : ''
+
+/** An instant as it may go into a query: what `toISOString` writes, and nothing else. */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/
+
 export function listQuery(
   source: Source,
   after: { issues: string | null | false; pulls: string | null | false },
   boards = true,
   size = PAGE,
   branches = true,
+  pass: ListPass = {},
 ): string {
-  const page = (cursor: string | null) =>
-    `first: ${size}${cursor ? `, after: "${cursor}"` : ''}, orderBy: { field: CREATED_AT, direction: DESC }`
+  const from = pass.updatedFrom && INSTANT.test(pass.updatedFrom) ? pass.updatedFrom : null
+  const order = from ? 'UPDATED_AT' : 'CREATED_AT'
+  const page = (cursor: string | null, half: 'issues' | 'pulls') =>
+    `first: ${size}${cursor ? `, after: "${cursor}"` : ''}, orderBy: { field: ${order}, direction: DESC }${statesOf(pass, half)}`
+    + (from && half === 'issues' ? `, filterBy: { since: "${from}" }` : '')
   const parts: string[] = []
   if (after.issues !== false) {
-    parts.push(`issues(${page(after.issues)}) { pageInfo { hasNextPage endCursor } nodes { ${ISSUE_GRAPH(boards, branches)} } }`)
+    parts.push(`issues(${page(after.issues, 'issues')}) { pageInfo { hasNextPage endCursor } nodes { ${ISSUE_GRAPH(boards, branches)} } }`)
   }
   if (after.pulls !== false) {
-    parts.push(`pullRequests(${page(after.pulls)}) { pageInfo { hasNextPage endCursor } nodes { ${PULL_GRAPH(boards)} } }`)
+    parts.push(`pullRequests(${page(after.pulls, 'pulls')}) { pageInfo { hasNextPage endCursor } nodes { ${PULL_GRAPH(boards)} } }`)
   }
   return `query { ${repository(source)} {\n${parts.join('\n')}\n} }`
 }
@@ -777,45 +801,84 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now, pace:
       return branchChangesOf(parsed(ran))
     },
 
-    async list(source, limit, now): Promise<Read> {
+    async list(source, limit, now, how?: ListHow): Promise<Read> {
       if (source.repo.split('/').length !== 2) {
         return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
       }
+      const reads = how?.reads
+      const want = { issues: !reads || reads.kinds.includes('issues'), pulls: !reads || reads.kinds.includes('changes') }
       const issues: unknown[] = []
       const pulls: unknown[] = []
-      let after: { issues: string | null | false; pulls: string | null | false } = { issues: null, pulls: null }
       let boards = true
       let partial: string | undefined
-      while (after.issues !== false || after.pulls !== false) {
-        /* As many a page as the host answers comfortably; a page that ran over is asked again smaller. */
-        const size = pace.size(source.host, PAGE)
-        const got = await graph(source, (b, branches) => listQuery(source, after, b, size, branches))
-        if (got.ran.timedOut && size > 1) continue
-        boards &&= got.boards
-        const repo = obj(obj(obj(got.answer).data).repository)
-        if (!Object.keys(repo).length) {
-          const why = got.ran.code === 0 && obj(got.answer).data
-            ? 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.'
-            : trouble(got.ran, 'gh', source.host)
-          /* The pages already read are kept; only a first page that fails fails the listing. */
-          if (!issues.length && !pulls.length) return { ok: false, why }
-          partial = clip(`${why} The newest ${Math.min(issues.length, limit)} issues and ${Math.min(pulls.length, limit)} pull requests were read; the rest are as last read.`, LIMITS.REASON)
-          break
+
+      /**
+       * One listing pass, page by page, into `issues` and `pulls`. With
+       * `updatedFrom`, newest updated first, and a half stops at the first
+       * item updated before it. A page that fails after the first item was
+       * read keeps what was read (`partial`).
+       */
+      const pass = async (how: ListPass): Promise<string | null> => {
+        const start = { issues: issues.length, pulls: pulls.length }
+        let after: { issues: string | null | false; pulls: string | null | false } = {
+          issues: want.issues ? null : false,
+          pulls: want.pulls ? null : false,
         }
-        const next = (half: 'issues' | 'pullRequests', into: unknown[], was: string | null | false): string | null | false => {
-          if (was === false) return false
-          const connection = obj(repo[half])
-          into.push(...nodes(connection))
-          const info = obj(connection.pageInfo)
-          const cursor = str(info.endCursor)
-          return info.hasNextPage === true && into.length < limit && CURSOR.test(cursor) ? cursor : false
+        while (after.issues !== false || after.pulls !== false) {
+          /* As many a page as the host answers comfortably; a page that ran over is asked again smaller. */
+          const size = pace.size(source.host, PAGE)
+          const got = await graph(source, (b, branches) => listQuery(source, after, b, size, branches, how))
+          if (got.ran.timedOut && size > 1) continue
+          boards &&= got.boards
+          const repo = obj(obj(obj(got.answer).data).repository)
+          if (!Object.keys(repo).length) {
+            const why = got.ran.code === 0 && obj(got.answer).data
+              ? 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.'
+              : trouble(got.ran, 'gh', source.host)
+            /* The pages already read are kept; only a first page that fails fails the listing. */
+            if (!issues.length && !pulls.length) return why
+            partial = clip(`${why} The newest ${Math.min(issues.length, limit)} issues and ${Math.min(pulls.length, limit)} pull requests were read; the rest are as last read.`, LIMITS.REASON)
+            return null
+          }
+          const next = (half: 'issues' | 'pullRequests', into: unknown[], was: string | null | false, from: number): string | null | false => {
+            if (was === false) return false
+            const connection = obj(repo[half])
+            const got = nodes(connection)
+            const cutoff = how.updatedFrom ? Date.parse(how.updatedFrom) : null
+            /* An item without a time is kept: nothing says it is older. */
+            const fresh = cutoff === null ? got : got.filter((one) => !(Date.parse(str(obj(one).updatedAt)) < cutoff))
+            into.push(...fresh)
+            const info = obj(connection.pageInfo)
+            const cursor = str(info.endCursor)
+            const older = fresh.length < got.length
+            return info.hasNextPage === true && !older && into.length - from < limit && CURSOR.test(cursor) ? cursor : false
+          }
+          after = {
+            issues: next('issues', issues, after.issues, start.issues),
+            pulls: next('pullRequests', pulls, after.pulls, start.pulls),
+          }
         }
-        after = { issues: next('issues', issues, after.issues), pulls: next('pullRequests', pulls, after.pulls) }
+        return null
       }
-      const items = [...issues.slice(0, limit), ...pulls.slice(0, limit)]
+
+      /* Which passes a source's `reads` take (Jalez/kehikko#318): what changed since, in every
+         state so a closing is seen; open only; open, and what closed inside the window; or all. */
+      const passes: ListPass[] = how?.since
+        ? [{ updatedFrom: how.since }]
+        : !reads || reads.closed === true
+          ? [{}]
+          : reads.closed === false
+            ? [{ states: 'open' }]
+            : [{ states: 'open' }, { states: 'closed', updatedFrom: closedSince(reads, Date.parse(now))! }]
+      for (const one of passes) {
+        const failed = await pass(one)
+        if (failed) return { ok: false, why: failed }
+        if (partial) break
+      }
+      const items = [...issues, ...pulls]
       const rows = [
-        ...issues.slice(0, limit).map((one) => issueRow(source, one, now)),
-        ...pulls.slice(0, limit).map((one) => pullRow(source, one, now)),
+        ...issues.map((one) => issueRow(source, one, now)),
+        ...pulls.map((one) => pullRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
       return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items), ...(partial ? { partial } : {}) }
     },

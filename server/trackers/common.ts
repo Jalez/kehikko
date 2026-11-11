@@ -9,6 +9,7 @@ import {
   type TrackerRow,
 } from 'kehikot-module-protocol'
 
+import type { Reads } from '../../src/host/trackerReads.ts'
 import { timedOutSaid } from '../../src/host/trackerSources.ts'
 import { TIMEOUT_MS, type Ran } from '../feedback.ts'
 import type { Source } from './sources.ts'
@@ -82,9 +83,23 @@ export interface Wanted {
   kind: 'issue' | 'change' | null
 }
 
+/**
+ * How a listing narrows what it asks (Jalez/kehikko#318): the source's
+ * `reads`, and — for a read of only what changed — the instant to ask from.
+ * The reading keeps what it held of the rest.
+ */
+export interface ListHow {
+  reads: Reads
+  /** Ask only for what was updated at or after this instant. Null: a whole listing. */
+  since: string | null
+}
+
 export interface Adapter {
-  /** The source's recent issues and changes, up to `limit` of each. */
-  list(source: Source, limit: number, now: string): Promise<Read>
+  /**
+   * The source's recent issues and changes, up to `limit` of each — or, with
+   * `how`, only the kinds and states it reads, and only what changed since.
+   */
+  list(source: Source, limit: number, now: string, how?: ListHow): Promise<Read>
   /** These numbers, read one by one or in batches. */
   refs(source: Source, wanted: readonly Wanted[], now: string): Promise<Read>
   /** The detail of these rows, by number. */

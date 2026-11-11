@@ -22,6 +22,7 @@ import type { Inbox } from './inbox.ts'
 import type { AgentMessages } from './agentMessages.ts'
 import { activityRowsFor, earlierLines, readInboxText } from './inboxText.ts'
 import { listingText, rolesOf, sourceName } from '../src/host/trackerSources.ts'
+import { readsOf, READS_DEFAULT, writtenReads } from '../src/host/trackerReads.ts'
 import type { Edit } from './trackers/edit.ts'
 import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
@@ -1428,7 +1429,10 @@ function tools() {
         + '(https://github.com/owner/repo, git@host:group/proj.git) or owner/repo with tracker (and host for a '
         + 'self-hosted GitLab); "default" makes a source the one short spellings mean for its tracker (value: '
         + 'false does not leave a tracker without one); "list" sets whether its recent issues and changes are '
-        + 'listed; "off" stops reading a repository a git remote names (value: false turns it back on); "remove" '
+        + 'listed; "reads" narrows what a listed source\'s listing reads — kinds (issues, tasks, changes), closed '
+        + '(false: open only; a number: open and closed within that many days; true: every state) and since (only '
+        + 'what changed since the last read), each kept as it is when left out; a ref somebody names is still read; '
+        + '"off" stops reading a repository a git remote names (value: false turns it back on); "remove" '
         + 'takes out a source somebody added. A source named by a git remote cannot be removed, only turned off. '
         + 'This cannot log anybody in: if gh or glab is not logged in, the person must run its auth login in a '
         + 'terminal once. Writes .kehikot/host/trackers.json in the project; every container is told.',
@@ -1436,7 +1440,7 @@ function tools() {
         type: 'object',
         properties: {
           ...KEHIKKO_PROPERTY,
-          action: { type: 'string', enum: ['add', 'remove', 'default', 'list', 'off'] },
+          action: { type: 'string', enum: ['add', 'remove', 'default', 'list', 'off', 'reads'] },
           source: {
             type: 'string',
             description: 'For add: a repository link or owner/repo. For the rest: a source as read_tracker names it (owner/repo or host/group/project).',
@@ -1444,6 +1448,16 @@ function tools() {
           tracker: { type: 'string', enum: ['github', 'gitlab'], description: 'For add of owner/repo, or a link on a host that does not say.' },
           host: { type: 'string', description: 'For add of owner/repo on a self-hosted GitLab.' },
           value: { type: 'boolean', description: 'For default, list and off: on (default true) or off. For add: whether to make it the default.' },
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: ['issues', 'tasks', 'changes'] },
+            description: 'For reads: the kinds its listing reads (tasks: a GitLab work item type; changes: merge or pull requests).',
+          },
+          closed: {
+            type: ['boolean', 'integer'],
+            description: 'For reads: false reads open items only; a number of days (1 to 3650) also reads what closed or merged within it; true reads every state.',
+          },
+          since: { type: 'boolean', description: 'For reads: read only what changed since the last read, merged into what is held.' },
         },
         required: ['action', 'source'],
       },
@@ -2607,8 +2621,8 @@ async function setTrackerSourceAt(
   if (project.missing) return { text: missingSaid(project), failed: true }
   const action = args.action
   const source = typeof args.source === 'string' && args.source.length <= 600 ? args.source.trim() : ''
-  if (action !== 'add' && action !== 'remove' && action !== 'default' && action !== 'list' && action !== 'off') {
-    return { text: 'set_tracker_source needs action: add, remove, default, list or off.', failed: true }
+  if (action !== 'add' && action !== 'remove' && action !== 'default' && action !== 'list' && action !== 'off' && action !== 'reads') {
+    return { text: 'set_tracker_source needs action: add, remove, default, list, off or reads.', failed: true }
   }
   if (!source) return { text: 'set_tracker_source needs source: a repository link or owner/repo.', failed: true }
   const tracker = args.tracker === 'github' || args.tracker === 'gitlab' ? args.tracker : undefined
@@ -2636,14 +2650,28 @@ async function setTrackerSourceAt(
     }
     const one = found[0]!
     const key = { tracker: one.tracker, host: one.host, repo: one.repo }
-    edit =
-      action === 'remove'
-        ? { kind: 'remove', ...key }
-        : action === 'default'
-          ? { kind: 'set', ...key, default: value ?? true }
-          : action === 'list'
-            ? { kind: 'set', ...key, list: value ?? true }
-            : { kind: 'set', ...key, off: value ?? true }
+    if (action === 'reads') {
+      /* The choices not given stay as they are. */
+      const was = readsOf(one.reads ?? {}) ?? READS_DEFAULT
+      const next = readsOf({
+        kinds: args.kinds ?? was.kinds,
+        closed: args.closed ?? was.closed,
+        since: args.since ?? was.since,
+      })
+      if (!next) {
+        return { text: 'reads takes kinds (any of issues, tasks, changes; at least one), closed (true, false or 1 to 3650 days) and since (true or false). Nothing was changed.', failed: true }
+      }
+      edit = { kind: 'set', ...key, reads: writtenReads(next) }
+    } else {
+      edit =
+        action === 'remove'
+          ? { kind: 'remove', ...key }
+          : action === 'default'
+            ? { kind: 'set', ...key, default: value ?? true }
+            : action === 'list'
+              ? { kind: 'set', ...key, list: value ?? true }
+              : { kind: 'set', ...key, off: value ?? true }
+    }
   }
   const done = await trackers.edit(project.path, edit)
   if (done.outcome === 'declined') return { text: `${done.why} Nothing was changed.`, failed: true }
