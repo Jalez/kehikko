@@ -125,6 +125,13 @@ export function issue(db: Database, token: string, module: string, projectUid: s
   return true
 }
 
+/** The tokens issued in a project, most recently used first, at most `limit`: where `sessions.placeOf` asks (protocol 2.85.0). Touches none. */
+export function tokensOf(db: Database, projectUid: string, limit = 64): { token: string; module: string }[] {
+  return db
+    .query<{ token: string; module: string }, [string, number]>('select token, module from door_tokens where project_uid = ? order by used desc limit ?')
+    .all(projectUid, limit)
+}
+
 /** Who issued a token, or null. Touches it. */
 export function issuerOf(db: Database, token: unknown, now = Date.now()): { token: string; module: string; projectUid: string } | null {
   if (typeof token !== 'string' || !PLACE_TOKEN.test(token)) return null

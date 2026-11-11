@@ -7,6 +7,7 @@ import {
   needsProject,
   serverAskSchema,
   serverPassResult,
+  sessionsPlaceOfParams,
   type ServerAskRefusal,
   type ServerAskResult,
 } from 'kehikot-module-protocol'
@@ -58,6 +59,12 @@ export interface ServerAskDeps {
    * none. `messages.notifySession` (2.81.0): the session its id names, found by the host. Absent: refused.
    */
   messages?(module: string, method: string, params: unknown, root?: string | null): Promise<MessageAsked>
+  /**
+   * `sessions.placeOf` (protocol 2.85.0): the place the session with this id is filed under in the
+   * project at `root`, from the records the door reads (`placeOfSession` in `placeRoutes.ts`). Absent:
+   * answered with no place.
+   */
+  placeOf?(root: string, session: string): Promise<{ epic: string | null; parts: string[]; kehikko: string | null } | null>
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -158,6 +165,15 @@ export function serverAskDesk(deps: ServerAskDeps) {
       if (said.ok) return reply({ ok: true, data: said.data })
       if ('refused' in said) return refused('project', said.error)
       return reply({ ok: false, reason: 'failed', error: said.error.slice(0, LIMITS.REASON) })
+    }
+    /* Protocol 2.85.0: the place a session is filed under, in the project the question names. */
+    if (method === 'sessions.placeOf') {
+      const root = deps.projectAt(project ?? '')
+      if (!root) return refused('project', SERVER_ASK_SAYS.project)
+      const asked = sessionsPlaceOfParams.safeParse(params)
+      if (!asked.success) return reply({ ok: false, reason: 'failed', error: 'sessions.placeOf takes { session }: the session’s own id.' })
+      const place = deps.placeOf ? await deps.placeOf(root, asked.data.session).catch(() => null) : null
+      return reply({ ok: true, data: { place } })
     }
     /* A question about this computer names no project (protocol 2.20.0); the schema holds the rest to one. */
     /* `services.find` (protocol 2.81.0) names a project only to ask about a kehikko in it. */
