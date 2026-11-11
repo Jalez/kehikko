@@ -108,6 +108,7 @@ const nothingToShow = (method: string, data: unknown): Answer => {
 }
 const notMineToSay = (error: string): Answer => ({ ok: false, reason: 'failed', error })
 const NOTICE_FROM_A_PAGE = 'A notice goes from a module’s server to the session whose token asked it for something (askHost). A page has no such token.'
+const TELL_FROM_A_PAGE = 'News to the sessions at a place goes from a module’s server (askHost, messages.tell). A page has no server to tell from.'
 const NO_MESSAGES = 'This host was not given a record of messages to answer from.'
 const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
@@ -669,6 +670,10 @@ export function answer(
      `/host/server-ask` hands it to `server/messageRoutes.ts`. A page is no asker. */
   case 'messages.notify':
     return nothingToShow('messages.notify', { outcome: 'declined', why: NOTICE_FROM_A_PAGE })
+  /* Protocol 2.75.0: a module's server's news to the sessions at a place;
+     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page tells no one. */
+  case 'messages.tell':
+    return nothingToShow('messages.tell', { outcome: 'declined', why: TELL_FROM_A_PAGE })
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the

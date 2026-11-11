@@ -52,6 +52,7 @@ const PARAMS: Record<string, unknown> = {
   'messages.mine': {},
   'messages.post': { body: 'hi', to: { project: true } },
   'messages.notify': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', body: 'hi' },
+  'messages.tell': { to: { place: { epic: 'auth' } }, body: 'hi' },
   'messages.say': { body: 'hi', to: { project: true } },
 }
 

@@ -57,7 +57,7 @@ export interface ServerAskDeps {
    * the session the call's token names (`messageRoutes.ts`): the project is the token's, so these name
    * none. Absent: refused.
    */
-  messages?(module: string, method: string, params: unknown): Promise<MessageAsked>
+  messages?(module: string, method: string, params: unknown, root?: string | null): Promise<MessageAsked>
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -145,6 +145,16 @@ export function serverAskDesk(deps: ServerAskDeps) {
     if (method === 'messages.send' || method === 'messages.read' || method === 'messages.notify') {
       if (!deps.messages) return reply({ ok: false, reason: 'failed', error: 'This host keeps no messages.' })
       const said = await deps.messages(module, method, params)
+      if (said.ok) return reply({ ok: true, data: said.data })
+      if ('refused' in said) return refused('project', said.error)
+      return reply({ ok: false, reason: 'failed', error: said.error.slice(0, LIMITS.REASON) })
+    }
+    /* Protocol 2.75.0: a module's own news to the sessions at a place, in the project it names. */
+    if (method === 'messages.tell') {
+      if (!deps.messages) return reply({ ok: false, reason: 'failed', error: 'This host keeps no messages.' })
+      const root = deps.projectAt(project ?? '')
+      if (!root) return refused('project', SERVER_ASK_SAYS.project)
+      const said = await deps.messages(module, method, params, root)
       if (said.ok) return reply({ ok: true, data: said.data })
       if ('refused' in said) return refused('project', said.error)
       return reply({ ok: false, reason: 'failed', error: said.error.slice(0, LIMITS.REASON) })

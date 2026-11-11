@@ -46,6 +46,7 @@ let records: Record<string, { conversation: string; epic: string | null; parts: 
 let places: ReturnType<typeof placeDesk>
 let desk: ReturnType<typeof messageDesk>
 let ask: ReturnType<typeof serverAskDesk>
+let timers: { run: () => void; ms: number }[]
 
 /** Every request any party makes, routed: the host's routes, and each stand-in module's record and pass doors. */
 const net = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -99,14 +100,17 @@ beforeEach(() => {
     resolve: (token) => places.resolve(token, null),
     nameOf: (id) => ({ [A]: 'Alpha', [B]: 'Beta' })[id] ?? null,
     changed: (id) => changed.push(id),
+    projectIdAt: (root) => (root === folder ? project.id : null),
+    setTimer: (run, ms) => timers.push({ run, ms }),
   })
+  timers = []
   ask = serverAskDesk({
     known: (id) => id in ORIGIN,
     originOf: async (id) => ORIGIN[id] ?? null,
     may: (_id, capability) => capability === 'agents:message',
-    projectAt: () => null,
+    projectAt: (asked) => (asked === folder ? folder : null),
     answer: () => ({ ok: false, reason: 'failed', error: 'not here' }),
-    messages: (module, method, params) => desk.serverAnswer(module, method, params),
+    messages: (module, method, params, root) => desk.serverAnswer(module, method, params, root ?? null),
     fetch: net,
   })
   forgetMessageHosts()
@@ -289,6 +293,80 @@ describe('a module’s notice to the session that asked (protocol 2.54.0)', () =
 
   test('a page is no asker: messages.notify is declined there', () => {
     expect(answer(A, 'messages.notify', { token: TOKEN_A, body: 'hi' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
+  })
+})
+
+describe('news to the sessions at a place (protocol 2.75.0)', () => {
+  const at = (module: string, session: string, epic: string | null, parts: string[] = [], kehikko: string | null = null) => ({ module, session, epic, parts, kehikko })
+  const bodies = (module: string, session: string, epic: string | null, parts: string[] = [], kehikko: string | null = null) =>
+    store.deliver(project.id, at(module, session, epic, parts, kehikko)).messages.map((one) => one.body)
+
+  test('stamped as the module with no session, to the place; each session there reads it once, others never', async () => {
+    const said = await desk.serverAnswer(B, 'messages.tell', { to: { place: { epic: 'methods' } }, body: 'CI failed on #42', kind: 'report' }, folder)
+    expect(said).toMatchObject({ ok: true, data: { outcome: 'sent' } })
+    const [kept] = store.all(project.id)
+    expect(kept!.from).toEqual({ module: B, name: 'Beta', session: null, place: { epic: 'methods', parts: [], kehikko: null }, person: false })
+    expect(kept!.to).toEqual({ place: { epic: 'methods' } })
+    expect(changed).toEqual([project.id])
+    const [copy] = store.deliver(project.id, at(A, 's1', 'methods')).messages
+    expect(copy).toMatchObject({ body: 'CI failed on #42', kind: 'report', to: { place: { epic: 'methods' } }, from: { module: B, session: null } })
+    expect(bodies(A, 's1', 'methods')).toEqual([])
+    expect(bodies(A, 's2', 'methods', [], 'writing')).toEqual(['CI failed on #42'])
+    expect(bodies(A, 's3', 'results')).toEqual([])
+    /* The person sees it once, not once per session. */
+    expect(store.count(project.id)).toBe(1)
+    /* A session reading everything sees its copy, not the original. */
+    expect(store.read(project.id, at(A, 's1', 'methods'), { unread: false, limit: 20 }).messages).toHaveLength(1)
+  })
+
+  test('to parts: the sessions at any of them, and at the whole epic', async () => {
+    await desk.serverAnswer(B, 'messages.tell', { to: { place: { epic: 'methods', parts: ['intro'] } }, body: 'news about intro' }, folder)
+    expect(bodies(A, 'p1', 'methods', ['intro', 'data'])).toEqual(['news about intro'])
+    expect(bodies(A, 'p2', 'methods', ['data'])).toEqual([])
+    expect(bodies(A, 'p3', 'methods')).toEqual(['news about intro'])
+    expect((await desk.serverAnswer(B, 'messages.tell', { to: { place: { parts: ['intro'] } }, body: 'x' }, folder)).ok).toBe(false)
+  })
+
+  test('at most one per module and session a minute: the rest merged into one digest at its end, never dropped', async () => {
+    const tell = (module: string, body: string) => desk.serverAnswer(module, 'messages.tell', { to: { place: { epic: 'methods' } }, body }, folder)
+    await tell(B, 'first')
+    expect(bodies(A, 's', 'methods')).toEqual(['first'])
+    now += 10_000
+    expect(await tell(B, 'second')).toMatchObject({ data: { outcome: 'sent' } })
+    now += 10_000
+    await tell(B, 'third')
+    /* Another module is not held to that one's minute; a session that has had nothing yet is handed all of it at once. */
+    await tell('stand.gamma', 'from gamma')
+    expect(bodies(A, 's', 'methods')).toEqual(['from gamma'])
+    expect(bodies(A, 'late', 'methods')).toEqual(['3 updates:\n- first\n- second\n- third', 'from gamma'])
+    now += 41_000
+    expect(bodies(A, 's', 'methods')).toEqual(['2 updates:\n- second\n- third'])
+    expect(bodies(A, 's', 'methods')).toEqual([])
+    /* The sessions are told to read again when the minute is up. */
+    expect(timers.length).toBeGreaterThan(0)
+    const before = changed.length
+    timers[0]!.run()
+    expect(changed.length).toBe(before + 1)
+  })
+
+  test('through /host/server-ask, naming the project; a project this host does not hold is refused', async () => {
+    const said = await askHost('messages.tell', { to: { place: { kehikko: writing.key } }, body: 'Build broke' }, { module: B, project: folder, env: { KEHIKOT_ORIGINS: HOST }, fetch: net })
+    expect(said).toMatchObject({ ok: true, data: { outcome: 'sent' } })
+    expect(bodies(A, 'k', 'methods', [], writing.key)).toEqual(['Build broke'])
+    const elsewhere = await desk.serverAnswer(B, 'messages.tell', { to: { place: { epic: 'methods' } }, body: 'x' }, '/nowhere')
+    expect(elsewhere).toMatchObject({ ok: false, refused: 'project' })
+  })
+
+  test('a page tells no one: messages.tell is declined there', () => {
+    expect(answer(A, 'messages.tell', { to: { place: { epic: 'methods' } }, body: 'hi' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
+  })
+
+  test('a session’s message to some parts reaches the sessions at them and at the whole epic', async () => {
+    await issue(A, TOKEN_A)
+    await desk.serverAnswer(A, 'messages.send', { token: TOKEN_A, body: 'about data', to: { place: { epic: 'methods', parts: ['data'] } } })
+    expect(bodies(B, 'd', 'methods', ['data'])).toEqual(['about data'])
+    expect(bodies(B, 'i', 'methods', ['intro'])).toEqual([])
+    expect(bodies(B, 'w', 'methods')).toEqual(['about data'])
   })
 })
 

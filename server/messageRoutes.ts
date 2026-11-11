@@ -9,8 +9,10 @@ import {
   messageReadResult,
   messageSendParams,
   messageSendResult,
+  messageTellParams,
   type AgentMessage,
 } from 'kehikot-module-protocol'
+import { TELL_EVERY_MS } from 'kehikot-module-protocol/serve'
 
 import type { AgentMessages, Extras, Reader } from './agentMessages.ts'
 import { sessionIdOf } from './agentMessages.ts'
@@ -32,6 +34,11 @@ import type { Database } from 'bun:sqlite'
  *    notice to the one session whose token came with its request — any
  *    module's token, since a session hands it to every door it calls. Sent to
  *    that session only, stamped with no session and the asker's place.
+ *  - `messages.tell` (protocol 2.75.0), from a module's SERVER naming its
+ *    project: its own news to every session at a place (an epic, some of its
+ *    parts, a kehikko), stamped with no session and that place. Each session
+ *    there is handed at most one from the module a minute; what comes faster
+ *    is merged into one digest at the minute's end (`agentMessages.ts`).
  *  - `POST /host/place` with `messages: true` (`placeRoutes.ts`): the session's
  *    unread, handed for its notes and counted delivered (`forNotes`).
  *  - `GET  /host/messages?project=N[&limit=]` — every message of the project,
@@ -61,6 +68,10 @@ export interface MessageDeps {
   may?(module: string, capability: string): boolean
   /** Whether the person allowed this module to send as them, as this host saw it (`personGrants.ts`). */
   granted?(module: string): boolean
+  /** The id of the project held at a folder `/host/server-ask` already found (2.75.0, `messages.tell`). */
+  projectIdAt?(root: string): number | null
+  /** Injected by tests: the timer that says the messages changed when held news is due. */
+  setTimer?(run: () => void, ms: number): unknown
 }
 
 /** What a message's params carry beside the body (protocol 2.50.0). */
@@ -96,7 +107,7 @@ const clip = (text: string): string => (text.length > LIMITS.REASON ? `${text.sl
 
 /** The session a resolved place is, as a reader. */
 export function readerOf(here: Here, token: string): Reader {
-  return { module: here.module ?? '', session: sessionIdOf(here.conversation, token), epic: here.epic, kehikko: here.key }
+  return { module: here.module ?? '', session: sessionIdOf(here.conversation, token), epic: here.epic, kehikko: here.key, parts: here.parts }
 }
 
 export function messageDesk(deps: MessageDeps) {
@@ -141,9 +152,45 @@ export function messageDesk(deps: MessageDeps) {
     return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
   }
 
-  /** `messages.send`, `messages.read` or `messages.notify`, from a module's server whose pass and grant were held already. */
-  async function serverAnswer(module: string, method: string, params: unknown): Promise<MessageAsked> {
+  /** One wake per project and module at the minute's end, so the sessions read again and are handed what was held. */
+  const wakes = new Set<string>()
+  function wakeWhenDue(project: number, module: string): void {
+    const key = `${project}\n${module}`
+    if (wakes.has(key)) return
+    wakes.add(key)
+    const timer = (deps.setTimer ?? ((run, ms) => setTimeout(run, ms)))(() => {
+      wakes.delete(key)
+      deps.changed(project)
+    }, TELL_EVERY_MS + 1_000)
+    ;(timer as { unref?: () => void } | null)?.unref?.()
+  }
+
+  /**
+   * `messages.tell` (protocol 2.75.0): a module's own news to every session at
+   * a place in the project its question named (`root`, found by
+   * `/host/server-ask`). Kept once; each session is handed its copy when it
+   * reads, at most one from this module a minute, the rest merged.
+   */
+  function tell(module: string, params: unknown, root: string | null): MessageAsked {
+    const asked = messageTellParams.safeParse(params ?? {})
+    if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.tell: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+    const project = root === null ? null : (deps.projectIdAt?.(root) ?? null)
+    if (project === null) return { ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noProject }
+    const sent = messages.tell(project, { module, name: deps.nameOf(module) ?? module }, asked.data.to.place, asked.data.body, {
+      ...(asked.data.kind !== undefined ? { kind: asked.data.kind } : {}),
+      ...(asked.data.thread !== undefined ? { thread: asked.data.thread } : {}),
+    })
+    if (sent.ok) {
+      deps.changed(project)
+      wakeWhenDue(project, module)
+    }
+    return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
+  }
+
+  /** `messages.send`, `messages.read`, `messages.notify` or `messages.tell`, from a module's server whose pass and grant were held already. */
+  async function serverAnswer(module: string, method: string, params: unknown, root: string | null = null): Promise<MessageAsked> {
     if (method === 'messages.notify') return notify(module, params)
+    if (method === 'messages.tell') return tell(module, params, root)
     if (method === 'messages.send') {
       const asked = messageSendParams.safeParse(params ?? {})
       if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.send: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
