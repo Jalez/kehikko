@@ -2,6 +2,7 @@ import type { ChimeSettings } from './chime.ts'
 import { GITHUB_SHARE_TARGET } from './githubShare.ts'
 import type { PickerSorts, Visits } from './pickerOrder.ts'
 import type { NoticeSettings } from './trackerNotices.ts'
+import { APPEARANCE_TARGET, type AppearanceAnswer } from './appearance.ts'
 
 /**
  * How Kehikot works with a person's coding agents, chosen ONCE for every module
@@ -303,7 +304,7 @@ export function chordSaid(mac: boolean): string {
 }
 
 /** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'project', 'modules', 'about'] as const
+export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
@@ -323,6 +324,7 @@ export interface SettingsLink {
 /** The controls a button elsewhere can open Settings at. */
 export const SETTINGS_TARGETS = {
   githubShare: { section: 'modules', target: GITHUB_SHARE_TARGET },
+  appearance: { section: 'appearance', target: APPEARANCE_TARGET },
 } as const satisfies Record<string, { section: SettingsSection; target: string }>
 
 const TARGET_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -397,4 +399,6 @@ export interface SettingsAnswer {
   picker?: PickerSorts
   /** When each place was last visited (`server/pickerOrder.ts`), read with the settings so the pickers need no request of their own at start-up. Absent from an older host. */
   visits?: Visits
+  /** Settings › Appearance (`server/appearance.ts`), and whether this machine has a row yet. Absent from an older host. */
+  appearance?: AppearanceAnswer
 }

@@ -5,8 +5,8 @@
  * A header holds two kinds of menus: the module's own (View, Go, Run, from what
  * it declared — `menusOf` in `host/header.ts`) and the host's: Help (the app's
  * own Help menu, scoped to the module — `HELP_ENTRIES`) and the Container menu
- * (the container's scope, the module's settings, its tools, skills, when its
- * header and footer show, whether it uses the Inbox, whether its messages reach
+ * (the container’s scope, the module’s settings, its tools, skills,
+ * whether it uses the Inbox, whether its messages reach
  * agents, prompts). It was called
  * "Frame"; "container" is the word the rest of the host's text uses for a
  * placed module, so the menu says what it is about. They used to be decided in
@@ -96,7 +96,7 @@ export function pinsFor(width: number | null): boolean {
  * `restart` is "Restart module", on every container whatever the module declared
  * (`host/restartModule.ts`): disabled with its reason, never left out.
  */
-export const FRAME_ENTRIES = ['standing', 'expand', 'scope', 'settings', 'tools', 'skills', 'rows', 'inbox', 'messages', 'prompts', 'restart', 'remove'] as const
+export const FRAME_ENTRIES = ['standing', 'expand', 'scope', 'settings', 'tools', 'skills', 'inbox', 'messages', 'prompts', 'restart', 'remove'] as const
 export type FrameEntry = (typeof FRAME_ENTRIES)[number]
 
 /**
@@ -114,7 +114,6 @@ export const FRAME_SAID: Record<FrameEntry, string> = {
   settings: 'settings',
   tools: 'tools',
   skills: 'skills',
-  rows: 'header and footer',
   inbox: 'inbox',
   messages: 'messages to agents',
   prompts: 'prompts',

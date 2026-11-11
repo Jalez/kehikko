@@ -143,7 +143,6 @@ async function header(width: number, fold: Fold, declared: () => ReturnType<type
           collapsed={fold !== 'open'}
           foldRows={fold === 'two rows' ? 2 : 1}
           footer={footer()}
-          onFold={nothing}
           onCollapse={nothing}
           header={declared()}
           filters={controls.filters ?? []}
@@ -164,9 +163,6 @@ async function header(width: number, fold: Fold, declared: () => ReturnType<type
           onHelp={nothing}
           onNotes={nothing}
           onSettings={nothing}
-          showRows={null}
-          barRows="always"
-          onShowRows={nothing}
           onStarted={nothing}
           onRemove={controls.onRemove ?? nothing}
           kehikko="thesis"
@@ -212,7 +208,6 @@ const EVERYTHING = [
   'frame:prompts',
   'frame:remove',
   'frame:restart',
-  'frame:rows',
   'frame:scope',
   'frame:settings',
   'frame:skills',
@@ -280,7 +275,7 @@ describe('the same header at every width and fold', () => {
       expect(sections.map((one) => one.getAttribute('data-section'))).toEqual(['view', 'go', 'run', 'help', 'frame'])
       expect(sections.map((one) => one.querySelector('[data-slot="dropdown-menu-label"]')!.textContent)).toEqual(['View', 'Go', 'Run', 'Help', 'Container'])
       expect([...sections.at(-2)!.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])
-      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'restart', 'remove'])
+      expect([...sections.at(-1)!.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'prompts', 'restart', 'remove'])
       /* A disabled run keeps its reason in the overflow. */
       expect(content.querySelector('[data-item="clean"]')!.textContent).toContain('Nothing to clean.')
       act(() => unmount?.())
@@ -337,7 +332,7 @@ describe('the same header at every width and fold', () => {
         const content = document.querySelector<HTMLElement>('[data-menu-content="more"]')!
         const section = content.querySelector('[data-section="frame"]')!
         expect(section.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Container')
-        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'rows', 'prompts', 'restart', 'remove'])
+        expect([...section.querySelectorAll('[data-frame]')].map((el) => el.getAttribute('data-frame'))).toEqual(['scope', 'settings', 'tools', 'skills', 'prompts', 'restart', 'remove'])
         const help = content.querySelector('[data-section="help"]')!
         expect(help.querySelector('[data-slot="dropdown-menu-label"]')!.textContent).toBe('Help')
         expect([...help.querySelectorAll('[data-help]')].map((el) => el.getAttribute('data-help'))).toEqual(['help', 'notes', 'feedback'])
@@ -354,7 +349,7 @@ describe('the same header at every width and fold', () => {
     expect(trigger.getAttribute('aria-label')).toBe('container menu of Paper — tools not connected')
     /* Without a pointer the tooltip is not mounted; the words are the one rule's (`frameHint`). */
     const { frameHint } = await import('../src/host/headerOffer.ts')
-    expect(frameHint(['scope', 'tools', 'skills', 'rows', 'prompts'])).toBe('This container: scope, tools, skills, header and footer, prompts')
+    expect(frameHint(['scope', 'tools', 'skills', 'prompts'])).toBe('This container: scope, tools, skills, prompts')
   })
 
   test('filter, clear, refresh and remove: buttons in the row at 220 and wider, and every one reachable once at every width', async () => {
@@ -715,7 +710,6 @@ describe('the container’s Help menu mirrors the app’s', () => {
             pinned={false}
             onPin={nothing}
             collapsed={false}
-            onFold={nothing}
             onCollapse={nothing}
             header={[]}
             filters={[]}
@@ -774,7 +768,6 @@ describe('the container’s Help menu mirrors the app’s', () => {
               pinned={false}
               onPin={nothing}
               collapsed={false}
-              onFold={nothing}
               onCollapse={nothing}
               header={[]}
               filters={[]}

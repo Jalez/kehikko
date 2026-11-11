@@ -356,7 +356,6 @@ describe('the modules list and the container', () => {
         pinned={false}
         onPin={nothing}
         collapsed={false}
-        onFold={nothing}
         onCollapse={nothing}
         header={[]}
         filters={[]}

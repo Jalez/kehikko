@@ -22,7 +22,7 @@ import { helpFor as helpOfModule } from './host/moduleHelp.ts'
 import { ModuleIntroDialog } from './canvas/ModuleIntro.tsx'
 import type { IntroAbout } from './canvas/Modules.tsx'
 import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
-import { AgentSettingsHost } from './canvas/Settings.tsx'
+import { AgentSettingsHost, fetchSettings } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { openWhatsNew } from './host/whatsNew.ts'
@@ -162,12 +162,11 @@ import { Reveals, coversFor } from './host/reveal.ts'
 import { EXPANDED_BODY, EXPAND_NO_PRESS, expandAsked, shrinksOn, type Expanded as ExpandedOne } from './host/expand.ts'
 import { Expanded } from './canvas/Expanded.tsx'
 import { letGoOfFrame, sawPress } from './host/gesture.ts'
-import { barRows, rowsShown, watchClicks, withMode, type ClickEvent, type FoldRows, type ShowRows } from './host/rows.ts'
+import { watchClicks, withMode, type ClickEvent, type ShowRows } from './host/rows.ts'
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
-import { applyFocus, focused, otherFocus, type Focus } from './host/focus.ts'
-import { apply, current, other, type Theme } from './host/theme.ts'
+import { useAppearance, useDrawnTheme } from './host/appearanceStore.ts'
 import { Writer } from './host/writer.ts'
 
 /**
@@ -557,9 +556,15 @@ export function App() {
   /* What each module declared for its container's footer (protocol 2.38.0), held as the headers are. */
   /* Held outside React's state (`host/footerStore.ts`): a module re-declares its footer whenever a
      readout moves, and that re-renders its footer row, never this page. */
+  /* Settings › Appearance (`host/appearance.ts`): the theme drawn now (a `system` choice resolved),
+     and when every container's header and footer show and how far a fold goes. The same for every
+     container; changed only in Settings. Read once from the server here, over the pre-paint cookies. */
+  const theme = useDrawnTheme()
+  const drawn = useAppearance()
+  useEffect(() => void fetchSettings().catch(() => {}), [])
   const footerStore = useMemo(() => new FooterStore(), [])
   /* Whether the host draws this container's footer now: a corner pulled to two rows is then a two-row fold (`dragged`). */
-  const twoRowsFor = useCallback((id: string) => footerStore.get(id).length > 0, [footerStore])
+  const twoRowsFor = useCallback((id: string) => drawn.foldRows === 2 && footerStore.get(id).length > 0, [footerStore, drawn.foldRows])
   /* Which containers have a footer, changing only when that set does (`footedIds`): what the framings need, so a ticking readout does not make them again. */
   const footed = useFooted(footerStore)
   /* In focus mode, which containers have their header and footer revealed (`host/reveal.ts`). One for the page. */
@@ -627,16 +632,6 @@ export function App() {
      read inside a callback the grid calls synchronously on release, before any
      render could have delivered a state update. See `onLayoutChange`. */
   const resized = useRef<string | null>(null)
-  /* Read from the document rather than worked out again. The blocking script in
-     `index.html` already decided this before anything was painted, and a second
-     implementation of that decision is a second thing that can be wrong — see
-     `host/theme.ts`. */
-  const [theme, setTheme] = useState<Theme>(() => current())
-  /* Whether the container headers are out of the layout. Read from the document for
-     the same reason the theme is: a blocking script in `index.html` already
-     decided this before anything was painted, and a second implementation of
-     that decision is a second thing that can be wrong. See `host/focus.ts`. */
-  const [focus, setFocus] = useState<Focus>(() => focused())
   /*
    * Whether the grid animates what changes in it. Only for what a person did
    * to the arrangement — a drag, a resize, and the glide of a container let go
@@ -1389,7 +1384,14 @@ export function App() {
     firstVisit.current = false
   }, [registry, writer])
 
-  const open = useMemo(() => canvases.find((canvas) => canvas.id === openId) ?? null, [canvases, openId])
+  /* How far a fold goes is Settings › Appearance's, not the placement's: stamped here, two rows only
+     where the host draws the module's footer, so every height worked out on this page agrees with what
+     is drawn. Never stored (`server/canvases.ts` drops it). */
+  const open = useMemo(() => {
+    const canvas = canvases.find((one) => one.id === openId) ?? null
+    if (!canvas) return null
+    return { ...canvas, placements: canvas.placements.map((p) => ({ ...p, foldRows: drawn.foldRows === 2 && footed.has(p.i) ? (2 as const) : (1 as const) })) }
+  }, [canvases, openId, drawn.foldRows, footed])
 
   /* A mark stands only while its container is as it was left — `standing` in
      `host/folds.ts`. Run against every arrangement drawn, so the person's
@@ -1923,22 +1925,6 @@ export function App() {
   const setSelectedByRef = useRef(setSelectedBy)
   setSelectedByRef.current = setSelectedBy
 
-  const onFocus = useCallback(() => {
-    setFocus((was) => {
-      const next = otherFocus(was)
-      applyFocus(next)
-      return next
-    })
-  }, [])
-
-  const onTheme = useCallback(() => {
-    setTheme((was) => {
-      const next = other(was)
-      apply(next)
-      return next
-    })
-  }, [])
-
   /**
    * A module asking where its own container's filters should go.
    *
@@ -2225,10 +2211,7 @@ export function App() {
     return result
   }
 
-  rowsModeRef.current = (id) => {
-    const placement = open?.placements.find((p) => p.i === id)
-    return placement ? rowsShown(placement, focus) : barRows(focus)
-  }
+  rowsModeRef.current = () => drawn.rows
   const arrangedRef = useRef<{ kehikko: number | null; placements: Placement[] }>({ kehikko: null, placements: [] })
   arrangedRef.current = { kehikko: open?.id ?? null, placements: open?.placements ?? [] }
   const foldRef = useRef<(from: string, call: { fold: string[]; unfold: string[] }) => Folded>(() => ({
@@ -2870,31 +2853,6 @@ export function App() {
     (id: string, collapsed: boolean) => {
       const placements = open?.placements ?? []
       change({ placements: pressed(placements, id, collapsed) })
-    },
-    [change, open?.placements],
-  )
-
-  /**
-   * A fold picked from the fold control's menu: one row (the header) or two
-   * (the header and the footer), remembered on the placement beside
-   * `collapsed`, and folded to. The same write a press makes, so the heights
-   * are redrawn for the new folded height. Personal, like the fold
-   * (`view.json`). See `host/rows.ts`.
-   */
-  const onFold = useCallback(
-    (id: string, rows: FoldRows) => {
-      const placements = (open?.placements ?? []).map((p) => (p.i === id && (p.foldRows ?? 1) !== rows ? { ...p, foldRows: rows } : p))
-      change({ placements: pressed(placements, id, true) })
-    },
-    [change, open?.placements],
-  )
-
-  /** When one container's header and footer show: its own choice, or `null` for the bar's. Personal, beside the fold. */
-  const onShowRows = useCallback(
-    (id: string, mode: ShowRows | null) => {
-      const placements = open?.placements ?? []
-      if (!placements.some((p) => p.i === id && (p.showRows ?? null) !== mode)) return
-      change({ placements: placements.map((p) => (p.i === id ? { ...p, showRows: mode } : p)) })
     },
     [change, open?.placements],
   )
@@ -4550,7 +4508,7 @@ export function App() {
              and the page is told how much they cover. Which rows: the header
              unless the container is selected (then it never hides), the footer
              when the module declared one. See `host/reveal.ts`. */
-          covers: big === id ? null : coversFor(module, placements.find((p) => p.i === id), footed.has(id), focus),
+          covers: big === id ? null : coversFor(module, placements.find((p) => p.i === id), footed.has(id), drawn.rows),
           /* Composed here rather than in the module, because only the host
              knows what else is on this kehikko. See the essay on `prompt` in
              the protocol's `wire.ts`. */
@@ -4569,7 +4527,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, focus, keptHere, expanded])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, drawn.rows, keptHere, expanded])
   framingsRef.current = framings
   /* The container shown large now: on the open kehikko and showing its page. One that is not
      (folded, removed, another kehikko, its page gone to a cover) is put back. */
@@ -4805,10 +4763,6 @@ export function App() {
         onEditParts={about.epic !== null && held?.epics.some((one) => one.slug === about.epic) ? onEditParts : null}
         onPlace={onPlace}
         onUnplace={onUnplace}
-        focus={focus}
-        onFocus={onFocus}
-        theme={theme}
-        onTheme={onTheme}
         trouble={trouble}
         onLookAgain={() => void look(true)}
         onIntro={(id, about) => setIntroOpen({ id, about, add: true })}
@@ -5131,13 +5085,9 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
-                  /* How far it folds, and when its rows show (`host/rows.ts`): the person's, per container. */
-                  foldRows={placement.foldRows ?? 1}
-                  onFold={(rows) => onFold(presence.id, rows)}
-                  rowsMode={rowsShown(placement, focus)}
-                  showRows={placement.showRows ?? null}
-                  barRows={barRows(focus)}
-                  onShowRows={(mode) => onShowRows(presence.id, mode)}
+                  /* How far a fold goes, and when the rows show: Settings › Appearance's, the same for every container. */
+                  foldRows={drawn.foldRows}
+                  rowsMode={drawn.rows}
                   foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
                   header={headers[presence.id] ?? NO_HEADER}
                   /* A press on whichever frame is standing, judged against

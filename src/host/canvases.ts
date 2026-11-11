@@ -6,7 +6,6 @@ import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, dragged, granted, tops } from './columns.ts'
-import { SHOW_ROWS } from './rows.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
@@ -57,14 +56,13 @@ export const placementSchema = z.object({
    */
   collapsed: z.boolean().default(false),
   /**
-   * How far it folds: its header alone (1) or its header and footer (2), and
-   * when its rows show: always, on hover, on click, or as the bar says
-   * (absent). The person's, beside `collapsed`; see `host/rows.ts`. Optional,
-   * so an arrangement stored before either existed reads as one row and the
-   * bar's say.
+   * How far a fold goes, as the page draws it: Settings › Appearance's, the
+   * same for every container (`host/appearance.ts`), stamped on by the page so
+   * the heights it works out agree with what is drawn. Never stored; the
+   * server drops it. A per-container `showRows` stored by an older host is
+   * ignored the same way.
    */
   foldRows: z.union([z.literal(1), z.literal(2)]).optional(),
-  showRows: z.enum(SHOW_ROWS).nullable().optional(),
   /**
    * The height its owner last asked for, in rows.
    *
@@ -255,7 +253,7 @@ export function fromGrid(
       before && held === item.i
         ? dragged(before, item.h, twoRows(item.i))
         : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
-    const foldRows = 'foldRows' in said && said.foldRows !== undefined ? said.foldRows : before?.foldRows
+    const foldRows = before?.foldRows
     return {
       i: item.i,
       x: item.x,
@@ -267,9 +265,8 @@ export function fromGrid(
       prompt: before?.prompt ?? '',
       promptFor: before?.promptFor ?? null,
       collapsed: said.collapsed,
-      /* How far it folds and when its rows show: a drag is a fold or not, never a change of these. */
+      /* How far a fold goes is Appearance's, stamped by the page: carried, never decided by a drag. */
       ...(foldRows === 2 ? { foldRows } : {}),
-      ...(before?.showRows !== undefined ? { showRows: before.showRows } : {}),
       wish: given.get(item.i) ?? said.wish,
       selected: before?.selected ?? false,
       /* A drag is not a change of mind about what a container is showing, nor

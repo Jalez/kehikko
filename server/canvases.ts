@@ -19,7 +19,7 @@ import { scopeAfter } from '../src/host/subject.ts'
 import { frameDbFile } from './machineDirs.ts'
 import { isVersionTag } from './versions.ts'
 import { AUTOMATIC, settingIn, tidy, type ConnectionsSetting } from '../src/host/connections.ts'
-import { foldRowsIn, showRowsIn, type FoldRows, type ShowRows } from '../src/host/rows.ts'
+import type { FoldRows } from '../src/host/rows.ts'
 
 /**
  * The canvases, which are the one thing this host does store.
@@ -135,15 +135,13 @@ export interface Placement {
    */
   collapsed: boolean
   /**
-   * How far it folds — its header alone (1) or its header and footer (2) —
-   * and when its header and footer show: `always`, on `hover`, on `click`, or
-   * `null` for what the bar's focus control says. Per placement and personal,
-   * beside `collapsed` (`view.json`); see `src/host/rows.ts`. Optional in the
-   * type so an arrangement from before them is still one; every row read from
-   * the database has both.
+   * How far a fold goes, as a page draws it: Settings › Appearance's, the
+   * same for every container (`src/host/appearance.ts`), stamped on by the
+   * page. Never stored and never read back: the `fold_rows` and `show_rows`
+   * columns a host before Appearance wrote per container are left as they
+   * are and ignored, and written at rest.
    */
   foldRows?: FoldRows
-  showRows?: ShowRows | null
   /**
    * The height this container's owner last asked for, in grid rows.
    *
@@ -416,7 +414,6 @@ export type PlacementInput = Omit<
   | 'promptFor'
   | 'collapsed'
   | 'foldRows'
-  | 'showRows'
   | 'wish'
   | 'selected'
   | 'filters'
@@ -429,10 +426,8 @@ export type PlacementInput = Omit<
   prompt?: string
   promptFor?: string | null
   collapsed?: boolean
-  /** Anything but a literal 2 is one row. */
+  /** Taken and dropped: Appearance's, never the placement's. */
   foldRows?: number | null
-  /** Anything but one of `SHOW_ROWS` follows the bar. */
-  showRows?: string | null
   /** Absent means "the height it has": see `cleaned`. */
   wish?: number | null
   selected?: boolean
@@ -1000,8 +995,6 @@ export function listCanvases(db: Database): Canvas[] {
         prompt: string
         prompt_for: string | null
         collapsed: number
-        fold_rows: number
-        show_rows: string | null
         wish: number | null
         selected: number
         filters: string
@@ -1011,7 +1004,7 @@ export function listCanvases(db: Database): Canvas[] {
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, fold_rows, show_rows, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
     )
     .all()
 
@@ -1024,8 +1017,6 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       prompt_for: promptFor,
       collapsed,
-      fold_rows: foldRows,
-      show_rows: showRows,
       wish,
       selected,
       filters,
@@ -1043,8 +1034,6 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       promptFor,
       collapsed: collapsed === 1,
-      /* At rest — one row, the bar's say — they are left out, as a placement from before them is. */
-      ...restless(foldRows, showRows),
       /* The migration above filled this for every row that existed; `?? h` is
          for a row written by a version of this host from before `wish` and read
          by this one without the migration having run again — which it does on
@@ -1188,8 +1177,9 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.prompt,
           p.promptFor,
           p.collapsed ? 1 : 0,
-          p.foldRows ?? 1,
-          p.showRows ?? null,
+          /* At rest: how far a fold goes and when the rows show are Appearance's now. */
+          1,
+          null,
           p.wish,
           p.selected ? 1 : 0,
           JSON.stringify(p.filters),
@@ -1654,8 +1644,6 @@ function cleaned(placements: PlacementInput[]): Placement[] {
         typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
-      /* One row unless a literal 2; the bar's say unless one of its words. Left out at rest. */
-      ...restless(p.foldRows, p.showRows),
       /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A
          wish nobody could lay out is harmless to the arrangement — `granted`
          cuts it to the column — but a wish of ten thousand rows is not a
@@ -1689,13 +1677,6 @@ function cleaned(placements: PlacementInput[]): Placement[] {
     })
   }
   return kept
-}
-
-/** How far a container folds and when its rows show, as a placement carries them: only what is not at rest. */
-function restless(foldRows: unknown, showRows: unknown): { foldRows?: FoldRows; showRows?: ShowRows } {
-  const fold = foldRowsIn(foldRows)
-  const show = showRowsIn(showRows)
-  return { ...(fold === 2 ? { foldRows: fold } : {}), ...(show !== null ? { showRows: show } : {}) }
 }
 
 /** A scope word as a row may hold one: one of `MODULE_SCOPES`, else null (the module's default). */

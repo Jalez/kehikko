@@ -111,10 +111,12 @@ export function current(root: Element | null = document.documentElement): Theme 
  * as this page is open. The reverse order would give somebody a remembered
  * preference that had not been applied.
  */
-export function apply(theme: Theme, root: Element | null = document.documentElement): void {
+export function apply(theme: Theme, root: Element | null = document.documentElement, choice: Theme | 'system' = theme): void {
   root?.classList.toggle('dark', theme === 'dark')
   try {
-    document.cookie = `${THEME_COOKIE}=${theme}; path=/; max-age=${A_YEAR}; samesite=lax`
+    /* The CHOICE is remembered — `system` included, which `index.html` resolves
+       before the first paint — and the class is what it draws now. */
+    document.cookie = `${THEME_COOKIE}=${choice}; path=/; max-age=${A_YEAR}; samesite=lax`
   } catch {
     /* Cookies refused. The page is in the right theme until it is reloaded,
        which is a smaller failure than an exception thrown out of a click. */
@@ -183,9 +185,4 @@ function tell(theme: Theme): void {
 /** The sliver of Tauri's injected globals this file uses, and no more. */
 type TauriInternals = {
   invoke?: (cmd: string, payload?: unknown) => Promise<unknown>
-}
-
-/** The other one. */
-export function other(theme: Theme): Theme {
-  return theme === 'dark' ? 'light' : 'dark'
 }

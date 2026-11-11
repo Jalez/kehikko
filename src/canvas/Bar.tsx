@@ -1,7 +1,6 @@
-import { LayoutGrid, Moon, PanelTop, PanelTopClose, Settings as Gear, Sun } from 'lucide-react'
+import { LayoutGrid, Settings as Gear } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { chordSaid, onMac, openSettings } from '@/host/agentSettings.ts'
@@ -11,8 +10,6 @@ import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.
 import type { Part, PartsEdit } from '@/host/parts.ts'
 import { attention } from '@/host/moduleMenu.ts'
 import type { RegistryView } from '@/host/registry.ts'
-import type { Focus } from '@/host/focus.ts'
-import type { Theme } from '@/host/theme.ts'
 import { InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
@@ -96,10 +93,6 @@ export function Bar({
   onEditParts = null,
   onPlace,
   onUnplace,
-  focus,
-  onFocus,
-  theme,
-  onTheme,
   onTools,
   trouble,
   onLookAgain,
@@ -156,11 +149,6 @@ export function Bar({
   onEditParts?: ((edit: PartsEdit) => Promise<boolean>) | null
   onPlace(id: string): void
   onUnplace(id: string): void
-  /** Whether the container headers are out of the layout. See `host/focus.ts`. */
-  focus: Focus
-  onFocus(): void
-  theme: Theme
-  onTheme(): void
   /** Open the window about the host's own MCP door. See the plug below. */
   onTools(): void
   /** The host's own error line, or null. Drawn here; see `Trouble.tsx`. */
@@ -340,53 +328,12 @@ export function Bar({
         ) : null}
 
         {/*
-         * Light or dark. It says what it will DO rather than what it is —
-         * "switch to light", with the sun on it — because an icon showing the
-         * current state and an icon showing the destination are the same two
-         * pictures, and half of everyone reads it the wrong way round. A label
-         * settles it, and this control has room for one.
-         *
-         * The theme goes out to every module in `kehikot.context` as well, so
-         * a page inside a container is not left bright inside a dark canvas.
+         * There were two buttons here: Headers (whether every container's
+         * header and footer hide until the pointer is over it) and light/dark.
+         * Both are Settings › Appearance now (`host/appearance.ts`), with the
+         * containers' borders and background: settled once, for every
+         * container, and not a quick toggle on the bar.
          */}
-        {/*
-         * Focus mode: the container headers out of the layout, and back on hover.
-         *
-         * Beside the theme rather than in a menu, because it is the same kind
-         * of thing — a statement about how you want the canvas drawn while you
-         * look at it, kept in a cookie, and true of the whole application
-         * rather than of one kehikko.
-         *
-         * The tooltip says what it does to the headers rather than naming the
-         * mode. "Focus mode" is a phrase that means something different in
-         * every program that has one. Its visible name is "Headers", which is
-         * what each container's reveal choice points at.
-         */}
-        <Hint
-          label={
-            focus === 'on'
-              ? 'headers and footers are hidden until the pointer is over a container. Press to always show them'
-              : 'hide every container’s header and footer until the pointer is over it'
-          }
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={focus === 'on' ? 'Headers: always show headers and footers' : 'Headers: hide headers and footers'}
-            aria-pressed={focus === 'on'}
-            data-tour="focus"
-            className={cn(
-              'h-6 gap-1 px-1.5 text-[11px] font-normal max-[640px]:w-6 max-[640px]:px-0',
-              focus === 'on' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={onFocus}
-          >
-            {focus === 'on' ? <PanelTopClose className="size-3" /> : <PanelTop className="size-3" />}
-            {/* Its visible name, so the containers' "As the bar’s Headers setting" names something on screen. */}
-            <span className="max-[640px]:sr-only">Headers</span>
-          </Button>
-        </Hint>
-
         {/*
          * The host's own MCP door, and whether an agent has been told about it.
          *
@@ -429,18 +376,6 @@ export function Bar({
 
         <ToolsMark agent={registry?.host?.agent} name="Kehikot" about="host" onOpen={onTools} />
 
-        <Hint label={theme === 'dark' ? 'switch to light' : 'switch to dark'}>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={theme === 'dark' ? 'switch to light' : 'switch to dark'}
-            data-tour="theme"
-            className="text-muted-foreground hover:text-foreground size-6"
-            onClick={onTheme}
-          >
-            {theme === 'dark' ? <Sun className="size-3" /> : <Moon className="size-3" />}
-          </Button>
-        </Hint>
 
         {/*
          * There used to be a ↻ here, and it is worth writing down why it went.

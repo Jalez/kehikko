@@ -242,7 +242,7 @@ describe('the Help menu: the app’s "?", scoped to the module', () => {
 describe('what the host’s menu is called', () => {
   test('Container, with a tooltip that lists what it holds, in its order', () => {
     expect(FRAME_TITLE).toBe('Container')
-    expect(frameHint(['prompts', 'rows', 'settings', 'scope'])).toBe('This container: scope, settings, header and footer, prompts')
+    expect(frameHint(['prompts', 'settings', 'scope'])).toBe('This container: scope, settings, prompts')
   })
 })
 

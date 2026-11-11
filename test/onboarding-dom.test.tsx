@@ -12,7 +12,7 @@ import { forgetEveryRead } from '../src/host/hostRead.ts'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 25
+const TESTS = 24
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -37,6 +37,7 @@ let Layouts: typeof import('../src/canvas/Layouts.tsx')
 let Bar: typeof import('../src/canvas/Bar.tsx')
 let Box: typeof import('../src/canvas/Container.tsx')
 let Tour: typeof import('../src/canvas/Tour.ts')
+let Look: typeof import('../src/host/appearanceStore.ts')
 let tour: typeof import('../src/host/tour.ts')
 let onboarding: typeof import('../src/host/onboarding.ts')
 let layouts: typeof import('../src/host/layouts.ts')
@@ -69,6 +70,7 @@ beforeAll(async () => {
   act = React.act
   ;({ createRoot } = await import('react-dom/client'))
   Onboarding = await import('../src/canvas/Onboarding.tsx')
+  Look = await import('../src/host/appearanceStore.ts')
   Intro = await import('../src/canvas/Intro.tsx')
   Layouts = await import('../src/canvas/Layouts.tsx')
   Bar = await import('../src/canvas/Bar.tsx')
@@ -340,10 +342,8 @@ function page(...extra: string[]) {
       <button data-tour="pin">pin</button>
       <button data-tour="modules">modules</button>
       <button data-inbox-count>inbox</button>
-      <button data-tour="focus">f</button>
       <button data-tour="updates">u</button>
       <button data-tour="settings">s</button>
-      <button data-tour="theme">t</button>
       <button data-tour="help">?</button>
     </div>
     ${extra.join('\n')}`
@@ -394,10 +394,8 @@ const EXISTING_USER = [
   'menus',
   'corners',
   'inbox',
-  'focus',
   'updates',
   'settings',
-  'theme',
   'help',
 ]
 
@@ -481,7 +479,7 @@ describe('the tour waits for the person', () => {
     expect(ids()).toEqual(EXISTING_USER)
     expect(rec.last).toMatchObject({ next: 'Done', progress: `${EXISTING_USER.length} of ${EXISTING_USER.length}`, back: true })
     rec.last!.onBack()
-    expect(one.step).toBe('theme')
+    expect(one.step).toBe('settings')
     rec.last!.onNext()
     rec.last!.onNext()
     expect(said.finished).toBe(1)
@@ -656,10 +654,6 @@ describe('the tour in the app', () => {
           onPlace={nothing}
           onUnplace={nothing}
           pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
-          focus="off"
-          onFocus={nothing}
-          theme="dark"
-          onTheme={nothing}
           onTools={nothing}
           trouble={null}
           onLookAgain={nothing}
@@ -769,10 +763,6 @@ describe('the tour in the app', () => {
         onPlace={nothing}
         onUnplace={nothing}
         pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
-        focus="off"
-        onFocus={nothing}
-        theme="dark"
-        onTheme={nothing}
         onTools={nothing}
         trouble={null}
         onLookAgain={nothing}
@@ -781,7 +771,7 @@ describe('the tour in the app', () => {
     )
     await settle()
     const bar = document.querySelector('[data-testid="bar"]')!
-    const stops = ['project-bar', 'epic-bar', 'parts-bar', 'kehikko-bar', 'pinned', 'focus', 'settings', 'theme', 'modules']
+    const stops = ['project-bar', 'epic-bar', 'parts-bar', 'kehikko-bar', 'pinned', 'settings', 'modules']
     const found = stops.map((id) => tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === id)!.frames[0]!, bar, false))
     expect(found.every((element) => element !== null)).toBe(true)
     /* Left to right, as the bar draws them (the tour takes the modules button right after Pinned: it is the way in to everything else). */
@@ -789,6 +779,9 @@ describe('the tour in the app', () => {
     const at = found.map((element) => all.indexOf(element!))
     expect(at).toEqual([...at].sort((a, b) => a - b))
     expect(new Set(at).size).toBe(stops.length)
+    /* The Headers button and the light/dark button are gone: both are Settings › Appearance now. */
+    expect(bar.querySelector('[data-tour="focus"], [data-tour="theme"]')).toBeNull()
+    expect([...bar.querySelectorAll('button')].some((one) => /^Headers|switch to (light|dark)/.test(one.getAttribute('aria-label') ?? ''))).toBe(false)
     /* The pin button is a control of its own, beside the menu. */
     expect(bar.querySelector('[data-tour="pin"]')).not.toBeNull()
     /* Narrow: none of them is inside what the bar lets go of under 480 pixels; the labels go, the controls stay. */
@@ -929,7 +922,7 @@ describe('the layout picker', () => {
 })
 
 const ALL_DONE: Facts = { project: true, projects: 1, epic: true, parts: false, kehikko: true }
-const HIDDEN = () => document.documentElement.classList.contains('focus-mode')
+const HIDDEN = () => Look.appearance.get().rows !== 'always' && !document.documentElement.classList.contains('tour-rows')
 const stepOf = (rec: ReturnType<typeof recorder>) => rec.last?.key.split(':')[0]
 
 describe('the tour and container headers', () => {
@@ -948,13 +941,15 @@ describe('the tour and container headers', () => {
       },
     })
   })
+  /* Settings › Appearance says headers reveal on hover: hidden until then. */
   const hide = () => {
-    document.documentElement.classList.add('focus-mode')
-    jar = 'kehikko.focus=on'
+    Look.appearance.set({ ...Look.appearance.get(), rows: 'hover' })
+    jar = ''
     writes.length = 0
   }
   afterEach(() => {
-    document.documentElement.classList.remove('focus-mode')
+    Look.appearance.set({ ...Look.appearance.get(), rows: 'always' })
+    document.documentElement.classList.remove('tour-rows')
     jar = ''
     writes.length = 0
   })
@@ -1002,7 +997,7 @@ describe('the tour and container headers', () => {
       expect(HIDDEN()).toBe(true)
       one.stop()
       expect(writes).toEqual([])
-      expect(document.cookie).toBe('kehikko.focus=on')
+      expect(Look.appearance.get().rows).toBe('hover')
     }
   })
 
@@ -1013,16 +1008,6 @@ describe('the tour and container headers', () => {
     expect(HIDDEN()).toBe(false)
     expect(rec.last?.note).toBeUndefined()
     one.stop()
-    expect(HIDDEN()).toBe(false)
-  })
-
-  test('a person who turned headers off themselves while the tour ran keeps them off', () => {
-    page(CONTAINER)
-    hide()
-    const { one } = guide(ALL_DONE)
-    one.start('header')
-    jar = 'kehikko.focus=off'
-    one.pause()
     expect(HIDDEN()).toBe(false)
   })
 

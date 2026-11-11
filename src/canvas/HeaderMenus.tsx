@@ -64,7 +64,6 @@ import {
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { ScopeIcon } from './Scope.tsx'
 import { RESTART_LABEL, type Restartable, type RestartState } from '@/host/restartModule.ts'
-import { SHOW_ROWS_SAID, type ShowRows } from '@/host/rows.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -106,7 +105,6 @@ import { MESSAGES_USE, messagesOffTitle, messagesOnTitle } from '@/host/messages
 import { carry } from '@/host/carry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackRows, type FeedbackState } from './Feedback.tsx'
-import { RevealChoices } from './RevealChoices.tsx'
 import type { StandingRow } from './Standing.tsx'
 
 /**
@@ -1270,12 +1268,6 @@ export interface FrameParts {
   /** The feedback list behind the Help menu's "Feedback" row: one per container, so its dialog is drawn once (`Container`). */
   feedback: FeedbackState
   /**
-   * When this container's header and footer show (`host/rows.ts`): its own
-   * choice, `null` for the bar's, what the bar says now, and the change. A
-   * "Header and footer" row at every width. Absent: no row.
-   */
-  rows?: { mode: ShowRows | null; bar: ShowRows; onChange(mode: ShowRows | null): void }
-  /**
    * "Use inbox" (`host/inboxUse.ts`): whether what this module says reaches the Inbox, machine-wide,
    * and the person's change. A checkbox row at every width and fold, its state in the row. Absent: no row.
    */
@@ -1350,7 +1342,6 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.onSettings) out.push('settings')
   if (toolsSaying(parts.agent, parts.name)) out.push('tools')
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
-  if (parts.rows) out.push('rows')
   if (parts.inbox) out.push('inbox')
   if (parts.messages) out.push('messages')
   out.push('prompts')
@@ -1483,7 +1474,7 @@ export function ContainerHelpMenu({ parts, entries }: { parts: FrameParts; entri
  * last section of the merged "⋯" under 220 px — the same rows, words and order in both.
  */
 function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly FrameEntry[] }) {
-  const { name, scope, onSettings, onTools, onSkills, rows, prompted, onPrompts } = parts
+  const { name, scope, onSettings, onTools, onSkills, prompted, onPrompts } = parts
   const tools = toolsSaying(parts.agent, name)
   const offered = onSkills ? skillsSaying(parts.skills, name) : null
   const has = (entry: FrameEntry) => entries.includes(entry)
@@ -1538,19 +1529,6 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
           <span className="flex-1">Skills…</span>
           <span className="text-muted-foreground text-[10px]">{offered.state}</span>
         </DropdownMenuItem>
-      ) : null}
-      {has('rows') && rows ? (
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className={ROW} data-frame="rows" title="when this container's header and footer show">
-            <Eye className="text-muted-foreground size-3.5" />
-            <span className="flex-1">Header and footer</span>
-            <span className="text-muted-foreground text-[10px]">{rows.mode === null ? 'as the bar' : SHOW_ROWS_SAID[rows.mode].label.toLowerCase()}</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1rem)]">
-            {/* The very choices the fold control's held menu has: one component, so they cannot drift. */}
-            <RevealChoices reveal={rows} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
       ) : null}
       {has('inbox') && parts.inbox ? (
         <DropdownMenuCheckboxItem

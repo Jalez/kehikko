@@ -230,23 +230,15 @@ export function signedBy(marks: FoldMarks | null, placement: { i: string; collap
 
 /**
  * What the fold control says when it is hovered: who, and what a press does.
- * `rows` is how far a press folds (`host/rows.ts`), and `choosable` that a
- * long press opens the choice of one row or two.
+ * `rows` is how far a press folds (Settings › Appearance, `host/appearance.ts`).
  */
-export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1, choosable = false, reveal = false): string {
-  const hold = choosable && reveal
-    ? '. Hold for one row or two, and for when the header and footer show'
-    : choosable
-      ? '. Hold for one row or two'
-      : reveal
-        ? '. Hold to choose when the header and footer show'
-        : ''
+export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1): string {
   if (by === null) {
     return collapsed
-      ? `folded — the module is still running. Press to put it back at the height it had${hold}`
-      : `${rows === 2 ? 'fold it down to this header and its footer' : 'fold it down to this header'}. The module keeps running and keeps what is in it${hold}`
+      ? `folded — the module is still running. Press to put it back at the height it had`
+      : `${rows === 2 ? 'fold it down to this header and its footer' : 'fold it down to this header'}. The module keeps running and keeps what is in it`
   }
   return collapsed
-    ? `folded by ${by} — the module is still running. Press to put it back at the height it had${hold}`
-    : `unfolded by ${by}. Press to fold it down to its ${rows === 2 ? 'header and footer' : 'header'} again${hold}`
+    ? `folded by ${by} — the module is still running. Press to put it back at the height it had`
+    : `unfolded by ${by}. Press to fold it down to its ${rows === 2 ? 'header and footer' : 'header'} again`
 }

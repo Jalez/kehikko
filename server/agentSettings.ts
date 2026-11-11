@@ -24,6 +24,8 @@ import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpda
 import { readGithubShare, writeGithubShare } from './githubShare.ts'
 import { shareChange } from '../src/host/githubShare.ts'
 import { inboxColourChange, readInboxColour, writeInboxColour } from './inboxCount.ts'
+import { readAppearance, writeAppearance } from './appearance.ts'
+import { appearancePatched } from '../src/host/appearance.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -221,7 +223,9 @@ export interface SettingsDeps {
  * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
  * `keepRunning.ts`), "Keep modules up to date automatically" (`{ updates: { auto } }`,
  * `autoUpdates.ts`), how the project, epic and kehikko pickers are ordered
- * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
+ * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), Settings › Appearance
+ * (`{ appearance: { rows, foldRows, theme, border, background } }`, any subset;
+ * `appearance.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
  * any subset) or one module put on or off a list of exceptions
  * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
  * what a module's own Tools and Skills windows send, so two windows each
@@ -239,6 +243,7 @@ export function settingsRoute(deps: SettingsDeps) {
     github: { share: readGithubShare(deps.db) },
     chime: readChime(deps.db),
     inbox: { colour: readInboxColour(deps.db) },
+    appearance: readAppearance(deps.db),
     picker: readSorts(deps.db),
     visits: readVisits(deps.db),
     skillsAt: deps.skillsAt(),
@@ -251,7 +256,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; github?: unknown; chime?: unknown; picker?: unknown; inbox?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; github?: unknown; chime?: unknown; picker?: unknown; inbox?: unknown; appearance?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -288,6 +293,13 @@ export function settingsRoute(deps: SettingsDeps) {
       const colour = inboxColourChange(body.inbox)
       if (colour === null) return json({ ok: false, why: 'A change of the bar’s Inbox count is { colour: true } or { colour: false }.' }, 400)
       writeInboxColour(deps.db, colour)
+      return json(answer())
+    }
+
+    if (body.appearance !== undefined) {
+      const next = appearancePatched(readAppearance(deps.db), body.appearance)
+      if (!next) return json({ ok: false, why: 'That is not a change Appearance takes.' }, 400)
+      writeAppearance(deps.db, next)
       return json(answer())
     }
 
