@@ -324,7 +324,7 @@ export const PORTABLE_PLACEMENT_FIELDS = [
 ] as const satisfies readonly (keyof Placement)[]
 
 /** And the ones that are one person's, written to `view.json` (`server/view.ts`). */
-export const PERSONAL_PLACEMENT_FIELDS = ['collapsed', 'selected', 'filters'] as const satisfies readonly (keyof Placement)[] &
+export const PERSONAL_PLACEMENT_FIELDS = ['collapsed', 'tiled', 'selected', 'filters'] as const satisfies readonly (keyof Placement)[] &
   readonly (keyof ContainerView)[]
 
 type UnplacedPlacementField = Exclude<
@@ -583,6 +583,7 @@ function fromContainer(c: FileContainer, view: ContainerView = AT_REST): Placeme
     prompt: c.prompt,
     promptFor: c.promptFor,
     collapsed: view.collapsed,
+    ...(view.tiled && !view.collapsed ? { tiled: true } : {}),
     /* A file from before `wish` said `openH` for a folded container and
        nothing for an open one; either way the fallback is the height it has,
        which `cleaned` supplies for a `null`. */
@@ -608,8 +609,17 @@ function fromContainer(c: FileContainer, view: ContainerView = AT_REST): Placeme
  * folded is written exactly as it is.
  */
 export function shared<T extends Placement>(placements: readonly T[]): T[] {
-  if (!placements.some((p) => p.collapsed)) return [...placements]
-  return laid(redrawn(placements.map((p) => (p.collapsed ? { ...p, collapsed: false } : p))))
+  /* A tile is personal the same way, and its `w` and `wish` are already the size it is restored to. */
+  if (!placements.some((p) => p.collapsed || p.tiled)) return [...placements]
+  return laid(
+    redrawn(
+      placements.map((p) => {
+        if (!p.collapsed && !p.tiled) return p
+        const { tiled: _tiled, ...open } = p
+        return { ...(open as T), collapsed: false }
+      }),
+    ),
+  )
 }
 
 /**
@@ -617,7 +627,7 @@ export function shared<T extends Placement>(placements: readonly T[]): T[] {
  * one row, their column-mates at what their wishes are now granted.
  */
 function drawn(placements: Placement[]): Placement[] {
-  if (!placements.some((p) => p.collapsed)) return placements
+  if (!placements.some((p) => p.collapsed || p.tiled)) return placements
   return laid(redrawn(placements))
 }
 
@@ -1013,7 +1023,7 @@ function asPlacements(kehikko: FileKehikko, view: View): Placement[] {
 function same(row: Canvas, wanted: Canvas): boolean {
   if (serialize([row]) !== serialize([wanted])) return false
   const personal = (canvas: Canvas) =>
-    JSON.stringify(canvas.placements.map((p) => [p.i, p.collapsed, p.selected, p.filters]))
+    JSON.stringify(canvas.placements.map((p) => [p.i, p.collapsed, p.tiled === true, p.selected, p.filters]))
   return personal(row) === personal(wanted)
 }
 

@@ -137,7 +137,8 @@ describe('every field is on one side of the line', () => {
     const store = db()
     const p = project(store, folder())
     const made = createCanvas(store, 'one', p.id)
-    editCanvas(store, made.id, { placements: [everything] })
+    /* `tiled` is read only when it is on (and never with a fold), so the row is a tile: it has every field there is. */
+    editCanvas(store, made.id, { placements: [{ ...everything, collapsed: false, tiled: true }] })
     const [read] = listCanvases(store)[0]!.placements
     expect(Object.keys(read!).sort()).toEqual([...PORTABLE_PLACEMENT_FIELDS, ...PERSONAL_PLACEMENT_FIELDS].sort())
     /* And no field is on both sides. */

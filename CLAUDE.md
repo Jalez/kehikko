@@ -845,6 +845,31 @@
   module's `kehikot.pointer` is forgeable and never counts. The Container
   menu's "Expand" is the host's own press and asks no witness.
 
+- A frame reaches the canvas's controls through `forwarded` (`host/forwarded.ts`), every control the
+  canvas has, by name, at each call. Never go back to a hand-written list in `ModuleFrame.tsx`: a
+  control left off it is answered as absent, which is how `view.expand` said "This canvas shows
+  nothing large." on a canvas that shows one large.
+
+## A container as a tile
+
+- Every container can be a TILE: its header, then a small square (`TILE_COLUMNS` by `TILE_ROWS`,
+  counts like `FOLDED_ROWS`). A state like a fold, personal like it, never at the same time as it:
+  `tiled` on the placement (`placements.tiled`, `view.json`), written untiled to `kehikot.json`
+  (`shared`). `w` and `wish` keep the size it is restored to; the grid draws it at `drawnWidth`
+  and `fromGrid` keeps the stored `w`. One write, `tiledTo` in `host/columns.ts`; `folded` folding
+  or unfolding a tile takes the tile away. Add a new placement field to `fromGrid` as before.
+- What is in the square is `host/tile.ts`: the module's own tile where its page draws one (it asks
+  for `view:expand`; its page is shown in a box under the protocol's `TILE_BELOW`), else the host's
+  (`canvas/Tile.tsx`): icon, name, the footer's `text` readouts (`tileReadouts`) and the Inbox
+  state in words. Pressing the host's tile is Expand; the host's tile hides the page except while it
+  is shown large (`tileHidesPage`).
+- What the collapse button (^) does to an open container is Settings › Appearance's "The collapse
+  button" (`collapse`: `fold` | `tile`, the app's default). A tile's button restores it and a folded
+  one's unfolds it whatever the setting says. Never a per-container choice, never in the bar.
+- Agents: `fold_modules` takes `tile` beside `fold` and `unfold` (unfold restores a tile), marked
+  on the button like a fold (`FoldNote.tile`, `FoldMark.tiled`). A module's `view.fold` unfold
+  restores a tile too; `context.containers` says a tile is `folded`.
+
 ## What a module may ask
 
 - Every method is held to the capability the protocol files it under

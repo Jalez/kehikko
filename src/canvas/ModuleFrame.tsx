@@ -7,6 +7,7 @@ import { whileAway, whileFrozen } from '@/host/context.ts'
 import { Conversation, type ConversationWatcher } from '@/host/conversation.ts'
 import { answeredFor } from '@/host/division.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
+import { forwarded } from '@/host/forwarded.ts'
 import type { EventBus } from '@/host/events.ts'
 import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
@@ -238,28 +239,11 @@ export function ModuleFrame({
       frame,
       framed.id,
       origin,
-      makeAsk(framed.id, {
-        showEpic: (epic) => canvasRef.current.showEpic(epic),
-        select: (from, refs) => canvasRef.current.select(from, refs),
-        point: (from, passage) => canvasRef.current.point(from, passage),
-        locate: (from, location, intent) => canvasRef.current.locate(from, location, intent),
-        openAddress: (from, url, title, intent) => canvasRef.current.openAddress(from, url, title, intent),
-        show: (from, showing) => canvasRef.current.show(from, showing),
-        emit: (from, extension, payload) => canvasRef.current.emit(from, extension, payload),
-        project: () => canvasRef.current.project(),
+      /* Every control the canvas has, read through the ref at each call (`host/forwarded.ts`): a
+         control left off a list here was answered as absent — "This canvas shows nothing large." */
+      makeAsk(framed.id, forwarded(canvasRef, {
         /* The kehikko THIS frame was last told it is on, pinned or not (protocol 2.51.0). */
         kehikko: () => contextRef.current.kehikko?.id ?? null,
-        kept: (module, kehikko, state) => canvasRef.current.kept?.(module, kehikko, state),
-        filter: (from, choice) => canvasRef.current.filter(from, choice),
-        activity: (from, items) =>
-          canvasRef.current.activity?.(from, items) ?? { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' },
-        /* The person's Inbox (protocol 2.79.0), answered by the page; see `host/inboxDoor.ts`. */
-        inbox: (from, method, params, pressed) =>
-          canvasRef.current.inbox?.(from, method, params, pressed) ??
-          Promise.resolve({ ok: false, reason: 'failed', error: 'This canvas holds no Inbox to show.' }),
-        pickProject: (from) => canvasRef.current.pickProject(from),
-        fold: (from, call) => canvasRef.current.fold(from, call),
-        goto: (call, from) => canvasRef.current.goto(call, from),
         /* Where this frame stands, for the by-line of the person's message (protocol 2.50.0). */
         place: () => {
           const told = contextRef.current
@@ -269,7 +253,7 @@ export function ModuleFrame({
             kehikko: told.kehikko?.key ?? null,
           }
         },
-      },
+      }),
       /* Held to what the manifest asks for, as the registry last read it. */
       (capability) => usesRef.current.includes(capability)),
       {

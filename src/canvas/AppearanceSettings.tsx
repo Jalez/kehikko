@@ -8,6 +8,8 @@ import {
   APPEARANCE_TARGET,
   BORDERS,
   BORDER_SAID,
+  COLLAPSES,
+  COLLAPSE_SAID,
   FOLD_SAID,
   ROWS_SAID,
   THEME_CHOICES,
@@ -15,6 +17,7 @@ import {
   type Appearance,
   type AppearancePatch,
   type Border,
+  type Collapse,
   type ThemeChoice,
 } from '@/host/appearance.ts'
 import { appearance as page, useAppearance, type AppearanceStore } from '@/host/appearanceStore.ts'
@@ -61,6 +64,13 @@ export function AppearanceSettings({ onChange, store = page }: { onChange(what: 
           value={now.foldRows}
           options={FOLD_ROWS.map((rows) => ({ value: rows, label: FOLD_SAID[rows].label, line: FOLD_SAID[rows].line }))}
           onChange={(foldRows) => set({ foldRows })}
+        />
+        <Choices<Collapse>
+          name="collapse"
+          label="The collapse button"
+          value={now.collapse}
+          options={COLLAPSES.map((collapse) => ({ value: collapse, label: COLLAPSE_SAID[collapse].label, line: COLLAPSE_SAID[collapse].line }))}
+          onChange={(collapse) => set({ collapse })}
         />
       </Group>
 

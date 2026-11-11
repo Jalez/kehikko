@@ -143,6 +143,13 @@ export interface Placement {
    */
   foldRows?: FoldRows
   /**
+   * Whether this container is drawn as a tile — a small square with its module's icon, name and
+   * footer readout (`src/host/columns.ts`, `TILE_COLUMNS`). Per placement and personal, like
+   * `collapsed`, and never at the same time as it. `w` and `wish` keep the size it is restored to.
+   * Optional: absent is no tile, which is what every container written before tiles was.
+   */
+  tiled?: boolean
+  /**
    * The height this container's owner last asked for, in grid rows.
    *
    * ## Not the same fact as `h`, and the difference is the whole point
@@ -413,6 +420,7 @@ export type PlacementInput = Omit<
   | 'prompt'
   | 'promptFor'
   | 'collapsed'
+  | 'tiled'
   | 'foldRows'
   | 'wish'
   | 'selected'
@@ -426,6 +434,7 @@ export type PlacementInput = Omit<
   prompt?: string
   promptFor?: string | null
   collapsed?: boolean
+  tiled?: boolean
   /** Taken and dropped: Appearance's, never the placement's. */
   foldRows?: number | null
   /** Absent means "the height it has": see `cleaned`. */
@@ -663,6 +672,9 @@ export function open(file = databaseFile()): Database {
      did. See `src/host/rows.ts`. */
   add(db, 'placements', 'fold_rows', 'integer not null default 1')
   add(db, 'placements', 'show_rows', 'text')
+  /* Whether a container is drawn as a tile (`Placement.tiled`). Every row written before tiles
+     existed is not one. */
+  add(db, 'placements', 'tiled', 'integer not null default 0')
   /* Which filter values a container is on, as JSON. Text rather than a table of
      its own for the reason a project's `selection` is text: it is read whole,
      written whole, and never queried by its contents — the host has no query it
@@ -995,6 +1007,7 @@ export function listCanvases(db: Database): Canvas[] {
         prompt: string
         prompt_for: string | null
         collapsed: number
+        tiled: number
         wish: number | null
         selected: number
         filters: string
@@ -1004,7 +1017,7 @@ export function listCanvases(db: Database): Canvas[] {
       },
       []
     >(
-      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
+      'select canvas, module as i, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, tiled, wish, selected, filters, refresh_every, version, scope from placements order by canvas, module',
     )
     .all()
 
@@ -1017,6 +1030,7 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       prompt_for: promptFor,
       collapsed,
+      tiled,
       wish,
       selected,
       filters,
@@ -1034,6 +1048,8 @@ export function listCanvases(db: Database): Canvas[] {
       prompt,
       promptFor,
       collapsed: collapsed === 1,
+      /* A tile is never folded too: a row saying both is read as folded. */
+      ...(tiled === 1 && collapsed !== 1 ? { tiled: true } : {}),
       /* The migration above filled this for every row that existed; `?? h` is
          for a row written by a version of this host from before `wish` and read
          by this one without the migration having run again — which it does on
@@ -1162,7 +1178,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
         /* `rows` and `cols` named, with the counts this host counts in: a row
            that does not say is one an older host wrote, in the old rows or
            columns (`finerRows`, `finerColumns`). */
-        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, fold_rows, show_rows, wish, selected, filters, refresh_every, version, scope, rows, cols) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'insert or replace into placements (canvas, module, x, y, w, h, grow, pinned, prompt, prompt_for, collapsed, fold_rows, show_rows, wish, selected, filters, refresh_every, version, scope, rows, cols, tiled) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       for (const p of cleaned(edit.placements)) {
         insert.run(
@@ -1188,6 +1204,7 @@ export function editCanvas(db: Database, id: number, edit: CanvasEdit): Canvas |
           p.scope,
           CANVAS_ROWS,
           COLUMNS,
+          p.tiled ? 1 : 0,
         )
       }
     }
@@ -1644,6 +1661,8 @@ function cleaned(placements: PlacementInput[]): Placement[] {
         typeof p.promptFor === 'string' && MODULE_ID.test(p.promptFor) ? p.promptFor : null,
       /* Same rule again: anything but a literal `true` is off. */
       collapsed: p.collapsed === true,
+      /* Same rule again, and never with a fold: a placement saying both is folded. */
+      ...(p.tiled === true && p.collapsed !== true ? { tiled: true } : {}),
       /* Bounded exactly like `h`, because it is what `h` is drawn TOWARDS. A
          wish nobody could lay out is harmless to the arrangement — `granted`
          cuts it to the column — but a wish of ten thousand rows is not a

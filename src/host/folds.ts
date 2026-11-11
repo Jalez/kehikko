@@ -35,19 +35,23 @@
  * ordinary folded container with an ordinary control.
  */
 
-import { folded, type Wished } from './columns.ts'
+import { folded, tiledTo, type Wished } from './columns.ts'
 
 /** What travels with a wake — `FoldNote` in `server/wake.ts`. */
 export interface FoldNote {
   by: string
   fold: string[]
   unfold: string[]
+  /** Made tiles (`tiledTo` in `columns.ts`). Absent from a host before tiles. */
+  tile?: string[]
 }
 
 /** One container's mark: who changed its fold, and what they left it as. */
 export interface FoldMark {
   by: string
   collapsed: boolean
+  /** Left as a tile. */
+  tiled?: boolean
 }
 
 /** Marks by module id, for one kehikko. */
@@ -65,7 +69,7 @@ const MAX_TEXT = 64
  */
 export function foldNoteIn(value: unknown): FoldNote | null {
   if (typeof value !== 'object' || value === null) return null
-  const { by, fold, unfold } = value as { by?: unknown; fold?: unknown; unfold?: unknown }
+  const { by, fold, unfold, tile } = value as { by?: unknown; fold?: unknown; unfold?: unknown; tile?: unknown }
   if (typeof by !== 'string' || !by.length || by.length > MAX_TEXT) return null
   const ids = (list: unknown): string[] | null =>
     Array.isArray(list) && list.length <= MAX_IDS
@@ -74,8 +78,9 @@ export function foldNoteIn(value: unknown): FoldNote | null {
       : null
   const folded = ids(fold)
   const unfolded = ids(unfold)
-  if (!folded || !unfolded) return null
-  return { by, fold: folded, unfold: unfolded }
+  const tiles = tile === undefined ? [] : ids(tile)
+  if (!folded || !unfolded || !tiles) return null
+  return { by, fold: folded, unfold: unfolded, ...(tiles.length ? { tile: tiles } : {}) }
 }
 
 /**
@@ -86,13 +91,14 @@ export function foldNoteIn(value: unknown): FoldNote | null {
  */
 export function noted(marks: FoldMarks, note: FoldNote): FoldMarks {
   const next: Record<string, FoldMark> = { ...marks }
-  const sign = (id: string, collapsed: boolean) => {
+  const sign = (id: string, collapsed: boolean, tiled: boolean) => {
     const held = next[id]
-    if (held && held.collapsed !== collapsed) delete next[id]
-    else next[id] = { by: note.by, collapsed }
+    if (held && (held.collapsed !== collapsed || (held.tiled ?? false) !== tiled)) delete next[id]
+    else next[id] = tiled ? { by: note.by, collapsed, tiled } : { by: note.by, collapsed }
   }
-  for (const id of note.fold) sign(id, true)
-  for (const id of note.unfold) sign(id, false)
+  for (const id of note.fold) sign(id, true, false)
+  for (const id of note.unfold) sign(id, false, false)
+  for (const id of note.tile ?? []) sign(id, false, true)
   return next
 }
 
@@ -102,9 +108,12 @@ export function noted(marks: FoldMarks, note: FoldNote): FoldMarks {
  * The same object when nothing was dropped, so a caller can hold it in state
  * and run this against every arrangement without causing a render.
  */
-export function standing(marks: FoldMarks, placements: readonly { i: string; collapsed: boolean }[]): FoldMarks {
-  const drawn = new Map(placements.map((p) => [p.i, p.collapsed]))
-  const kept = Object.entries(marks).filter(([id, mark]) => drawn.get(id) === mark.collapsed)
+export function standing(marks: FoldMarks, placements: readonly { i: string; collapsed: boolean; tiled?: boolean }[]): FoldMarks {
+  const drawn = new Map(placements.map((p) => [p.i, p]))
+  const kept = Object.entries(marks).filter(([id, mark]) => {
+    const p = drawn.get(id)
+    return p !== undefined && sameState(mark, p)
+  })
   return kept.length === Object.keys(marks).length ? marks : Object.fromEntries(kept)
 }
 
@@ -141,7 +150,7 @@ export function reread<P extends Wished, C extends { id: number; placements: P[]
   const canvases = found.map((read) => {
     const kept = theirs.has(read.id) ? (was.find((c) => c.id === read.id) ?? read) : read
     if (!crossed || crossed.kehikko !== read.id || !(crossed.saved || theirs.has(read.id))) return kept
-    const placements = folded(kept.placements, crossed.note)
+    const placements = tiledTo(folded(kept.placements, crossed.note), { tile: crossed.note.tile ?? [] })
     if (placements.every((p, n) => p === kept.placements[n])) return kept
     write = { kehikko: read.id, placements }
     return { ...kept, placements }
@@ -211,7 +220,8 @@ export function asked<P extends Wished>(
     )
   }
   const folding = fold.filter((id) => !on.get(id)?.collapsed)
-  const unfolding = unfold.filter((id) => on.get(id)?.collapsed)
+  /* A tile is not in view either: unfolding one puts it back. */
+  const unfolding = unfold.filter((id) => on.get(id)?.collapsed || on.get(id)?.tiled)
   if (!folding.length && !unfolding.length) return none('unchanged', '')
   return {
     outcome: 'changed',
@@ -223,9 +233,14 @@ export function asked<P extends Wished>(
 }
 
 /** Who left this container as it is drawn, or `null` when nobody but the person did. */
-export function signedBy(marks: FoldMarks | null, placement: { i: string; collapsed: boolean }): string | null {
+export function signedBy(marks: FoldMarks | null, placement: { i: string; collapsed: boolean; tiled?: boolean }): string | null {
   const mark = marks?.[placement.i]
-  return mark && mark.collapsed === placement.collapsed ? mark.by : null
+  return mark && sameState(mark, placement) ? mark.by : null
+}
+
+/** Whether a mark still says what is drawn: folded or not, a tile or not. */
+function sameState(mark: FoldMark, placement: { collapsed: boolean; tiled?: boolean }): boolean {
+  return mark.collapsed === placement.collapsed && (mark.tiled ?? false) === (placement.tiled ?? false)
 }
 
 /**
@@ -241,4 +256,19 @@ export function foldHint(collapsed: boolean, by: string | null, rows: 1 | 2 = 1)
   return collapsed
     ? `folded by ${by} — the module is still running. Press to put it back at the height it had`
     : `unfolded by ${by}. Press to fold it down to its ${rows === 2 ? 'header and footer' : 'header'} again`
+}
+
+/**
+ * What the collapse button says when Settings › Appearance makes it make a tile, or when the
+ * container is a tile: who, and what a press does. A tile's button is its restore control.
+ */
+export function tileHint(tiled: boolean, by: string | null): string {
+  if (tiled) {
+    return by === null
+      ? 'a tile — the module is still running. Press to put it back at the size and place it had'
+      : `made a tile by ${by} — the module is still running. Press to put it back at the size and place it had`
+  }
+  return by === null
+    ? 'make a tile of it: a small square with its icon, its name and what its footer says. The module keeps running and keeps what is in it'
+    : `put back by ${by}. Press to make it a tile again`
 }

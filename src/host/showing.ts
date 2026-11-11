@@ -136,6 +136,8 @@ export interface Arranged {
    * whether a person has moved it since.
    */
   collapsed: boolean
+  /** Drawn as a tile: said as `folded` too, since what it shows is not in view. */
+  tiled?: boolean
 }
 
 export function containersOf(input: {
@@ -171,7 +173,9 @@ export function containersOf(input: {
       0,
       LIMITS.SHOWING_DOCUMENTS,
     )
-    return { module: p.i, selected: p.selected, folded: p.collapsed, showing: { refs, documents } }
+    /* A tile is not in view either: what the module shows is not on the screen, and `view.fold`'s
+       unfold puts it back (`asked` in `host/folds.ts`). */
+    return { module: p.i, selected: p.selected, folded: p.collapsed || p.tiled === true, showing: { refs, documents } }
   })
 }
 

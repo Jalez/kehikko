@@ -442,9 +442,11 @@ export function stillCopy(grid: Element): HTMLElement {
  * of the same fold and glides with it.
  */
 export function foldsOnlyChanged(
-  before: readonly { i: string; collapsed?: boolean }[],
-  after: readonly { i: string; collapsed?: boolean }[],
+  before: readonly { i: string; collapsed?: boolean; tiled?: boolean }[],
+  after: readonly { i: string; collapsed?: boolean; tiled?: boolean }[],
 ): boolean {
-  const was = new Map(before.map((one) => [one.i, one.collapsed ?? false]))
-  return after.some((one) => was.has(one.i) && was.get(one.i) !== (one.collapsed ?? false))
+  /* A tile made or restored glides as a fold does. */
+  const state = (one: { collapsed?: boolean; tiled?: boolean }) => (one.collapsed ? 'folded' : one.tiled ? 'tile' : 'open')
+  const was = new Map(before.map((one) => [one.i, state(one)]))
+  return after.some((one) => was.has(one.i) && was.get(one.i) !== state(one))
 }
