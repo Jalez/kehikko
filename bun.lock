@@ -21,7 +21,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "driver.js": "1.9.0",
-        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.85.0",
+        "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.86.0",
         "lucide-react": "^0.544.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -403,7 +403,7 @@
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
-    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#f8071cf082f9dcc2be57d81c83a2efd6abe44f40", { "peerDependencies": { "@radix-ui/react-collapsible": "^1.1.12", "@radix-ui/react-scroll-area": "^1.2.10", "@radix-ui/react-separator": "^1.1.8", "@radix-ui/react-slot": "^1.3.3", "@radix-ui/react-tooltip": "^1.2.16", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "lucide-react": "^1.33.0", "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "recharts": "^3.8.0", "tailwind-merge": "^3.6.0", "zod": "^3.23.8" }, "optionalPeers": ["@radix-ui/react-collapsible", "@radix-ui/react-scroll-area", "@radix-ui/react-separator", "@radix-ui/react-slot", "@radix-ui/react-tooltip", "class-variance-authority", "clsx", "lucide-react", "react", "react-dom", "recharts", "tailwind-merge"], "bin": { "kehikot-create": "./bin/create.ts", "kehikot-check-parts": "./bin/check-parts.ts", "kehikot-check-door": "./bin/check-door.ts", "kehikot-check-rows": "./bin/check-rows.ts", "kehikot-check-notes": "./bin/check-notes.ts" } }, "f8071cf082f9dcc2be57d81c83a2efd6abe44f40"],
+    "kehikot-module-protocol": ["kehikot-module-protocol@git+ssh://git@github.com/Jalez/kehikko-protocol.git#6668a5a5dccc87fe77663e303955a9d9badc0b54", { "peerDependencies": { "@radix-ui/react-collapsible": "^1.1.12", "@radix-ui/react-scroll-area": "^1.2.10", "@radix-ui/react-separator": "^1.1.8", "@radix-ui/react-slot": "^1.3.3", "@radix-ui/react-tooltip": "^1.2.16", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "lucide-react": "^1.33.0", "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "recharts": "^3.8.0", "tailwind-merge": "^3.6.0", "zod": "^3.23.8" }, "optionalPeers": ["@radix-ui/react-collapsible", "@radix-ui/react-scroll-area", "@radix-ui/react-separator", "@radix-ui/react-slot", "@radix-ui/react-tooltip", "class-variance-authority", "clsx", "lucide-react", "react", "react-dom", "recharts", "tailwind-merge"], "bin": { "kehikot-create": "./bin/create.ts", "kehikot-check-parts": "./bin/check-parts.ts", "kehikot-check-door": "./bin/check-door.ts", "kehikot-check-rows": "./bin/check-rows.ts", "kehikot-check-notes": "./bin/check-notes.ts" } }, "6668a5a5dccc87fe77663e303955a9d9badc0b54"],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 
