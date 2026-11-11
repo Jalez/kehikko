@@ -12,7 +12,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 16
+const TESTS = 18
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -35,6 +35,7 @@ let Settings: typeof import('../src/canvas/Settings.tsx')
 let Tools: typeof import('../src/canvas/Tools.tsx')
 let Bar: typeof import('../src/canvas/Bar.tsx')
 let AgentSettings: typeof import('../src/host/agentSettings.ts')
+let TrackerReading: typeof import('../src/canvas/TrackerReading.tsx')
 
 beforeAll(async () => {
   if (!inChild) return
@@ -47,6 +48,7 @@ beforeAll(async () => {
   Tools = await import('../src/canvas/Tools.tsx')
   Bar = await import('../src/canvas/Bar.tsx')
   AgentSettings = await import('../src/host/agentSettings.ts')
+  TrackerReading = await import('../src/canvas/TrackerReading.tsx')
 })
 
 afterAll(async () => {
@@ -516,4 +518,55 @@ test('Project: no section without an open project, and a sentence for one that c
   )
   expect(document.querySelector('[data-base-branch="unavailable"]')!.textContent).toBe('thesis is not a git repository, so it has no base branch.')
   expect(loads).toBe(0)
+})
+
+const LIMIT_NOTICE = "Kehikot's share of your GitHub GraphQL limit is used until 09:52 AM."
+
+test('the limit notice carries "Change limit"; other sentences do not', async () => {
+  if (!inChild) return
+  await render(
+    <>
+      <TrackerReading.WithLimitLink text={LIMIT_NOTICE} />
+      <TrackerReading.WithLimitLink text="Your GitHub limit is down to 400 of 5,000" />
+    </>,
+  )
+  const buttons = [...document.querySelectorAll('button')]
+  expect(buttons.map((one) => one.textContent)).toEqual(['Change limit'])
+  expect(buttons[0]!.closest('div')!.textContent).toContain(LIMIT_NOTICE)
+})
+
+test('pressing "Change limit" opens Settings at the share control, focused and lit, and the control saves', async () => {
+  if (!inChild) return
+  const saved: unknown[] = []
+  const load = async () => answer({ github: { share: 20 } })
+  const save = async (change: unknown) => {
+    saved.push(change)
+    return answer({ github: { share: 30 } })
+  }
+  await render(
+    <>
+      <TrackerReading.WithLimitLink text={LIMIT_NOTICE} />
+      <Settings.AgentSettingsHost load={load} save={save as typeof Settings.postSettings} />
+    </>,
+  )
+  expect(document.querySelector('[data-settings]')).toBeNull()
+  await act(async () => button('Change limit').click())
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  })
+  const row = document.querySelector('[data-settings-target="github-share"]')!
+  expect(row).toBeTruthy()
+  expect(row.getAttribute('data-lit')).toBe('true')
+  const field = row.querySelector('input')!
+  expect(document.activeElement).toBe(field)
+  expect(field.value).toBe('20')
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    set.call(field, '30')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  })
+  expect(saved).toEqual([{ github: { share: 30 } }])
 })

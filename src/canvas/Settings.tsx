@@ -71,6 +71,8 @@ import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { GITHUB_SHARE, GITHUB_SHARE_TARGET, SHARE_PERCENT, shareFromInput } from '@/host/githubShare.ts'
+import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 import { ChimePanel, type ModuleRef } from './ChimeSettings.tsx'
 import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
@@ -112,6 +114,7 @@ type Change =
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
   | { modules: { keep: boolean } }
   | { updates: { auto: boolean } }
+  | { github: { share: number } }
   | { worktrees: { auto: boolean } }
 
 /**
@@ -219,11 +222,14 @@ export function AgentSettingsHost({
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState<SettingsSection>('agents')
   const [question, setQuestion] = useState(false)
+  /* The control a link named, until it has been shown. */
+  const [target, setTarget] = useState<string | null>(null)
 
   useEffect(
     () =>
-      onOpenSettings((at) => {
+      onOpenSettings((at, to) => {
         if (at) setSection(at)
+        setTarget(to)
         setOpen(true)
       }),
     [],
@@ -262,7 +268,7 @@ export function AgentSettingsHost({
           setQuestion(false)
         }}
       />
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} />
+      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} target={target} onTargetShown={() => setTarget(null)} />
     </>
   )
 }
@@ -367,9 +373,14 @@ export function SettingsDialog({
   project = null,
   baseBranch = BASE_BRANCH_DOOR,
   modules = [],
+  target = null,
+  onTargetShown,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
+  /** A control to scroll to, focus and light once its section shows (`openSettings(section, target)`). */
+  target?: string | null
+  onTargetShown?(): void
   load?: typeof fetchSettings
   save?: typeof postSettings
   /** Which section is shown; the dialog keeps its own when not given. */
@@ -384,6 +395,15 @@ export function SettingsDialog({
   const [own, setOwn] = useState<SettingsSection>('agents')
   const section = given ?? own
   const setSection = setGiven ?? setOwn
+
+  /* A link named a control: show it as soon as it is on the page (the answer may still be loading). */
+  useEffect(() => {
+    if (!open || !target || !answer) return
+    const frame = requestAnimationFrame(() => {
+      if (revealTarget(document, target)) onTargetShown?.()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open, target, answer, section, onTargetShown])
 
   /* What the sync finds lands a moment after a change; read again while the window is open. */
   useEffect(() => {
@@ -529,6 +549,11 @@ export function SettingsBody({
                           checked={answer.updates.auto}
                           onChange={(auto) => onChange({ updates: { auto } })}
                         />
+                      </div>
+                    ) : null}
+                    {answer?.github ? (
+                      <div className="divide-y rounded-lg border px-4">
+                        <GithubShareRow percent={answer.github.share} onChange={(share) => onChange({ github: { share } })} />
                       </div>
                     ) : null}
                     {/* Only while it is shown: listing asks every module, and each form asks its own. */}
@@ -1174,6 +1199,53 @@ function Rows({ children }: { children: ReactNode }) {
 }
 
 /** One setting: its label and one line about it on the left, its switch on the right. */
+/** Kehikot's share of the GitHub limit, in whole percent; the control a "Change limit" button opens Settings at. */
+function GithubShareRow({ percent, onChange }: { percent: number; onChange(share: number): void }) {
+  const id = useId()
+  const [text, setText] = useState(String(percent))
+  useEffect(() => setText(String(percent)), [percent])
+  const commit = () => {
+    const next = shareFromInput(text)
+    if (next === null) return setText(String(percent))
+    setText(String(next))
+    if (next !== percent) onChange(next)
+  }
+  return (
+    <div
+      {...{ [TARGET_ATTR]: GITHUB_SHARE_TARGET }}
+      className="flex min-w-0 items-start justify-between gap-4 py-3.5 transition-colors data-[lit=true]:bg-amber-500/10 data-[lit=true]:ring-2 data-[lit=true]:ring-amber-500/50"
+    >
+      <div className="min-w-0 space-y-1">
+        <Label htmlFor={id} className="text-sm leading-snug">
+          {GITHUB_SHARE.label}
+        </Label>
+        <p id={`${id}-about`} className="text-muted-foreground text-xs leading-relaxed">
+          {GITHUB_SHARE.description} From {SHARE_PERCENT.min}% to {SHARE_PERCENT.max}%; {SHARE_PERCENT.default}% unless you change it.
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Input
+          id={id}
+          type="number"
+          inputMode="numeric"
+          min={SHARE_PERCENT.min}
+          max={SHARE_PERCENT.max}
+          step={1}
+          value={text}
+          aria-describedby={`${id}-about`}
+          className="h-8 w-16 text-right tabular-nums"
+          onChange={(event) => setText(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit()
+          }}
+        />
+        <span className="text-muted-foreground text-xs">%</span>
+      </div>
+    </div>
+  )
+}
+
 function SettingRow({
   label,
   description,
