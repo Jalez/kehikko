@@ -86,6 +86,10 @@ export const ANSWERED_BY_THE_SERVER = [
      session, the rest merged. A page has no project to name: `answer`
      declines it there. */
   'messages.tell',
+  /* Protocol 2.76.0: the projects the asking module keeps its folder in,
+     from the person's list in the server's database. See
+     `server/projectsMine.ts`. */
+  'projects.mine',
 ] as const
 
 /**

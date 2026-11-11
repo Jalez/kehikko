@@ -54,6 +54,7 @@ const PARAMS: Record<string, unknown> = {
   'messages.notify': { token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', body: 'hi' },
   'messages.tell': { to: { place: { epic: 'auth' } }, body: 'hi' },
   'messages.say': { body: 'hi', to: { project: true } },
+  'projects.mine': {},
 }
 
 describe('the rule', () => {
