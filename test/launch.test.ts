@@ -76,7 +76,7 @@ describe('every no is a sentence naming what to fix', () => {
     const can = startable(registration())
     expect(can.ok).toBe(false)
     if (can.ok) return
-    expect(can.why).toContain('without a directory')
+    expect(can.why).toContain('no folder set')
     expect(can.why).toContain('kehikot.thing.json')
   })
 
@@ -84,7 +84,7 @@ describe('every no is a sentence naming what to fix', () => {
     const can = startable(registration({ dir: 'modules/thing' }))
     expect(can.ok).toBe(false)
     if (can.ok) return
-    expect(can.why).toContain('absolute')
+    expect(can.why).toContain('full path')
   })
 
   test('a directory that is not there', () => {

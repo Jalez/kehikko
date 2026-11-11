@@ -117,7 +117,7 @@ describe('a module row', () => {
     })
     const stale = moduleRow(checkout('a', 0), null, null, undefined, { stale: 'its registration says to keep it.' })
     expect(stale).toMatchObject({ state: 'failed', retry: true })
-    expect(stale.reason).toBe('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
+    expect(stale.reason).toBe("Updated, but it wasn't restarted, so it may still be the old version: its registration says to keep it.")
     /* New commits since: the update is what is offered, not a retry that would hide it. */
     expect(moduleRow(checkout('a', 2), null, null, undefined, { stale: 'kept' })).toMatchObject({ state: 'available', behind: 2 })
     /* Its own build identity says it is behind its checkout: the server's sentence as it is, and the button restarts. */
@@ -139,10 +139,10 @@ describe('a module row', () => {
       expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart it')
       expect(moduleNote({ ran }).toLowerCase()).not.toContain('restart to')
     }
-    expect(moduleNote({ ran: 'restarted' })).toBe('Updated — running the new code. It was restarted, which ended anything it was running.')
-    expect(moduleNote({ ran: 'page' })).toStartWith('Updated — running the new code.')
+    expect(moduleNote({ ran: 'restarted' })).toBe('Updated and restarted. Anything it was running was ended.')
+    expect(moduleNote({ ran: 'page' })).toBe('Updated. Only its page changed, so it reloads by itself.')
     /* Not running and on no open kehikko: said as it is, not as "running". */
-    expect(moduleNote({ ran: 'idle' })).toBe('Updated. It is not running; it starts on the new code when a kehikko that has it is opened.')
+    expect(moduleNote({ ran: 'idle' })).toBe("Updated. It isn't running right now; you'll get the new version next time you open a kehikko that uses it.")
   })
 })
 
@@ -278,7 +278,7 @@ describe('what an update will do, said before the press', () => {
     expect(previewText('restart')).toBe('It will be restarted, which ends anything it is running.')
     expect(previewText('page')).toBe('Only its page changes; nothing is restarted.')
     expect(previewText('self')).toBe('It restarts itself on this change, which ends anything it is running.')
-    expect(previewText('kept')).toBe('It is kept, so Kehikot will not restart it — its page may still reload.')
+    expect(previewText('kept')).toBe("It's set to stay running, so Kehikot won't restart it. Its page may still reload.")
   })
 
   test('"Update all" names the ones that end what they are running, and says nothing when none do', () => {

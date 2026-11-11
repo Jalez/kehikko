@@ -94,7 +94,7 @@ describe('the decision table', () => {
     })
     const decided = decide(candidate({ reading: { release: waiting, blocked: null } }))
     expect(decided).toEqual({ do: 'wait', until: 'app', target: 'v1.7.0', detail: '0.1.70' })
-    if (decided.do === 'wait') expect(waitSaid('Paper', decided)).toBe('Paper waits for Kehikot 0.1.70')
+    if (decided.do === 'wait') expect(waitSaid('Paper', decided)).toBe('Paper needs Kehikot 0.1.70 or later. It updates once you do.')
   })
 
   test('a checkout somebody edits (not installed): never', () => {
@@ -139,10 +139,10 @@ describe('the decision table', () => {
   test('the words for each wait', () => {
     expect(waitSaid('Terminal', { until: 'stopped', target: 'v1.2.0', detail: null, shells: true })).toBe('Terminal updates when its sessions end')
     expect(waitSaid('Journeys', { until: 'off-screen', target: 'v1.6.0', detail: null })).toBe('Journeys updates when you leave its kehikko')
-    expect(waitSaid('Paper', { until: 'app', target: 'v2.0.0', detail: '' })).toBe('Paper waits for a newer Kehikot')
+    expect(waitSaid('Paper', { until: 'app', target: 'v2.0.0', detail: '' })).toBe('Paper needs a newer Kehikot. It updates once you update Kehikot.')
     expect(waitSaid('Notes', { until: 'pinned', target: 'v1.6.0', detail: 'v1.2.0' })).toBe('Notes is pinned to v1.2.0, so it is not updated automatically')
     expect(waitSaid('Notes', { until: 'retry', target: 'v1.6.0', detail: 'bun install failed.' })).toBe(
-      'Notes could not be updated to 1.6.0: bun install failed. It is tried again at the next check.',
+      'Notes could not be updated to 1.6.0: bun install failed. It will try again at the next check.',
     )
   })
 

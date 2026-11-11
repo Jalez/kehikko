@@ -230,7 +230,7 @@ export function keptNote(name: string): string {
  * moved is not. A build identity settles it — see `server/stale.ts`.
  */
 export function staleNote(why: string): string {
-  return `Updated, but it was not restarted and may still be running the old code: ${why}`
+  return `Updated, but it wasn't restarted, so it may still be the old version: ${why}`
 }
 
 /**
@@ -240,15 +240,15 @@ export function staleNote(why: string): string {
 export function moduleNote(module: { ran: 'page' | 'restarted' | 'started' | 'idle' }): string {
   switch (module.ran) {
     case 'page':
-      return 'Updated — running the new code. Only its page changed, and that reloads itself.'
+      return 'Updated. Only its page changed, so it reloads by itself.'
     case 'restarted':
       /* Said because the restart is the host's doing and takes with it whatever
          the module held only in its process — a terminal's shell. */
-      return 'Updated — running the new code. It was restarted, which ended anything it was running.'
+      return 'Updated and restarted. Anything it was running was ended.'
     case 'started':
-      return 'Updated — running the new code.'
+      return 'Updated and running.'
     case 'idle':
-      return 'Updated. It is not running; it starts on the new code when a kehikko that has it is opened.'
+      return "Updated. It isn't running right now; you'll get the new version next time you open a kehikko that uses it."
   }
 }
 
@@ -368,7 +368,7 @@ export function stateText(row: UpdateRow): string {
     case 'ready':
       return `${kehikot(row.version)} is ready — restart to update`
     case 'reopen':
-      return 'Updated — restart Kehikot to run it'
+      return 'Updated. Restart Kehikot to use it.'
     case 'failed':
       return `Failed: ${row.reason ?? 'no reason given'}`
     case 'blocked':
@@ -412,7 +412,7 @@ export function previewText(preview: Preview): string {
     case 'self':
       return 'It restarts itself on this change, which ends anything it is running.'
     case 'kept':
-      return 'It is kept, so Kehikot will not restart it — its page may still reload.'
+      return "It's set to stay running, so Kehikot won't restart it. Its page may still reload."
   }
 }
 

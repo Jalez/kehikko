@@ -86,17 +86,17 @@ export type Startable = { ok: true; run: Runnable } | { ok: false; why: string }
  * that cannot work.
  */
 export function startable(registration: Registration | null): Startable {
-  if (!registration) return { ok: false, why: 'There is no registration for that module.' }
+  if (!registration) return { ok: false, why: 'Kehikot has no such module.' }
   if (!registration.dir) {
     return {
       ok: false,
-      why: `${registration.id} is registered without a directory, so this host has no way to start it. Add "dir" to ${registration.file} to offer a Start button, or start it yourself.`,
+      why: `${registration.id} has no folder set, so Kehikot cannot start it. Add "dir" to ${registration.file} to offer a Start button, or start it yourself.`,
     }
   }
 
   const dir = registration.dir
   if (!isAbsolute(dir)) {
-    return { ok: false, why: `"${dir}" is not an absolute path. A relative one would be relative to wherever this host happened to be started from.` }
+    return { ok: false, why: `"${dir}" is not a full path. A relative one would depend on where Kehikot happened to be started from.` }
   }
 
   /* Resolved, then checked to be inside. `resolve` collapses `..` before this
@@ -112,13 +112,13 @@ export function startable(registration: Registration | null): Startable {
   try {
     if (!statSync(root).isDirectory()) return { ok: false, why: `"${root}" is not a directory.` }
   } catch {
-    return { ok: false, why: `"${root}" is not there. The registration names a directory that does not exist.` }
+    return { ok: false, why: `"${root}" is not there. The folder this module is set to run from does not exist.` }
   }
 
   try {
     statSync(script)
   } catch {
-    return { ok: false, why: `${root} has no ${RUN_SCRIPT}. Every module is expected to ship one; this is the whole of what the host knows about starting it.` }
+    return { ok: false, why: `${root} has no ${RUN_SCRIPT}. Every module is expected to ship one; that is all Kehikot needs to start it.` }
   }
 
   try {
