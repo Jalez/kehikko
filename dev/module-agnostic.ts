@@ -31,9 +31,16 @@ export function officialNames(root = ROOT): string[] {
   return (Array.isArray(official) ? official : (official.modules ?? [])).map((one) => one.name)
 }
 
+/**
+ * Names a module shares with a word the host uses for its own thing. `Inbox` is the host's record of
+ * what modules need, are doing and have said, and its count in the bar; the module that shows it is
+ * called after it. The word stays the host's.
+ */
+export const HOST_WORDS = ['Inbox']
+
 /** Every name the host's own words never say. */
 export function namesOf(root = ROOT): string[] {
-  return [...new Set([...officialNames(root), ...UNLISTED_MODULES, ...VENDORS])]
+  return [...new Set([...officialNames(root), ...UNLISTED_MODULES, ...VENDORS])].filter((name) => !HOST_WORDS.includes(name))
 }
 
 /** A name as a whole capitalised word: `Claude` in a sentence, never `kehikot.claude` or `~/.claude`. */
