@@ -20,7 +20,7 @@ import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
-import type { TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
+import type { PickedProject, TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
 import type { TrafficDoor } from './traffic.ts'
 
 /**
@@ -257,6 +257,11 @@ export function answer(
    * the frame, or its server through `/host/server-ask`. Absent, the traffic methods are refused.
    */
   traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
+  /**
+   * The person's projects in which this module keeps its own folder (`projects.mine`, protocol
+   * 2.76.0; `server/projectsMine.ts`). Absent, it is refused with a sentence saying so.
+   */
+  mine: ((module: string) => PickedProject[]) | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -597,6 +602,15 @@ export function answer(
   }
 
   /**
+   * The projects this module keeps its own folder in (protocol 2.76.0), held to `agents:message`
+   * above like every method. Never the person's whole list: see `server/projectsMine.ts`.
+   */
+  case 'projects.mine': {
+    if (!mine) return notMineToSay('This host was not given the list of projects to answer from.')
+    return nothingToShow('projects.mine', { projects: mine(moduleId) })
+  }
+
+  /**
    * A write, refused. `ok: true` would cost nothing today and would mean a
    * module's button turning green over a report that exists nowhere — the
    * module believes work was filed, the person believes it was filed, and there
@@ -765,9 +779,10 @@ export async function answerCall(
   divide: PartsDoor | null = null,
   grants: Grants | null = null,
   traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
+  mine: ((module: string) => PickedProject[]) | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic, mine)
   }
   /* A refresh spends the person's rate limit for everybody: declined, in the
      outcome the protocol gives it, for a module that did not ask. */

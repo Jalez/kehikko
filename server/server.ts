@@ -6,6 +6,7 @@ import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
+import { projectsMine } from './projectsMine.ts'
 import { epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
@@ -3220,6 +3221,8 @@ const serverAsk = serverAskDesk({
       { may: declared, undeclared: () => {} },
       /* The record of traffic (protocol 2.20.0): the Monitor's door reads it, a module's server notes into it. */
       { door: trafficReading, via: 'server' },
+      /* The projects the module keeps its own folder in (protocol 2.76.0): what its server asks at start. */
+      (m) => projectsMine(listProjects(db), m),
     ),
   messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
 })
@@ -3771,6 +3774,8 @@ async function answerRequest(request: Request): Promise<Response> {
             undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
           },
           { door: trafficReading, via: 'page' },
+          /* The projects the module keeps its own folder in (protocol 2.76.0). */
+          (module) => projectsMine(listProjects(db), module),
         ),
       )
     }
