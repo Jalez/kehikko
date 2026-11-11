@@ -3,6 +3,7 @@ import {
   messageMineParams,
   messageMineResult,
   messageNotifyParams,
+  messageNotifySessionParams,
   messagePostParams,
   messageSayParams,
   messageReadParams,
@@ -41,6 +42,10 @@ import { TRACKER_NEWS_FROM } from '../src/host/trackerNews.ts'
  *    parts, a kehikko), stamped with no session and that place. Each session
  *    there is handed at most one from the module a minute; what comes faster
  *    is merged into one digest at the minute's end (`agentMessages.ts`).
+ *  - `messages.notifySession` (protocol 2.81.0), from a module's SERVER under
+ *    `sessions:observe`: its own notice to one session named by its own id,
+ *    found among the sessions this host has seen lately through their tokens
+ *    (`saw`); one it does not know is declined. Then as `notify`.
  *  - `POST /host/place` with `messages: true` (`placeRoutes.ts`): the session's
  *    unread, handed for its notes and counted delivered (`forNotes`).
  *  - `GET  /host/messages?project=N[&limit=]` — every message of the project,
@@ -105,7 +110,11 @@ export const MESSAGE_ROUTE_SAYS = {
   notAsked: (capability: string) => `This module’s manifest does not ask for ${capability} (declares.uses), so this host does not send it.`,
   notAllowed: 'The person has not allowed this module to send messages as them: they turn it on in its settings, in this host. Nothing was sent.',
   noPress: 'A message as the person goes only on their press in this module, and none came with it. Nothing was sent.',
+  unknownSession: 'This host has not seen an agent session by that id lately: no module that runs agent sessions has filed it. Nothing was sent.',
 } as const
+
+/** How many sessions the host remembers by id for `messages.notifySession`; the least recently seen go first. */
+const SESSIONS_SEEN_MAX = 2000
 
 const reply = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } })
@@ -123,6 +132,21 @@ export function messageDesk(deps: MessageDeps) {
   /** A muted module's own message, declined: nothing kept, nothing woken. */
   const muted = (): { ok: true; data: unknown } => ({ ok: true, data: messageSendResult.parse({ outcome: 'declined', why: MUTED_SAYS }) })
 
+  /**
+   * The sessions seen lately, by their own id (protocol 2.81.0): the token each last came with. Filled
+   * when a session's place is resolved here — its notes at every prompt, its messages — and only for a
+   * session its module's record names (a conversation id, not a digest of the token). In memory: a
+   * restarted host learns them again at each session's next prompt.
+   */
+  const seenSessions = new Map<string, string>()
+  function saw(here: Here | null, token: string): void {
+    if (!here || here.via !== 'token' || !here.module || !here.conversation) return
+    const id = sessionIdOf(here.conversation, token)
+    seenSessions.delete(id)
+    seenSessions.set(id, token)
+    if (seenSessions.size > SESSIONS_SEEN_MAX) seenSessions.delete(seenSessions.keys().next().value as string)
+  }
+
   /** The session behind a token this module issued, or why not. */
   async function sessionFor(module: string, token: string): Promise<{ here: Here } | MessageAsked> {
     const issued = issuerOf(db, token)
@@ -130,6 +154,7 @@ export function messageDesk(deps: MessageDeps) {
     if (issued.module !== module) return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.notYours }
     const { here } = await deps.resolve(token).catch(() => ({ here: null }))
     if (!here || here.via !== 'token') return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.noPlace }
+    saw(here, token)
     return { here }
   }
 
@@ -149,6 +174,7 @@ export function messageDesk(deps: MessageDeps) {
     if (!issuerOf(db, token)) return { ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noSession }
     const { here } = await deps.resolve(token).catch(() => ({ here: null }))
     if (!here || here.via !== 'token' || !here.module) return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.noPlace }
+    saw(here, token)
     if (mutes.has(here.project.id, module)) return muted()
     const to = { session: { module: here.module, session: sessionIdOf(here.conversation, token) } }
     const sent = messages.send(
@@ -158,6 +184,43 @@ export function messageDesk(deps: MessageDeps) {
       to,
       asked.data.thread ?? null,
       { ...(asked.data.kind !== undefined ? { kind: asked.data.kind } : {}), notice: true },
+    )
+    if (sent.ok) deps.changed(here.project.id)
+    return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
+  }
+
+  /**
+   * `messages.notifySession` (protocol 2.81.0): a module's own notice to ONE
+   * session it was never called by, named by the session's own id — a module
+   * that watches this computer's processes read it there. The host finds the
+   * session among those it has seen lately (`saw`), checks its module's record
+   * still names that id, and sends it there as `notify` does: in that session's
+   * project, stamped with no session and that session's place, declined while
+   * the person muted the module there. A session it does not know is declined,
+   * never guessed. Held to `sessions:observe` by `/host/server-ask`; the module
+   * asks for `agents:message` too.
+   */
+  async function notifySession(module: string, params: unknown): Promise<MessageAsked> {
+    const asked = messageNotifySessionParams.safeParse(params ?? {})
+    if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.notifySession: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+    const declined = (why: string): MessageAsked => ({ ok: true, data: messageSendResult.parse({ outcome: 'declined', why }) })
+    if (!(deps.may?.(module, 'agents:message') ?? false)) return declined(MESSAGE_ROUTE_SAYS.notAsked('agents:message'))
+    const id = asked.data.session
+    const token = seenSessions.get(id)
+    if (!token) return declined(MESSAGE_ROUTE_SAYS.unknownSession)
+    const { here } = await deps.resolve(token).catch(() => ({ here: null }))
+    if (!here || here.via !== 'token' || !here.module || !here.conversation || sessionIdOf(here.conversation, token) !== id) {
+      seenSessions.delete(id)
+      return declined(MESSAGE_ROUTE_SAYS.unknownSession)
+    }
+    if (mutes.has(here.project.id, module)) return muted()
+    const sent = messages.send(
+      here.project.id,
+      { module, session: '', name: deps.nameOf(module) ?? module, epic: here.epic, parts: here.parts, kehikko: here.key },
+      asked.data.body,
+      { session: { module: here.module, session: id } },
+      asked.data.thread ?? null,
+      { ...(asked.data.kind !== undefined ? { kind: asked.data.kind } : {}), notice: true, observed: true },
     )
     if (sent.ok) deps.changed(here.project.id)
     return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
@@ -219,6 +282,7 @@ export function messageDesk(deps: MessageDeps) {
   /** `messages.send`, `messages.read`, `messages.notify` or `messages.tell`, from a module's server whose pass and grant were held already. */
   async function serverAnswer(module: string, method: string, params: unknown, root: string | null = null): Promise<MessageAsked> {
     if (method === 'messages.notify') return notify(module, params)
+    if (method === 'messages.notifySession') return notifySession(module, params)
     if (method === 'messages.tell') return tell(module, params, root)
     if (method === 'messages.send') {
       const asked = messageSendParams.safeParse(params ?? {})
@@ -271,6 +335,7 @@ export function messageDesk(deps: MessageDeps) {
    */
   function forNotes(here: Here | null, token: string): { messages: AgentMessage[]; messagesMore: number } {
     if (!here || here.via !== 'token' || !here.module) return { messages: [], messagesMore: 0 }
+    saw(here, token)
     const out = messages.deliver(here.project.id, readerOf(here, token))
     return { messages: out.messages, messagesMore: out.more }
   }

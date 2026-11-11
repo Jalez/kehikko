@@ -90,6 +90,8 @@ export interface Extras {
   answers?: string
   /** Protocol 2.54.0: a module's notice to the one session that asked it, bounded per module and receiving session. */
   notice?: boolean
+  /** Protocol 2.81.0: a notice to a session that did not ask (`messages.notifySession`), bounded harder (`OBSERVED_PER_HOUR`). */
+  observed?: boolean
 }
 
 /** One message as the person's view lists it: the protocol's shape. */
@@ -260,6 +262,7 @@ export const MESSAGES_SAY = {
     `Too many messages from this session in the last ${per}: at most ${per === 'minute' ? LIMITS.MESSAGES_PER_MINUTE : LIMITS.MESSAGES_PER_HOUR}. Nothing was sent; send fewer, longer ones.`,
   noticeRate: (per: 'minute' | 'hour') =>
     `Too many notices from this module to that session in the last ${per}: at most ${per === 'minute' ? LIMITS.NOTICES_PER_MINUTE : LIMITS.NOTICES_PER_HOUR}. Nothing was sent; send fewer.`,
+  observedRate: () => `Too many notices from this module to that session in the last hour: at most ${LIMITS.OBSERVED_PER_HOUR} to a session that did not ask. Nothing was sent; send fewer.`,
   tellRate: () => `Too much news from this module in the last hour: at most ${LIMITS.MESSAGES_PER_HOUR}. Nothing was sent; merge it into fewer messages.`,
   personRate: () => `Too many of your messages through this module in the last minute: at most ${LIMITS.PERSON_MESSAGES_PER_MINUTE}. Nothing was sent; wait a moment.`,
   empty: 'A message says something: the body was empty once its control characters were taken out. Nothing was sent.',
@@ -296,6 +299,7 @@ export class AgentMessages {
           .get(project, from.module, target, since)!.n
       if (count(now - 60_000) >= LIMITS.NOTICES_PER_MINUTE) return { ok: false, why: MESSAGES_SAY.noticeRate('minute') }
       if (count(now - 3_600_000) >= LIMITS.NOTICES_PER_HOUR) return { ok: false, why: MESSAGES_SAY.noticeRate('hour') }
+      if (extras.observed && count(now - 3_600_000) >= LIMITS.OBSERVED_PER_HOUR) return { ok: false, why: MESSAGES_SAY.observedRate() }
     } else {
       const count = (since: number) =>
         this.db

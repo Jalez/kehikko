@@ -20,7 +20,7 @@ import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
-import type { PickedProject, TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
+import type { PickedProject, ServiceProvider, TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
 import type { TrafficDoor } from './traffic.ts'
 
 /**
@@ -110,6 +110,7 @@ const notMineToSay = (error: string): Answer => ({ ok: false, reason: 'failed', 
 const NOTICE_FROM_A_PAGE = 'A notice goes from a module’s server to the session whose token asked it for something (askHost). A page has no such token.'
 const TELL_FROM_A_PAGE = 'News to the sessions at a place goes from a module’s server (askHost, messages.tell). A page has no server to tell from.'
 const NO_MESSAGES = 'This host was not given a record of messages to answer from.'
+const OBSERVED_FROM_A_PAGE = 'A notice to a session found by its id goes from a module’s server (askHost, messages.notifySession). A page has no server to send from.'
 const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
 /* Which half answers what, and the check that nothing falls between them, live
@@ -262,6 +263,11 @@ export function answer(
    * 2.76.0; `server/projectsMine.ts`). Absent, it is refused with a sentence saying so.
    */
   mine: ((module: string) => PickedProject[]) | null = null,
+  /**
+   * Who provides a service here (`services.find`, protocol 2.81.0; `server/services.ts`): in the
+   * project the call stands in, and whether each is placed on the kehikko it names. Absent, none.
+   */
+  services: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null = null,
 ): Answer {
   if (!knownModule(moduleId)) {
     return {
@@ -688,6 +694,15 @@ export function answer(
      `/host/server-ask` hands it to `server/messageRoutes.ts`. A page tells no one. */
   case 'messages.tell':
     return nothingToShow('messages.tell', { outcome: 'declined', why: TELL_FROM_A_PAGE })
+  /* Protocol 2.81.0: a module's server's notice to one session found by its
+     id; `/host/server-ask` hands it to `server/messageRoutes.ts`. */
+  case 'messages.notifySession':
+    return nothingToShow('messages.notifySession', { outcome: 'declined', why: OBSERVED_FROM_A_PAGE })
+  /* Protocol 2.81.0: who provides a service here, with each descriptor. */
+  case 'services.find': {
+    const { service, kehikko } = parsed.data as { service: string; kehikko?: string }
+    return nothingToShow('services.find', { providers: services ? services(service, root, kehikko ?? null) : [] })
+  }
 
   default:
     /* Unreachable: `answeredHere` and this switch are the same list, and the
@@ -780,9 +795,10 @@ export async function answerCall(
   grants: Grants | null = null,
   traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
   mine: ((module: string) => PickedProject[]) | null = null,
+  services: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null = null,
 ): Promise<Answer> {
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic, mine)
+    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic, mine, services)
   }
   /* A refresh spends the person's rate limit for everybody: declined, in the
      outcome the protocol gives it, for a module that did not ask. */
