@@ -71,7 +71,7 @@ export function isTimedOutSaid(text: string | null | undefined): boolean {
 /** The schedule's choices, in minutes. */
 export const EVERY_CHOICES = [0, 5, 15, 30, 60] as const
 
-/** What the whole thing is for, said once at the top of the panel and in the tool's answer. */
+/** What the whole thing is for, said once at the top of Settings › Trackers and in the tool's answer. */
 export const TRACKERS_ARE_FOR =
   'Where references like gh#41 or !7 are looked up. Every module that shows issues or changes reads from here.'
 
@@ -119,6 +119,14 @@ export function readSaid(s: ListedSource, now: number): string {
       ? ''
       : `${plural(s.issues ?? 0, 'issue', 'issues')}, ${plural(s.changes ?? 0, 'change', 'changes')}, `
   return `${counts}${ago(Date.parse(s.at), now)}`
+}
+
+/** The same, as the bar's Trackers menu says it on one line: "41 issues · 296 changes · just now". */
+export function statusSaid(s: ListedSource, now: number): string {
+  if (s.off) return 'turned off'
+  if (!s.at) return 'not read yet'
+  const counts = s.issues === null && s.changes === null ? [] : [plural(s.issues ?? 0, 'issue', 'issues'), plural(s.changes ?? 0, 'change', 'changes')]
+  return [...counts, ago(Date.parse(s.at), now)].join(' · ')
 }
 
 /** One board as a line: its title and its columns, left to right. */

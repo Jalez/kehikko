@@ -117,8 +117,8 @@ describe('the sentences', () => {
   test('before any press, it does not send anybody to where they started it', () => {
     const said = keptSentence(ID, 'http://127.0.0.1:7920')
     expect(said).toBe(
-      'kehikot.terminal is running at http://127.0.0.1:7920, and its registration says to keep it, so this host has not stopped it — '
-      + 'that flag exists so nothing reaps a program holding live work.',
+      'kehikot.terminal is running at http://127.0.0.1:7920 and is set to stay running, so Kehikot did not stop it. '
+      + 'That setting protects programs holding live work.',
     )
     expect(said).not.toContain('where you started it')
   })
@@ -452,7 +452,7 @@ describe('the route', () => {
     expect(answered.status).toBe(409)
     expect(answered.body.why).toBe(
       'kehikot.terminal was not restarted: the program on port 7920 answers as kehikot.notes, not as kehikot.terminal. '
-      + 'This host only stops a program it can show is kehikot.terminal, and nothing was stopped.',
+      + 'Kehikot only stops a program it can confirm is kehikot.terminal, so nothing was stopped.',
     )
     expect(answered.body.kept).toBe(true)
     expect(m.signals).toEqual([])

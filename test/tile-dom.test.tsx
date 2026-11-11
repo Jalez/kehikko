@@ -235,14 +235,14 @@ describe('the collapse button follows Settings › Appearance', () => {
 describe('Settings › Appearance', () => {
   if (!inChild) return
 
-  test('“The collapse button”: Folds to the header or Makes a tile, saved as the app’s default', async () => {
+  test('“The ^ button on a container”: Folds it or Makes it a tile, saved as the app’s default', async () => {
     const store = new Store.AppearanceStore()
     const saved: unknown[] = []
     await mount(<Settings.AppearanceSettings store={store} onChange={(what) => void saved.push(what)} />)
     const group = document.querySelector<HTMLElement>('[data-appearance="collapse"]')!
-    expect(group.getAttribute('aria-label')).toBe('The collapse button')
-    expect(group.textContent).toContain('Folds to the header')
-    expect(group.textContent).toContain('Makes a tile')
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)!.textContent).toBe('The ^ button on a container:')
+    expect(group.textContent).toContain('Folds it')
+    expect(group.textContent).toContain('Makes it a tile')
     const tile = group.querySelector<HTMLButtonElement>('[data-choice="tile"]')!
     await act(async () => tile.click())
     expect(store.get().collapse).toBe('tile')

@@ -4201,6 +4201,11 @@ export function App() {
         : { on: !messagesMuted.has(TRACKER_NEWS_FROM.module), onChange: (on: boolean) => muteMessages(TRACKER_NEWS_FROM.module, !on) },
     [projectId, messagesMuted, muteMessages],
   )
+  /* Settings › Trackers: the open project's reading, "Refresh all" and the news switch (`TrackerSettings.tsx`). */
+  const trackersDoor = useMemo(
+    () => (projectId === null ? null : { tracker, onRefresh: onRefreshTrackers, news: trackerNews }),
+    [projectId, tracker, onRefreshTrackers, trackerNews],
+  )
   /* "Use inbox" off, named for the panel: the way back is where the muting is said. */
   const mutedModules = useMemo(
     () => [...inbox.muted].map((id) => ({ id, name: moduleName(id) })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -4804,7 +4809,6 @@ export function App() {
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
-        trackerNews={trackerNews}
         inbox={inboxCount}
         pinned={pinned}
         /* The host's own door. The id the server answers for it comes from
@@ -5455,7 +5459,7 @@ export function App() {
           question while it is unanswered. Opened from the projects menu, a
           module's Tools or Skills window, and the sync's lines in the Inbox.
           Its Project section is the open project's own. */}
-      <AgentSettingsHost project={project} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id, ...(p.module?.events?.length ? { events: p.module.events } : {}) })) ?? []} />
+      <AgentSettingsHost project={project} trackers={trackersDoor} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id, ...(p.module?.events?.length ? { events: p.module.events } : {}) })) ?? []} />
 
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}

@@ -36,7 +36,7 @@ import { happenings, namesSaid, type Happening, type Seen } from './trackerNotic
 /** Who the news is from, as the messages record stamps it. The host names no module and no vendor. */
 export const TRACKER_NEWS_FROM = { module: 'kehikot.host', name: 'Trackers' } as const
 
-/** The person's switch, in the trackers panel and on the news itself. */
+/** The person's switch, in Settings › Trackers and on the news itself. */
 export const TRACKER_NEWS_WORDS = {
   title: 'Tracker news to agents',
   lead: 'Tell the agent sessions at an epic when somebody else reviews, comments, pushes, merges or closes one of its issues or changes, or its CI fails or recovers. Your own actions are never told.',

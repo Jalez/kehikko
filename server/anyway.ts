@@ -74,8 +74,8 @@ export const ARMED_FOR_MS = 20_000
 /** What a restart refused for `keep` says, before anything is pressed. */
 export function keptSentence(id: string, url: string): string {
   return (
-    `${id} is running at ${url}, and its registration says to keep it, so this host has not stopped it — `
-    + 'that flag exists so nothing reaps a program holding live work.'
+    `${id} is running at ${url} and is set to stay running, so Kehikot did not stop it. `
+    + 'That setting protects programs holding live work.'
   )
 }
 
@@ -99,7 +99,7 @@ export type Aimed = { ok: true; target: Target } | { ok: false; why: string }
 function unshown(id: string, detail: string): Aimed {
   return {
     ok: false,
-    why: `${id} was not restarted: ${detail} This host only stops a program it can show is ${id}, and nothing was stopped.`,
+    why: `${id} was not restarted: ${detail} Kehikot only stops a program it can confirm is ${id}, so nothing was stopped.`,
   }
 }
 
@@ -111,7 +111,7 @@ export async function aim(id: string, run: Runnable, world: AnywayWorld): Promis
   const mine = world.ours(id)
   if (mine !== null) return { ok: true, target: { whose: 'ours', pid: mine } }
 
-  if (run.port === null) return unshown(id, 'its registration names no port, so there is nothing to find it by.')
+  if (run.port === null) return unshown(id, 'it has no port set, so there is nothing to find it by.')
   let before: number | null
   try {
     before = await world.os.listenerOf(run.port)
@@ -183,7 +183,7 @@ export async function stopAnyway(id: string, run: Runnable, armed: number, world
     world.stopOurs(id)
     return { ok: true, target, killed: false }
   }
-  if (run.port === null) return unshown(id, 'its registration names no port, so there is nothing to find it by.') as StoppedAnyway
+  if (run.port === null) return unshown(id, 'it has no port set, so there is nothing to find it by.') as StoppedAnyway
   const stopped = await stopProven(run.port, target.pgid, world.os)
   if (stopped.kind === 'unproven') return unshown(id, stopped.detail) as StoppedAnyway
   return { ok: true, target, killed: stopped.killed }

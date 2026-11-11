@@ -2652,7 +2652,7 @@ type Moved = { runnable: Runnable; line: string }
  * start that follows uses it.
  */
 async function moveOff(id: string, registration: Registration, runnable: Runnable): Promise<{ ok: true; moved: Moved } | { ok: false; why: string }> {
-  if (runnable.port === null || !registration.file) return { ok: false, why: `${id} has no port in its registration to move it from.` }
+  if (runnable.port === null || !registration.file) return { ok: false, why: `${id} has no port set, so it can't be moved.` }
   const first = official.current().find((one) => one.id === id)?.port ?? null
   const to = await newPort({ id, taken: runnable.port, first, registry: registryDir() })
   if (!to.ok) return to
@@ -3290,7 +3290,7 @@ async function updateHost(place: Place, signal: AbortSignal, phase: Phase): Prom
  *  - `page`: only its page changed, which reloads itself. Nothing was restarted.
  *  - `restarted`: the host stopped it and it answers again, on the new code.
  *  - `started`: it was not running but a kehikko has it, so the host started it.
- *  - `idle`: it is not running and nothing open has it. It starts on the new code when next opened.
+ *  - `idle`: it is not running and nothing open has it. It starts on the new version when next opened.
  *  - `stale`: it is still running the old code, and `why` says what stops this host restarting it.
  *  - `failed`: the host stopped it and it did not come back; `why` and `detail` say what it printed.
  */
@@ -3383,8 +3383,8 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
         outcome = {
           ran: 'failed',
           why: came.installing
-            ? `${id} was started on the new code and was still installing what it needs after ${waited} minutes, without answering. It is still running; all of what it printed is in ${logFile(id)}.`
-            : `${id} was started on the new code and has not answered after ${Math.round(came.waited / 1000)} seconds. It is still running; all of what it printed is in ${logFile(id)}.`,
+            ? `${id} was started again after the update and was still installing what it needs after ${waited} minutes, without answering. It is still running; everything it printed is in ${logFile(id)}.`
+            : `${id} was started again after the update but has not answered after ${Math.round(came.waited / 1000)} seconds. It is still running; everything it printed is in ${logFile(id)}.`,
           detail: came.detail,
         }
       }

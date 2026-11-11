@@ -72,7 +72,7 @@ describe('the limit notice and the deep link', () => {
     expect(settingsLinkOf({ section: 'modules', target: 'github-share' })).toEqual({ section: 'modules', target: 'github-share' })
     expect(settingsLinkOf({ section: 'nope', target: '"><x' })).toEqual({ section: null, target: null })
     expect(settingsLinkOf(null)).toEqual({ section: null, target: null })
-    expect(SETTINGS_TARGETS.githubShare).toEqual({ section: 'modules', target: 'github-share' })
+    expect(SETTINGS_TARGETS.githubShare).toEqual({ section: 'trackers', target: 'github-share' })
   })
 
   test('openSettings carries the section and the target to a listener', () => {

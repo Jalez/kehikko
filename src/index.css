@@ -409,36 +409,36 @@
  * `[data-tiled]` is the third: a tile's header holds its restore control, and a
  * tile has no page to give the space to (`canvas/Tile.tsx`).
  */
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]),
-.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) {
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]),
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) {
   height: 0;
   overflow: hidden;
   transition: height 140ms ease;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]) > .container-grip,
-.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]) > .container-grip,
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
-.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
   height: 2rem;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
-.react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
+:is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
   opacity: 1;
   pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .react-grid-item [data-rows='hide'] > .container-reveal,
-  .react-grid-item [data-rows='hide'] > .container-reveal > .container-grip,
-  .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]),
-  .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
+  :is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal,
+  :is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal > .container-grip,
+  :is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]),
+  :is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
     transition: none;
   }
 }
@@ -449,6 +449,18 @@
    measuring every container on the canvas. */
 .react-grid-item.react-draggable-dragging .container-reveal > .container-grip {
   transition: none;
+}
+
+/*
+ * Settings › Appearance's preview (`canvas/AppearancePreview.tsx`): example containers drawn with the
+ * canvas's own classes, so every rule above and below draws them too — the reveal rules are scoped to
+ * `.react-grid-item` OR this stage. Behind them, a dotted backdrop, so a transparent container shows
+ * that it is one.
+ */
+[data-appearance-stage] {
+  background-color: var(--background);
+  background-image: radial-gradient(color-mix(in oklch, var(--foreground) 22%, transparent) 1px, transparent 1px);
+  background-size: 14px 14px;
 }
 
 /*

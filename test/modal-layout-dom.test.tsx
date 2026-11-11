@@ -276,7 +276,7 @@ describe('every window', () => {
       expect(header.contains(close)).toBe(true)
       expect(body.contains(close)).toBe(false)
       expect(body.contains(header)).toBe(false)
-      expect(classes(close)).not.toContain('absolute')
+      expect(classes(close)).not.toContain('full path')
       /* First in tab order: nothing focusable comes before it. */
       const tabbable = [...dialog!.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
       expect(tabbable[0]).toBe(close as HTMLElement)

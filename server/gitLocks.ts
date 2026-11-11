@@ -132,6 +132,6 @@ export function lockNamedIn(stderr: string): string | null {
 /** A complete sentence for a lock that could not be cleared, with no part of git's text cut off. */
 export function lockSaid(path: string, dir: string, env: Record<string, string | undefined> = process.env): string {
   return isInstalledCopy(dir, env)
-    ? `git found a leftover lock file in its installed copy (${path}). Kehikot removes it automatically when no git process is using it`
-    : `git found a leftover lock file (${path}). If no git process is using it, remove it by hand`
+    ? `A leftover git lock file was left in its installed copy (${path}). Kehikot removes it by itself when nothing is using it, and will try again at the next check.`
+    : `A leftover git lock file was left in this folder. If nothing is using it, remove the leftover lock file by hand: ${path}.`
 }

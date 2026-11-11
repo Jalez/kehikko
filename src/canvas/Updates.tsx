@@ -97,7 +97,7 @@ import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
  * Updating a module restarts it when that is needed, as part of the update:
  * the server decides from what changed (`server/restart.ts`) and does it, and
  * the row moves through "Updating…", "Installing what changed…" and
- * "Restarting…" to "Updated — running the new code". No row asks for a restart
+ * "Restarting…" to "Updated and restarted". No row asks for a restart
  * of a module. "Restart to update" is the desktop app's own update and nothing
  * else; the host's own checkout, which only a development host has, says
  * "Restart the host".
@@ -1328,27 +1328,27 @@ function without(record: Record<string, string>, id: string): Record<string, str
 
 /** What one finished update is, as the row's outcome. */
 function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): Outcome {
-  const files = `${done.changed.length} file${done.changed.length === 1 ? '' : 's'} changed${done.lockfileReset ? ', a stale bun.lock from an earlier install was reset' : ''}${done.installed ? ', dependencies installed' : ''}.`
+  const files = `${done.changed.length} file${done.changed.length === 1 ? '' : 's'} changed${done.lockfileReset ? ', a leftover dependency lock file was reset' : ''}${done.installed ? ', dependencies installed' : ''}.`
   if (id === 'host' || !done.module) {
     return {
       kind: 'updated',
       note:
         done.restart === 'host'
-          ? `Updated — ${files} The page reloads itself, but Kehikot itself changed too: quit and reopen Kehikot to run it.`
-          : `Updated — ${files} The page reloads itself with the new code.`,
+          ? `Updated — ${files} The page reloads by itself, but Kehikot itself changed too. Quit and reopen Kehikot to use it.`
+          : `Updated — ${files} The page reloads by itself.`,
       restart: done.restart,
       installFailed: done.installFailed,
     }
   }
   if (done.module.ran === 'failed') {
-    return { kind: 'failed', why: `Updated, but it did not start on the new code. ${done.module.why}`, detail: done.module.detail, retry: true }
+    return { kind: 'failed', why: `Updated, but it did not start again. ${done.module.why}`, detail: done.module.detail, retry: true }
   }
   if (done.module.ran === 'stale') {
     return { kind: 'failed', why: done.module.kept ? keptNote(done.checkout.name) : staleNote(done.module.why), retry: true, ...(done.module.kept ? { kept: true } : {}) }
   }
   /* Commits that cancel out: the checkout moved and no file is different. */
   if (done.module.ran === 'page' && done.changed.length === 0) {
-    return { kind: 'updated', note: 'Updated. No file it runs is different, so nothing was restarted.', restart: null, installFailed: done.installFailed }
+    return { kind: 'updated', note: "Updated. Nothing it runs changed, so it wasn't restarted.", restart: null, installFailed: done.installFailed }
   }
   return { kind: 'updated', note: moduleNote(done.module), restart: null, installFailed: done.installFailed }
 }

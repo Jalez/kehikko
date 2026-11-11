@@ -212,7 +212,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     /* The level module says it follows main. */
     const level = [...document.querySelectorAll('[data-testid="updates-level"] button')].find((b) => b.textContent === 'show') as HTMLButtonElement
     await act(async () => level.click())
-    expect(document.querySelector('[data-testid="updates-release"]')?.textContent).toBe('tracks the latest code (no releases yet)')
+    expect(document.querySelector('[data-testid="updates-release"]')?.textContent).toBe('follows the latest version (no releases yet)')
 
     const whatsNew = document.querySelector('[data-testid="updates-whats-new"]') as HTMLButtonElement
     await act(async () => whatsNew.click())
@@ -684,7 +684,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
   const running = () => document.querySelector('[data-testid="updates-running"]')?.textContent ?? ''
   const buttons = () => [...document.querySelectorAll('button')].map((b) => b.textContent)
 
-  test('an update that needs a restart does it itself: the row says each step and ends on running the new code', async () => {
+  test('an update that needs a restart does it itself: the row says each step and ends on running again', async () => {
     const { posts, stream } = await updating([{ phase: 'updating' }, { phase: 'installing' }, { phase: 'restarting' }, updatedLine({ ran: 'restarted' })])
     await stream.next()
     expect(running()).toContain('Updating…')
@@ -698,7 +698,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(indicatorText()).toBe('Restarting a')
     await stream.next()
     await settle()
-    expect(text()).toContain('Updated — running the new code. It was restarted, which ended anything it was running.')
+    expect(text()).toContain('Updated and restarted. Anything it was running was ended.')
     /* No second press: nothing was asked of `/host/start`, and nothing offers to. */
     expect(posts.map((one) => one.url)).toEqual(['/host/updates'])
     expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
@@ -765,7 +765,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const first = await updating([updatedLine({ ran: 'page' }, { changed: ['src/app.tsx'] })])
     await first.stream.next()
     await settle()
-    expect(text()).toContain('Updated — running the new code. Only its page changed')
+    expect(text()).toContain('Updated. Only its page changed')
     expect(indicatorText()).toBe('')
     act(() => unmount?.())
     unmount = null
@@ -774,7 +774,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const second = await updating([updatedLine({ ran: 'idle' })])
     await second.stream.next()
     await settle()
-    expect(text()).toContain('It is not running; it starts on the new code when a kehikko that has it is opened.')
+    expect(text()).toContain("It isn't running right now; you'll get the new version next time you open a kehikko that uses it.")
     expect(buttons().some((label) => /restart/i.test(label ?? ''))).toBe(false)
   })
 
@@ -787,14 +787,14 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await stream.next()
     await settle()
     const failed = document.querySelector('[data-testid="updates-failed"]')
-    expect(failed?.textContent).toContain('Updated, but it did not start on the new code.')
+    expect(failed?.textContent).toContain('Updated, but it did not start again.')
     expect(failed?.textContent).toContain('error: cannot find module ./gone.ts')
     expect(indicatorText()).toBe('')
     const again = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Try again') as HTMLButtonElement
     await act(async () => again.click())
     await settle()
     expect(posts.filter((one) => one.url === '/host/start').map((one) => one.body)).toEqual([{ module: 'a' }])
-    expect(text()).toContain('Updated — running the new code.')
+    expect(text()).toContain('Updated and restarted. Anything it was running was ended.')
   })
 
   test('what the server still knows is shown by a page that did nothing: an update running, a module left on old code', async () => {
@@ -808,7 +808,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     const rows = [...document.querySelectorAll('[data-testid="updates-row"]')] as HTMLElement[]
     expect(rows.map((row) => row.dataset.state).sort()).toEqual(['failed', 'updating'])
     expect(text()).toContain('Restarting…')
-    expect(text()).toContain('Updated, but it was not restarted and may still be running the old code: its registration says to keep it.')
+    expect(text()).toContain("Updated, but it wasn't restarted, so it may still be the old version: its registration says to keep it.")
     expect(indicatorText()).toBe('Restarting a')
     expect(text()).not.toContain('Restart to update')
   })
@@ -842,7 +842,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
   })
 
   /* A module that is kept, behind by its own build: the owner's row. */
-  const KEPT = 'kehikot.terminal is running at http://127.0.0.1:7920, and its registration says to keep it, so this host has not stopped it — that flag exists so nothing reaps a program holding live work.'
+  const KEPT = 'kehikot.terminal is running at http://127.0.0.1:7920 and is set to stay running, so Kehikot did not stop it. That setting protects programs holding live work.'
   const WILL_END = 'Restarting kehikot.terminal ends whatever it is running. It is holding work this host cannot see — in a terminal, the open shells and everything running in them. This host started it (process 4321) and will stop that and start it again. Press again to do it.'
 
   async function keptRow(over: { arm?: Json; confirm?: Json; disarmMs?: number } = {}) {
@@ -914,7 +914,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
       { module: 'kehikot.terminal', press: 'arm' },
       { module: 'kehikot.terminal', press: 'confirm', token: 'tok-1' },
     ])
-    expect(text()).toContain('Updated — running the new code. It was restarted, which ended anything it was running.')
+    expect(text()).toContain('Updated and restarted. Anything it was running was ended.')
     expect(buttons().some((label) => /anyway|press again/i.test(label ?? ''))).toBe(false)
     expect(document.querySelector('[data-testid="updates-armed"]')).toBeNull()
   })
@@ -937,7 +937,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
   })
 
   test('a refusal on either press is the server’s sentence in the row, and the button is still there to begin again', async () => {
-    const unshown = 'kehikot.terminal was not restarted: the program on port 7920 answers as kehikot.notes, not as kehikot.terminal. This host only stops a program it can show is kehikot.terminal, and nothing was stopped.'
+    const unshown = 'kehikot.terminal was not restarted: the program on port 7920 answers as kehikot.notes, not as kehikot.terminal. Kehikot only stops a program it can confirm is kehikot.terminal, so nothing was stopped.'
     const first = await keptRow({ arm: { ok: false, kept: true, why: unshown } })
     await first.click('Restart now (ends its shells)')
     expect(document.querySelector('[data-testid="updates-failed"]')?.textContent).toContain(unshown)
@@ -994,7 +994,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     await settle()
     expect(posts.includes('/host/restart')).toBe(false)
     expect(panels()).toHaveLength(1)
-    expect(text()).toContain('quit and reopen Kehikot')
+    expect(text()).toContain('Quit and reopen Kehikot')
   })
   test('"Update all" fetches a waiting local checkout, updates it, and lists what it could not update with why', async () => {
     const posts: string[] = []

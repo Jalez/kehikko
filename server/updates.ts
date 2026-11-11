@@ -155,7 +155,7 @@ type Ran = { ok: true; out: string } | { ok: false; why: string; lock?: boolean 
 
 /** Why an update did not happen; a leftover-lock sentence already says so and is not prefixed. */
 function notUpdated(place: { name: string }, ran: { why: string; lock?: boolean }, context = ''): string {
-  return ran.lock ? ran.why : `${place.name} was not updated: ${context}${ran.why}`
+  return ran.lock ? `${place.name} was not updated. ${ran.why}` : `${place.name} was not updated: ${context}${ran.why}`
 }
 
 async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, signal?: AbortSignal, retried = false): Promise<Ran> {
@@ -375,8 +375,8 @@ function onlyLockfile(porcelain: string): boolean {
 
 /** Why an update would refuse, as a sentence, or null when it would go ahead. */
 export function blockedBy(c: Pick<Checkout, 'branch' | 'upstream' | 'dirty' | 'ahead' | 'behind'> & { staleLock?: boolean }): string | null {
-  if (!c.branch) return 'not on a branch (a detached checkout), so there is nothing to catch up with'
-  if (!c.upstream) return `the branch ${c.branch} tracks no remote branch`
+  if (!c.branch) return "it isn't on a branch, so there is nothing to update it to"
+  if (!c.upstream) return `the branch ${c.branch} isn't linked to a remote branch`
   if (c.dirty && !c.staleLock) return 'there are uncommitted changes; commit or stash them first'
   if (c.ahead > 0)
     return `${c.branch} has ${c.ahead} commit${c.ahead === 1 ? '' : 's'} of its own that ${c.upstream} does not — pull or push it by hand`
@@ -450,7 +450,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const lockfileReset = before.staleLock === true
   if (lockfileReset) {
     const reset = await git(place.dir, ['checkout', '--', 'bun.lock'])
-    if (!reset.ok) return { ok: false, why: notUpdated(place, reset, 'could not reset bun.lock: '), status: 409 }
+    if (!reset.ok) return { ok: false, why: notUpdated(place, reset, 'could not reset its dependency lock file: '), status: 409 }
   }
   /* A copy that runs releases is checked out at the newer release's tag;
      anything else is fast-forwarded along its branch. */

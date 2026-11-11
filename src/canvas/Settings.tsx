@@ -4,6 +4,7 @@ import {
   Blocks,
   Bot,
   Check,
+  CircleDot,
   ExternalLink,
   FolderGit2,
   Hammer,
@@ -50,6 +51,7 @@ import {
   type SettingsAnswer,
   type SettingsSection,
   SETTINGS_SECTIONS,
+  SETTINGS_TARGETS,
   type SkillState,
   type ToolState,
 } from '@/host/agentSettings.ts'
@@ -63,6 +65,9 @@ import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
 import { SkillsDialog } from './Skills.tsx'
 import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNotes.ts'
 import { openStorage } from '@/host/storage.ts'
+import { TRACKERS_ARE_FOR } from '@/host/trackerSources.ts'
+import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
+import { LIT_ROW, TrackerSourcesSettings, type TrackersDoor } from './TrackerSettings.tsx'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
@@ -222,7 +227,15 @@ export function AgentSettingsHost({
   save = postSettings,
   project = null,
   modules = [],
-}: { load?: typeof fetchSettings; save?: typeof postSettings; project?: SettingsProject | null; modules?: readonly ModuleRef[] } = {}) {
+  trackers = null,
+}: {
+  load?: typeof fetchSettings
+  save?: typeof postSettings
+  project?: SettingsProject | null
+  modules?: readonly ModuleRef[]
+  /** The open project's tracker reading, for Settings › Trackers; null with no project open. */
+  trackers?: TrackersDoor | null
+} = {}) {
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState<SettingsSection>('agents')
   const [question, setQuestion] = useState(false)
@@ -272,7 +285,7 @@ export function AgentSettingsHost({
           setQuestion(false)
         }}
       />
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} target={target} onTargetShown={() => setTarget(null)} />
+      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} trackers={trackers} target={target} onTargetShown={() => setTarget(null)} />
     </>
   )
 }
@@ -362,6 +375,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   agents: { title: 'Agents', icon: Bot },
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
+  trackers: { title: 'Trackers', icon: CircleDot },
   notices: { title: 'Tracker notices', icon: Bell },
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
@@ -382,7 +396,10 @@ export function SettingsDialog({
   modules = [],
   target = null,
   onTargetShown,
+  trackers = null,
 }: {
+  /** The open project's tracker reading, for Settings › Trackers. */
+  trackers?: TrackersDoor | null
   open: boolean
   onOpenChange(open: boolean): void
   /** A control to scroll to, focus and light once its section shows (`openSettings(section, target)`). */
@@ -441,6 +458,7 @@ export function SettingsDialog({
           project={project}
           baseBranch={baseBranch}
           modules={modules}
+          trackers={trackers}
         />
         </ModalBody>
       </ModalContent>
@@ -462,7 +480,10 @@ export function SettingsBody({
   baseBranch = BASE_BRANCH_DOOR,
   modulesApi,
   modules = [],
+  trackers = null,
 }: {
+  /** The open project's tracker reading, for Settings › Trackers; null with no project open. */
+  trackers?: TrackersDoor | null
   answer: SettingsAnswer | null
   trouble?: string | null
   busy: boolean
@@ -479,7 +500,9 @@ export function SettingsBody({
   /** The modules the host knows, for a sound of one module's own. */
   modules?: readonly ModuleRef[]
 }) {
-  const sections = SETTINGS_SECTIONS.filter((one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project))
+  const sections = SETTINGS_SECTIONS.filter(
+    (one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project) && (one !== 'trackers' || trackers || answer?.github),
+  )
   const shown = sections.includes(section) ? section : 'agents'
   const problems = answer?.status.problems.length ?? 0
 
@@ -538,6 +561,13 @@ export function SettingsBody({
                 ) : key === 'appearance' ? (
                   /* Only while it is shown, like Modules: its controls are nobody else's to find. */
                   shown === 'appearance' ? <AppearanceSettings onChange={onChange} /> : null
+                ) : key === 'trackers' ? (
+                  <TrackersSection
+                    door={trackers}
+                    projectName={project?.name ?? null}
+                    share={answer?.github?.share ?? null}
+                    onShare={(share) => onChange({ github: { share } })}
+                  />
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : key === 'modules' ? (
@@ -551,11 +581,6 @@ export function SettingsBody({
                           checked={answer.updates.auto}
                           onChange={(auto) => onChange({ updates: { auto } })}
                         />
-                      </div>
-                    ) : null}
-                    {answer?.github ? (
-                      <div className="divide-y rounded-lg border px-4">
-                        <GithubShareRow percent={answer.github.share} onChange={(share) => onChange({ github: { share } })} />
                       </div>
                     ) : null}
                     {/* Only while it is shown: listing asks every module, and each form asks its own. */}
@@ -604,7 +629,7 @@ function SavedNote({ saved }: { saved: number }) {
   )
 }
 
-function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project' | 'appearance'>; answer: SettingsAnswer; onChange(what: Change): void }) {
+function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project' | 'appearance' | 'trackers'>; answer: SettingsAnswer; onChange(what: Change): void }) {
   const { settings, status, hook } = answer
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
@@ -867,6 +892,66 @@ function TrackerNotices({
         </ul>
         <p className="text-muted-foreground mt-2 text-xs leading-relaxed">{NOTICE_WORDS.needs}</p>
       </section>
+    </>
+  )
+}
+
+/**
+ * Trackers: everything a person can change about where issues and changes are read from. The open
+ * project's part — its sources, how they are read, the news to agents — says which project it is
+ * for; Kehikot's share of the GitHub limit is the same for every project. The bar's Trackers menu
+ * only says what was read and links here (`TrackerReading.tsx`).
+ */
+function TrackersSection({
+  door,
+  projectName,
+  share,
+  onShare,
+}: {
+  door: TrackersDoor | null
+  projectName: string | null
+  share: number | null
+  onShare(share: number): void
+}) {
+  return (
+    <>
+      <Heading id="trackers" lead={TRACKERS_ARE_FOR}>
+        Trackers
+      </Heading>
+      {door ? (
+        <section className="flex min-w-0 flex-col gap-4" data-trackers-project>
+          <p className="text-muted-foreground text-xs" data-trackers-for>
+            {projectName ? `For ${projectName}. ` : 'For the open project. '}
+            Its sources are kept in the project folder; the news switch is kept on this computer.
+          </p>
+          <TrackerSourcesSettings door={door} />
+          {door.news ? (
+            <section className="min-w-0 space-y-2">
+              <h4 className="text-sm font-medium">Agents</h4>
+              <div {...{ [TARGET_ATTR]: SETTINGS_TARGETS.trackerNews.target }} className={cn('divide-y rounded-lg border px-4', LIT_ROW)} data-tracker-news={door.news.on ? 'on' : 'off'}>
+                <SettingRow
+                  label={TRACKER_NEWS_WORDS.title}
+                  description={`${TRACKER_NEWS_WORDS.lead} ${door.news.on ? TRACKER_NEWS_WORDS.on : TRACKER_NEWS_WORDS.off}`}
+                  checked={door.news.on}
+                  onChange={door.news.onChange}
+                />
+              </div>
+            </section>
+          ) : null}
+        </section>
+      ) : (
+        <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-3 text-xs" data-trackers-project="none">
+          No project is open. Open one to see and change its sources.
+        </p>
+      )}
+      {share !== null ? (
+        <section className="min-w-0 space-y-2" data-trackers-machine>
+          <h4 className="text-sm font-medium">On this computer</h4>
+          <div className="divide-y rounded-lg border px-4">
+            <GithubShareRow percent={share} onChange={onShare} />
+          </div>
+        </section>
+      ) : null}
     </>
   )
 }

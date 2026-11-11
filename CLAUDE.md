@@ -1140,7 +1140,13 @@
   remote names it"; `sourcesOf` skips it everywhere (remote, entry, named ref).
   Older hosts strip the key and read the repository: additive, not breaking.
 - The words a person is told about a source (`rolesOf`, `readSaid`) live in
-  `src/host/trackerSources.ts`, shared by the panel and the MCP tools.
+  `src/host/trackerSources.ts`, shared by Settings and the MCP tools.
+- The bar's Trackers menu (`src/canvas/TrackerReading.tsx`) only says what was
+  read: the time, Refresh all, a line per source with Try again / Change limit,
+  and "Tracker settings…". Every control — sources, reads, schedule, remotes,
+  the GitHub share, tracker news — is Settings › Trackers
+  (`src/canvas/TrackerSettings.tsx`); a link to one is `openSettings` with a
+  `SETTINGS_TARGETS.tracker*` entry. Do not put a control back in the menu.
 - An issue's linked branches (`branches`, protocol 2.19.0) come with the reads
   already made, never a request per issue: GitHub's `linkedBranches` in the same
   GraphQL query (asked again without it, and believed `SCOPE_RECHECK_MS`, on a

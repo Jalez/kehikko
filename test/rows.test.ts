@@ -84,7 +84,7 @@ describe('reveal on long press', () => {
 
   test('its words say a plain click does not, and where to hold in a page too old to say its presses', () => {
     expect(SHOW_ROWS).toContain('longpress')
-    expect(ROWS_SAID.longpress.label).toBe('Reveal on long press')
+    expect(ROWS_SAID.longpress.label).toBe('When I press and hold')
     expect(ROWS_SAID.longpress.line).toContain('a plain click does not')
     expect(ROWS_SAID.longpress.line).toContain('hold on the header')
   })

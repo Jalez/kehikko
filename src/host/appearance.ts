@@ -133,26 +133,40 @@ export function themeOf(choice: ThemeChoice, prefersDark: boolean): Theme {
  * The words
  * ------------------------------------------------------------------------ */
 
+/**
+ * Every question in Settings › Appearance is a sentence that says what it controls, and every
+ * option reads on its own after it: "Show container headers and footers: When I hover".
+ */
+export const ASKED = {
+  rows: 'Show container headers and footers:',
+  foldRows: 'When you fold a container, it keeps:',
+  foldAbout: 'Folding shrinks a container to its top rows; the module keeps running.',
+  collapse: 'The ^ button on a container:',
+  theme: 'Theme:',
+  border: 'Container border:',
+  background: 'Container background:',
+} as const
+
 export const ROWS_SAID: Readonly<Record<ShowRows, { label: string; line: string }>> = {
-  always: { label: 'Always shown', line: 'Every container’s header and footer stay in view.' },
-  hover: { label: 'Reveal on hover', line: 'They hide, and come back while the pointer is over a container.' },
-  click: { label: 'Reveal on click', line: 'They hide, and come back when you click inside a container; Escape or a click elsewhere hides them.' },
+  always: { label: 'Always', line: 'Every container’s header and footer stay in view.' },
+  hover: { label: 'When I hover', line: 'They hide, and come back while the pointer is over the container.' },
+  click: { label: 'When I click', line: 'They hide, and come back when you click inside the container. Escape or a click elsewhere hides them.' },
   longpress: {
-    label: 'Reveal on long press',
-    line: 'They hide, and come back when you hold a press inside a container; a plain click does not. In a module too old to report presses, hold on the header.',
+    label: 'When I press and hold',
+    line: 'They hide, and come back when you hold a press inside the container; a plain click does not. In a module too old to report presses, hold on the header.',
   },
 }
 
 export const FOLD_SAID: Readonly<Record<FoldRows, { label: string; line: string }>> = {
-  1: { label: 'To the header', line: 'A folded container keeps one row: how its module is set up.' },
-  2: { label: 'To the header and footer', line: 'Where the module has a footer, it stays too: what is going on now (status, location, usage).' },
+  1: { label: 'Just its header (one row)', line: 'Its name and controls.' },
+  2: { label: 'Its header and footer (two rows)', line: 'Where the module has a footer, what is going on in it (status, usage) stays in view too.' },
 }
 
 export const COLLAPSE_SAID: Readonly<Record<Collapse, { label: string; line: string }>> = {
-  fold: { label: 'Folds to the header', line: 'The container keeps one row: its name and controls. Press again to open it.' },
+  fold: { label: 'Folds it', line: 'The container shrinks to its top rows. Press ^ again to open it.' },
   tile: {
-    label: 'Makes a tile',
-    line: 'The container becomes a small square: its icon, its name, what its footer says and whether it needs you. Press the tile to see it large; restore puts it back as it was.',
+    label: 'Makes it a tile',
+    line: 'The container becomes a small square: its icon, its name and what its footer says. Restore puts it back as it was.',
   },
 }
 
@@ -164,6 +178,14 @@ export const BORDER_SAID: Readonly<Record<Border, string>> = {
   rounded: 'Rounded',
   dotted: 'Dotted',
   dashed: 'Dashed',
+}
+
+/** The background, as the two answers to "Container background:". `card` is `background: true`. */
+export const BACKGROUNDS = ['card', 'transparent'] as const
+export type BackgroundChoice = (typeof BACKGROUNDS)[number]
+export const BACKGROUND_SAID: Readonly<Record<BackgroundChoice, { label: string; line: string }>> = {
+  card: { label: 'Card', line: 'The header, the footer and the space behind each module’s page are the card surface.' },
+  transparent: { label: 'Transparent', line: 'They are see-through over the canvas. A module that paints its own background still shows it.' },
 }
 
 /* ------------------------------------------------------------------------ *

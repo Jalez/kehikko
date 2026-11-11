@@ -913,7 +913,7 @@ export class Trackers {
         outcome: 'declined',
         at: held.stored.at,
         why: config.ok
-          ? 'This project has no GitHub or GitLab remote and has no source added, so there is nothing to read. Add one from the trackers panel in the bar.'
+          ? 'This project has no GitHub or GitLab remote and has no source added, so there is nothing to read. Add one in Settings › Trackers.'
           : `${config.file} will not read (${config.why}).`,
       }
     }

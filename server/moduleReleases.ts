@@ -151,7 +151,7 @@ export function pickStepBack(
 /** Why stepping back to `to` waits for the person, or null when it may go on its own. */
 function stepBackRisk(to: string, data: number | null, guard: StepBackGuard): string | null {
   const version = releaseVersion(to)
-  if (guard.kept) return `Its registration says to keep it, so it is not moved back to ${version} without you.`
+  if (guard.kept) return `It is set to stay running, so it is not moved back to ${version} without you.`
   const above = guard.pinned.filter((tag) => !isRelease(tag) || compareReleases(tag, to) > 0)
   if (above.length) {
     return `A container is pinned to ${above.map((tag) => releaseVersion(tag)).join(', ')}, newer than ${version}, so the module is not moved below it without you.`

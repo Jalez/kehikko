@@ -133,11 +133,11 @@ describe('leftover git locks', () => {
       const done = await update({ id: 'm', name: 'Source', dir })
       expect(done.ok).toBe(false)
       if (!done.ok) {
-        expect(done.why).toContain('git found a leftover lock file in its installed copy')
+        expect(done.why).toContain('Source was not updated. A leftover git lock file was left in its installed copy')
         expect(done.why).toContain(join(dir, '.git/index.lock'))
-        expect(done.why).toContain('Kehikot removes it automatically when no git process is using it')
+        expect(done.why).toContain('Kehikot removes it by itself when nothing is using it, and will try again at the next check.')
         expect(done.why).not.toContain('are terminated')
-        expect(done.why).not.toContain('was not updated: git found')
+        expect(done.why).not.toContain('git process')
       }
     } finally {
       process.env.KEHIKOT_INSTALLS_DIR = saved as string
@@ -148,6 +148,6 @@ describe('leftover git locks', () => {
     const said = "fatal: Unable to create '/x/.git/index.lock': File exists.\n\nAnother git process seems to be running"
     expect(lockNamedIn(said)).toBe('/x/.git/index.lock')
     expect(lockNamedIn('fatal: not a git repository')).toBeNull()
-    expect(lockSaid('/y/.git/index.lock', join(root, 'elsewhere'), env)).toContain('remove it by hand')
+    expect(lockSaid('/y/.git/index.lock', join(root, 'elsewhere'), env)).toContain('remove the leftover lock file by hand: /y/.git/index.lock.')
   })
 })

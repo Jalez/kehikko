@@ -2,37 +2,11 @@ import { Plus, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
-import { Input } from '@/components/ui/input.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
-import { editTrackers, type TrackerState } from '@/host/projects.ts'
-import {
-  ago,
-  boardSaid,
-  EVERY_CHOICES,
-  isTimedOutSaid,
-  readSaid,
-  rolesOf,
-  sourceName,
-  TRACKERS_ARE_FOR,
-  type ListedSource,
-  type TrackerEdit,
-  type TrackerEdited,
-  type TrackerListing,
-} from '@/host/trackerSources.ts'
+import type { TrackerState } from '@/host/projects.ts'
+import { ago, isTimedOutSaid, sourceName, statusSaid } from '@/host/trackerSources.ts'
 import { SETTINGS_TARGETS, openSettings } from '@/host/agentSettings.ts'
-import {
-  CLOSED_CHOICES,
-  kindSaid,
-  kindsFor,
-  readsOf,
-  READS_DEFAULT,
-  readsSaid,
-  writtenReads,
-  type ReadKind,
-  type Reads,
-} from '@/host/trackerReads.ts'
 import { isShareNotice } from '@/host/githubShare.ts'
-import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
 import { Hint } from './Hint.tsx'
 
 export { ago }
@@ -84,28 +58,21 @@ export function WithLimitLink({ text, className, onRetry }: { text: string; clas
  *
  * Tracker state with no date on it is last week presented as now. So the
  * strip always says how old the reading is, and a failed source shows on the
- * strip itself — never only inside the popover — because a reading that
+ * strip itself — never only inside the menu — because a reading that
  * quietly stopped updating looks exactly like one that is current.
  *
- * ## The popover says what the sources are, and changes them
+ * ## The menu only says what was read
  *
- * A person is never sent to a file: what a source is for is said in words
- * (`rolesOf`), and add, switch and remove are controls here, written by the
- * host (`POST /host/trackers`). With no source at all the strip says
- * "add a tracker" (after its plus icon) and the popover opens on the add row.
+ * One line per source — its name, its kind, what it last read or why it could
+ * not, with "Try again" and "Change limit" where they apply — and "Tracker
+ * settings…". Nothing is changed here: the sources, how often they are read,
+ * the git remotes, the GitHub share and the news to agents are Settings ›
+ * Trackers (`TrackerSettings.tsx`), which the link opens.
  */
-/** "Tracker news to agents" in this project (`host/trackerNews.ts`): on unless the person turned it off. */
-export interface TrackerNewsSwitch {
-  on: boolean
-  onChange(on: boolean): void
-}
-
-export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerState; onRefresh(): void; news?: TrackerNewsSwitch | null }) {
+export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; onRefresh(): void }) {
   const now = useNow(30_000)
-  /* What the last edit answered, until the page's own reading catches up. */
-  const [own, setOwn] = useState<TrackerListing | null>(null)
-  useEffect(() => setOwn(null), [tracker.listing, tracker.at, tracker.project])
-  const listing = own ?? tracker.listing ?? null
+  const [open, setOpen] = useState(false)
+  const listing = tracker.listing ?? null
 
   const failed = tracker.sources.filter((s) => s.error)
   const age = tracker.at ? ago(Date.parse(tracker.at), now) : null
@@ -125,11 +92,22 @@ export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerS
               ? 'trackers not read yet'
               : 'no trackers'
   const tooltip = empty
-    ? 'no trackers — this project has no GitHub or GitLab remote; press to add one'
-    : 'the GitHub and GitLab reading every module on this project shows — press for its sources and Refresh all'
+    ? 'no trackers — this project has no GitHub or GitLab remote; press to add one in Settings'
+    : 'the GitHub and GitLab reading every module on this project shows — press for what was read and Refresh all'
+  const settings = empty ? SETTINGS_TARGETS.trackerAdd : SETTINGS_TARGETS.trackerSources
+  const lines: Line[] = listing
+    ? listing.sources.map((s) => ({ key: `${s.tracker}|${s.host}|${s.repo}`, name: sourceName(s), kind: s.tracker, error: s.off ? null : (s.error ?? null), said: statusSaid(s, now), off: s.off === true }))
+    : tracker.sources.map((s) => ({
+        key: `${s.tracker}|${s.host}|${s.repo}`,
+        name: sourceName(s),
+        kind: s.tracker,
+        error: s.error ?? null,
+        said: s.at ? ago(Date.parse(s.at), now) : 'not read yet',
+        off: false,
+      }))
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <Hint label={tooltip}>
         <PopoverTrigger asChild>
           <Button
@@ -144,10 +122,10 @@ export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerS
           </Button>
         </PopoverTrigger>
       </Hint>
-      <PopoverContent align="end" className="max-h-[80vh] w-96 max-w-[calc(100vw-1rem)] space-y-2 overflow-y-auto p-3 text-xs">
+      <PopoverContent align="end" className="max-h-[80vh] w-80 max-w-[calc(100vw-1rem)] space-y-2 overflow-y-auto p-3 text-xs" data-tracker-menu>
         <div className="flex items-center justify-between gap-2">
-          <span className="font-medium">
-            {empty ? 'Trackers' : `Trackers${tracker.at ? `, read ${new Date(tracker.at).toLocaleString()}` : ', never read'}`}
+          <span className="font-medium" data-tracker-read>
+            {empty ? 'Trackers' : `Trackers · ${tracker.at ? `read ${timeSaid(tracker.at)}` : 'never read'}`}
           </span>
           {empty ? null : (
             <Button size="sm" className="h-6 px-2 text-xs" disabled={tracker.refreshing} onClick={onRefresh}>
@@ -156,450 +134,62 @@ export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerS
             </Button>
           )}
         </div>
-        <p className="text-muted-foreground">{TRACKERS_ARE_FOR}</p>
-        <Sources tracker={tracker} listing={listing} now={now} onListing={setOwn} startOpen={empty} onRefresh={onRefresh} />
-        {news ? <NewsSwitch news={news} /> : null}
+        {broken ? <p className="text-destructive">This project&apos;s tracker file will not read, so nothing is read from it.</p> : null}
+        {empty ? <p className="text-muted-foreground">No sources yet.</p> : null}
+        {lines.length ? (
+          <ul className="space-y-1.5">
+            {lines.map((one) => (
+              <li key={one.key} className={`leading-snug ${one.off ? 'opacity-70' : ''}`} data-tracker-line={one.name}>
+                <span className="font-mono">{one.name}</span>
+                <span className="text-muted-foreground"> {one.kind === 'github' ? 'GitHub' : 'GitLab'}</span>
+                {one.error ? (
+                  <WithLimitLink text={one.error} className="text-destructive" onRetry={tracker.refreshing ? undefined : onRefresh} />
+                ) : (
+                  <div className="text-muted-foreground">{one.said}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="border-t pt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="link"
+            data-tracker-settings
+            className="h-5 px-0 text-xs"
+            onClick={() => {
+              setOpen(false)
+              openSettings(settings.section, settings.target)
+            }}
+          >
+            Tracker settings…
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   )
 }
 
-/** The person's switch for tracker news to agents in this project. Words, never colour alone. */
-function NewsSwitch({ news }: { news: TrackerNewsSwitch }) {
-  return (
-    <div className="space-y-1 border-t pt-2 text-muted-foreground" data-tracker-news={news.on ? 'on' : 'off'}>
-      <label className="flex items-center gap-1.5 text-foreground">
-        <input type="checkbox" checked={news.on} onChange={(e) => news.onChange(e.target.checked)} />
-        {TRACKER_NEWS_WORDS.title}
-      </label>
-      <p>{news.on ? TRACKER_NEWS_WORDS.lead : TRACKER_NEWS_WORDS.off}</p>
-    </div>
-  )
+/** One source as the menu says it. */
+interface Line {
+  key: string
+  name: string
+  kind: 'github' | 'gitlab'
+  error: string | null
+  said: string
+  off: boolean
 }
 
-/** What "Check" and an edit say back, as a line under the control that asked. */
-interface Said {
-  tone: 'ok' | 'bad' | 'plain'
-  text: string
-}
-
-function Sources({
-  tracker,
-  listing,
-  now,
-  onListing,
-  startOpen,
-  onRefresh,
-}: {
-  tracker: TrackerState
-  listing: TrackerListing | null
-  now: number
-  onListing(listing: TrackerListing): void
-  startOpen: boolean
-  onRefresh?: () => void
-}) {
-  const project = tracker.project ?? null
-  const [busy, setBusy] = useState(false)
-  const [said, setSaid] = useState<Said | null>(null)
-
-  /** One edit, and what it answered; the listing it returns replaces the panel's. */
-  async function send(edit: TrackerEdit): Promise<TrackerEdited | null> {
-    if (project === null) return null
-    setBusy(true)
-    try {
-      const done = await editTrackers(project, edit)
-      if (done.listing) onListing(done.listing)
-      setSaid(
-        done.outcome === 'declined' || done.outcome === 'failed'
-          ? { tone: 'bad', text: done.why }
-          : { tone: done.outcome === 'read' ? 'ok' : 'plain', text: done.said },
-      )
-      return done
-    } catch (error) {
-      setSaid({ tone: 'bad', text: `Kehikot did not answer: ${(error as Error).message}. Try again.` })
-      return null
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!listing) {
-    /* A host that does not say what its sources are for: the strip's older list. */
-    return (
-      <ul className="space-y-1">
-        {tracker.sources.map((s) => (
-          <li key={`${s.tracker}|${s.host}|${s.repo}`} className="leading-snug">
-            <span className="font-mono">{sourceName(s)}</span>
-            <span className="text-muted-foreground">
-              {' '}
-              {s.tracker}
-              {s.default ? ', default' : ''}
-              {s.listed ? ', listed' : ''}
-              {' — '}
-              {s.at ? `read ${ago(Date.parse(s.at), now)}` : 'never read'}
-            </span>
-            {s.error ? <WithLimitLink text={s.error} className="text-destructive" onRetry={tracker.refreshing ? undefined : onRefresh} /> : null}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-
-  const reading = tracker.refreshing
-  return (
-    <div className="space-y-2">
-      {listing.broken ? <Broken listing={listing} busy={busy} onFresh={() => void send({ kind: 'fresh' })} /> : null}
-      {listing.sources.length ? (
-        <ul className="space-y-2">
-          {listing.sources.map((s) => (
-            <SourceRow
-              key={`${s.tracker}|${s.host}|${s.repo}`}
-              source={s}
-              now={now}
-              busy={busy || reading}
-              send={send}
-              onRetry={reading ? undefined : onRefresh}
-            />
-          ))}
-        </ul>
-      ) : null}
-      {listing.boardsNote && !listing.broken ? <p className="text-muted-foreground">{listing.boardsNote}</p> : null}
-      {listing.peopleNote && !listing.broken ? <p className="text-muted-foreground">{listing.peopleNote}</p> : null}
-      {listing.broken ? null : <AddRow busy={busy} send={send} startOpen={startOpen} setSaid={setSaid} />}
-      {said ? (
-        <div role="status" className={said.tone === 'bad' ? 'text-destructive' : said.tone === 'ok' ? 'text-foreground' : 'text-muted-foreground'}>
-          <WithLimitLink text={said.text} />
-        </div>
-      ) : null}
-      {listing.broken ? null : (
-        <div className="space-y-1 border-t pt-2 text-muted-foreground">
-          <label className="flex items-center gap-1.5">
-            Read again every
-            <select
-              aria-label="Read again every N minutes while somebody is looking"
-              className="h-5 rounded border bg-background px-1 text-foreground"
-              disabled={busy}
-              value={listing.every}
-              onChange={(e) => void send({ kind: 'schedule', every: Number(e.target.value) })}
-            >
-              {[...new Set([...EVERY_CHOICES, listing.every])]
-                .sort((a, b) => a - b)
-                .map((n) => (
-                  <option key={n} value={n}>
-                    {n === 0 ? 'never' : `${n} minutes`}
-                  </option>
-                ))}
-            </select>
-            while looking
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input
-              type="checkbox"
-              checked={listing.remotes}
-              disabled={busy}
-              onChange={(e) => void send({ kind: 'remotes', on: e.target.checked })}
-            />
-            Use this project&apos;s git remotes
-          </label>
-          <p>
-            Read with your own logged-in <span className="font-mono">gh</span> and <span className="font-mono">glab</span>.
-            Every container on this project is told when a read lands.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Broken({ listing, busy, onFresh }: { listing: TrackerListing; busy: boolean; onFresh(): void }) {
-  return (
-    <div className="space-y-1 rounded border border-destructive/40 p-2">
-      <p className="text-destructive">
-        This project&apos;s tracker file will not read: {listing.broken?.why}. Nothing is read from it, and nothing
-        will be written over it.
-      </p>
-      <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy} onClick={onFresh}>
-        Start fresh
-      </Button>
-      <span className="text-muted-foreground"> keeps the old file beside it as trackers.json.broken.</span>
-    </div>
-  )
-}
-
-function SourceRow({
-  source: s,
-  now,
-  busy,
-  send,
-  onRetry,
-}: {
-  source: ListedSource
-  now: number
-  busy: boolean
-  send(edit: TrackerEdit): Promise<TrackerEdited | null>
-  onRetry?: () => void
-}) {
-  const key = { tracker: s.tracker, host: s.host, repo: s.repo }
-  const link = 'h-5 rounded px-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50'
-  return (
-    <li className={`leading-snug ${s.off ? 'opacity-70' : ''}`}>
-      <div>
-        <span className="font-mono">{sourceName(s)}</span>
-        <span className="text-muted-foreground"> {s.tracker === 'github' ? 'GitHub' : 'GitLab'}</span>
-      </div>
-      <div className="text-muted-foreground">{rolesOf(s).join(' · ')}</div>
-      {s.off ? null : (
-        <WithLimitLink text={s.error ?? readSaid(s, now)} className={s.error ? 'text-destructive' : 'text-muted-foreground'} onRetry={onRetry} />
-      )}
-      {!s.off && s.listed ? <ReadsChoice source={s} busy={busy} send={send} /> : null}
-      {!s.off && s.boards?.length
-        ? s.boards.map((b) => (
-            <div key={b.board} className="text-muted-foreground">
-              Board {boardSaid(b)}
-            </div>
-          ))
-        : null}
-      <div className="flex flex-wrap gap-x-2">
-        {s.off ? (
-          <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'set', ...key, off: false })}>
-            turn back on
-          </button>
-        ) : (
-          <>
-            {s.default ? null : (
-              <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'set', ...key, default: true })}>
-                make default
-              </button>
-            )}
-            <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'set', ...key, list: !s.listed })}>
-              {s.listed ? 'stop listing recent' : 'list recent'}
-            </button>
-            {s.origin === 'remote' ? (
-              <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'set', ...key, off: true })}>
-                turn off
-              </button>
-            ) : (
-              <button type="button" className={link} disabled={busy} onClick={() => void send({ kind: 'remove', ...key })}>
-                remove
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    </li>
-  )
-}
-
-/**
- * What a listed source reads (Jalez/kehikko#318): which kinds, which states, and whether a read asks
- * only for what changed since the last one. Folded to one line until opened; each change is one edit
- * of the tracker file and has the host read again. A ref somebody names is read whatever this says.
- */
-function ReadsChoice({
-  source: s,
-  busy,
-  send,
-}: {
-  source: ListedSource
-  busy: boolean
-  send(edit: TrackerEdit): Promise<TrackerEdited | null>
-}) {
-  const [open, setOpen] = useState(false)
-  const reads: Reads = readsOf(s.reads ?? {}) ?? READS_DEFAULT
-  const key = { tracker: s.tracker, host: s.host, repo: s.repo }
-  const kinds = kindsFor(s.tracker)
-  const choose = (next: Reads) => void send({ kind: 'set', ...key, reads: writtenReads(next) })
-  const toggle = (kind: ReadKind, on: boolean) => {
-    const next = on ? [...new Set([...reads.kinds, kind])] : reads.kinds.filter((k) => k !== kind)
-    /* Something has to be read; the last kind cannot be unticked. */
-    if (!next.some((k) => kinds.includes(k))) return
-    choose({ ...reads, kinds: next })
-  }
-  const closedValue = reads.closed === true ? 'all' : reads.closed === false ? 'open' : String(reads.closed)
-  const windows = [...new Set([...CLOSED_CHOICES, ...(typeof reads.closed === 'number' ? [reads.closed] : [])])].sort((a, b) => a - b)
-  return (
-    <div className="text-muted-foreground" data-tracker-reads={open ? 'open' : 'closed'}>
-      <button
-        type="button"
-        aria-expanded={open}
-        className="text-left underline-offset-2 hover:text-foreground hover:underline"
-        onClick={() => setOpen((was) => !was)}
-      >
-        Reads {readsSaid(reads, s.tracker)}
-      </button>
-      {open ? (
-        <fieldset className="mt-1 space-y-1 rounded border p-2" disabled={busy}>
-          <legend className="sr-only">What {sourceName(s)} reads</legend>
-          <div className="flex flex-wrap gap-x-3">
-            {kinds.map((kind) => (
-              <label key={kind} className="flex items-center gap-1 text-foreground">
-                <input
-                  type="checkbox"
-                  checked={reads.kinds.includes(kind)}
-                  onChange={(e) => toggle(kind, e.target.checked)}
-                />
-                {kindSaid(kind, s.tracker)}
-              </label>
-            ))}
-          </div>
-          <label className="flex items-center gap-1.5">
-            States
-            <select
-              aria-label="Which states to read"
-              className="h-5 rounded border bg-background px-1 text-foreground"
-              value={closedValue}
-              onChange={(e) => {
-                const v = e.target.value
-                choose({ ...reads, closed: v === 'all' ? true : v === 'open' ? false : Number(v) })
-              }}
-            >
-              <option value="all">every state</option>
-              <option value="open">open only</option>
-              {windows.map((n) => (
-                <option key={n} value={String(n)}>
-                  open, and closed in the last {n} days
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-1.5 text-foreground">
-            <input type="checkbox" checked={reads.since} onChange={(e) => choose({ ...reads, since: e.target.checked })} />
-            Only what changed since the last read
-          </label>
-          <p>
-            Less to read makes every read faster. A reference an epic or a module names is still read by name.
-            {reads.since ? ' Everything is read whole once a day.' : ''}
-          </p>
-          {s.tracker === 'github' ? (
-            <p>
-              Background reads keep to Kehikot&apos;s share of your GitHub limit.
-              <Button
-                type="button"
-                size="sm"
-                variant="link"
-                data-change-limit
-                className="ml-1 h-5 px-1 text-[11px]"
-                onClick={() => openSettings(SETTINGS_TARGETS.githubShare.section, SETTINGS_TARGETS.githubShare.target)}
-              >
-                Change limit
-              </Button>
-            </p>
-          ) : null}
-        </fieldset>
-      ) : null}
-    </div>
-  )
-}
-
-/** A repository link, or owner/repo with its tracker; Check reads it once before it is kept. */
-function AddRow({
-  busy,
-  send,
-  startOpen,
-  setSaid,
-}: {
-  busy: boolean
-  send(edit: TrackerEdit): Promise<TrackerEdited | null>
-  startOpen: boolean
-  setSaid(said: Said | null): void
-}) {
-  const [open, setOpen] = useState(startOpen)
-  const [input, setInput] = useState('')
-  const [tracker, setTracker] = useState<'github' | 'gitlab'>('github')
-  const [host, setHost] = useState('')
-  const [asking, setAsking] = useState(false)
-  /* A link says its tracker by its host; a bare name cannot. */
-  const plain = input.trim() !== '' && !/^(?:https?:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(input.trim())
-  const link = /^(?:https?:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)/.test(input.trim())
-  const known = link && /(?:^|[/@.])(?:github\.com|gitlab[\w.-]*)(?:[:/]|$)/i.test(input.trim())
-  const needsTracker = plain || (link && !known)
-  const rest = needsTracker
-    ? { tracker, ...(tracker === 'gitlab' && host.trim() ? { host: host.trim() } : {}) }
-    : {}
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="flex h-6 items-center gap-1 rounded px-1 text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen(true)}
-      >
-        <Plus className="size-3" /> source
-      </button>
-    )
-  }
-
-  async function check() {
-    setAsking(true)
-    setSaid({ tone: 'plain', text: 'Checking…' })
-    try {
-      await send({ kind: 'check', input, ...rest })
-    } finally {
-      setAsking(false)
-    }
-  }
-
-  return (
-    <div className="space-y-1 rounded border p-2">
-      <Input
-        aria-label="A repository link, or owner/repo"
-        className="bg-background h-6 rounded px-1.5 py-0 font-mono text-[11px] md:text-[11px]"
-        placeholder="https://github.com/owner/repo, or owner/repo"
-        value={input}
-        autoFocus={startOpen}
-        onChange={(e) => {
-          setInput(e.target.value)
-          setSaid(null)
-        }}
-      />
-      {needsTracker ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <select
-            aria-label="Which tracker it is on"
-            className="h-5 rounded border bg-background px-1"
-            value={tracker}
-            onChange={(e) => setTracker(e.target.value as 'github' | 'gitlab')}
-          >
-            <option value="github">GitHub</option>
-            <option value="gitlab">GitLab</option>
-          </select>
-          {tracker === 'gitlab' && plain ? (
-            <Input
-              aria-label="Its host, when it is not gitlab.com"
-              className="bg-background h-5 flex-1 rounded px-1 py-0 font-mono text-[11px] md:text-[11px]"
-              placeholder="gitlab.example.org (blank is gitlab.com)"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-            />
-          ) : null}
-        </div>
-      ) : null}
-      <div className="flex gap-1.5">
-        <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy || asking || !input.trim()} onClick={() => void check()}>
-          Check
-        </Button>
-        <Button
-          size="sm"
-          className="h-6 px-2 text-xs"
-          disabled={busy || asking || !input.trim()}
-          onClick={async () => {
-            const done = await send({ kind: 'add', input, ...rest })
-            if (done?.outcome === 'changed') {
-              setInput('')
-              setHost('')
-              setOpen(false)
-            }
-          }}
-        >
-          Add
-        </Button>
-      </div>
-    </div>
-  )
+/** "12:40" today, the date and time before. */
+function timeSaid(at: string): string {
+  const then = new Date(at)
+  const today = new Date().toDateString() === then.toDateString()
+  return today ? then.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : then.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
 }
 
 /** The time, re-read every `every` ms, so "read 3 minutes ago" moves while nobody touches anything. */
-function useNow(every: number): number {
+export function useNow(every: number): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), every)
