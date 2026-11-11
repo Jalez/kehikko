@@ -126,7 +126,7 @@ export const DROP_GRACE_MS = 6000
  * silent — a server that died must not leave `working` standing — and they
  * stay in the log.
  *
- * The host's own items (`isHostModule`: the place asks, the tracker notices)
+ * The host's own items (`isHostModule`: the tracker notices)
  * have no container and are never closed for that.
  *
  * `greeted(module)` is told when a module's page answers a greeting — a page

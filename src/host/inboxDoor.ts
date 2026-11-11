@@ -75,11 +75,6 @@ export interface InboxDoor {
   use(module: string, on: boolean): void
   /** Whether a project id is one of the person's (another project named by `project`). */
   hasProject(project: number): boolean
-  /**
-   * The host's own quick answers for an entry (its ask "which epic is this conversation for?",
-   * `host/placeAsk.ts`), shown as the entry's question; null for none.
-   */
-  choicesFor?(entry: Entry): { label: string; run(): void }[] | null
 }
 
 /** The item the host's Next last told a page to go to, and when; `null` before any. */
@@ -112,8 +107,8 @@ export const whole = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.
 
 /**
  * A question's choices as the protocol carries them: at most `MESSAGE_CHOICES`, each clipped to
- * `MESSAGE_CHOICE`. When there are more, the first ones and the LAST are kept (the host's own ask
- * ends in "Not about an epic", which must stay on offer). Each kept choice says which of the
+ * `MESSAGE_CHOICE`. When there are more, the first ones and the LAST are kept (a last choice is
+ * often the way out, which must stay on offer). Each kept choice says which of the
  * original ones it stands for, so an answer by its words finds it.
  */
 export function fitChoices<T>(choices: readonly T[], label: (one: T) => string): { label: string; of: T }[] {
@@ -154,7 +149,6 @@ export function itemOf(
   names: Namer,
   at: { epic: string | null; kehikko: string | null },
   projectName: string | null,
-  choices: readonly { label: string }[] | null = null,
 ): InboxItem {
   const detail = entry.detail ? clip(entry.detail, LIMITS.ACTIVITY_DETAIL) : ''
   const label = clip(entry.label, LIMITS.ACTIVITY_LABEL)
@@ -180,15 +174,7 @@ export function itemOf(
             answered: entry.answered?.entered === entry.entered ? clip(entry.answered.text, LIMITS.MESSAGE_BODY) : null,
           },
         }
-      : choices?.length
-        ? {
-            question: {
-              text: clip(entry.detail ?? entry.label, LIMITS.ACTIVITY_QUESTION),
-              choices: fitChoices(choices, (one) => one.label).map((one) => one.label),
-              answered: null,
-            },
-          }
-        : {}),
+      : {}),
     mutable: mayMute(entry.module),
   }
 }
@@ -228,7 +214,7 @@ export function readOf(door: InboxDoor): InboxReadResult {
   const nextKey = next ? inboxKeyOf(next) : null
   return {
     rev: whole(door.rev()),
-    items: items(door.entries().filter(isLive), (entry) => itemOf(entry, names, at, projectName, door.choicesFor?.(entry) ?? null)),
+    items: items(door.entries().filter(isLive), (entry) => itemOf(entry, names, at, projectName)),
     next: nextKey,
     elsewhere,
     earlier: whole(door.earlier()),
@@ -378,14 +364,6 @@ async function answerUnchecked(
     }
     case 'inbox.answer': {
       const entry = find(door, String(params.module), String(params.id), project)
-      const own = entry && project === undefined ? (door.choicesFor?.(entry) ?? null) : null
-      if (entry && own?.length && !entry.question) {
-        /* The choices as `inbox.read` showed them: fitted to the protocol's number and length. */
-        const picked = typeof params.choice === 'string' ? fitChoices(own, (one) => one.label).find((one) => one.label === params.choice) : undefined
-        if (!picked) return declined(method, 'That is not one of the question’s choices.')
-        picked.of.run()
-        return ok({ outcome: 'sent', why: '' })
-      }
       if (!entry?.question) return declined(method, DOOR_SAYS.noItem)
       let said: Said
       if (typeof params.choice === 'string') {

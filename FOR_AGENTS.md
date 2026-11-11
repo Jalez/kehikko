@@ -8,6 +8,10 @@ A host PR that changes what an agent session sees or may do — a tool on the ke
 is held to, a guard — adds a section at the top: `## <the next number>`, then one or two bullets in
 the agent's terms. Name no module and no vendor. Nothing else here is read.
 
+## 3
+
+- A conversation not started from a place in Kehikot is no longer left unplaced, and the person is never asked which epic it is for: its first tool call on the kehikko door places it in its project (the epic only when the project has just one, otherwise the whole project) and says so. Call `set_my_place` when the work is about one epic.
+
 ## 2
 
 - The person can mute a module's own messages to agents in a project ("Messages to agents" in its Container menu). `read_canvas` marks such a module; its notices and posts are not delivered. Your own messages to other sessions, and the person's, are never muted. No tool mutes or unmutes.

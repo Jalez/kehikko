@@ -362,6 +362,8 @@ export interface Door {
   here?: Here | null
   /** A token the call carried whose record could not be read, and why. */
   unrecorded?: Unrecorded | null
+  /** This call settled the connection in `here`, with nobody asked (`settle` in placeRoutes.ts): its answer says so. */
+  settled?: boolean
   /** The MCP session the call carried (`Mcp-Session-Id`), when the door gave it one. */
   session?: string | null
   /** Sessions and places: what `my_place` and `set_my_place` need. See `doorPlaces.ts`. */
@@ -370,8 +372,6 @@ export interface Door {
     open(client: string): string
     /** Bind the session to a place in a project; the answer says what was bound. */
     bind(session: string, project: Project, place: { epic: string | null; parts: string[]; kehikko: string | null }): Here | null
-    /** The session asks the person which epic it is for: one Inbox item per session, in that project. */
-    ask(session: string, project: Project): void
   }
 }
 
@@ -795,10 +795,19 @@ const ALL_EPICS_LINE =
   + '"project", with no epic and no parts). A module that can show a whole project shows every epic, each item '
   + 'labelled with its epic; one that works on one epic at a time is covered by a sentence until an epic is picked.'
 
+/** What the call that settled a connection in a place says (`Door.settled`): where, why, and how to change it. */
+export function settledWords(here: Here): string {
+  return (
+    `This conversation had no place, so Kehikot set one: ${here.project.name}, ${here.epic ? `epic ${here.epic} (the project’s only epic)` : 'the whole project, no epic'}`
+    + `${here.canvas ? ` on kehikko "${here.canvas.name}"` : ''}. Nobody was asked. If it is about one epic, call set_my_place with that epic `
+    + '(and the kehikko); every tool here answers about this place until then.'
+  )
+}
+
 /** What an answer says to a conversation with no place of its own. */
 const UNPLACED_LINE =
   'This conversation is not recorded under any place, so this answer is about what the person has open NOW — which '
-  + 'is not this conversation’s place, only their current view. my_place says how a record is made.'
+  + 'is not this conversation’s place, only their current view. set_my_place records one.'
 
 /** The same, for a call that carried a module's token whose record could not be read. */
 const unreadLine = (unrecorded: Unrecorded): string =>
@@ -948,13 +957,14 @@ function tools() {
     {
       name: 'set_my_place',
       description:
-        'Record which epic THIS conversation is for, as the person told you, so every later call — read_canvas, '
-        + 'set_parts, read_tracker and the rest — answers about that epic whatever the person switches to. For a '
-        + 'conversation that is not recorded under any place (my_place says); ask the person which epic it is for '
-        + 'first — never assume the one on screen. epic is the slug of an epic the project already has, or null '
-        + 'for "not about an epic". parts are part ids of that epic; kehikko is the whole number read_canvas '
+        'Record which epic THIS conversation is for, so every later call — read_canvas, set_parts, read_tracker '
+        + 'and the rest — answers about that epic whatever the person switches to. A conversation not started from '
+        + 'a place in Kehikot is placed by Kehikot on its first call (its project, and the epic only when the '
+        + 'project has just one; my_place says which): call this when the work is about another epic, or another '
+        + 'project — never assume the one on screen. epic is the slug of an epic the project already has, or null '
+        + 'for the whole project. parts are part ids of that epic; kehikko is the whole number read_canvas '
         + 'prints, and the project is the one that kehikko stands in. It changes nothing on screen. The record is '
-        + 'of this connection: an agent that restarts or reconnects is a new connection, and is asked again.',
+        + 'of this connection: an agent that restarts or reconnects is a new connection, and is placed again.',
       annotations: { title: 'Record this conversation’s epic', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: {
         type: 'object',
@@ -2772,8 +2782,8 @@ function setPartsAt(
   const here = door.here && door.here.project.id === project.id ? door.here : null
   const unnamed = args.epic === undefined || args.epic === null
   const epic = !unnamed ? args.epic : here ? here.epic : readSubject(door.db, project.id)?.epic
-  /* An unplaced conversation editing "the epic" edits the one on screen, as before — and the person is asked which is its own. */
-  const note = unnamed && !here && door.here === null && door.session && door.places ? (door.places.ask(door.session, project), UNPLACED_PARTS) : ''
+  /* A conversation with no place (one that kept no session) editing "the epic" edits the one on screen, and is told so. */
+  const note = unnamed && !here && door.here === null ? UNPLACED_PARTS : ''
   if (typeof epic !== 'string' || !epic) {
     return {
       text: here
@@ -2823,8 +2833,7 @@ function setPartsAt(
 
 const UNPLACED_PARTS =
   'This conversation is not recorded under any place, so set_parts fell back to the epic open on screen — the '
-  + 'person’s current view, not a record. If that is not this conversation’s epic, ask the person which is and '
-  + 'call set_my_place; they have also been asked in their Inbox.'
+  + 'person’s current view, not a record. If that is not this conversation’s epic, name epic in the call.'
 
 /** What the person has on screen: the kehikko a page has open, when exactly one is. */
 function looking(door: Door): Looking | null {
@@ -2835,9 +2844,10 @@ function looking(door: Door): Looking | null {
 /**
  * `my_place`: which place this conversation belongs to, and what the person is looking at.
  *
- * Without a place it says what it CAN — the project and epic on screen — and
- * what to do: ask the person, then `set_my_place`. The person is asked too, in
- * their Inbox, once per session (`places.ask`). The project a conversation runs
+ * A connection with no record is settled in a place on its first tool call
+ * (`settle` in placeRoutes.ts) and told so; the person is never asked. Without
+ * even that — a client that kept no session, or no project to name — it says
+ * what it CAN: the project and epic on screen. The project a conversation runs
  * in cannot be read off the call: the door is one request and one answer, so a
  * client's roots — which it would have to be asked for over a stream — never
  * reach it.
@@ -2864,7 +2874,7 @@ function myPlace(door: Door): { text: string; failed: boolean } {
         baseBranchWords(here.project),
         lookingWords(here, now),
         here.via === 'session'
-          ? 'Recorded for this connection with set_my_place (or by the person, from their Inbox). If the agent restarts or reconnects, it is a new connection with no record, and is asked again.'
+          ? `Recorded for this connection${door.settled ? ' just now' : ''}: set by Kehikot from what it knows (the project, and the epic only when the project has just one) or with set_my_place. If it is not right, call set_my_place with the epic this conversation is for (or null for the whole project). If the agent restarts or reconnects, it is a new connection and is placed again.`
           : `Read from ${here.module ?? 'the module'}'s record of this conversation${here.conversation ? ` (${here.conversation})` : ''}, as it is now.`,
         'Every tool here answers about this place unless you name another kehikko or epic.',
         messagingWords(door, here),
@@ -2875,19 +2885,14 @@ function myPlace(door: Door): { text: string; failed: boolean } {
       failed: false,
     }
   }
-  const project = now?.project ?? null
-  const asked = Boolean(project && !project.missing && project.uid && door.session && door.places)
-  if (asked) door.places!.ask(door.session!, project!)
   return {
     text: [
       door.unrecorded
         ? `This conversation carries a place from ${door.unrecorded.module}, but ${door.unrecorded.why}. So it is not recorded under any place this door can read.`
         : 'This conversation isn’t recorded under any place.',
-      'A record is made by: starting the conversation from a place in Kehikot (or attaching it to one there); '
-        + 'set_my_place, recording the epic the person tells you it is for; or the person’s answer to the ask in '
-        + 'their Inbox. Ask the person which epic this conversation is for rather than assuming the one on screen.',
-      asked ? `The person has been asked in their Inbox (${project!.name}); their answer is recorded the same way.` : '',
-      !door.session ? 'This client did not keep the session this door gave it at initialize, so nothing can be recorded for it here.' : '',
+      !door.session
+        ? 'This client did not keep the session this door gave it at initialize, so nothing can be recorded for it here: name the kehikko or epic in each call.'
+        : 'No project could be named for it (no page of Kehikot has a kehikko open). set_my_place records one: the kehikko and the epic this conversation is for, or epic null for the whole project.',
       `For information only, NOT this conversation’s place: ${lookingWords(null, now)}`,
       pinnedPlacesWords(door),
     ]
@@ -3031,7 +3036,9 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
       const fellBack =
         door.here === null && args.kehikko === undefined && !done.failed && !['my_place', 'set_my_place', 'read_canvas'].includes(name)
       const note = fellBack ? `\n\n${door.unrecorded ? unreadLine(door.unrecorded) : UNPLACED_LINE}` : ''
-      return text(`${done.text}${note}`, done.failed)
+      /* Said once, on the call that settled the connection: where it was put, and how to change that. */
+      const settled = door.settled && door.here && name !== 'my_place' && name !== 'set_my_place' ? `\n\n${settledWords(door.here)}` : ''
+      return text(`${done.text}${note}${settled}`, done.failed)
     } catch (e) {
       /* A refusal is an answer and the sentence is the useful half, so it comes
          back as a tool error the agent reads rather than a transport failure it

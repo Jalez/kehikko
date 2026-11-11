@@ -138,7 +138,6 @@ import { useInboxColour, type InboxCountView } from './canvas/InboxCount.tsx'
 import { fetchOfficial, installOfficial } from './host/official.ts'
 import { fetchLink, fetchLog } from './host/inboxClient.ts'
 import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE, type NoticeLink } from './host/trackerNotices.ts'
-import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
 import { schemaFor } from 'kehikot-module-protocol'
 import { fetchRegistry, newerReading, type Presence, type RegistryView } from './host/registry.ts'
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
@@ -4291,13 +4290,6 @@ export function App() {
     open: (entry, inProject) => goToEntry(entry, inProject ?? projectId),
     use: (module, on) => inbox.use(module, on),
     hasProject: (id) => projects.some((one) => one.id === id),
-    choicesFor: (entry) =>
-      isPlaceAsk(entry) && projectId !== null
-        ? askChoices(about.epic, held?.epics ?? []).map((choice) => ({
-            label: choice.label,
-            run: () => void answerAsk({ project: projectId, session: entry.id, epic: choice.epic, kehikko: open?.id ?? null }),
-          }))
-        : null,
   }
   inboxAskRef.current = (from, method, params, pressed) => {
     const door = inboxDoorRef.current

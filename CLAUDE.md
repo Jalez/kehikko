@@ -1259,8 +1259,14 @@
   the person's view instead says so every time (`UNPLACED_LINE`). `my_place`
   with no record says so and how a record is made; what is on screen is said
   only as information, labelled NOT its place.
-- The Inbox ask is the host's own list (module `kehikko`, ids `place-ask:`);
-  the answer is `/host/place/answer`, in `PAGE_ONLY`. No MCP tool answers it.
+- The person is NEVER asked which epic a conversation is for. A connection
+  with no readable record is settled on its first tool call (`settle` in
+  `server/placeRoutes.ts`, `settledPlace` in `server/doorPlaces.ts`): the
+  token's project or the one on screen, the epic only when the project has
+  exactly one, else the whole project. That answer says so and names
+  `set_my_place`. A module that does not answer about its token is answered
+  for by what it said last. The old `place-ask:` Inbox items are taken out of
+  the record on start (`Inbox.forgetAll`).
 
 ## A module's Claude Code skills
 

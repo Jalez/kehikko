@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createCanvas, editCanvas, open, setSubject, type Canvas } from '../server/canvases.ts'
-import { ASK_MS, openSession, PLACE_PARAM, projectByUid, sessionOf } from '../server/doorPlaces.ts'
+import { openSession, PLACE_PARAM, projectByUid, sessionOf, settledPlace } from '../server/doorPlaces.ts'
 import { createEpic, editParts } from '../server/holdings.ts'
+import { epicsDir } from '../server/hostData.ts'
 import { Inbox } from '../server/inbox.ts'
 import { call, mcp, type Door } from '../server/mcp.ts'
 import { Openness } from '../server/open.ts'
 import { ASK_PREFIX, absentFrom, doorsFor, guardsOn, modulesOn, nameFor, placeDesk, withToken, type ModuleAbout } from '../server/placeRoutes.ts'
 import { addProject, projectById, relinkProject, type Project } from '../server/projects.ts'
-import { askChoices, isPlaceAsk } from '../src/host/placeAsk.ts'
 
 /**
  * Each conversation knows its OWN place (protocol 2.4.0): what a record says,
@@ -40,7 +40,10 @@ let desk: ReturnType<typeof placeDesk>
 /** What the last sweep saw of every registered module: what a session is told of the ones on its kehikko. */
 let about: ModuleAbout[]
 
+/** The module stops answering (restarting, busy) while this is true. */
+let down = false
 const module = (async (url: string) => {
+  if (down) throw new Error('not answering')
   const token = new URL(url).searchParams.get(PLACE_PARAM) ?? ''
   return new Response(JSON.stringify({ ok: true, place: records[token] ?? null }), { status: 200 })
 }) as unknown as typeof fetch
@@ -71,7 +74,12 @@ beforeEach(() => {
     { id: 'a.one', name: 'One', summary: 'Does the first thing.\nWell.', skills: [{ name: 'one-skill' }, { name: 'needs-two', needs: ['a.two'] }] },
     { id: 'a.two', name: 'Two', summary: 'Does the second.', skills: [] },
   ]
-  desk = placeDesk({
+  down = false
+  desk = placeDesk(deskDeps())
+})
+
+function deskDeps(): Parameters<typeof placeDesk>[0] {
+  return {
     modules: async () => about,
     db,
     inbox,
@@ -88,8 +96,8 @@ beforeEach(() => {
     changed: (id) => changed.push(id),
     originOf: async (id) => (id === 'kehikot.claude' ? 'http://127.0.0.1:4590' : null),
     fetch: module,
-  })
-})
+  }
+}
 afterEach(() => {
   db.close()
   rmSync(folder, { recursive: true, force: true })
@@ -99,8 +107,8 @@ const issue = (token: string, kehikko: string | null) =>
   desk.route(new Request('http://127.0.0.1:4180/host/place', { method: 'POST', body: JSON.stringify({ module: 'kehikot.claude', token, project: folder, kehikko }) }), new URL('http://127.0.0.1:4180/host/place'))
 
 /** A door as the server hands it, for a call with this token and this MCP session. */
-async function doorFor(token: string | null, session: string | null = null): Promise<Door> {
-  const { here, unrecorded } = await desk.resolve(token, session)
+async function doorFor(token: string | null, session: string | null = null, settling = false): Promise<Door> {
+  const { here, unrecorded, settled } = await desk.resolve(token, session, settling)
   return {
     db,
     which: () => openness.open(),
@@ -111,6 +119,7 @@ async function doorFor(token: string | null, session: string | null = null): Pro
     seen: async () => [{ id: 'a.one', name: 'One', condition: 'ready' }],
     here,
     unrecorded,
+    settled: settled === true,
     session,
     places: desk.places,
     inbox,
@@ -316,33 +325,83 @@ describe('two conversations on two epics, and the person switching', () => {
 })
 
 describe('a conversation nobody started from a place', () => {
-  test('initialize hands it an MCP session; my_place says it is not recorded and asks the person in the Inbox, once', async () => {
+  test('its first tool call settles it in the project on screen, the whole project, with nobody asked; it is told how to change that', async () => {
     const init = await mcp({ id: 0, method: 'initialize', params: { clientInfo: { name: 'claude-code', title: 'Claude Code' } } as never }, await doorFor(null), { name: 'kehikko', version: 't' })
     const session = init.headers?.['mcp-session-id']
     expect(session).toMatch(/^[A-Za-z0-9_-]{16,64}$/)
-    const said = (await text('my_place', await doorFor(null, session!))).content[0]!.text
-    expect(said).toContain('This conversation isn’t recorded under any place.')
-    expect(said).toContain('For information only, NOT this conversation’s place: The person is looking at')
-    expect(said).not.toContain('This conversation belongs')
-    const asks = inbox.open(project.id).filter((one) => isPlaceAsk(one))
-    expect(asks).toHaveLength(1)
-    expect(asks[0]).toMatchObject({ module: 'kehikko', id: `${ASK_PREFIX}${session}`, state: 'attention', label: 'A Claude Code session asks which epic it is for' })
-    await text('my_place', await doorFor(null, session!))
-    expect(inbox.open(project.id).filter((one) => isPlaceAsk(one))).toHaveLength(1)
-    expect(ASK_MS).toBeGreaterThan(0)
+    const first = await mcp({ id: 1, method: 'tools/call', params: { name: 'read_inbox', arguments: {} } as never }, await doorFor(null, session!, true), { name: 'kehikko', version: 't' })
+    const said = (first.body as { result: { content: { text: string }[] } }).result.content[0]!.text
+    expect(said).toContain(`This conversation had no place, so Kehikot set one: ${project.name}, the whole project, no epic on kehikko "review". Nobody was asked.`)
+    expect(said).toContain('call set_my_place')
+    /* Two epics: no guess at one. The kehikko is the one open, which is in that project. */
+    expect(sessionOf(db, session!)?.place).toMatchObject({ projectUid: project.uid, epic: null, parts: [], kehikko: other.key })
+    /* No Inbox item, ever. */
+    expect(inbox.open(project.id)).toHaveLength(0)
+    /* Later calls are not re-settled and not told again. */
+    const later = await doorFor(null, session!, true)
+    expect(later.settled).toBe(false)
+    expect(later.here?.via).toBe('session')
+    const place = (await text('my_place', later)).content[0]!.text
+    expect(place).toContain(`This conversation belongs to ${project.name}`)
+    expect(place).toContain('call set_my_place with the epic this conversation is for')
+    expect(inbox.open(project.id)).toHaveLength(0)
   })
 
-  test('the person’s press records it; the ask closes and later calls answer about that epic', async () => {
+  test('a project with exactly one epic settles it on that epic', async () => {
+    rmSync(join(epicsDir(folder), 'results.json'))
     const session = openSession(db, 'Claude Code')
-    await text('my_place', await doorFor(null, session))
-    const url = new URL('http://127.0.0.1:4180/host/place/answer')
-    const reply = await desk.route(new Request(url, { method: 'POST', body: JSON.stringify({ project: project.id, session: `${ASK_PREFIX}${session}`, epic: 'methods', kehikko: canvas.id }) }), url)
-    expect(reply!.status).toBe(200)
-    expect(inbox.open(project.id).filter((one) => isPlaceAsk(one))).toHaveLength(0)
-    expect(sessionOf(db, session)?.place).toMatchObject({ epic: 'methods', kehikko: canvas.key })
-    const after = (await text('my_place', await doorFor(null, session))).content[0]!.text
-    expect(after).toContain('epic methods on kehikko "writing" — as recorded for this connection.')
-    expect(after).toContain('If the agent restarts or reconnects, it is a new connection with no record')
+    const door = await doorFor(null, session, true)
+    expect(door.here).toMatchObject({ epic: 'methods', parts: [] })
+    expect(door.settled).toBe(true)
+  })
+
+  test('the place is resolved from what is known: the token’s project, else the one on screen; none without either', () => {
+    const open = other
+    expect(settledPlace(project, new Set(['methods', 'results']), open)).toMatchObject({ epic: null, parts: [], kehikko: open.key })
+    expect(settledPlace(project, new Set(['methods']), null)).toMatchObject({ epic: 'methods', kehikko: null })
+    expect(settledPlace(project, null, { ...open, project: project.id + 1 })).toMatchObject({ epic: null, kehikko: null })
+    expect(settledPlace(null, new Set(['methods']), open)).toBeNull()
+  })
+
+  test('my_place alone neither settles nor asks: only a tool call settles, and nothing is filed in the Inbox', async () => {
+    const session = openSession(db, 'Claude Code')
+    const said = (await text('my_place', await doorFor(null, session))).content[0]!.text
+    expect(said).toContain('This conversation isn’t recorded under any place.')
+    expect(said).toContain('For information only, NOT this conversation’s place: The person is looking at')
+    expect(inbox.open(project.id)).toHaveLength(0)
+  })
+
+  test('with no page open there is no project to name: it stays unplaced, and set_my_place is how', async () => {
+    openness = new Openness()
+    const session = openSession(db, 'Claude Code')
+    const door = await doorFor(null, session, true)
+    expect(door.here).toBeNull()
+    expect(sessionOf(db, session)?.place).toBeNull()
+  })
+
+  test('a token whose module has no record settles the connection in the token’s project', async () => {
+    await issue('c'.repeat(32), canvas.key)
+    const session = openSession(db, 'Claude Code')
+    const door = await doorFor('c'.repeat(32), session, true)
+    expect(door.unrecorded?.module).toBe('kehikot.claude')
+    expect(door.here).toMatchObject({ via: 'session', epic: null })
+    expect(door.here?.project.id).toBe(project.id)
+    expect(inbox.open(project.id)).toHaveLength(0)
+  })
+
+  test('a module that stops answering is answered for by what it said last: its conversation keeps its place', async () => {
+    await issue(TOKEN_A, canvas.key)
+    expect((await doorFor(TOKEN_A)).here?.epic).toBe('methods')
+    await Bun.sleep(2100)
+    down = true
+    expect((await desk.resolve(TOKEN_A, null)).here).toMatchObject({ via: 'token', epic: 'methods', parts: ['data'] })
+    /* A desk that never heard it cannot answer for it. */
+    expect((await placeDesk(deskDeps()).resolve(TOKEN_A, null)).here).toBeNull()
+    /* One that answers "no record" is believed. */
+    down = false
+    delete records[TOKEN_A]
+    await Bun.sleep(2100)
+    expect((await desk.resolve(TOKEN_A, null)).here).toBeNull()
   })
 
   test('set_my_place records what the person said, only for an epic the project has', async () => {
@@ -367,12 +426,17 @@ describe('a conversation nobody started from a place', () => {
     expect(reply.content[0]!.text).toContain('This conversation is not recorded under any place, so this answer is about what the person has open NOW')
   })
 
-  test('the page’s quick answers: the epic on screen first, the others, then none', () => {
-    expect(askChoices('results', [{ slug: 'methods', title: 'Methods' }, { slug: 'results', title: 'Results' }])).toEqual([
-      { epic: 'results', label: 'Results (on screen)' },
-      { epic: 'methods', label: 'Methods' },
-      { epic: null, label: 'Not about an epic' },
-    ])
+  test('the old asks an older host filed are taken out of the record when the desk starts', () => {
+    inbox.report(project.id, 'kehikko', 'Kehikot', [{ id: `${ASK_PREFIX}old`, state: 'attention', label: 'A Claude Code session asks which epic it is for' }])
+    inbox.report(project.id, 'kehikot.asker', 'Asker', [{ id: 'keep', state: 'attention', label: 'Keep me' }])
+    expect(inbox.open(project.id)).toHaveLength(2)
+    changed = []
+    placeDesk({ ...deskDeps() })
+    expect(inbox.open(project.id).map((one) => one.id)).toEqual(['keep'])
+    expect(changed).toEqual([project.id])
+    changed = []
+    placeDesk({ ...deskDeps() })
+    expect(changed).toEqual([])
   })
 })
 
