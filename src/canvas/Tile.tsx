@@ -20,10 +20,13 @@ export function TileFace({
   name,
   footer,
   activity = null,
+  icon,
   onExpand,
 }: {
   id: string
   name: string
+  /** An icon key to draw instead of the one looked up by `id` (Settings › Appearance's example). */
+  icon?: string
   footer: FooterSource
   activity?: ActivityState | null
   /** Show the container large. Absent: the page is not there to show, and the square is no button. */
@@ -33,7 +36,7 @@ export function TileFace({
   const readouts = tileReadouts(items)
   const body = (
     <>
-      <ModuleIcon id={id} name={name} className="text-foreground size-8 shrink-0" />
+      <ModuleIcon id={id} icon={icon} name={name} className="text-foreground size-8 shrink-0" />
       <span data-tile-name className="w-full truncate text-xs font-medium">
         {name}
       </span>
