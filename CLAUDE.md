@@ -24,6 +24,22 @@
   that is genuinely data goes in its `ALLOWED` list with a reason; never a
   sentence.
 
+## Versions follow semver
+
+- Kehikot, its modules and the protocol follow Semantic Versioning, and CI
+  enforces it. Nobody bumps the app's version by hand; you declare the kind.
+- Every PR's `## Release note` starts with one line:
+  `Kind: breaking` (something removed, or no longer working the same way),
+  `Kind: feature` (something new), `Kind: fix`, or `Kind: none` (nothing a
+  person notices; no line after it). Then the one release-note line. The
+  `release note` check fails a PR without a valid kind.
+- The app's next version is the largest kind among the merged PRs: while 0.x,
+  breaking → next minor (0.1.x → 0.2.0), feature or fix → next patch; from 1.0,
+  breaking → major, feature → minor, fix → patch. Removing something a person
+  or a module relies on — even moving it out to a module — is `breaking`.
+- Rules and the planner: Jalez/kehikko-desktop, CLAUDE.md "Versions follow
+  semver".
+
 ## Where data lives
 
 - Project data goes **only** under `<project>/.kehikot/<module>/`, built with the
