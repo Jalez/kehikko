@@ -34,12 +34,6 @@ const ALLOWED: readonly { file: RegExp; id: string; why: string }[] = [
   { file: /^src\/host\/autoUpdates\.ts$/, id: 'kehikot.claude', why: 'HELD_SESSIONS_BEFORE_2_33: copies released before `holds` (protocol 2.33.0)' },
   { file: /^src\/host\/autoUpdates\.ts$/, id: 'kehikot.codex', why: 'HELD_SESSIONS_BEFORE_2_33: copies released before `holds` (protocol 2.33.0)' },
   { file: /^src\/host\/providers\.ts$/, id: 'kehikot.claude', why: 'SESSIONS_BEFORE_2_21: the agent module released before `agentSessions` (protocol 2.21.0)' },
-  /* Examples in MCP tool descriptions: an id shaped as read_canvas prints one, for an agent to copy the shape. */
-  { file: /^server\/mcp\.ts$/, id: 'kehikot.notes', why: 'an example id in a tool description' },
-  { file: /^server\/mcp\.ts$/, id: 'kehikot.learning', why: 'an example id in a tool description' },
-  { file: /^server\/mcp\.ts$/, id: 'kehikot.journeys', why: 'an example id in a tool description' },
-  { file: /^server\/mcp\.ts$/, id: 'kehikot.paper', why: 'an example id in a tool description' },
-  { file: /^server\/mcp\.ts$/, id: 'kehikot.factory', why: 'an example id in a tool description' },
 ]
 
 function sources(): string[] {

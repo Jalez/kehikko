@@ -1000,7 +1000,7 @@ function tools() {
       description:
         'The settings of the modules in a kehikko’s project, as each module declares them (protocol 2.15.0): every '
         + 'setting’s label, key, type, value now, whether it is kept in the project or on this machine, and who may '
-        + 'change it. Leave module out for every module that has settings; name one (its id, e.g. kehikot.factory) for '
+        + 'change it. Leave module out for every module that has settings; name one (its id, e.g. kehikot.<name>) for '
         + 'that one. Read-only: this host changes no setting. A setting marked "only the person" is changed by the '
         + 'person in Kehikot’s Settings or on the module’s page; any other is changed at the module’s own door '
         + '(POST /api/kehikot/settings on the module, { project, key, value }), never through this host.',
@@ -1112,11 +1112,11 @@ function tools() {
           ...KEHIKKO_PROPERTY,
           module: {
             type: 'string',
-            description: 'The module id of a container on this kehikko, as read_canvas prints it, e.g. "kehikot.paper".',
+            description: 'The module id of a container on this kehikko, as read_canvas prints it, e.g. "kehikot.<name>".',
           },
           item: {
             type: 'string',
-            description: 'The item’s id, as read_canvas prints it at the start of its line, e.g. "compile".',
+            description: 'The item’s id, as read_canvas prints it at the start of its line, e.g. "<item-id>".',
           },
           value: {
             type: ['string', 'boolean'],
@@ -1241,8 +1241,8 @@ function tools() {
             type: 'array',
             items: { type: 'string' },
             description:
-              'The module ids to select, exactly as read_canvas prints them, e.g. ["kehikot.journeys", '
-              + '"kehikot.notes"]. Every one has to be on this kehikko already; use place_modules to put one '
+              'The module ids to select, exactly as read_canvas prints them, e.g. ["kehikot.<name>", '
+              + '"kehikot.<other>"]. Every one has to be on this kehikko already; use place_modules to put one '
               + 'there first. An empty list unpicks everything.',
           },
         },
@@ -1272,7 +1272,7 @@ function tools() {
             items: { type: 'string' },
             description:
               'The module ids to place, exactly as read_canvas prints them under "registered on this computer '
-              + 'and not on this kehikko", e.g. ["kehikot.notes"]. In the order they should be added.',
+              + 'and not on this kehikko", e.g. ["kehikot.<name>"]. In the order they should be added.',
           },
         },
         required: ['modules'],
@@ -1499,7 +1499,7 @@ function tools() {
         type: 'object',
         properties: {
           ...KEHIKKO_PROPERTY,
-          module: { type: 'string', description: 'The module id, as read_canvas prints it, e.g. "kehikot.notes".' },
+          module: { type: 'string', description: 'The module id, as read_canvas prints it, e.g. "kehikot.<name>".' },
         },
         required: ['module'],
       },
@@ -1558,13 +1558,13 @@ function tools() {
             items: { type: 'string' },
             description:
               'The module ids to fold to their headers, exactly as read_canvas prints them, e.g. '
-              + '["kehikot.notes"]. Every one has to be on this kehikko.',
+              + '["kehikot.<name>"]. Every one has to be on this kehikko.',
           },
           unfold: {
             type: 'array',
             items: { type: 'string' },
             description:
-              'The module ids to unfold, e.g. ["kehikot.learning"]. Every one has to be on this kehikko, and none '
+              'The module ids to unfold, e.g. ["kehikot.<name>"]. Every one has to be on this kehikko, and none '
               + 'may also be in fold. A tile is unfolded back to the size and place it had.',
           },
           tile: {
@@ -1619,14 +1619,14 @@ function modulesIn(
       why:
         tool === 'select_modules'
           ? 'select_modules needs modules: a list of the module ids that should end up selected, e.g. modules: '
-            + '["kehikot.journeys"]. Pass modules: [] to unpick everything. It replaces the selection rather than '
+            + '["kehikot.<name>"]. Pass modules: [] to unpick everything. It replaces the selection rather than '
             + 'adding to it, so send every id you want selected, not only the new one.'
           : tool === 'place_modules'
             ? 'place_modules needs modules: a list of the module ids to put on the kehikko, e.g. modules: '
-              + '["kehikot.notes"] — as read_canvas prints them under "registered on this computer and not on this '
+              + '["kehikot.<name>"] — as read_canvas prints them under "registered on this computer and not on this '
               + 'kehikko".'
             : 'fold and unfold are each a list of module ids as read_canvas prints them, e.g. fold: '
-              + '["kehikot.notes"], unfold: ["kehikot.learning"]. Leave out the one you do not need.',
+              + '["kehikot.<name>"], unfold: ["kehikot.<name>"]. Leave out the one you do not need.',
     }
   }
   if (value.length > MAX_MODULES) {
@@ -1679,7 +1679,7 @@ export async function call(
   if (name === 'module_settings') {
     if (!door.moduleSettings) return { text: 'This host does not read modules’ settings.', failed: true }
     if (args.module !== undefined && (typeof args.module !== 'string' || !args.module || args.module.length > MAX_ID)) {
-      return { text: 'module is one module’s id, e.g. kehikot.factory, or left out.', failed: true }
+      return { text: 'module is one module’s id, e.g. kehikot.<name>, or left out.', failed: true }
     }
     const project = where.canvas.project === null ? null : projectById(door.db, where.canvas.project)
     const path = project?.path ?? null
@@ -1748,7 +1748,7 @@ export async function call(
   if (name === 'module_versions' || name === 'pin_version') {
     if (!door.versions) return { text: 'This host does not run module versions.', failed: true }
     const module = typeof args.module === 'string' && args.module.length <= MAX_ID ? args.module : null
-    if (!module) return { text: `${name} needs module: a module id as read_canvas prints it, e.g. "kehikot.notes".`, failed: true }
+    if (!module) return { text: `${name} needs module: a module id as read_canvas prints it, e.g. "kehikot.<name>".`, failed: true }
     if (name === 'module_versions') {
       const listed = await door.versions.list(module, canvas.id)
       if ('why' in listed) return { text: listed.why, failed: true }
@@ -1964,7 +1964,7 @@ async function foldOn(
     return {
       text:
         'fold_modules needs fold, unfold, tile or more than one: lists of module ids as read_canvas prints them, e.g. fold: '
-        + '["kehikot.notes"], unfold: ["kehikot.learning"]. Nothing was changed.',
+        + '["kehikot.<name>"], unfold: ["kehikot.<name>"]. Nothing was changed.',
       failed: true,
     }
   }
@@ -2321,7 +2321,7 @@ async function pressOn(
   if (!short(args.module) || !short(args.item)) {
     return refuse(
       'press_item needs module and item: the module id of a container and the id of one of its header items, both as '
-        + 'read_canvas prints them, e.g. module: "kehikot.paper", item: "compile".',
+        + 'read_canvas prints them, e.g. module: "kehikot.<name>", item: "<item-id>".',
     )
   }
   if (args.value !== undefined && typeof args.value !== 'boolean' && !short(args.value)) {
