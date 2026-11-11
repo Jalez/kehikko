@@ -411,7 +411,7 @@ describe('what a fold is not', () => {
     const id = aCanvas(squeezed())
     const done = await call('fold_modules', { kehikko: id, fold: ['a.one'], unfold: ['a.one'] }, door())
     expect(done.failed).toBe(true)
-    expect(done.text).toContain('in both fold and unfold')
+    expect(done.text).toContain('in more than one of fold, unfold and tile')
     expect(one(id, 'a.one').collapsed).toBe(false)
   })
 

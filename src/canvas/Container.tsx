@@ -42,6 +42,9 @@ import { releaseShown } from '@/host/source.ts'
 import { versionLabel } from '@/host/versions.ts'
 import { VersionPicker } from './Versions.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { TileFace } from './Tile.tsx'
+import { OWN_TILE_BOX, drawsOwnTile } from '@/host/tile.ts'
+import type { Collapse } from '@/host/appearance.ts'
 
 /**
  * One thing on the canvas — or rather, the frame around one thing.
@@ -85,6 +88,9 @@ export function Container({
   onPin,
   collapsed,
   onCollapse,
+  tiled = false,
+  onTile = () => {},
+  collapseMakes = 'fold',
   foldRows = 1,
   rowsMode,
   foldedBy = null,
@@ -175,6 +181,15 @@ export function Container({
    */
   collapsed: boolean
   onCollapse(collapsed: boolean): void
+  /**
+   * Whether this container is drawn as a tile (`host/columns.ts`, `canvas/Tile.tsx`): its header,
+   * then a small square — the module's own tile where it draws one (`host/tile.ts`), else the host's.
+   * The module keeps running; the collapse button restores it.
+   */
+  tiled?: boolean
+  onTile?(tiled: boolean): void
+  /** What the collapse button does to an open container: Settings › Appearance's (`host/appearance.ts`). */
+  collapseMakes?: Collapse
   /**
    * How far a fold goes: the header (1), or the header and footer (2, drawn
    * only while the footer is). Settings › Appearance's, the same for every
@@ -414,7 +429,10 @@ export function Container({
   const declaredFooter = useSyncExternalStore(source.subscribe, () => source.get().length > 0)
   const footerDrawn = footerRowDrawn(declaredFooter, showing.kind === 'page' && !oneEpic, false)
   const fold = foldDrawn(collapsed, foldRows, footerDrawn)
-  const footed = footerRowDrawn(declaredFooter, showing.kind === 'page' && !oneEpic, fold)
+  /* A tile says its footer's readouts in its square, and draws no footer row. */
+  const footed = !tiled && footerRowDrawn(declaredFooter, showing.kind === 'page' && !oneEpic, fold)
+  /* A tile shows the module's own tile where its page draws one, else the host's (`host/tile.ts`). */
+  const ownTile = tiled && showing.kind === 'page' && !oneEpic && drawsOwnTile(presence.module)
   const condition: Presence['condition'] =
     showing.kind === 'page' ? 'ready' : showing.kind === 'notice' ? showing.condition : presence.condition
   /* Everything the header offers, as one list, and where each entry goes at this width
@@ -551,6 +569,7 @@ export function Container({
       data-rows={rowsHide(mode) ? 'hide' : undefined}
       data-rows-mode={mode}
       data-fold={fold || undefined}
+      data-tiled={tiled ? (ownTile ? 'own' : 'host') : undefined}
       /* In focus mode, the pointer over any part of this container that the
          host document can see — its header, its footer, a cover or notice —
          holds the reveal; the module's page holds it from the frames layer.
@@ -597,6 +616,8 @@ export function Container({
          * reachable, on the one container where reaching for it is likely.
          */
         data-selected={selected ? 'true' : undefined}
+        /* A tile keeps its header, which holds its restore control (`index.css`). */
+        data-tiled={tiled ? 'true' : undefined}
       >
       {/*
        * The gaps close before the controls do.
@@ -969,9 +990,12 @@ export function Container({
          */}
         <FoldControl
           collapsed={collapsed}
+          tiled={tiled}
+          makes={collapseMakes}
           foldedBy={foldedBy}
           rows={foldRows === 2 && footerDrawn ? 2 : 1}
           onCollapse={onCollapse}
+          onTile={onTile}
         />
 
         {/*
@@ -1043,7 +1067,41 @@ export function Container({
           <SourcedFooterBar source={source} name={name} onPress={onFooterPress} dense />
         </div>
       ) : null}
-      {collapsed ? null : (
+      {tiled && !collapsed ? (
+        /* A tile: the module's own, its page in a box small enough that it draws it, or the host's
+           square — which shows the container large on a press (`host/expand.ts`). A module that is
+           not showing its page says why, as an open container would. */
+        ownTile ? (
+          <div className="relative flex min-h-0 flex-1 items-center justify-center" data-tile-own={presence.id}>
+            <div ref={body} data-body={presence.id} className="relative" style={{ width: '100%', height: '100%', maxWidth: OWN_TILE_BOX.width, maxHeight: OWN_TILE_BOX.height }} />
+          </div>
+        ) : (
+          <div ref={body} data-body={presence.id} className="relative min-h-0 flex-1">
+            {showing.kind !== 'page' && standing ? (
+              <StandingBox
+                showing={showing}
+                notice={notice}
+                standing={standing}
+                presence={presence}
+                coverDetail={coverDetail}
+                onStarted={onStarted}
+                onRestart={can.ok ? onRestart : undefined}
+                restartWhy={can.ok ? null : can.why}
+                onReload={onReload}
+              />
+            ) : (
+              <TileFace
+                id={presence.id}
+                name={name}
+                footer={source}
+                activity={activity}
+                onExpand={expand && showing.kind === 'page' && !oneEpic ? () => expand.onChange(true) : undefined}
+              />
+            )}
+          </div>
+        )
+      ) : null}
+      {collapsed || tiled ? null : (
       <>
       {/* The hollow part. Its only jobs are to be measured — the page is
           positioned to match it — and to stay out of the way of what is

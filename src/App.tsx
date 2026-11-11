@@ -143,7 +143,8 @@ import { fetchRegistry, newerReading, type Presence, type RegistryView } from '.
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
-import { arranged as settledOn, dragged, granted, mostFor, mostUp, pressed, redrawn, topEdge, wishing } from './host/columns.ts'
+import { arranged as settledOn, dragged, drawnWidth, granted, mostFor, mostUp, pressed, redrawn, tiledTo, topEdge, wishing } from './host/columns.ts'
+import { drawsOwnTile, tileHidesPage } from './host/tile.ts'
 import { cornerOf } from './host/corners.ts'
 import { cornerHandle } from './canvas/CornerHandle.tsx'
 import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
@@ -2484,7 +2485,8 @@ export function App() {
        * put away. `redrawn` is not needed: a folded container is drawn at one
        * row whatever it wishes.
        */
-      if (container.collapsed) {
+      /* A tile is drawn at a tile's height whatever it wishes, as a folded container is. */
+      if (container.collapsed || container.tiled) {
         const wanted = rowsFor(px)
         if (wanted <= container.wish) return
         change({ placements: placements.map((p) => (p.i === id ? { ...p, wish: wanted } : p)) })
@@ -2740,7 +2742,7 @@ export function App() {
           asked.current.set(container.i, now)
           continue
         }
-        if (container.collapsed || state.refresh.busy) continue
+        if (container.collapsed || container.tiled || state.refresh.busy) continue
         if (now - last < every * 60_000) continue
         asked.current.set(container.i, now)
         presses.refresh(container.i)
@@ -2852,6 +2854,19 @@ export function App() {
     (id: string, collapsed: boolean) => {
       const placements = open?.placements ?? []
       change({ placements: pressed(placements, id, collapsed) })
+    },
+    [change, open?.placements],
+  )
+
+  /**
+   * Make a container a tile, or restore it: the collapse button when Settings › Appearance says it
+   * makes a tile, and a tile's restore. A state like a fold (`tiledTo` in `host/columns.ts`): the
+   * width and the wish are left alone, so restoring returns it to exactly the size and place it had.
+   */
+  const onTile = useCallback(
+    (id: string, tiled: boolean) => {
+      const placements = open?.placements ?? []
+      change({ placements: tiledTo(placements, tiled ? { tile: [id] } : { untile: [id] }) })
     },
     [change, open?.placements],
   )
@@ -3835,11 +3850,13 @@ export function App() {
             /* A bottom edge travels as far as the column below can pay; a top
                edge as far as the containers on top can spare. */
             maxH: pulling === one.i ? Math.min(CANVAS_ROWS, one.h + mostUp(containers, one.i)) : mostFor(containers, one.i),
+            /* A tile is drawn at a tile's width and is not resized: its own `w` is what it is restored to. */
+            ...(one.tiled ? { w: drawnWidth(one), isResizable: false } : {}),
             /* No narrower than one of the old twelve columns (`MIN_W` in
                `fit.ts`), so twenty-four columns add steps, not a sliver of a
                container whose header has nowhere to go. One already narrower
                is not widened by being drawn. */
-            minW: Math.min(MIN_W, one.w),
+            minW: Math.min(MIN_W, drawnWidth(one)),
           }) as Layout,
       ),
     [containers, pulling],
@@ -4476,6 +4493,9 @@ export function App() {
           shown:
             onOpen.has(id) &&
             !placements.find((p) => p.i === id)?.collapsed &&
+            /* A tile shows the host's square over a hidden page, kept like a folded one — unless the
+               module draws its own tile (`host/tile.ts`), or the tile is shown large right now. */
+            !tileHidesPage(placements.find((p) => p.i === id), drawsOwnTile(module), big === id) &&
             /* The same decision the container's body draws from, so a page
                and a cover are never both up, or neither. */
             showing(presenceOf(id)!, found && { ...found, stale: staleOf(id, found), held: drawing.has(id) }, askedFor === openId, restarts.of(id)).kind === 'page' &&
@@ -5077,6 +5097,10 @@ export function App() {
                   onPin={(pinned) => onPin(presence.id, pinned)}
                   collapsed={placement.collapsed}
                   onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
+                  tiled={placement.tiled === true}
+                  onTile={(tiled) => onTile(presence.id, tiled)}
+                  /* What the collapse button does: Settings › Appearance's, the same for every container. */
+                  collapseMakes={drawn.collapse}
                   /* How far a fold goes, and when the rows show: Settings › Appearance's, the same for every container. */
                   foldRows={drawn.foldRows}
                   rowsMode={drawn.rows}
@@ -5496,6 +5520,7 @@ function same(a: readonly Placement[], b: readonly Placement[]): boolean {
          away from dropping a fold on the floor. */
       one.wish === other.wish &&
       one.collapsed === other.collapsed &&
+      (one.tiled ?? false) === (other.tiled ?? false) &&
       (one.foldRows ?? 1) === (other.foldRows ?? 1)
     )
   })

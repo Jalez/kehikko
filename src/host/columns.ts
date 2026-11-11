@@ -1,4 +1,4 @@
-import { CANVAS_ROWS } from './fit.ts'
+import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 
 /**
  * A column is a fixed height budget, and growing a container spends it.
@@ -44,6 +44,11 @@ export interface Box {
   y: number
   w: number
   h: number
+  /**
+   * Drawn as a tile (`TILE_COLUMNS` by `TILE_ROWS`) while `w` stays the width its owner chose, so
+   * restoring it is clearing a flag. See `tiledTo`.
+   */
+  tiled?: boolean
 }
 
 /**
@@ -127,6 +132,27 @@ export function foldedHeight(box: Pick<Wished, 'foldRows'>): number {
 }
 
 /**
+ * A container made a TILE: a small square cell, its module's icon, name and footer readout, or the
+ * module's own tile where it draws one (`canvas/Tile.tsx`). The other thing the collapse button can
+ * do, as Settings › Appearance says (`host/appearance.ts`).
+ *
+ * Counts, like `FOLDED_ROWS`, and for the same reason: two of whatever a row is, never a number of
+ * pixels read off the screen. Three of the twenty-four columns and twelve of the fifty-six rows are
+ * about a square at the sizes this canvas is drawn at (180 by 170 pixels on a 1440-wide window).
+ *
+ * Like a fold it is a STATE, not a size: `w` keeps the width its owner chose and `wish` the height,
+ * and the tile is drawn from the flag (`drawnWidth`, `granted`), so restoring it is clearing the
+ * flag and the container comes back at exactly the size it had.
+ */
+export const TILE_COLUMNS = 3
+export const TILE_ROWS = 12
+
+/** How wide a container is drawn: its width, or a tile's (never wider than it was). */
+export function drawnWidth(box: Pick<Box, 'w' | 'tiled'>): number {
+  return box.tiled ? Math.min(TILE_COLUMNS, box.w) : box.w
+}
+
+/**
  * Do these two containers share a column?
  *
  * They overlap in x, which is a broader question than "are they in the same
@@ -145,7 +171,7 @@ export function foldedHeight(box: Pick<Wished, 'foldRows'>): number {
  * growing a container is looking at what is directly under it, not at a graph.
  */
 export function shares(a: Box, b: Box): boolean {
-  return a.i !== b.i && a.x < b.x + b.w && b.x < a.x + a.w
+  return a.i !== b.i && a.x < b.x + drawnWidth(b) && b.x < a.x + drawnWidth(a)
 }
 
 /**
@@ -279,7 +305,7 @@ export function granted(
      trusted: a wish of no rows is a container deleted by a rounding error, and
      a wish past the canvas is simply "as much as there is". */
   const wanted = (box: Wished) =>
-    box.collapsed ? foldedHeight(box) : Math.max(1, Math.min(rows, Math.round(box.wish)))
+    box.tiled ? Math.min(rows, TILE_ROWS) : box.collapsed ? foldedHeight(box) : Math.max(1, Math.min(rows, Math.round(box.wish)))
 
   /* The least a container may be pushed to by anybody ABOVE it wanting more:
      its wish, if that is under the floor — a container that asked for two rows
@@ -396,7 +422,7 @@ function stacked(
 export function wishing(
   boxes: readonly Wished[],
   id: string,
-  change: Partial<Pick<Wished, 'wish' | 'collapsed' | 'foldRows'>>,
+  change: Partial<Pick<Wished, 'wish' | 'collapsed' | 'foldRows' | 'tiled'>>,
   rows = CANVAS_ROWS,
   floor = SQUEEZED_ROWS,
 ): Map<string, number> {
@@ -467,7 +493,42 @@ export function folded<T extends Wished>(
   return redrawn(
     placements.map((p) => {
       const collapsed = fold.has(p.i) ? true : unfold.has(p.i) ? false : p.collapsed
-      return collapsed === p.collapsed ? p : { ...p, collapsed }
+      /* Folding a tile folds it; unfolding one opens it: a tile is not in view either. */
+      const untile = p.tiled === true && (fold.has(p.i) || unfold.has(p.i))
+      if (collapsed === p.collapsed && !untile) return p
+      return untile ? restored({ ...p, collapsed }) : { ...p, collapsed }
+    }),
+  )
+}
+
+/** A tile put back: the flag cleared, and moved in only as far as its own width needs to fit. */
+function restored<T extends Wished>(p: T): T {
+  const { tiled: _tiled, ...rest } = p
+  const x = Math.max(0, Math.min(p.x, COLUMNS - p.w))
+  return { ...(rest as T), x }
+}
+
+/**
+ * Containers made tiles, and tiles put back: the flag set or cleared, every height redrawn.
+ *
+ * The ONE write a tile is, whoever asks for it — the person's press on the collapse button when
+ * Settings › Appearance says it makes a tile, and an agent at the host's door (`fold_modules`'s
+ * `tile`). A container made a tile is open first (a folded one is unfolded into its tile); nothing
+ * else changes — not `w`, not the wish, not `x` — so putting it back returns it to exactly the
+ * size and place it had. Only a container whose own width would no longer fit where the tile was
+ * dragged is moved in, by as little as that takes.
+ */
+export function tiledTo<T extends Wished>(
+  placements: readonly T[],
+  change: { tile?: readonly string[]; untile?: readonly string[] },
+): T[] {
+  const tile = new Set(change.tile ?? [])
+  const untile = new Set(change.untile ?? [])
+  return redrawn(
+    placements.map((p) => {
+      if (tile.has(p.i) && (!p.tiled || p.collapsed)) return { ...p, tiled: true, collapsed: false }
+      if (untile.has(p.i) && p.tiled) return restored(p)
+      return p
     }),
   )
 }

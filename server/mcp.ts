@@ -28,7 +28,7 @@ import type { WhichKehikko } from './open.ts'
 import type { Pinned, VersionListing } from './pins.ts'
 import type { FoldNote } from './wake.ts'
 import { COLUMNS, place } from '../src/host/canvases.ts'
-import { folded, granted, laid, SQUEEZED_ROWS, tops } from '../src/host/columns.ts'
+import { folded, granted, laid, SQUEEZED_ROWS, tiledTo, tops } from '../src/host/columns.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 import { editIn } from '../src/host/parts.ts'
 import { agentPressable, agentRefusal, agentStanding, MENU_TITLES, pinnedOf, type Pressed, type Pressing } from '../src/host/header.ts'
@@ -663,6 +663,7 @@ function canvasText(
         p.pinned ? 'pinned' : null,
         p.version ? `runs version ${p.version}, not latest` : null,
         p.collapsed ? 'folded to its header' : null,
+        p.tiled ? 'a tile: a small square with its icon, name and footer readout' : null,
         messagesMuted.has(p.i) ? MESSAGES_MUTED_MARK : null,
         /* "All epics", and a module that works on one epic at a time: the page covers it with a sentence. */
         sighting && sighting.condition === 'ready' && coveredForScope(subject?.scope, { modes: sighting.modes, declares: { scopes: sighting.scopes } }, p.pinned, p.scope)
@@ -1545,7 +1546,9 @@ function tools() {
         + 'containers the person has not touched since. If the person folds or unfolds something themselves '
         + 'meanwhile, that is their arrangement: read_canvas again, leave it, and leave it out of the call that '
         + 'puts things back, which would otherwise flip their choice. Asking for a state a container is already '
-        + 'in changes nothing.',
+        + 'in changes nothing. tile makes containers small squares instead — the module’s icon, name and what its '
+        + 'footer says, the same as a person’s collapse button when they chose tiles — marked and put back the same way; '
+        + 'unfold puts a tile back at the size and place it had.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1562,7 +1565,14 @@ function tools() {
             items: { type: 'string' },
             description:
               'The module ids to unfold, e.g. ["kehikot.learning"]. Every one has to be on this kehikko, and none '
-              + 'may also be in fold.',
+              + 'may also be in fold. A tile is unfolded back to the size and place it had.',
+          },
+          tile: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'The module ids to make tiles: small squares with the module’s icon, name and footer readout. Every one '
+              + 'has to be on this kehikko, and none may also be in fold or unfold.',
           },
         },
         required: [],
@@ -1601,7 +1611,7 @@ function versionsText(listing: VersionListing, canvas: Canvas, how: string): str
 function modulesIn(
   value: unknown,
   tool: 'select_modules' | 'place_modules' | 'fold_modules',
-  argument: 'modules' | 'fold' | 'unfold' = 'modules',
+  argument: 'modules' | 'fold' | 'unfold' | 'tile' = 'modules',
 ): { ok: true; ids: string[] } | { ok: false; why: string } {
   if (!Array.isArray(value)) {
     return {
@@ -1942,26 +1952,27 @@ async function foldOn(
   args: Record<string, unknown>,
   door: Door,
 ): Promise<{ text: string; failed: boolean }> {
-  const asked = { fold: [] as string[], unfold: [] as string[] }
-  for (const key of ['fold', 'unfold'] as const) {
+  const asked = { fold: [] as string[], unfold: [] as string[], tile: [] as string[] }
+  for (const key of ['fold', 'unfold', 'tile'] as const) {
     if (args[key] === undefined || args[key] === null) continue
     const ids = modulesIn(args[key], 'fold_modules', key)
     if (!ids.ok) return { text: ids.why, failed: true }
     asked[key] = ids.ids
   }
-  const named = [...asked.fold, ...asked.unfold]
+  const named = [...asked.fold, ...asked.unfold, ...asked.tile]
   if (!named.length) {
     return {
       text:
-        'fold_modules needs fold, unfold or both: lists of module ids as read_canvas prints them, e.g. fold: '
+        'fold_modules needs fold, unfold, tile or more than one: lists of module ids as read_canvas prints them, e.g. fold: '
         + '["kehikot.notes"], unfold: ["kehikot.learning"]. Nothing was changed.',
       failed: true,
     }
   }
-  const both = asked.fold.filter((id) => asked.unfold.includes(id))
+  const both = named.filter((id, at) => named.indexOf(id) !== at && named.indexOf(id) < at)
   if (both.length) {
+    const ids = [...new Set(both)]
     return {
-      text: `${both.join(', ')} ${both.length === 1 ? 'is' : 'are'} in both fold and unfold, which is no instruction at all. Nothing was changed.`,
+      text: `${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} in more than one of fold, unfold and tile, which is no instruction at all. Nothing was changed.`,
       failed: true,
     }
   }
@@ -1996,13 +2007,18 @@ async function foldOn(
     }
   }
 
+  /* Each container's state before the call: what the call that puts it back asks for. */
+  const before = (id: string): 'fold' | 'unfold' | 'tile' => (on.get(id)?.collapsed ? 'fold' : on.get(id)?.tiled ? 'tile' : 'unfold')
   const folding = asked.fold.filter((id) => !on.get(id)?.collapsed)
-  const unfolding = asked.unfold.filter((id) => on.get(id)?.collapsed)
-  const already = named.filter((id) => !folding.includes(id) && !unfolding.includes(id))
+  /* A tile is not in view either: unfolding one puts it back. */
+  const unfolding = asked.unfold.filter((id) => on.get(id)?.collapsed || on.get(id)?.tiled)
+  const tiling = asked.tile.filter((id) => !on.get(id)?.tiled || on.get(id)?.collapsed)
+  const changing = [...folding, ...unfolding, ...tiling]
+  const already = named.filter((id) => !changing.includes(id))
   const leftAlone = already.length
     ? `${already.join(', ')} ${already.length === 1 ? 'was' : 'were'} already as asked and left alone.`
     : ''
-  if (!folding.length && !unfolding.length) {
+  if (!changing.length) {
     return {
       text:
         `${leftAlone} Nothing was changed on kehikko ${canvas.id} (${canvas.name}), ${how}.\n\n`
@@ -2018,7 +2034,7 @@ async function foldOn(
   /* `laid`: stored where the grid will draw it, so the page that re-reads this
      has nothing of its own to save — a save that would be a whole arrangement
      and would overwrite this door's next call. See `laid` in `columns.ts`. */
-  const placements = laid(folded(canvas.placements, { fold: folding, unfold: unfolding }))
+  const placements = laid(tiledTo(folded(canvas.placements, { fold: folding, unfold: unfolding }), { tile: tiling }))
   const written = editCanvas(door.db, canvas.id, { placements })
   if (written) keep(door.db, written.project)
   if (!written) {
@@ -2026,25 +2042,26 @@ async function foldOn(
   }
   /* Written first, woken after — see `select_modules`. The note is what the
      page signs each fold control with; see `folded` in `wake.ts`. */
-  door.wake(canvas.id, { by: SIGNED, fold: folding, unfold: unfolding })
+  door.wake(canvas.id, { by: SIGNED, fold: folding, unfold: unfolding, ...(tiling.length ? { tile: tiling } : {}) })
 
   /* A column that is full gives an unfolded container less than it asks for.
      Said, because "unfolded" would otherwise read as "in view at its height". */
   const short = written.placements.filter((p) => unfolding.includes(p.i) && p.h < p.wish)
-  const back = [
-    folding.length ? `unfold: ${JSON.stringify(folding)}` : null,
-    unfolding.length ? `fold: ${JSON.stringify(unfolding)}` : null,
-  ].filter((part): part is string => part !== null)
+  const backTo = (state: 'fold' | 'unfold' | 'tile') => changing.filter((id) => before(id) === state)
+  const back = (['unfold', 'fold', 'tile'] as const)
+    .map((state) => (backTo(state).length ? `${state}: ${JSON.stringify(backTo(state))}` : null))
+    .filter((part): part is string => part !== null)
   return {
     text:
       `On kehikko ${canvas.id} (${canvas.name}), ${how}:`
       + (folding.length ? ` folded ${folding.join(', ')}.` : '')
       + (unfolding.length ? ` unfolded ${unfolding.join(', ')}.` : '')
+      + (tiling.length ? ` made ${tiling.join(', ')} ${tiling.length === 1 ? 'a tile' : 'tiles'}.` : '')
       + short.map((p) => ` ${p.i} is drawn at ${p.h} of the ${p.wish} rows it asks for, because its column is full.`).join('')
       + (leftAlone ? ` ${leftAlone}` : '')
       + ' Nothing was moved to another place, resized or removed — what is under a folded container is drawn up against it and comes back down when it is unfolded, as under a person’s press — and no module was told.'
       + ` On the page, the fold control of each is marked and says "${
-        folding.length ? `folded by ${SIGNED}` : `unfolded by ${SIGNED}`
+        folding.length ? `folded by ${SIGNED}` : tiling.length ? `made a tile by ${SIGNED}` : `unfolded by ${SIGNED}`
       }" until the person presses it, which puts it back; say what you did anyway (${AGENT}).`
       + ` To put back what this call changed: fold_modules with ${back.join(', ')}.`
       + ' Make that call only if the person has not folded or unfolded those containers themselves since:'

@@ -64,6 +64,13 @@ export const placementSchema = z.object({
    */
   foldRows: z.union([z.literal(1), z.literal(2)]).optional(),
   /**
+   * Whether this container is drawn as a tile: a small square with its module's icon, name and
+   * footer readout (`host/columns.ts`, `TILE_COLUMNS`). A state like `collapsed`, personal like it,
+   * and never at the same time as it; `w` and `wish` keep the size it is restored to. Optional, so
+   * an older server's answer reads as no tile.
+   */
+  tiled: z.boolean().optional(),
+  /**
    * The height its owner last asked for, in rows.
    *
    * Not `h`. `h` is what is drawn, and this is what was chosen — by a hand on
@@ -250,15 +257,18 @@ export function fromGrid(
      * nothing, and keeps what it had.
      */
     const said =
-      before && held === item.i
+      before && held === item.i && before.tiled !== true
         ? dragged(before, item.h, twoRows(item.i))
         : { wish: before?.wish ?? item.h, collapsed: before?.collapsed ?? false }
     const foldRows = before?.foldRows
+    /* A tile is drawn narrower than it is: the grid reports the tile's width, and the width its
+       owner chose is what it is restored to, so that is the one kept (`drawnWidth`). */
+    const tiled = before?.tiled === true
     return {
       i: item.i,
       x: item.x,
       y: item.y,
-      w: item.w,
+      w: tiled && before ? before.w : item.w,
       h: item.h,
       grow: before?.grow ?? false,
       pinned: before?.pinned ?? false,
@@ -267,6 +277,7 @@ export function fromGrid(
       collapsed: said.collapsed,
       /* How far a fold goes is Appearance's, stamped by the page: carried, never decided by a drag. */
       ...(foldRows === 2 ? { foldRows } : {}),
+      ...(before?.tiled ? { tiled: true } : {}),
       wish: given.get(item.i) ?? said.wish,
       selected: before?.selected ?? false,
       /* A drag is not a change of mind about what a container is showing, nor

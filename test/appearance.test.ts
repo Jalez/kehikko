@@ -31,7 +31,7 @@ const ROOT = join(import.meta.dir, '..')
 
 describe('the defaults', () => {
   test('what the app looked like before the tab: headers shown, one-row folds, dark, rounded borders, the card surface', () => {
-    expect(APPEARANCE_DEFAULT).toEqual({ rows: 'always', foldRows: 1, theme: 'dark', border: 'rounded', background: true })
+    expect(APPEARANCE_DEFAULT).toEqual({ rows: 'always', foldRows: 1, collapse: 'fold', theme: 'dark', border: 'rounded', background: true })
     expect(appearanceIn(undefined)).toEqual(APPEARANCE_DEFAULT)
     expect(appearanceIn('nonsense')).toEqual(APPEARANCE_DEFAULT)
   })

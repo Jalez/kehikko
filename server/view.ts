@@ -67,6 +67,8 @@ const VERSION = 1
 /** What one container looks like to this person. */
 export interface ContainerView {
   collapsed: boolean
+  /** Drawn as a tile (`Placement.tiled`). Absent: not one. */
+  tiled?: boolean
   selected: boolean
   filters: FilterChoice
 }
@@ -91,6 +93,7 @@ const filtersSchema = z
 
 const containerSchema = z.object({
   collapsed: z.boolean().catch(false).default(false),
+  tiled: z.boolean().catch(false).optional(),
   selected: z.boolean().catch(false).default(false),
   filters: filtersSchema.default({}),
 })
@@ -112,13 +115,14 @@ export function viewFile(projectPath: string | null | undefined): string | null 
 }
 
 function atRest(view: ContainerView): boolean {
-  return !view.collapsed && !view.selected && Object.keys(view.filters).length === 0
+  return !view.collapsed && !view.tiled && !view.selected && Object.keys(view.filters).length === 0
 }
 
 /** Only the fields that are not at rest, in a fixed order. */
 function trimmed(view: ContainerView): Partial<ContainerView> {
   return {
     ...(view.collapsed ? { collapsed: true } : {}),
+    ...(view.tiled ? { tiled: true } : {}),
     ...(view.selected ? { selected: true } : {}),
     ...(Object.keys(view.filters).length ? { filters: view.filters } : {}),
   }
@@ -130,7 +134,7 @@ export function viewOf(canvases: readonly Canvas[], subject: Subject): View {
   for (const canvas of canvases) {
     const containers = new Map<string, ContainerView>()
     for (const p of canvas.placements) {
-      containers.set(p.i, { collapsed: p.collapsed, selected: p.selected, filters: p.filters })
+      containers.set(p.i, { collapsed: p.collapsed, ...(p.tiled ? { tiled: true } : {}), selected: p.selected, filters: p.filters })
     }
     kehikot.set(canvas.key, containers)
   }

@@ -403,27 +403,32 @@
  * else can change, and the box that takes it back stays reachable on exactly
  * the containers where somebody is likely to reach for it. Its footer reveals
  * like any other.
+ *
+ * ## And a TILE keeps its header
+ *
+ * `[data-tiled]` is the third: a tile's header holds its restore control, and a
+ * tile has no page to give the space to (`canvas/Tile.tsx`).
  */
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]),
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]),
 .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) {
   height: 0;
   overflow: hidden;
   transition: height 140ms ease;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]) > .container-grip,
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]) > .container-grip,
 .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]) > * {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])),
 .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) {
   height: 2rem;
 }
 
-.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
+.react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > .container-grip,
 .react-grid-item [data-rows='hide'] > .container-footer-reveal:not([data-collapsed]):is([data-revealed], :focus-within, :has([data-slot='dropdown-menu-trigger'][data-state='open'])) > * {
   opacity: 1;
   pointer-events: auto;
@@ -510,7 +515,7 @@ html.tour-rows .react-grid-item [data-rows='hide'] > .container-reveal:not([data
  * here and stays in the column. Every module that does not say `over` keeps the
  * push above.
  */
-.react-grid-item [data-rows='hide'][data-reveal='over'] > .container-reveal:not([data-collapsed]):not([data-selected]) {
+.react-grid-item [data-rows='hide'][data-reveal='over'] > .container-reveal:not([data-collapsed]):not([data-selected]):not([data-tiled]) {
   position: absolute;
   top: 0;
   right: 0;

@@ -230,6 +230,8 @@ export interface FoldNote {
   by: string
   fold: string[]
   unfold: string[]
+  /** Made tiles. Absent when none was; a page before tiles ignores it and re-reads. */
+  tile?: string[]
 }
 
 /** A listener that has been handed one piece of news. */

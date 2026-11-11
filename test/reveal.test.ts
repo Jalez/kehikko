@@ -176,7 +176,7 @@ describe('over: a module that says reveal: over is drawn over, never resized (pr
 
   test('only a container marked over takes its hiding rows out of the column, over the page', () => {
     expect(start).toBeGreaterThan(0)
-    expect(over).toMatch(/\.react-grid-item \[data-rows='hide'\]\[data-reveal='over'\] > \.container-reveal:not\(\[data-collapsed\]\):not\(\[data-selected\]\) \{[^}]*position:\s*absolute;[^}]*top:\s*0;/)
+    expect(over).toMatch(/\.react-grid-item \[data-rows='hide'\]\[data-reveal='over'\] > \.container-reveal:not\(\[data-collapsed\]\):not\(\[data-selected\]\):not\(\[data-tiled\]\) \{[^}]*position:\s*absolute;[^}]*top:\s*0;/)
     expect(over).toMatch(/\.react-grid-item \[data-rows='hide'\]\[data-reveal='over'\] > \.container-footer-reveal:not\(\[data-collapsed\]\) \{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/)
     /* Every absolute rule in the sheet's reveal rules is scoped to over. */
     for (const rule of css.match(/[^{}]+\{[^}]*position:\s*absolute[^}]*\}/g) ?? []) {

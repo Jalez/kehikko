@@ -621,7 +621,7 @@ these tools:
 | `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/host/dispositions.json`, signed `agent (MCP)` |
 | `read_tracker` | the project's shared tracker reading |
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
-| `fold_modules` | fold containers to their headers or unfold them, on a kehikko a page has open; marked on the container as an agent's doing |
+| `fold_modules` | fold containers to their headers, make them tiles, or unfold them (a tile is put back at the size and place it had), on a kehikko a page has open; marked on the container as an agent's doing |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
 | `jump` | jump the person's view when they ask — `{ project?, kehikko?, epic?, parts?, step? }`, what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
 

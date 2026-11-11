@@ -25,9 +25,9 @@ export function readAppearance(db: Database): AppearanceAnswer {
 
 export function writeAppearance(db: Database, appearance: Appearance): void {
   db.exec('create table if not exists settings (key text primary key, value text not null)')
-  const { rows, foldRows, theme, border, background } = appearance
+  const { rows, foldRows, collapse, theme, border, background } = appearance
   db.query('insert into settings (key, value) values (?, ?) on conflict (key) do update set value = excluded.value').run(
     KEY,
-    JSON.stringify({ rows, foldRows, theme, border, background }),
+    JSON.stringify({ rows, foldRows, collapse, theme, border, background }),
   )
 }

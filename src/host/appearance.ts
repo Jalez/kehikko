@@ -40,11 +40,21 @@ export type ThemeChoice = (typeof THEME_CHOICES)[number]
 export const BORDERS = ['none', 'solid', 'rounded', 'dotted', 'dashed'] as const
 export type Border = (typeof BORDERS)[number]
 
+/**
+ * What the collapse button (^) in a container's header does: fold the container to its header, or
+ * make it a tile — a small square with its module's icon, name and footer readout (`host/columns.ts`,
+ * `canvas/Tile.tsx`). The app's default, the same for every container.
+ */
+export const COLLAPSES = ['fold', 'tile'] as const
+export type Collapse = (typeof COLLAPSES)[number]
+
 export interface Appearance {
   /** When every container's header and footer show. */
   rows: ShowRows
   /** How far a fold goes: the header (1), or the header and the footer where the host draws one (2). */
   foldRows: FoldRows
+  /** What the collapse button does: folds to the header, or makes a tile. */
+  collapse: Collapse
   theme: ThemeChoice
   border: Border
   /** On: the card surface behind the chrome and the module's page. Off: transparent over the canvas. */
@@ -52,7 +62,7 @@ export interface Appearance {
 }
 
 /** Headers drawn, dark, one-row folds, rounded borders, the card surface: what the app looked like before this tab. */
-export const APPEARANCE_DEFAULT: Appearance = { rows: 'always', foldRows: 1, theme: 'dark', border: 'rounded', background: true }
+export const APPEARANCE_DEFAULT: Appearance = { rows: 'always', foldRows: 1, collapse: 'fold', theme: 'dark', border: 'rounded', background: true }
 
 export type AppearancePatch = Partial<Appearance>
 
@@ -61,6 +71,7 @@ const one = <T extends string | number>(list: readonly T[], value: unknown): val
 const FIELDS: { [K in keyof Appearance]: (value: unknown) => value is Appearance[K] } = {
   rows: (value): value is ShowRows => one(SHOW_ROWS, value),
   foldRows: (value): value is FoldRows => one(FOLD_ROWS, value),
+  collapse: (value): value is Collapse => one(COLLAPSES, value),
   theme: (value): value is ThemeChoice => one(THEME_CHOICES, value),
   border: (value): value is Border => one(BORDERS, value),
   background: (value): value is boolean => typeof value === 'boolean',
@@ -114,6 +125,14 @@ export const ROWS_SAID: Readonly<Record<ShowRows, { label: string; line: string 
 export const FOLD_SAID: Readonly<Record<FoldRows, { label: string; line: string }>> = {
   1: { label: 'To the header', line: 'A folded container keeps one row: how its module is set up.' },
   2: { label: 'To the header and footer', line: 'Where the module has a footer, it stays too: what is going on now (status, location, usage).' },
+}
+
+export const COLLAPSE_SAID: Readonly<Record<Collapse, { label: string; line: string }>> = {
+  fold: { label: 'Folds to the header', line: 'The container keeps one row: its name and controls. Press again to open it.' },
+  tile: {
+    label: 'Makes a tile',
+    line: 'The container becomes a small square: its icon, its name, what its footer says and whether it needs you. Press the tile to see it large; restore puts it back as it was.',
+  },
 }
 
 export const THEME_SAID: Readonly<Record<ThemeChoice, string>> = { system: 'System', light: 'Light', dark: 'Dark' }
