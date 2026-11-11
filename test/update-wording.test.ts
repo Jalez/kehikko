@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { lockSaid } from '../server/gitLocks.ts'
 import { waitSaid } from '../src/host/autoUpdates.ts'
 import { fromSourceSaid } from '../src/host/moduleBuilds.ts'
 import { releaseSaid, steppedBackSaid, needsNewerSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
@@ -11,6 +15,9 @@ import { installRefusedSaid } from '../src/host/worksWith.ts'
 const INTERNAL = /\b(new code|old code|process|registration|checkout|frame|token|protocol)\b/i
 
 describe('what an update says', () => {
+  const installs = mkdtempSync(join(tmpdir(), 'wording-'))
+  const copy = join(installs, 'm')
+  mkdirSync(copy)
   const sentences: [string, string][] = [
     ['page only', moduleNote({ ran: 'page' })],
     ['restarted', moduleNote({ ran: 'restarted' })],
@@ -28,6 +35,8 @@ describe('what an update says', () => {
     ['build did not finish', fromSourceSaid('<name>')],
     ['install refused', installRefusedSaid('<name>', { protocol: '2.40.0', has: '2.30.0' })],
     ['stepped back', steppedBackSaid('<name>', 'v1.4.0')],
+    ['leftover lock, installed copy', `<name> was not updated. ${lockSaid('/p/.git/index.lock', copy, { KEHIKOT_INSTALLS_DIR: installs })}`],
+    ['leftover lock, own folder', lockSaid('/p/.git/index.lock', '/elsewhere/m', { KEHIKOT_INSTALLS_DIR: '/installs' })],
   ]
 
   test('each state has its sentence', () => {
@@ -48,6 +57,8 @@ describe('what an update says', () => {
       'build did not finish': "<name> works, but its build didn't finish. The log says why.",
       'install refused': '<name> needs a newer Kehikot than this one.',
       'stepped back': '<name> was moved back to 1.4.0, which works with this Kehikot.',
+      'leftover lock, installed copy': '<name> was not updated. A leftover git lock file was left in its installed copy (/p/.git/index.lock). Kehikot removes it by itself when nothing is using it, and will try again at the next check.',
+      'leftover lock, own folder': 'A leftover git lock file was left in this folder. If nothing is using it, remove the leftover lock file by hand: /p/.git/index.lock.',
     })
   })
 

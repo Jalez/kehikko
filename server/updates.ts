@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
+import { clearStaleLocks, lockNamedIn, lockSaid } from './gitLocks.ts'
 import { because } from './traffic.ts'
 import { adoptedReadyBuilt, buildBun, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
@@ -150,9 +151,14 @@ export const QUIET_ENV = {
 
 export const CANCELLED = 'cancelled'
 
-type Ran = { ok: true; out: string } | { ok: false; why: string }
+type Ran = { ok: true; out: string } | { ok: false; why: string; lock?: boolean }
 
-async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, signal?: AbortSignal): Promise<Ran> {
+/** Why an update did not happen; a leftover-lock sentence already says so and is not prefixed. */
+function notUpdated(place: { name: string }, ran: { why: string; lock?: boolean }, context = ''): string {
+  return ran.lock ? `${place.name} was not updated. ${ran.why}` : `${place.name} was not updated: ${context}${ran.why}`
+}
+
+async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, signal?: AbortSignal, retried = false): Promise<Ran> {
   if (signal?.aborted) return { ok: false, why: CANCELLED }
   const child = Bun.spawn(['git', '-C', dir, ...args], {
     env: QUIET_ENV,
@@ -174,6 +180,12 @@ async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, sign
   signal?.removeEventListener('abort', stop)
   if (code === 0) return { ok: true, out: out.trim() }
   if (signal?.aborted) return { ok: false, why: CANCELLED }
+  /* A leftover lock: clear it when it is safe to (an installed copy, old, no git running) and go again once. */
+  const lock = lockNamedIn(err)
+  if (lock) {
+    if (!retried && clearStaleLocks(dir).some((left) => left.removed)) return git(dir, args, timeout, signal, true)
+    return { ok: false, why: lockSaid(lock, dir), lock: true }
+  }
   if (child.signalCode) return { ok: false, why: `git ${args[0]} took longer than ${timeout / 1000}s and was stopped` }
   const plain = (err.trim() || out.trim() || `git ${args[0]} failed`).split('\n').slice(-3).join(' ')
   return { ok: false, why: whyOfFailure(err, ['git', '-C', dir, ...args], plain) }
@@ -424,6 +436,7 @@ export interface UpdateHooks {
 }
 
 export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHooks = {}): Promise<Updating> {
+  clearStaleLocks(place.dir)
   const before = await readCheckout(place, false)
   if ('error' in before) return { ok: false, why: before.error, status: 409 }
   if (before.blocked) return { ok: false, why: `${place.name} was not updated: ${before.blocked}.`, status: 409 }
@@ -437,7 +450,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const lockfileReset = before.staleLock === true
   if (lockfileReset) {
     const reset = await git(place.dir, ['checkout', '--', 'bun.lock'])
-    if (!reset.ok) return { ok: false, why: `${place.name} was not updated: could not reset its dependency lock file: ${reset.why}`, status: 409 }
+    if (!reset.ok) return { ok: false, why: notUpdated(place, reset, 'could not reset its dependency lock file: '), status: 409 }
   }
   /* A copy that runs releases is checked out at the newer release's tag;
      anything else is fast-forwarded along its branch. */
@@ -445,7 +458,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const merged = release
     ? await git(place.dir, ['checkout', '--quiet', '--detach', `refs/tags/${release}`])
     : await git(place.dir, ['merge', '--ff-only', '--quiet', '@{u}'])
-  if (!merged.ok) return { ok: false, why: `${place.name} was not updated: ${merged.why}`, status: 409 }
+  if (!merged.ok) return { ok: false, why: notUpdated(place, merged), status: 409 }
 
   const diff = await git(place.dir, ['diff', '--name-only', from.out, 'HEAD'])
   const changed = diff.ok && diff.out ? diff.out.split('\n') : []
