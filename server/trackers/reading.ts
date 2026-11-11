@@ -18,7 +18,8 @@ import {
 import { z } from 'zod'
 
 import type { Runner } from '../feedback.ts'
-import { epicsIn, listEpics, readEpic } from '../holdings.ts'
+import { epicsIn, listEpics, readEpic, readParts } from '../holdings.ts'
+import type { EpicPlace } from '../../src/host/trackerNews.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
 import { withContributors, type Adapter, type BoardsRead, type BranchChange, type HeldBoard, type Me, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
@@ -365,6 +366,29 @@ export function epicsByRef(root: string): Map<string, string> {
   if (!dir) return out
   for (const one of listEpics(dir)) {
     for (const ref of epicRefs(root, one.slug) ?? []) if (!out.has(ref)) out.set(ref, one.slug)
+  }
+  return out
+}
+
+/**
+ * Every epic holding each ref spelling, and which of its parts: none when the
+ * epic names the ref itself, else the parts whose refs hold it. Where tracker
+ * news to agents goes (`src/host/trackerNews.ts`); an item no epic holds is
+ * told to nobody.
+ */
+export function epicPlacesByRef(root: string): Map<string, EpicPlace[]> {
+  const out = new Map<string, EpicPlace[]>()
+  const dir = epicsIn(root)
+  if (!dir) return out
+  const add = (ref: string, place: EpicPlace) => out.set(ref, [...(out.get(ref) ?? []), place])
+  for (const one of listEpics(dir)) {
+    const own = new Set(epicRefs(root, one.slug) ?? [])
+    for (const ref of own) add(ref, { epic: one.slug, parts: [] })
+    const byRef = new Map<string, string[]>()
+    for (const part of readParts(root, one.slug) ?? []) {
+      for (const ref of part.refs) if (!own.has(ref)) byRef.set(ref, [...(byRef.get(ref) ?? []), part.id])
+    }
+    for (const [ref, parts] of byRef) add(ref, { epic: one.slug, parts })
   }
   return out
 }

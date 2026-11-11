@@ -19,6 +19,7 @@ import { sessionIdOf } from './agentMessages.ts'
 import { issuerOf, type Here } from './doorPlaces.ts'
 import type { Database } from 'bun:sqlite'
 import { MessageMutes, MUTED_SAYS } from './messageMutes.ts'
+import { TRACKER_NEWS_FROM } from '../src/host/trackerNews.ts'
 
 /**
  * Messages between agent sessions (protocol 2.41.0): who may send and read,
@@ -198,6 +199,23 @@ export function messageDesk(deps: MessageDeps) {
     return { ok: true, data: messageSendResult.parse(sent.ok ? { outcome: 'sent', id: sent.id } : { outcome: 'declined', why: sent.why }) }
   }
 
+  /**
+   * Tracker news to agents (`src/host/trackerNews.ts`): the host's OWN news to
+   * every session at a place, through the same record and bounds as
+   * `messages.tell` — one copy a minute per session, the rest merged, the
+   * hourly cap, the wake — stamped `TRACKER_NEWS_FROM`. Muted with the
+   * "Messages to agents" switch under that id: then nothing is kept or woken.
+   */
+  function hostTell(project: number, place: { epic: string; parts?: string[] }, body: string): { ok: true; id: number } | { ok: false; why: string } {
+    if (mutes.has(project, TRACKER_NEWS_FROM.module)) return { ok: false, why: MUTED_SAYS }
+    const sent = messages.tell(project, { ...TRACKER_NEWS_FROM }, place, body, { kind: 'report' })
+    if (sent.ok) {
+      deps.changed(project)
+      wakeWhenDue(project, TRACKER_NEWS_FROM.module)
+    }
+    return sent
+  }
+
   /** `messages.send`, `messages.read`, `messages.notify` or `messages.tell`, from a module's server whose pass and grant were held already. */
   async function serverAnswer(module: string, method: string, params: unknown, root: string | null = null): Promise<MessageAsked> {
     if (method === 'messages.notify') return notify(module, params)
@@ -374,5 +392,5 @@ export function messageDesk(deps: MessageDeps) {
     return null
   }
 
-  return { serverAnswer, forNotes, route, pageAnswer, mutes }
+  return { serverAnswer, forNotes, route, pageAnswer, mutes, hostTell }
 }
