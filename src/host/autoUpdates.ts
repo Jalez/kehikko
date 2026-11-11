@@ -221,13 +221,13 @@ export function waitSaid(name: string, wait: AutoWait): string {
     case 'stopped':
       return wait.shells ? `${name} updates when its sessions end` : `${name} updates when it next stops`
     case 'app':
-      return wait.detail ? `${name} waits for Kehikot ${wait.detail}` : `${name} waits for a newer Kehikot`
+      return wait.detail ? `${name} needs Kehikot ${wait.detail} or later. It updates once you do.` : `${name} needs a newer Kehikot. It updates once you update Kehikot.`
     case 'pinned':
       return `${name} is pinned to ${wait.detail ?? 'a version'}, so it is not updated automatically`
     case 'held':
       return `${name} is not updated automatically: ${wait.detail ?? 'its copy has changes of its own'}`
     case 'retry':
-      return `${name} could not be updated${to ? ` to ${to}` : ''}${wait.detail ? `: ${wait.detail.replace(/[.\s]+$/, '')}` : ''}. It is tried again at the next check.`
+      return `${name} could not be updated${to ? ` to ${to}` : ''}${wait.detail ? `: ${wait.detail.replace(/[.\s]+$/, '')}` : ''}. It will try again at the next check.`
   }
 }
 

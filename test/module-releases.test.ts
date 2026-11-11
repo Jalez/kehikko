@@ -180,7 +180,7 @@ describe('an installed copy', () => {
     expect(reading.release).toMatchObject({ follows: 'main', installed: null, newest: null, target: null })
     expect(reading.behind).toBe(1)
     expect(hasUpdate(reading)).toBe(true)
-    expect(releaseSaid(reading.release!)).toBe('tracks the latest code (no releases yet)')
+    expect(releaseSaid(reading.release!)).toBe('follows the latest version (no releases yet)')
     const done = await update(m.place(f))
     expect(done.ok).toBe(true)
     expect(git(m.copy, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
@@ -366,7 +366,7 @@ describe('an installed copy', () => {
     const head = git(m.copy, 'rev-parse', 'HEAD')
     const reading = await read(m.place(f))
     expect(reading.release).toMatchObject({ follows: 'ahead', newest: 'v1.6.0', target: null })
-    expect(releaseSaid(reading.release!)).toBe('running main ahead of 1.6.0')
+    expect(releaseSaid(reading.release!)).toBe('running a newer version than the 1.6.0 release')
     expect(hasUpdate(reading)).toBe(false)
     const refused = await update(m.place(f))
     expect(refused.ok).toBe(false)
@@ -446,8 +446,8 @@ describe('the Updates menu says', () => {
   test('each of the four ways a module can be', () => {
     expect(releaseLine('Journeys', view())).toBe('Journeys 1.5.0 → 1.6.0')
     expect(releaseSaid(view({ installed: 'v1.6.0', target: null, notes: ['v1.6.0'] }))).toBe('up to date · 1.6.0')
-    expect(releaseSaid(view({ follows: 'main', installed: null, newest: null, target: null }))).toBe('tracks the latest code (no releases yet)')
-    expect(releaseSaid(view({ follows: 'ahead', installed: null, target: null }))).toBe('running main ahead of 1.6.0')
+    expect(releaseSaid(view({ follows: 'main', installed: null, newest: null, target: null }))).toBe('follows the latest version (no releases yet)')
+    expect(releaseSaid(view({ follows: 'ahead', installed: null, target: null }))).toBe('running a newer version than the 1.6.0 release')
   })
 
   test('a row with a newer release is available and says it; the version shown is the release', () => {
@@ -460,7 +460,7 @@ describe('the Updates menu says', () => {
     expect(level.state).toBe('uptodate')
     expect(stateText(level)).toBe('Up to date · 1.6.0')
     const ahead = moduleRow(checkout(view({ follows: 'ahead', installed: null, target: null }), 0), null, null)
-    expect(stateText(ahead)).toBe('Running main ahead of 1.6.0')
+    expect(stateText(ahead)).toBe('Running a newer version than the 1.6.0 release')
   })
 
   test('moving onto a release at the commit it is already on still counts as an update', () => {

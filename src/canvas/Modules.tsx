@@ -687,7 +687,7 @@ function RemoveMine({ name, installed, onRemove }: { name: string; installed: bo
   return (
     <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
       {installed
-        ? `This stops ${name}, deletes the copy Kehikot installed and its registration, and takes it off My modules. What it kept in your projects stays. `
+        ? `This stops ${name}, deletes the copy Kehikot installed, and takes it off My modules. What it kept in your projects stays. `
         : `This takes ${name} off My modules, and deletes anything an earlier install left. `}
       <button
         type="button"

@@ -38,7 +38,7 @@ export function preparingSaid(name: string): string {
 
 /** Its build did not finish: it works, from source. */
 export function fromSourceSaid(name: string): string {
-  return `${name} runs from source; its build didn't finish (see log)`
+  return `${name} works, but its build didn't finish. The log says why.`
 }
 
 /** The module's details: which of the two it runs as. */

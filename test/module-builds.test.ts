@@ -268,7 +268,7 @@ describe('failure is never fatal', () => {
     }
     const failed = moduleRow(reading, null, null, undefined, { build: { state: 'failed', why: 'vite build exited with code 1' } })
     expect(failed.state).toBe('uptodate')
-    expect(failed.fromSource).toBe("Terminal runs from source; its build didn't finish (see log)")
+    expect(failed.fromSource).toBe("Terminal works, but its build didn't finish. The log says why.")
     expect(fromSourceSaid('Terminal')).toBe(failed.fromSource!)
     const preparing = moduleRow(reading, null, null, undefined, { build: { state: 'preparing' } })
     expect(stateText(preparing)).toBe('Preparing Terminal…')

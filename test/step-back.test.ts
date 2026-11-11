@@ -64,7 +64,7 @@ describe('the choice', () => {
   })
 
   test('never a kept copy without asking', () => {
-    expect(pickStepBack(RELEASES, needOf, () => 1, { installed: 'v1.2.0', have: '2.5.0', guard: { ...safe, kept: true } })?.ask).toContain('keep')
+    expect(pickStepBack(RELEASES, needOf, () => 1, { installed: 'v1.2.0', have: '2.5.0', guard: { ...safe, kept: true } })?.ask).toContain('stay running')
   })
 
   test('the data format is read from a literal in the manifest source, never run', () => {

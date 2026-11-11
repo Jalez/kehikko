@@ -231,8 +231,8 @@ describe('the rules, as data', () => {
   test('every refusal is a sentence, and only a clean tracked branch that is behind goes ahead', () => {
     const level = { branch: 'main', upstream: 'origin/main', dirty: false, ahead: 0, behind: 3 }
     expect(blockedBy(level)).toBeNull()
-    expect(blockedBy({ ...level, branch: null })).toContain('detached')
-    expect(blockedBy({ ...level, upstream: null })).toContain('tracks no remote')
+    expect(blockedBy({ ...level, branch: null })).toContain("isn't on a branch")
+    expect(blockedBy({ ...level, upstream: null })).toContain("isn't linked to a remote")
     expect(blockedBy({ ...level, behind: 0 })).toBe('already up to date')
   })
 
