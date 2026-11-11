@@ -12,6 +12,10 @@
   <a href="https://github.com/Jalez/kehikko-desktop/releases/latest"><img src="https://img.shields.io/badge/Download-Kehikot%20for%20macOS-1f2937?style=for-the-badge&logo=apple&logoColor=white" alt="Download Kehikot for macOS"></a>
 </p>
 
+<p align="center">
+  Releases: see this repo's <a href="https://github.com/Jalez/kehikko/releases">Releases</a>; downloads are attached to <a href="https://github.com/Jalez/kehikko-desktop/releases">Jalez/kehikko-desktop</a>'s.
+</p>
+
 ---
 
 When you work with a coding agent, the two of you are usually looking at
