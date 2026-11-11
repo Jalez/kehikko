@@ -6,7 +6,6 @@ import {
   Check,
   ExternalLink,
   FolderGit2,
-  GitBranch,
   Hammer,
   HardDrive,
   MessagesSquare,
@@ -65,7 +64,6 @@ import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
 import { SkillsDialog } from './Skills.tsx'
 import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNotes.ts'
 import { openStorage } from '@/host/storage.ts'
-import { openWorktrees, WORKTREE_CLEANUP } from '@/host/worktrees.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
@@ -115,7 +113,6 @@ type Change =
   | { modules: { keep: boolean } }
   | { updates: { auto: boolean } }
   | { github: { share: number } }
-  | { worktrees: { auto: boolean } }
 
 /**
  * The settings, read once per page load whoever asks (the one-time question, the introduction),
@@ -527,7 +524,7 @@ export function SettingsBody({
             {sections.map((key) => (
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
                 {key === 'about' ? (
-                  <About onClose={onClose} worktrees={answer?.worktrees} onChange={onChange} />
+                  <About onClose={onClose} />
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : key === 'sounds' ? (
@@ -1015,7 +1012,7 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
 export const PROTOCOL_MEANING = 'The version of the language Kehikot and its modules use to talk to each other; a module needs a Kehikot at least as new as the one it asks for.'
 
 /** About: which Kehikot this is, the protocol it speaks, and where its notes and its data are. */
-function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: { auto: boolean }; onChange?(what: Change): void }) {
+function About({ onClose }: { onClose(): void }) {
   const { shown } = useShownVersion()
   const whatsNew = useWhatsNewSetting()
   return (
@@ -1080,27 +1077,7 @@ function About({ onClose, worktrees, onChange }: { onClose(): void; worktrees?: 
             setTimeout(openStorage, 0)
           }}
         />
-        <LinkRow
-          icon={GitBranch}
-          label={WORKTREE_CLEANUP.open}
-          description={WORKTREE_CLEANUP.openDescription}
-          onPress={() => {
-            onClose()
-            setTimeout(openWorktrees, 0)
-          }}
-        />
       </Rows>
-      {worktrees && onChange ? (
-        /* Machine-wide, beside the cleanup it runs; off unless the person turns it on. */
-        <div data-worktree-cleanup-setting className="divide-y rounded-lg border px-4">
-          <SettingRow
-            label={WORKTREE_CLEANUP.label}
-            description={WORKTREE_CLEANUP.description}
-            checked={worktrees.auto}
-            onChange={(auto) => onChange({ worktrees: { auto } })}
-          />
-        </div>
-      ) : null}
     </>
   )
 }

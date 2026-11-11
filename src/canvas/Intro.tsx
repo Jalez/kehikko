@@ -342,7 +342,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'settings',
     title: 'Set up once, tidied for you',
-    body: 'Settings connects your agents to every module’s tools and skills, and chooses how the Inbox tells you. It can also clean up finished worktrees, by hand or every day.',
+    body: 'Settings connects your agents to every module’s tools and skills, and chooses how the Inbox tells you.',
     art: () => (
       <Art label="a settings window with switches turning on, one after another">
         <rect x="60" y="12" width="200" height="126" rx="6" className={box} strokeWidth="1.5" />

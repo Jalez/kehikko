@@ -122,26 +122,7 @@ export interface Adapter {
    * or why that could not be read, in a sentence. For `myRoles`. (2.7.0)
    */
   me?(host: string): Promise<Me>
-  /**
-   * Every change of the source with the branch it is the head of, its state
-   * and its head commit — few fields, many changes — for the worktree cleanup
-   * (`server/worktrees.ts`), which matches a worktree's branch to its request.
-   * Changes from another repository (a fork) are left out: their branch names
-   * are not this repository's.
-   */
-  changesByBranch?(source: Source): Promise<BranchChange[] | { why: string }>
 }
-
-/** One change as `changesByBranch` answers it. */
-export interface BranchChange {
-  branch: string
-  number: number
-  state: 'open' | 'merged' | 'closed'
-  head?: string
-}
-
-/** How many changes `changesByBranch` reads per source, newest first. */
-export const BRANCH_CHANGES = 1000
 
 /** Who the person is on one tracker host, or why it is not known. */
 export type Me = { login: string } | { why: string }

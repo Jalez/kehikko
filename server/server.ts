@@ -98,7 +98,6 @@ import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
 import { readGithubShare } from './githubShare.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
-import { WORKTREES_INBOX_MODULE } from '../src/host/worktrees.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, buildBun, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
@@ -123,7 +122,6 @@ import {
 import { toolsAt } from './tools.ts'
 import { claudeSkillsDir, everywhereFor, skillsRoute } from './skills.ts'
 import { ownSkillAt, ownSkillDeclarations, withHost } from './ownSkills.ts'
-import { Worktrees, worktreesRoute } from './worktrees.ts'
 import { ensureSettings, forgetMade, readSettings, recordMade, settingsRoute } from './agentSettings.ts'
 import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
@@ -3036,26 +3034,6 @@ const settingsDesk = settingsRoute({
   skillsAt: () => claudeSkillsDir(),
 })
 
-/*
- * Cleaning up finished git worktrees, on a press in the page or once a day when
- * the person turned that on. `worktrees.ts`; the POSTs are PAGE_ONLY and no MCP
- * tool removes. The daily line goes in the project that freed the room.
- */
-const worktrees = new Worktrees({
-  db,
-  projects: () => listProjects(db).map((one) => ({ id: one.id, name: one.name, path: one.path, missing: one.missing })),
-  branchStates: (root, remotes) => because('worktree cleanup: which requests are finished', () => trackers.branchStates(root, remotes)),
-  tell: (project, line) => {
-    const out = inbox.notice(project, WORKTREES_INBOX_MODULE, 'Kehikot', { epic: '', message: line, level: 'done', refs: [] })
-    wakes.inboxChanged(project, out.rev)
-  },
-  log: (line) => console.log(line),
-})
-const worktreesDesk = worktreesRoute(worktrees)
-/* Asked hourly; runs only when it is on and a day has passed. The first look ten minutes after start, out of start-up's way. */
-setTimeout(() => void worktrees.tick().catch(() => null), 10 * 60_000).unref?.()
-setInterval(() => void worktrees.tick().catch(() => null), 60 * 60_000).unref?.()
-
 const soundsDesk = soundsRoute({ db })
 const visitsDesk = visitsRoute({ db })
 
@@ -4817,9 +4795,6 @@ async function answerRequest(request: Request): Promise<Response> {
     /* The app-wide agent settings. `agentSettings.ts`; the POST is PAGE_ONLY. */
     const settingsAnswer = await settingsDesk(request, url)
     if (settingsAnswer) return settingsAnswer
-    /* Finished worktrees: the last scan, a new one, a removal. `worktrees.ts`; the POSTs are PAGE_ONLY. */
-    const worktreesAnswer = await worktreesDesk(request, url)
-    if (worktreesAnswer) return worktreesAnswer
     /* The Inbox chime's own sounds. `chime.ts`; every write is PAGE_ONLY. */
     const soundsAnswer = await soundsDesk(request, url)
     if (soundsAnswer) return soundsAnswer
