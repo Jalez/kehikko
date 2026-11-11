@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.COVER_SIZES_DOM === '1'
-const TESTS = 8
+const TESTS = 12
 
 if (!inChild) {
   test('the cover at every size, rendered in a process of its own', () => {
@@ -48,6 +48,8 @@ beforeAll(async () => {
   HEIGHT = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
   Box = await import('../src/canvas/Container.tsx')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
+  /* The module's icon, as the registry would say it: what every cover draws. */
+  ;(await import('../src/canvas/ModuleIcon.tsx')).setRegisteredIcons([{ id: 'kehikot.example', icon: 'lucide:route' }])
 })
 
 afterAll(async () => {
@@ -85,7 +87,7 @@ const FAILED: Showing = { kind: 'notice', condition: 'silent', asleep: false, li
 
 type Size = { width: number; height: number } | 'folded'
 
-async function draw(showing: Showing, size: Size, onRestart: () => void = nothing) {
+async function draw(showing: Showing, size: Size, onRestart: () => void = nothing, loading: { label: string | null } | null = null) {
   const width = size === 'folded' ? 380 : size.width
   const height = size === 'folded' ? 0 : size.height
   Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
@@ -109,6 +111,7 @@ async function draw(showing: Showing, size: Size, onRestart: () => void = nothin
         <Box.Container
           presence={presence}
           showing={showing}
+          loading={loading}
           fault={null}
           body={nothing}
           grow={false}
@@ -166,7 +169,9 @@ describe('updating, at every size', () => {
     expect(layout()).toBe('full')
     const cover = document.querySelector('[data-testid="module-cover"]')!
     expect(cover.getAttribute('data-state')).toBe('updating')
-    expect(cover.querySelector('.kehikko-mark[data-working="true"]')).not.toBeNull()
+    /* The module's own icon, not Kehikot's mark. */
+    expect(cover.querySelector('[data-cover-icon="kehikot.example"] [data-module-icon="lucide:route"]')).not.toBeNull()
+    expect(cover.querySelector('.kehikko-mark')).toBeNull()
     expect(cover.textContent).toContain('Updating — restarting on the new code…')
     expect(cover.querySelector('p.font-mono')!.textContent).toBe(AT)
   })
@@ -174,7 +179,7 @@ describe('updating, at every size', () => {
   test('small: the mark small and one line; the address only in the tooltip', async () => {
     await draw(UPDATING, { width: 480, height: 120 })
     expect(layout()).toBe('small')
-    expect(document.querySelector('[data-cover-layout] .kehikko-mark[data-working="true"]')!.getAttribute('class')).toContain('size-6')
+    expect(document.querySelector('[data-cover-layout] [data-cover-icon]')!.getAttribute('class')).toContain('size-6')
     const line = document.querySelector<HTMLElement>('[data-testid="standing-sentence"]')!
     expect(line.className).toContain('truncate')
     expect(line.textContent).toBe('Updating — restarting on the new code…')
@@ -186,7 +191,7 @@ describe('updating, at every size', () => {
     await draw(UPDATING, { width: 480, height: 56 })
     expect(layout()).toBe('line')
     expect(document.querySelector('[data-testid="standing-word"]')!.textContent).toBe('Updating')
-    expect(document.querySelector('[data-cover-layout] .kehikko-mark[data-working="true"]')!.getAttribute('class')).toContain('size-4')
+    expect(document.querySelector('[data-cover-layout] [data-cover-icon]')!.getAttribute('class')).toContain('size-4')
     expect(bodyText()).not.toContain(AT)
   })
 
@@ -196,7 +201,7 @@ describe('updating, at every size', () => {
     expect(layout()).toBeNull()
     const chip = document.querySelector<HTMLElement>('header [data-testid="standing-chip"]')!
     expect(chip.textContent).toBe('Updating')
-    expect(chip.querySelector('.kehikko-mark[data-working="true"]')).not.toBeNull()
+    expect(chip.querySelector('[data-cover-icon="kehikot.example"]')).not.toBeNull()
     expect(chip.getAttribute('aria-label')).toContain('Updating — restarting on the new code…')
     /* Nothing to press while it updates: no state rows in the Container menu. */
     const menu = await openFrame()
@@ -257,5 +262,46 @@ describe('a restart that failed, at every size', () => {
     expect(menu.querySelector('[data-frame]')).toBe(group)
     await act(async () => group.querySelector<HTMLElement>('[data-standing="retry"]')!.click())
     expect(pressed).toBe(1)
+  })
+})
+
+describe('loading, in the module\'s own words (protocol 2.84.0)', () => {
+  if (!inChild) return
+
+  test('the first greeting\'s cover: the module\'s icon and its words', async () => {
+    await draw({ kind: 'cover', state: 'loading', label: 'Loading the plan…' }, { width: 480, height: 400 })
+    const cover = document.querySelector('[data-testid="module-cover"]')!
+    expect(cover.querySelector('[data-cover-icon="kehikot.example"]')).not.toBeNull()
+    expect(cover.textContent).toContain('Loading the plan…')
+  })
+
+  test('without words of its own: "Loading <module>…"', async () => {
+    await draw({ kind: 'cover', state: 'loading' }, { width: 480, height: 120 })
+    expect(document.querySelector('[data-testid="standing-sentence"]')!.textContent).toBe('Loading Example…')
+  })
+
+  test('after a context change: the same cover over the page, which is still the page', async () => {
+    await draw({ kind: 'page' }, { width: 480, height: 400 }, nothing, { label: null })
+    const veil = document.querySelector('[data-testid="loading-cover"]')!
+    expect(veil).not.toBeNull()
+    expect(veil.querySelector('[data-cover-icon="kehikot.example"]')).not.toBeNull()
+    expect(veil.textContent).toContain('Loading Example…')
+    /* Drawn: no cover. */
+    act(() => unmount?.())
+    unmount = null
+    document.body.innerHTML = ''
+    await draw({ kind: 'page' }, { width: 480, height: 400 })
+    expect(document.querySelector('[data-testid="loading-cover"]')).toBeNull()
+    expect(document.querySelector('[data-testid="module-cover"]')).toBeNull()
+  })
+
+  test('too narrow for words: the icon alone, the words its name and tooltip', async () => {
+    await draw({ kind: 'cover', state: 'loading', label: 'Loading the plan…' }, { width: 100, height: 400 })
+    expect(layout()).toBe('icon')
+    const cover = document.querySelector<HTMLElement>('[data-testid="module-cover"]')!
+    expect(cover.getAttribute('aria-label')).toBe('Loading the plan…')
+    expect(cover.title).toContain('Loading the plan…')
+    expect(document.querySelector('[data-cover-layout] p')).toBeNull()
+    expect(cover.querySelector('[data-cover-icon="kehikot.example"]')).not.toBeNull()
   })
 })

@@ -2,8 +2,8 @@ import { CircleSlash, Moon, PlugZap, Unplug } from 'lucide-react'
 import type { ModuleCondition } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils'
-import { COVER_WORDS, type Waiting } from '@/host/standing.ts'
-import { KehikkoMark } from './Mark.tsx'
+import { coverSentence, type Waiting } from '@/host/standing.ts'
+import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
  * The three conditions, made distinguishable at a glance.
@@ -218,10 +218,12 @@ export function ConditionPanel({
  *
  * ## One design, and the sentence says which
  *
- * The same mark, in the same place, for all of them, so a module that goes
+ * The same icon, in the same place, for all of them, so a module that goes
  * from "Updating" to "Loading" does not redraw the container twice on the way.
- * The mark is keyed on nothing: it draws itself once when the cover goes up
- * and breathes after. Only the sentence changes (`COVER_WORDS`).
+ * The icon is the MODULE's own (`CoverIcon`), breathing, so a person sees whose
+ * page is coming; only the sentence changes (`coverSentence`). A page that is
+ * loading says it in its own words when it gave some (protocol 2.84.0,
+ * "Loading the plan…"), else "Loading <module>…".
  *
  * It is drawn by the host, on the theme's own card colour, over a frame that
  * is hidden while it is up — so nothing a module's document does or does not
@@ -230,7 +232,23 @@ export function ConditionPanel({
  * This is the full size. A small or folded container draws the same facts
  * smaller (`Standing.tsx`, `host/coverFit.ts`), with the address in a tooltip.
  */
-export function ModuleCover({ state, at, detail }: { state: Waiting; at: string; detail?: string }) {
+export function ModuleCover({
+  state,
+  at,
+  detail,
+  id,
+  name,
+  label,
+}: {
+  state: Waiting
+  at: string
+  detail?: string
+  /** Whose cover: the icon is looked up by it. */
+  id: string
+  name: string
+  /** The module's own words for `loading` (protocol 2.84.0). Text. */
+  label?: string | null
+}) {
   return (
     <div
       className="flex h-full min-w-0 flex-col items-center justify-center gap-3 overflow-x-hidden overflow-y-auto px-6 py-8 text-center"
@@ -238,10 +256,24 @@ export function ModuleCover({ state, at, detail }: { state: Waiting; at: string;
       data-state={state}
       role="status"
     >
-      <KehikkoMark working className="text-muted-foreground size-10" />
-      <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{COVER_WORDS[state]}</p>
+      <CoverIcon id={id} name={name} className="size-10" />
+      <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{coverSentence(state, name, label)}</p>
       {detail ? <p className="text-muted-foreground/80 max-w-[46ch] text-balance text-xs">{detail}</p> : null}
       <p className="text-muted-foreground/70 max-w-full font-mono text-[11px] break-all">{at}</p>
     </div>
+  )
+}
+
+/**
+ * The module's own icon, breathing: what every cover draws, at every size, so
+ * the cover says whose page is on its way. Still under reduced motion
+ * (`index.css`). Decorative: the sentence beside it, or the label of an
+ * icon-only cover, says what it means.
+ */
+export function CoverIcon({ id, name, className }: { id: string; name: string; className?: string }) {
+  return (
+    <span className={cn('module-cover-icon text-muted-foreground inline-flex shrink-0', className)} data-cover-icon={id} aria-hidden>
+      <ModuleIcon id={id} name={name} className="size-full" />
+    </span>
   )
 }

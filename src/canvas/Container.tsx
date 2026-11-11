@@ -79,6 +79,7 @@ import type { Collapse } from '@/host/appearance.ts'
 export function Container({
   presence,
   showing,
+  loading = null,
   coverDetail,
   fault,
   body,
@@ -161,6 +162,13 @@ export function Container({
    * once, in `host/standing.ts`, for this body and the frames layer alike.
    */
   showing: Showing
+  /**
+   * The page is redrawing for a new context and was not drawn in time
+   * (protocol 2.84.0, `kehikot.loading`): the cover over it, in the module's
+   * words or `null` for the host's. Drawn over the page's place while it is
+   * still the page, so its header and footer stay as they are.
+   */
+  loading?: { label: string | null } | null
   /** A second line for the cover, when something more specific is known (a pinned version being prepared). */
   coverDetail?: string
   fault: string | null
@@ -413,7 +421,11 @@ export function Container({
   const notice = showing.kind === 'notice' ? noticeOf(showing, presence) : null
   /* The cover or notice in every size's words (`host/coverFit.ts`): the body draws it for its own
      box, and folded, the header carries its word and the Container menu its press. */
-  const standing = showing.kind === 'page' ? null : standingOf(showing, notice, presence.at, coverDetail)
+  const standing = showing.kind === 'page' ? null : standingOf(showing, notice, presence.at, coverDetail, name)
+  /* A page loading what a new context asks for, late: the same cover over its place (2.84.0). */
+  const veil: Extract<Showing, { kind: 'cover' }> | null =
+    showing.kind === 'page' && loading ? { kind: 'cover', state: 'loading', ...(loading.label ? { label: loading.label } : {}) } : null
+  const veiled = veil ? standingOf(veil, null, presence.at, undefined, name) : null
   /* "Restart module", on every container: pressable only for a module this host may restart. */
   const can = restartBlocked ? { ok: false as const, why: restartBlocked } : restartable(presence)
   const pressing = useStandingPress(standing?.action ?? null, presence.id, onStarted, can.ok ? onRestart : undefined)
@@ -813,7 +825,7 @@ export function Container({
         {/* No scope chip here: the scope is the Container menu's "Scope:" row, which opens the
             settings window where it is picked (`FrameRows` in `HeaderMenus.tsx`). */}
         {/* Folded with no page: the state as a word, its press in the Container menu (`Standing.tsx`). */}
-        {collapsed && standing ? <StandingChip standing={standing} said={pressing.said} running={pressing.running} /> : null}
+        {collapsed && standing ? <StandingChip standing={standing} said={pressing.said} running={pressing.running} module={presence.id} name={name} /> : null}
         </span>
 
         {/*
@@ -1083,6 +1095,7 @@ export function Container({
                 notice={notice}
                 standing={standing}
                 presence={presence}
+                name={name}
                 coverDetail={coverDetail}
                 onStarted={onStarted}
                 onRestart={can.ok ? onRestart : undefined}
@@ -1116,12 +1129,18 @@ export function Container({
             notice={notice}
             standing={standing}
             presence={presence}
+            name={name}
             coverDetail={coverDetail}
             onStarted={onStarted}
             onRestart={can.ok ? onRestart : undefined}
             restartWhy={can.ok ? null : can.why}
             onReload={onReload}
           />
+        ) : null}
+        {veil && veiled ? (
+          <div data-testid="loading-cover" className="contents">
+            <StandingBox showing={veil} notice={null} standing={veiled} presence={presence} name={name} onStarted={onStarted} />
+          </div>
         ) : null}
 
         {/* The find bar, over the top of the page (protocol 2.69.0): only while the page is showing. */}

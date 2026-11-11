@@ -530,6 +530,19 @@ export function App() {
   /* The frames whose page answered `ready { hold: true }` and has not said it is
      drawn (protocol 2.70.0): their cover stays up. See `Found.held`. */
   const [drawing, setDrawing] = useState<ReadonlySet<string>>(() => new Set())
+  /* The frames covered as loading, with the module's own words or `null` (protocol 2.84.0): inside a
+     held greeting (`drawing`), the held cover's words; otherwise a page that said `kehikot.loading`
+     after a context and was not drawn in time, covered over its place until `kehikot.drawn`. */
+  const [loadingCovers, setLoadingCovers] = useState<ReadonlyMap<string, string | null>>(() => new Map())
+  const setLoadingOf = useCallback((id: string, label: string | null | undefined) => {
+    setLoadingCovers((was) => {
+      if (label === undefined ? !was.has(id) : was.has(id) && was.get(id) === label) return was
+      const next = new Map(was)
+      if (label === undefined) next.delete(id)
+      else next.set(id, label)
+      return next
+    })
+  }, [])
   const setDrawingOf = useCallback((id: string, on: boolean) => {
     setDrawing((was) => {
       if (was.has(id) === on) return was
@@ -4471,7 +4484,7 @@ export function App() {
        reordered and moving one of these reloads the document inside it. */
     return [...loaded]
       .sort()
-      .map((id) => {
+      .map((id): Framing | null => {
         const module = presenceOf(id)?.module
         if (!module) return null
         const found = live[id]
@@ -4504,6 +4517,8 @@ export function App() {
                kept, as a folded page is, so it is all still there when an epic
                is picked again. See `host/scope.ts`. */
             !coveredForScope(about.scope, module, placements.find((p) => p.i === id)?.pinned ?? false, placements.find((p) => p.i === id)?.scope ?? null),
+          /* Under its loading cover after a context change (2.84.0): hidden from sight, still told it is shown. */
+          veiled: !drawing.has(id) && loadingCovers.has(id),
           /* This container's kept string (protocol 2.51.0): see `host/kept.ts`. */
           state: keptFor(byId.get(id), id, openId, keptHere),
           /* The container's scope (protocol 2.29.0): the person's pick among its
@@ -4539,7 +4554,7 @@ export function App() {
         }
       })
       .filter((framing): framing is Framing => framing !== null)
-  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, drawn.rows, keptHere, expanded])
+  }, [byId, canvases, live, placements, rects, open, pinViews, readyVersions, askedFor, openId, generations, staleOf, about.scope, footed, drawn.rows, keptHere, expanded, drawing, loadingCovers])
   framingsRef.current = framings
   /* The container shown large now: on the open kehikko and showing its page. One that is not
      (folded, removed, another kehikko, its page gone to a cover) is put back. */
@@ -4632,13 +4647,14 @@ export function App() {
       covers[event](id)
       if (event === 'unmounted') {
         setDrawingOf(id, false)
+        setLoadingOf(id, undefined)
         setSaid((was) => forgotten(was, id))
         setHeaders((was) => withdrawn(was, id))
         footerStore.withdraw(id)
         reveals.forget(id)
       }
     },
-    [covers, setDrawingOf],
+    [covers, setDrawingOf, setLoadingOf],
   )
 
   /* The find bars over the containers (protocol 2.69.0, `host/find.ts`). ⌘F on the host's page opens
@@ -4660,6 +4676,7 @@ export function App() {
       ready: (_protocol, build, hold) => {
         covers.answered(id)
         setDrawingOf(id, hold === true)
+        setLoadingOf(id, undefined)
         inboxGreetedRef.current(id)
         setLive((was) => ({
           ...was,
@@ -4675,9 +4692,15 @@ export function App() {
         }))
       },
       /* The held page is drawn, or the host stopped waiting: its cover comes off. */
-      drawn: () => setDrawingOf(id, false),
+      drawn: () => {
+        setDrawingOf(id, false)
+        setLoadingOf(id, undefined)
+      },
+      /* Covered as loading, in the module's words (2.84.0); `drawn` ends it. */
+      loading: (label) => setLoadingOf(id, label),
       silent: (sentence, more) => {
         setDrawingOf(id, false)
+        setLoadingOf(id, undefined)
         /* Its menus go with its offers: see `host/header.ts`. And its footer. */
         setHeaders((was) => withdrawn(was, id))
         footerStore.withdraw(id)
@@ -4730,7 +4753,7 @@ export function App() {
       findResult: (result) => findsRef.current.result(id, result),
       findOpen: (asked) => findsRef.current.open(id, asked),
     }),
-    [covers, setDrawingOf, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
+    [covers, setDrawingOf, setLoadingOf, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
   )
 
   return (
@@ -5081,7 +5104,8 @@ export function App() {
                      module that has been framed and has not spoken, which
                      `condition` alone cannot express: discovery said `ready`
                      because the manifest read, not because the page answered. */
-                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found), held: drawing.has(presence.id) }, askedFor === openId, restarts.of(presence.id))}
+                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found), held: drawing.has(presence.id), label: loadingCovers.get(presence.id) ?? null }, askedFor === openId, restarts.of(presence.id))}
+                  loading={!drawing.has(presence.id) && loadingCovers.has(presence.id) ? { label: loadingCovers.get(presence.id) ?? null } : null}
                   restart={restarts.of(presence.id)}
                   onRestart={() => restarts.restart(presence.id)}
                   /* A pinned version's process is the version's, not the module's own copy a restart names. */

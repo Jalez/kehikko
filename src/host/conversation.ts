@@ -3,6 +3,7 @@ import {
   FOOTER_KINDS,
   HOLD_COVER_MS,
   HOST_MESSAGES,
+  LOADING_COVER_AFTER_MS,
   LIMITS,
   looksLikeWireMessage,
   MESSAGE,
@@ -113,6 +114,14 @@ export interface ConversationWatcher {
    * per held greeting, never for a `ready` that did not hold.
    */
   drawn?(): void
+  /**
+   * Protocol 2.84.0: cover the page, saying `label` (the module's own words, or
+   * `null` for the host's), until `drawn`. Called inside a held greeting with the
+   * words `ready.label` or `kehikot.loading` gave it; and after a context, when
+   * the page said `kehikot.loading` and did not say `kehikot.drawn` within
+   * `loadingAfterMs` — a quick redraw is never covered. `drawn` ends it.
+   */
+  loading?(label: string | null): void
   /**
    * `more` (protocol 2.59.0): the first lines of the stack of the error the
    * page said it failed with (`kehikot.page.error`), for "Show details".
@@ -266,6 +275,13 @@ export class Conversation {
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   /* The page answered with `hold: true` and has not said it is drawn (protocol 2.70.0). */
   private holdTimer: ReturnType<typeof setTimeout> | null = null
+  /* Protocol 2.84.0: the page said `kehikot.loading` after a context. `loadShow`
+     puts the cover up if `kehikot.drawn` is late, `loadEnd` stops waiting for
+     it; `loadShown` is whether the cover went up. */
+  private loadShow: ReturnType<typeof setTimeout> | null = null
+  private loadEnd: ReturnType<typeof setTimeout> | null = null
+  private loadShown = false
+  private loadLabel: string | null = null
   private greeted = false
   /** An opened item waiting for the page to answer its greeting (`sendOpened`). */
   private openedLater: { item: string; at: number } | null = null
@@ -312,6 +328,7 @@ export class Conversation {
   private readonly entry: string | null
   private readonly readyTimeoutMs: number
   private readonly holdCoverMs: number
+  private readonly loadingAfterMs: number
   private readonly wentTimeoutMs: number
   private readonly pressedTimeoutMs: number
   private readonly pressed: () => boolean
@@ -337,6 +354,8 @@ export class Conversation {
       readyTimeoutMs?: number
       /** How long a cover held by `ready { hold: true }` waits for `kehikot.drawn` (`HOLD_COVER_MS`). */
       holdCoverMs?: number
+      /** How long after `kehikot.loading` the cover waits for `kehikot.drawn` before it goes up (`LOADING_COVER_AFTER_MS`). */
+      loadingAfterMs?: number
       wentTimeoutMs?: number
       pressedTimeoutMs?: number
       /** Whether the person's press into this frame is fresh now (`pressFreshFor`); replaced in tests. */
@@ -349,6 +368,7 @@ export class Conversation {
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
     this.holdCoverMs = options.holdCoverMs ?? HOLD_COVER_MS
+    this.loadingAfterMs = options.loadingAfterMs ?? LOADING_COVER_AFTER_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
     this.pressedTimeoutMs = options.pressedTimeoutMs ?? PRESSED_TIMEOUT_MS
   }
@@ -891,14 +911,48 @@ export class Conversation {
         }, this.holdCoverMs)
       }
       this.watcher.ready(message.protocol, message.build ?? null, hold)
+      /* Protocol 2.84.0: the held cover in the page's own words. */
+      if (hold && message.label) this.watcher.loading?.(message.label)
+      return true
+    }
+
+    case MESSAGE.LOADING: {
+      const label = message.label ?? null
+      /* Inside a held greeting the cover is up already: only its words change. */
+      if (this.holdTimer) {
+        this.watcher.loading?.(label)
+        return true
+      }
+      /* Not answered yet: there is no page to cover, and the greeting's own cover stands. */
+      if (!this.answered) return true
+      this.loadLabel = label
+      if (this.loadShown) {
+        this.watcher.loading?.(label)
+        return true
+      }
+      if (this.loadEnd) return true
+      /* A redraw quicker than `loadingAfterMs` is never covered, so it does not flash. */
+      this.loadShow = setTimeout(() => {
+        this.loadShow = null
+        if (this.closed) return
+        this.loadShown = true
+        this.watcher.loading?.(this.loadLabel)
+      }, this.loadingAfterMs)
+      this.loadEnd = setTimeout(() => {
+        this.loadEnd = null
+        if (!this.closed) this.endLoading()
+      }, this.holdCoverMs)
       return true
     }
 
     case MESSAGE.DRAWN: {
-      /* Only a held cover is lifted by it; one sent without a held `ready`, or twice, is dropped. */
-      if (!this.holdTimer) return true
-      this.letHold()
-      this.watcher.drawn?.()
+      /* A held greeting's cover, or a context's (2.84.0). One sent with neither, or twice, is dropped. */
+      if (this.holdTimer) {
+        this.letHold()
+        this.watcher.drawn?.()
+        return true
+      }
+      if (this.loadEnd || this.loadShow || this.loadShown) this.endLoading()
       return true
     }
 
@@ -1054,9 +1108,27 @@ export class Conversation {
 
   /** Forget a held cover without lifting it: a new greeting holds again, or the conversation ended. */
   private letHold(): void {
+    this.letLoading()
     if (!this.holdTimer) return
     clearTimeout(this.holdTimer)
     this.holdTimer = null
+  }
+
+  /** Forget a context's loading (2.84.0) without lifting its cover: the caller says what replaces it. */
+  private letLoading(): void {
+    if (this.loadShow) clearTimeout(this.loadShow)
+    if (this.loadEnd) clearTimeout(this.loadEnd)
+    this.loadShow = null
+    this.loadEnd = null
+    this.loadShown = false
+    this.loadLabel = null
+  }
+
+  /** A context's loading is over — drawn, or waited for long enough. Its cover comes off if it went up. */
+  private endLoading(): void {
+    const shown = this.loadShown
+    this.letLoading()
+    if (shown) this.watcher.drawn?.()
   }
 
   /** Stop. Every timer cleared, every promise settled rather than dropped. */

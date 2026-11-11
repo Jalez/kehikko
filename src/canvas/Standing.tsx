@@ -7,9 +7,8 @@ import { coverLayoutFor, standingHint, type CoverLayout, type Standing, type Sta
 import type { Presence } from '@/host/registry.ts'
 import type { noticeOf, Showing } from '@/host/standing.ts'
 import { openUpdates } from '@/host/updates.ts'
-import { ModuleCover } from './Conditions.tsx'
+import { CoverIcon, ModuleCover } from './Conditions.tsx'
 import { Hint } from './Hint.tsx'
-import { KehikkoMark } from './Mark.tsx'
 import { ContainerNotice } from './Notice.tsx'
 import { useStart } from './Start.tsx'
 
@@ -21,12 +20,16 @@ import { useStart } from './Start.tsx'
  * one, or one line. `StandingChip` is the folded header's word, and
  * `standingRows` the Container menu rows that carry the press there.
  *
- * The working state is the kehikko mark at every size, scaled: tiny in the
- * header and the line, small, full. It is still under reduced motion
- * (`index.css`).
+ * The working state is the module's own icon at every size, breathing
+ * (`CoverIcon`): tiny in the header and the line, small, full — and alone, with
+ * the sentence as its label and tooltip, in a cover under `ICON_ONLY_BELOW`
+ * pixels wide. It is still under reduced motion (`index.css`).
  */
 
-/** The icon for a notice's tone; the working tone is the mark, drawn by `ToneMark`. */
+/** Under this many pixels of width a cover is its icon alone; the sentence is its label and tooltip. */
+export const ICON_ONLY_BELOW = 120
+
+/** The icon for a notice's tone; the working tone is the module's icon, drawn by `ToneMark`. */
 const TONE_ICONS: Record<Exclude<Standing['tone'], 'working'>, LucideIcon> = {
   stopped: Unplug,
   asleep: Moon,
@@ -42,8 +45,8 @@ const ACTION_ICONS: Record<StandingAction['kind'], LucideIcon> = {
   fix: CloudDownload,
 }
 
-function ToneMark({ tone, className }: { tone: Standing['tone']; className: string }) {
-  if (tone === 'working') return <KehikkoMark working className={cn('text-muted-foreground shrink-0', className)} />
+function ToneMark({ tone, className, module, name }: { tone: Standing['tone']; className: string; module: string; name: string }) {
+  if (tone === 'working') return <CoverIcon id={module} name={name} className={className} />
   const Icon = TONE_ICONS[tone]
   return <Icon className={cn('shrink-0', tone === 'incompatible' ? 'text-amber-400' : 'text-muted-foreground', className)} aria-hidden />
 }
@@ -99,6 +102,7 @@ export function StandingBox({
   notice,
   standing,
   presence,
+  name,
   coverDetail,
   onStarted,
   onRestart,
@@ -109,6 +113,8 @@ export function StandingBox({
   notice: ReturnType<typeof noticeOf> | null
   standing: Standing
   presence: Pick<Presence, 'id' | 'at' | 'protocols'>
+  /** The module's name: the icon's label, and "Loading <module>…". */
+  name: string
   coverDetail?: string
   onStarted(): void
   /** Restart the module. Absent when this host may not, and `restartWhy` says why. */
@@ -120,16 +126,35 @@ export function StandingBox({
   const ref = useRef<HTMLDivElement>(null)
   const box = useBox(ref)
   const layout = coverLayoutFor(box?.width ?? null, box?.height ?? null, 0)
+  /* A cover too narrow for words is the icon alone, the sentence its name and tooltip. A notice
+     always keeps its words and its press. */
+  const iconOnly = showing.kind === 'cover' && box !== null && box.width > 0 && box.width < ICON_ONLY_BELOW
+  if (iconOnly) {
+    return (
+      <div ref={ref} className="bg-card pointer-events-auto absolute inset-0 overflow-hidden" data-cover-layout="icon">
+        <div
+          className="flex h-full items-center justify-center"
+          data-testid="module-cover"
+          data-state={showing.state}
+          role="status"
+          aria-label={standing.sentence}
+          title={standingHint(standing)}
+        >
+          <CoverIcon id={presence.id} name={name} className="size-5" />
+        </div>
+      </div>
+    )
+  }
   return (
     <div ref={ref} className="bg-card pointer-events-auto absolute inset-0 overflow-hidden" data-cover-layout={layout}>
       {layout === 'full' ? (
         showing.kind === 'cover' ? (
-          <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} />
+          <ModuleCover state={showing.state} at={presence.at} detail={coverDetail} id={presence.id} name={name} label={showing.label} />
         ) : notice ? (
           <ContainerNotice showing={showing} notice={notice} presence={presence} onStarted={onStarted} onRestart={onRestart} restartWhy={restartWhy} onReload={onReload} />
         ) : null
       ) : (
-        <Compact layout={layout === 'small' ? 'small' : 'line'} standing={standing} state={showing.kind === 'cover' ? showing.state : undefined} module={presence.id} onStarted={onStarted} onRestart={onRestart} />
+        <Compact layout={layout === 'small' ? 'small' : 'line'} standing={standing} state={showing.kind === 'cover' ? showing.state : undefined} module={presence.id} name={name} onStarted={onStarted} onRestart={onRestart} />
       )}
     </div>
   )
@@ -141,6 +166,7 @@ function Compact({
   standing,
   state,
   module,
+  name,
   onStarted,
   onRestart,
 }: {
@@ -148,6 +174,7 @@ function Compact({
   standing: Standing
   state?: string
   module: string
+  name: string
   onStarted(): void
   onRestart?(): void
 }) {
@@ -166,7 +193,7 @@ function Compact({
         role="status"
         title={hint}
       >
-        <ToneMark tone={running ? 'working' : standing.tone} className="size-4" />
+        <ToneMark tone={running ? 'working' : standing.tone} className="size-4" module={module} name={name} />
         <span className="text-foreground min-w-0 flex-1 truncate text-xs font-medium" data-testid="standing-word">
           {busy ?? standing.word}
         </span>
@@ -195,7 +222,7 @@ function Compact({
       data-state={state}
       role="status"
     >
-      <ToneMark tone={running ? 'working' : standing.tone} className="size-6" />
+      <ToneMark tone={running ? 'working' : standing.tone} className="size-6" module={module} name={name} />
       <div className="flex w-full min-w-0 items-center justify-center gap-2">
         <p className="text-muted-foreground min-w-0 truncate text-xs" title={hint} data-testid="standing-sentence">
           {said ?? standing.sentence}
@@ -224,7 +251,19 @@ function Compact({
  * short word, which gives way under 240 pixels of container. The sentence and
  * what the body would show are in its tooltip, with where the press went.
  */
-export function StandingChip({ standing, said, running }: { standing: Standing; said: string | null; running: boolean }) {
+export function StandingChip({
+  standing,
+  said,
+  running,
+  module,
+  name,
+}: {
+  standing: Standing
+  said: string | null
+  running: boolean
+  module: string
+  name: string
+}) {
   const word = running ? 'Starting' : standing.word
   const where = standing.action ? `\n${standing.action.label} is in the Container menu.` : ''
   return (
@@ -237,7 +276,7 @@ export function StandingChip({ standing, said, running }: { standing: Standing; 
         data-tone={running ? 'working' : standing.tone}
         className="text-muted-foreground flex min-w-0 shrink items-center gap-1 rounded text-[11px] outline-none focus-visible:ring-1"
       >
-        <ToneMark tone={running ? 'working' : standing.tone} className="size-3" />
+        <ToneMark tone={running ? 'working' : standing.tone} className="size-3" module={module} name={name} />
         <span className="truncate @max-[240px]/container:hidden">{word}</span>
       </span>
     </Hint>

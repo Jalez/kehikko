@@ -24,7 +24,8 @@ export type Waiting = 'starting' | 'installing' | 'updating' | 'restarting' | 'l
 
 export type Showing =
   | { kind: 'page' }
-  | { kind: 'cover'; state: Waiting }
+  /** `label` (protocol 2.84.0): the module's own words for a `loading` cover, "Loading the plan…". */
+  | { kind: 'cover'; state: Waiting; label?: string }
   | {
     kind: 'notice'
     condition: ModuleCondition
@@ -65,6 +66,11 @@ export interface Found {
    * stops waiting (`HOLD_COVER_MS`, in `Conversation`).
    */
   held?: boolean
+  /**
+   * What the held cover says, in the module's own words (protocol 2.84.0,
+   * `ready.label` or `kehikot.loading`). Text, never markup.
+   */
+  label?: string | null
 }
 
 /**
@@ -96,7 +102,8 @@ export function showing(said: Said, found: Found | undefined, asked = true, rest
   if (!found) return { kind: 'cover', state: 'loading' }
   if (found.condition === 'ready') {
     if (found.stale) return { kind: 'cover', state: 'restarting' }
-    return found.held ? { kind: 'cover', state: 'loading' } : { kind: 'page' }
+    if (!found.held) return { kind: 'page' }
+    return found.label ? { kind: 'cover', state: 'loading', label: found.label } : { kind: 'cover', state: 'loading' }
   }
   return { kind: 'notice', condition: found.condition, asleep: false, line: found.line ?? said.line, page: true, ...(found.more ? { more: found.more } : {}) }
 }
@@ -254,6 +261,17 @@ export const COVER_WORDS: Record<Waiting, string> = {
   updating: 'Updating — restarting on the new code…',
   restarting: 'Restarting…',
   loading: 'Loading…',
+}
+
+/**
+ * The sentence a cover says. `loading` is the module's own words when it gave
+ * some (protocol 2.84.0), else "Loading <module>…" — a cover names whose page
+ * is coming, beside that module's icon. The rest are the host's own doing, and
+ * say what it is doing.
+ */
+export function coverSentence(state: Waiting, name: string, label?: string | null): string {
+  if (state !== 'loading') return COVER_WORDS[state]
+  return label?.trim() || `Loading ${name}…`
 }
 
 /**

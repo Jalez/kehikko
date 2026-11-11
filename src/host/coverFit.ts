@@ -1,6 +1,6 @@
 import type { Fold } from './headerOffer.ts'
 import { RESTART_LABEL } from './restartModule.ts'
-import { COVER_WORDS, type Showing, type Waiting, type noticeOf } from './standing.ts'
+import { coverSentence, type Showing, type Waiting, type noticeOf } from './standing.ts'
 
 /**
  * How the cover and the notice are drawn in the room a container has.
@@ -89,12 +89,14 @@ export function standingOf(
   notice: ReturnType<typeof noticeOf> | null,
   at: string,
   coverDetail?: string,
+  /** The module's name, for "Loading <module>…" when it gave no words of its own. */
+  name: string = 'this module',
 ): Standing {
   if (showing.kind === 'cover') {
     return {
       tone: 'working',
       word: COVER_SHORT[showing.state],
-      sentence: COVER_WORDS[showing.state],
+      sentence: coverSentence(showing.state, name, showing.label),
       more: [...(coverDetail ? [coverDetail] : []), at],
       action: null,
     }
