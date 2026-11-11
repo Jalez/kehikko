@@ -7,13 +7,12 @@ import { asRead, loadsSkillsHere, type ReadManifest } from '../src/host/provider
 import { awarenessOf, type AgentAwareness } from './agents.ts'
 import { listCanvases, type Canvas } from './canvases.ts'
 import {
-  askingIn,
   doorPlaceOf,
   ensureDoorPlaces,
   hereOf,
   issue,
+  issuerOf,
   lookingAt,
-  markAsked,
   openSession,
   PLACE_PARAM,
   projectByUid,
@@ -21,16 +20,18 @@ import {
   RECORDED_PLACE_PATH,
   resolveHere,
   sessionOf,
+  settledPlace,
   wellFormed,
   type AskRecord,
   type Here,
   type Recorded,
+  type Unrecorded,
 } from './doorPlaces.ts'
-import { readParts } from './holdings.ts'
+import { epicSlugs } from './holdings.ts'
 import { skillsForSession } from './kehikkoSkills.ts'
 import type { Inbox } from './inbox.ts'
 import { HOST_ID } from './kehikot.ts'
-import { projectAt, projectById, type Project } from './projects.ts'
+import { projectAt, type Project } from './projects.ts'
 import { doorName } from './register.ts'
 
 /**
@@ -55,19 +56,16 @@ import { doorName } from './register.ts'
  *    token grants nothing a call could not do by naming the place
  *    (`doorPlaces.ts`), and asking again with the same token is how a module
  *    learns that the kehikko changed.
- *  - `POST /host/place/answer` — the person's answer to an ask in the Inbox:
- *    which epic an unplaced conversation is for. The page's alone
- *    (`PAGE_ONLY`): no program, and no MCP tool, answers for the person.
  *
- * The asks are the host's own list in the Inbox (module `HOST_ID`): one item
- * per unbound session that asked, in the project it asked in, reported whole
- * every time it changes, so a bound session's item closes by the same rule a
- * module's dropped item does.
+ * A connection with no readable record is settled in a place on its first tool
+ * call, with nobody asked (`settledPlace` in doorPlaces.ts): the person is never
+ * asked which epic a conversation is for. Asks of that kind left in an Inbox by
+ * an older host are taken out of the record when this desk starts.
  */
 
 const KEY = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
 const PROJECT_ID = /^[a-z0-9][a-z0-9-]{6,62}[a-z0-9]$/
-/** An ask's item id in the Inbox: `place-ask:<session>`. The page draws its choices by it. */
+/** The id prefix of the asks older hosts filed in the Inbox ("which epic is this conversation for?"): taken out on start. */
 export const ASK_PREFIX = 'place-ask:'
 const BODY_MAX = 16 * 1024
 
@@ -321,20 +319,28 @@ export function placeDesk(deps: PlaceDeps) {
   const { db } = deps
   ensureDoorPlaces(db)
   const kept = new Map<string, { at: number; said: Omit<Recorded, 'projectUid'> | null }>()
+  /**
+   * The last place each module said for a token. A module that did not answer (restarting, busy
+   * past `RECORD_ASK_MS`) is answered for by what it said last, so a conversation it started keeps
+   * its place instead of losing it for one call. One that answers "no record" is believed.
+   */
+  const lastSaid = new Map<string, Omit<Recorded, 'projectUid'>>()
 
   /** What the module that issued a token records for it now (`RECORDED_PLACE_PATH`). */
   const ask: AskRecord = async (module, token, project) => {
     const had = kept.get(token)
     if (had && Date.now() - had.at < RECORD_KEEP_MS) return had.said
     const origin = await deps.originOf(module)
-    if (!origin) return null
+    if (!origin) return lastSaid.get(token) ?? null
     const control = new AbortController()
     const timer = setTimeout(() => control.abort(), RECORD_ASK_MS)
     let said: Omit<Recorded, 'projectUid'> | null = null
+    let answered = false
     try {
       const url = `${origin}${RECORDED_PLACE_PATH}?${PLACE_PARAM}=${encodeURIComponent(token)}&project=${encodeURIComponent(project.path)}`
       const response = await (deps.fetch ?? fetch)(url, { signal: control.signal })
       const body = response.ok ? ((await response.json()) as { ok?: unknown; place?: Record<string, unknown> | null }) : null
+      answered = body?.ok === true
       const place = body?.ok === true ? body.place : null
       if (place && wellFormed({ epic: place.epic ?? null, parts: place.parts ?? [], kehikko: place.kehikko ?? null })) {
         said = {
@@ -349,43 +355,57 @@ export function placeDesk(deps: PlaceDeps) {
     } finally {
       clearTimeout(timer)
     }
+    if (said) lastSaid.set(token, said)
+    else if (answered) lastSaid.delete(token)
+    else said = lastSaid.get(token) ?? null
+    if (lastSaid.size > 500) lastSaid.delete(lastSaid.keys().next().value!)
     kept.set(token, { at: Date.now(), said })
     if (kept.size > 500) kept.delete(kept.keys().next().value!)
     return said
   }
 
-  /** The place a door call is in, from its token or its MCP session's record. */
-  const resolve = (token: unknown, session: unknown) => resolveHere(db, token, session, ask)
+  /* The asks an older host filed in the Inbox ("which epic is this conversation for?") go, once: nothing files them now. */
+  if (deps.inbox) for (const gone of deps.inbox.forgetAll(HOST_ID, ASK_PREFIX)) deps.changed(gone.project, gone.rev)
 
-  /** The host's list in a project's Inbox: one ask per unrecorded session that asked there. */
-  function report(project: Project): void {
-    if (!deps.inbox || !project.uid) return
-    const items = askingIn(db, project.uid).map((one) => ({
-      id: `${ASK_PREFIX}${one.id}`,
-      state: 'attention' as const,
-      label: `${one.client ? `A ${one.client.slice(0, 40)}` : 'An agent'} session asks which epic it is for`.slice(0, 120),
-      detail: 'Your answer is recorded for that conversation, and it then answers about that epic whatever is on screen.',
-      since: one.asked ?? undefined,
-    }))
-    const out = deps.inbox.report(project.id, HOST_ID, 'Kehikot', items)
-    deps.changed(project.id, out.rev)
+  /**
+   * Settle a connection with no readable record in a place, with nobody asked (`settledPlace`):
+   * the project its token names, or else the one on screen. Null when it has a record already,
+   * or no project can be named.
+   */
+  function settle(session: string, token: unknown): Here | null {
+    const had = sessionOf(db, session)
+    if (!had || had.place) return null
+    const issued = issuerOf(db, token)
+    const open = lookingAt(db, deps.open())
+    const project = issued ? projectByUid(db, issued.projectUid) : (open?.project ?? null)
+    const place = settledPlace(project, project ? epicSlugs(project.path) : null, open?.canvas ?? null)
+    if (!place || !place.project.uid) return null
+    const stored: Recorded = { projectUid: place.project.uid, epic: place.epic, parts: place.parts, kehikko: place.kehikko }
+    return record(db, session, stored) ? hereOf(db, stored, 'session') : null
+  }
+
+  /**
+   * The place a door call is in, from its token or its MCP session's record. With `settling` (a
+   * tool call at the door), a session with neither is settled in one now, and `settled` says so.
+   */
+  async function resolve(token: unknown, session: unknown, settling = false): Promise<{ here: Here | null; unrecorded: Unrecorded | null; settled?: boolean }> {
+    const found = await resolveHere(db, token, session, ask)
+    if (found.here || !settling || typeof session !== 'string') return found
+    const here = settle(session, token)
+    return here ? { ...found, here, settled: true } : found
   }
 
   function recordFor(session: string, project: Project, place: { epic: string | null; parts: string[]; kehikko: string | null }): Here | null {
     if (!project.uid) return null
     const stored: Recorded = { projectUid: project.uid, ...place }
     if (!record(db, session, stored)) return null
-    report(project)
     return hereOf(db, stored, 'session')
   }
 
-  /** What the MCP door is handed: sessions, records, asking. */
+  /** What the MCP door is handed: sessions and records. */
   const places = {
     open: (client: string) => openSession(db, client),
     bind: recordFor,
-    ask(session: string, project: Project): void {
-      if (project.uid && markAsked(db, session, project.uid)) report(project)
-    },
   }
 
   async function route(request: Request, url: URL): Promise<Response | null> {
@@ -430,27 +450,8 @@ export function placeDesk(deps: PlaceDeps) {
       return reply({ ok: true, token, doors, ...(host ? { host } : {}), ...(modules ? { modules } : {}), ...(absent ? { absent } : {}), ...(everywhere ? { everywhere } : {}), ...(kehikkoSkills ? { kehikkoSkills } : {}), ...(guards ? { guards } : {}), ...(told ?? {}) })
     }
 
-    if (url.pathname === '/host/place/answer' && request.method === 'POST') {
-      const body = await bodyOf(request)
-      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
-      const session = sessionOf(db, typeof body?.session === 'string' ? body.session.replace(ASK_PREFIX, '') : null)
-      if (!project || !project.uid || !session) return reply({ ok: false, error: 'No such ask.' }, 404)
-      if (session.place) return reply({ ok: true, already: true })
-      if (session.projectUid !== project.uid) return reply({ ok: false, error: 'That conversation asked in another project.' }, 409)
-      const epic = body?.epic === null ? null : body?.epic
-      if (epic !== null && (typeof epic !== 'string' || epic.length > 80 || readParts(project.path, epic) === null)) {
-        return reply({ ok: false, error: 'That is not an epic of the project.' }, 400)
-      }
-      const parts = Array.isArray(body?.parts) && epic ? (body.parts as unknown[]).filter((one): one is string => typeof one === 'string') : []
-      const has = new Set(epic ? (readParts(project.path, epic) ?? []).map((part) => part.id) : [])
-      const kehikkoId = typeof body?.kehikko === 'number' ? body.kehikko : null
-      const canvas = listCanvases(db).find((one) => one.id === kehikkoId && one.project === project.id) ?? null
-      const here = recordFor(session.id, project, { epic, parts: parts.filter((one) => has.has(one)), kehikko: canvas?.key ?? null })
-      return here ? reply({ ok: true }) : reply({ ok: false, error: 'The record could not be kept.' }, 500)
-    }
-
     return null
   }
 
-  return { route, places, report, resolve }
+  return { route, places, resolve }
 }

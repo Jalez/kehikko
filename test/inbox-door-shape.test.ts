@@ -2,13 +2,12 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { INBOX_ITEMS_MAX, LIMITS, inboxLogResult, inboxReadResult } from 'kehikot-module-protocol'
 
 import { answerInbox, clip, fitChoices, readOf, whole, type InboxDoor } from '../src/host/inboxDoor.ts'
-import { askChoices } from '../src/host/placeAsk.ts'
 import type { Entry, LogRow } from '../src/host/inbox.ts'
 
 /**
  * `inbox.read` (and every Inbox answer) is read by the module with the protocol's own schema, which
  * refuses the WHOLE answer for one field over its limit. These hold the host's answer to that
- * schema with the data a real record holds: the host's own place ask over many epics, long words,
+ * schema with the data a real record holds: many choices, long words,
  * odd times, many projects.
  */
 
@@ -30,8 +29,8 @@ const entry = (id: string, more: Partial<Entry> = {}): Entry => ({
   ...more,
 })
 
-const epics = (n: number, title = (i: number) => `Epic ${i}`) => Array.from({ length: n }, (_, i) => ({ slug: `e${i}`, title: title(i) }))
-const placeAsk = entry('place-ask:abc', { module: 'kehikko', name: 'Kehikot', label: 'Which epic is this conversation for?' })
+const many = (n: number) => Array.from({ length: n }, (_, i) => `Choice ${i}`)
+const asking = entry('q-many', { question: { text: 'Which one?', choices: [...many(9), 'None of these'], to: { module: 'kehikot.asker', session: 's' } } })
 
 function door(more: Partial<InboxDoor> = {}): InboxDoor & { ran: string[] } {
   const ran: string[] = []
@@ -71,26 +70,18 @@ beforeEach(() => {
 afterEach(() => spy?.mockRestore())
 
 describe('inbox.read fits the protocol', () => {
-  test('the host’s place ask over six or more epics: at most six choices, "Not about an epic" kept', () => {
-    // The reported break: 6 epics + "Not about an epic" was 7 choices, over MESSAGE_CHOICES (6).
-    const own = askChoices('e1', epics(9)).map((one) => ({ label: one.label, run: () => {} }))
-    expect(own.length).toBe(7)
-    const data = read(door({ entries: () => [placeAsk], choicesFor: () => own }))
-    const choices = data.items[0]!.question!.choices
+  test('a question with more choices than the protocol carries: at most six, the last one kept', () => {
+    const choices = read(door({ entries: () => [asking] })).items[0]!.question!.choices
     expect(choices.length).toBe(LIMITS.MESSAGE_CHOICES)
-    expect(choices[0]).toBe('Epic 1 (on screen)')
-    expect(choices.at(-1)).toBe('Not about an epic')
+    expect(choices[0]).toBe('Choice 0')
+    expect(choices.at(-1)).toBe('None of these')
   })
 
-  test('a long epic title is clipped with "…", and that choice still answers', async () => {
-    const d = door({ entries: () => [placeAsk] })
-    const own = askChoices(null, epics(2, (i) => `${'Long title '.repeat(12)}${i}`)).map((one) => ({ label: one.label, run: () => void d.ran.push(one.label) }))
-    d.choicesFor = () => own
-    const choice = read(d).items[0]!.question!.choices[0]!
-    expect(choice.length).toBe(LIMITS.MESSAGE_CHOICE)
-    expect(choice.endsWith('…')).toBe(true)
-    expect(await answerInbox('inbox.answer', { module: 'kehikko', id: 'place-ask:abc', choice }, true, d)).toMatchObject({ ok: true, data: { outcome: 'sent' } })
-    expect(d.ran).toEqual([own[0]!.label])
+  test('a module’s question still takes a free-text answer', async () => {
+    const said: unknown[] = []
+    const d = door({ entries: () => [asking], answer: async (_entry, one) => (said.push(one), { ok: true }) })
+    expect(await answerInbox('inbox.answer', { module: 'kehikot.asker', id: 'q-many', answer: 'what are you working on?' }, true, d)).toMatchObject({ ok: true, data: { outcome: 'sent' } })
+    expect(said).toEqual([{ answer: 'what are you working on?' }])
   })
 
   test('a module’s question: text, choices and answer clipped; an answer by a clipped choice goes by its index', async () => {
@@ -217,7 +208,7 @@ describe('every Inbox answer fits the protocol', () => {
   })
 
   test('the inbox.read answer itself is checked before it goes', async () => {
-    const answer = await answerInbox('inbox.read', {}, false, door({ entries: () => [placeAsk], choicesFor: () => askChoices(null, epics(10)).map((one) => ({ label: one.label, run: () => {} })) }))
+    const answer = await answerInbox('inbox.read', {}, false, door({ entries: () => [asking] }))
     expect(answer.ok).toBe(true)
     expect(inboxReadResult.safeParse((answer as { data: unknown }).data).success).toBe(true)
   })

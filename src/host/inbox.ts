@@ -73,7 +73,7 @@ export type Origin = 'activity' | 'notice' | 'imported'
 export type Closing = 'listed' | 'silent' | 'unreported' | 'gone' | 'notice' | 'imported'
 
 /**
- * The host's own lists — the place asks (`kehikko`), the tracker notices
+ * The host's own lists (`kehikko`), the tracker notices
  * (`kehikko.trackers`), the settings lines (`kehikko.settings`), the mentions
  * in What's new (`kehikko.whatsnew`). No container
  * stands for them and no page sends them: they are never closed for a module

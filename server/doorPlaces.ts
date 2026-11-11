@@ -33,10 +33,11 @@ import { projectById, type Project } from './projects.ts'
  *    `${CLAUDE_CODE_SESSION_ID}` in a config is not expanded to the session's
  *    own id). What the door CAN know is the MCP session it handed out at
  *    `initialize` (`Mcp-Session-Id`). The record for one is the host's
- *    (`door_sessions`), and it is made only by an explicit act: `set_my_place`
- *    (the agent writing what the person told it) or the person's press on the
- *    Inbox's ask. A client that reconnects is a new MCP session with no record
- *    — said in `my_place`, and the re-ask is one press.
+ *    (`door_sessions`). Its first tool call settles one with nobody asked
+ *    (`settledPlace`): the project its token names, or else the project open
+ *    on screen; the epic only when that project has exactly one, otherwise
+ *    the whole project. The answer says so, and `set_my_place` changes it.
+ *    The person is never asked which epic a conversation is for.
  *
  * ## What a token is, and is not
  *
@@ -55,9 +56,6 @@ import { projectById, type Project } from './projects.ts'
 const TOKENS_MAX = 4000
 /** More MCP sessions than a machine holds open; the least recently used go first. */
 const SESSIONS_MAX = 2000
-/** How long an unrecorded session's ask stays in the Inbox without being asked again. */
-export const ASK_MS = 12 * 60 * 60 * 1000
-
 export const PLACE_TOKEN = /^[A-Za-z0-9_-]{22,64}$/
 /** The query parameter, as the protocol (2.4.0) spells it: `PLACE_PARAM`. */
 export const PLACE_PARAM = 'kehikot-place'
@@ -172,30 +170,27 @@ export function sessionOf(db: Database, id: unknown, now = Date.now()): DoorSess
   return { id: row.id, client: row.client, place: placeFrom(row.place), asked: row.asked, projectUid: row.project_uid }
 }
 
-/** Record an MCP session's place. The ask, if there was one, is answered. */
+/** Record an MCP session's place. */
 export function record(db: Database, id: string, place: Recorded): boolean {
   if (!wellFormed(place)) return false
   const parts = [...new Set(place.parts)].sort()
   return db.query('update door_sessions set place = ?, asked = null where id = ?').run(JSON.stringify({ ...place, parts }), id).changes > 0
 }
 
-/** Record that an unrecorded session asked which epic it is for, in a project. False when it already had. */
-export function markAsked(db: Database, id: string, projectUid: string, now = Date.now()): boolean {
-  const had = sessionOf(db, id, now)
-  if (!had || had.place) return false
-  if (had.asked !== null && had.projectUid === projectUid && now - had.asked < ASK_MS) return false
-  db.query('update door_sessions set asked = ?, project_uid = ? where id = ?').run(now, projectUid, id)
-  return true
-}
-
-/** The unrecorded sessions asking in a project, oldest first. */
-export function askingIn(db: Database, projectUid: string, now = Date.now()): DoorSession[] {
-  return db
-    .query<{ id: string; client: string; asked: number; project_uid: string }, [string, number]>(
-      'select id, client, asked, project_uid from door_sessions where project_uid = ? and place is null and asked is not null and asked > ? order by asked',
-    )
-    .all(projectUid, now - ASK_MS)
-    .map((row) => ({ id: row.id, client: row.client, place: null, asked: row.asked, projectUid: row.project_uid }))
+/**
+ * The place a connection with no readable record is settled in, with nobody asked: the project
+ * the call's token names, or else the project the person has open; the epic only when that
+ * project has exactly one (anything else would be a guess), otherwise the whole project; the
+ * kehikko open on screen when it is in that project. Null when no project can be named.
+ */
+export function settledPlace(
+  project: Project | null,
+  slugs: ReadonlySet<string> | null,
+  open: Canvas | null,
+): Omit<Recorded, 'projectUid'> & { project: Project } | null {
+  if (!project || !project.uid || project.missing) return null
+  const only = slugs && slugs.size === 1 ? [...slugs][0]! : null
+  return { project, epic: only && SLUG.test(only) ? only : null, parts: [], kehikko: open && open.project === project.id ? open.key : null }
 }
 
 /** The project a uid names on this host, or null. */
@@ -254,7 +249,12 @@ export async function resolveHere(
     const project = projectByUid(db, issued.projectUid)
     if (!project) return { here: null, unrecorded: { token: issued.token, module: issued.module, why: 'its project is not on this host any more' } }
     const said = await ask(issued.module, issued.token, project).catch(() => null)
-    if (!said) return { here: null, unrecorded: { token: issued.token, module: issued.module, why: `${issued.module} has no record for it, or did not answer` } }
+    if (!said) {
+      const unrecorded = { token: issued.token, module: issued.module, why: `${issued.module} has no record for it, or did not answer` }
+      /* The module's record could not be read: the place this connection was settled in, if any, rather than none. */
+      const bound = sessionOf(db, session)
+      return { here: bound?.place ? hereOf(db, bound.place, 'session') : null, unrecorded }
+    }
     return { here: hereOf(db, { ...said, projectUid: issued.projectUid }, 'token', issued.token, issued.module), unrecorded: null }
   }
   const bound = sessionOf(db, session)

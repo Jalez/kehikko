@@ -190,6 +190,24 @@ export class Inbox {
     ensureInbox(db)
   }
 
+  /**
+   * Take every item of one module whose id starts with `prefix` out of the record, in every
+   * project — the items and their moves — for a kind of item the host no longer files (the
+   * old "which epic is this conversation for?" ask). Returns each project it changed, with its
+   * new rev; nothing when there was nothing to take, so running it again does nothing.
+   */
+  forgetAll(module: string, prefix: string): { project: number; rev: number }[] {
+    const like = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    const projects = this.db
+      .query<{ project: number }, [string, string]>("select distinct project from inbox_items where module = ? and id like ? escape '\\'")
+      .all(module, like)
+      .map((row) => row.project)
+    if (!projects.length) return []
+    this.db.query("delete from inbox_moves where module = ? and id like ? escape '\\'").run(module, like)
+    this.db.query("delete from inbox_items where module = ? and id like ? escape '\\'").run(module, like)
+    return projects.map((project) => ({ project, rev: this.#bump(project) }))
+  }
+
   /* ---- reading ---- */
 
   rev(project: number): number {

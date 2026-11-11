@@ -244,7 +244,6 @@ describe('the routes that are the page’s alone', () => {
       '/host/module-settings/set',
       '/host/onboarding',
       '/host/pinned-places',
-      '/host/place/answer',
       '/host/pressed',
       '/host/projects/followed',
       '/host/projects/locate',

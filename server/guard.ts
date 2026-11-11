@@ -90,9 +90,6 @@ export interface Refusal {
  *  - `/host/inbox/answer` — the person's answer to a question an item asks
  *    (protocol 2.55.0, `inboxRoutes.ts`): sent to an agent session as the
  *    person's own message, so only this page, on their press, sends it.
- *  - `/host/place/answer` — a person's answer to "which epic is this
- *    conversation for?" in the Inbox (`placeRoutes.ts`). An agent says its own
- *    with `set_my_place`; it never answers the person's ask.
  *  - `/host/storage` — the storage overview (`storage.ts`): every project's
  *    folders and sizes, for the page's Storage view. Read-only; an agent asks
  *    the door's `storage` tool instead.
@@ -156,7 +153,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/mine/adopt',
   '/host/projects/locate',
   '/host/projects/followed',
-  '/host/place/answer',
   '/host/storage',
   '/host/skills',
   '/host/settings',

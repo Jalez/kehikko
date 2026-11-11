@@ -5189,13 +5189,14 @@ async function answerRequest(request: Request): Promise<Response> {
         {
           db,
           ...(await (async () => {
-            const { here, unrecorded } = await placeRoutes.resolve(url.searchParams.get(PLACE_PARAM), session)
+            /* A tool call from a connection with no place settles it in one, with nobody asked (`settle` in placeRoutes.ts). */
+            const { here, unrecorded, settled } = await placeRoutes.resolve(url.searchParams.get(PLACE_PARAM), session, body.method === 'tools/call')
             /* Who is asking, for the record of traffic: a session its place token names is that module's, in that place. */
             const place = here ? placeSaid(here) : null
             if (here?.via === 'token' && here.module) {
               tag(request, { by: here.module, via: 'process', caller: { kind: 'session', name: `${receivedFrom.nameOf!(here.module)} session${place ? ` on ${place}` : ''}`.slice(0, LIMITS.TRAFFIC_CALLER), how: 'token', ...(place ? { place } : {}) } })
             } else if (place) tag(request, { place })
-            return { here, unrecorded }
+            return { here, unrecorded, settled: settled === true }
           })()),
           session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
           places: placeRoutes.places,
