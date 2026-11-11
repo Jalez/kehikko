@@ -1,6 +1,16 @@
 import {
+  INBOX_ITEMS_MAX,
   INBOX_NEXT_MS,
+  LIMITS,
   actNeedsPress,
+  inboxActResult,
+  inboxAnswerResult,
+  inboxItemSchema,
+  inboxLogResult,
+  inboxLogRowSchema,
+  inboxOpenResult,
+  inboxReadResult,
+  inboxUseResult,
   methodParams,
   type InboxItem,
   type InboxLogResult,
@@ -86,6 +96,53 @@ export const DOOR_SAYS = {
   muteHost: 'Kehikot’s own lists are not muted here; they have their own settings.',
 } as const
 
+/*
+ * The answer is held to the protocol's schema before it goes (`inboxReadResult`, `inboxLogResult`):
+ * a module reads it with that schema and refuses the whole answer for one field over its limit. So
+ * every string is clipped to its limit with "…", every time is a whole number of ms, a question
+ * carries at most the protocol's number of choices, and an item or project that still does not fit
+ * is left out with one line naming the field — never sent.
+ */
+
+/** A string at most `max` characters long, ending in "…" when it was cut. */
+export const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`)
+
+/** A time or count as the protocol takes it: a whole number, never below zero. */
+export const whole = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0)
+
+/**
+ * A question's choices as the protocol carries them: at most `MESSAGE_CHOICES`, each clipped to
+ * `MESSAGE_CHOICE`. When there are more, the first ones and the LAST are kept (the host's own ask
+ * ends in "Not about an epic", which must stay on offer). Each kept choice says which of the
+ * original ones it stands for, so an answer by its words finds it.
+ */
+export function fitChoices<T>(choices: readonly T[], label: (one: T) => string): { label: string; of: T }[] {
+  const max = LIMITS.MESSAGE_CHOICES
+  const kept = choices.length <= max ? [...choices] : [...choices.slice(0, max - 1), choices[choices.length - 1]!]
+  const seen = new Set<string>()
+  const out: { label: string; of: T }[] = []
+  for (const one of kept) {
+    const said = clip(label(one), LIMITS.MESSAGE_CHOICE)
+    if (seen.has(said)) continue
+    seen.add(said)
+    out.push({ label: said, of: one })
+  }
+  return out
+}
+
+/** One line for an item or project left out of an answer: the method, which one, and the field. */
+function leftOut(method: string, what: string, issue: { path: PropertyKey[]; message: string } | undefined): void {
+  console.warn(`[inbox] ${method}: left out ${what} — ${issue?.path.length ? issue.path.join('.') : 'it'}: ${issue?.message ?? 'malformed'}`)
+}
+
+/** An item that fits the protocol's schema, or null (and a line) for one that still does not. */
+function fitted(item: InboxItem, method = 'inbox.read'): InboxItem | null {
+  const got = inboxItemSchema.safeParse(item)
+  if (got.success) return got.data
+  leftOut(method, `item ${clip(item.module, 64)}/${clip(item.id, 128)}`, got.error.issues[0])
+  return null
+}
+
 const placeOf = (entry: Pick<Entry, 'place'>, names: Namer, projectName: string | null): string => {
   const { here, epic } = placeLines(entry, names)
   return [here, epic].filter(Boolean).join(' · ') || projectName || PROJECT_GROUP
@@ -99,55 +156,106 @@ export function itemOf(
   projectName: string | null,
   choices: readonly { label: string }[] | null = null,
 ): InboxItem {
+  const detail = entry.detail ? clip(entry.detail, LIMITS.ACTIVITY_DETAIL) : ''
+  const label = clip(entry.label, LIMITS.ACTIVITY_LABEL)
   return {
     module: entry.module,
     id: entry.id,
-    by: byLine(entry),
+    by: clip(byLine(entry), LIMITS.TITLE),
     state: entry.state,
-    ...(entry.named?.says ? { says: entry.named.says } : {}),
-    label: entry.label,
-    ...(entry.detail ? { detail: entry.detail } : {}),
+    ...(entry.named?.says ? { says: clip(entry.named.says, LIMITS.TITLE) } : {}),
+    label,
+    ...(detail ? { detail } : {}),
     priority: entry.priority,
-    where: placeOf(entry, names, projectName),
+    where: clip(placeOf(entry, names, projectName), LIMITS.TITLE * 2),
     here: inScope(entry.place, 'here', at),
     project: aboutProject(entry),
-    entered: entry.entered,
+    entered: whole(entry.entered),
     seen: false,
     ...(entry.question
       ? {
           question: {
-            text: entry.question.text,
-            choices: [...entry.question.choices],
-            answered: entry.answered?.entered === entry.entered ? entry.answered.text : null,
+            text: clip(entry.question.text, LIMITS.ACTIVITY_QUESTION),
+            choices: fitChoices(entry.question.choices, (one) => one).map((one) => one.label),
+            answered: entry.answered?.entered === entry.entered ? clip(entry.answered.text, LIMITS.MESSAGE_BODY) : null,
           },
         }
       : choices?.length
-        ? { question: { text: entry.detail ?? entry.label, choices: choices.map((one) => one.label), answered: null } }
+        ? {
+            question: {
+              text: clip(entry.detail ?? entry.label, LIMITS.ACTIVITY_QUESTION),
+              choices: fitChoices(choices, (one) => one.label).map((one) => one.label),
+              answered: null,
+            },
+          }
         : {}),
     mutable: mayMute(entry.module),
   }
 }
 
-/** `inbox.read`, from what the page holds. */
+/** `inbox.read`, from what the page holds: every item held to the protocol's schema, and the whole answer too. */
 export function readOf(door: InboxDoor): InboxReadResult {
   const names = door.names()
   const at = door.at()
   const projectName = door.projectName()
   const next = door.next()
-  return {
-    rev: door.rev(),
-    items: door.entries().filter(isLive).slice(0, 500).map((entry) => itemOf(entry, names, at, projectName, door.choicesFor?.(entry) ?? null)),
-    next: next ? { module: next.module, id: next.id } : null,
-    elsewhere: door
-      .elsewhere()
-      .slice(0, 50)
-      .map(({ project, entries }) => ({
-        project,
-        items: entries.slice(0, 500).map((entry) => ({ ...itemOf(entry, names, at, project.name), where: [entry.place?.epic, entry.place?.parts?.join(' + ')].filter(Boolean).join(' · ') || project.name, here: false })),
-      })),
-    earlier: door.earlier(),
-    muted: door.muted().slice(0, 200).map((one) => ({ id: one.id, name: one.name })),
+  const items = (list: readonly Entry[], one: (entry: Entry) => InboxItem): InboxItem[] => {
+    const out: InboxItem[] = []
+    for (const entry of list) {
+      if (out.length >= INBOX_ITEMS_MAX) break
+      const item = fitted(one(entry))
+      if (item) out.push(item)
+    }
+    return out
   }
+  const elsewhere: InboxReadResult['elsewhere'] = []
+  for (const { project, entries } of door.elsewhere()) {
+    if (elsewhere.length >= 50) break
+    if (!Number.isInteger(project.id) || project.id <= 0) {
+      leftOut('inbox.read', `another project (${clip(String(project.name), 60)})`, { path: ['elsewhere', 'project', 'id'], message: `not a positive whole number: ${String(project.id)}` })
+      continue
+    }
+    const name = clip(project.name, LIMITS.TITLE)
+    elsewhere.push({
+      project: { id: project.id, name },
+      items: items(entries, (entry) => ({
+        ...itemOf(entry, names, at, name),
+        where: clip([entry.place?.epic, entry.place?.parts?.join(' + ')].filter(Boolean).join(' · ') || name, LIMITS.TITLE * 2),
+        here: false,
+      })),
+    })
+  }
+  const nextKey = next ? inboxKeyOf(next) : null
+  return {
+    rev: whole(door.rev()),
+    items: items(door.entries().filter(isLive), (entry) => itemOf(entry, names, at, projectName, door.choicesFor?.(entry) ?? null)),
+    next: nextKey,
+    elsewhere,
+    earlier: whole(door.earlier()),
+    muted: door
+      .muted()
+      .filter((one) => one.id.length > 0 && one.id.length <= 64)
+      .slice(0, 200)
+      .map((one) => ({ id: one.id, name: clip(one.name, LIMITS.TITLE) })),
+  }
+}
+
+/** An item's key, when it is one the protocol can name (`next`); null for one it cannot. */
+function inboxKeyOf(entry: Pick<Entry, 'module' | 'id'>): { module: string; id: string } | null {
+  const fits = entry.module.length > 0 && entry.module.length <= 64 && entry.id.length > 0 && entry.id.length <= LIMITS.ACTIVITY_ID
+  return fits ? { module: entry.module, id: entry.id } : null
+}
+
+/** Earlier's rows in the protocol's words: at most a page of them, each held to its schema. */
+export function logRowsOf(rows: readonly LogRow[], names: Namer, projectName: string | null): InboxLogRow[] {
+  const out: InboxLogRow[] = []
+  for (const row of rows) {
+    if (out.length >= 100) break
+    const got = inboxLogRowSchema.safeParse(logRowOf(row, names, projectName))
+    if (got.success) out.push(got.data)
+    else leftOut('inbox.log', `row ${clip(row.module, 64)}/${clip(row.id, 128)}`, got.error.issues[0])
+  }
+  return out
 }
 
 /** One Earlier row in the protocol's words. */
@@ -157,11 +265,11 @@ export function logRowOf(row: LogRow, names: Namer, projectName: string | null):
     key: row.key,
     module: row.module,
     id: row.id,
-    by: byLine(row),
-    label: row.label,
-    what,
-    where: placeOf(row, names, projectName),
-    at: row.at,
+    by: clip(byLine(row), LIMITS.TITLE),
+    label: clip(row.label, LIMITS.ACTIVITY_LABEL),
+    what: clip(what, LIMITS.TITLE),
+    where: clip(placeOf(row, names, projectName), LIMITS.TITLE * 2),
+    at: whole(row.at),
     priority: row.priority,
   }
 }
@@ -174,8 +282,10 @@ const malformed = (method: string, issue: { path: PropertyKey[]; message: string
 })
 
 /** The refusal each method says when it is declined. */
-const declined = (method: string, why: string): Answer =>
-  ok(method === 'inbox.answer' ? { outcome: 'declined', why } : method === 'inbox.open' ? { outcome: 'declined', why } : { outcome: 'declined', changed: 0, why })
+const declined = (method: string, rawWhy: string): Answer => {
+  const why = clip(rawWhy, LIMITS.REASON)
+  return ok(method === 'inbox.answer' ? { outcome: 'declined', why } : method === 'inbox.open' ? { outcome: 'declined', why } : { outcome: 'declined', changed: 0, why })
+}
 
 /** The entry a key names, in the open project or another. */
 function find(door: InboxDoor, module: string, id: string, project: number | undefined): Entry | null {
@@ -194,6 +304,43 @@ export async function answerInbox(
   door: InboxDoor,
   told: NextTold | null = null,
   now: number = Date.now(),
+): Promise<Answer> {
+  return checked(method, await answerUnchecked(method, rawParams, pressed, door, told, now))
+}
+
+/** The schema each method's answer is read with by a module. */
+const RESULTS: Record<string, { safeParse(data: unknown): { success: true; data: unknown } | { success: false; error: { issues: { path: PropertyKey[]; message: string }[] } } }> = {
+  'inbox.read': inboxReadResult,
+  'inbox.log': inboxLogResult,
+  'inbox.act': inboxActResult,
+  'inbox.answer': inboxAnswerResult,
+  'inbox.open': inboxOpenResult,
+  'inbox.use': inboxUseResult,
+}
+
+/**
+ * The last check before an answer goes: one the module would refuse is never sent. What is
+ * repaired is repaired above; this is the guard for anything that was not, said in one line, and
+ * answered as a failure naming the field rather than as a shape the module cannot read.
+ */
+function checked(method: string, answer: Answer): Answer {
+  const schema = RESULTS[method]
+  if (!answer.ok || !schema) return answer
+  const got = schema.safeParse(answer.data)
+  if (got.success) return answer
+  const issue = got.error.issues[0]
+  const where = issue?.path.length ? issue.path.join('.') : 'the answer'
+  console.warn(`[inbox] ${method}: not sent — ${where}: ${issue?.message ?? 'malformed'}`)
+  return { ok: false, reason: 'failed', error: `The canvas could not answer ${method} in the protocol’s shape (${where}: ${issue?.message ?? 'malformed'}).` }
+}
+
+async function answerUnchecked(
+  method: string,
+  rawParams: unknown,
+  pressed: boolean,
+  door: InboxDoor,
+  told: NextTold | null,
+  now: number,
 ): Promise<Answer> {
   const schema = (methodParams as Record<string, (typeof methodParams)[keyof typeof methodParams]>)[method]
   if (!schema || !method.startsWith('inbox.')) return { ok: false, reason: 'unknown-method', error: `${method} is not an Inbox method.` }
@@ -220,7 +367,7 @@ export async function answerInbox(
       const got = await door.log(params.scope as InboxScope, params.offset as number, params.limit as number)
       const names = door.names()
       const result: InboxLogResult = got
-        ? { rows: got.rows.slice(0, 100).map((row) => logRowOf(row, names, door.projectName())), more: got.more, total: got.total }
+        ? { rows: logRowsOf(got.rows, names, door.projectName()), more: got.more, total: whole(got.total) }
         : { rows: [], more: false, total: 0 }
       return ok(result)
     }
@@ -233,20 +380,22 @@ export async function answerInbox(
       const entry = find(door, String(params.module), String(params.id), project)
       const own = entry && project === undefined ? (door.choicesFor?.(entry) ?? null) : null
       if (entry && own?.length && !entry.question) {
-        const picked = typeof params.choice === 'string' ? own.find((one) => one.label === params.choice) : undefined
+        /* The choices as `inbox.read` showed them: fitted to the protocol's number and length. */
+        const picked = typeof params.choice === 'string' ? fitChoices(own, (one) => one.label).find((one) => one.label === params.choice) : undefined
         if (!picked) return declined(method, 'That is not one of the question’s choices.')
-        picked.run()
+        picked.of.run()
         return ok({ outcome: 'sent', why: '' })
       }
       if (!entry?.question) return declined(method, DOOR_SAYS.noItem)
       let said: Said
       if (typeof params.choice === 'string') {
-        const index = entry.question.choices.indexOf(params.choice)
+        const shown = fitChoices(entry.question.choices.map((text, index) => ({ text, index })), (one) => one.text)
+        const index = shown.find((one) => one.label === params.choice)?.of.index ?? -1
         if (index < 0) return declined(method, 'That is not one of the question’s choices.')
         said = { choice: index }
       } else said = { answer: String(params.answer) }
       const got = await door.answer(entry, said, project)
-      return ok(got.ok ? { outcome: 'sent', why: '' } : { outcome: 'declined', why: got.why })
+      return ok(got.ok ? { outcome: 'sent', why: '' } : { outcome: 'declined', why: clip(got.why, LIMITS.REASON) })
     }
     case 'inbox.open': {
       const entry = find(door, String(params.module), String(params.id), project)
