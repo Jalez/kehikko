@@ -55,6 +55,8 @@ const PARAMS: Record<string, unknown> = {
   'messages.tell': { to: { place: { epic: 'auth' } }, body: 'hi' },
   'messages.say': { body: 'hi', to: { project: true } },
   'projects.mine': {},
+  'messages.notifySession': { session: 'conv-alpha-0001', body: 'hi' },
+  'services.find': { service: 'work.queue' },
   'inbox.read': {},
   'inbox.log': {},
   'inbox.act': { do: 'seen', keys: [{ module: 'a', id: 'b' }] },

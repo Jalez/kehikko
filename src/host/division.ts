@@ -90,6 +90,13 @@ export const ANSWERED_BY_THE_SERVER = [
      from the person's list in the server's database. See
      `server/projectsMine.ts`. */
   'projects.mine',
+  /* Protocol 2.81.0: a module's SERVER tells one session found by its own id
+     (`notifySession` in `server/messageRoutes.ts`). A page watches nothing:
+     `answer` declines it there. */
+  'messages.notifySession',
+  /* Protocol 2.81.0: who provides a service here, from the last sweep's
+     manifests and the kehikko's placements. See `server/services.ts`. */
+  'services.find',
 ] as const
 
 /**

@@ -237,6 +237,8 @@ export interface FramedModule {
   events?: { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[]
   /** What the module can open when the host points the canvas at it (protocol 2.33.0): `file`. Absent: nothing. */
   opens?: string[]
+  /** The services it provides to other modules, each with its descriptor (protocol 2.81.0). Absent: none. */
+  services?: Record<string, unknown>
   /** What a restart of the module ends (protocol 2.33.0): `live-sessions`. Absent: it says nothing. */
   holds?: string[]
   /** What the module says to agent sessions on a kehikko it is on (protocol 2.36.0). Absent: it says nothing; its summary stands in. */
@@ -604,6 +606,8 @@ export async function look(
       ...(manifest.events?.length ? { events: manifest.events.map((one) => ({ ...one })) } : {}),
       ...(manifest.opens ? { opens: [...manifest.opens] } : {}),
       ...(manifest.holds ? { holds: [...manifest.holds] } : {}),
+      /* The services it provides to other modules (protocol 2.81.0), descriptors as it said them: `services.find`. */
+      ...(manifest.services ? { services: { ...manifest.services } } : {}),
       ...(manifest.reveal ? { reveal: manifest.reveal } : {}),
       ...(manifest.agentSays ? { agentSays: manifest.agentSays } : {}),
       ...(manifest.absentSays ? { absentSays: manifest.absentSays } : {}),

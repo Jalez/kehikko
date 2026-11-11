@@ -7,6 +7,7 @@ import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
 import { projectsMine } from './projectsMine.ts'
+import { providersOf } from './services.ts'
 import { epicPlacesByRef, epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
@@ -3178,6 +3179,19 @@ const messageRoutes = messageDesk({
 tellNews = (project, place, body) => void messageRoutes.hostTell(project, place, body)
 
 /*
+ * Who provides a service here (protocol 2.81.0): the modules answering at the
+ * last sweep whose manifests say so, and whether each is placed on the kehikko
+ * asked about (in the project the call stands in). See `services.ts`.
+ */
+const servicesHere = (service: string, root: string | null, kehikko: string | null) => {
+  const project = root ? listProjects(db).find((one) => one.path === root) : undefined
+  const canvas = project && kehikko ? listCanvases(db).find((one) => one.project === project.id && one.key === kehikko) : undefined
+  const placedOn = canvas ? (module: string) => Boolean(db.query<{ one: number }, [number, string]>('select 1 as one from placements where canvas = ? and module = ?').get(canvas.id, module)) : null
+  const ready = [...lastPresences.values()].flatMap((presence) => (presence.condition === 'ready' && presence.module ? [presence.module] : []))
+  return providersOf(service, ready, kehikko ? (placedOn ?? (() => false)) : null)
+}
+
+/*
  * A module's server asking what its page would be told (protocol 2.19.0): the
  * tracker reading for its MCP door, with no page open. Held to the same grant
  * and answered by the page's own `answer`. See `serverAsk.ts`.
@@ -3209,6 +3223,8 @@ const serverAsk = serverAskDesk({
       { door: trafficReading, via: 'server' },
       /* The projects the module keeps its own folder in (protocol 2.76.0): what its server asks at start. */
       (m) => projectsMine(listProjects(db), m),
+      /* Who provides a service here (protocol 2.81.0). */
+      servicesHere,
     ),
   messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
 })
@@ -3762,6 +3778,8 @@ async function answerRequest(request: Request): Promise<Response> {
           { door: trafficReading, via: 'page' },
           /* The projects the module keeps its own folder in (protocol 2.76.0). */
           (module) => projectsMine(listProjects(db), module),
+          /* Who provides a service here (protocol 2.81.0). */
+          servicesHere,
         ),
       )
     }
