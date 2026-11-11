@@ -1,3 +1,4 @@
+import { TRACKER_NEWS_FROM } from '@/host/trackerNews.ts'
 import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -4243,6 +4244,14 @@ export function App() {
     }
   }, [projectId])
 
+  /* "Tracker news to agents" (`host/trackerNews.ts`): the "Messages to agents" mute under the host's own id. */
+  const trackerNews = useMemo(
+    () =>
+      projectId === null
+        ? null
+        : { on: !messagesMuted.has(TRACKER_NEWS_FROM.module), onChange: (on: boolean) => muteMessages(TRACKER_NEWS_FROM.module, !on) },
+    [projectId, messagesMuted, muteMessages],
+  )
   /* "Use inbox" off, named for the panel: the way back is where the muting is said. */
   const mutedModules = useMemo(
     () => [...inbox.muted].map((id) => ({ id, name: moduleName(id) })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -4834,6 +4843,7 @@ export function App() {
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
+        trackerNews={trackerNews}
         activity={barActivity}
         pinned={pinned}
         /* The host's own door. The id the server answers for it comes from

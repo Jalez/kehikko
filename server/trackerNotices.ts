@@ -20,6 +20,7 @@ import {
   type NoticeSettings,
   type Seen,
 } from '../src/host/trackerNotices.ts'
+import { newsLine, newsOf, newsTells, type EpicPlace, type NewsTell } from '../src/host/trackerNews.ts'
 import type { Inbox } from './inbox.ts'
 
 /**
@@ -90,6 +91,11 @@ export interface Landing {
   me: ReadonlyMap<string, string>
   /** The epic naming each ref spelling (`epicsByRef` in `trackers/reading.ts`). */
   epics: ReadonlyMap<string, string>
+  /**
+   * Every epic, and part of one, holding each ref spelling (`epicPlacesByRef`): where tracker news to
+   * agents goes (`src/host/trackerNews.ts`). Absent: no news is found.
+   */
+  places?: ReadonlyMap<string, readonly EpicPlace[]>
 }
 
 export class TrackerNotices {
@@ -138,9 +144,12 @@ export class TrackerNotices {
 
   /**
    * A reading of the project landed. Returns the Inbox's rev when the list was
-   * reported, so the pages can be told.
+   * reported, so the pages can be told, and the news for the agent sessions at
+   * each epic (`news`), found in the same comparison: the caller sends it. Each
+   * event is in exactly one landing's news — the facts it was read from are kept
+   * here, in the same transaction.
    */
-  landed(project: number, landing: Landing): { rev: number } {
+  landed(project: number, landing: Landing): { rev: number; news: NewsTell[] } {
     const now = this.clock()
     const settings = this.settings()
     const run = this.db.transaction(() => {
@@ -149,21 +158,31 @@ export class TrackerNotices {
       const held = this.#seen(project)
       const away = this.#putAway(project)
 
-      /* One row per item: the spelling an epic names, where one does. */
+      /* One row per item: the spelling an epic names, where one does. Its places, from every spelling. */
       const items = new Map<string, TrackerRow>()
+      const places = new Map<string, EpicPlace[]>()
       for (const row of landing.rows) {
         const id = itemId(row)
         const was = items.get(id)
         if (!was || (!landing.epics.has(was.ref) && landing.epics.has(row.ref))) items.set(id, row)
+        const at = landing.places?.get(row.ref)
+        if (at?.length) places.set(id, [...(places.get(id) ?? []), ...at])
       }
+      const news: { line: string; places: readonly EpicPlace[] }[] = []
 
       for (const [id, row] of items) {
         const was = held.get(id)
         const me = landing.me.get(`${row.tracker}|${row.host}`) ?? null
-        const facts = factsOf(row)
+        const facts = factsOf(row, was?.facts)
         const epic = landing.epics.get(row.ref)
         const relevant = settings.on && (hasRole(was, row) || (settings.scope === 'epics' && epic !== undefined))
         const fresh = relevant ? happenings(was, row, me, now, lastAt).filter((one) => settings.events[one.kind]) : []
+        /* Tracker news to agents: only an item an epic holds, whatever the Inbox's setting. */
+        const at = places.get(id)
+        if (at?.length) {
+          const told = newsOf(was, row, me, now, lastAt)
+          if (told.length) news.push({ line: newsLine(row.ref, row.title, told, row.discussions?.unresolved), places: at })
+        }
         /* Put away (seen, dismissed, closed): only what is new comes back. */
         let events = was && !away.has(id) ? was.events : []
         let since = was && !away.has(id) ? was.since : null
@@ -219,7 +238,7 @@ export class TrackerNotices {
         .query('insert into tracker_seen_projects (project, at) values (?, ?) on conflict (project) do update set at = excluded.at')
         .run(project, now)
       this.#trim(project)
-      return this.#report(project, [...held.values()], settings)
+      return { ...this.#report(project, [...held.values()], settings), news: newsTells(news) }
     })
     return run()
   }

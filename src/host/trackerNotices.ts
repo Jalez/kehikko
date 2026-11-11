@@ -3,6 +3,7 @@ import {
   type ActivityItem,
   type LastActivityKind,
   type MyRole,
+  type PipelineState,
   type ReviewerState,
   type TrackerRow,
 } from 'kehikot-module-protocol'
@@ -139,6 +140,12 @@ export interface Facts {
   /** Absent when who the person is was not known. */
   roles?: MyRole[]
   updatedAt?: string
+  /**
+   * A change's last finished CI verdict: `passed` or `failed`, carried over while a new pipeline runs;
+   * `none` while none has finished. Absent on an issue and on a record from before it, which tells nothing.
+   * What agents are told "CI failed" or "CI passes again" from (`trackerNews.ts`).
+   */
+  ci?: 'passed' | 'failed' | 'none'
 }
 
 /** One thing that happened, as kept on the item until it is put away. */
@@ -155,6 +162,8 @@ export interface Happening {
   line?: number
   /** How many commits a push added, when the reading said (protocol 2.67.0). */
   commits?: number
+  /** On `commented`: it was a review submitted, not a comment. */
+  review?: true
 }
 
 /**
@@ -204,7 +213,18 @@ const lower = (login: string) => login.toLowerCase()
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
 
-export function factsOf(row: TrackerRow): Facts {
+/** A change's CI verdict now (`Facts.ci`): a finished pipeline's, else the last one's. */
+export function ciOf(row: Pick<TrackerRow, 'kind' | 'pipeline'>, was?: Facts): Facts['ci'] {
+  if (row.kind !== 'change') return undefined
+  const pipeline: PipelineState | undefined = row.pipeline
+  if (pipeline === 'success') return 'passed'
+  if (pipeline === 'failed') return 'failed'
+  return was?.ci ?? 'none'
+}
+
+/** What is kept of a row; `was`, the facts last kept, carries what a row alone does not say (`ci`). */
+export function factsOf(row: TrackerRow, was?: Facts): Facts {
+  const ci = ciOf(row, was)
   return {
     kind: row.kind,
     state: row.state,
@@ -223,6 +243,7 @@ export function factsOf(row: TrackerRow): Facts {
     ...(row.lastPushAt ? { pushAt: row.lastPushAt } : {}),
     ...(row.myRoles ? { roles: [...row.myRoles] } : {}),
     ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
+    ...(ci ? { ci } : {}),
   }
 }
 
@@ -274,7 +295,15 @@ const REVIEWING: readonly MyRole[] = ['reviewer-asked', 'reviewer-done']
  * which tells nothing. An item not seen before tells only that the person's
  * review was asked for, and only when the item moved since the last reading.
  */
-export function happenings(was: Seen | undefined, row: TrackerRow, me: string | null, now: number, lastAt: number | null): Happening[] {
+export function happenings(
+  was: Seen | undefined,
+  row: TrackerRow,
+  me: string | null,
+  now: number,
+  lastAt: number | null,
+  /** `anyPush`: new commits on any change, not only one the person reviews (what agents are told). */
+  options: { anyPush?: boolean } = {},
+): Happening[] {
   if (lastAt === null) return []
   const mine = (login: string | undefined) => login !== undefined && me !== null && same(login, me)
   const by = (login: string | undefined): Pick<Happening, 'by' | 'name'> =>
@@ -303,7 +332,7 @@ export function happenings(was: Seen | undefined, row: TrackerRow, me: string | 
       const kind: NoticeEvent | null =
         r.state === 'approved' ? 'approved' : r.state === 'changes' ? 'changes-requested' : r.state === 'commented' ? 'commented' : null
       if (!kind) continue
-      out.push({ kind, ...by(r.login), at: now })
+      out.push({ kind, ...by(r.login), at: now, ...(kind === 'commented' ? { review: true as const } : {}) })
       reviewed.add(lower(r.login))
     }
   } else if (row.review !== facts.review && (row.review === 'approved' || row.review === 'changes-requested')) {
@@ -337,7 +366,7 @@ export function happenings(was: Seen | undefined, row: TrackerRow, me: string | 
     const known = activity.mine === false || (activity.mine === undefined && me !== null && !mine(activity.login))
     if (time(activity.at) > after && known && !(activity.kind === 'review' && reviewed.has(lower(activity.login)))) {
       const place = activity.kind === 'comment' && activity.path ? { path: activity.path, ...(activity.line ? { line: activity.line } : {}) } : {}
-      out.push({ kind: 'commented', ...by(activity.login), at: now, ...place })
+      out.push({ kind: 'commented', ...by(activity.login), at: now, ...place, ...(activity.kind === 'review' ? { review: true as const } : {}) })
     }
   }
 
@@ -346,7 +375,7 @@ export function happenings(was: Seen | undefined, row: TrackerRow, me: string | 
     const reviewing = [...(row.myRoles ?? []), ...(facts.roles ?? [])].some((one) => REVIEWING.includes(one))
     const self = (activity?.kind === 'commit' && (activity.mine === true || mine(activity.login))) || mine(row.authorLogin ?? undefined)
     const pushed = activity?.kind === 'commit' && time(activity.at) > time(facts.pushAt) && activity.commits ? { commits: activity.commits } : {}
-    if (reviewing && !self) out.push({ kind: 'pushed', ...by(activity?.kind === 'commit' ? activity.login : undefined), at: now, ...pushed })
+    if ((reviewing || options.anyPush) && !self) out.push({ kind: 'pushed', ...by(activity?.kind === 'commit' ? activity.login : undefined), at: now, ...pushed })
   }
 
   return out

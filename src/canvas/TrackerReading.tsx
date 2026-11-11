@@ -20,6 +20,7 @@ import {
 } from '@/host/trackerSources.ts'
 import { SETTINGS_TARGETS, openSettings } from '@/host/agentSettings.ts'
 import { isShareNotice } from '@/host/githubShare.ts'
+import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
 import { Hint } from './Hint.tsx'
 
 export { ago }
@@ -75,7 +76,13 @@ export function WithLimitLink({ text, className }: { text: string; className?: s
  * host (`POST /host/trackers`). With no source at all the strip says
  * "add a tracker" (after its plus icon) and the popover opens on the add row.
  */
-export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; onRefresh(): void }) {
+/** "Tracker news to agents" in this project (`host/trackerNews.ts`): on unless the person turned it off. */
+export interface TrackerNewsSwitch {
+  on: boolean
+  onChange(on: boolean): void
+}
+
+export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerState; onRefresh(): void; news?: TrackerNewsSwitch | null }) {
   const now = useNow(30_000)
   /* What the last edit answered, until the page's own reading catches up. */
   const [own, setOwn] = useState<TrackerListing | null>(null)
@@ -133,8 +140,22 @@ export function TrackerReading({ tracker, onRefresh }: { tracker: TrackerState; 
         </div>
         <p className="text-muted-foreground">{TRACKERS_ARE_FOR}</p>
         <Sources tracker={tracker} listing={listing} now={now} onListing={setOwn} startOpen={empty} />
+        {news ? <NewsSwitch news={news} /> : null}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The person's switch for tracker news to agents in this project. Words, never colour alone. */
+function NewsSwitch({ news }: { news: TrackerNewsSwitch }) {
+  return (
+    <div className="space-y-1 border-t pt-2 text-muted-foreground" data-tracker-news={news.on ? 'on' : 'off'}>
+      <label className="flex items-center gap-1.5 text-foreground">
+        <input type="checkbox" checked={news.on} onChange={(e) => news.onChange(e.target.checked)} />
+        {TRACKER_NEWS_WORDS.title}
+      </label>
+      <p>{news.on ? TRACKER_NEWS_WORDS.lead : TRACKER_NEWS_WORDS.off}</p>
+    </div>
   )
 }
 

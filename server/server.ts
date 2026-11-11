@@ -7,7 +7,7 @@ import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
 import { projectsMine } from './projectsMine.ts'
-import { epicsByRef, Trackers } from './trackers/reading.ts'
+import { epicPlacesByRef, epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
@@ -329,6 +329,8 @@ const wakes = new Wakes()
  * in a project at that folder; the page puts it in `context.tracker`. Nothing
  * is read here at startup — see `server/trackers/reading.ts`.
  */
+/* Bound once the messages desk exists (below): a reading that landed before then tells nothing. */
+let tellNews: (project: number, place: { epic: string; parts?: string[] }, body: string) => void = () => {}
 const trackers = new Trackers({
   run: account.run,
   told: (root, signal) => {
@@ -340,9 +342,12 @@ const trackers = new Trackers({
     const here = listProjects(db).filter((project) => project.path === root)
     if (!here.length) return
     const epics = epicsByRef(root)
+    const places = epicPlacesByRef(root)
     for (const project of here) {
-      const out = trackerNotices.landed(project.id, { rows, me, epics })
+      const out = trackerNotices.landed(project.id, { rows, me, epics, places })
       wakes.inboxChanged(project.id, out.rev)
+      /* Tracker news to agents: to the sessions at each epic, as the host's own (`src/host/trackerNews.ts`). */
+      for (const one of out.news) tellNews(project.id, one.place, one.body)
     }
     /* Who the person is on each forge, kept for "You're mentioned in What's new". */
     forgeLogins.learned(me)
@@ -3192,6 +3197,7 @@ const messageRoutes = messageDesk({
   granted: (module) => personGrants.granted(module),
   projectIdAt: (root) => listProjects(db).find((one) => one.path === root)?.id ?? null,
 })
+tellNews = (project, place, body) => void messageRoutes.hostTell(project, place, body)
 
 /*
  * A module's server asking what its page would be told (protocol 2.19.0): the
