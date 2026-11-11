@@ -95,7 +95,7 @@ describe('other projects in the Inbox', () => {
       use: () => {},
       hasProject: () => true,
     })
-    expect(read.elsewhere[0]?.project).toEqual(PORTAL)
+    expect(read.elsewhere[0]?.project).toEqual({ id: PORTAL.id, name: PORTAL.name })
     expect(read.elsewhere[0]?.items.map((one) => one.label)).toEqual(['Building the reel', 'Kiosk reel'])
     expect(read.elsewhere[0]?.items[1]?.where).toBe('kiosk-info-reel')
     expect(read.elsewhere[0]?.items.every((one) => !one.here)).toBe(true)
