@@ -178,7 +178,7 @@ export function editTrackers(
 
   const read = readConfig(root)
   if (!read.ok) {
-    return declined(`${file} will not read (${read.why}), and this host will not write over a file it cannot read. Start it fresh from the tracker panel, which keeps the old one as trackers.json.broken.`)
+    return declined(`${file} will not read (${read.why}), and this host will not write over a file it cannot read. Start it fresh in Settings › Trackers, which keeps the old one as trackers.json.broken.`)
   }
   let raw: Json = { version: 1 }
   let existed = false

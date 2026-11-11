@@ -24,7 +24,7 @@ import { Projects } from './Projects.tsx'
 import { ToolsMark } from './Tools.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { Trouble } from './Trouble.tsx'
-import { TrackerReading, type TrackerNewsSwitch } from './TrackerReading.tsx'
+import { TrackerReading } from './TrackerReading.tsx'
 import type { StorageViews } from './Storage.tsx'
 import { PinButton, PinnedMenu } from './PinnedPlaces.tsx'
 import type { PinnedView } from './usePinnedPlaces.ts'
@@ -100,7 +100,6 @@ export function Bar({
   looking,
   tracker = null,
   onRefreshTrackers = () => {},
-  trackerNews = null,
   inbox = null,
   pinned = null,
 }: {
@@ -161,8 +160,6 @@ export function Bar({
   /** The open project's tracker reading, or null with no project open. See `TrackerReading.tsx`. */
   tracker?: TrackerState | null
   onRefreshTrackers?(): void
-  /** "Tracker news to agents" in the open project, in the trackers panel. Null: not offered. */
-  trackerNews?: TrackerNewsSwitch | null
   /**
    * The small count of what needs the person (`InboxCount.tsx`). The Inbox itself is a module on
    * a kehikko. Null: nothing is drawn.
@@ -312,7 +309,7 @@ export function Bar({
         {inbox ? <InboxCount view={inbox} /> : null}
 
         {/* The project's shared tracker reading: its age, and "Refresh all". */}
-        {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} news={trackerNews} /> : null}
+        {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} /> : null}
 
         {/* The one number worth putting on the frame itself: how many modules
             need something from a person. Not how many are not running — modules
