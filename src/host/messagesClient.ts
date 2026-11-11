@@ -10,14 +10,34 @@ import type { AgentMessage } from 'kehikot-module-protocol'
 export interface MessagesRead {
   count: number
   messages: AgentMessage[]
+  /** The modules the person muted in this project ("Messages to agents" off, `host/messagesUse.ts`). */
+  muted: string[]
 }
 
 export async function fetchMessages(project: number, limit?: number): Promise<MessagesRead | null> {
   try {
     const response = await fetch(`/host/messages?project=${project}${limit === undefined ? '' : `&limit=${limit}`}`)
     if (!response.ok) return null
-    const got = (await response.json()) as { ok?: unknown; count?: unknown; messages?: unknown }
-    return got.ok === true && Array.isArray(got.messages) && typeof got.count === 'number' ? { count: got.count, messages: got.messages as AgentMessage[] } : null
+    const got = (await response.json()) as { ok?: unknown; count?: unknown; messages?: unknown; muted?: unknown }
+    const muted = Array.isArray(got.muted) ? got.muted.filter((one): one is string => typeof one === 'string') : []
+    return got.ok === true && Array.isArray(got.messages) && typeof got.count === 'number' ? { count: got.count, messages: got.messages as AgentMessage[], muted } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The person's "Messages to agents" switch for one module in one project (`POST /host/messages/mute`,
+ * the page's alone). Answers the project's muted modules after, or `null`. Every page re-reads.
+ */
+export async function postMute(project: number, module: string, muted: boolean): Promise<string[] | null> {
+  try {
+    const response = await fetch('/host/messages/mute', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project, module, muted }) })
+    if (!response.ok) return null
+    const got = (await response.json()) as { ok?: unknown; muted?: unknown }
+    if (got.ok !== true || !Array.isArray(got.muted)) return null
+    announceMessagesChanged(project)
+    return got.muted.filter((one): one is string => typeof one === 'string')
   } catch {
     return null
   }

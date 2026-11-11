@@ -1470,6 +1470,16 @@
   nothing acts on one, and no MCP tool here reads, sends or clears them —
   `my_place` says only where they go and how many are kept. Clearing is
   `POST /host/messages/clear`, in `PAGE_ONLY`.
+- "Messages to agents" is the person's switch per module AND per project
+  (`messages_muted` in `frame.sqlite`, `server/messageMutes.ts`; words and rules
+  in `src/host/messagesUse.ts`). Off, `messageRoutes.ts` declines that module's
+  OWN messages — `notify`, a page's `post`, `tell` — with `MUTED_SAYS`, keeps
+  nothing and wakes nothing. It never touches `say` (the person's, `from.person`)
+  or `send` (a session's, stamped with its session). Set only by
+  `POST /host/messages/mute` (`PAGE_ONLY`); no MCP tool mutes, `read_canvas`
+  marks it. Found as a Container-menu row right after "Use inbox"
+  (`FRAME_ENTRIES`) and as "Mute messages from <name>" on a module's own
+  message in the Inbox's messages section.
 
 ## Host windows
 

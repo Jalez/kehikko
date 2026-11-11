@@ -144,6 +144,20 @@ describe('where an entry goes', () => {
     const frame = at({ items: [], frame: entries }, 380, 0).triggers[0]!.sections[0]!
     expect(frame.kind === 'frame' && frame.entries).toEqual(['scope', 'inbox', 'prompts'])
   })
+
+  test('"Messages to agents" stands right after "Use inbox", reachable exactly once at every width and fold', () => {
+    const offer: Offer = { items: ITEMS, frame: ['settings', 'inbox', 'messages', 'prompts', 'remove'], help: ['feedback'] }
+    for (const width of WIDTHS) {
+      for (const fold of FOLDS) {
+        const keys = placesOf(at(offer, width, fold)).map((one) => one.key)
+        expect(keys.filter((one) => one === 'frame:messages'), `${width} ${fold}`).toEqual(['frame:messages'])
+        expect(keys.indexOf('frame:messages'), `${width} ${fold}`).toBe(keys.indexOf('frame:inbox') + 1)
+      }
+    }
+    /* With no "Use inbox" row it is still there, once; and the Container tooltip names it. */
+    for (const width of WIDTHS) expect(reachable(at({ items: [], frame: ['messages', 'prompts'] }, width, 0))).toContain('frame:messages')
+    expect(frameHint(['inbox', 'messages'])).toBe('This container: inbox, messages to agents')
+  })
 })
 
 describe('what the row keeps when there is no room', () => {

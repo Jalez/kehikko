@@ -137,6 +137,7 @@ export function Container({
   activity = null,
   onActivitySeen,
   inboxUse,
+  messagesUse,
   expand,
   find = null,
 }: {
@@ -362,6 +363,11 @@ export function Container({
    */
   inboxUse?: { on: boolean; onChange(on: boolean): void }
   /**
+   * "Messages to agents" for this module in this project (`host/messagesUse.ts`): whether its own
+   * messages reach the agent sessions, and the person's change. A row of the Container menu. Absent: no row.
+   */
+  messagesUse?: { on: boolean; onChange(on: boolean): void }
+  /**
    * "Expand" (`host/expand.ts`): whether this container is shown large over the canvas now, and the
    * person's change. A row of the Container menu while its page is showing and it is not folded.
    */
@@ -453,6 +459,7 @@ export function Container({
     onPrompts,
     rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
     inbox: inboxUse,
+    messages: messagesUse,
     expand: expand && showing.kind === 'page' && !collapsed && !oneEpic ? expand : undefined,
     standing: collapsed && standing ? standingRows(standing, pressing, () => onCollapse(false)) : undefined,
     controls: controlParts,

@@ -4,20 +4,31 @@ import type { AgentMessage } from 'kehikot-module-protocol'
 
 import { Loading } from '@/components/ui/loading.tsx'
 import { clearMessages, fetchMessages, fromWords, onMessagesChanged, toWords } from '@/host/messagesClient.ts'
+import { muteWords, unmuteWords } from '@/host/messagesUse.ts'
 
 /**
  * The person's view of the messages between agent sessions in the open project
  * (protocol 2.41.0): read-only, newest first, each with who sent it, who it is
  * for, from where and when. A section at the foot of the Inbox panel, folded,
  * with its count — never a standing row. A message's body is TEXT: drawn as a
- * string, never as markup or a link. The one act is Clear, pressed twice.
+ * string, never as markup or a link. The acts are Clear, pressed twice, and — on
+ * a module's own message — "Mute messages from <module>", the person's
+ * "Messages to agents" switch for it in this project (`host/messagesUse.ts`).
+ * The person's own messages and a session's are never offered it.
  */
 
 export interface MessagesView {
   project: number
   /** A module's registered name, for "to every … session". */
   nameOf(module: string): string
+  /** The modules whose own messages the person muted in this project. Absent: none, and no offer. */
+  muted?: ReadonlySet<string>
+  /** The person's switch for one module's own messages. Absent: no offer. */
+  onMute?(module: string, muted: boolean): void
 }
+
+/** Whether a message is a module's own: not the person's, not a session's. Only those are muted. */
+export const moduleOwn = (one: AgentMessage): boolean => !one.from.person && !one.from.session
 
 const time = (iso: string): string => {
   const at = new Date(iso)
@@ -69,6 +80,7 @@ export function MessagesSection({ view }: { view: MessagesView }) {
           {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
           Messages between agents
           <span className="font-normal tabular-nums normal-case">{count ?? ''}</span>
+          {view.muted?.size ? <span className="font-normal normal-case" data-messages-muted="">· {view.muted.size} muted</span> : null}
         </button>
       </h3>
       {open ? (
@@ -92,6 +104,13 @@ export function MessagesSection({ view }: { view: MessagesView }) {
                   </div>
                   <p className="mt-0.5 break-words whitespace-pre-wrap">{one.body}</p>
                   {one.choices.length ? <p className="text-muted-foreground mt-0.5">Choices: {one.choices.join(' · ')}</p> : null}
+                  {view.onMute && moduleOwn(one) ? (
+                    <MuteOffer
+                      name={one.from.name || view.nameOf(one.from.module)}
+                      muted={view.muted?.has(one.from.module) ?? false}
+                      onMute={(muted) => view.onMute?.(one.from.module, muted)}
+                    />
+                  ) : null}
                 </li>
               ))
             )}
@@ -105,5 +124,26 @@ export function MessagesSection({ view }: { view: MessagesView }) {
         </>
       ) : null}
     </section>
+  )
+}
+
+/** The offer on a module's own message: mute it here, or — muted — the way back. Words, never colour alone. */
+function MuteOffer({ name, muted, onMute }: { name: string; muted: boolean; onMute(muted: boolean): void }) {
+  return (
+    <p className="mt-0.5">
+      <button
+        type="button"
+        data-mute={muted ? 'off' : 'on'}
+        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
+        title={
+          muted
+            ? 'Takes this module’s own messages to agents again, in this project'
+            : 'Turns “Messages to agents” off for this module in this project: none of its own messages reach an agent until you turn it back on. Yours and the agents’ own are not touched.'
+        }
+        onClick={() => onMute(!muted)}
+      >
+        {muted ? `Muted · ${unmuteWords(name)}` : muteWords(name)}
+      </button>
+    </p>
   )
 }

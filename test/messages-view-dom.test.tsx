@@ -10,7 +10,7 @@ import type { AgentMessage } from 'kehikot-module-protocol'
  */
 
 const inChild = process.env.MESSAGES_VIEW_DOM === '1'
-const TESTS = 2
+const TESTS = 3
 
 if (!inChild) {
   test('the messages view, rendered in a process of its own', () => {
@@ -65,12 +65,12 @@ beforeAll(async () => {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
-async function mount() {
+async function mount(extra: Record<string, unknown> = {}) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await React.act(async () => {
-    root.render(React.createElement(MessagesSection, { view: { project: 3, nameOf: (id: string) => id } }))
+    root.render(React.createElement(MessagesSection, { view: { project: 3, nameOf: (id: string) => id, ...extra } }))
     await settle()
   })
   return { host, root }
@@ -123,5 +123,41 @@ if (inChild) {
     })
     expect(cleared).toBe(1)
     root.unmount()
+  })
+
+  test('a module’s own message offers "Mute messages from …"; the person’s and a session’s never do', async () => {
+    const own = { ...message(1, 'run passed'), from: { module: 'stand.beta', name: 'Beta', session: null, place: { epic: null, parts: [], kehikko: null }, person: false } }
+    const person = { ...message(2, 'from me'), from: { ...own.from, name: 'Beta', person: true } }
+    kept = [own, person, message(3, 'between sessions')]
+    const pressed: [string, boolean][] = []
+    const { host, root } = await mount({ muted: new Set<string>(), onMute: (module: string, muted: boolean) => pressed.push([module, muted]) })
+    await React.act(async () => {
+      ;(host.querySelector('[data-messages] button') as HTMLButtonElement).click()
+      await settle()
+    })
+    const offers = [...host.querySelectorAll('[data-mute]')] as HTMLButtonElement[]
+    expect(offers.map((one) => one.textContent)).toEqual(['Mute messages from Beta'])
+    expect(host.querySelector('[data-message="1"] [data-mute]')).not.toBeNull()
+    await React.act(async () => {
+      offers[0]!.click()
+      await settle()
+    })
+    expect(pressed).toEqual([['stand.beta', true]])
+    root.unmount()
+    /* Muted: the header says so, and the row offers the way back. */
+    const again = await mount({ muted: new Set(['stand.beta']), onMute: (module: string, muted: boolean) => pressed.push([module, muted]) })
+    expect(again.host.querySelector('[data-messages-muted]')?.textContent).toBe('· 1 muted')
+    await React.act(async () => {
+      ;(again.host.querySelector('[data-messages] button') as HTMLButtonElement).click()
+      await settle()
+    })
+    const back = again.host.querySelector('[data-mute]') as HTMLButtonElement
+    expect(back.textContent).toBe('Muted · Unmute messages from Beta')
+    await React.act(async () => {
+      back.click()
+      await settle()
+    })
+    expect(pressed.at(-1)).toEqual(['stand.beta', false])
+    again.root.unmount()
   })
 }
