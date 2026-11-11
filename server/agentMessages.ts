@@ -7,8 +7,10 @@ import {
   messageToSchema,
   type AgentMessage,
   type MessageKind,
+  type MessagePlace,
   type MessageTo,
 } from 'kehikot-module-protocol'
+import { tellDigest, TELL_EVERY_MS } from 'kehikot-module-protocol/serve'
 
 /**
  * Messages between agent sessions (protocol 2.41.0, `agents:message`): the one
@@ -34,6 +36,16 @@ import {
  *
  * Bounded: `LIMITS.MESSAGES_KEPT` per project and `LIMITS.MESSAGES_KEPT_MS`;
  * a session sends at most `MESSAGES_PER_MINUTE` and `MESSAGES_PER_HOUR`.
+ *
+ * ## News to a place (protocol 2.75.0, `messages.tell`)
+ *
+ * A module's own news to every session at a place is kept once, as it came
+ * (`tell = 1`, what the person's view lists), and never handed out as it is.
+ * When a session there reads, it is handed its own copy (`copy_of`, `for_*`):
+ * at most one from each module a minute (`LIMITS.TELLS_PER_MINUTE`). What came
+ * since its last one waits for the minute's end, then goes as one digest
+ * (`tellDigest`). Nothing is dropped: news older than `MESSAGES_UNREAD_MS`
+ * is no longer unread, as any message.
  */
 
 /** A session as this record knows it: the module that runs it and its id there. */
@@ -46,6 +58,8 @@ export interface SessionKey {
 export interface Reader extends SessionKey {
   epic: string | null
   kehikko: string | null
+  /** The parts of its epic it is at (protocol 2.75.0); none is the whole epic. */
+  parts?: string[]
 }
 
 /**
@@ -135,8 +149,23 @@ export function ensureAgentMessages(db: Database): void {
     ['copy_of', 'integer'],
     /* Protocol 2.55.0: the Inbox question a person's answer answers. */
     ['answers', 'text'],
+    /* Protocol 2.75.0: a module's news to a place, and the session one copy of it is for. */
+    ['tell', 'integer not null default 0'],
+    ['for_module', 'text'],
+    ['for_session', 'text'],
   ]
   for (const [name, type] of columns) if (!has.has(name)) db.exec(`alter table agent_messages add column ${name} ${type}`)
+  db.exec(`
+    create table if not exists agent_message_tells (
+      project     integer not null references projects(id) on delete cascade,
+      from_module text    not null,
+      module      text    not null,
+      session     text    not null,
+      last_id     integer not null,
+      last_at     integer not null,
+      primary key (project, from_module, module, session)
+    );
+  `)
 }
 
 interface Row {
@@ -156,7 +185,17 @@ interface Row {
   once: number
   copy_of: number | null
   answers: string | null
+  tell: number
+  for_module: string | null
+  for_session: string | null
 }
+
+/**
+ * Whether a session may be handed this row at all: anything but news to a
+ * place, which a session is handed only as its own copy (protocol 2.75.0).
+ */
+const visibleTo = (row: Row, reader: SessionKey): boolean =>
+  row.tell !== 1 || (row.copy_of !== null && row.for_module === reader.module && row.for_session === reader.session)
 
 const parse = (text: string): unknown => {
   try {
@@ -198,6 +237,9 @@ export function isFor(to: MessageTo, reader: Reader): boolean {
   if (to.place) {
     if (to.place.epic !== undefined && to.place.epic !== reader.epic) return false
     if (to.place.kehikko !== undefined && to.place.kehikko !== reader.kehikko) return false
+    /* Protocol 2.75.0: to some parts of the epic — a session at any of them, or at the whole epic. */
+    const parts = reader.parts ?? []
+    if (to.place.parts?.length && parts.length && !parts.some((part) => to.place!.parts!.includes(part))) return false
     return true
   }
   return false
@@ -218,6 +260,7 @@ export const MESSAGES_SAY = {
     `Too many messages from this session in the last ${per}: at most ${per === 'minute' ? LIMITS.MESSAGES_PER_MINUTE : LIMITS.MESSAGES_PER_HOUR}. Nothing was sent; send fewer, longer ones.`,
   noticeRate: (per: 'minute' | 'hour') =>
     `Too many notices from this module to that session in the last ${per}: at most ${per === 'minute' ? LIMITS.NOTICES_PER_MINUTE : LIMITS.NOTICES_PER_HOUR}. Nothing was sent; send fewer.`,
+  tellRate: () => `Too much news from this module in the last hour: at most ${LIMITS.MESSAGES_PER_HOUR}. Nothing was sent; merge it into fewer messages.`,
   personRate: () => `Too many of your messages through this module in the last minute: at most ${LIMITS.PERSON_MESSAGES_PER_MINUTE}. Nothing was sent; wait a moment.`,
   empty: 'A message says something: the body was empty once its control characters were taken out. Nothing was sent.',
 } as const
@@ -249,14 +292,14 @@ export class AgentMessages {
       const target = JSON.stringify(messageToSchema.parse(to))
       const count = (since: number) =>
         this.db
-          .query<{ n: number }, [number, string, string, number]>("select count(*) as n from agent_messages where project = ? and from_module = ? and from_session = '' and person = 0 and copy_of is null and to_json = ? and at > ?")
+          .query<{ n: number }, [number, string, string, number]>("select count(*) as n from agent_messages where project = ? and from_module = ? and from_session = '' and person = 0 and tell = 0 and copy_of is null and to_json = ? and at > ?")
           .get(project, from.module, target, since)!.n
       if (count(now - 60_000) >= LIMITS.NOTICES_PER_MINUTE) return { ok: false, why: MESSAGES_SAY.noticeRate('minute') }
       if (count(now - 3_600_000) >= LIMITS.NOTICES_PER_HOUR) return { ok: false, why: MESSAGES_SAY.noticeRate('hour') }
     } else {
       const count = (since: number) =>
         this.db
-          .query<{ n: number }, [number, string, string, number]>('select count(*) as n from agent_messages where project = ? and from_module = ? and from_session = ? and person = 0 and copy_of is null and at > ?')
+          .query<{ n: number }, [number, string, string, number]>('select count(*) as n from agent_messages where project = ? and from_module = ? and from_session = ? and person = 0 and tell = 0 and copy_of is null and at > ?')
           .get(project, from.module, from.session, since)!.n
       if (count(now - 60_000) >= LIMITS.MESSAGES_PER_MINUTE) return { ok: false, why: MESSAGES_SAY.rate('minute') }
       if (count(now - 3_600_000) >= LIMITS.MESSAGES_PER_HOUR) return { ok: false, why: MESSAGES_SAY.rate('hour') }
@@ -287,17 +330,116 @@ export class AgentMessages {
     return { ok: true, id }
   }
 
+  /**
+   * A module's own news to every session at a place (protocol 2.75.0,
+   * `messages.tell`): kept once, as it came, stamped with no session and the
+   * place as where it is from. Each session there is handed its own copy when
+   * it reads (`handTells`), at most one from this module a minute.
+   */
+  tell(project: number, from: { module: string; name: string }, place: MessagePlace, body: string, extras: { kind?: 'note' | 'report'; thread?: string } = {}): { ok: true; id: number } | { ok: false; why: string } {
+    const now = this.clock()
+    const recent = this.db
+      .query<{ n: number }, [number, string, number]>('select count(*) as n from agent_messages where project = ? and from_module = ? and tell = 1 and copy_of is null and at > ?')
+      .get(project, from.module, now - 3_600_000)!.n
+    if (recent >= LIMITS.MESSAGES_PER_HOUR) return { ok: false, why: MESSAGES_SAY.tellRate() }
+    const text = keptBody(body)
+    if (!text) return { ok: false, why: MESSAGES_SAY.empty }
+    const target = messageToSchema.parse({ place })
+    const id = this.insert(project, now, {
+      module: from.module,
+      name: from.name.slice(0, 80),
+      session: '',
+      place: JSON.stringify({ epic: place.epic ?? null, parts: (place.parts ?? []).slice(0, LIMITS.PARTS), kehikko: place.kehikko ?? null }),
+      to: JSON.stringify(target),
+      thread: extras.thread ?? null,
+      body: text,
+      kind: extras.kind ?? 'note',
+      choices: '[]',
+      replyTo: null,
+      person: false,
+      once: false,
+      copyOf: null,
+      tell: true,
+    })
+    this.trim(project, now)
+    return { ok: true, id }
+  }
+
+  /**
+   * Hand this reader the news it is due (protocol 2.75.0): per sending module,
+   * the news to its place since the last it was handed, as ONE copy addressed
+   * like the news — itself when it is one, a digest when it is more — and
+   * only when a minute has passed since that module's last copy to it. Until
+   * then it waits, and is handed at the minute's end, merged.
+   */
+  private handTells(project: number, reader: Reader): void {
+    const fresh = this.clock() - LIMITS.MESSAGES_UNREAD_MS
+    const rows = this.db
+      .query<Row, [number, number]>('select * from agent_messages where project = ? and tell = 1 and copy_of is null and at >= ? order by id')
+      .all(project, fresh)
+    const byModule = new Map<string, Row[]>()
+    for (const row of rows) {
+      const message = toMessage(row)
+      if (!message || !isFor(message.to, reader)) continue
+      const list = byModule.get(row.from_module) ?? []
+      list.push(row)
+      byModule.set(row.from_module, list)
+    }
+    const now = this.clock()
+    for (const [module, all] of byModule) {
+      const mark = this.db
+        .query<{ last_id: number; last_at: number }, [number, string, string, string]>('select last_id, last_at from agent_message_tells where project = ? and from_module = ? and module = ? and session = ?')
+        .get(project, module, reader.module, reader.session)
+      const due = all.filter((row) => row.id > (mark?.last_id ?? 0))
+      const newest = due.at(-1)
+      if (!newest) continue
+      if (mark && now - mark.last_at < TELL_EVERY_MS) continue
+      const threads = new Set(due.map((row) => row.thread))
+      this.insert(project, now, {
+        module,
+        name: newest.from_name,
+        session: '',
+        place: newest.from_place,
+        to: newest.to_json,
+        thread: threads.size === 1 ? newest.thread : null,
+        body: tellDigest(due.map((row) => row.body)),
+        kind: due.some((row) => row.kind === 'report') ? 'report' : 'note',
+        choices: '[]',
+        replyTo: null,
+        person: false,
+        once: false,
+        copyOf: newest.id,
+        tell: true,
+        for: reader,
+      })
+      this.db
+        .query(
+          `insert into agent_message_tells (project, from_module, module, session, last_id, last_at) values (?, ?, ?, ?, ?, ?)
+           on conflict (project, from_module, module, session) do update set last_id = excluded.last_id, last_at = excluded.last_at`,
+        )
+        .run(project, module, reader.module, reader.session, newest.id, now)
+    }
+  }
+
+  /** When news held for a session goes at the latest: a minute after the last copy any session was handed. */
+  tellsDueBy(project: number, module: string): number | null {
+    const last = this.db
+      .query<{ at: number | null }, [number, string]>('select max(last_at) as at from agent_message_tells where project = ? and from_module = ?')
+      .get(project, module)?.at
+    return last === null || last === undefined ? null : last + TELL_EVERY_MS
+  }
+
   private insert(
     project: number,
     at: number,
-    row: { module: string; name: string; session: string; place: string; to: string; thread: string | null; body: string; kind: string; choices: string; replyTo: number | null; person: boolean; once: boolean; copyOf: number | null; answers?: string | null },
+    row: { module: string; name: string; session: string; place: string; to: string; thread: string | null; body: string; kind: string; choices: string; replyTo: number | null; person: boolean; once: boolean; copyOf: number | null; answers?: string | null; tell?: boolean; for?: SessionKey },
   ): number {
     return this.db
-      .query<{ id: number }, [number, number, string, string, string, string, string, string | null, string, string, string, number | null, number, number, number | null, string | null]>(
-        `insert into agent_messages (project, at, from_module, from_name, from_session, from_place, to_json, thread, body, kind, choices, reply_to, person, once, copy_of, answers)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`,
+      .query<{ id: number }, [number, number, string, string, string, string, string, string | null, string, string, string, number | null, number, number, number | null, string | null, number, string | null, string | null]>(
+        `insert into agent_messages (project, at, from_module, from_name, from_session, from_place, to_json, thread, body, kind, choices, reply_to, person, once, copy_of, answers, tell, for_module, for_session)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`,
       )
-      .get(project, at, row.module, row.name, row.session, row.place, row.to, row.thread, row.body, row.kind, row.choices, row.replyTo, row.person ? 1 : 0, row.once ? 1 : 0, row.copyOf, row.answers ?? null)!.id
+      .get(project, at, row.module, row.name, row.session, row.place, row.to, row.thread, row.body, row.kind, row.choices, row.replyTo, row.person ? 1 : 0, row.once ? 1 : 0, row.copyOf, row.answers ?? null, row.tell ? 1 : 0, row.for?.module ?? null, row.for?.session ?? null)!.id
   }
 
   /** The once-message from `from` that this reader was handed (its id), or null: at most one per sending module, ever. */
@@ -362,11 +504,11 @@ export class AgentMessages {
       .run(project, project, LIMITS.MESSAGES_KEPT)
   }
 
-  private rows(project: number, after = 0): AgentMessage[] {
+  private rows(project: number, after: number, reader: SessionKey): AgentMessage[] {
     return this.db
       .query<Row, [number, number]>('select * from agent_messages where project = ? and id > ? order by id')
       .all(project, after)
-      .flatMap((row) => toMessage(row) ?? [])
+      .flatMap((row) => (visibleTo(row, reader) ? (toMessage(row) ?? []) : []))
   }
 
   private cursor(project: number, reader: SessionKey): number {
@@ -393,8 +535,9 @@ export class AgentMessages {
    */
   unread(project: number, reader: Reader): AgentMessage[] {
     this.introduce(project, reader)
+    this.handTells(project, reader)
     const fresh = this.clock() - LIMITS.MESSAGES_UNREAD_MS
-    return this.rows(project, this.cursor(project, reader)).filter(
+    return this.rows(project, this.cursor(project, reader), reader).filter(
       (one) => Date.parse(one.at) >= fresh && !isOwn(one, reader) && isFor(one.to, reader) && this.mayHand(project, one, reader),
     )
   }
@@ -425,7 +568,7 @@ export class AgentMessages {
       return { messages, unread: this.unread(project, reader).length }
     }
     const unread = this.unread(project, reader).length
-    const mine = this.rows(project, ask.since ?? 0).filter(
+    const mine = this.rows(project, ask.since ?? 0, reader).filter(
       (one) => (isOwn(one, reader) || (isFor(one.to, reader) && this.mayHand(project, one, reader))) && (ask.thread === undefined || one.thread === ask.thread),
     )
     const messages = ask.since === undefined ? mine.slice(-ask.limit) : mine.slice(0, ask.limit)

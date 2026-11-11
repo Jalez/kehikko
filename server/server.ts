@@ -3187,6 +3187,7 @@ const messageRoutes = messageDesk({
   known: (module) => callers.has(module),
   may: (module, capability) => declared(module, capability),
   granted: (module) => personGrants.granted(module),
+  projectIdAt: (root) => listProjects(db).find((one) => one.path === root)?.id ?? null,
 })
 
 /*
@@ -3220,7 +3221,7 @@ const serverAsk = serverAskDesk({
       /* The record of traffic (protocol 2.20.0): the Monitor's door reads it, a module's server notes into it. */
       { door: trafficReading, via: 'server' },
     ),
-  messages: (module, method, params) => messageRoutes.serverAnswer(module, method, params),
+  messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
 })
 
 /*

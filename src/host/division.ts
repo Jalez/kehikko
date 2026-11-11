@@ -81,6 +81,11 @@ export const ANSWERED_BY_THE_SERVER = [
      it how that came out (`notify` in `server/messageRoutes.ts`). A page has no
      asker's token: `answer` declines it there. */
   'messages.notify',
+  /* Protocol 2.75.0: a module's SERVER tells every session at a place its own
+     news (`tell` in `server/messageRoutes.ts`), at most one a minute to each
+     session, the rest merged. A page has no project to name: `answer`
+     declines it there. */
+  'messages.tell',
 ] as const
 
 /**

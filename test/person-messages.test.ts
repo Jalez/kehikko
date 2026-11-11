@@ -143,7 +143,7 @@ describe('the person’s message: stamped only when everything holds', () => {
     expect(kept!.from).toEqual({ module: RELAY, name: 'Relay', session: null, place: { epic: 'methods', parts: [], kehikko: 'writing' }, person: true })
     expect(kept!.replyTo).toBe(1)
     const typed = typedMessages(store.deliver(project.id, reader('s1')).messages)
-    expect(typed.startsWith(`[Message from your person via Relay, #${kept!.id}, answering #1] Use SQLite`)).toBe(true)
+    expect(typed.startsWith(`⟦Your person via Relay · #${kept!.id} · answering #1⟧ Use SQLite`)).toBe(true)
   })
   test('the grant comes and goes only with the change this host saw', () => {
     expect(grants.granted(RELAY)).toBe(false)
