@@ -107,7 +107,7 @@ const FOOTER: readonly FooterItem[] = [
   { kind: 'meter', id: 'usage', label: 'Usage', value: 0.42, align: 'end' },
 ] as unknown as FooterItem[]
 
-const ROWS = ['Write the release note', 'Review the open change', 'Answer the question in the inbox', 'Plan the next part']
+const ROWS = ['Write the release note', 'Read the open change', 'Answer the question in the inbox', 'Plan the next part']
 const BARS = [0.45, 0.7, 0.35, 0.9, 0.6, 0.8]
 
 /** One example container. Its fold, tile, reveal and view are its own and are never saved. */
