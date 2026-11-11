@@ -15,8 +15,8 @@
  *     goes straight to the explanations.
  *   - SHOW — the explanations after: what each control of the top bar is for
  *     (project, epic, parts, kehikko and its skills, Pinned, Kehikko modules), a
- *     container's header, fold, menus and corners, then the Inbox, headers,
- *     Updates, Settings, theme and Help. Next and Back; a stop whose element is not on screen (Parts on
+ *     container's header, fold, menus and corners, then the Inbox,
+ *     Updates, Settings (with Appearance) and Help. Next and Back; a stop whose element is not on screen (Parts on
  *     "All epics", a bar too narrow to draw one) is left out. Someone who
  *     already has a project, an epic and a kehikko gets only these, so the
  *     bar is explained to them too; the waiting steps are the first run's.
@@ -337,7 +337,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] [data-tour="fold"]'],
         title: 'Fold it out of the way',
-        body: 'Press the chevron to fold the container. Hold it to fold to one row or two, and to choose when the header and footer show: always, on hover, on a click or on a long press.',
+        body: 'Press the chevron to fold the container. How far a fold goes, and when every header and footer shows, are in Settings › Appearance.',
         side: 'bottom',
         align: 'end',
       },
@@ -351,7 +351,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour-example] [data-menu="frame"]'],
         title: 'The Container menu',
-        body: 'Everything about the container itself: its scope, its settings, Use inbox, Header and footer, and Remove from this kehikko. The ? beside it is its Help: the same menu as the app’s own, for this module.',
+        body: 'Everything about the container itself: its scope, its settings, Use inbox, and Remove from this kehikko. The ? beside it is its Help: the same menu as the app’s own, for this module.',
         side: 'bottom',
         align: 'end',
       },
@@ -401,20 +401,6 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
-    id: 'focus',
-    kind: 'show',
-    frames: [
-      {
-        selectors: ['[data-tour="focus"]', 'button[aria-label="Headers: hide headers and footers"]', 'button[aria-label="Headers: always show headers and footers"]'],
-        title: 'Headers and footers',
-        body:
-          'Hide every container’s header and footer until the pointer is over it; press again to keep them shown. A container can choose its own way in its Container menu.',
-        side: 'bottom',
-        align: 'end',
-      },
-    ],
-  },
-  {
     id: 'updates',
     kind: 'show',
     frames: [
@@ -434,21 +420,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour="settings"]', 'button[aria-label="Settings"]'],
         title: 'Settings',
-        body: 'How Kehikot works with your agents, and how the Inbox tells you. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
-        side: 'bottom',
-        align: 'end',
-      },
-    ],
-  },
-  {
-    id: 'theme',
-    kind: 'show',
-    frames: [
-      {
-        selectors: ['[data-tour="theme"]', 'button[aria-label="switch to light"]', 'button[aria-label="switch to dark"]'],
-        title: 'Light or dark',
-        body:
-          'Switch the whole app, and the modules in it, between light and dark.',
+        body: 'How Kehikot works with your agents, how the Inbox tells you, and how it looks: Appearance has the headers and footers, the theme, and the containers’ borders and background. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
         side: 'bottom',
         align: 'end',
       },

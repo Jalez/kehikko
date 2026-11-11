@@ -30,7 +30,7 @@ import {
 } from '../server/kehikot.ts'
 import { addProject, type Project } from '../server/projects.ts'
 import { viewFile } from '../server/view.ts'
-import { FOLDED_ROWS, FOLDED_TWO_ROWS } from '../src/host/columns.ts'
+import { FOLDED_ROWS } from '../src/host/columns.ts'
 
 /*
  * A project's kehikot in the project's own folder — the copy that travels.
@@ -77,15 +77,14 @@ const everything: Placement = {
   x: 3,
   y: 0,
   w: 5,
-  /* Folded to two rows, so drawn at its header's and footer's height — as the page would have drawn it. */
-  h: FOLDED_TWO_ROWS,
+  /* Folded, so drawn at its header's height — as the page would have drawn it. How far a fold goes is
+     Settings › Appearance's, never stored with the placement. */
+  h: FOLDED_ROWS,
   grow: true,
   pinned: true,
   prompt: 'read chapter two and say what is missing',
   promptFor: 'kehikot.notes',
   collapsed: true,
-  foldRows: 2,
-  showRows: 'click',
   wish: 20,
   selected: true,
   filters: { scope: 'chapter', kind: 'todo' },
@@ -94,8 +93,8 @@ const everything: Placement = {
   scope: null,
 }
 
-/** A placement with how far it folds and when its rows show at rest: left out, as a database row at rest has them. */
-function atRest({ foldRows: _f, showRows: _s, ...rest }: Placement): Placement {
+/** A placement without the fold a page stamps on: left out, as a database row has it. */
+function atRest({ foldRows: _f, ...rest }: Placement): Placement {
   return rest
 }
 

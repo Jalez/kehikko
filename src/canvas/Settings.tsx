@@ -9,6 +9,7 @@ import {
   Hammer,
   HardDrive,
   MessagesSquare,
+  Palette,
   Plug,
   Search,
   Sparkles,
@@ -70,6 +71,9 @@ import { ModuleIcon } from './ModuleIcon.tsx'
 import { GITHUB_SHARE, GITHUB_SHARE_TARGET, SHARE_PERCENT, shareFromInput } from '@/host/githubShare.ts'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
+import { AppearanceSettings } from './AppearanceSettings.tsx'
+import type { Appearance, AppearancePatch } from '@/host/appearance.ts'
+import { adoptAppearance } from '@/host/appearanceStore.ts'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
@@ -110,6 +114,7 @@ type Change =
   | { modules: { keep: boolean } }
   | { updates: { auto: boolean } }
   | { github: { share: number } }
+  | { appearance: AppearancePatch }
 
 /**
  * The settings, read once per page load whoever asks (the one-time question, the introduction),
@@ -124,6 +129,7 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
       if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'Kehikot could not read its settings. Close Settings and open it again.')
       adoptSorts(body.picker)
       adoptVisits(body.visits)
+      adoptAppearance(body.appearance, migrateAppearance)
       return body
     },
     { signal, fresh },
@@ -139,9 +145,15 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
   if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'Kehikot did not save that change. Try again.')
   adoptSorts(body.picker)
+  if ('appearance' in change) adoptAppearance(body.appearance, migrateAppearance)
   if (body.status) keepRead('settings', body)
   else forgetRead('settings')
   return body
+}
+
+/** A machine with no Appearance row yet is given what the cookies said (the bar's old buttons), once. */
+function migrateAppearance(now: Appearance): void {
+  void postSettings({ appearance: now }).catch(() => {})
 }
 
 /**
@@ -354,6 +366,7 @@ const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> =
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
   modules: { title: 'Modules', icon: Blocks },
+  appearance: { title: 'Appearance', icon: Palette },
   about: { title: 'About', icon: KehikotMark },
 }
 
@@ -513,7 +526,7 @@ export function SettingsBody({
         <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
             {trouble ? <Trouble>{trouble}</Trouble> : null}
-            {answer && !answer.settings.asked && shown !== 'about' ? (
+            {answer && !answer.settings.asked && shown !== 'about' && shown !== 'appearance' ? (
               <p className="bg-muted/60 rounded-lg px-3 py-2 text-xs leading-relaxed" data-unasked>
                 You have not chosen yet, so nothing is done for you automatically. Any choice here counts as your answer.
               </p>
@@ -522,6 +535,9 @@ export function SettingsBody({
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
                 {key === 'about' ? (
                   <About onClose={onClose} />
+                ) : key === 'appearance' ? (
+                  /* Only while it is shown, like Modules: its controls are nobody else's to find. */
+                  shown === 'appearance' ? <AppearanceSettings onChange={onChange} /> : null
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
                 ) : key === 'modules' ? (
@@ -588,7 +604,7 @@ function SavedNote({ saved }: { saved: number }) {
   )
 }
 
-function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project'>; answer: SettingsAnswer; onChange(what: Change): void }) {
+function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project' | 'appearance'>; answer: SettingsAnswer; onChange(what: Change): void }) {
   const { settings, status, hook } = answer
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })

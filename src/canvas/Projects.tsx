@@ -1,4 +1,4 @@
-import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, HardDrive, Layers, Settings2 } from 'lucide-react'
+import { ChevronRight, CornerLeftUp, FolderGit2, FolderOpen, FolderPlus, FolderSearch, HardDrive, Layers, Palette, Settings2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx'
-import { openSettings } from '@/host/agentSettings.ts'
+import { SETTINGS_TARGETS, openSettings } from '@/host/agentSettings.ts'
 import { onOpenStorage } from '@/host/storage.ts'
 import { ordered, projectVisitKey } from '@/host/pickerOrder.ts'
 import { usePickerSort, useVisits } from '@/host/pickerStore.ts'
@@ -207,6 +207,11 @@ export function Projects({
           <DropdownMenuItem onSelect={() => openSettings()}>
             <Settings2 className="text-muted-foreground size-3 shrink-0" />
             <span className="min-w-0 flex-1">settings…</span>
+          </DropdownMenuItem>
+          {/* How the app looks: Settings › Appearance, where the bar's Headers and theme buttons went. */}
+          <DropdownMenuItem data-appearance-link onSelect={() => openSettings(SETTINGS_TARGETS.appearance.section, SETTINGS_TARGETS.appearance.target)}>
+            <Palette className="text-muted-foreground size-3 shrink-0" />
+            <span className="min-w-0 flex-1">appearance…</span>
           </DropdownMenuItem>
 
           {/*

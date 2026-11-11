@@ -324,12 +324,13 @@ export const PORTABLE_PLACEMENT_FIELDS = [
 ] as const satisfies readonly (keyof Placement)[]
 
 /** And the ones that are one person's, written to `view.json` (`server/view.ts`). */
-export const PERSONAL_PLACEMENT_FIELDS = ['collapsed', 'foldRows', 'showRows', 'selected', 'filters'] as const satisfies readonly (keyof Placement)[] &
+export const PERSONAL_PLACEMENT_FIELDS = ['collapsed', 'selected', 'filters'] as const satisfies readonly (keyof Placement)[] &
   readonly (keyof ContainerView)[]
 
 type UnplacedPlacementField = Exclude<
   keyof Placement,
-  (typeof PORTABLE_PLACEMENT_FIELDS)[number] | (typeof PERSONAL_PLACEMENT_FIELDS)[number]
+  /* `foldRows` is neither: Settings › Appearance's, stamped by a page and never stored. */
+  (typeof PORTABLE_PLACEMENT_FIELDS)[number] | (typeof PERSONAL_PLACEMENT_FIELDS)[number] | 'foldRows'
 >
 /* If this line stops compiling, a field was added to `Placement` and to
    neither list above. Decide whether it is the layout everybody shares or one
@@ -582,8 +583,6 @@ function fromContainer(c: FileContainer, view: ContainerView = AT_REST): Placeme
     prompt: c.prompt,
     promptFor: c.promptFor,
     collapsed: view.collapsed,
-    ...(view.foldRows === 2 ? { foldRows: 2 as const } : {}),
-    ...(view.showRows !== null ? { showRows: view.showRows } : {}),
     /* A file from before `wish` said `openH` for a folded container and
        nothing for an open one; either way the fallback is the height it has,
        which `cleaned` supplies for a `null`. */
@@ -693,7 +692,7 @@ function containersFrom(kehikot: { key: string; containers: FileContainer[] }[])
       new Map(
         k.containers.map((c) => [
           c.module,
-          { collapsed: c.collapsed ?? false, foldRows: 1, showRows: null, selected: c.selected ?? false, filters: c.filters ?? {} },
+          { collapsed: c.collapsed ?? false, selected: c.selected ?? false, filters: c.filters ?? {} },
         ]),
       ),
     ]),
@@ -1014,7 +1013,7 @@ function asPlacements(kehikko: FileKehikko, view: View): Placement[] {
 function same(row: Canvas, wanted: Canvas): boolean {
   if (serialize([row]) !== serialize([wanted])) return false
   const personal = (canvas: Canvas) =>
-    JSON.stringify(canvas.placements.map((p) => [p.i, p.collapsed, p.foldRows ?? 1, p.showRows ?? null, p.selected, p.filters]))
+    JSON.stringify(canvas.placements.map((p) => [p.i, p.collapsed, p.selected, p.filters]))
   return personal(row) === personal(wanted)
 }
 

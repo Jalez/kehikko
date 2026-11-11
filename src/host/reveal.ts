@@ -2,11 +2,10 @@ import { useSyncExternalStore } from 'react'
 
 import { revealModeOf } from 'kehikot-module-protocol'
 
-import type { Focus } from './focus.ts'
-import { LONG_PRESS_MS, clickTo, rowsHide, rowsShown, startsHold, type ClickEvent, type ShowRows } from './rows.ts'
+import { LONG_PRESS_MS, clickTo, rowsHide, startsHold, type ClickEvent, type ShowRows } from './rows.ts'
 
 /**
- * In focus mode, which containers have their header and footer showing.
+ * Which containers have their header and footer showing, when Settings › Appearance says they hide.
  *
  * ## What changed, and why it is JavaScript now
  *
@@ -270,19 +269,18 @@ export function coveredBy(covers: Covers | null, revealed: boolean): { top: numb
 /**
  * What a container's rows cover of its page, for a module that says
  * `reveal: 'over'`: `null` for a pushed module, for a container whose rows
- * never hide (`always`, its own or the bar's), and for a folded container —
+ * never hide (`always`, as Settings › Appearance says), and for a folded container —
  * its page is not drawn, so nothing of it is covered, and `kehikot.covered`
  * says so. A selected container's header never hides; a module with no
  * footer has none to cover with.
  */
 export function coversFor(
   module: { reveal?: string | null } | null | undefined,
-  placement: { collapsed: boolean; selected: boolean; showRows?: ShowRows | null } | undefined,
+  placement: { collapsed: boolean; selected: boolean } | undefined,
   footer: boolean,
-  focus: Focus,
+  mode: ShowRows,
 ): Covers | null {
   if (!module || revealModeOf(module) !== 'over' || !placement || placement.collapsed) return null
-  const mode = rowsShown(placement, focus)
   if (!rowsHide(mode)) return null
   return { header: !placement.selected, footer, by: mode === 'click' || mode === 'longpress' ? 'click' : 'hover' }
 }

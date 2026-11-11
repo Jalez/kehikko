@@ -29,10 +29,8 @@ describe('the tour’s steps', () => {
       ['menus', 'The module’s own menus'],
       ['corners', 'Resize from any corner'],
       ['inbox', 'The Inbox'],
-      ['focus', 'Headers and footers'],
       ['updates', 'Updates'],
       ['settings', 'Settings'],
-      ['theme', 'Light or dark'],
       ['help', 'Help is here'],
     ])
   })
@@ -53,13 +51,22 @@ describe('the tour’s steps', () => {
       'menus',
       'corners',
       'inbox',
-      'focus',
       'updates',
       'settings',
-      'theme',
       'help',
     ])
     expect(steps.map(([, title]) => title).join('|')).not.toContain('first')
+  })
+
+  test('the bar has no Headers or theme stop any more: the Settings stop says Appearance holds them', () => {
+    expect(TOUR_STEPS.some((one) => one.id === ('focus' as string) || one.id === ('theme' as string))).toBe(false)
+    const settings = TOUR_STEPS.find((one) => one.id === 'settings')!.frames[0]!
+    const body = typeof settings.body === 'function' ? settings.body(NO_FACTS) : settings.body
+    expect(body).toContain('Appearance')
+    expect(body).toContain('headers and footers')
+    expect(body).toContain('theme')
+    const fold = TOUR_STEPS.find((one) => one.id === 'fold')!.frames[0]!
+    expect(typeof fold.body === 'string' ? fold.body : '').toContain('Settings › Appearance')
   })
 
   test('someone with a project and an epic but no kehikko still sets that up before the bar', () => {

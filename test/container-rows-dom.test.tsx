@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.CONTAINER_ROWS_DOM === '1'
-const TESTS = 24
+const TESTS = 20
 
 if (!inChild) {
   test('a container\'s rows, rendered in a process of its own', () => {
@@ -237,86 +237,41 @@ describe('reveal on click', () => {
   })
 })
 
-describe('the fold control: one row or two', () => {
+describe('the fold control: a plain button, as far as Appearance says', () => {
   if (!inChild) return
 
   async function folding(props: Props = {}) {
-    const calls = { collapse: [] as boolean[], fold: [] as number[] }
+    const calls = { collapse: [] as boolean[] }
     await mount(
       box('kehikot.a', {
         footer: footer(),
         onCollapse: (collapsed) => void calls.collapse.push(collapsed),
-        onFold: (rows) => void calls.fold.push(rows),
         ...props,
       }),
     )
     return calls
   }
 
-  test('the keyboard: Enter folds as a plain press; Shift+Enter opens the choice, each with its line; picking two rows folds to it', async () => {
+  test('no menu and no held choice: Enter, a click, a long press and Shift+Enter each fold or open nothing else', async () => {
     const calls = await folding()
-    const button = fold('kehikot.a')
-    expect(button.getAttribute('aria-haspopup')).toBe('menu')
-    expect(button.getAttribute('aria-keyshortcuts')).toBe('Shift+Enter')
-    await act(async () => {
-      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    expect(calls.collapse).toEqual([true])
-    expect(foldMenu()).toBeNull()
-    await act(async () => {
-      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
-    })
-    const menu = foldMenu()
-    expect(menu).not.toBeNull()
-    expect(button.getAttribute('aria-expanded')).toBe('true')
-    const choices = [...menu!.querySelectorAll<HTMLElement>('[data-fold-choice]')]
-    expect(choices.map((one) => one.textContent)).toEqual([
-      'One rowonly the header: how this module is set up.',
-      'Two rowsheader and footer: also what’s going on now (status, location, usage).',
-    ])
-    expect(choices.every((one) => one.getAttribute('role') === 'menuitemradio')).toBe(true)
-    await act(async () => choices[1]!.click())
-    expect(calls.fold).toEqual([2])
-    expect(foldMenu()).toBeNull()
-  })
-
-  test('a long press opens the choice and folds nothing; a short one folds; a right click opens it', async () => {
-    const calls = await folding()
-    const button = fold('kehikot.a')
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-      await wait(Rows.LONG_PRESS_MS + 50)
-      button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
-      button.click()
-    })
-    expect(foldMenu()).not.toBeNull()
-    expect(calls.collapse).toEqual([])
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-      await wait(30)
-      button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
-      button.click()
-    })
-    expect(calls.collapse).toEqual([true])
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-    })
-    expect(foldMenu()).not.toBeNull()
-  })
-
-  test('with no footer drawn there is one choice, so no menu: the control is the plain button it was', async () => {
-    const calls = await folding({ footer: [] })
     const button = fold('kehikot.a')
     expect(button.hasAttribute('aria-haspopup')).toBe(false)
+    expect(button.hasAttribute('aria-keyshortcuts')).toBe(false)
     await act(async () => {
       button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
+      button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
     })
     expect(foldMenu()).toBeNull()
     await act(async () => button.click())
     expect(calls.collapse).toEqual([true])
+  })
+
+  test('the words say how far a press folds: two rows only where Appearance says two and the footer is drawn', async () => {
+    await folding({ foldRows: 2 })
+    expect(fold('kehikot.a').getAttribute('aria-label')).toBe('fold this container down to its header and footer')
+    cleanups.splice(0).forEach((one) => one())
+    await folding({ foldRows: 2, footer: [] })
+    expect(fold('kehikot.a').getAttribute('aria-label')).toBe('fold this container down to its header')
   })
 
   test('folded to two rows: the header and the live footer, no page; a footer press still reaches the module', async () => {
@@ -343,86 +298,29 @@ describe('the fold control: one row or two', () => {
     expect(fold('kehikot.a').getAttribute('aria-label')).toBe('unfold this container')
   })
 
-  test('remembered as two rows with no footer to draw: one row, and the choice kept', async () => {
+  test('two rows with no footer to draw: one row', async () => {
     await folding({ collapsed: true, foldRows: 2, footer: [] })
     const box = container('kehikot.a')
     expect(box.getAttribute('data-fold')).toBe('1')
     expect(box.querySelector('[role="toolbar"]')).toBeNull()
   })
 
-  test('the fold control\'s menu also says when the rows show: a second group under the fold, each with its line', async () => {
-    const chosen: unknown[] = []
-    const calls = await folding({ showRows: null, barRows: 'always', onShowRows: (mode) => void chosen.push(mode) })
-    const button = fold('kehikot.a')
-    expect(document.getElementById(button.getAttribute('aria-describedby')!)!.textContent).toContain('when the header and footer show')
-    await act(async () => {
-      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
-    })
-    const menu = foldMenu()!
-    const groups = [...menu.querySelectorAll<HTMLElement>('[data-fold-group]')].map((one) => one.getAttribute('data-fold-group'))
-    expect(groups).toEqual(['rows', 'reveal'])
-    const reveal = [...menu.querySelectorAll<HTMLElement>('[data-reveal-choice]')]
-    expect(reveal.map((one) => one.getAttribute('data-reveal-choice'))).toEqual(['bar', 'always', 'hover', 'click', 'longpress'])
-    expect(reveal.every((one) => one.getAttribute('role') === 'menuitemradio')).toBe(true)
-    expect(reveal[0]!.getAttribute('aria-checked')).toBe('true')
-    expect(reveal[0]!.textContent).toContain('now: always shown')
-    expect(reveal[0]!.textContent).toContain('As the bar’s Headers setting')
-    expect(reveal[3]!.textContent).toBe('Reveal on clickthey hide, and come back when you click inside this container; Escape or a click elsewhere hides them.')
-    await act(async () => reveal[3]!.click())
-    expect(chosen).toEqual(['click'])
-    expect(calls.fold).toEqual([])
-    expect(calls.collapse).toEqual([])
-  })
-
-  test('with no footer the fold control\'s menu is only when the rows show; folded, it is still there', async () => {
-    const chosen: unknown[] = []
-    const calls = await folding({ footer: [], collapsed: true, showRows: 'hover', barRows: 'always', onShowRows: (mode) => void chosen.push(mode) })
-    const button = fold('kehikot.a')
-    expect(button.getAttribute('aria-haspopup')).toBe('menu')
-    await act(async () => button.click())
-    expect(calls.collapse).toEqual([false])
-    expect(foldMenu()).toBeNull()
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-    })
-    const menu = foldMenu()!
-    expect(menu.querySelector('[data-fold-choice]')).toBeNull()
-    expect(menu.querySelector('[data-reveal-choice="hover"]')!.getAttribute('aria-checked')).toBe('true')
-    await act(async () => menu.querySelector<HTMLElement>('[data-reveal-choice="bar"]')!.click())
-    expect(chosen).toEqual([null])
-  })
-
-  test('the Container menu\'s "Header and footer" is there folded, with no footer and focus mode off', async () => {
-    await mount(box('kehikot.a', { collapsed: true, footer: [], showRows: null, barRows: 'always', onShowRows: nothing }))
-    const trigger = container('kehikot.a').querySelector<HTMLElement>('[data-menu="frame"]')!
-    await act(async () => {
-      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
-    })
-    const rows = document.querySelector<HTMLElement>('[data-frame="rows"]')!
-    expect(rows.textContent).toContain('Header and footer')
-    expect(rows.textContent).toContain('as the bar')
-  })
-
-  test('the Container menu says when the rows show, and changes it', async () => {
-    const chosen: unknown[] = []
-    await mount(box('kehikot.a', { showRows: null, barRows: 'hover', onShowRows: (mode) => void chosen.push(mode) }))
-    const trigger = container('kehikot.a').querySelector<HTMLElement>('[data-menu="frame"]')!
-    await act(async () => {
-      trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
-    })
-    const rows = document.querySelector<HTMLElement>('[data-frame="rows"]')!
-    expect(rows.textContent).toContain('Header and footer')
-    expect(rows.textContent).toContain('as the bar')
-    await act(async () => {
-      rows.focus()
-      rows.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-    })
-    const click = document.querySelector<HTMLElement>('[data-reveal-choice="click"]')!
-    expect(document.querySelector('[data-reveal-choice="bar"]')!.textContent).toContain('reveal on hover')
-    await act(async () => click.click())
-    expect(chosen).toEqual(['click'])
+  test('the Container menu has no "Header and footer" row any more, folded or open', async () => {
+    for (const collapsed of [false, true]) {
+      await mount(box('kehikot.a', { collapsed, footer: footer() }))
+      const trigger = container('kehikot.a').querySelector<HTMLElement>('[data-menu="frame"]')!
+      await act(async () => {
+        trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+        document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+      })
+      expect(document.querySelector('[data-menu-content="frame"], [role="menu"]')).not.toBeNull()
+      expect(document.querySelector('[data-frame="rows"]')).toBeNull()
+      expect(document.querySelector('[data-reveal-choice]')).toBeNull()
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      cleanups.splice(0).forEach((one) => one())
+    }
   })
 })
 
@@ -440,9 +338,9 @@ describe('folding to two rows on a canvas', () => {
     const [placements, setPlacements] = React.useState<import('../src/host/canvases.ts').Placement[]>(() => [
       { i: 'kehikot.a', x: 0, y: 0, w: 12, h: 20, wish: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, selected: false, filters: {}, refreshEvery: null, version: null, scope: null } as import('../src/host/canvases.ts').Placement,
     ])
-    const onFold = (id: string, rows: 1 | 2) =>
-      setPlacements((was) => Columns.pressed(was.map((p) => (p.i === id ? { ...p, foldRows: rows } : p)), id, true))
-    const onCollapse = (id: string, collapsed: boolean) => setPlacements((was) => Columns.pressed(was, id, collapsed))
+    /* Appearance says two rows: stamped on the placements, as `App.tsx` does on `open`. */
+    const onCollapse = (id: string, collapsed: boolean) =>
+      setPlacements((was) => Columns.pressed(was.map((p) => ({ ...p, foldRows: 2 as const })), id, collapsed))
     const onLayoutChange = (next: readonly import('react-grid-layout').Layout[]) =>
       setPlacements((was) => {
         const drawn = Columns.redrawn(Canvases.fromGrid(was, next, null, new Map()))
@@ -462,8 +360,7 @@ describe('folding to two rows on a canvas', () => {
           {box('kehikot.a', {
             footer: footer(),
             collapsed: one.collapsed,
-            foldRows: one.foldRows ?? 1,
-            onFold: (rows) => onFold('kehikot.a', rows),
+            foldRows: 2,
             onCollapse: (collapsed) => onCollapse('kehikot.a', collapsed),
             onFooterPress: (press) => {
               footerPressed.push(press)
@@ -475,15 +372,10 @@ describe('folding to two rows on a canvas', () => {
     )
   }
 
-  test('choosing two rows folds to the header and the live footer, and stays there; a footer press reaches the module', async () => {
+  test('with Appearance at two rows, a press folds to the header and the live footer, and stays there; a footer press reaches the module', async () => {
     const pressedNow: unknown[] = []
     await mount(<Canvas footerPressed={pressedNow} />)
-    const button = fold('kehikot.a')
-    await act(async () => {
-      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
-    })
-    const two = foldMenu()!.querySelector<HTMLElement>('[data-fold-choice="2"]')!
-    await act(async () => two.click())
+    await act(async () => fold('kehikot.a').click())
     await act(async () => wait(20))
     const folded = container('kehikot.a')
     expect(folded.getAttribute('data-fold')).toBe('2')
@@ -495,11 +387,11 @@ describe('folding to two rows on a canvas', () => {
     })
     await act(async () => {})
     expect(pressedNow).toEqual([{ item: 'retry' }])
-    /* A plain press unfolds, and the next plain press folds to the remembered two rows. */
-    await act(async () => fold('kehikot.a').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    /* A plain press unfolds, and the next plain press folds to two rows again. */
+    await act(async () => fold('kehikot.a').click())
     await act(async () => wait(20))
     expect(container('kehikot.a').hasAttribute('data-fold')).toBe(false)
-    await act(async () => fold('kehikot.a').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    await act(async () => fold('kehikot.a').click())
     await act(async () => wait(20))
     expect(container('kehikot.a').getAttribute('data-fold')).toBe('2')
   })
@@ -522,25 +414,41 @@ interface BoardHandle {
   resize: (id: string, h: number) => Promise<void>
 }
 
-function Board({ start, handle, footered, pressed }: { start: Placement[]; handle: { current: BoardHandle | null }; footered: (id: string) => boolean; pressed?: unknown[] }) {
+function Board({
+  start,
+  handle,
+  footered,
+  pressed,
+  foldRows = 1,
+  mode = 'always',
+}: {
+  start: Placement[]
+  handle: { current: BoardHandle | null }
+  footered: (id: string) => boolean
+  pressed?: unknown[]
+  /** Settings › Appearance's, the same for every container. */
+  foldRows?: 1 | 2
+  mode?: import('../src/host/rows.ts').ShowRows
+}) {
   const [placements, setPlacements] = React.useState<Placement[]>(start)
   const held = React.useRef(placements)
   held.current = placements
   const write = (next: Placement[]) => setPlacements(next)
-  const onFold = (id: string, rows: 1 | 2) => write(Columns.pressed(held.current.map((p) => (p.i === id ? { ...p, foldRows: rows } : p)), id, true))
-  const onCollapse = (id: string, collapsed: boolean) => write(Columns.pressed(held.current, id, collapsed))
-  const onShowRows = (id: string, mode: import('../src/host/rows.ts').ShowRows | null) =>
-    write(held.current.map((p) => (p.i === id ? { ...p, showRows: mode } : p)))
+  const onCollapse = (id: string, collapsed: boolean) => write(Columns.pressed(stamp(held.current), id, collapsed))
+  /* A corner pulled to two rows is a fold only where Appearance says two and the footer is drawn (`twoRowsFor` in `App.tsx`). */
+  const twoRows = (id: string) => foldRows === 2 && footered(id)
+  /* And stamped on the placements, as `App.tsx` does on `open`, so the heights agree with what is drawn. */
+  const stamp = (ps: Placement[]) => ps.map((p) => ({ ...p, foldRows: twoRows(p.i) ? (2 as const) : (1 as const) }))
   const onLayoutChange = (next: readonly import('react-grid-layout').Layout[]) =>
     setPlacements((was) => {
-      const drawn = Columns.redrawn(Canvases.fromGrid(was, next, null, new Map(), footered))
+      const drawn = Columns.redrawn(Canvases.fromGrid(stamp(was), next, null, new Map(), twoRows))
       return JSON.stringify(drawn) === JSON.stringify(was) ? was : drawn
     })
   handle.current = {
     placements: () => held.current,
     resize: (id, h) =>
       act(async () => {
-        setPlacements((was) => Columns.redrawn(Canvases.fromGrid(was, was.map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.i === id ? h : p.h })), id, new Map(), footered)))
+        setPlacements((was) => Columns.redrawn(Canvases.fromGrid(stamp(was), was.map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.i === id ? h : p.h })), id, new Map(), twoRows)))
         await wait(10)
       }),
   }
@@ -558,13 +466,9 @@ function Board({ start, handle, footered, pressed }: { start: Placement[]; handl
           {box(one.i, {
             footer: footered(one.i) ? footer() : [],
             collapsed: one.collapsed,
-            foldRows: one.foldRows ?? 1,
-            showRows: one.showRows ?? null,
-            barRows: 'always',
-            rowsMode: one.showRows ?? 'always',
-            onFold: (rows) => onFold(one.i, rows),
+            foldRows,
+            rowsMode: mode,
             onCollapse: (collapsed) => onCollapse(one.i, collapsed),
-            onShowRows: (mode) => onShowRows(one.i, mode),
             onFooterPress: (press) => {
               pressed?.push(press)
               return Promise.resolve({ ok: true, why: '' })
@@ -576,47 +480,19 @@ function Board({ start, handle, footered, pressed }: { start: Placement[]; handl
   )
 }
 
-async function openFrameMenu(id: string) {
-  const trigger = container(id).querySelector<HTMLElement>('[data-menu="frame"]')!
-  await act(async () => {
-    trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
-    document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
-  })
-  const rows = document.querySelector<HTMLElement>('[data-frame="rows"]')!
-  await act(async () => {
-    rows.focus()
-    rows.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-  })
-}
-
-describe('each container keeps its own reveal mode', () => {
+describe('every container follows the one setting', () => {
   if (!inChild) return
 
-  test('A set to click keeps click when B\'s mode is changed, and through a fold that makes the grid report', async () => {
+  test('each container draws the mode Appearance says, and keeps it through a fold that makes the grid report', async () => {
     const handle: { current: BoardHandle | null } = { current: null }
-    await mount(<Board start={[at('kehikot.a', 0), at('kehikot.b', 12)]} handle={handle} footered={() => true} />)
-    /* A to click, from the fold control's menu. */
-    await act(async () => {
-      fold('kehikot.a').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
-    })
-    await act(async () => foldMenu()!.querySelector<HTMLElement>('[data-reveal-choice="click"]')!.click())
-    await act(async () => wait(10))
-    /* B to hover, from its Container menu. */
-    await openFrameMenu('kehikot.b')
-    await act(async () => document.querySelector<HTMLElement>('[data-reveal-choice="hover"]')!.click())
-    await act(async () => wait(10))
-    const modes = () => Object.fromEntries(handle.current!.placements().map((p) => [p.i, p.showRows ?? null]))
-    expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'hover' })
-    expect(container('kehikot.a').getAttribute('data-rows-mode')).toBe('click')
-    /* A fold of B changes its height, so the grid reports the arrangement: A's mode rides through it. */
-    await act(async () => fold('kehikot.b').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    await mount(<Board start={[at('kehikot.a', 0), at('kehikot.b', 12)]} handle={handle} footered={() => true} mode="click" />)
+    const modes = () => ['kehikot.a', 'kehikot.b'].map((id) => container(id).getAttribute('data-rows-mode'))
+    expect(modes()).toEqual(['click', 'click'])
+    expect(container('kehikot.a').getAttribute('data-rows')).toBe('hide')
+    await act(async () => fold('kehikot.b').click())
     await act(async () => wait(20))
-    expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'hover' })
-    /* And B changed again, to long press: A still on click. */
-    await openFrameMenu('kehikot.b')
-    await act(async () => document.querySelector<HTMLElement>('[data-reveal-choice="longpress"]')!.click())
-    await act(async () => wait(10))
-    expect(modes()).toEqual({ 'kehikot.a': 'click', 'kehikot.b': 'longpress' })
+    expect(modes()).toEqual(['click', 'click'])
+    expect(handle.current!.placements().every((p) => !('showRows' in p))).toBe(true)
   })
 })
 
@@ -779,44 +655,30 @@ describe('reveal on click and on long press, press by press', () => {
     expect([revealed('kehikot.a'), revealed('kehikot.b')]).toEqual([false, true])
   })
 
-  test('long press is offered in the Container menu and the fold control\'s menu, the same words from one source', async () => {
-    await mount(box('kehikot.a', { footer: footer(), showRows: null, barRows: 'always', onShowRows: nothing, onFold: nothing }))
-    await openFrameMenu('kehikot.a')
-    const inFrame = [...document.querySelectorAll<HTMLElement>('[data-reveal-choice]')].map((one) => one.textContent)
-    expect(inFrame.at(-1)).toContain('Reveal on long press')
-    expect(inFrame.at(-1)).toContain('hold on the header')
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    await act(async () => {
-      fold('kehikot.a').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }))
-    })
-    const inFold = [...foldMenu()!.querySelectorAll<HTMLElement>('[data-reveal-choice]')].map((one) => one.textContent)
-    expect(inFold).toEqual(inFrame)
-    expect(inFold.at(-1)).toContain('a plain click does not')
-  })
 })
 
 describe('a corner pulled to one row, to two, and back', () => {
   if (!inChild) return
 
-  test('one row is the header; two rows is the header and the live footer, like a two-row fold; taller is the page again', async () => {
+  test('with Appearance at one row, a corner pulled to one row is the header alone', async () => {
+    const handle: { current: BoardHandle | null } = { current: null }
+    await mount(<Board start={[at('kehikot.a', 0)]} handle={handle} footered={() => true} />)
+    await handle.current!.resize('kehikot.a', Columns.FOLDED_ROWS)
+    expect(container('kehikot.a').getAttribute('data-fold')).toBe('1')
+    expect(container('kehikot.a').querySelector('[data-body]')).toBeNull()
+    expect(container('kehikot.a').querySelector('[role="toolbar"]')).toBeNull()
+  })
+
+  test('with Appearance at two rows, a corner pulled to two rows is the header and the live footer, like a two-row fold; taller is the page again', async () => {
     const handle: { current: BoardHandle | null } = { current: null }
     const pressedNow: unknown[] = []
-    await mount(<Board start={[at('kehikot.a', 0)]} handle={handle} footered={() => true} pressed={pressedNow} />)
+    await mount(<Board start={[at('kehikot.a', 0)]} handle={handle} footered={() => true} pressed={pressedNow} foldRows={2} />)
     const box = () => container('kehikot.a')
-    await handle.current!.resize('kehikot.a', Columns.FOLDED_ROWS)
-    expect(box().getAttribute('data-fold')).toBe('1')
-    expect(box().querySelector('[data-body]')).toBeNull()
-    expect(box().querySelector('[role="toolbar"]')).toBeNull()
     await handle.current!.resize('kehikot.a', Columns.FOLDED_TWO_ROWS)
     expect(box().getAttribute('data-fold')).toBe('2')
     expect(box().querySelector('[data-body]')).toBeNull()
     expect(box().querySelector('[role="toolbar"]')!.textContent).toContain('Synced')
-    expect(handle.current!.placements()[0]).toMatchObject({ collapsed: true, foldRows: 2, h: Columns.FOLDED_TWO_ROWS, wish: 20 })
+    expect(handle.current!.placements()[0]).toMatchObject({ collapsed: true, h: Columns.FOLDED_TWO_ROWS, wish: 20 })
     await act(async () => {
       box().querySelector<HTMLElement>('[data-footer-item="retry"]')!.click()
     })
@@ -830,7 +692,7 @@ describe('a corner pulled to one row, to two, and back', () => {
 
   test('with no footer drawn, two rows is a height like any other: the page stays', async () => {
     const handle: { current: BoardHandle | null } = { current: null }
-    await mount(<Board start={[at('kehikot.a', 0)]} handle={handle} footered={() => false} />)
+    await mount(<Board start={[at('kehikot.a', 0)]} handle={handle} footered={() => false} foldRows={2} />)
     await handle.current!.resize('kehikot.a', Columns.FOLDED_TWO_ROWS)
     expect(container('kehikot.a').hasAttribute('data-fold')).toBe(false)
     expect(container('kehikot.a').querySelector('[data-body]')).not.toBeNull()

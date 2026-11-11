@@ -348,14 +348,14 @@
  * — pushing, not covering — while the pointer is over the container, or once
  * it is clicked into.
  *
- * Which containers hide them is per container now (`host/rows.ts`): a
- * container whose rows hide carries `data-rows="hide"` — its own choice of
- * "reveal on hover" or "reveal on click", or the bar's focus mode when it has
- * not chosen. `data-revealed` is set from the pointer for one and from the
- * click for the other; the rules below are the same for both.
+ * Which containers hide them is Settings › Appearance's choice, the same for
+ * every container (`host/appearance.ts`): a container whose rows hide carries
+ * `data-rows="hide"` — "reveal on hover", "on click" or "on long press".
+ * `data-revealed` is set from the pointer for one and from the click for the
+ * others; the rules below are the same for all.
  *
- * `src/host/focus.ts` has the argument for the mode, and `src/host/reveal.ts`
- * the argument for how the reveal is decided. This is how it is drawn.
+ * `src/host/reveal.ts` has the argument for how the reveal is decided. This is
+ * how it is drawn.
  *
  * ## Pushed, not hung over the page
  *
@@ -389,7 +389,7 @@
  * One short height transition, the row's own; `prefers-reduced-motion` has
  * none — the rows appear and go.
  *
- * ## A folded container keeps its header, in focus mode too
+ * ## A folded container keeps its header, while hidden too
  *
  * `[data-collapsed]` is the exemption, and it is deliberate. A folded
  * container is not showing a module, so there is no space to give — and hiding
@@ -444,6 +444,53 @@
    measuring every container on the canvas. */
 .react-grid-item.react-draggable-dragging .container-reveal > .container-grip {
   transition: none;
+}
+
+/*
+ * Container borders and background: Settings › Appearance (`src/host/appearance.ts`).
+ *
+ * Attributes on `<html>`, put there before the first paint by `index.html` and
+ * by the page on every change — never a re-render of a module's frame, so a
+ * change reloads nothing. They style the host's chrome (`.container-frame`, the
+ * container's outline; its header and footer; the frame's own surface) and
+ * never a module's page.
+ *
+ * The border keeps its one pixel in every choice: "None" makes it transparent
+ * rather than removing it, so no choice moves anything by a pixel and the
+ * header measures the same at 380, 280 and 200. A picked-out container keeps
+ * its coloured border and ring whatever is chosen: that is the selection.
+ */
+html[data-container-border='none'] .container-frame:not([data-picked]) {
+  border-color: transparent;
+}
+
+html[data-container-border='solid'] .container-frame,
+html[data-container-border='solid'] [data-frame] {
+  border-radius: 0;
+}
+
+html[data-container-border='dotted'] .container-frame:not([data-picked]) {
+  border-style: dotted;
+}
+
+html[data-container-border='dashed'] .container-frame:not([data-picked]) {
+  border-style: dashed;
+}
+
+html[data-container-background='off'] .container-frame .container-grip,
+html[data-container-background='off'] .container-frame .container-footer,
+html[data-container-background='off'] [data-frame] > iframe {
+  background-color: transparent;
+}
+
+/* The tour shows hidden headers on the stops that point at one, without changing the setting (`Tour.ts`). */
+html.tour-rows .react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]) {
+  height: 2rem;
+}
+
+html.tour-rows .react-grid-item [data-rows='hide'] > .container-reveal:not([data-collapsed]) > .container-grip {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /*

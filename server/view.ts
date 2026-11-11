@@ -8,7 +8,6 @@ import type { Canvas, Subject } from './canvases.ts'
 import { hostPath } from './hostData.ts'
 import { makeUnderRoot } from './projectRoot.ts'
 import { partIdsIn } from '../src/host/parts.ts'
-import { SHOW_ROWS, type FoldRows, type ShowRows } from '../src/host/rows.ts'
 
 /**
  * A person's own view of a project: `<project>/.kehikot/host/view.json`.
@@ -27,8 +26,9 @@ import { SHOW_ROWS, type FoldRows, type ShowRows } from '../src/host/rows.ts'
  *     container's module, rectangle, wish, grow, pin, prompt, interval and
  *     version. Shared.
  *   - `view.json` — the VIEW: the epic, "All epics", the picked parts and refs
- *     (the project's `Subject`), and per container `collapsed`, `foldRows`,
- *     `showRows`, `selected` and `filters`. This person's, on this computer; the host's folder's
+ *     (the project's `Subject`), and per container `collapsed`,
+ *     `selected` and `filters` (a `foldRows` or `showRows` an older host
+ *     wrote is ignored and dropped: they are Settings › Appearance's now). This person's, on this computer; the host's folder's
  *     `.gitignore` names it, so it is not committed.
  *
  * The list of which field is on which side is `PORTABLE_PLACEMENT_FIELDS` /
@@ -67,10 +67,6 @@ const VERSION = 1
 /** What one container looks like to this person. */
 export interface ContainerView {
   collapsed: boolean
-  /** How far it folds: 1, its header; 2, its header and footer. See `src/host/rows.ts`. */
-  foldRows: FoldRows
-  /** When its rows show; `null` as the bar says. */
-  showRows: ShowRows | null
   selected: boolean
   filters: FilterChoice
 }
@@ -81,7 +77,7 @@ export interface View {
   kehikot: Map<string, Map<string, ContainerView>>
 }
 
-export const AT_REST: ContainerView = { collapsed: false, foldRows: 1, showRows: null, selected: false, filters: {} }
+export const AT_REST: ContainerView = { collapsed: false, selected: false, filters: {} }
 
 const filtersSchema = z
   .record(
@@ -95,8 +91,6 @@ const filtersSchema = z
 
 const containerSchema = z.object({
   collapsed: z.boolean().catch(false).default(false),
-  foldRows: z.union([z.literal(1), z.literal(2)]).catch(1).default(1),
-  showRows: z.enum(SHOW_ROWS).nullable().catch(null).default(null),
   selected: z.boolean().catch(false).default(false),
   filters: filtersSchema.default({}),
 })
@@ -118,15 +112,13 @@ export function viewFile(projectPath: string | null | undefined): string | null 
 }
 
 function atRest(view: ContainerView): boolean {
-  return !view.collapsed && view.foldRows === 1 && view.showRows === null && !view.selected && Object.keys(view.filters).length === 0
+  return !view.collapsed && !view.selected && Object.keys(view.filters).length === 0
 }
 
 /** Only the fields that are not at rest, in a fixed order. */
 function trimmed(view: ContainerView): Partial<ContainerView> {
   return {
     ...(view.collapsed ? { collapsed: true } : {}),
-    ...(view.foldRows === 2 ? { foldRows: 2 as const } : {}),
-    ...(view.showRows !== null ? { showRows: view.showRows } : {}),
     ...(view.selected ? { selected: true } : {}),
     ...(Object.keys(view.filters).length ? { filters: view.filters } : {}),
   }
@@ -138,7 +130,7 @@ export function viewOf(canvases: readonly Canvas[], subject: Subject): View {
   for (const canvas of canvases) {
     const containers = new Map<string, ContainerView>()
     for (const p of canvas.placements) {
-      containers.set(p.i, { collapsed: p.collapsed, foldRows: p.foldRows ?? 1, showRows: p.showRows ?? null, selected: p.selected, filters: p.filters })
+      containers.set(p.i, { collapsed: p.collapsed, selected: p.selected, filters: p.filters })
     }
     kehikot.set(canvas.key, containers)
   }

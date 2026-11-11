@@ -1,6 +1,7 @@
 import { driver, type AllowedButtons, type Driver } from 'driver.js'
 
-import { FOCUS_CLASS, FOCUS_COOKIE } from '@/host/focus.ts'
+import { TOUR_ROWS_CLASS } from '@/host/appearance.ts'
+import { appearance } from '@/host/appearanceStore.ts'
 import {
   bodyOf,
   firstUndone,
@@ -258,29 +259,23 @@ export class Guide {
   private readonly onLeave = () => this.restoreHeaders()
 
   /**
-   * Headers hidden (focus mode) come back for the stops that point at one.
-   * Only the class on <html> is touched — never `applyFocus`, which writes the
-   * cookie — so the person's own setting is never changed, only not shown.
+   * Headers hidden (Settings › Appearance says they reveal) come back for the
+   * stops that point at one. Only a class on <html> is touched (`index.css`),
+   * so the person's own setting is never changed, only not shown for a while.
    */
   private showHeaders(): void {
     const html = this.root.documentElement
-    if (this.headersShown || !html.classList.contains(FOCUS_CLASS)) return
-    html.classList.remove(FOCUS_CLASS)
+    if (this.headersShown || appearance.get().rows === 'always') return
+    html.classList.add(TOUR_ROWS_CLASS)
     this.headersShown = true
   }
 
-  /** Put the person's own setting back exactly (the cookie is what it is). */
+  /** Hide them again as the setting says: take the class off. */
   private restoreHeaders(): void {
     this.noteStep = null
     if (!this.headersShown) return
     this.headersShown = false
-    let off = false
-    try {
-      off = new RegExp(`(?:^|;\\s*)${FOCUS_COOKIE.replace('.', '\\.')}=off(?:;|$)`).test(this.root.cookie)
-    } catch {
-      /* Cookies refused: put it back. */
-    }
-    if (!off) this.root.documentElement.classList.add(FOCUS_CLASS)
+    this.root.documentElement.classList.remove(TOUR_ROWS_CLASS)
   }
 
   /** The example container for the explanations: marked, scrolled to, its header shown when the step points at it. */

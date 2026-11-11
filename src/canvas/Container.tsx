@@ -33,7 +33,7 @@ import { RefreshButton } from './Refreshing.tsx'
 import { noticeOf, type Showing } from '@/host/standing.ts'
 import { Hint } from './Hint.tsx'
 import { FoldControl } from './FoldControl.tsx'
-import { foldChoices, foldDrawn, rowsHide, type FoldRows, type ShowRows } from '@/host/rows.ts'
+import { foldDrawn, rowsHide, type FoldRows, type ShowRows } from '@/host/rows.ts'
 import { BranchMark } from './Branch.tsx'
 import { STEPS, crowded, fitFor, stepDown } from '@/host/headerFit.ts'
 import type { ContainerScope } from '@/host/scope.ts'
@@ -86,11 +86,7 @@ export function Container({
   collapsed,
   onCollapse,
   foldRows = 1,
-  onFold,
   rowsMode,
-  showRows = null,
-  barRows = 'always',
-  onShowRows,
   foldedBy = null,
   header = NO_HEADER,
   onPress = unpressable,
@@ -180,22 +176,16 @@ export function Container({
   collapsed: boolean
   onCollapse(collapsed: boolean): void
   /**
-   * How far this container folds: its header (1), or its header and footer
-   * (2, offered only while its footer is drawn). See `host/rows.ts`.
+   * How far a fold goes: the header (1), or the header and footer (2, drawn
+   * only while the footer is). Settings › Appearance's, the same for every
+   * container (`host/appearance.ts`).
    */
   foldRows?: FoldRows
-  /** A fold picked from the fold control's menu: remember it, and fold to it. */
-  onFold?(rows: FoldRows): void
   /**
-   * When this container's header and footer show, as it stands — its own
-   * choice or the bar's (`rowsShown`). Absent: on hover when `reveals` is
-   * given, else always.
+   * When the header and footer show: Settings › Appearance's, the same for
+   * every container. Absent: on hover when `reveals` is given, else always.
    */
   rowsMode?: ShowRows
-  /** Its own choice, `null` for the bar's; what the bar says; and the change, for the Container menu and the fold control's menu. */
-  showRows?: ShowRows | null
-  barRows?: ShowRows
-  onShowRows?(mode: ShowRows | null): void
   /**
    * Who left this container folded or unfolded as it is, when it was not the
    * person — "an agent". The fold control is drawn filled and says so, and a
@@ -457,7 +447,6 @@ export function Container({
     onNotes,
     prompted: presence.module?.declares.prompt === true,
     onPrompts,
-    rows: onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined,
     inbox: inboxUse,
     messages: messagesUse,
     expand: expand && showing.kind === 'page' && !collapsed && !oneEpic ? expand : undefined,
@@ -545,9 +534,11 @@ export function Container({
        */
       className={
         selected
-          ? 'border-primary ring-primary/60 pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
-          : 'pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border'
+          ? 'container-frame border-primary ring-primary/60 pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
+          : 'container-frame pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border'
       }
+      /* Picked out: its coloured border stands whatever border Settings › Appearance chose (`index.css`). */
+      data-picked={selected ? 'true' : undefined}
       /* Which module this container is showing, for anything that has to find
          one container on the canvas by what is in it. */
       data-module={presence.id}
@@ -555,8 +546,8 @@ export function Container({
          its rows reveal OVER its page and never resize it (`index.css`,
          `host/reveal.ts`). */
       data-reveal={revealModeOf(presence.module) === 'over' ? 'over' : undefined}
-      /* Whether this container's rows hide until revealed — on hover or on click, its own choice or
-         the bar's (`host/rows.ts`); the `[data-rows='hide']` rules in `index.css`. */
+      /* Whether this container's rows hide until revealed — on hover, click or long press, as
+         Settings › Appearance says (`host/appearance.ts`); the `[data-rows='hide']` rules in `index.css`. */
       data-rows={rowsHide(mode) ? 'hide' : undefined}
       data-rows-mode={mode}
       data-fold={fold || undefined}
@@ -979,11 +970,8 @@ export function Container({
         <FoldControl
           collapsed={collapsed}
           foldedBy={foldedBy}
-          foldRows={foldRows}
-          choices={foldChoices(footerDrawn && onFold !== undefined)}
+          rows={foldRows === 2 && footerDrawn ? 2 : 1}
           onCollapse={onCollapse}
-          onFold={(rows) => onFold?.(rows)}
-          reveal={onShowRows ? { mode: showRows, bar: barRows, onChange: onShowRows } : undefined}
         />
 
         {/*
