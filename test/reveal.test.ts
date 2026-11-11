@@ -137,7 +137,7 @@ describe('focus', () => {
 
 describe('the stylesheet pushes, never covers', () => {
   const css = readFileSync(join(import.meta.dir, '..', 'src', 'index.css'), 'utf8')
-  const start = css.indexOf(".react-grid-item [data-rows='hide'] > .container-reveal")
+  const start = css.indexOf(":is(.react-grid-item, [data-appearance-stage]) [data-rows='hide'] > .container-reveal")
   const end = css.indexOf('/* No fade while a container is being dragged.')
   const rules = css.slice(start, end)
 
