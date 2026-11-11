@@ -3,7 +3,7 @@
  * background reads — the bounds, the words, the change the settings route
  * takes, and how a sentence that says the share is used up is recognised.
  * Pure; shared by the server (`server/githubShare.ts`, `server/githubAccount.ts`)
- * and the page (Settings, the tracker panel).
+ * and the page (Settings › Trackers, and the Trackers menu's "Change limit").
  */
 
 /** The share as a whole percent of each hourly limit. */

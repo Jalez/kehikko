@@ -304,7 +304,7 @@ export function chordSaid(mac: boolean): string {
 }
 
 /** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
+export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'trackers', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
@@ -323,7 +323,13 @@ export interface SettingsLink {
 
 /** The controls a button elsewhere can open Settings at. */
 export const SETTINGS_TARGETS = {
-  githubShare: { section: 'modules', target: GITHUB_SHARE_TARGET },
+  githubShare: { section: 'trackers', target: GITHUB_SHARE_TARGET },
+  /* Settings › Trackers (`src/canvas/TrackerSettings.tsx`): the open project's sources and how they are read. */
+  trackerSources: { section: 'trackers', target: 'tracker-sources' },
+  trackerAdd: { section: 'trackers', target: 'tracker-add' },
+  trackerSchedule: { section: 'trackers', target: 'tracker-every' },
+  trackerRemotes: { section: 'trackers', target: 'tracker-remotes' },
+  trackerNews: { section: 'trackers', target: 'tracker-news' },
   appearance: { section: 'appearance', target: APPEARANCE_TARGET },
 } as const satisfies Record<string, { section: SettingsSection; target: string }>
 
