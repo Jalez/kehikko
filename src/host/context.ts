@@ -492,14 +492,19 @@ export function toWireContext(
  * keeps what it was last told on its own kehikko, and is sent nothing more
  * until it is on the open kehikko again, when the whole current context goes.
  *
- * The one exception is the theme, for the reason a pin lets it through
- * (`whileFrozen`): it is how the page is drawn, not where it is, and a page
+ * The one exception is the theme (and the container's background with it), for
+ * the reason a pin lets it through (`whileFrozen`): it is how the page is drawn, not where it is, and a page
  * that came back in the old theme would flash. Null means send nothing.
  */
 export function whileAway(held: ModuleContext | null, told: ModuleContext): ModuleContext | null {
-  if (!held || held.theme === told.theme) return null
-  return { ...held, theme: told.theme }
+  if (!held || (held.theme === told.theme && sameAppearance(held, told))) return null
+  return { ...held, theme: told.theme, ...appearanceOf(told) }
 }
+
+/* The container's background (protocol 2.82.0) goes where the theme goes: how the page is drawn, not what it is about. */
+const sameAppearance = (held: { appearance?: unknown }, told: { appearance?: unknown }) =>
+  JSON.stringify(held.appearance ?? null) === JSON.stringify(told.appearance ?? null)
+const appearanceOf = (told: ModuleContext | WireContext) => (told.appearance ? { appearance: told.appearance } : {})
 
 /**
  * What a PINNED container should be sent, if anything.
@@ -553,7 +558,7 @@ export function whileFrozen(
      canvas produces, and answering with the held context each time would be the
      host repeating itself — the identical-broadcast problem `told` is memoised
      to avoid. */
-  const relit = held.theme !== told.theme
+  const relit = held.theme !== told.theme || !sameAppearance(held, told)
   /* Compared by content. The canvas rebuilds this record on every render out of
      a stored choice and a live offer, so identity says nothing about whether
      anybody pressed anything. */
@@ -604,6 +609,7 @@ export function whileFrozen(
   return {
     ...(sameProject ? frozen : held),
     theme: told.theme,
+    ...appearanceOf(told),
     filters: told.filters,
     ...(rescoped ? { scope: told.scope } : {}),
     ...(moved ? { kehikko: told.kehikko, kept: told.kept } : {}),

@@ -13,6 +13,8 @@ import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { enterFullscreen, leaveFullscreen } from '@/host/surface.ts'
 import { framedAddress } from '@/host/theme.ts'
+import { frameScheme, pageAppearance } from '@/host/appearance.ts'
+import { useAppearance } from '@/host/appearanceStore.ts'
 import { coveredBy, useRevealed, type Covers, type Reveals } from '@/host/reveal.ts'
 
 /**
@@ -174,9 +176,14 @@ export function ModuleFrame({
      unknown build is treated as an old one. Per frame, like the pin, because
      the context is one object shared by every frame and the builds differ. */
   const builtWith = framed.build?.protocol ?? null
+  /* Protocol 2.82.0: whether the container draws its card behind the page, so the page leaves its own
+     surface off when it does not (the protocol's client does that). Per frame, like the theme it rides
+     with: a pinned or away frame is still told it (`whileFrozen`, `whileAway`). */
+  const background = useAppearance().background
   const told: ModuleContext = useMemo(
     () => ({
       ...readableBy(context, builtWith),
+      appearance: pageAppearance(background),
       pinned,
       prompt,
       filters: JSON.parse(filtersKey) as FilterChoice,
@@ -186,7 +193,7 @@ export function ModuleFrame({
          moves. The same string the greeting carries; the page never reads it. */
       kept: state,
     }),
-    [context, builtWith, pinned, prompt, filtersKey, scope, state],
+    [context, builtWith, background, pinned, prompt, filtersKey, scope, state],
   )
 
   const contextRef = useRef(told)
@@ -538,9 +545,16 @@ export function ModuleFrame({
        * element's background. A module that then declares its own dark scheme
        * paints its own dark canvas. Measured in WebKit: 50 ms of #ffffff
        * before, the card colour after, and the module's first paint unchanged.
+       *
+       * With the container's background off (Settings › Appearance) the frame
+       * says the theme's scheme instead, the same one the page puts on its
+       * `<html>` (protocol 2.82.0), so the browser gives it no backdrop and the
+       * canvas shows through; the frame's own background is cleared in
+       * `index.css`. `frameScheme` decides.
        */
       className="bg-card h-full w-full border-0"
-      style={{ colorScheme: 'light' }}
+      style={{ colorScheme: frameScheme(background, context.theme === 'dark' ? 'dark' : 'light') }}
+      allowTransparency
       /*
        * `allow-scripts` because a module is a program. `allow-forms` and
        * `allow-popups` because a module is a program somebody chose to run and
