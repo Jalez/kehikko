@@ -150,6 +150,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/answer',
   '/host/messages/clear',
   '/host/messages/say',
+  '/host/messages/mute',
   '/host/trackers',
   '/host/base-branch',
   '/host/mine/check',

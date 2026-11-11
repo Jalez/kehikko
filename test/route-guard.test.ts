@@ -98,8 +98,10 @@ function files(dir: string): string[] {
 async function state(): Promise<string> {
   const canvases = await send('GET', '/host/canvases', undefined, {})
   const inbox = await send('GET', `/host/inbox?project=${canvases.body.projects[0].id}`, undefined, {})
+  const messages = await send('GET', `/host/messages?project=${canvases.body.projects[0].id}`, undefined, {})
   return JSON.stringify({
     inbox: inbox.body,
+    messagesMuted: messages.body.muted,
     projects: canvases.body.projects,
     canvases: canvases.body.canvases,
     subjects: canvases.body.subjects,
@@ -208,6 +210,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/inbox/act', body: { project, do: 'forget' } },
       { method: 'POST', path: '/host/inbox/migrate', body: { project, seen: {}, told: {} } },
       { method: 'POST', path: '/host/inbox/use', body: { module: 'kehikot.nothing', use: false } },
+      { method: 'POST', path: '/host/messages/mute', body: { project, module: 'kehikot.nothing', muted: true } },
       { method: 'POST', path: '/host/inbox/answer', body: { project, module: 'kehikot.nothing', item: 'a', answer: 'Unwanted', pressed: true } },
       { method: 'POST', path: '/host/trackers', body: { project: 1, edit: { kind: 'remotes', on: false } } },
       { method: 'POST', path: '/host/base-branch', body: { project, branch: null } },
@@ -315,6 +318,9 @@ describe('the running server and where a request came from', () => {
     /* "Use inbox": the person's switch, from the page only; off and back on, so the record reads as before. */
     expect((await pressed('POST', '/host/inbox/use', { module: 'kehikot.nothing', use: false })).body).toMatchObject({ ok: true, muted: ['kehikot.nothing'] })
     expect((await pressed('POST', '/host/inbox/use', { module: 'kehikot.nothing', use: true })).body).toMatchObject({ ok: true, muted: [] })
+    /* "Messages to agents": the person's switch too, from the page only; off and back on. */
+    expect((await pressed('POST', '/host/messages/mute', { project, module: 'kehikot.nothing', muted: true })).body).toMatchObject({ ok: true, muted: ['kehikot.nothing'] })
+    expect((await pressed('POST', '/host/messages/mute', { project, module: 'kehikot.nothing', muted: false })).body).toMatchObject({ ok: true, muted: [] })
     expect((await pressed('POST', '/host/feedback', {})).status).toBe(400)
     expect((await pressed('POST', '/host/official/install', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)
     expect((await pressed('POST', '/host/official/propose', { module: 'kehikot.nothing' })).status).toBeGreaterThanOrEqual(400)

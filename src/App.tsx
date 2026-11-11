@@ -1,4 +1,4 @@
-import { fetchMessages, onMessagesChanged } from './host/messagesClient.ts'
+import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
@@ -123,6 +123,7 @@ import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
 import { offersInboxUse } from './host/inboxUse.ts'
+import { offersMessagesUse } from './host/messagesUse.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
 import { PINNED_VERSION } from './host/restartModule.ts'
 import { useChime } from './canvas/useChime.ts'
@@ -4212,13 +4213,28 @@ export function App() {
   /* Whether the open project has messages between agent sessions (protocol 2.41.0): the Inbox's
      control is then there to reach them, even with nothing else in it. */
   const [messageCount, setMessageCount] = useState(0)
+  /* "Messages to agents" off, per module in the open project (`host/messagesUse.ts`): read with the count. */
+  const [messagesMuted, setMessagesMuted] = useState<ReadonlySet<string>>(() => new Set())
+  const muteMessages = useCallback(
+    (module: string, muted: boolean) => {
+      if (projectId === null) return
+      void postMute(projectId, module, muted).then((now) => now && setMessagesMuted(new Set(now)))
+    },
+    [projectId],
+  )
   useEffect(() => {
     if (projectId === null) {
       setMessageCount(0)
+      setMessagesMuted(new Set())
       return
     }
     let cancelled = false
-    const read = () => void fetchMessages(projectId, 0).then((got) => !cancelled && got && setMessageCount(got.count))
+    const read = () =>
+      void fetchMessages(projectId, 0).then((got) => {
+        if (cancelled || !got) return
+        setMessageCount(got.count)
+        setMessagesMuted((was) => (was.size === got.muted.length && got.muted.every((one) => was.has(one)) ? was : new Set(got.muted)))
+      })
     read()
     const off = onMessagesChanged((project) => project === projectId && read())
     return () => {
@@ -4275,7 +4291,7 @@ export function App() {
         shortcut: 'Alt+Shift+N',
         now: () => Date.now(),
         /* Messages between agent sessions in the open project (protocol 2.41.0): read-only, at the foot. */
-        ...(projectId !== null ? { messages: { project: projectId, nameOf: moduleName } } : {}),
+        ...(projectId !== null ? { messages: { project: projectId, nameOf: moduleName, muted: messagesMuted, onMute: muteMessages } } : {}),
         /* The host's ask "which epic is this conversation for?": the person answers with one press. */
         choicesFor: (entry) =>
           isPlaceAsk(entry) && projectId !== null
@@ -4289,6 +4305,8 @@ export function App() {
   }, [
     project?.name,
     messageCount,
+    messagesMuted,
+    muteMessages,
     moduleName,
     mutedModules,
     inbox,
@@ -5215,6 +5233,12 @@ export function App() {
                   inboxUse={
                     offersInboxUse(presence.module, inbox.muted.has(presence.id))
                       ? { on: !inbox.muted.has(presence.id), onChange: (on) => inbox.use(presence.id, on) }
+                      : undefined
+                  }
+                  /* "Messages to agents": the person's, per module in this project; the row after "Use inbox". */
+                  messagesUse={
+                    offersMessagesUse(presence.module, messagesMuted.has(presence.id))
+                      ? { on: !messagesMuted.has(presence.id), onChange: (on) => muteMessages(presence.id, !on) }
                       : undefined
                   }
                   /* "Expand": shown large over the canvas for a while, and put back (`host/expand.ts`). */

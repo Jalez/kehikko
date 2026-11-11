@@ -18,6 +18,7 @@ import type { AgentMessages, Extras, Reader } from './agentMessages.ts'
 import { sessionIdOf } from './agentMessages.ts'
 import { issuerOf, type Here } from './doorPlaces.ts'
 import type { Database } from 'bun:sqlite'
+import { MessageMutes, MUTED_SAYS } from './messageMutes.ts'
 
 /**
  * Messages between agent sessions (protocol 2.41.0): who may send and read,
@@ -46,6 +47,11 @@ import type { Database } from 'bun:sqlite'
  *  - `POST /host/messages/clear` — the person clears them. `PAGE_ONLY`. No MCP
  *    tool sees, deletes or clears; an agent reads only its own through its
  *    module.
+ *  - `POST /host/messages/mute` — the person's "Messages to agents" switch for
+ *    one module in one project (`messageMutes.ts`). `PAGE_ONLY`; no MCP tool
+ *    mutes or unmutes. A muted module's OWN messages (`notify`, `tell`, a
+ *    page's `post`) are declined with `MUTED_SAYS`, kept nowhere and wake nothing; the
+ *    person's (`say`) and a session's (`send`) are never muted.
  *
  * Nothing here acts on what a message says: no tool, no press, no wake but
  * "the messages changed, read them again".
@@ -112,6 +118,9 @@ export function readerOf(here: Here, token: string): Reader {
 
 export function messageDesk(deps: MessageDeps) {
   const { messages, db } = deps
+  const mutes = new MessageMutes(db)
+  /** A muted module's own message, declined: nothing kept, nothing woken. */
+  const muted = (): { ok: true; data: unknown } => ({ ok: true, data: messageSendResult.parse({ outcome: 'declined', why: MUTED_SAYS }) })
 
   /** The session behind a token this module issued, or why not. */
   async function sessionFor(module: string, token: string): Promise<{ here: Here } | MessageAsked> {
@@ -139,6 +148,7 @@ export function messageDesk(deps: MessageDeps) {
     if (!issuerOf(db, token)) return { ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noSession }
     const { here } = await deps.resolve(token).catch(() => ({ here: null }))
     if (!here || here.via !== 'token' || !here.module) return { ok: false, reason: 'failed', error: MESSAGE_ROUTE_SAYS.noPlace }
+    if (mutes.has(here.project.id, module)) return muted()
     const to = { session: { module: here.module, session: sessionIdOf(here.conversation, token) } }
     const sent = messages.send(
       here.project.id,
@@ -176,6 +186,7 @@ export function messageDesk(deps: MessageDeps) {
     if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.tell: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
     const project = root === null ? null : (deps.projectIdAt?.(root) ?? null)
     if (project === null) return { ok: false, refused: 'project', error: MESSAGE_ROUTE_SAYS.noProject }
+    if (mutes.has(project, module)) return muted()
     const sent = messages.tell(project, { module, name: deps.nameOf(module) ?? module }, asked.data.to.place, asked.data.body, {
       ...(asked.data.kind !== undefined ? { kind: asked.data.kind } : {}),
       ...(asked.data.thread !== undefined ? { thread: asked.data.thread } : {}),
@@ -265,6 +276,7 @@ export function messageDesk(deps: MessageDeps) {
     }
     const asked = messagePostParams.safeParse(params ?? {})
     if (!asked.success) return { ok: false, reason: 'failed', error: clip(`messages.post: ${asked.error.issues[0]?.path.join('.') || 'params'} — ${asked.error.issues[0]?.message ?? 'malformed'}.`) }
+    if (mutes.has(project, module)) return muted()
     const sent = messages.send(
       project,
       { module, session: '', name: deps.nameOf(module) ?? module, epic: null, parts: [], kehikko: null },
@@ -335,7 +347,21 @@ export function messageDesk(deps: MessageDeps) {
       if (!Number.isInteger(project) || project <= 0) return reply({ ok: false, error: 'project is a project’s number.' }, 400)
       const limit = Number(url.searchParams.get('limit') ?? LIMITS.MESSAGES_KEPT)
       const all = Number.isInteger(limit) && limit >= 0 ? messages.all(project, limit) : messages.all(project)
-      return reply({ ok: true, count: messages.count(project), messages: all })
+      return reply({ ok: true, count: messages.count(project), messages: all, muted: mutes.muted(project) })
+    }
+    /* The person's "Messages to agents" switch, one module in one project. `PAGE_ONLY`. */
+    if (url.pathname === '/host/messages/mute' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { project?: unknown; module?: unknown; muted?: unknown } | null
+      const project = body?.project
+      if (typeof project !== 'number' || !Number.isInteger(project) || project <= 0 || !(deps.hasProject?.(project) ?? true)) {
+        return reply({ ok: false, error: 'project is a project’s number this host holds.' }, 400)
+      }
+      const module = typeof body?.module === 'string' && body.module.length > 0 && body.module.length <= 64 ? body.module : null
+      if (module === null) return reply({ ok: false, error: 'A mute names the module.' }, 400)
+      if (typeof body?.muted !== 'boolean') return reply({ ok: false, error: 'muted is true (take none of its messages) or false (take them again).' }, 400)
+      const out = mutes.set(project, module, body.muted)
+      if (out.changed) deps.changed(project)
+      return reply({ ok: true, changed: out.changed, muted: mutes.muted(project) })
     }
     if (url.pathname === '/host/messages/clear' && request.method === 'POST') {
       const body = (await request.json().catch(() => null)) as { project?: unknown } | null
@@ -348,5 +374,5 @@ export function messageDesk(deps: MessageDeps) {
     return null
   }
 
-  return { serverAnswer, forNotes, route, pageAnswer }
+  return { serverAnswer, forNotes, route, pageAnswer, mutes }
 }

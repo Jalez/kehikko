@@ -102,6 +102,7 @@ import { OverflowSection, OverflowSections, contentClass, onColumnKeys, useColum
 import { focusAfter, focusIsInModule, nested, staysOpen, type Closing, type ModuleMenu, type Pressed, type Pressing, type RunItem } from '@/host/header.ts'
 import type { AgentAwareness } from '@/host/registry.ts'
 import { skillsSaying } from '@/host/skills.ts'
+import { MESSAGES_USE, messagesOffTitle, messagesOnTitle } from '@/host/messagesUse.ts'
 import { carry } from '@/host/carry.ts'
 import { DISARM_AFTER_MS } from './Clearing.tsx'
 import { FeedbackRows, type FeedbackState } from './Feedback.tsx'
@@ -1280,6 +1281,12 @@ export interface FrameParts {
    */
   inbox?: { on: boolean; onChange(on: boolean): void }
   /**
+   * "Messages to agents" (`host/messagesUse.ts`): whether this module's own messages reach the agent
+   * sessions in this project, and the person's change. A checkbox row right after "Use inbox", at
+   * every width and fold, its state in the row. Absent: no row.
+   */
+  messages?: { on: boolean; onChange(on: boolean): void }
+  /**
    * "Expand" / "Shrink back" (`host/expand.ts`): the container shown large over the canvas for a
    * while, and put back. Nothing in the arrangement changes. Absent: no row.
    */
@@ -1345,6 +1352,7 @@ export function frameEntriesOf(parts: FrameParts): FrameEntry[] {
   if (parts.onSkills && skillsSaying(parts.skills, parts.name)) out.push('skills')
   if (parts.rows) out.push('rows')
   if (parts.inbox) out.push('inbox')
+  if (parts.messages) out.push('messages')
   out.push('prompts')
   if (parts.restart) out.push('restart')
   if (parts.onRemove) out.push('remove')
@@ -1559,6 +1567,19 @@ function FrameRows({ parts, entries }: { parts: FrameParts; entries: readonly Fr
         >
           <span className="flex-1">Use inbox</span>
           {parts.inbox.on ? null : <span className="text-muted-foreground text-[10px]">muted</span>}
+        </DropdownMenuCheckboxItem>
+      ) : null}
+      {has('messages') && parts.messages ? (
+        <DropdownMenuCheckboxItem
+          className={ROW}
+          checked={parts.messages.on}
+          data-frame="messages"
+          data-on={parts.messages.on ? 'true' : 'false'}
+          title={parts.messages.on ? messagesOnTitle(name) : messagesOffTitle(name)}
+          onCheckedChange={(checked) => parts.messages?.onChange(checked === true)}
+        >
+          <span className="flex-1">{MESSAGES_USE}</span>
+          {parts.messages.on ? null : <span className="text-muted-foreground text-[10px]">muted</span>}
         </DropdownMenuCheckboxItem>
       ) : null}
       {has('prompts') ? (

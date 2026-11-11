@@ -35,6 +35,7 @@ import { agentFooterPressable, agentFooterRefusal } from '../src/host/footer.ts'
 import { locationWords } from '../src/host/location.ts'
 import { addressWords } from '../src/host/address.ts'
 import { releaseForAgents } from '../src/host/moduleReleases.ts'
+import { mutedIn } from './messageMutes.ts'
 
 /**
  * The host's own door, which it did not have until now.
@@ -645,6 +646,8 @@ function canvasText(
        `promptFor` uses in `src/host/canvases.ts`. */
     const here = [...canvas.placements].sort((a, b) => a.y - b.y || a.x - b.x)
     const picked = here.filter((p) => p.selected)
+    /* "Messages to agents" off: the person's switch, per project (`messageMutes.ts`). Said, never set here. */
+    const messagesMuted = new Set(canvas.project === null ? [] : mutedIn(db, canvas.project))
     lines.push(
       picked.length
         ? `selected containers (${picked.length} of ${here.length}): ${picked.map((p) => p.i).join(', ')}`
@@ -659,6 +662,7 @@ function canvasText(
         p.pinned ? 'pinned' : null,
         p.version ? `runs version ${p.version}, not latest` : null,
         p.collapsed ? 'folded to its header' : null,
+        messagesMuted.has(p.i) ? MESSAGES_MUTED_MARK : null,
         /* "All epics", and a module that works on one epic at a time: the page covers it with a sentence. */
         sighting && sighting.condition === 'ready' && coveredForScope(subject?.scope, { modes: sighting.modes, declares: { scopes: sighting.scopes } }, p.pinned, p.scope)
           ? 'works on one epic at a time, so it is covered while all epics are shown'
@@ -799,6 +803,11 @@ const UNPLACED_LINE =
 const unreadLine = (unrecorded: Unrecorded): string =>
   `This conversation carries a place from ${unrecorded.module}, but ${unrecorded.why}; so this answer is about what `
   + 'the person has open NOW, not this conversation’s place.'
+
+/** What `read_canvas` says of a module whose own messages the person muted in the project. */
+export const MESSAGES_MUTED_MARK =
+  'the person muted its messages to agents ("Messages to agents" off): this host takes none of its own messages in this '
+  + 'project — the person turns it back on in its Container menu'
 
 /** One activity row as a line: who said it, its label as the module's own words, its state in words, where, and whether seen. */
 function activityText(row: ActivityRow): string {
