@@ -43,6 +43,7 @@ import {
   type Me,
   type Read,
 } from './common.ts'
+import { Pace } from './pace.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -641,11 +642,20 @@ export const BATCH = 22
 /** GitLab's refusal of a query it costs too high. */
 const COMPLEXITY = /Query has complexity of \d+, which exceeds max complexity of \d+/
 
-const pagesFor = (limit: number) => Math.max(1, Math.ceil(limit / 100))
+/** Items per REST page at most: GitLab's own ceiling. */
+const PER_PAGE = 100
 
-export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adapter {
-  const glab = (args: string[], source: Source) =>
-    run(['glab', 'api', '--hostname', source.host, ...args], { timeout: 30_000 })
+/**
+ * The sentence for a listing that stopped part way: why, and what was kept.
+ * The rows it did not reach stay as they were last read.
+ */
+export const partlyRead = (why: string, read: number) =>
+  clip(`${why} The newest ${read} were read; the rest are as last read.`, LIMITS.REASON)
+
+export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
+  /* Each call is given the host's learned limit, and teaches it (Jalez/kehikko#317). */
+  const timed = pace.runner(run, clock)
+  const glab = (args: string[], source: Source) => timed(['glab', 'api', '--hostname', source.host, ...args], source.host)
   const graph = (query: string, source: Source) => glab(['graphql', '-f', `query=${query}`], source)
   const project = (source: Source) => `projects/${encodeURIComponent(source.repo)}`
   /** Hosts that refused the people fields, until when that is believed. */
@@ -655,21 +665,29 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
     return until === undefined || clock() >= until
   }
 
-  /** One REST collection, newest first, page by page until it runs out or reaches `limit`. */
-  async function pages(source: Source, what: 'issues' | 'merge_requests', limit: number): Promise<unknown[] | string> {
+  /**
+   * One REST collection, newest first, page by page until it runs out or
+   * reaches `limit`. Pages are as large as the host answers comfortably
+   * (`Pace`). A page that fails after the first keeps the pages already read,
+   * with the sentence why (`partial`); only a first page that fails fails it.
+   */
+  async function pages(source: Source, what: 'issues' | 'merge_requests', limit: number): Promise<{ items: unknown[]; partial?: string } | string> {
     const out: unknown[] = []
-    for (let page = 1; page <= pagesFor(limit); page += 1) {
+    const size = pace.size(source.host, PER_PAGE)
+    for (let page = 1; out.length < limit; page += 1) {
       const ran = await glab(
-        [`${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=100&page=${page}`],
+        [`${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=${size}&page=${page}`],
         source,
       )
-      if (ran.code !== 0) return trouble(ran, 'glab', source.host)
-      const got = parsed(ran)
-      if (!Array.isArray(got)) return `${source.host} answered with something that is not a list.`
+      const got = ran.code === 0 ? parsed(ran) : null
+      if (!Array.isArray(got)) {
+        const why = ran.code !== 0 ? trouble(ran, 'glab', source.host) : `${source.host} answered with something that is not a list.`
+        return out.length ? { items: out.slice(0, limit), partial: partlyRead(why, Math.min(out.length, limit)) } : why
+      }
       out.push(...got)
-      if (got.length < 100) break
+      if (got.length < size) break
     }
-    return out.slice(0, limit)
+    return { items: out.slice(0, limit) }
   }
 
   /**
@@ -706,7 +724,11 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
       }
     }
 
-    /** One batch; on a complexity refusal, its two halves. */
+    /**
+     * One batch; on a complexity refusal or a timeout, its two halves. A
+     * timeout is as much "too much at once" as a complexity refusal is: the
+     * halves are asked with the host's limit raised (`Pace`).
+     */
     async function batch(i: number[], m: number[]): Promise<void> {
       const people = peopleAsked(source.host)
       if (!people) withoutPeople = true
@@ -714,13 +736,13 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
       const answer = obj(parsed(ran))
       const data = obj(obj(answer.data).project)
       if (Object.keys(data).length) return take(data)
-      const first = list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
+      const first = ran.timedOut ? '' : list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
       if (people && NO_FIELD.test(`${first} ${ran.err} ${ran.out}`)) {
         /* An older GitLab: the same batch without the people fields. */
         noPeople.set(source.host, clock() + PEOPLE_RECHECK_MS)
         return batch(i, m)
       }
-      const refusal = COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
+      const refusal = ran.timedOut === true || COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
       const size = i.length + m.length
       if (refusal && size > 1) {
         const half = Math.ceil(size / 2)
@@ -737,9 +759,11 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
       unread.push(...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const })))
     }
 
-    const groups = Math.max(Math.ceil(issues.length / BATCH), Math.ceil(merges.length / BATCH))
+    /* As many at a time as the host answers comfortably: `BATCH` until it is slow. */
+    const per = pace.size(source.host, BATCH)
+    const groups = Math.max(Math.ceil(issues.length / per), Math.ceil(merges.length / per))
     for (let g = 0; g < groups; g += 1) {
-      await batch(issues.slice(g * BATCH, (g + 1) * BATCH), merges.slice(g * BATCH, (g + 1) * BATCH))
+      await batch(issues.slice(g * per, (g + 1) * per), merges.slice(g * per, (g + 1) * per))
     }
     const cannot = (n: number, kind: 'issue' | 'change') => unread.some((u) => u.number === n && u.kind === kind)
     if (unread.length && !rows.length) return { ok: false, why }
@@ -758,7 +782,7 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
 
   return {
     async me(host): Promise<Me> {
-      const ran = await run(['glab', 'api', '--hostname', host, 'user'], { timeout: 30_000 })
+      const ran = await timed(['glab', 'api', '--hostname', host, 'user'], host)
       const who = ran.code === 0 ? login(parsed(ran)) : ''
       if (who) return { login: who }
       return { why: ran.code === 0 ? `glab did not say who is logged in to ${host}.` : trouble(ran, 'glab', host) }
@@ -768,18 +792,21 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
       const [issues, merges] = await Promise.all([pages(source, 'issues', limit), pages(source, 'merge_requests', limit)])
       if (typeof issues === 'string') return { ok: false, why: issues }
       if (typeof merges === 'string') return { ok: false, why: merges }
+      const partial = issues.partial ?? merges.partial
       const rows = [
-        ...issues.map((one) => issueRow(source, one, now)),
-        ...merges.map((one) => mergeRow(source, one, now)),
+        ...issues.items.map((one) => issueRow(source, one, now)),
+        ...merges.items.map((one) => mergeRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
       /* The REST list has no pipeline, no approval and no notes; the open
          merge requests are read again, batched, for all three, and the open
          issues beside them in the same queries for their notes (the last
-         activity). A failure here keeps the rows and loses only those
-         fields — absent, not guessed. */
+         activity). A failure here keeps the rows and hands back the ones it
+         could not read again as `unread`, with the sentence why: the reading
+         keeps what it held of those fields rather than losing them. */
       const open = rows.filter((one) => one.kind === 'change' && one.state === 'open').map((one) => one.number)
       const openIssues = rows.filter((one) => one.kind === 'issue' && one.state === 'open').map((one) => one.number)
       let people: { unreadable: string } | undefined
+      let unread: Extract<Read, { ok: true }>['unread']
       if (open.length || openIssues.length) {
         const again = await byIids(source, openIssues, open, now)
         if (again.ok && again.people) people = again.people
@@ -790,9 +817,22 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now): Adap
             const got = fresh.get(`${one.kind}:${one.number}`)
             if (got) rows[i] = got
           }
+          unread = again.unread
+        } else {
+          unread = {
+            why: again.why,
+            refs: [...openIssues.map((number) => ({ number, kind: 'issue' as const })), ...open.map((number) => ({ number, kind: 'change' as const }))],
+          }
         }
       }
-      return { ok: true, rows: linkDeclarers(rows), notFound: [], ...(people ? { people } : {}) }
+      return {
+        ok: true,
+        rows: linkDeclarers(rows),
+        notFound: [],
+        ...(people ? { people } : {}),
+        ...(unread ? { unread } : {}),
+        ...(partial ? { partial } : {}),
+      }
     },
 
     async boards(source): Promise<BoardsRead | null> {

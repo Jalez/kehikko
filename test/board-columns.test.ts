@@ -162,6 +162,8 @@ describe('GitLab boards', () => {
       if (line.includes('/boards')) return ok(fixture('gitlab-boards'))
       if (line.includes('/issues?')) return ok(fixture('gitlab-issues'))
       if (line.includes('/merge_requests?')) return ok([])
+      /* The open issues read again for their notes: an answer with nothing more in it. */
+      if (line.includes('graphql')) return ok({ data: { project: { issues: { nodes: [] } } } })
       return { code: 1, out: '', err: `nothing answers ${line}` }
     })
 
@@ -227,6 +229,7 @@ describe('absent boards', () => {
       if (argv[0] === 'git') return { code: 0, out: 'origin\thttps://gitlab.example.org/group/project.git (fetch)', err: '' }
       if (line.includes('/boards')) return ok([])
       if (line.includes('/issues?')) return ok(fixture('gitlab-issues'))
+      if (line.includes('graphql')) return ok({ data: { project: { issues: { nodes: [] } } } })
       return ok([])
     })
     const trackers = new Trackers({ run, now: () => NOW })
@@ -245,6 +248,7 @@ describe('absent boards', () => {
       if (argv[0] === 'git') return { code: 0, out: 'origin\thttps://gitlab.example.org/group/project.git (fetch)', err: '' }
       if (line.includes('/boards')) return { code: 1, out: '', err: '403 Forbidden' }
       if (line.includes('/issues?')) return ok(fixture('gitlab-issues'))
+      if (line.includes('graphql')) return ok({ data: { project: { issues: { nodes: [] } } } })
       return ok([])
     })
     const trackers = new Trackers({ run, now: () => NOW })

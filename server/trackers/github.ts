@@ -41,6 +41,7 @@ import {
   type Me,
   type Read,
 } from './common.ts'
+import { Pace } from './pace.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -708,9 +709,10 @@ export function lacksProjectScope(answer: unknown, ran: { err: string; out: stri
   return /read:project/.test(`${ran.err}\n${ran.out}`) && !Object.keys(obj(obj(answer).data)).length
 }
 
-export function githubAdapter(run: Runner, clock: () => number = Date.now): Adapter {
-  const gh = (args: string[], source: Source) =>
-    run(['gh', ...args], { timeout: 30_000 }).then((ran) => ({ ran, source }))
+export function githubAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
+  /* Each call is given the host's learned limit, and teaches it (Jalez/kehikko#317). */
+  const timed = pace.runner(run, clock)
+  const gh = (args: string[], source: Source) => timed(['gh', ...args], source.host).then((ran) => ({ ran, source }))
   /** Hosts that refused `read:project`, until when that is believed. */
   const noScope = new Map<string, number>()
   /** Hosts that have no `linkedBranches` (an older Enterprise Server), until when that is believed. */
@@ -758,7 +760,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
     async me(host): Promise<Me> {
       const args = ['gh', 'api', 'user']
       if (host !== 'github.com') args.push('--hostname', host)
-      const ran = await run(args, { timeout: 30_000 })
+      const ran = await timed(args, host)
       const who = ran.code === 0 ? login(parsed(ran)) : ''
       if (who) return { login: who }
       return { why: ran.code === 0 ? `gh did not say who is logged in to ${host}.` : trouble(ran, 'gh', host) }
@@ -783,15 +785,22 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
       const pulls: unknown[] = []
       let after: { issues: string | null | false; pulls: string | null | false } = { issues: null, pulls: null }
       let boards = true
+      let partial: string | undefined
       while (after.issues !== false || after.pulls !== false) {
-        const got = await graph(source, (b, branches) => listQuery(source, after, b, PAGE, branches))
+        /* As many a page as the host answers comfortably; a page that ran over is asked again smaller. */
+        const size = pace.size(source.host, PAGE)
+        const got = await graph(source, (b, branches) => listQuery(source, after, b, size, branches))
+        if (got.ran.timedOut && size > 1) continue
         boards &&= got.boards
         const repo = obj(obj(obj(got.answer).data).repository)
         if (!Object.keys(repo).length) {
-          if (got.ran.code === 0 && obj(got.answer).data) {
-            return { ok: false, why: 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.' }
-          }
-          return { ok: false, why: trouble(got.ran, 'gh', source.host) }
+          const why = got.ran.code === 0 && obj(got.answer).data
+            ? 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.'
+            : trouble(got.ran, 'gh', source.host)
+          /* The pages already read are kept; only a first page that fails fails the listing. */
+          if (!issues.length && !pulls.length) return { ok: false, why }
+          partial = clip(`${why} The newest ${Math.min(issues.length, limit)} issues and ${Math.min(pulls.length, limit)} pull requests were read; the rest are as last read.`, LIMITS.REASON)
+          break
         }
         const next = (half: 'issues' | 'pullRequests', into: unknown[], was: string | null | false): string | null | false => {
           if (was === false) return false
@@ -808,7 +817,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now): Adap
         ...issues.slice(0, limit).map((one) => issueRow(source, one, now)),
         ...pulls.slice(0, limit).map((one) => pullRow(source, one, now)),
       ].filter((one): one is TrackerRow => one !== null)
-      return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items) }
+      return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items), ...(partial ? { partial } : {}) }
     },
 
     async refs(source, wanted, now): Promise<Read> {

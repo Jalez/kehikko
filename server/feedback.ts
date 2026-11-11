@@ -44,6 +44,8 @@ export interface Ran {
   /** The program is not installed (spawn failed). */
   missing?: boolean
   timedOut?: boolean
+  /** With `timedOut`: how long it was given, when the caller chose that (`server/trackers/pace.ts`). */
+  waitedMs?: number
   /** Not run: held back by Kehikot's budget for the person's GitHub account (`githubAccount.ts`); `err` says why. */
   held?: boolean
 }

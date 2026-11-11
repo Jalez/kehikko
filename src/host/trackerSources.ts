@@ -50,6 +50,20 @@ export const trackerListingSchema = z.object({
 })
 export type TrackerListing = z.infer<typeof trackerListingSchema>
 
+/**
+ * What a source's read says when its tracker took longer than it was given
+ * (Jalez/kehikko#317): that it timed out, after how long, and what to do. The
+ * next read waits longer and asks for less at a time (`server/trackers/pace.ts`).
+ */
+export function timedOutSaid(host: string, seconds: number): string {
+  return `Reading ${host} timed out after ${seconds} s. Try again: the next read waits longer and asks for less at a time.`
+}
+
+/** Whether a sentence holds `timedOutSaid`'s: the panel then offers "Try again". */
+export function isTimedOutSaid(text: string | null | undefined): boolean {
+  return typeof text === 'string' && /(^|\s)Reading \S+ timed out after \d+ s\. Try again/.test(text)
+}
+
 /** The schedule's choices, in minutes. */
 export const EVERY_CHOICES = [0, 5, 15, 30, 60] as const
 

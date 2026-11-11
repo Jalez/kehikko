@@ -9,6 +9,7 @@ import {
   ago,
   boardSaid,
   EVERY_CHOICES,
+  isTimedOutSaid,
   readSaid,
   rolesOf,
   sourceName,
@@ -27,12 +28,18 @@ export { ago }
 
 /**
  * A sentence from a read, and — when it says Kehikot's share of the GitHub limit is used up —
- * "Change limit", which opens Settings at the control that sets it.
+ * "Change limit", which opens Settings at the control that sets it. When it says the read timed
+ * out (Jalez/kehikko#317) and a read can be started from here, "Try again".
  */
-export function WithLimitLink({ text, className }: { text: string; className?: string }) {
+export function WithLimitLink({ text, className, onRetry }: { text: string; className?: string; onRetry?: () => void }) {
   return (
     <div className={className}>
       {text}
+      {onRetry && isTimedOutSaid(text) ? (
+        <Button type="button" size="sm" variant="link" data-try-again className="ml-1 h-5 px-1 text-[11px]" onClick={onRetry}>
+          Try again
+        </Button>
+      ) : null}
       {isShareNotice(text) ? (
         <Button
           type="button"
@@ -139,7 +146,7 @@ export function TrackerReading({ tracker, onRefresh, news }: { tracker: TrackerS
           )}
         </div>
         <p className="text-muted-foreground">{TRACKERS_ARE_FOR}</p>
-        <Sources tracker={tracker} listing={listing} now={now} onListing={setOwn} startOpen={empty} />
+        <Sources tracker={tracker} listing={listing} now={now} onListing={setOwn} startOpen={empty} onRefresh={onRefresh} />
         {news ? <NewsSwitch news={news} /> : null}
       </PopoverContent>
     </Popover>
@@ -171,12 +178,14 @@ function Sources({
   now,
   onListing,
   startOpen,
+  onRefresh,
 }: {
   tracker: TrackerState
   listing: TrackerListing | null
   now: number
   onListing(listing: TrackerListing): void
   startOpen: boolean
+  onRefresh?: () => void
 }) {
   const project = tracker.project ?? null
   const [busy, setBusy] = useState(false)
@@ -218,7 +227,7 @@ function Sources({
               {' — '}
               {s.at ? `read ${ago(Date.parse(s.at), now)}` : 'never read'}
             </span>
-            {s.error ? <WithLimitLink text={s.error} className="text-destructive" /> : null}
+            {s.error ? <WithLimitLink text={s.error} className="text-destructive" onRetry={tracker.refreshing ? undefined : onRefresh} /> : null}
           </li>
         ))}
       </ul>
@@ -232,7 +241,14 @@ function Sources({
       {listing.sources.length ? (
         <ul className="space-y-2">
           {listing.sources.map((s) => (
-            <SourceRow key={`${s.tracker}|${s.host}|${s.repo}`} source={s} now={now} busy={busy || reading} send={send} />
+            <SourceRow
+              key={`${s.tracker}|${s.host}|${s.repo}`}
+              source={s}
+              now={now}
+              busy={busy || reading}
+              send={send}
+              onRetry={reading ? undefined : onRefresh}
+            />
           ))}
         </ul>
       ) : null}
@@ -304,11 +320,13 @@ function SourceRow({
   now,
   busy,
   send,
+  onRetry,
 }: {
   source: ListedSource
   now: number
   busy: boolean
   send(edit: TrackerEdit): Promise<TrackerEdited | null>
+  onRetry?: () => void
 }) {
   const key = { tracker: s.tracker, host: s.host, repo: s.repo }
   const link = 'h-5 rounded px-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50'
@@ -320,7 +338,7 @@ function SourceRow({
       </div>
       <div className="text-muted-foreground">{rolesOf(s).join(' · ')}</div>
       {s.off ? null : (
-        <WithLimitLink text={s.error ?? readSaid(s, now)} className={s.error ? 'text-destructive' : 'text-muted-foreground'} />
+        <WithLimitLink text={s.error ?? readSaid(s, now)} className={s.error ? 'text-destructive' : 'text-muted-foreground'} onRetry={onRetry} />
       )}
       {!s.off && s.boards?.length
         ? s.boards.map((b) => (
