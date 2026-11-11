@@ -18,8 +18,10 @@ import type { Theme } from './theme.ts'
  *
  * On this machine, one row of `settings` in `frame.sqlite` (`server/appearance.ts`),
  * changed only through `POST /host/settings` (`{ appearance: { … } }`), which
- * is `PAGE_ONLY`. No MCP tool changes it, and no module is told: this styles
- * the host's own chrome around a module's page, never the page.
+ * is `PAGE_ONLY`. No MCP tool changes it. It styles the host's own chrome
+ * around a module's page, never the page — but every module is told the
+ * background (`context.appearance`, protocol 2.82.0, `pageAppearance`), so its
+ * page can leave its own surface off when the container has none.
  *
  * A copy is also kept in cookies, only so the blocking script in `index.html`
  * can draw the right theme and borders before the first paint (`theme.ts` has
@@ -101,6 +103,25 @@ export function appearancePatched(was: Appearance, patch: unknown): Appearance |
     next[key] = value
   }
   return next as unknown as Appearance
+}
+
+/**
+ * What a module is told of it (protocol 2.82.0, `context.appearance`): whether the container draws its
+ * card behind the page or nothing. The protocol's client makes the page transparent for `none`.
+ */
+export function pageAppearance(background: boolean): { background: 'card' | 'none' } {
+  return { background: background ? 'card' : 'none' }
+}
+
+/**
+ * The `color-scheme` of a module's frame element. With a card behind it, `light`, to match a document
+ * that has not painted yet (see `ModuleFrame`): the card shows through, never a white flash. With no
+ * background, the theme's — the page says the same on its `<html>`, and a frame whose scheme differs
+ * from its document's is given an opaque backdrop by the browser, which is the background the person
+ * switched off.
+ */
+export function frameScheme(background: boolean, theme: Theme): Theme {
+  return background ? 'light' : theme
 }
 
 /** The theme a choice draws in: `system` follows the operating system. */
