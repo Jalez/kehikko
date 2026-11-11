@@ -98,6 +98,12 @@ export interface Framing {
   rect: Rect | null
   /** On the open canvas, greeted, and answering. Anything else is hidden. */
   shown: boolean
+  /**
+   * Under the container's loading cover after a context change (protocol
+   * 2.84.0): not drawn and not pressable, but still told it is visible — it is
+   * drawing what it was asked for, and a page told it is hidden may wait.
+   */
+  veiled?: boolean
   /** Its module is on no container of the open kehikko: kept, hidden, and not re-pointed. */
   away: boolean
   /** Whatever the host keeps for this module, carried into its greeting. */
@@ -240,8 +246,10 @@ export function Frames({
        gaps between containers belong to the canvas underneath rather than to an
        invisible sheet stretched across it. */
     <div className="pointer-events-none absolute inset-0" aria-hidden={false} style={layer}>
-      {framings.map(({ module, generation, rect, shown, away, state, pinned, prompt, filters, scope, covers }) => {
+      {framings.map(({ module, generation, rect, shown, veiled = false, away, state, pinned, prompt, filters, scope, covers }) => {
         const visible = shown && !!rect
+        /* Drawn: visible, and not under a loading cover. */
+        const seen = visible && !veiled
         return (
         <div
           /* The entry is in the key, so a page whose container switched version
@@ -252,7 +260,7 @@ export function Frames({
           {...revealHandlers(reveals, module.id, 'frame')}
           /* Held while a switch hands over (`still`): the page being left,
              fading out where it was, is no more a target than a hidden one. */
-          {...hiddenFrame(visible && !still)}
+          {...hiddenFrame(seen && !still)}
           className="absolute top-0 left-0 overflow-hidden rounded-b-lg"
           style={{
             transform: `translate(${rect?.x ?? 0}px, ${rect?.y ?? 0}px)`,
@@ -262,8 +270,8 @@ export function Frames({
                hidden comes back exactly as it was; one collapsed to nothing
                reflows to zero, reflows back, and hands the module two resize
                events it did nothing to deserve. */
-            visibility: visible ? 'visible' : 'hidden',
-            pointerEvents: visible && moving === null && !still ? 'auto' : 'none',
+            visibility: seen ? 'visible' : 'hidden',
+            pointerEvents: seen && moving === null && !still ? 'auto' : 'none',
             ...(raised === module.id ? { zIndex: 41 } : {}),
           }}
         >

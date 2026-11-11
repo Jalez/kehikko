@@ -618,6 +618,15 @@ html.tour-rows .react-grid-item [data-rows='hide'] > .container-reveal:not([data
   .kehikko-mark[data-working='true'] .built { animation: none; }
 }
 
+/* A module's cover: its own icon, breathing as the mark does (`CoverIcon` in
+   `canvas/Conditions.tsx`). Still under reduced motion. */
+.module-cover-icon {
+  animation: kehikko-breathe 3.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .module-cover-icon { animation: none; }
+}
+
 /*
  * The updates panel slides out from under its button and back up into it.
  * The shadcn `animate-in` classes the other overlays carry come from a plugin
