@@ -21,6 +21,8 @@ import { readChime, writeChime } from './chime.ts'
 import { readSorts, readVisits, writeSorts } from './pickerOrder.ts'
 import { sortsPatched } from '../src/host/pickerOrder.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
+import { readGithubShare, writeGithubShare } from './githubShare.ts'
+import { shareChange } from '../src/host/githubShare.ts'
 import { readWorktreeAuto, worktreeAutoChange, writeWorktreeAuto } from './worktrees.ts'
 
 /**
@@ -235,6 +237,7 @@ export function settingsRoute(deps: SettingsDeps) {
     notices: readNotices(deps.db),
     modules: { keep: readKeepRunning(deps.db) },
     updates: { auto: readAutoUpdates(deps.db) },
+    github: { share: readGithubShare(deps.db) },
     worktrees: { auto: readWorktreeAuto(deps.db) },
     chime: readChime(deps.db),
     picker: readSorts(deps.db),
@@ -249,7 +252,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; worktrees?: unknown; chime?: unknown; picker?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; github?: unknown; worktrees?: unknown; chime?: unknown; picker?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -296,6 +299,13 @@ export function settingsRoute(deps: SettingsDeps) {
         writeAutoUpdates(deps.db, auto)
         deps.updatesChanged?.(auto)
       }
+      return json(answer())
+    }
+
+    if (body.github !== undefined) {
+      const share = shareChange(body.github)
+      if (share === null) return json({ ok: false, why: 'A change of the GitHub share is { share: <whole percent from 5 to 50> }.' }, 400)
+      writeGithubShare(deps.db, share)
       return json(answer())
     }
 

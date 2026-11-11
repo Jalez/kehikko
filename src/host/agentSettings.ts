@@ -1,4 +1,5 @@
 import type { ChimeSettings } from './chime.ts'
+import { GITHUB_SHARE_TARGET } from './githubShare.ts'
 import type { PickerSorts, Visits } from './pickerOrder.ts'
 import type { NoticeSettings } from './trackerNotices.ts'
 
@@ -307,17 +308,51 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
 
-/** Open the Settings dialog, wherever it is mounted; at one section when named. */
-export function openSettings(section?: SettingsSection): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: section ?? null }))
+/**
+ * Where a link into Settings goes: a section, and optionally one control in it
+ * (`target`, the id a control marks with `data-settings-target`). The generic
+ * deep link: any button opens Settings at a control with `openSettings(section, target)`,
+ * and `SettingsDialog` scrolls it into view, focuses it and lights it for a moment
+ * (`src/host/settingsTarget.ts`). Controls a link may name are listed in `SETTINGS_TARGETS`.
+ */
+export interface SettingsLink {
+  section: SettingsSection | null
+  target: string | null
+}
+
+/** The controls a button elsewhere can open Settings at. */
+export const SETTINGS_TARGETS = {
+  githubShare: { section: 'modules', target: GITHUB_SHARE_TARGET },
+} as const satisfies Record<string, { section: SettingsSection; target: string }>
+
+const TARGET_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+/** What an `openSettings` event carries, read strictly: a section name (older callers), or `{ section, target }`. */
+export function settingsLinkOf(detail: unknown): SettingsLink {
+  if (isSection(detail)) return { section: detail, target: null }
+  if (detail && typeof detail === 'object') {
+    const { section, target } = detail as { section?: unknown; target?: unknown }
+    return {
+      section: isSection(section) ? section : null,
+      target: typeof target === 'string' && TARGET_ID.test(target) ? target : null,
+    }
+  }
+  return { section: null, target: null }
+}
+
+/** Open the Settings dialog, wherever it is mounted; at one section when named, and at one control in it when `target` is. */
+export function openSettings(section?: SettingsSection, target?: string): void {
+  if (typeof window === 'undefined') return
+  const detail = target ? { section: section ?? null, target } : (section ?? null)
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail }))
 }
 
 /** Listen for `openSettings` (and the shell's bare event, which names no section). Returns the unlisten. */
-export function onOpenSettings(then: (section: SettingsSection | null) => void): () => void {
+export function onOpenSettings(then: (section: SettingsSection | null, target: string | null) => void): () => void {
   if (typeof window === 'undefined') return () => {}
   const heard = (event: Event) => {
-    const detail = (event as CustomEvent<unknown>).detail
-    then(isSection(detail) ? detail : null)
+    const link = settingsLinkOf((event as CustomEvent<unknown>).detail)
+    then(link.section, link.target)
   }
   window.addEventListener(OPEN_EVENT, heard)
   return () => window.removeEventListener(OPEN_EVENT, heard)
@@ -352,6 +387,8 @@ export interface SettingsAnswer {
   modules?: { keep: boolean }
   /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
   updates?: { auto: boolean }
+  /** Kehikot's share of the GitHub limit, a whole percent (`server/githubShare.ts`). Absent from an older host. */
+  github?: { share: number }
   /** "Remove finished worktrees automatically" (`server/worktrees.ts`). Absent from an older host. */
   worktrees?: { auto: boolean }
   /** The Inbox chime (`server/chime.ts`). Absent from an older host. */

@@ -18,9 +18,35 @@ import {
   type TrackerEdited,
   type TrackerListing,
 } from '@/host/trackerSources.ts'
+import { SETTINGS_TARGETS, openSettings } from '@/host/agentSettings.ts'
+import { isShareNotice } from '@/host/githubShare.ts'
 import { Hint } from './Hint.tsx'
 
 export { ago }
+
+/**
+ * A sentence from a read, and — when it says Kehikot's share of the GitHub limit is used up —
+ * "Change limit", which opens Settings at the control that sets it.
+ */
+export function WithLimitLink({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={className}>
+      {text}
+      {isShareNotice(text) ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="link"
+          data-change-limit
+          className="ml-1 h-5 px-1 text-[11px]"
+          onClick={() => openSettings(SETTINGS_TARGETS.githubShare.section, SETTINGS_TARGETS.githubShare.target)}
+        >
+          Change limit
+        </Button>
+      ) : null}
+    </div>
+  )
+}
 
 /**
  * The open project's tracker reading, in the bar: how old it is, whether a
@@ -171,7 +197,7 @@ function Sources({
               {' — '}
               {s.at ? `read ${ago(Date.parse(s.at), now)}` : 'never read'}
             </span>
-            {s.error ? <div className="text-destructive">{s.error}</div> : null}
+            {s.error ? <WithLimitLink text={s.error} className="text-destructive" /> : null}
           </li>
         ))}
       </ul>
@@ -193,9 +219,9 @@ function Sources({
       {listing.peopleNote && !listing.broken ? <p className="text-muted-foreground">{listing.peopleNote}</p> : null}
       {listing.broken ? null : <AddRow busy={busy} send={send} startOpen={startOpen} setSaid={setSaid} />}
       {said ? (
-        <p role="status" className={said.tone === 'bad' ? 'text-destructive' : said.tone === 'ok' ? 'text-foreground' : 'text-muted-foreground'}>
-          {said.text}
-        </p>
+        <div role="status" className={said.tone === 'bad' ? 'text-destructive' : said.tone === 'ok' ? 'text-foreground' : 'text-muted-foreground'}>
+          <WithLimitLink text={said.text} />
+        </div>
       ) : null}
       {listing.broken ? null : (
         <div className="space-y-1 border-t pt-2 text-muted-foreground">
@@ -273,9 +299,7 @@ function SourceRow({
       </div>
       <div className="text-muted-foreground">{rolesOf(s).join(' · ')}</div>
       {s.off ? null : (
-        <div className={s.error ? 'text-destructive' : 'text-muted-foreground'}>
-          {s.error ?? readSaid(s, now)}
-        </div>
+        <WithLimitLink text={s.error ?? readSaid(s, now)} className={s.error ? 'text-destructive' : 'text-muted-foreground'} />
       )}
       {!s.off && s.boards?.length
         ? s.boards.map((b) => (

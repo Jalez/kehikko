@@ -95,6 +95,7 @@ import { readKeepRunning } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
 import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
+import { readGithubShare } from './githubShare.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
 import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
 import { WORKTREES_INBOX_MODULE } from '../src/host/worktrees.ts'
@@ -220,6 +221,7 @@ recordThisProcess(traffic)
 const account = githubAccount({
   run: spawnRunner,
   file: githubAccountFile(),
+  share: () => readGithubShare(db) / 100,
   log: (line) => console.log(line),
   held: (argv, why) => noteHeld(traffic, argv, why),
 })

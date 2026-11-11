@@ -124,7 +124,7 @@ export function pressedRequest(method: string, url: URL): boolean {
  * The rules.
  * ------------------------------------------------------------------------ */
 
-export const shareOf = (limit: number): number => Math.floor(limit * SHARE)
+export const shareOf = (limit: number, share: number = SHARE): number => Math.floor(limit * share)
 export const floorOf = (limit: number): number => Math.ceil(limit * FLOOR)
 
 /** A time of day, as the person reads it: "11:00". */
@@ -156,6 +156,8 @@ export function decide(input: {
   limit: Limit | null
   spend: Spend
   backoff: Backoff | null
+  /** Kehikot's share, as a fraction of the limit; `SHARE` unless the person set one (Settings). */
+  share?: number
 }): Decision {
   const { resource, now, backoff } = input
   if (backoff && now < backoff.until && (backoff.resource === 'all' || backoff.resource === resource)) {
@@ -177,7 +179,7 @@ export function decide(input: {
   }
   if (input.urgency === 'pressed') return { go: true }
   const spend = rolled(input.spend, limit, now)
-  const share = shareOf(limit?.limit ?? ASSUMED_LIMIT)
+  const share = shareOf(limit?.limit ?? ASSUMED_LIMIT, input.share)
   if (spend.used >= share) {
     const until = spend.reset ?? spend.started + WINDOW_MS
     return { go: false, why: `Kehikot's share of ${LIMIT_SAID[resource]} is used until ${clock(until)}`, until, kind: 'share' }
@@ -380,6 +382,8 @@ export interface AccountDeps {
   /** The runner every `gh` call would otherwise go through; tests stub it. */
   run: Runner
   now?(): number
+  /** Kehikot's share of each limit as a fraction (the person's setting); `SHARE` when absent. */
+  share?(): number
   /** Where the share spent and any wait are kept between runs. */
   file?: string
   log?(line: string): void
@@ -441,6 +445,15 @@ export function githubAccount(deps: AccountDeps) {
       renameSync(tmp, deps.file)
     } catch (error) {
       deps.log?.(`github account: could not keep what it spent: ${(error as Error).message}`)
+    }
+  }
+
+  const shareNow = (): number => {
+    try {
+      const share = deps.share?.()
+      return typeof share === 'number' && share > 0 && share < 1 ? share : SHARE
+    } catch {
+      return SHARE
     }
   }
 
@@ -601,7 +614,7 @@ export function githubAccount(deps: AccountDeps) {
     /* Not signed in: this is not the person's account, and gh will say so itself. */
     if (known.signedIn === false) return deps.run(argv, options)
 
-    const decided = decide({ resource, urgency: call.write ? 'write' : urgencyNow(), now: now(), limit: known[resource], spend: spendOf(resource), backoff: kept.backoff })
+    const decided = decide({ resource, urgency: call.write ? 'write' : urgencyNow(), now: now(), limit: known[resource], spend: spendOf(resource), backoff: kept.backoff, share: shareNow() })
     if (!decided.go) {
       deps.held?.(argv, decided.why)
       return { code: 1, out: '', err: decided.why, held: true }
@@ -654,7 +667,7 @@ export function githubAccount(deps: AccountDeps) {
       used: limit.used,
       remaining: limit.remaining,
       resets: limit.reset,
-      share: { limit: shareOf(limit.limit), used: spendOf(resource).used },
+      share: { limit: shareOf(limit.limit, shareNow()), used: spendOf(resource).used },
       floor: floorOf(limit.limit),
     }
   }
@@ -666,7 +679,7 @@ export function githubAccount(deps: AccountDeps) {
     const at = now()
     let paused: Extract<Decision, { go: false }> | null = null
     for (const resource of ['core', 'graphql'] as const) {
-      const said = decide({ resource, urgency: 'background', now: at, limit: known[resource], spend: spendOf(resource), backoff: kept.backoff })
+      const said = decide({ resource, urgency: 'background', now: at, limit: known[resource], spend: spendOf(resource), backoff: kept.backoff, share: shareNow() })
       if (!said.go) {
         paused = said
         break
