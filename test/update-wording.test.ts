@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { lockSaid } from '../server/gitLocks.ts'
 import { waitSaid } from '../src/host/autoUpdates.ts'
@@ -12,6 +15,9 @@ import { installRefusedSaid } from '../src/host/worksWith.ts'
 const INTERNAL = /\b(new code|old code|process|registration|checkout|frame|token|protocol)\b/i
 
 describe('what an update says', () => {
+  const installs = mkdtempSync(join(tmpdir(), 'wording-'))
+  const copy = join(installs, 'm')
+  mkdirSync(copy)
   const sentences: [string, string][] = [
     ['page only', moduleNote({ ran: 'page' })],
     ['restarted', moduleNote({ ran: 'restarted' })],
@@ -29,7 +35,7 @@ describe('what an update says', () => {
     ['build did not finish', fromSourceSaid('<name>')],
     ['install refused', installRefusedSaid('<name>', { protocol: '2.40.0', has: '2.30.0' })],
     ['stepped back', steppedBackSaid('<name>', 'v1.4.0')],
-    ['leftover lock, installed copy', `<name> was not updated. ${lockSaid('/p/.git/index.lock', '/installs/m', { KEHIKOT_INSTALLS_DIR: '/installs' })}`],
+    ['leftover lock, installed copy', `<name> was not updated. ${lockSaid('/p/.git/index.lock', copy, { KEHIKOT_INSTALLS_DIR: installs })}`],
     ['leftover lock, own folder', lockSaid('/p/.git/index.lock', '/elsewhere/m', { KEHIKOT_INSTALLS_DIR: '/installs' })],
   ]
 
