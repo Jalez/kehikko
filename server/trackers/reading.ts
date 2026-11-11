@@ -21,7 +21,7 @@ import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic, readParts } from '../holdings.ts'
 import type { EpicPlace } from '../../src/host/trackerNews.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import { withContributors, type Adapter, type BoardsRead, type BranchChange, type HeldBoard, type Me, type Read, type Wanted } from './common.ts'
+import { withContributors, type Adapter, type BoardsRead, type BranchChange, type HeldBoard, type ListHow, type Me, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -30,6 +30,7 @@ import { withStacks } from './stacks.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
+import { inScope, READS_DEFAULT, readsKey, writtenReads } from '../../src/host/trackerReads.ts'
 import { basename } from 'node:path'
 import { because } from '../traffic.ts'
 
@@ -112,8 +113,23 @@ const BY_BRANCH_MS = 5 * 60_000
 const ME_KNOWN_MS = 12 * 60 * 60_000
 /** How long a failure to say who they are is believed before asking again. */
 const ME_UNKNOWN_MS = 30 * 60_000
+/**
+ * A source that reads only what changed is still listed whole this often: an
+ * item deleted or moved away says nothing in a list of changes, and the held
+ * rows are trimmed back to what a whole listing holds (Jalez/kehikko#318).
+ */
+export const WHOLE_EVERY_MS = 24 * 60 * 60_000
+/** A read of only what changed asks from this long before the last one started, so nothing between falls through. */
+const SINCE_OVERLAP_MS = 2 * 60_000
 
-const storedSource = trackerSourceSchema.omit({ refreshing: true })
+const storedSource = trackerSourceSchema.omit({ refreshing: true }).extend({
+  /** When its last listing that read cleanly started: what a read of only what changed asks from (#318). */
+  listedAt: z.string().nullable().optional(),
+  /** When its last WHOLE listing that read cleanly started. */
+  wholeAt: z.string().nullable().optional(),
+  /** `readsKey` of what that listing read: a change of it makes the next listing whole. */
+  readsKey: z.string().optional(),
+})
 const heldBoardSchema = trackerBoardSchema.extend({
   lists: z.array(z.string()).max(LIMITS.TRACKER_COLUMNS).optional(),
   scope: z.array(z.string()).max(LIMITS.TRACKER_LABELS).optional(),
@@ -532,6 +548,7 @@ export class Trackers {
           issues: was?.at ? (n?.issues ?? 0) : null,
           changes: was?.at ? (n?.changes ?? 0) : null,
           boards: (boards.get(sourceKey(s))?.boards ?? []).map(({ board, columns }) => ({ board, columns })),
+          reads: s.reads ? writtenReads(s.reads) : null,
         }
       }),
       boardsNote: held.stored.boards.find((b) => b.unreadable && stored.has(b.source))?.unreadable ?? null,
@@ -969,6 +986,22 @@ export class Trackers {
       entry.wanted.set(id, { number: name.number, kind: name.kind, refs: [...(was?.refs ?? []), ref] })
     }
 
+    /* What each listed source's listing asks (#318): its `reads`, and, when it reads only what
+       changed and the last clean listing read the same, the instant to ask from. */
+    const storedWas = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
+    const nowMs = Date.parse(now)
+    const howOf = (source: Source): ListHow | undefined => {
+      const was = storedWas.get(sourceKey(source))
+      const same = was?.readsKey === readsKey(source.reads)
+      const wholeRecently = was?.wholeAt ? nowMs - Date.parse(was.wholeAt) < WHOLE_EVERY_MS : false
+      const since = source.reads?.since && same && was?.listedAt && wholeRecently
+        ? new Date(Date.parse(was.listedAt) - SINCE_OVERLAP_MS).toISOString()
+        : null
+      return source.reads || since ? { reads: source.reads ?? READS_DEFAULT, since } : undefined
+    }
+    /** Per source listed cleanly: whether it asked only for what changed. */
+    const listedHow = new Map<string, { since: boolean }>()
+
     const errors = new Map<string, string | null>()
     /** Sources whose read failed outright, as against one that read with a sentence (part of it unread). */
     const failedOutright = new Set<string>()
@@ -989,15 +1022,20 @@ export class Trackers {
         let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
         let partial: string | undefined
         if (list) {
-          const read = await adapter.list(source, this.#listLimit, now)
+          const how = howOf(source)
+          const read = await adapter.list(source, this.#listLimit, now, how)
           if (!read.ok) {
             failedOutright.add(key)
             return errors.set(key, read.why)
           }
           got = read.rows
-          /* A listing that stopped part way did not see everything recent: the rows it did not reach stay. */
+          /* A listing that stopped part way did not see everything recent: the rows it did not reach
+             stay. So do a listing of only what changed: the rest did not change. */
           if (read.partial) partial = read.partial
-          else listedNow.add(key)
+          else {
+            listedHow.set(key, { since: Boolean(how?.since) })
+            if (!how?.since) listedNow.add(key)
+          }
           unread = read.unread
           if (read.boards) boardsRead.set(key, read.boards)
           peopleRead.set(key, read.people?.unreadable ?? null)
@@ -1088,6 +1126,34 @@ export class Trackers {
       byId.set(rowIdentity(row), detail ? { ...row, detail } : row)
     }
 
+    /* A source's rows its `reads` leave out go, unless somebody names them; and one that reads
+       only what changed is trimmed to what a whole listing of it would hold, newest updated
+       first, so the held rows do not grow without end (#318). Only for a source that listed
+       cleanly this time: one that failed keeps everything it had. */
+    {
+      const nowAt = Date.parse(now)
+      const bySource = new Map(sources.map((s) => [sourceKey(s), s]))
+      const counts = new Map<string, number>()
+      const newestFirst = [...byId.values()].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+      for (const row of newestFirst) {
+        const key = sourceKey(row)
+        const source = bySource.get(key)
+        const how = listedHow.get(key)
+        if (!source?.reads || !how) continue
+        const id = rowIdentity(row)
+        if (wantedIds.has(id)) continue
+        if (!inScope(row, source.reads, nowAt)) {
+          byId.delete(id)
+          continue
+        }
+        if (!how.since) continue
+        const per = `${key}|${row.kind}`
+        const n = (counts.get(per) ?? 0) + 1
+        counts.set(per, n)
+        if (n > this.#listLimit) byId.delete(id)
+      }
+    }
+
     /* Detail, for the refs somebody asked the detail of and that this read covers. */
     const detailed = new Set([...held.stored.detailed, ...[...held.queuedDetail].filter((r) => refs.includes(r))])
     held.queuedDetail = new Set([...held.queuedDetail].filter((r) => !refs.includes(r)))
@@ -1169,6 +1235,19 @@ export class Trackers {
       return me ? withRoles(row, me) : row
     })
 
+    /** When each source last listed cleanly, whole or only what changed, and what it read. */
+    const listedSaid = (key: string, was: (typeof held.stored.sources)[number] | undefined) => {
+      const how = listedHow.get(key)
+      const source = sources.find((s) => sourceKey(s) === key)
+      if (!how || !source) {
+        return {
+          ...(was?.listedAt !== undefined ? { listedAt: was.listedAt } : {}),
+          ...(was?.wholeAt !== undefined ? { wholeAt: was.wholeAt } : {}),
+          ...(was?.readsKey !== undefined ? { readsKey: was.readsKey } : {}),
+        }
+      }
+      return { listedAt: now, wholeAt: how.since ? (was?.wholeAt ?? null) : now, readsKey: readsKey(source.reads) }
+    }
     held.stored = {
       version: VERSION,
       at: now,
@@ -1185,6 +1264,7 @@ export class Trackers {
           listed: s.listed,
           at: errors.has(key) && errors.get(key) === null ? now : (was?.at ?? null),
           error: error === null ? null : error.slice(0, LIMITS.REASON),
+          ...listedSaid(key, was),
         }
       }),
       rows: withBranches(placedOnBoards(withStacks(backLinked(roled)), boards), branches).slice(0, LIMITS.TRACKER_ROWS),

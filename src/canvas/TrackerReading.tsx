@@ -20,6 +20,17 @@ import {
   type TrackerListing,
 } from '@/host/trackerSources.ts'
 import { SETTINGS_TARGETS, openSettings } from '@/host/agentSettings.ts'
+import {
+  CLOSED_CHOICES,
+  kindSaid,
+  kindsFor,
+  readsOf,
+  READS_DEFAULT,
+  readsSaid,
+  writtenReads,
+  type ReadKind,
+  type Reads,
+} from '@/host/trackerReads.ts'
 import { isShareNotice } from '@/host/githubShare.ts'
 import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
 import { Hint } from './Hint.tsx'
@@ -340,6 +351,7 @@ function SourceRow({
       {s.off ? null : (
         <WithLimitLink text={s.error ?? readSaid(s, now)} className={s.error ? 'text-destructive' : 'text-muted-foreground'} onRetry={onRetry} />
       )}
+      {!s.off && s.listed ? <ReadsChoice source={s} busy={busy} send={send} /> : null}
       {!s.off && s.boards?.length
         ? s.boards.map((b) => (
             <div key={b.board} className="text-muted-foreground">
@@ -375,6 +387,107 @@ function SourceRow({
         )}
       </div>
     </li>
+  )
+}
+
+/**
+ * What a listed source reads (Jalez/kehikko#318): which kinds, which states, and whether a read asks
+ * only for what changed since the last one. Folded to one line until opened; each change is one edit
+ * of the tracker file and has the host read again. A ref somebody names is read whatever this says.
+ */
+function ReadsChoice({
+  source: s,
+  busy,
+  send,
+}: {
+  source: ListedSource
+  busy: boolean
+  send(edit: TrackerEdit): Promise<TrackerEdited | null>
+}) {
+  const [open, setOpen] = useState(false)
+  const reads: Reads = readsOf(s.reads ?? {}) ?? READS_DEFAULT
+  const key = { tracker: s.tracker, host: s.host, repo: s.repo }
+  const kinds = kindsFor(s.tracker)
+  const choose = (next: Reads) => void send({ kind: 'set', ...key, reads: writtenReads(next) })
+  const toggle = (kind: ReadKind, on: boolean) => {
+    const next = on ? [...new Set([...reads.kinds, kind])] : reads.kinds.filter((k) => k !== kind)
+    /* Something has to be read; the last kind cannot be unticked. */
+    if (!next.some((k) => kinds.includes(k))) return
+    choose({ ...reads, kinds: next })
+  }
+  const closedValue = reads.closed === true ? 'all' : reads.closed === false ? 'open' : String(reads.closed)
+  const windows = [...new Set([...CLOSED_CHOICES, ...(typeof reads.closed === 'number' ? [reads.closed] : [])])].sort((a, b) => a - b)
+  return (
+    <div className="text-muted-foreground" data-tracker-reads={open ? 'open' : 'closed'}>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="text-left underline-offset-2 hover:text-foreground hover:underline"
+        onClick={() => setOpen((was) => !was)}
+      >
+        Reads {readsSaid(reads, s.tracker)}
+      </button>
+      {open ? (
+        <fieldset className="mt-1 space-y-1 rounded border p-2" disabled={busy}>
+          <legend className="sr-only">What {sourceName(s)} reads</legend>
+          <div className="flex flex-wrap gap-x-3">
+            {kinds.map((kind) => (
+              <label key={kind} className="flex items-center gap-1 text-foreground">
+                <input
+                  type="checkbox"
+                  checked={reads.kinds.includes(kind)}
+                  onChange={(e) => toggle(kind, e.target.checked)}
+                />
+                {kindSaid(kind, s.tracker)}
+              </label>
+            ))}
+          </div>
+          <label className="flex items-center gap-1.5">
+            States
+            <select
+              aria-label="Which states to read"
+              className="h-5 rounded border bg-background px-1 text-foreground"
+              value={closedValue}
+              onChange={(e) => {
+                const v = e.target.value
+                choose({ ...reads, closed: v === 'all' ? true : v === 'open' ? false : Number(v) })
+              }}
+            >
+              <option value="all">every state</option>
+              <option value="open">open only</option>
+              {windows.map((n) => (
+                <option key={n} value={String(n)}>
+                  open, and closed in the last {n} days
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-foreground">
+            <input type="checkbox" checked={reads.since} onChange={(e) => choose({ ...reads, since: e.target.checked })} />
+            Only what changed since the last read
+          </label>
+          <p>
+            Less to read makes every read faster. A reference an epic or a module names is still read by name.
+            {reads.since ? ' Everything is read whole once a day.' : ''}
+          </p>
+          {s.tracker === 'github' ? (
+            <p>
+              Background reads keep to Kehikot&apos;s share of your GitHub limit.
+              <Button
+                type="button"
+                size="sm"
+                variant="link"
+                data-change-limit
+                className="ml-1 h-5 px-1 text-[11px]"
+                onClick={() => openSettings(SETTINGS_TARGETS.githubShare.section, SETTINGS_TARGETS.githubShare.target)}
+              >
+                Change limit
+              </Button>
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
+    </div>
   )
 }
 
