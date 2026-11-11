@@ -25,7 +25,8 @@
     { "id": "kehikot.queue", "name": "Queue", "repo": "Jalez/kehikko-queue", "port": 8110, "icon": "lucide:timer", "tags": ["tests", "build", "agents"], "summary": "One queue for heavy work every session on this computer asks for (test suites, builds, other resource-intensive commands), started when there's room." },
     { "id": "kehikot.antigravity", "name": "Antigravity", "repo": "Jalez/kehikko-antigravity", "port": 8120, "icon": "brand:googlegemini", "tags": ["agents", "code"], "summary": "A terminal holding the Antigravity session that belongs to this epic, these parts and this kehikko.", "protocol": "2.37.0" },
     { "id": "kehikot.opencode", "name": "OpenCode", "repo": "Jalez/kehikko-opencode", "port": 8130, "icon": "brand:opencode", "tags": ["agents", "code"], "summary": "A terminal holding the OpenCode session that belongs to this epic, these parts and this kehikko.", "protocol": "2.37.0" },
-    { "id": "kehikot.vibe", "name": "Vibe", "repo": "Jalez/kehikko-vibe", "port": 8140, "icon": "lucide:zap", "tags": ["agents", "code"], "summary": "A terminal holding the Vibe session that belongs to this epic, these parts and this kehikko." }
+    { "id": "kehikot.vibe", "name": "Vibe", "repo": "Jalez/kehikko-vibe", "port": 8140, "icon": "lucide:zap", "tags": ["agents", "code"], "summary": "A terminal holding the Vibe session that belongs to this epic, these parts and this kehikko." },
+    { "id": "kehikot.worktrees", "name": "Worktrees", "repo": "Jalez/kehikko-worktrees", "port": 8150, "icon": "lucide:git-branch", "tags": ["worktrees", "git", "agents", "disk"], "summary": "Every git worktree of your projects with the disk it takes and its pull request, cleaned up once merged, and agents kept working in worktrees.", "protocol": "2.78.0" }
   ],
   "retired": [
     { "id": "kehikot.notifications", "name": "Notifications", "says": "the Inbox in the bar now holds what modules need, are doing and have said." },

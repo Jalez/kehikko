@@ -35,9 +35,7 @@ import {
   who,
   withContributors,
   withPeople,
-  BRANCH_CHANGES,
   type Adapter,
-  type BranchChange,
   type BoardsRead,
   type HeldBoard,
   type ListHow,
@@ -421,26 +419,6 @@ export function mergeRow(source: Source, raw: unknown, now: string): TrackerRow 
  * that are only part of it go in its `contributedBy`, and never make it
  * `closedByMerge` (protocol 2.26.0).
  */
-/**
- * The REST listing of merge requests, as `changesByBranch` answers it: one
- * from a fork (another source project) left out, and `locked` read as open.
- */
-export function mergeChangesOf(answer: unknown): BranchChange[] {
-  const out: BranchChange[] = []
-  for (const raw of list(answer)) {
-    const r = obj(raw)
-    if (r.source_project_id !== undefined && r.target_project_id !== undefined && r.source_project_id !== r.target_project_id) continue
-    const number = r.iid
-    const branch = str(r.source_branch)
-    const word = str(r.state)
-    const state = word === 'opened' || word === 'locked' ? 'open' : word === 'merged' ? 'merged' : word === 'closed' ? 'closed' : null
-    if (typeof number !== 'number' || !Number.isInteger(number) || number <= 0 || !branch || branch.length > LIMITS.BRANCH || !state) continue
-    const head = str(r.sha)
-    out.push({ branch, number, state, ...(/^[0-9a-f]{40}$/.test(head) ? { head } : {}) })
-  }
-  return out
-}
-
 export function linkDeclarers(rows: TrackerRow[]): TrackerRow[] {
   return withContributors(closedByDeclarers(rows))
 }
@@ -893,19 +871,6 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
           .filter((one): one is HeldBoard => one !== null)
           .slice(0, LIMITS.TRACKER_BOARDS),
       }
-    },
-
-    async changesByBranch(source) {
-      const out: BranchChange[] = []
-      for (let page = 1; page <= BRANCH_CHANGES / 100; page += 1) {
-        const ran = await glab([`${project(source)}/merge_requests?state=all&per_page=100&page=${page}&order_by=created_at&sort=desc`], source)
-        if (ran.code !== 0) return page === 1 ? { why: trouble(ran, 'glab', source.host) } : out
-        const got = parsed(ran)
-        if (!Array.isArray(got)) return page === 1 ? { why: 'glab answered with something that is not a list of merge requests.' } : out
-        out.push(...mergeChangesOf(got))
-        if (got.length < 100) break
-      }
-      return out
     },
 
     async branches(source): Promise<string[] | null> {

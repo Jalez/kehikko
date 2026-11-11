@@ -212,7 +212,7 @@ describe('the introduction', () => {
     expect(scoped.body).toContain('menu says its scope')
     /* The host names no module and no vendor (`module-agnostic-text.test.ts`). */
     expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs|queue of heavy work/)
-    for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'agents message each other', 'skills for this kehikko', 'answer an agent', 'use inbox', 'two rows', 'clean up finished worktrees', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
+    for (const said of ['keep running', 'design, research, development, review, learning', 'put an agent module on a kehikko', 'agents message each other', 'skills for this kehikko', 'answer an agent', 'use inbox', 'two rows', 'alt+shift+n', 'releases', 'private modules', 'your computer', 'your team']) {
       expect(words).toContain(said)
     }
     /* A module of your own: how one is made and where it is added. */

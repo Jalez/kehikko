@@ -389,8 +389,6 @@ export interface SettingsAnswer {
   updates?: { auto: boolean }
   /** Kehikot's share of the GitHub limit, a whole percent (`server/githubShare.ts`). Absent from an older host. */
   github?: { share: number }
-  /** "Remove finished worktrees automatically" (`server/worktrees.ts`). Absent from an older host. */
-  worktrees?: { auto: boolean }
   /** The Inbox chime (`server/chime.ts`). Absent from an older host. */
   chime?: ChimeSettings
   /** How the project, epic and kehikko pickers are ordered (`server/pickerOrder.ts`). Absent from an older host. */

@@ -127,10 +127,6 @@ export interface Refusal {
  *    (`kehikkoSkills.ts`): instructions every agent session on it loads, so
  *    only a press in the page writes one. An agent reads them with the door's
  *    `kehikko_skills` tool.
- *  - `/host/worktrees/scan`, `/host/worktrees/remove` — the cleanup of
- *    finished worktrees (`worktrees.ts`): a scan fetches every repository with
- *    the person's login, and a removal deletes folders. Only a press in the
- *    page does either; no MCP tool removes.
  *  - `/host/module-addresses/check` — what the page's own self-check of the
  *    modules' frame addresses found (`moduleAddresses.ts`). Only the page
  *    checks how it reaches this host.
@@ -179,8 +175,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/file',
   '/host/connections',
   '/host/pinned-places',
-  '/host/worktrees/scan',
-  '/host/worktrees/remove',
   '/host/module-addresses/check',
 ]
 

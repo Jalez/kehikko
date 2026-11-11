@@ -32,7 +32,6 @@ const CASES = [
   'Tools',
   'Skills',
   'Storage',
-  'Clean up worktrees',
   'kehikko skills',
   'How to use',
   'Feedback',
@@ -88,7 +87,6 @@ beforeAll(async () => {
   const { ToolsDialog } = await import('../src/canvas/Tools.tsx')
   const { SkillsDialog } = await import('../src/canvas/Skills.tsx')
   const { Storage } = await import('../src/canvas/Storage.tsx')
-  const { Worktrees } = await import('../src/canvas/Worktrees.tsx')
   const { KehikkoSkillsDialog } = await import('../src/canvas/KehikkoSkills.tsx')
   const { ModuleHelpDialog } = await import('../src/canvas/ModuleHelp.tsx')
   const { FeedbackDialog } = await import('../src/canvas/Feedback.tsx')
@@ -104,24 +102,6 @@ beforeAll(async () => {
   const { introFor } = await import('../src/host/moduleIntro.ts')
 
   const never = <T,>() => new Promise<T>(() => {})
-  const finished = {
-    scanning: false,
-    error: null,
-    auto: false,
-    scan: {
-      at: 0,
-      took: 1000,
-      projects: [
-        {
-          id: 1,
-          name: 'thesis',
-          path: '/p/thesis',
-          notes: [],
-          rows: [{ path: '/w/a', repo: '/p/thesis', branch: 'fix-a', done: 'PR #12 merged', kept: null, bytes: 1000, changedAt: 0 }],
-        },
-      ],
-    },
-  }
   /* A window kept open by its own state, so Escape can be seen to close it. */
   function Held({ draw, closed }: { draw(open: boolean, close: () => void): import('react').ReactNode; closed(): void }) {
     const [open, setOpen] = React.useState(true)
@@ -167,9 +147,6 @@ beforeAll(async () => {
     Tools: held((open, close) => <ToolsDialog open={open} onOpenChange={onChange(close)} module="kehikot.any" name="Any" onChanged={() => {}} />),
     Skills: held((open, close) => <SkillsDialog open={open} onOpenChange={onChange(close)} module="kehikot.any" name="Any" />),
     Storage: held((open, close) => <Storage open={open} onOpenChange={onChange(close)} load={never} />),
-    'Clean up worktrees': held((open, close) => (
-      <Worktrees open={open} onOpenChange={onChange(close)} api={{ state: async () => finished, scan: async () => finished, remove: never }} />
-    )),
     'kehikko skills': held((open, close) => (
       <KehikkoSkillsDialog open={open} onOpenChange={onChange(close)} kehikko={{ id: 1, name: 'Writing' }} load={never} save={never} remove={never} />
     )),
@@ -265,7 +242,7 @@ async function render(node: import('react').ReactNode) {
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => root.render(<TooltipProvider>{node}</TooltipProvider>))
-  /* Let a window that reads something first (the worktrees' scan) draw what it read. */
+  /* Let a window that reads something first draw what it read. */
   await act(async () => new Promise((done) => setTimeout(done, 10)))
   unmount = () => root.unmount()
 }
