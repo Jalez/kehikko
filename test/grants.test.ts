@@ -55,6 +55,12 @@ const PARAMS: Record<string, unknown> = {
   'messages.tell': { to: { place: { epic: 'auth' } }, body: 'hi' },
   'messages.say': { body: 'hi', to: { project: true } },
   'projects.mine': {},
+  'inbox.read': {},
+  'inbox.log': {},
+  'inbox.act': { do: 'seen', keys: [{ module: 'a', id: 'b' }] },
+  'inbox.answer': { module: 'a', id: 'b', choice: 'Yes' },
+  'inbox.open': { module: 'a', id: 'b' },
+  'inbox.use': { module: 'a', use: false },
 }
 
 describe('the rule', () => {
@@ -152,6 +158,7 @@ describe('the canvas holds every method it answers', () => {
     fold: () => (calls.push('fold'), { outcome: 'unchanged', folded: [], unfolded: [], why: '' }),
     expand: () => (calls.push('expand'), { outcome: 'unchanged', why: '' }),
     activity: () => (calls.push('activity'), { outcome: 'taken', taken: 0, why: '' }),
+    inbox: async () => (calls.push('inbox'), { ok: true, data: {} }),
     project: () => null,
   }
 

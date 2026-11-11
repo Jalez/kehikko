@@ -106,6 +106,11 @@ export interface Pressable {
    */
   opened?(item: string): void
   /**
+   * Tell this module the person's Inbox changed, or that they asked for the next thing that needs
+   * them (protocol 2.79.0, `kehikot.inbox`). Sent only to a module that declares `inbox:person`.
+   */
+  inbox?(signal: InboxSignal): void
+  /**
    * Ask this module to search what it shows, for the find bar over its
    * container (protocol 2.69.0). Returns the id the answer will carry, or
    * `null` when its page cannot be asked. See `Conversation.sendFind`.
@@ -114,6 +119,13 @@ export interface Pressable {
 }
 
 /** What the find bar asks a page for: see `host/find.ts`. */
+/** What `kehikot.inbox` says: read again, or go to the next thing that needs the person. */
+export interface InboxSignal {
+  kind: 'changed' | 'next'
+  rev: number
+  next?: { module: string; id: string } | null
+}
+
 export interface FindAsk {
   query: string
   caseSensitive: boolean
@@ -236,6 +248,14 @@ export class Presses {
     const frame = this.frames.get(id)
     if (!frame?.opened) return false
     frame.opened(item)
+    return true
+  }
+
+  /** Tell one module about the person's Inbox (`kehikot.inbox`), if its frame is there. Answers whether it was. */
+  inbox(id: string, signal: InboxSignal): boolean {
+    const frame = this.frames.get(id)
+    if (!frame?.inbox) return false
+    frame.inbox(signal)
     return true
   }
 

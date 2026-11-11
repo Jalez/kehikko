@@ -12,7 +12,6 @@ import {
   Plug,
   Search,
   Sparkles,
-  Volume2,
   type LucideIcon,
 } from 'lucide-react'
 import { PACKAGE_VERSION } from 'kehikot-module-protocol'
@@ -55,7 +54,6 @@ import {
 } from '@/host/agentSettings.ts'
 import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
 import { isGitReason } from '@/host/gitSaid.ts'
-import { adoptChime } from '@/host/chimeStore.ts'
 import { adoptSorts, adoptVisits } from '@/host/pickerStore.ts'
 import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
@@ -71,7 +69,6 @@ import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { GITHUB_SHARE, GITHUB_SHARE_TARGET, SHARE_PERCENT, shareFromInput } from '@/host/githubShare.ts'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
-import { ChimePanel, type ModuleRef } from './ChimeSettings.tsx'
 import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
@@ -125,7 +122,6 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
       const response = await fetch('/host/settings', { cache: 'no-store' })
       const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
       if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'Kehikot could not read its settings. Close Settings and open it again.')
-      adoptChime(body.chime)
       adoptSorts(body.picker)
       adoptVisits(body.visits)
       return body
@@ -142,7 +138,6 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   })
   const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
   if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'Kehikot did not save that change. Try again.')
-  adoptChime(body.chime)
   adoptSorts(body.picker)
   if (body.status) keepRead('settings', body)
   else forgetRead('settings')
@@ -348,12 +343,14 @@ function KehikotMark({ className }: { className?: string }) {
   return <KehikkoMark working={false} className={className} />
 }
 
+/** A registered module as Settings lists it. */
+export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[] }
+
 const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> = {
   agents: { title: 'Agents', icon: Bot },
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
   notices: { title: 'Tracker notices', icon: Bell },
-  sounds: { title: 'Inbox notifications', icon: Volume2 },
   hook: { title: 'Conversations', icon: MessagesSquare },
   project: { title: 'Project', icon: FolderGit2 },
   modules: { title: 'Modules', icon: Blocks },
@@ -527,14 +524,6 @@ export function SettingsBody({
                   <About onClose={onClose} />
                 ) : key === 'project' ? (
                   project ? <ProjectSettings project={project} door={baseBranch} /> : null
-                ) : key === 'sounds' ? (
-                  <>
-                    <Heading id="sounds" lead="A sound and a toast when something new arrives in the Inbox. Kept on this computer for every project.">
-                      Inbox notifications
-                    </Heading>
-                    {/* Only while it is shown, like Modules: every section is mounted, and this one has controls of its own. */}
-                    {shown === 'sounds' ? <ChimePanel modules={modules} /> : null}
-                  </>
                 ) : key === 'modules' ? (
                   <>
                     {answer?.updates ? (

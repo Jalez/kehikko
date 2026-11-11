@@ -190,6 +190,16 @@ export const ANSWERED_BY_THE_VIEW = [
      `/host/messages/say`, which no other program reaches (`PAGE_ONLY`). See
      `host/ask.ts`. */
   'messages.say',
+  /* The person's Inbox, shown by a module's page (protocol 2.79.0, `inbox:person`): read from the
+     record this page holds and acted on through the page's own routes (`PAGE_ONLY`), only on the
+     person's press in the frame, which only this page sees. Never a server method, and no MCP
+     tool reaches any. See `host/inboxDoor.ts`. */
+  'inbox.read',
+  'inbox.log',
+  'inbox.act',
+  'inbox.answer',
+  'inbox.open',
+  'inbox.use',
 ] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */

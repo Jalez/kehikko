@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { renderToStaticMarkup } from 'react-dom/server'
 import type { ActivityItem } from 'kehikot-module-protocol'
 
-import { InboxControl, InboxPanel, type InboxView } from '../src/canvas/Inbox.tsx'
-import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
+import { readOf } from '../src/host/inboxDoor.ts'
+import { countLook, needingCount } from '../src/host/inboxBar.ts'
 import { byProject, projectsHolding } from '../src/canvas/useInbox.ts'
-import { tally, type Entry } from '../src/host/inbox.ts'
+import type { Entry } from '../src/host/inbox.ts'
 
 /** Switching project silences nothing: other projects' items are filed, shown and counted. */
 
@@ -78,51 +77,32 @@ describe('other projects in the Inbox', () => {
     origin: 'activity',
     ...more,
   })
-  const view = (entries: Entry[], elsewhere: InboxView['elsewhere']): InboxView => {
-    const at = { epic: 'thesis', kehikko: 'k1' }
-    return {
-      entries,
-      elsewhere,
-      onGoElsewhere: () => {},
-      onDismissElsewhere: () => {},
-      earlierCount: 0,
-      at,
-      scope: 'everywhere',
-      onScope: () => {},
-      names: { epic: () => null, part: () => null, kehikko: () => null },
-      tally: tally(entries, at),
-      next: null,
-      open: true,
-      onOpenChange: () => {},
-      onGo: () => {},
-      onNext: () => {},
-      onSee: () => {},
-      onDismiss: () => {},
-      onForget: () => {},
-      onSeeAll: () => {},
-      loadLog: async () => ({ rows: [], more: false, total: 0 }),
-      rev: 1,
-      shortcut: 'Alt+Shift+N',
-      now: () => Date.now(),
-    }
-  }
-
-  test('the panel shows each other project under its name, what needs the person first', () => {
-    const html = renderToStaticMarkup(
-      <InboxPanel view={view([], [{ project: PORTAL, entries: [entry('w', 'working', { label: 'Building the reel' }), entry('q', 'attention', { label: 'Kiosk reel', place: { epic: 'kiosk-info-reel' } })] }])} />,
-    )
-    expect(html).toContain('In Community portal')
-    expect(html).toContain('data-inbox-project="3"')
-    expect(html.indexOf('Kiosk reel')).toBeLessThan(html.indexOf('Building the reel'))
-    expect(html).toContain('Community portal · kiosk-info-reel')
-    /* Something waits elsewhere, so "Nothing needs you." would not be true. */
-    expect(html).toContain('Nothing needs you here.')
+  test('the Inbox a module reads holds each other project under its name, its place in words', () => {
+    const read = readOf({
+      entries: () => [],
+      elsewhere: () => [{ project: PORTAL, entries: [entry('w', 'working', { label: 'Building the reel' }), entry('q', 'attention', { label: 'Kiosk reel', place: { epic: 'kiosk-info-reel' } })] }],
+      muted: () => [],
+      earlier: () => 0,
+      rev: () => 1,
+      next: () => null,
+      at: () => ({ epic: 'thesis', kehikko: 'k1' }),
+      names: () => ({ epic: () => null, part: () => null, kehikko: () => null }),
+      projectName: () => 'Thesis',
+      log: async () => null,
+      act: () => {},
+      answer: async () => ({ ok: true }),
+      open: () => {},
+      use: () => {},
+      hasProject: () => true,
+    })
+    expect(read.elsewhere[0]?.project).toEqual(PORTAL)
+    expect(read.elsewhere[0]?.items.map((one) => one.label)).toEqual(['Building the reel', 'Kiosk reel'])
+    expect(read.elsewhere[0]?.items[1]?.where).toBe('kiosk-info-reel')
+    expect(read.elsewhere[0]?.items.every((one) => !one.here)).toBe(true)
   })
 
-  test('the control counts them and says where they are', () => {
-    const v = { ...view([], [{ project: PORTAL, entries: [entry('q', 'attention'), entry('d', 'done')] }]), open: false }
-    const html = renderToStaticMarkup(<TooltipProvider><InboxControl view={v} worst="attention" /></TooltipProvider>)
-    expect(html).toContain('data-activity-count="">1<')
-    expect(html).toContain('1 needs you in other projects')
+  test('the bar’s count counts what needs the person in other projects too', () => {
+    expect(needingCount([], [{ entries: [entry('q', 'attention'), entry('d', 'done')] }])).toBe(1)
+    expect(countLook(1, true).label).toContain('1 needs you')
   })
 })

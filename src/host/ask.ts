@@ -276,6 +276,12 @@ export interface CanvasControls {
    */
   activity?(from: string, items: ActivityItem[]): { outcome: 'taken' | 'declined'; taken: number; why: string }
   /**
+   * The person's Inbox, for a module's page that declares `inbox:person` (protocol 2.79.0): every
+   * `inbox.*` call, with whether the person's press in the frame was fresh when it came. Answered by
+   * the page from the record it holds (`host/inboxDoor.ts`). Absent: declined.
+   */
+  inbox?(from: string, method: string, params: unknown, pressed: boolean): Promise<Answer>
+  /**
    * Which project the canvas is standing in, as an id, read at call time.
    *
    * A function rather than a value because it is read when the call is MADE,
@@ -391,6 +397,12 @@ export function makeAsk(
         const held = hold(method, may)
         if (held.held) return notAskedFor(method, held.why)
         if ('undeclared' in held) console.warn(`[host] ${undeclaredLine(moduleId, method, held.undeclared)}`)
+      }
+      if (method.startsWith('inbox.')) {
+        /* Fails closed like `messages.say`: with no manifest read, the person's Inbox is not shown or acted on. */
+        if (!may) return notAskedFor(method, SAY_SAYS.noManifest)
+        if (!canvas.inbox) return failed('This canvas holds no Inbox to show.')
+        return canvas.inbox(moduleId, method, rawParams, how?.pressed === true)
       }
       if (method === 'messages.say') {
         /* Fails closed: with no manifest read, nothing is sent as the person. */

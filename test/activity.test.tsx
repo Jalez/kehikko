@@ -4,7 +4,6 @@ import { activitySetResult, type ActivityItem } from 'kehikot-module-protocol'
 
 import { ActivityDot, dotClasses } from '../src/canvas/Activity.tsx'
 import { Canvases } from '../src/canvas/Canvases.tsx'
-import { InboxControl, InboxPanel, controlWords, type InboxView } from '../src/canvas/Inbox.tsx'
 import { Parts } from '../src/canvas/Parts.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
 import {
@@ -22,7 +21,6 @@ import {
 } from '../src/host/activity.ts'
 import { answeredFor } from '../src/host/division.ts'
 import { makeAsk, type CanvasControls } from '../src/host/ask.ts'
-import { tally, type Entry } from '../src/host/inbox.ts'
 
 /*
  * Shared activity states, the host's half (protocol 1.5.0, docs/activity.md):
@@ -146,125 +144,6 @@ describe('the dots', () => {
     expect(dotClasses('done')).not.toContain('animate')
     expect(dotClasses('attention')).toContain('amber')
     expect(dotClasses('done')).toContain('emerald')
-  })
-
-  const entry = (id: string, state: Entry['state'], more: Partial<Entry> = {}): Entry => ({
-    module: 'kehikot.claude',
-    name: 'Claude',
-    id,
-    state,
-    label: id,
-    priority: 'normal',
-    refs: [],
-    entered: Date.now() - 180_000,
-    opened: Date.now() - 180_000,
-    closed: null,
-    how: null,
-    seen: null,
-    dismissed: null,
-    origin: 'activity',
-    ...more,
-  })
-  const names: Namer = { epic: () => 'The thesis', part: (_e, id) => (id === 'm' ? 'Methods' : null), kehikko: (k) => (k === 'k1' ? 'Writing' : null) }
-  const view = (entries: Entry[], more: Partial<InboxView> = {}): InboxView => {
-    const at = { epic: 'thesis', kehikko: 'k1' }
-    return {
-      entries,
-      earlierCount: 0,
-      at,
-      scope: 'everywhere',
-      onScope: () => {},
-      names,
-      tally: tally(entries, at),
-      next: entries.find((one) => one.state === 'attention') ?? null,
-      open: true,
-      onOpenChange: () => {},
-      onGo: () => {},
-      onNext: () => {},
-      onSee: () => {},
-      onDismiss: () => {},
-      onForget: () => {},
-      onSeeAll: () => {},
-      loadLog: async () => ({ rows: [], more: false, total: 0 }),
-      rev: 1,
-      shortcut: 'Alt+Shift+N',
-      now: () => Date.now(),
-      ...more,
-    }
-  }
-
-  test('the control keeps the old footprint — a dot and the attention count — and says where things are in words', () => {
-    const entries = [
-      entry('a', 'attention', { place: { kehikko: 'k1' } }),
-      entry('b', 'attention', { place: { kehikko: 'k2' } }),
-      entry('c', 'attention', { place: { kehikko: 'k2' } }),
-      entry('w', 'working'),
-    ]
-    const v = view(entries, { open: false })
-    const html = renderToStaticMarkup(<TooltipProvider><InboxControl view={v} worst="attention" /></TooltipProvider>)
-    expect(html).toContain('data-activity-count="">3<')
-    expect(html).toContain('1 needs you here, 2 in other kehikot')
-    expect(controlWords(tally([], { epic: null, kehikko: null }), 'Alt+Shift+N')).toContain('nothing new')
-  })
-
-  test('the panel: Next first, sections in order, by-line before the claim, place parts then epic, urgent marked', () => {
-    const entries = [
-      entry('done-one', 'done', { label: 'Draft finished', entered: Date.now() - 60_000 }),
-      entry('work', 'working', { label: 'Compiling' }),
-      entry('late', 'attention', { label: 'Pick a file', place: { epic: 'thesis', parts: ['m'], kehikko: 'k1' } }),
-      entry('burning', 'attention', { label: 'Build broke', priority: 'urgent' }),
-    ]
-    const html = renderToStaticMarkup(<InboxPanel view={view(entries, { next: entries[3]! })} />)
-    expect(html).toContain('Next:')
-    expect(html).toContain('Alt+Shift+N')
-    const order = ['Needs you', 'Working', 'Finished'].map((word) => html.indexOf(`>${word}<`))
-    expect(order.every((at) => at > 0)).toBe(true)
-    expect(order).toEqual([...order].sort((a, b) => a - b))
-    /* The rows (not the Next button, which says the same label first). */
-    const rows = html.split('<li data-inbox-row=').slice(1)
-    expect(rows[0]).toContain('Build broke')
-    expect(rows[1]).toContain('Pick a file')
-    expect(rows[0]!.indexOf('Claude says')).toBeGreaterThan(-1)
-    expect(rows[0]!.indexOf('Claude says')).toBeLessThan(rows[0]!.indexOf('Build broke'))
-    expect(html).toContain('urgent')
-    expect(html).toContain('Methods · Writing · The thesis')
-    expect(html).toContain('3 min ago')
-    expect(html).toContain('needs you')
-    expect(html).toContain('dismiss Build broke')
-  })
-
-  test('empty and honest: nothing here, and what is elsewhere with a press to switch scope', () => {
-    const elsewhere = [entry('x', 'attention', { place: { kehikko: 'k2' } }), entry('y', 'working', { place: { kehikko: 'k2' } })]
-    const here = renderToStaticMarkup(<InboxPanel view={view(elsewhere, { scope: 'here' })} />)
-    expect(here).toContain('Nothing needs you here.')
-    expect(here).toContain('1 entry needs you in another kehikko')
-    expect(here).toContain('Show everywhere')
-    const none = renderToStaticMarkup(<InboxPanel view={view([], { scope: 'everywhere', next: null })} />)
-    expect(none).toContain('Nothing needs you.')
-  })
-
-  test('when the host cannot tell the kehikko it says so and shows everything, never a false empty list', () => {
-    const unknown = renderToStaticMarkup(
-      <InboxPanel view={view([entry('x', 'attention', { place: { kehikko: 'k2' } })], { scope: 'here', at: { epic: null, kehikko: null } })} />,
-    )
-    expect(unknown).toContain('cannot tell which kehikko is open')
-    expect(unknown).toContain('Claude says')
-  })
-
-  test('items that name no kehikko are shown on this kehikko, grouped under This project — not apologised for', () => {
-    const html = renderToStaticMarkup(<InboxPanel view={view([entry('p', 'attention')], { scope: 'here' })} />)
-    expect(html).not.toContain('does not say which kehikko')
-    expect(html).toContain('data-inbox-group="project"')
-    expect(html).toContain('This project')
-    expect(html).toContain('Claude says')
-  })
-
-  test('a group of one module folds into one row with a count', () => {
-    const entries = [entry('t1', 'attention', { group: 'tests', label: 'Tests failed' }), entry('t2', 'attention', { group: 'tests', label: 'Tests failed' }), entry('t3', 'attention', { group: 'tests', label: 'Tests failed' })]
-    const html = renderToStaticMarkup(<InboxPanel view={view(entries)} />)
-    expect(html.match(/data-inbox-row=/g)).toHaveLength(1)
-    expect(html).toContain('aria-expanded="false"')
-    expect(html).toMatch(/tabular-nums[^>]*>[^<]*(<[^>]+>)*3</)
   })
 
   test('a part row and a kehikko row carry a dot where something there holds activity, and none elsewhere', () => {

@@ -451,7 +451,7 @@ export function noticeEntry(
   kehikko?: string,
 ): { entry: Entry; move: Move } {
   const clean = line.message.replace(/\s+/g, ' ').trim()
-  /* The host's own line for an item (`noticeFor` in `activity.ts`), and an
+  /* The host's own line for an item, and an
      agent module's before it: 'Finished: \u201clabel\u201d \u2014 place'. The label is
      what the line is about; the rest is the place, which the entry carries. */
   const told = /^(Finished|Waiting for you): \u201c(.+?)\u201d(?: \u2014 .*)?$/.exec(clean)

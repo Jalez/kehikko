@@ -25,7 +25,7 @@ import type { Entry } from '../src/host/inbox.ts'
  */
 
 const inChild = process.env.INBOX_USE_DOM === '1'
-const TESTS = 5
+const TESTS = 4
 
 if (!inChild) {
   test('"Use inbox", rendered in a process of its own', () => {
@@ -46,7 +46,6 @@ let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let useInbox: typeof import('../src/canvas/useInbox.ts').useInbox
 let Box: typeof import('../src/canvas/Container.tsx')
-let Panel: typeof import('../src/canvas/Inbox.tsx')
 let Rules: typeof import('../src/host/inbox.ts')
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let WIDTH: PropertyDescriptor | undefined
@@ -60,7 +59,6 @@ beforeAll(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   ;({ useInbox } = await import('../src/canvas/useInbox.ts'))
   Box = await import('../src/canvas/Container.tsx')
-  Panel = await import('../src/canvas/Inbox.tsx')
   Rules = await import('../src/host/inbox.ts')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
   WIDTH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
@@ -304,68 +302,5 @@ describe.if(inChild)('the Inbox panel', () => {
     document.body.innerHTML = ''
   })
 
-  const entry = (module: string, id: string): Entry => ({
-    module,
-    name: module === 'kehikko' ? 'Kehikot' : 'One',
-    id,
-    state: 'attention',
-    label: id,
-    priority: 'normal',
-    refs: [],
-    entered: Date.now() - 60_000,
-    opened: Date.now() - 60_000,
-    closed: null,
-    how: null,
-    seen: null,
-    dismissed: null,
-    origin: 'activity',
-  })
 
-  test('“Stop showing” on a module’s row, not the host’s; “N modules muted” with Show again', async () => {
-    const asked: [string, boolean][] = []
-    const at = { epic: null, kehikko: null }
-    const entries = [entry('kehikot.one', 'a'), entry('kehikko', 'place-ask:x')]
-    const view: import('../src/canvas/Inbox.tsx').InboxView = {
-      entries,
-      earlierCount: 0,
-      at,
-      scope: 'everywhere',
-      onScope: nothing,
-      names: { epic: () => null, part: () => null, kehikko: () => null },
-      tally: Rules.tally(entries, at),
-      next: null,
-      open: true,
-      onOpenChange: nothing,
-      onGo: nothing,
-      onNext: nothing,
-      onSee: nothing,
-      onDismiss: nothing,
-      onForget: nothing,
-      onSeeAll: nothing,
-      loadLog: async () => ({ rows: [], more: false, total: 0 }),
-      rev: 1,
-      shortcut: 'Alt+Shift+N',
-      now: () => Date.now(),
-      muted: [{ id: 'kehikot.two', name: 'Two' }, { id: 'kehikot.three', name: 'Three' }],
-      onUse: (module, on) => asked.push([module, on]),
-    }
-    const host = document.createElement('div')
-    document.body.appendChild(host)
-    const root = createRoot(host)
-    await act(async () => root.render(<TooltipProvider><Panel.InboxPanel view={view} /></TooltipProvider>))
-    unmount = () => root.unmount()
-
-    const stops = [...document.querySelectorAll<HTMLElement>('[data-inbox-mute]')]
-    expect(stops.map((one) => one.getAttribute('aria-label'))).toEqual(['Stop showing One here'])
-    await act(async () => stops[0]!.click())
-    expect(asked).toEqual([['kehikot.one', false]])
-
-    const section = document.querySelector<HTMLElement>('[data-inbox-muted]')!
-    expect(section.textContent).toContain('2 modules muted')
-    await act(async () => section.querySelector<HTMLElement>('button')!.click())
-    const again = document.querySelector<HTMLElement>('[data-inbox-muted-module="kehikot.two"] button')!
-    expect(again.textContent).toBe('Show again')
-    await act(async () => again.click())
-    expect(asked.at(-1)).toEqual(['kehikot.two', true])
-  })
 })

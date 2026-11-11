@@ -964,11 +964,33 @@
 
 - ONE record of what modules need, are doing and have said: `src/host/inbox.ts`
   (pure, shared by the page and the server) and `server/inbox.ts` (the store, in
-  `frame.sqlite`, per project id; never in the project). The dots, the bar
-  control, the panel (`src/canvas/Inbox.tsx`), the log and `read_canvas` /
-  `read_inbox` all read it. Do not add a second set of items, a seen set in
-  browser storage, or a derived-notice set: a transition is a row in
-  `inbox_moves`, and what was told is what the record already holds.
+  `frame.sqlite`, per project id; never in the project). The module that shows
+  the Inbox, the bar's count, the log and `read_canvas` / `read_inbox` all read
+  it. Do not add a second set of items, a seen set in browser storage, or a
+  derived-notice set: a transition is a row in `inbox_moves`, and what was told
+  is what the record already holds.
+- **The record is the host's; the display is a module's** (protocol 2.79.0).
+  The panel, its rows and question cards, pop-ups, per-module dots and the Next
+  jump are drawn by a module whose manifest declares `inbox:person`, placed on a
+  kehikko by the person. It reads and acts through the page methods `inbox.read`,
+  `inbox.log`, `inbox.act`, `inbox.answer`, `inbox.open`, `inbox.use`, answered
+  by the page alone (`ANSWERED_BY_THE_VIEW`, `src/host/inboxDoor.ts`), held to
+  the capability (`hold` via `makeAsk`), every act but reading and `seen` only on
+  the person's fresh press in the frame (`actNeedsPress`), or `inbox.open` of the
+  item the host's Next named within `INBOX_NEXT_MS`. None is a server method
+  (the protocol's `serverAskSchema` refuses them) and no MCP tool acts. The page
+  tells such a module `kehikot.inbox` (`changed` on every new revision; `next`
+  on the chord). The host sounds nothing and pops nothing up.
+- The bar keeps only a small count (`src/canvas/InboxCount.tsx`; rules in
+  `src/host/inboxBar.ts`): the Inbox module's icon, and with "Show notification
+  colour and number" on (`inbox-count-colour` in `settings`, `server/inboxCount.ts`,
+  only through `POST /host/settings` `{ inbox: { colour } }`) the number in the
+  attention colour; off, the plain icon. Its label says the count either way.
+  A press focuses the Inbox's container on this kehikko, else a popover offers
+  "Add <name> to this kehikko" (a registered module declaring `inbox:person`,
+  else the official list's entry with `role: "inbox"` — never by name), the top
+  three items as text, the checkbox and the agent messages. The host names the
+  module only from that data.
 - Nothing outlives the module's word for it (#195). An entry closes, and `how`
   says why: `listed` (its latest whole list drops it), `silent` (not answering,
   or on no kehikko of the project), `unreported` (its new page — restart,
@@ -986,9 +1008,9 @@
 - An `attention` item may ask a question (protocol 2.55.0, `question`): kept as
   `Entry.question` only when `to.module` is the reporting module's own, or the
   reporter declares `messages:as-person` (`heldQuestion`); else dropped and the
-  item kept. The row and the toast show it whole, its choices as buttons and a
-  reply field (`src/canvas/InboxQuestion.tsx`). An answer goes only on the
-  person's fresh press (`pressFresh`, read in the handler; `pressed: true`, the
+  item kept. The Inbox module shows it whole, its choices as buttons and a reply
+  field, and answers with `inbox.answer`. An answer goes only on the person's
+  fresh press (in the frame, read when the request arrives; `pressed: true`, the
   server refuses without it) and is sent through the messages store to the ONE
   session `question.to` names, as the person's (`from: { module: HOST_ID, name:
   INBOX_VIA, person: true }`, `replyTo` or else `answers`). The entry is marked
@@ -999,14 +1021,14 @@
   and words are `src/host/inboxUse.ts`. Off KEEPS recording — the module's
   reports still land in `inbox_items`/`inbox_moves`, so turning it back on
   shows what it says now — and the page leaves it out of what it draws:
-  `useInbox`'s `open`, `live` and `others` (so no row, dot, count or Next) and
-  `notify` (no chime, no toast); its log rows and Earlier count are left out
+  `useInbox`'s `open`, `live` and `others` (so no row, count or Next, and
+  `inbox.read` leaves it out); its log rows and Earlier count are left out
   by the server. A switch moves every project's revision so every page
   re-reads. Never silent: a "Use inbox" checkbox row in the Container menu
   (`inbox` in `FRAME_ENTRIES`, for a module that declares `activity:report` or
-  `events:emit`, or is muted), "Stop showing <name> here" on a module's Inbox
-  row, and "N modules muted" with Show again at the panel's foot (which keeps
-  the bar's control drawn). `read_inbox` and `read_canvas` still list a muted
+  `events:emit`, or is muted), and in the Inbox module "Stop showing <name> here"
+  on a row (`mutable`) and "N modules muted" with Show again (`inbox.read`'s
+  `muted`, `inbox.use`). `read_inbox` and `read_canvas` still list a muted
   module's lines, marked "(muted by the person)". The host's own lists
   (`isHostModule`) are not muted here; they have their own settings.
 - The host names no module and no vendor: the by-line is the module's registered
@@ -1020,18 +1042,20 @@
   ids: the module picks ("Answer", formerly `research`, is still read).
 - **The same item** is one (project, module, item id) in one `state` since one
   `entered` (the module's `since`): `sameItem` in `src/canvas/useInbox.ts`. A
-  re-report of it is never news — no toast, no chime, seen stays seen — through
+  re-report of it is never news — seen stays seen — through
   a re-send, a close and return, a module restart, a page reload and a host
   restart. Only a new state or a new `since` is news. The host trusts `since`;
   a module that re-stamps it on every re-send makes each one news (Claude and
   Codex did, before 1.13.0 and 0.5.0). Do not add a host-side rule that guesses
   around `since`.
-- Open (an Inbox row, a toast, Next) sees a `done` item and, once the host is
+- Open (`inbox.open`, the chord) sees a `done` item and, once the host is
   at its place with the module's container on the kehikko, tells the module
   which item (`kehikot.opened`, protocol 2.35.0: `arrived` in `useGoToPlace`,
   `Conversation.sendOpened`). `attention` still ends only by the module's word;
   the message is how a module learns the person came for it.
-- Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord.
+- Next that needs me is `Alt+Shift+N` (`src/App.tsx`). Do not take that chord. The host
+  keeps it: with an Inbox module on the kehikko it focuses it and sends it
+  `kehikot.inbox` `next`; without one it opens the count's popover (`chordGoes`).
 - Tracker notices are the host's own items (`kehikko.trackers`, by-line "Tracker", never "… says" — `byLine`):
   `server/trackerNotices.ts` compares each landed tracker reading with the facts
   it last saw (`tracker_seen` in `frame.sqlite`, per project; the first reading
@@ -1210,7 +1234,7 @@
 - Pressing the item opens What's new at that release (`openWhatsNew(at)`), the
   handle in a `<mark>` (`markedPieces`), text only. Handles are never linked.
 - In the open project, only this list is news on a read (`refresh` in `useInbox`),
-  so a mention toasts and chimes like a module's item. The other host lists
+  so a mention is news like a module's item. The other host lists
   (tracker notices, settings) stay quiet there: do not widen it.
 
 ## A conversation's place (protocol 2.4.0)

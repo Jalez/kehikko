@@ -66,6 +66,11 @@ const entrySchema = z.object({
      while it starts. Its own manifest wins once it answers. Optional; a value this host cannot read is
      dropped rather than failing the list. */
   reacts: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,31}$/)).max(16).optional().catch(undefined),
+  /* What the module is to the host, for the one thing a host needs before it has ever answered here:
+     `inbox` is the module that shows the person's Inbox (protocol 2.79.0, `inbox:person`), offered by
+     the bar's count as "Add <name> to this kehikko" (`inboxModuleOf`). Optional; a value this host
+     cannot read is dropped rather than failing the list. */
+  role: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).optional().catch(undefined),
 })
 /* `z.object` drops keys it does not know, so a field a later list adds is
    ignored by this host rather than refusing the list. Held by a test. */
