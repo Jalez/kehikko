@@ -970,40 +970,55 @@ export class Trackers {
     }
 
     const errors = new Map<string, string | null>()
+    /** Sources whose read failed outright, as against one that read with a sentence (part of it unread). */
+    const failedOutright = new Set<string>()
     const boardsRead = new Map<string, BoardsRead>()
     /** Per source read: the sentence when it would not say who reviews, or null when it did. */
     const peopleRead = new Map<string, string | null>()
     const fresh: TrackerRow[] = []
     const gone = new Set<string>()
     const listedNow = new Set<string>()
+    /** Identities a read handed back without everything (`unread`): what was held of them is kept under the new fields. */
+    const thin = new Set<string>()
     await Promise.all(
       [...plan.values()].map(async ({ source, list, wanted }) => {
         const adapter = this.#adapters[source.tracker]
         const key = sourceKey(source)
         if (!list && !wanted.size) return
         let got: TrackerRow[] = []
+        let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
+        let partial: string | undefined
         if (list) {
           const read = await adapter.list(source, this.#listLimit, now)
-          if (!read.ok) return errors.set(key, read.why)
+          if (!read.ok) {
+            failedOutright.add(key)
+            return errors.set(key, read.why)
+          }
           got = read.rows
-          listedNow.add(key)
+          /* A listing that stopped part way did not see everything recent: the rows it did not reach stay. */
+          if (read.partial) partial = read.partial
+          else listedNow.add(key)
+          unread = read.unread
           if (read.boards) boardsRead.set(key, read.boards)
           peopleRead.set(key, read.people?.unreadable ?? null)
         }
         const have = new Set(got.map(rowIdentity))
-        let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
         const rest = [...wanted.entries()].filter(([id]) => !have.has(id)).map(([, w]) => w)
         if (rest.length) {
           const read: Read = await adapter.refs(source, rest, now)
-          if (!read.ok) return errors.set(key, read.why)
+          if (!read.ok) {
+            failedOutright.add(key)
+            return errors.set(key, read.why)
+          }
           got = [...got, ...read.rows]
-          unread = read.unread
+          if (read.unread) unread = unread ? { why: unread.why, refs: [...unread.refs, ...read.unread.refs] } : read.unread
           if (read.people || !peopleRead.has(key)) peopleRead.set(key, read.people?.unreadable ?? null)
           const joined = joinBoards(boardsRead.get(key), read.boards)
           if (joined) boardsRead.set(key, joined)
         }
         const refused = new Set((unread?.refs ?? []).map((r) => identity(source, r.kind, r.number)))
-        errors.set(key, unread?.why ?? null)
+        errors.set(key, unread?.why ?? partial ?? null)
+        for (const id of refused) thin.add(id)
         fresh.push(...got)
         /* Asked for, answered for, and not among the rows: either the tracker
            said so, or what it said would not make a row. Either way it is not
@@ -1022,7 +1037,7 @@ export class Trackers {
         sources.map(async (source) => {
           const key = sourceKey(source)
           const boards = this.#adapters[source.tracker].boards
-          if (!boards || errors.get(key) || boardsRead.has(key)) return
+          if (!boards || failedOutright.has(key) || boardsRead.has(key)) return
           const got = await boards(source).catch(() => null)
           if (got) boardsRead.set(key, got)
         }),
@@ -1038,7 +1053,7 @@ export class Trackers {
         sources.map(async (source) => {
           const key = sourceKey(source)
           const read = this.#adapters[source.tracker].branches
-          if (!read || errors.get(key)) return
+          if (!read || failedOutright.has(key)) return
           const got = await read(source).catch(() => null)
           if (got) branchesRead.set(key, got)
         }),
@@ -1064,8 +1079,10 @@ export class Trackers {
       if (listedNow.has(key) && !wantedIds.has(rowIdentity(row))) continue
       byId.set(rowIdentity(row), row)
     }
-    for (const row of fresh) {
-      const was = byId.get(rowIdentity(row))
+    for (const fromRead of fresh) {
+      const was = byId.get(rowIdentity(fromRead))
+      /* Read, but not everything of it (a deeper query timed out): what it says wins, what it did not say stays. */
+      const row = was && thin.has(rowIdentity(fromRead)) ? { ...was, ...fromRead } : fromRead
       /* A detail read earlier survives a summary read, unless the ref moved since. */
       const detail = was?.detail && (!row.updatedAt || was.detail.readAt >= row.updatedAt) ? was.detail : undefined
       byId.set(rowIdentity(row), detail ? { ...row, detail } : row)

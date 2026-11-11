@@ -9,6 +9,7 @@ import {
   type TrackerRow,
 } from 'kehikot-module-protocol'
 
+import { timedOutSaid } from '../../src/host/trackerSources.ts'
 import { TIMEOUT_MS, type Ran } from '../feedback.ts'
 import type { Source } from './sources.ts'
 
@@ -66,6 +67,12 @@ export type Read =
        * this is the sentence a person is told, once.
        */
       people?: { unreadable: string }
+      /**
+       * Set when a listing stopped part way (a later page timed out, say): the
+       * rows are what it read before that, and this is why it is not whole.
+       * The source's rows the listing did not reach stay as they were.
+       */
+      partial?: string
     }
   | { ok: false; why: string }
 
@@ -270,7 +277,7 @@ export function trouble(ran: Ran, cli: 'gh' | 'glab', host: string): string {
   if (ran.missing) return `${name} is not installed, so ${host} cannot be read from here.`
   /* Held back by Kehikot's budget for the person's account: the sentence says why, as it is. */
   if (ran.held) return clip(`${ran.err}.`, LIMITS.REASON)
-  if (ran.timedOut) return `${host} did not answer within ${TIMEOUT_MS / 1000}s.`
+  if (ran.timedOut) return timedOutSaid(host, Math.round((ran.waitedMs ?? TIMEOUT_MS) / 1000))
   const said = `${ran.err}\n${ran.out}`
   const low = said.toLowerCase()
   if (
