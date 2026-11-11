@@ -303,7 +303,7 @@ export function chordSaid(mac: boolean): string {
 }
 
 /** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'sounds', 'hook', 'project', 'modules', 'about'] as const
+export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'notices', 'hook', 'project', 'modules', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
@@ -391,6 +391,8 @@ export interface SettingsAnswer {
   github?: { share: number }
   /** The Inbox chime (`server/chime.ts`). Absent from an older host. */
   chime?: ChimeSettings
+  /** "Show notification colour and number" on the bar's Inbox count (`server/inboxCount.ts`). Absent from an older host. */
+  inbox?: { colour: boolean }
   /** How the project, epic and kehikko pickers are ordered (`server/pickerOrder.ts`). Absent from an older host. */
   picker?: PickerSorts
   /** When each place was last visited (`server/pickerOrder.ts`), read with the settings so the pickers need no request of their own at start-up. Absent from an older host. */

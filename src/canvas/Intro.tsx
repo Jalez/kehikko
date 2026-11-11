@@ -282,7 +282,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'inbox',
     title: 'One Inbox for what needs you',
-    body: 'Questions, approvals and finished work from every module, in every project, arrive in one list. Answer an agent right there with a choice or a reply, and mute a module you would rather not hear from. Alt+Shift+N takes you to the next thing that needs you.',
+    body: 'Questions, approvals and finished work from every module, in every project, arrive in one list. Add the Inbox to a kehikko to see it there, answer an agent with a choice or a reply, and mute a module you would rather not hear from; the bar keeps a count. Alt+Shift+N takes you to the next thing that needs you.',
     art: () => (
       <Art label="an Inbox filling with what needs you, what is working and what has finished">
         <rect x="70" y="10" width="180" height="130" rx="6" className={box} strokeWidth="1.5" />

@@ -23,6 +23,7 @@ import { sortsPatched } from '../src/host/pickerOrder.ts'
 import { autoUpdatesChange, readAutoUpdates, writeAutoUpdates } from './autoUpdates.ts'
 import { readGithubShare, writeGithubShare } from './githubShare.ts'
 import { shareChange } from '../src/host/githubShare.ts'
+import { inboxColourChange, readInboxColour, writeInboxColour } from './inboxCount.ts'
 
 /**
  * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
@@ -237,6 +238,7 @@ export function settingsRoute(deps: SettingsDeps) {
     updates: { auto: readAutoUpdates(deps.db) },
     github: { share: readGithubShare(deps.db) },
     chime: readChime(deps.db),
+    inbox: { colour: readInboxColour(deps.db) },
     picker: readSorts(deps.db),
     visits: readVisits(deps.db),
     skillsAt: deps.skillsAt(),
@@ -249,7 +251,7 @@ export function settingsRoute(deps: SettingsDeps) {
 
     const raw = await request.text()
     if (raw.length > BODY_MAX) return json({ ok: false, why: 'That request is too large.' }, 413)
-    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; github?: unknown; chime?: unknown; picker?: unknown }
+    let body: { settings?: unknown; except?: unknown; notices?: unknown; modules?: unknown; updates?: unknown; github?: unknown; chime?: unknown; picker?: unknown; inbox?: unknown }
     try {
       body = JSON.parse(raw)
     } catch {
@@ -279,6 +281,13 @@ export function settingsRoute(deps: SettingsDeps) {
       const next = sortsPatched(readSorts(deps.db), body.picker)
       if (!next) return json({ ok: false, why: 'A change of a picker’s order is { projects | epics | kehikot: "az" | "recent" }.' }, 400)
       writeSorts(deps.db, next)
+      return json(answer())
+    }
+
+    if (body.inbox !== undefined) {
+      const colour = inboxColourChange(body.inbox)
+      if (colour === null) return json({ ok: false, why: 'A change of the bar’s Inbox count is { colour: true } or { colour: false }.' }, 400)
+      writeInboxColour(deps.db, colour)
       return json(answer())
     }
 

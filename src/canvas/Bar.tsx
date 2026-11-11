@@ -13,8 +13,7 @@ import { attention } from '@/host/moduleMenu.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import type { Focus } from '@/host/focus.ts'
 import type { Theme } from '@/host/theme.ts'
-import type { ActivityState } from 'kehikot-module-protocol'
-import { InboxControl, type InboxView } from './Inbox.tsx'
+import { InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
@@ -67,19 +66,6 @@ import type { PinnedView } from './usePinnedPlaces.ts'
  * be the only thing announcing that the host is a place. The containers have edges
  * of their own and those edges are the ones that mean something.
  */
-/** What the bar is given about activity; built in `App.tsx` from `host/activity.ts`. */
-export interface BarActivity {
-  epics: ReadonlyMap<string, ActivityState>
-  parts: ReadonlyMap<string, ActivityState>
-  kehikot: ReadonlyMap<string, ActivityState>
-  /** How many things need the person on each kehikko (by key): a number beside its dot in the switcher. */
-  kehikotCounts: ReadonlyMap<string, number>
-  /** The Inbox control and its panel, or null while nothing is held and nothing is earlier. */
-  inbox: InboxView | null
-  /** The worst live state, for the control's dot. */
-  worst: ActivityState | null
-}
-
 export function Bar({
   registry,
   canvases,
@@ -122,7 +108,7 @@ export function Bar({
   tracker = null,
   onRefreshTrackers = () => {},
   trackerNews = null,
-  activity = null,
+  inbox = null,
   pinned = null,
 }: {
   registry: RegistryView | null
@@ -190,11 +176,10 @@ export function Bar({
   /** "Tracker news to agents" in the open project, in the trackers panel. Null: not offered. */
   trackerNews?: TrackerNewsSwitch | null
   /**
-   * What the modules say they are doing (`host/activity.ts`): a mark per epic,
-   * per part and per kehikko, and the one list as a menu. Null for a host
-   * that has none, and then nothing is drawn.
+   * The small count of what needs the person (`InboxCount.tsx`). The Inbox itself is a module on
+   * a kehikko. Null: nothing is drawn.
    */
-  activity?: BarActivity | null
+  inbox?: InboxCountView | null
   /** The person's pinned places and the Pin button, or null to draw neither. See `PinnedPlaces.tsx`. */
   pinned?: PinnedView | null
 }) {
@@ -262,7 +247,6 @@ export function Bar({
          * list of what exists is a way to make a typo authoritative.
          */}
         <Epics
-          marks={activity?.epics}
           epic={subject.epic}
           allEpics={subject.scope === 'project'}
           held={held}
@@ -298,15 +282,12 @@ export function Bar({
             onPick={onParts}
             epic={subject.epic}
             onEdit={onEditParts}
-            marks={activity?.parts}
           />
         )}
 
         <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
 
         <Canvases
-          marks={activity?.kehikot}
-          counts={activity?.kehikotCounts}
           canvases={canvases}
           open={open}
           onOpen={onOpen}
@@ -338,10 +319,9 @@ export function Bar({
 
         <Trouble trouble={trouble} onLookAgain={onLookAgain} looking={looking} />
 
-        {/* The Inbox: one small control with the worst dot and how many need
-            you, drawn only while something is held or earlier. The one list
-            lives in its panel. See `Inbox.tsx`. */}
-        {activity?.inbox ? <InboxControl view={activity.inbox} worst={activity.worst} /> : null}
+        {/* The small count of what needs the person, with the Inbox module's
+            icon. The Inbox itself is a module on a kehikko. See `InboxCount.tsx`. */}
+        {inbox ? <InboxCount view={inbox} /> : null}
 
         {/* The project's shared tracker reading: its age, and "Refresh all". */}
         {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} news={trackerNews} /> : null}

@@ -20,6 +20,8 @@ const moduleSchema = z.object({
   tags: z.array(z.string()),
   /* The list's icon for the module (protocol 2.14.0 key); absent from an older host and an entry without one. */
   icon: z.string().nullish().catch(undefined),
+  /* What the module is to the host: `inbox` shows the person's Inbox (`server/official.ts`). */
+  role: z.string().nullish().catch(undefined),
   installed: z.boolean(),
   install: installingSchema.optional(),
   /* The entry asks for a newer protocol package than this host has. */

@@ -253,6 +253,10 @@ export function ModuleFrame({
         filter: (from, choice) => canvasRef.current.filter(from, choice),
         activity: (from, items) =>
           canvasRef.current.activity?.(from, items) ?? { outcome: 'declined', taken: 0, why: 'This canvas holds no activity.' },
+        /* The person's Inbox (protocol 2.79.0), answered by the page; see `host/inboxDoor.ts`. */
+        inbox: (from, method, params, pressed) =>
+          canvasRef.current.inbox?.(from, method, params, pressed) ??
+          Promise.resolve({ ok: false, reason: 'failed', error: 'This canvas holds no Inbox to show.' }),
         pickProject: (from) => canvasRef.current.pickProject(from),
         fold: (from, call) => canvasRef.current.fold(from, call),
         goto: (call, from) => canvasRef.current.goto(call, from),
@@ -378,6 +382,8 @@ export function ModuleFrame({
       item: (press) => conversation.press(press.item, press.value, press.place === 'footer' ? 'footer' : undefined, press.carried, press.text),
       /* And an Inbox item of its own that the person opened, once the host came to its place. */
       opened: (item) => conversation.sendOpened(item),
+      /* And the person's Inbox changed, or they asked for the next thing (protocol 2.79.0). */
+      inbox: (signal) => conversation.sendInbox(signal),
       /* And a search for the find bar over its container (protocol 2.69.0, `host/find.ts`). */
       find: (ask) => conversation.sendFind(ask),
       /* And the keyboard, after a press that closed its menu. The frame's

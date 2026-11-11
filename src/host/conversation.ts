@@ -630,6 +630,23 @@ export class Conversation {
   }
 
   /**
+   * Tell this module the person's Inbox changed, or that they asked for the next thing that needs
+   * them (protocol 2.79.0, `kehikot.inbox`). Only to a page that has answered its greeting: a page
+   * still loading reads the Inbox when it is ready anyway, and a `next` it missed is the person's
+   * to press again. The caller sends it only to a module that declares `inbox:person`.
+   */
+  sendInbox(signal: { kind: 'changed' | 'next'; rev: number; next?: { module: string; id: string } | null }): void {
+    if (this.closed || !this.greeted || !this.answered) return
+    this.post({
+      type: MESSAGE.INBOX,
+      protocol: PROTOCOL,
+      kind: signal.kind,
+      rev: signal.rev,
+      ...(signal.kind === 'next' ? { next: signal.next ?? null } : {}),
+    })
+  }
+
+  /**
    * Ask this module to search what it shows (protocol 2.69.0, `kehikot.find`),
    * for the find bar over its container. Returns the id the answer will carry,
    * or `null` when there is no page that has answered its greeting to ask — the

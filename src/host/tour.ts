@@ -392,9 +392,9 @@ export const TOUR_STEPS: readonly TourStep[] = [
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-inbox-control]'],
+        selectors: ['[data-inbox-count]'],
         title: 'The Inbox',
-        body: 'What modules need from you, are doing and have finished, in every project. Answer an agent’s question right here; Alt+Shift+N goes to the next thing that needs you.',
+        body: 'How many things need you, in every project. Add the Inbox to a kehikko to see them all there and answer an agent’s question; Alt+Shift+N goes to the next thing that needs you.',
         side: 'bottom',
         align: 'end',
       },

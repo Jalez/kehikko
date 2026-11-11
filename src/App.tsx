@@ -127,22 +127,19 @@ import { offersInboxUse } from './host/inboxUse.ts'
 import { offersMessagesUse } from './host/messagesUse.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
 import { PINNED_VERSION } from './host/restartModule.ts'
-import { useChime } from './canvas/useChime.ts'
 import { visitFor, type Here } from './host/pickerOrder.ts'
 import { noteVisit } from './host/pickerStore.ts'
-import { useToasts } from './canvas/useToasts.ts'
-import { InboxToasts } from './canvas/InboxToasts.tsx'
-import { placeWords, settledToasts } from './host/toasts.ts'
-import { kindOf } from './host/chime.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
-import { epicMarks, kehikkoMarks, moduleMark, partMarks, type Namer } from './host/activity.ts'
-import { isHostModule, nextOf, noticeEntry, rowKey, scopeFrom, tally, type Entry, type NoticeLine, type Place, type Scope } from './host/inbox.ts'
-import { placeOpened } from './host/activity.ts'
+import type { Namer } from './host/activity.ts'
+import { nextOf, rowKey, type Entry, type NoticeLine } from './host/inbox.ts'
+import { INBOX_CAPABILITY, addWords, chordGoes, countLook, inboxModuleOf, needingCount, topItems, type InboxListed } from './host/inboxBar.ts'
+import { answerInbox, type InboxDoor, type NextTold } from './host/inboxDoor.ts'
+import { useInboxColour, type InboxCountView } from './canvas/InboxCount.tsx'
+import { fetchOfficial, installOfficial } from './host/official.ts'
 import { fetchLink, fetchLog } from './host/inboxClient.ts'
 import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE, type NoticeLink } from './host/trackerNotices.ts'
 import { answerAsk, askChoices, isPlaceAsk } from './host/placeAsk.ts'
-import type { BarActivity } from './canvas/Bar.tsx'
-import { schemaFor, worstActivity, type ActivityState } from 'kehikot-module-protocol'
+import { schemaFor } from 'kehikot-module-protocol'
 import { fetchRegistry, newerReading, type Presence, type RegistryView } from './host/registry.ts'
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
@@ -2289,6 +2286,10 @@ export function App() {
     resolve: (answer: GotoAnswer) => void
   } | null>(null)
 
+  /* `inbox.*` (protocol 2.79.0), answered by the record held further down (`inboxDoorRef`). */
+  const inboxAskRef = useRef<NonNullable<CanvasControls['inbox']>>(() =>
+    Promise.resolve({ ok: false, reason: 'failed', error: 'This host is not ready to show the Inbox yet.' }),
+  )
   /* `activity.set`, answered by the lists held further down (`useActivity`);
      through a ref for the reason `gotoRef` is one. */
   const activityRef = useRef<NonNullable<CanvasControls['activity']>>(() => ({
@@ -2383,6 +2384,8 @@ export function App() {
       expand: (from, call, pressed) => expandRef.current(from, call, pressed),
       goto: (call, from) => gotoRef.current(call, from),
       activity: (from, items) => activityRef.current(from, items),
+      /* The person's Inbox (protocol 2.79.0): answered from what this page holds, through a ref. */
+      inbox: (from, method, params, pressed) => inboxAskRef.current(from, method, params, pressed),
       /* The steps of a provider the person switched off for this module here are not handed to it. */
       withhold: (module, method, data) =>
         method === 'steps.list' || method === 'epic.get'
@@ -3927,59 +3930,29 @@ export function App() {
     [registry],
   )
   const inboxProjects = useMemo(() => projects.map(({ id, name, path, uid }) => ({ id, name, path, uid: uid ?? null })), [projects])
-  /* The sound a module's manifest names for one of its events (protocol 2.33.0), before the person chooses one. */
-  const chime = useChime((module, event) =>
-    event ? registry?.presences.find((p) => p.id === module)?.module?.events?.find((one) => one.id === event)?.sound : undefined,
-  )
-  const toasts = useToasts(chime.plays)
-  /* The toast's words for an item; the names are resolved when it is shown, not kept. */
-  const toastRef = useRef<(entry: Entry, project: number) => void>(() => undefined)
   /* A module's page answered a greeting: it is a new page, whose list the Inbox waits for. */
   const inboxGreetedRef = useRef<(module: string) => void>(() => undefined)
   /* "Restart module" in the Container menu: one word per module while it is out, and a look when it is in. */
   const restarts = useRestarts(useCallback(() => void look(true), [look]))
+  /*
+   * The ONE record, kept by the server per project. Drawn by the module that shows the Inbox
+   * (protocol 2.79.0, `inbox:person`) on a kehikko where the person placed it, and by the bar's
+   * small count; the host sounds nothing and pops nothing up (`host/inboxBar.ts`).
+   */
   const inbox = useInbox({
     project: projectId,
     projects: inboxProjects,
     alive: activityAlive,
     at: activityAt,
     nameOf: moduleName,
-    notify: (entry, project) => {
-      /* The same news, as a sound: `useInbox` has already left out what is on screen. */
-      const kind = kindOf(entry)
-      if (kind) chime.offer(kind, entry.module, entry.named?.id)
-      /* And as a toast: the same news, so the same decision. */
-      toastRef.current(entry, project)
-    },
   })
-  /* An item seen, dismissed or closed in the Inbox closes its toast. */
-  const { toasts: shownToasts, closeMany: closeToasts } = toasts
-  useEffect(() => {
-    const settled = settledToasts(shownToasts, inbox.open, projectId)
-    if (settled.length) closeToasts(settled)
-  }, [shownToasts, inbox.open, projectId, closeToasts])
   activityRef.current = inbox.receive
   inboxGreetedRef.current = inbox.greeted
   inboxWokeRef.current = (id, rev) => inbox.refresh(id < 0 ? undefined : id, rev)
   legacyNoticeRef.current = (from, payload) => {
     const parsed = schemaFor('kehikot.notifications@1')?.safeParse(payload)
     if (!parsed?.success) return
-    const line = parsed.data as NoticeLine
-    const where = {
-      epic: line.place?.epic ?? line.epic,
-      ...(line.place?.parts?.length ? { parts: [...line.place.parts] } : {}),
-      kehikko: line.place?.kehikko ?? kehikkoRef.current?.key,
-    }
-    /* A line about a place that is open on screen is not chimed for, like an item; nor is a line
-       of a module the person turned "Use inbox" off for (it is still kept). */
-    if (!placeOpened(where as Place, activityAt) && !inbox.muted.has(from)) {
-      chime.offer(line.level === 'attention' ? 'attention' : 'notice', from)
-      if (projectRef.current !== null) {
-        const { entry } = noticeEntry(from, moduleName(from), line, `toast-${Date.now()}`, Date.now(), kehikkoRef.current?.key)
-        toastRef.current(entry, projectRef.current)
-      }
-    }
-    inbox.notice(from, line, kehikkoRef.current?.key)
+    inbox.notice(from, parsed.data as NoticeLine, kehikkoRef.current?.key)
   }
   const activityNames = useMemo<Namer>(
     () => ({
@@ -3995,37 +3968,6 @@ export function App() {
     }),
     [held, here],
   )
-  toastRef.current = (entry, project) => {
-    const elsewhere = project !== projectRef.current ? (projects.find((one) => one.id === project)?.name ?? 'another project') : null
-    toasts.offer({
-      entry,
-      project,
-      /* The host's own lists have no presence: their by-line is the name they were filed with. */
-      by: isHostModule(entry.module) && entry.name ? entry.name : moduleName(entry.module),
-      place: placeWords(entry, activityNames, elsewhere, projects.find((one) => one.id === project)?.name ?? null),
-    })
-  }
-  const activityMarks = useMemo(() => {
-    const live = inbox.live
-    const moduleOf = new Map<string, ActivityState>()
-    for (const module of new Set(live.map((one) => one.module))) {
-      const mark = moduleMark(live, module)
-      if (mark) moduleOf.set(module, mark)
-    }
-    const counts = new Map<string, number>()
-    for (const one of live) {
-      const key = one.place?.kehikko
-      if (one.state === 'attention' && key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-    return {
-      modules: moduleOf,
-      epics: epicMarks(live, about.epic, (slug) => (held?.epics.find((one) => one.slug === slug)?.parts ?? []).map((p) => p.id)),
-      parts: partMarks(live, about.epic),
-      kehikot: kehikkoMarks(live),
-      counts,
-      worst: worstActivity(live.map((one) => one.state)),
-    }
-  }, [inbox.live, about.epic, held])
   /* Light a module's container on the open kehikko: after a move, once the screen has caught up. */
   const flashContainer = useCallback((module: string, later: boolean) => {
     const flash = () => {
@@ -4119,7 +4061,6 @@ export function App() {
     },
     [inbox, projectId, placeGo.go],
   )
-  const goToElsewhere = useCallback((project: number, entry: Entry) => goToEntry(entry, project), [goToEntry])
   useEffect(() => {
     const pending = goElsewhere.current
     if (!pending || pending.project !== projectId) return
@@ -4158,48 +4099,69 @@ export function App() {
     window.clearTimeout(pending.timer)
     pending.resolve(gotoHereRef.current(pending.call, pending.from))
   }, [projectId, held])
-  /* Which scope the Inbox shows. The default is everywhere: what is going on in
-     other kehikot, parts and epics is the point, one press from "This kehikko".
-     Only a person who narrowed it is remembered, per project, in this browser. */
-  const [inboxScopes, setInboxScopes] = useState<Record<number, Scope>>({})
-  const inboxScope: Scope = useMemo(() => {
-    if (projectId === null) return 'everywhere'
-    const chosen = inboxScopes[projectId]
-    if (chosen) return chosen
-    try {
-      return scopeFrom(window.localStorage.getItem(`kehikot.inbox.scope.${projectId}`))
-    } catch {
-      return 'everywhere'
-    }
-  }, [inboxScopes, projectId])
-  const setInboxScope = useCallback(
-    (scope: Scope) => {
-      if (projectId === null) return
-      setInboxScopes((was) => ({ ...was, [projectId]: scope }))
-      try {
-        window.localStorage.setItem(`kehikot.inbox.scope.${projectId}`, scope)
-      } catch {
-        /* Back to everywhere on the next load; nothing else is lost. */
-      }
-    },
-    [projectId],
-  )
   /* "Next that needs me": the most pressing open item and, pressed again, the
      next, across kehikot, epics and parts. See `nextOf`. */
   const [lastNext, setLastNext] = useState<string | null>(null)
   const nextEntry = useMemo(() => nextOf(inbox.open, lastNext), [inbox.open, lastNext])
+  /*
+   * The module that shows the Inbox (protocol 2.79.0): whichever registered module declares
+   * `inbox:person`, else the official list's entry whose role is `inbox` (`inboxModuleOf`). The
+   * list is read only once a popover needs it and no registered module answers.
+   */
+  const [listed, setListed] = useState<readonly InboxListed[]>([])
+  const inboxModule = useMemo(
+    () =>
+      inboxModuleOf(
+        (registry?.presences ?? []).map((one) => ({ id: one.id, name: one.name ?? one.id, icon: one.icon ?? null, uses: one.module?.declares?.uses ?? [] })),
+        listed,
+      ),
+    [registry, listed],
+  )
+  const inboxPlacedHere = inboxModule !== null && (open?.placements ?? []).some((p) => p.i === inboxModule.id)
+  useEffect(() => {
+    if (!inboxOpen || listed.length || (inboxModule && inboxModule.registered)) return
+    let cancelled = false
+    void fetchOfficial()
+      .then((got) => !cancelled && setListed(got.modules.map((one) => ({ id: one.id, name: one.name, icon: one.icon ?? null, role: one.role ?? null, installed: one.installed }))))
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [inboxOpen, listed.length, inboxModule])
+  /* The Inbox modules on the open kehikko: who is told the record changed (`kehikot.inbox`). */
+  const inboxModulesRef = useRef<readonly string[]>([])
+  inboxModulesRef.current = (registry?.presences ?? [])
+    .filter((one) => one.module?.declares?.uses?.includes(INBOX_CAPABILITY))
+    .map((one) => one.id)
+  const othersRev = useMemo(() => inbox.others.map((one) => `${one.project.id}:${one.entries.length}`).join(','), [inbox.others])
+  useEffect(() => {
+    for (const id of inboxModulesRef.current) presses.inbox(id, { kind: 'changed', rev: inbox.rev })
+  }, [inbox.rev, othersRev, inbox.muted, nextEntry, presses])
+  /* The last Next the host told a page: its `inbox.open` of that item is the person's press. */
+  const nextToldRef = useRef<NextTold | null>(null)
+  /* Go to the Inbox's container on this kehikko: lit, and the keyboard handed to it. */
+  const focusInbox = useCallback(() => {
+    if (!inboxModule) return
+    flashContainer(inboxModule.id, false)
+    presses.focus(inboxModule.id)
+  }, [inboxModule, flashContainer, presses])
   const goNextRef = useRef<() => void>(() => undefined)
   goNextRef.current = () => {
-    if (!nextEntry) {
-      /* Nothing asks for the person: say what is going on instead. */
+    if (chordGoes(inboxPlacedHere) === 'popover' || !inboxModule) {
       setInboxOpen(true)
       return
     }
-    setLastNext(rowKey(nextEntry))
-    goToEntry(nextEntry)
+    const next = nextEntry ? { module: nextEntry.module, id: nextEntry.id } : null
+    if (nextEntry) {
+      setLastNext(rowKey(nextEntry))
+      nextToldRef.current = { module: inboxModule.id, key: rowKey(nextEntry), at: Date.now() }
+    }
+    focusInbox()
+    presses.inbox(inboxModule.id, { kind: 'next', rev: inbox.rev, next })
   }
   /* Alt+Shift+N. By `code`, so the Option key's dead keys on a Mac do not
-     matter; not in a text field. */
+     matter; not in a text field. The host keeps the chord; the Inbox module
+     goes to the item (`chordGoes`). */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey || event.code !== 'KeyN') return
@@ -4213,7 +4175,7 @@ export function App() {
   }, [])
   /* Whether the open project has messages between agent sessions (protocol 2.41.0): the Inbox's
      control is then there to reach them, even with nothing else in it. */
-  const [messageCount, setMessageCount] = useState(0)
+  const [, setMessageCount] = useState(0)
   /* "Messages to agents" off, per module in the open project (`host/messagesUse.ts`): read with the count. */
   const [messagesMuted, setMessagesMuted] = useState<ReadonlySet<string>>(() => new Set())
   const muteMessages = useCallback(
@@ -4257,82 +4219,92 @@ export function App() {
     () => [...inbox.muted].map((id) => ({ id, name: moduleName(id) })).sort((a, b) => a.name.localeCompare(b.name)),
     [inbox.muted, moduleName],
   )
-  const barActivity = useMemo<BarActivity | null>(() => {
-    /* A muted module keeps the control there: never mute silently. */
-    if (inbox.open.length === 0 && inbox.earlier === 0 && inbox.others.length === 0 && !inboxOpen && messageCount === 0 && mutedModules.length === 0) return null
-    const narrowing = { scope: inboxScope, epic: about.epic, kehikko: open?.key ?? null }
+  /* "Add <Inbox> to this kehikko": placed at once when it is registered, else installed from the
+     list and placed when the registry has it. */
+  const [placing, setPlacing] = useState<string | null>(null)
+  const [installing, setInstalling] = useState<string | null>(null)
+  useEffect(() => {
+    if (placing === null || !registry?.presences.some((one) => one.id === placing)) return
+    if (!(open?.placements ?? []).some((p) => p.i === placing)) onPlaceRef.current(placing)
+    setPlacing(null)
+    setInstalling(null)
+  }, [placing, registry, open?.placements])
+  const [inboxColour, setInboxColour] = useInboxColour()
+  const inboxCount = useMemo<InboxCountView | null>(() => {
+    if (projectId === null) return null
+    const needing = needingCount(inbox.open, inbox.others)
     return {
-      epics: activityMarks.epics,
-      parts: activityMarks.parts,
-      kehikot: activityMarks.kehikot,
-      kehikotCounts: activityMarks.counts,
-      /* Another project needing the person lights the control too: switching project silences nothing. */
-      worst: worstActivity([...(activityMarks.worst ? [activityMarks.worst] : []), ...inbox.others.flatMap((one) => one.entries.map((entry) => entry.state))]),
-      inbox: {
-        entries: inbox.open,
-        elsewhere: inbox.others,
-        onGoElsewhere: goToElsewhere,
-        onDismissElsewhere: (project, entries) => inbox.dismiss(entries, project),
-        earlierCount: inbox.earlier,
-        ...(project?.name ? { projectName: project.name } : {}),
-        at: { epic: about.epic, kehikko: open?.key ?? null },
-        scope: inboxScope,
-        onScope: setInboxScope,
-        names: activityNames,
-        tally: tally(inbox.open, { epic: about.epic, kehikko: open?.key ?? null }),
-        next: nextEntry,
-        open: inboxOpen,
-        onOpenChange: setInboxOpen,
-        onGo: (entry) => goToEntry(entry),
-        onNext: () => goNextRef.current(),
-        onSee: inbox.see,
-        onDismiss: inbox.dismiss,
-        /* "Use inbox", the person's per module: off from a row's by-line, back on from the muted list. */
-        muted: mutedModules,
-        onUse: inbox.use,
-        /* An item's question, answered from its row on the person's press (protocol 2.55.0). */
-        onAnswer: (entry, said, pressed, project) => inbox.answer(entry, said, pressed, project),
-        onForget: (keys) => inbox.act('forget', keys ?? undefined, narrowing),
-        onSeeAll: () => inbox.act('seen-all', undefined, narrowing),
-        loadLog: (offset, limit) =>
-          projectId === null ? Promise.resolve(null) : fetchLog(projectId, narrowing, offset, limit),
-        rev: inbox.rev,
-        shortcut: 'Alt+Shift+N',
-        now: () => Date.now(),
-        /* Messages between agent sessions in the open project (protocol 2.41.0): read-only, at the foot. */
-        ...(projectId !== null ? { messages: { project: projectId, nameOf: moduleName, muted: messagesMuted, onMute: muteMessages } } : {}),
-        /* The host's ask "which epic is this conversation for?": the person answers with one press. */
-        choicesFor: (entry) =>
-          isPlaceAsk(entry) && projectId !== null
-            ? askChoices(about.epic, held?.epics ?? []).map((choice) => ({
-                label: choice.label,
-                run: () => void answerAsk({ project: projectId, session: entry.id, epic: choice.epic, kehikko: open?.id ?? null }),
-              }))
-            : null,
-      },
+      look: countLook(needing, inboxColour),
+      module: inboxModule ? { id: inboxModule.id, name: inboxModule.name, icon: inboxModule.icon } : null,
+      placedHere: inboxPlacedHere,
+      onFocusInbox: focusInbox,
+      open: inboxOpen,
+      onOpenChange: setInboxOpen,
+      offer:
+        inboxModule && !inboxPlacedHere && open
+          ? {
+              label: addWords(inboxModule.name),
+              busy: installing,
+              run: () => {
+                setInboxOpen(false)
+                if (inboxModule.registered) {
+                  onPlaceRef.current(inboxModule.id)
+                  return
+                }
+                setInstalling(`Installing ${inboxModule.name}…`)
+                setPlacing(inboxModule.id)
+                void installOfficial(inboxModule.id).catch((error: unknown) => {
+                  setPlacing(null)
+                  setInstalling(null)
+                  setTrouble(error instanceof Error ? error.message : String(error))
+                })
+              },
+            }
+          : null,
+      items: topItems([...inbox.open, ...inbox.others.flatMap((one) => one.entries)]),
+      colour: inboxColour,
+      onColour: setInboxColour,
+      /* Messages between agent sessions in the open project (protocol 2.41.0): read-only, at the foot. */
+      messages: { project: projectId, nameOf: moduleName, muted: messagesMuted, onMute: muteMessages },
     }
-  }, [
-    project?.name,
-    messageCount,
-    messagesMuted,
-    muteMessages,
-    moduleName,
-    mutedModules,
-    inbox,
-    inboxOpen,
-    inboxScope,
-    setInboxScope,
-    activityMarks,
-    activityNames,
-    nextEntry,
-    goToEntry,
-    goToElsewhere,
-    about.epic,
-    open?.key,
-    open?.id,
-    held,
-    projectId,
-  ])
+  }, [projectId, inbox.open, inbox.others, inboxColour, setInboxColour, inboxModule, inboxPlacedHere, focusInbox, inboxOpen, open, installing, moduleName, messagesMuted, muteMessages])
+
+  /*
+   * The person's Inbox, answered to a module's page that declares `inbox:person` (protocol
+   * 2.79.0): from what this page holds, through the page's own routes. See `host/inboxDoor.ts`.
+   */
+  const inboxDoorRef = useRef<InboxDoor | null>(null)
+  inboxDoorRef.current = {
+    entries: () => inbox.open,
+    elsewhere: () => inbox.others,
+    muted: () => mutedModules,
+    earlier: () => inbox.earlier,
+    rev: () => inbox.rev,
+    next: () => nextEntry,
+    at: () => ({ epic: about.epic, kehikko: open?.key ?? null }),
+    names: () => activityNames,
+    projectName: () => project?.name ?? null,
+    log: (scope, offset, limit) =>
+      projectId === null ? Promise.resolve(null) : fetchLog(projectId, { scope, epic: about.epic, kehikko: open?.key ?? null }, offset, limit),
+    act: (what, keys, scope, inProject) => inbox.act(what, keys, { scope, epic: about.epic, kehikko: open?.key ?? null }, inProject),
+    answer: (entry, said, inProject) => inbox.answer(entry, said, true, inProject),
+    open: (entry, inProject) => goToEntry(entry, inProject ?? projectId),
+    use: (module, on) => inbox.use(module, on),
+    hasProject: (id) => projects.some((one) => one.id === id),
+    choicesFor: (entry) =>
+      isPlaceAsk(entry) && projectId !== null
+        ? askChoices(about.epic, held?.epics ?? []).map((choice) => ({
+            label: choice.label,
+            run: () => void answerAsk({ project: projectId, session: entry.id, epic: choice.epic, kehikko: open?.id ?? null }),
+          }))
+        : null,
+  }
+  inboxAskRef.current = (from, method, params, pressed) => {
+    const door = inboxDoorRef.current
+    if (!door) return Promise.resolve({ ok: false, reason: 'failed', error: 'This canvas holds no Inbox to show.' })
+    const told = nextToldRef.current && nextToldRef.current.module === from ? nextToldRef.current : null
+    return answerInbox(method, params, pressed, door, told)
+  }
 
   /**
    * What the modules on the open kehikko have declared, said to the server.
@@ -4844,7 +4816,7 @@ export function App() {
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
         trackerNews={trackerNews}
-        activity={barActivity}
+        inbox={inboxCount}
         pinned={pinned}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
@@ -5238,7 +5210,6 @@ export function App() {
                   /* The server has written the pin and woken this page for the
                      kehikko; looking again picks up what the version is doing. */
                   onVersion={() => void look(true)}
-                  activity={activityMarks.modules.get(presence.id) ?? null}
                   /* "Use inbox": the person's, per module and machine-wide; a row of the Container menu. */
                   inboxUse={
                     offersInboxUse(presence.module, inbox.muted.has(presence.id))
@@ -5335,18 +5306,6 @@ export function App() {
         <div ref={calm.outgoingRef} aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-[1]" style={layerStyle(calm.outgoing)} />
         {calm.slow ? <Arranging /> : null}
       </main>
-
-      {/* A brief glimpse of what just arrived in the Inbox; the Inbox keeps it all. */}
-      <InboxToasts
-        toasts={toasts.toasts}
-        onClose={toasts.close}
-        onCloseAll={toasts.closeAll}
-        onAnswer={(toast, said, pressed) => inbox.answer(toast.entry, said, pressed, toast.project)}
-        onOpen={(toast) => {
-          toasts.close(toast.id)
-          goToEntry(toast.entry, toast.project)
-        }}
-      />
 
       {/* A module asked to show a page and nothing here shows pages: the person
           chooses. Nothing is opened before a press. See `AddressOffer.tsx`. */}

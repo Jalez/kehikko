@@ -339,7 +339,7 @@ function page(...extra: string[]) {
       <button data-tour="pinned">pinned</button>
       <button data-tour="pin">pin</button>
       <button data-tour="modules">modules</button>
-      <button data-inbox-control>inbox</button>
+      <button data-inbox-count>inbox</button>
       <button data-tour="focus">f</button>
       <button data-tour="updates">u</button>
       <button data-tour="settings">s</button>
@@ -664,28 +664,17 @@ describe('the tour in the app', () => {
           trouble={null}
           onLookAgain={nothing}
           looking={false}
-          activity={{
-            epics: new Map(),
-            parts: new Map(),
-            kehikot: new Map(),
-            kehikotCounts: new Map(),
-            inbox: {
-              entries: [],
-              earlierCount: 0,
-              at: { epic: 'one', kehikko: 'k' },
-              scope: 'here',
-              onScope: nothing,
-              names: () => '',
-              tally: { needHere: 0, needElsewhere: 0, working: 0, finished: 0, unknown: 0 },
-              next: null,
-              open: false,
-              onOpenChange: nothing,
-              onGo: nothing,
-              onNext: nothing,
-              onSee: nothing,
-              onDismiss: nothing,
-            } as never,
-            worst: null,
+          inbox={{
+            look: { number: null, attention: false, label: 'Inbox — nothing needs you' },
+            module: null,
+            placedHere: false,
+            onFocusInbox: nothing,
+            open: false,
+            onOpenChange: nothing,
+            offer: null,
+            items: [],
+            colour: true,
+            onColour: nothing,
           }}
         />
         <div className="react-grid-item">
