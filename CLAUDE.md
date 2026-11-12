@@ -498,7 +498,10 @@
 - ONE writer: `editSpaces` (create, rename, move, remove with `confirm`). At the
   top two levels it writes through `createEpic`/`retitleEpic`/`deleteEpic`/
   `editParts`; `create_epic` and `set_parts` keep working. The page reaches it at
-  `POST /host/spaces`, agents through `edit_space`.
+  `POST /host/spaces`, agents through `edit_space` — in ANY project the host
+  knows, with no page open, by passing `project` (`projectIn`/`decide` in
+  `server/mcp.ts`; every door tool takes it). The door tells agents never to
+  write `.kehikot/host/*` by hand; keep that sentence.
 - `migrateSpaces` runs on start and on project add: once, when there is no
   `spaces.json`, it copies every epic file to `.kehikot/host/epics-before-spaces/`
   (never moves or deletes one) and writes the tree. Idempotent.
