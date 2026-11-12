@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import { DISPOSITIONS, HEADER_MENUS, LIMITS, doorSpace, epicPartsOf, findSpace, spaceAt, spaceSaid, spaceWords as placeSpaceWords, type SpaceNode, addressRefusal, isSkillName, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
-import { listCanvases, editCanvas, ensureCanvases, readSubject, setSubject, spaceOfSubject, type Canvas, type Placement } from './canvases.ts'
+import { createCanvas, listCanvases, editCanvas, ensureCanvases, readSubject, setSubject, spaceOfSubject, type Canvas, type Placement } from './canvases.ts'
 import { editSpaces, spaceEditIn, spaceTree } from './spaces.ts'
 import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
@@ -19,6 +19,8 @@ import { ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
 import { belongsWords, lookingAt, lookingWords, sameAsLooking, type Here, type Looking, type Unrecorded } from './doorPlaces.ts'
 import { keep } from './kehikot.ts'
 import { kehikkoSkillsText, listKehikkoSkills } from './kehikkoSkills.ts'
+import { copiedSaid, copyKehikko } from './fromProject.ts'
+import { nameOf } from '../src/host/layouts.ts'
 import { addProject, listProjects, MISSING_SAID, projectAt, projectById, type Project } from './projects.ts'
 import { existsSync, statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
@@ -439,6 +441,7 @@ export const TOOL_NAMES = [
   'storage',
   'module_settings',
   'kehikko_skills',
+  'create_kehikko',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -1510,6 +1513,49 @@ function tools() {
       },
     },
     {
+      name: 'create_kehikko',
+      description:
+        'Make a new kehikko in a project — empty, or started from a kehikko of another project (or this one) with '
+        + 'from. A copy takes the arrangement whole: which modules, where and how big, and which containers are '
+        + 'folded or tiles; and, unless take says otherwise, the kehikko’s connection choices (general), the skills '
+        + 'the person wrote for it (skills) and its primary agent (agents). Nothing about the other project comes '
+        + 'with it: no picked-out or pinned containers, no filters or version pins, no module’s own state (a '
+        + 'document, a session, a branch) and no space or selection — those are the project’s. A module this '
+        + 'computer lacks keeps its container, drawn with the install card, and the answer names it. The person’s '
+        + 'view does not move: jump there when they ask to see it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: KEHIKKO_PROPERTY.project,
+          name: { type: 'string', description: 'What the new kehikko is called. Left out: the copied kehikko’s name, or "kehikko".' },
+          from: {
+            type: 'object',
+            description: 'The kehikko to start from. Left out: an empty kehikko.',
+            properties: {
+              project: {
+                type: 'string',
+                description: 'The project it is in: its folder, name or id, as read_canvas and my_place print them. Left out: the project the new kehikko is made in.',
+              },
+              kehikko: {
+                type: ['string', 'number'],
+                description: 'Which of that project’s kehikot: its key, its exact name, or its id as read_canvas prints it.',
+              },
+            },
+            required: ['kehikko'],
+          },
+          take: {
+            type: 'object',
+            description: 'Which of the kehikko’s own settings come with a copy; each is true when left out.',
+            properties: {
+              general: { type: 'boolean', description: 'Its connection choices between its modules.' },
+              skills: { type: 'boolean', description: 'The skills the person wrote for it.' },
+              agents: { type: 'boolean', description: 'Its primary agent, when that module is on it.' },
+            },
+          },
+        },
+      },
+    },
+    {
       name: 'edit_space',
       description:
         'Make ONE edit to the tree of spaces of the project a kehikko is standing in: create a space, rename one, '
@@ -2104,6 +2150,7 @@ export async function call(
   if (name === 'propose_adoption') return proposeAt(canvas, args, door)
   if (name === 'set_tracker_source') return setTrackerSourceAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
+  if (name === 'create_kehikko') return createKehikkoAt(canvas, args, door)
   if (name === 'fold_modules') return foldOn(canvas, where.how, args, door)
   if (name === 'arrange_modules') return arrangeOn(canvas, where.how, args, door)
   if (name === 'module_versions' || name === 'pin_version') {
@@ -2284,6 +2331,75 @@ async function placeOn(
       + ' Nothing else was moved.'
       + '\n\n'
       + canvasText(door.db, written, how, seen, undefined, new Set(adding)),
+    failed: false,
+  }
+}
+
+/**
+ * `create_kehikko`: a new kehikko in the project a call is about — empty, or copied from another
+ * kehikko with `from` (`copyKehikko` in `server/fromProject.ts`, the writer the New kehikko dialog's
+ * "From another project" uses; the rules are `src/host/fromProject.ts`). It only ADDS: a kehikko the
+ * person sees in their menu and deletes with one press. The view does not move.
+ */
+async function createKehikkoAt(at: Canvas, args: Record<string, unknown>, door: Door): Promise<{ text: string; failed: boolean }> {
+  const into = at.project === null ? null : projectById(door.db, at.project)
+  if (!into) return { text: `That kehikko stands in no project, so there is nowhere to make one. ${PROJECT_HINT}`, failed: true }
+  if (into.missing) return { text: missingSaid(into), failed: true }
+  const name = textIn(args.name)
+  if (name === null || (typeof name === 'string' && name.trim().length > 60)) {
+    return { text: 'name, when given, is what the kehikko is called: a line of at most 60 characters. Nothing was made.', failed: true }
+  }
+  if (args.take !== undefined && (args.take === null || typeof args.take !== 'object' || Array.isArray(args.take))) {
+    return { text: 'take, when given, is { general?, skills?, agents? }, each true or false. Nothing was made.', failed: true }
+  }
+  const seen = await door.seen()
+  const names = new Map(seen.map((one) => [one.id, one.name ?? one.id]))
+
+  if (args.from === undefined || args.from === null) {
+    const made = createCanvas(door.db, name?.trim() || 'kehikko', into.id)
+    keep(door.db, into.id)
+    door.wake(made.id)
+    return {
+      text: `Made an empty kehikko, ${made.name} (kehikko ${made.id}, key ${made.key}), in ${into.name} (${into.path}). The person’s view did not move; jump with project and kehikko "${made.key}" when they ask to see it.`,
+      failed: false,
+    }
+  }
+  if (typeof args.from !== 'object' || Array.isArray(args.from)) {
+    return { text: 'from is { project?, kehikko }: the kehikko to start from, and the project it is in. Nothing was made.', failed: true }
+  }
+  const from = args.from as Record<string, unknown>
+  let source = into
+  if (from.project !== undefined && from.project !== null) {
+    const found = projectIn(door.db, from.project)
+    if (!found.ok) return { text: found.why, failed: true }
+    if (found.project.missing) return { text: missingSaid(found.project), failed: true }
+    source = found.project
+  }
+  const theirs = listCanvases(door.db).filter((c) => c.project === source.id)
+  const listed = theirs.length
+    ? `${source.name}’s kehikot: ${theirs.map((c) => `${c.id}: ${JSON.stringify(c.name)} (key ${c.key})`).join(', ')}.`
+    : `${source.name} has no kehikot.`
+  const asked = from.kehikko
+  let picked: Canvas | undefined
+  if (typeof asked === 'number') picked = theirs.find((c) => c.id === asked)
+  else if (typeof asked === 'string' && asked.trim() && asked.length <= MAX_TEXT) {
+    const word = asked.trim()
+    const byName = theirs.filter((c) => same(c.name, word))
+    picked = theirs.find((c) => c.key === word) ?? (byName.length === 1 ? byName[0] : undefined)
+    if (!picked && byName.length > 1) return { text: `More than one kehikko in ${source.name} is called ${word}; name it by its key. ${listed} Nothing was made.`, failed: true }
+  } else {
+    return { text: `from.kehikko is the kehikko to start from: its key, its exact name or its id. ${listed} Nothing was made.`, failed: true }
+  }
+  if (!picked) return { text: `${source.name} has no kehikko ${JSON.stringify(asked)}. ${listed} Nothing was made.`, failed: true }
+
+  const copied = copyKehikko(door.db, { from: picked.id, into: into.id, name: name ?? '', take: args.take })
+  if (!copied.ok) return { text: `${copied.why} Nothing was made.`, failed: true }
+  door.wake(copied.canvas.id)
+  const lacking = copied.canvas.placements.filter((p) => !names.has(p.i)).map((p) => nameOf(p.i))
+  return {
+    text:
+      `${copiedSaid(copied, lacking, names)} It is kehikko ${copied.canvas.id} (key ${copied.canvas.key}) in ${into.name} (${into.path}). `
+      + `The person’s view did not move; jump with project and kehikko "${copied.canvas.key}" when they ask to see it.`,
     failed: false,
   }
 }
@@ -3852,7 +3968,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'walkthrough they started), offers to take them somewhere they did not ask to see with an item in their Inbox '
         + 'that they take or dismiss (offer_jump; it moves nothing), and reads the skills the person wrote for a kehikko (kehikko_skills; only the '
         + 'person writes them). On the conversation’s own kehikko it may add, show, fold, tile, resize and move '
-        + 'containers (place_modules, fold_modules, arrange_modules), each change undone with one press; removing a '
+        + 'containers (place_modules, fold_modules, arrange_modules), each change undone with one press. It makes a new kehikko '
+        + 'in any project, empty or started from another project’s kehikko (create_kehikko with from); removing a '
         + 'container stays the person’s, and it never jumps the view unasked. What this door adds is what they '
         + 'can see arrive and take off with one press, what it folds, unfolds, resizes or moves is marked on the '
         + 'container as an agent’s doing and put back with one press (never while the person is arranging), a jump is marked on the kehikko with Go back, which restores '

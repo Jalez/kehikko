@@ -24,6 +24,7 @@ import { installOfficial } from '@/host/official.ts'
 import { EXPLORING, NO_FACTS, type Facts } from '@/host/tour.ts'
 import { IntroDialog } from './Intro.tsx'
 import { LayoutPicker, SaveLayoutDialog } from './Layouts.tsx'
+import { copyKehikko, type CopyTake, type ElsewhereKehikko } from '@/host/fromProject.ts'
 import { fetchSettings } from './Settings.tsx'
 import { Guide, type Drawer } from './Tour.ts'
 
@@ -283,6 +284,19 @@ export function OnboardingHost({
     [picker, project, onFill, onMade],
   )
 
+  /* "From another project": the server copies (`server/fromProject.ts`); nothing is installed here. */
+  const copy = useCallback(
+    async (from: ElsewhereKehikko, name: string, take: CopyTake): Promise<string | null> => {
+      try {
+        onMade((await copyKehikko({ from: from.id, into: project, name, take })).canvas)
+        return null
+      } catch (error) {
+        return `The kehikko could not be made: ${(error as Error).message}`
+      }
+    },
+    [project, onMade],
+  )
+
   return (
     <>
       <IntroDialog
@@ -303,6 +317,7 @@ export function OnboardingHost({
         project={project}
         registered={registered}
         onUse={use}
+        onCopy={copy}
       />
       <SaveLayoutDialog open={saving} onOpenChange={setSaving} kehikko={open} />
     </>

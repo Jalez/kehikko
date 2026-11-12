@@ -21,6 +21,8 @@ import {
   type Shelves,
 } from '@/host/layouts.ts'
 import type { LayoutsMode } from '@/host/onboarding.ts'
+import { fetchElsewhere, TAKE_DEFAULT, type CopyTake, type ElsewhereKehikko, type ElsewhereProject } from '@/host/fromProject.ts'
+import { FromProject } from './FromProject.tsx'
 import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 
@@ -163,6 +165,13 @@ interface PickerProps {
   /** Read for the cards; injectable for a test. */
   load?: (project: number | null) => Promise<Shelves>
   loadOfficial?: () => Promise<OfficialEntry[]>
+  /**
+   * Make the kehikko from one of another project's ("From another project", `src/host/fromProject.ts`).
+   * Resolves to a refusal or null. Absent, the dialog offers templates only.
+   */
+  onCopy?(from: ElsewhereKehikko, name: string, take: CopyTake): Promise<string | null>
+  /** The other projects and their kehikot; injectable for a test. */
+  loadElsewhere?: (project: number | null) => Promise<ElsewhereProject[]>
 }
 
 async function officialList(): Promise<OfficialEntry[]> {
@@ -179,7 +188,28 @@ async function officialList(): Promise<OfficialEntry[]> {
  */
 const loadShelves = (project: number | null) => fetchLayouts(project)
 
-export function LayoutPicker({ open, onOpenChange, mode, project, registered, onUse, load = loadShelves, loadOfficial = officialList }: PickerProps) {
+const loadOthers = (project: number | null) => fetchElsewhere(project)
+
+export function LayoutPicker({
+  open,
+  onOpenChange,
+  mode,
+  project,
+  registered,
+  onUse,
+  load = loadShelves,
+  loadOfficial = officialList,
+  onCopy,
+  loadElsewhere = loadOthers,
+}: PickerProps) {
+  const [source, setSource] = useState<'templates' | 'project'>('templates')
+  const [others, setOthers] = useState<ElsewhereProject[] | null>(null)
+  const [othersFailed, setOthersFailed] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [other, setOther] = useState<number | null>(null)
+  const [copying, setCopying] = useState<ElsewhereKehikko | null>(null)
+  const [take, setTake] = useState<CopyTake>(TAKE_DEFAULT)
+  const offersCopy = mode === 'new' && onCopy !== undefined
   const [shelves, setShelves] = useState<Shelves | null>(null)
   const [official, setOfficial] = useState<OfficialEntry[]>([])
   const [chosen, setChosen] = useState<Layout>(BLANK)
@@ -195,6 +225,13 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
     setName('')
     setAsking(false)
     setRefused(null)
+    setSource('templates')
+    setOthers(null)
+    setOthersFailed(null)
+    setQuery('')
+    setOther(null)
+    setCopying(null)
+    setTake(TAKE_DEFAULT)
     void load(project)
       .then((got) => alive && setShelves(got))
       .catch((error: unknown) => alive && setRefused((error as Error).message))
@@ -219,6 +256,33 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
       return got
     }
   }, [registered, official])
+
+  /* The other projects are read the first time the person looks at them, once per opening. */
+  useEffect(() => {
+    if (!open || source !== 'project' || others !== null || othersFailed !== null) return
+    let alive = true
+    void loadElsewhere(project)
+      .then((got) => {
+        if (!alive) return
+        setOthers(got)
+        /* The most recent project is open at once: most often the one being copied from. */
+        setOther((was) => was ?? got[0]?.id ?? null)
+      })
+      .catch((error: unknown) => alive && setOthersFailed((error as Error).message))
+    return () => {
+      alive = false
+    }
+  }, [open, source, others, othersFailed, project, loadElsewhere])
+
+  async function copy() {
+    if (!copying || !onCopy) return
+    setBusy(true)
+    setRefused(null)
+    const why = await onCopy(copying, name.trim() || copying.name, take)
+    setBusy(false)
+    if (why) setRefused(why)
+    else onOpenChange(false)
+  }
 
   const available = availableOf(chosen)
   const installs = toInstall(available)
@@ -257,8 +321,54 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
           descriptionClassName="text-sm leading-relaxed"
         />
         <ModalBody className="gap-3">
+        {offersCopy && !asking ? (
+          <div role="tablist" aria-label="Start from" className="bg-muted inline-flex w-fit max-w-full flex-wrap gap-1 rounded-md p-0.5" data-layout-source="">
+            {(
+              [
+                ['templates', 'Templates'],
+                ['project', 'From another project'],
+              ] as const
+            ).map(([value, said]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={source === value}
+                onClick={() => {
+                  setSource(value)
+                  setRefused(null)
+                }}
+                data-layout-source-tab={value}
+                className={
+                  'rounded px-2.5 py-1 text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ' +
+                  (source === value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')
+                }
+              >
+                {said}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
-        {asking ? (
+        {offersCopy && source === 'project' && !asking ? (
+          <FromProject
+            projects={others}
+            failed={othersFailed}
+            query={query}
+            onQuery={setQuery}
+            project={other}
+            onProject={(id) => {
+              setOther(id)
+              setCopying(null)
+            }}
+            chosen={copying}
+            onChoose={setCopying}
+            take={take}
+            onTake={setTake}
+            registered={registered}
+            official={official}
+          />
+        ) : asking ? (
           <div className="flex flex-col gap-3" data-layout-confirm="">
             <p className="text-sm">
               {chosen.name} uses {installs.length === 1 ? 'a module' : 'modules'} this computer does not have yet:
@@ -336,7 +446,8 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
               className="flex w-full flex-wrap items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (installs.length) setAsking(true)
+                if (offersCopy && source === 'project') void copy()
+                else if (installs.length) setAsking(true)
                 else void use([])
               }}
             >
@@ -349,7 +460,7 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
                     id="layout-name"
                     value={name}
                     maxLength={60}
-                    placeholder={chosen === BLANK ? 'kehikko' : chosen.name}
+                    placeholder={offersCopy && source === 'project' ? (copying?.name ?? 'kehikko') : chosen === BLANK ? 'kehikko' : chosen.name}
                     onChange={(event) => setName(event.target.value)}
                     className="h-8"
                   />
@@ -361,7 +472,7 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
               <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={busy || (mode === 'fill' && chosen === BLANK)} data-layout-create="">
+              <Button type="submit" size="sm" disabled={busy || (mode === 'fill' && chosen === BLANK) || (offersCopy && source === 'project' && copying === null)} data-layout-create="">
                 {mode === 'fill' ? 'Use this layout' : 'Create kehikko'}
               </Button>
             </form>
