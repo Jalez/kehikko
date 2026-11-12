@@ -19,6 +19,7 @@ import {
 } from 'kehikot-module-protocol'
 import { pressFreshFor } from './gesture.ts'
 import { CARRIES } from './carry.ts'
+import { fitContext } from './fitContext.ts'
 
 /**
  * Every message type this host's build of the protocol names, in either
@@ -438,7 +439,9 @@ export class Conversation {
       type: MESSAGE.HELLO,
       protocol: PROTOCOL,
       session: this.session,
-      context,
+      /* Within the protocol's limits, or a page built before 2.93.0 drops the greeting unread and
+         is called silent a minute later (`fitContext`). */
+      context: this.fitted(context),
       /*
        * Whatever this module last asked the host to keep, handed back before it
        * has drawn anything. The host has not read it and does not know what is
@@ -605,7 +608,21 @@ export class Conversation {
   /** Which epic the canvas is about now. Sent on every change. */
   sendContext(context: ModuleContext): void {
     if (!this.greeted || this.closed) return
-    this.post({ type: MESSAGE.CONTEXT, protocol: PROTOCOL, ...context })
+    this.post({ type: MESSAGE.CONTEXT, protocol: PROTOCOL, ...this.fitted(context) })
+  }
+
+  /** What `fitContext` cut last, so the same cut is said once and not on every context. */
+  private cutSaid = ''
+
+  /** The context as every page can read it (`fitContext`), and a word in the console when something had to be cut. */
+  private fitted(context: ModuleContext): ModuleContext {
+    const { context: fitted, cut } = fitContext(context)
+    const said = cut.join(', ')
+    if (said && said !== this.cutSaid) {
+      console.warn(`Kehikot: what ${this.name} is told was over the protocol's limits and was cut to fit: ${said}.`)
+    }
+    this.cutSaid = said
+    return fitted
   }
 
   /**
