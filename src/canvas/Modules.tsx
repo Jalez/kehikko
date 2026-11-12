@@ -5,9 +5,7 @@ import { ChevronRight, LoaderCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { Progress } from '@/components/ui/progress.tsx'
 import { StepProgress, useJob } from './StepProgress.tsx'
-import { barValue, jobLine, type JobSaid } from '@/host/jobSteps.ts'
 import { appEngine } from '@/host/appUpdate.ts'
 import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
@@ -352,6 +350,7 @@ function RowShell({
   badges,
   onIntro,
   children,
+  progress = null,
   muted = false,
 }: {
   id: string
@@ -364,6 +363,8 @@ function RowShell({
   badges: ReactNode[]
   onIntro?(): void
   children: ReactNode
+  /** An install or update on its way: inside this row, under its name, folded or open. */
+  progress?: ReactNode
   muted?: boolean
 }) {
   const body = `module-row-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`
@@ -395,6 +396,11 @@ function RowShell({
           {shown}
         </div>
       ) : null}
+      {progress ? (
+        <div data-module-progress="" className="mt-1 pr-1 pl-[3.25rem]">
+          {progress}
+        </div>
+      ) : null}
       {open ? (
         <div id={body} data-module-row-body="" className="mt-1 space-y-1.5 pr-1 pb-1 pl-[3.25rem]">
           {children}
@@ -413,15 +419,6 @@ function Status({ children, tone = 'muted', label }: { children: ReactNode; tone
       className={`max-w-[7rem] truncate text-[11px] ${tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
     >
       {children}
-    </span>
-  )
-}
-
-/** An install or update on its way, as a mini-bar; the step and its time are in the open row and the label. */
-function MiniBar({ job }: { job: JobSaid }) {
-  return (
-    <span data-row-status="" data-row-progress="" className="flex w-14 items-center" title={jobLine(job)}>
-      <Progress value={barValue(job)} aria-label={`${job.name}: ${jobLine(job)}`} className="h-1" />
     </span>
   )
 }
@@ -488,9 +485,7 @@ function AvailableRow({
   const failed = install?.state === 'failed' ? install.why : refused
   const newer = row.entry.newer
   const status =
-    shownJob && !shownJob.failed ? (
-      <MiniBar job={shownJob} />
-    ) : isWorking ? (
+    isWorking ? (
       <Status>installing</Status>
     ) : failed ? (
       <Status tone="warn">failed</Status>
@@ -515,6 +510,7 @@ function AvailableRow({
       dot={<span className="border-muted-foreground/50 size-1.5 rounded-full border" aria-label="not installed" title="not installed" />}
       icon={<ModuleIcon id={row.id} icon={row.entry.icon} name={row.name} className="text-muted-foreground size-3.5" />}
       status={status}
+      progress={shownJob ? <StepProgress job={shownJob} /> : null}
       badges={badges}
       onIntro={onIntro}
     >
@@ -523,8 +519,6 @@ function AvailableRow({
         <p className="text-muted-foreground text-xs leading-relaxed" title={protocolDetailSaid(newer.protocol, newer.has)} data-needs-newer>
           {newer.app ? `Needs Kehikot ${newer.app} or later.` : 'Needs a newer version of Kehikot than this one.'}
         </p>
-      ) : shownJob ? (
-        <StepProgress job={shownJob} />
       ) : failed ? (
         <p role="alert" className="text-xs leading-relaxed text-amber-600 dark:text-amber-400">
           <GitSaid said={failed} />
@@ -590,9 +584,7 @@ function ModuleRow({
   const word = presence.lifecycle ?? (presence.condition === 'incompatible' ? 'incompatible' : null)
   const deprecated = deprecatedSaid(presence)
   const status =
-    shownJob && !shownJob.failed ? (
-      <MiniBar job={shownJob} />
-    ) : trouble || refused ? (
+    trouble || refused ? (
       <Status tone="warn" label={trouble ?? refused ?? undefined}>
         {word ?? 'needs you'}
       </Status>
@@ -622,6 +614,7 @@ function ModuleRow({
       dot={<ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} />}
       icon={<ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />}
       status={status}
+      progress={shownJob ? <StepProgress job={shownJob} /> : null}
       badges={badges}
       onIntro={onIntro}
     >
@@ -636,7 +629,6 @@ function ModuleRow({
           {trouble}
         </p>
       ) : null}
-      {shownJob ? <StepProgress job={shownJob} /> : null}
       {placed ? null : (
         <Hint label="put it on this kehikko" side="bottom">
           <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" data-row-primary="" onClick={onPlace}>

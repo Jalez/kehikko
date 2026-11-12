@@ -48,6 +48,8 @@ export interface JobSaid {
   detail: string | null
   /** 0..1 where the step can say how far it has got; null where it cannot. */
   fraction: number | null
+  /** Bytes received so far where git says them ("1.20 MiB" → 1258291), null where not. */
+  bytes?: number | null
   /** How long the step now has run. */
   stepMs: number
   /** How long the whole job has run, or ran. */
@@ -96,6 +98,7 @@ export class Job {
   #step: StepName = 'queued'
   #detail: string | null = null
   #fraction: number | null = null
+  #bytes: number | null = null
   #stepAt: number
   #movedAt: number
   #steps: Array<{ step: StepName; ms: number }> = []
@@ -137,6 +140,7 @@ export class Job {
       this.#step = step
       this.#stepAt = now
       this.#fraction = null
+      this.#bytes = null
     }
     this.#detail = detail
     this.#movedAt = now
@@ -153,6 +157,7 @@ export class Job {
         this.#stepAt = now
         this.#detail = detail
         this.#fraction = null
+        this.#bytes = null
         this.#movedAt = now
         this.#changed()
       }
@@ -181,6 +186,8 @@ export class Job {
         this.touched()
         const fraction = fractions?.(text)
         if (fraction !== null && fraction !== undefined) this.fraction(fraction)
+        const bytes = fractions ? gitBytes(text) : null
+        if (bytes !== null) this.#bytes = bytes
       },
       child: (pid) => this.hold(pid),
     }
@@ -258,6 +265,7 @@ export class Job {
       step: this.#step,
       detail: this.#detail,
       fraction: this.#fraction,
+      bytes: this.#bytes,
       stepMs: (ended ?? now) - this.#stepAt,
       totalMs: (ended ?? now) - this.startedAt,
       steps: [...this.#steps],
@@ -434,4 +442,17 @@ export function gitFraction(text: string): number | null {
   if (/Counting objects|Enumerating objects/i.test(line)) return 0.05 * p
   if (/Updating files|Checking out files/i.test(line)) return 0.95 + 0.05 * p
   return null
+}
+
+const UNITS: Record<string, number> = { bytes: 1, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3 }
+
+/** The bytes git has received so far, from the last "Receiving objects … 1.20 MiB | 2.00 MiB/s" line in `text`; null when it says none. */
+export function gitBytes(text: string): number | null {
+  const lines = text.split(/[\r\n]/).filter((line) => /Receiving objects/i.test(line) && /\d+(?:\.\d+)? (?:bytes|[KMG]iB)\b/.test(line))
+  const line = lines[lines.length - 1]
+  if (!line) return null
+  const found = /(\d+(?:\.\d+)?) (bytes|[KMG]iB)\b/.exec(line.replace(/\|.*$/, ''))
+  if (!found) return null
+  const size = Math.round(Number(found[1]) * (UNITS[found[2]!.toLowerCase()] ?? 1))
+  return Number.isFinite(size) ? size : null
 }
