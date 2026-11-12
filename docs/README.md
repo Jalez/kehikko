@@ -631,7 +631,7 @@ these tools:
 | `read_tracker` | the project's shared tracker reading |
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
 | `fold_modules` | fold containers to their headers, make them tiles, or unfold them (a tile is put back at the size and place it had), on a kehikko a page has open; marked on the container as an agent's doing |
-| `arrange_modules` | resize, move and show containers on the conversation's OWN kehikko — `{ containers: [{ module, size? (small, half, wide, full) or columns?, rows?, column?, row? }], show? }` — by the rules a person's drag is made by; never another kehikko, never while the person is dragging or resizing, at most ten changes a minute; marked on the containers with **Undo**, which restores the arrangement before exactly |
+| `arrange_modules` | resize, move and show containers on the conversation's OWN kehikko, or with `project` the one a page shows in that project — `{ containers: [{ module, size? (small, half, wide, full) or columns?, rows?, column?, row? }], show? }` — by the rules a person's drag is made by; never another kehikko by its number, never while the person is dragging or resizing, at most ten changes a minute; marked on the containers with **Undo**, which restores the arrangement before exactly |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
 | `jump` | jump the person's view when they ask — `{ project?, kehikko?, space?, step? }` (`epic?`, `parts?`: older names, still accepted), what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
 | `offer_jump` | offer to take the person somewhere they did not ask to see — `{ why, project?, kehikko?, space?, step? }`, jump's targets — as one item in their Inbox with **Take me there**; it moves nothing, a new offer replaces the session's last, and the person takes (with Go back) or dismisses it |
@@ -639,6 +639,17 @@ these tools:
 All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
 said or when two browser windows have two different ones open.
+
+Every one of them also takes `project` — a project's folder, name or id — and
+then acts on that project whichever one is on screen, with no page open: the
+conversation's own kehikko there, else the one a page shows there, else its
+first kehikko. A folder the host does not know yet that holds its own `.git` or
+`.kehikot` is added to its projects, as Add a project adds one, and the answer
+says so; anything else (no folder, a plain folder, a git worktree, an unknown
+name) is refused in words. The tools that need a page showing the kehikko
+(`fold_modules`, `press_item`, `open_address`, `arrange_modules`) refuse by
+saying how to get one there. The door's instructions tell agents never to write
+a project's `.kehikot/host/` files by hand: these tools are their one writer.
 
 The door can ADD and cannot take away: no tool removes a container. On the
 conversation's own kehikko it may add, show, fold, tile, resize and move
