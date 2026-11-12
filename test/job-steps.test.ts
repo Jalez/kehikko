@@ -260,3 +260,44 @@ describe('an update, step by step', () => {
     expect(steps.said()['m']!.step).toBe('done')
   }, 30_000)
 })
+
+import { barValue, overallFraction, stepCounter, jobLine, bytesSaid } from '../src/host/jobSteps.ts'
+import { gitBytes } from '../server/jobSteps.ts'
+
+describe('overall progress across steps', () => {
+  const at = (step: string, fraction: number | null = null, stepMs = 0, kind: 'update' | 'install' = 'update') => ({ kind, step: step as never, fraction, stepMs })
+  test('steps are weighted by their typical duration, with git inside fetch', () => {
+    expect(overallFraction(at('fetching', 0))).toBe(0)
+    expect(overallFraction(at('fetching', 0.5))).toBeCloseTo(500 / 4700, 5)
+    expect(overallFraction(at('checkout', null, 0))).toBeCloseTo(1000 / 4700, 5)
+    expect(overallFraction(at('installing', null, 0))).toBeCloseTo(1300 / 4700, 5)
+    expect(overallFraction(at('waiting', null, 0))).toBeCloseTo(4200 / 4700, 5)
+    expect(overallFraction(at('done'))).toBe(1)
+    expect(overallFraction(at('queued'))).toBe(0)
+  })
+  test('a step without a fraction advances with its time but never completes by guessing', () => {
+    expect(overallFraction(at('building', null, 600))).toBeCloseTo((2700 + 600) / 4700, 5)
+    expect(overallFraction(at('building', null, 999_999))).toBeCloseTo((2700 + 1080) / 4700, 5)
+  })
+  test('nothing known: null, and the bar slides', () => {
+    expect(overallFraction(at('cloning'))).toBeNull()
+    expect(barValue({ ...at('cloning'), id: 'x', name: 'X', detail: null, totalMs: 0, steps: [], stalled: false, cancellable: true })).toBeNull()
+  })
+  test('the step counter', () => {
+    expect(stepCounter({ kind: 'update', step: 'installing' })).toEqual({ at: 3, of: 6 })
+    expect(stepCounter({ kind: 'install', step: 'cloning' })).toEqual({ at: 1, of: 6 })
+    expect(stepCounter({ kind: 'update', step: 'queued' })).toBeNull()
+  })
+  test('the line: step words, counter, elapsed, bytes; queued and failed', () => {
+    const base = { id: 'x', name: 'X', kind: 'update' as const, detail: null, fraction: null, stepMs: 1000, totalMs: 12_000, steps: [], stalled: false, cancellable: true }
+    expect(jobLine({ ...base, step: 'installing' })).toBe('Installing dependencies · step 3 of 6 · 0:12')
+    expect(jobLine({ ...base, step: 'fetching', bytes: 1_258_291 })).toBe('Fetching the newest version · step 1 of 6 · 0:12 · 1.2 MB')
+    expect(jobLine({ ...base, step: 'queued', detail: '1 ahead' })).toBe('Waiting · 1 ahead')
+    expect(jobLine({ ...base, step: 'failed', failed: { step: 'building', why: 'x' } })).toBe('Stopped while building the page')
+    expect(bytesSaid(500)).toBe('500 B')
+  })
+  test('git bytes are read from the receiving line', () => {
+    expect(gitBytes('Receiving objects:  45% (450/1000), 1.20 MiB | 2.00 MiB/s\r')).toBe(1_258_291)
+    expect(gitBytes('Counting objects: 10% (1/10)')).toBeNull()
+  })
+})

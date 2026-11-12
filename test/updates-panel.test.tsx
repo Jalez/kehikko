@@ -28,7 +28,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(/\b31 pass/)
+    expect(out).toMatch(/\b32 pass/)
   }, 60_000)
 }
 
@@ -405,6 +405,31 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(waiting.querySelectorAll('li').length).toBe(2)
     expect(document.querySelector('.updates-panel .overflow-auto')).not.toBeNull()
     void let_go
+  })
+
+  test('a module update shows its step and bar inside that module\'s row, under its name, never outside it', async () => {
+    const Steps = await import('../src/host/jobSteps.ts')
+    answer = (url) => Promise.resolve(url.startsWith('/host/updates') ? check([checkout('notes', 2)]) : {})
+    const host = await mount()
+    await press(host)
+    await settle()
+    await act(async () =>
+      Steps.setStepsForTest({
+        notes: { id: 'notes', name: 'notes', kind: 'update', step: 'installing', detail: null, fraction: null, stepMs: 1000, totalMs: 12_000, steps: [], stalled: false, cancellable: true },
+      }),
+    )
+    const rows = document.querySelectorAll('[data-testid="updates-row"]')
+    expect(rows).toHaveLength(1)
+    const row = rows[0]!
+    expect(row.querySelector('[role="progressbar"]')).not.toBeNull()
+    expect(row.querySelector('[data-testid="step-line"]')?.textContent).toBe('Installing dependencies · step 3 of 6 · 0:12')
+    /* The only bar and step line in the panel are the one in the row. */
+    expect(document.querySelectorAll('[data-testid="updates-results"] [role="progressbar"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-testid="step-progress"]')).toHaveLength(1)
+    /* Under the name line: after the title, inside the row's box. */
+    const title = row.querySelector('[data-testid="updates-row-title"]')!
+    expect(title.compareDocumentPosition(row.querySelector('[data-testid="step-progress"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    Steps.setStepsForTest({})
   })
 
   test('checking turns into the results in the same panel, listing only what needs attention', async () => {

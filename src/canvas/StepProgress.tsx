@@ -1,8 +1,9 @@
+import { Check } from 'lucide-react'
 import { useState, useSyncExternalStore } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { barValue, cancelSteps, jobLine, stalledSaid, stepsNow, subscribeSteps, type JobSaid } from '@/host/jobSteps.ts'
+import { BAR_EXPLAINED, barValue, cancelSteps, jobLine, stalledSaid, stepsNow, subscribeSteps, type JobSaid } from '@/host/jobSteps.ts'
 
 /**
  * An install or update as it goes: the step it is on and for how long
@@ -33,9 +34,10 @@ export function StepProgress({ job, named = false, className = '' }: { job: JobS
     <div className={`flex min-w-0 flex-col gap-1 ${className}`} data-testid="step-progress" data-step={job.step} data-module={job.id}>
       <p className={`truncate text-xs tabular-nums ${failed ? 'text-destructive' : 'text-muted-foreground'}`} data-testid="step-line">
         {named ? <span className="text-foreground font-medium">{job.name}: </span> : null}
+        {job.step === 'done' && !failed ? <Check className="mr-1 inline size-3 align-[-2px]" aria-hidden data-testid="step-check" /> : null}
         {jobLine(job)}
       </p>
-      {failed ? null : <Progress value={barValue(job)} aria-label={`${job.name}: ${jobLine(job)}`} />}
+      {failed ? null : <Progress value={barValue(job)} title={BAR_EXPLAINED} data-testid="step-bar" aria-label={`${job.name}: ${jobLine(job)}`} />}
       {failed ? (
         <p className="text-destructive text-xs break-words" data-testid="step-failed">
           {failed.why}

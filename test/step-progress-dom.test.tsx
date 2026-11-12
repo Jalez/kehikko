@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  */
 
 const inChild = process.env.STEP_PROGRESS_DOM === '1'
-const TESTS = 6
+const TESTS = 8
 
 if (!inChild) {
   test('install and update progress, rendered in a process of its own', () => {
@@ -98,16 +98,23 @@ const job = (over: Partial<JobSaid> = {}): JobSaid => ({
 describe('one job', () => {
   test.if(inChild)('says the step and its time, with a sliding bar where the step cannot say how far', async () => {
     const host = await render(React.createElement(View.StepProgress, { job: job() }))
-    expect(host.querySelector('[data-testid="step-line"]')!.textContent).toBe('Installing dependencies… 0:12')
+    expect(host.querySelector('[data-testid="step-line"]')!.textContent).toBe('Installing dependencies · step 3 of 6 · 0:15')
+    const bar = host.querySelector('[role="progressbar"]')!
+    expect(bar.getAttribute('data-state')).toBe('loading')
+    expect(bar.getAttribute('title')).toBe(Steps.BAR_EXPLAINED)
+  })
+
+  test.if(inChild)('nothing known (a step that is not one of its steps): the bar slides', async () => {
+    const host = await render(React.createElement(View.StepProgress, { job: job({ kind: 'update', step: 'cloning' }) }))
     const bar = host.querySelector('[role="progressbar"]')!
     expect(bar.getAttribute('data-state')).toBe('indeterminate')
     expect(bar.hasAttribute('aria-valuenow')).toBe(false)
   })
 
   test.if(inChild)('a fraction fills the bar', async () => {
-    const host = await render(React.createElement(View.StepProgress, { job: job({ step: 'cloning', fraction: 0.42, stepMs: 3_000 }) }))
-    expect(host.querySelector('[data-testid="step-line"]')!.textContent).toBe('Downloading… 0:03')
-    expect(host.querySelector('[role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('42')
+    const host = await render(React.createElement(View.StepProgress, { job: job({ kind: 'install', step: 'cloning', fraction: 0.42, stepMs: 3_000, bytes: 1_258_291 }) }))
+    expect(host.querySelector('[data-testid="step-line"]')!.textContent).toBe('Downloading · step 1 of 6 · 0:15 · 1.2 MB')
+    expect(host.querySelector('[role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('19')
   })
 
   test.if(inChild)('a failure says which step it stopped at and the reason, with no bar', async () => {
@@ -128,6 +135,17 @@ describe('one job', () => {
   })
 })
 
+describe('where it lives', () => {
+  test.if(inChild)('a queued job says it waits and how many are ahead; done shows a check', async () => {
+    const host = await render(
+      React.createElement(View.StepList, { jobs: [job({ id: 'q', name: 'Q', step: 'queued', detail: '1 ahead' }), job({ id: 'd', name: 'D', step: 'done', totalMs: 5_000, cancellable: false })] }),
+    )
+    expect(host.querySelector('[data-module="q"] [data-testid="step-line"]')!.textContent).toBe('Q: Waiting · 1 ahead')
+    expect(host.querySelector('[data-module="q"] [role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('0')
+    expect(host.querySelector('[data-module="d"] [data-testid="step-check"]')).not.toBeNull()
+  })
+})
+
 describe('several, and the cover', () => {
   test.if(inChild)('several modules show as a list, each with its state, running ones first', async () => {
     const host = await render(
@@ -140,7 +158,7 @@ describe('several, and the cover', () => {
       }),
     )
     const lines = [...host.querySelectorAll('[data-testid="step-line"]')].map((one) => one.textContent)
-    expect(lines).toEqual(['Beta: Waiting for its turn (1 ahead)… 0:02', 'Gamma: Building the page… 0:04', 'Alpha: Done in 0:31'])
+    expect(lines).toEqual(['Beta: Waiting · 1 ahead', 'Gamma: Building the page · step 4 of 6 · 0:15', 'Alpha: Done in 0:31'])
   })
 
   test.if(inChild)('a container being updated shows the step, the time and a bar on its cover', async () => {
@@ -148,7 +166,7 @@ describe('several, and the cover', () => {
     Steps.setStepsForTest(jobsNow)
     const host = await render(React.createElement(Cover.ModuleCover, { state: 'updating', at: 'http://127.0.0.1:7940', id: 'kehikot.notes', name: 'Notes' }))
     const cover = host.querySelector('[data-testid="module-cover"]')!
-    expect(cover.querySelector('[data-testid="step-line"]')!.textContent).toBe('Waiting for it to answer… 0:05')
+    expect(cover.querySelector('[data-testid="step-line"]')!.textContent).toBe('Waiting for it to answer · step 6 of 6 · 0:15')
     expect(cover.querySelector('[role="progressbar"]')).not.toBeNull()
   })
 })
