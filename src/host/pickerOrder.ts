@@ -45,23 +45,40 @@ export function sortsPatched(was: PickerSorts, change: unknown): PickerSorts | n
   return next
 }
 
-/** When each place was last visited, in ms, by the keys below. */
+/**
+ * When each place was last visited, in ms, by the keys below. `spaces` holds the spaces deeper than
+ * the top level (a part was one), by `spaceVisitKey`; a top-level space is its epic, so its visit is
+ * the epic's — every epic visit kept before spaces is that space's visit (`spaceVisitedAt`).
+ */
 export interface Visits {
   projects: Readonly<Record<string, number>>
   epics: Readonly<Record<string, number>>
   kehikot: Readonly<Record<string, number>>
+  /** Absent from an older host's answer. */
+  spaces?: Readonly<Record<string, number>>
 }
-export const NO_VISITS: Visits = { projects: {}, epics: {}, kehikot: {} }
+export const NO_VISITS: Visits = { projects: {}, epics: {}, kehikot: {}, spaces: {} }
 
 export const projectVisitKey = (project: number): string => String(project)
 export const epicVisitKey = (project: number, slug: string): string => `${project}/${slug}`
 export const kehikkoVisitKey = (project: number, key: string): string => `${project}/${key}`
+/** A space's visit key: the project, then its path of ids. A top-level space's is its epic's (`epicVisitKey`). */
+export const spaceVisitKey = (project: number, ids: readonly string[]): string => `${project}/${ids.join('/')}`
+
+/** When a space (by its path) was last visited itself: a top-level one through its epic, a deeper one through `spaces`. */
+export function spaceVisitedAt(visits: Visits, project: number, ids: readonly string[]): number | undefined {
+  if (!ids.length) return undefined
+  const key = spaceVisitKey(project, ids)
+  return ids.length === 1 ? visits.epics[key] : visits.spaces?.[key]
+}
 
 /** Which pickers' places are visited, as the person arrives at a place. */
 export interface Here {
   project: number | null
   epic: string | null
   kehikko: string | null
+  /** The space stood in, as a path, when it is deeper than its epic (one part picked was such a space). */
+  space?: readonly string[] | null
 }
 
 /** What a visit records: the project, and the epic and kehikko in it when there are some. */
@@ -69,6 +86,8 @@ export interface Visit {
   project: number
   epic?: string
   kehikko?: string
+  /** The space, as a path starting at `epic`, when it is deeper than the epic. */
+  space?: string[]
   /** The place just left, which was visited until now: stamped a moment before the arrival, so it ranks next. */
   left?: Omit<Visit, 'left'>
 }
@@ -84,12 +103,18 @@ export interface Visit {
  */
 export function visitFor(was: Here | null, now: Here | null): Visit | null {
   if (!was || !now || now.project === null) return null
-  if (was.project === now.project && was.epic === now.epic && was.kehikko === now.kehikko) return null
-  const place = (here: Here & { project: number }) => ({
-    project: here.project,
-    ...(here.epic !== null ? { epic: here.epic } : {}),
-    ...(here.kehikko !== null ? { kehikko: here.kehikko } : {}),
-  })
+  const deep = (here: Here): string[] | null => (here.epic !== null && here.space && here.space.length > 1 && here.space[0] === here.epic ? [...here.space] : null)
+  const same = (a: string[] | null, b: string[] | null) => (a ?? []).join('/') === (b ?? []).join('/')
+  if (was.project === now.project && was.epic === now.epic && was.kehikko === now.kehikko && same(deep(was), deep(now))) return null
+  const place = (here: Here & { project: number }) => {
+    const space = deep(here)
+    return {
+      project: here.project,
+      ...(here.epic !== null ? { epic: here.epic } : {}),
+      ...(space ? { space } : {}),
+      ...(here.kehikko !== null ? { kehikko: here.kehikko } : {}),
+    }
+  }
   return { ...place({ ...now, project: now.project }), ...(was.project !== null ? { left: place({ ...was, project: was.project }) } : {}) }
 }
 

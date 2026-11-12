@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { SPACE_ID } from 'kehikot-module-protocol'
 
 import {
   DEFAULT_SORTS,
@@ -6,6 +7,7 @@ import {
   kehikkoVisitKey,
   projectVisitKey,
   sortsFrom,
+  spaceVisitKey,
   type PickerSorts,
   type Visit,
   type Visits,
@@ -53,11 +55,12 @@ export function writeSorts(db: Database, sorts: PickerSorts): void {
 
 export function readVisits(db: Database): Visits {
   ensurePickerOrder(db)
-  const out = { projects: {} as Record<string, number>, epics: {} as Record<string, number>, kehikot: {} as Record<string, number> }
+  const out = { projects: {} as Record<string, number>, epics: {} as Record<string, number>, kehikot: {} as Record<string, number>, spaces: {} as Record<string, number> }
   for (const row of db.query<{ kind: string; key: string; at: number }, []>('select kind, key, at from visits').all()) {
     if (row.kind === 'project') out.projects[row.key] = row.at
     else if (row.kind === 'epic') out.epics[row.key] = row.at
     else if (row.kind === 'kehikko') out.kehikot[row.key] = row.at
+    else if (row.kind === 'space') out.spaces[row.key] = row.at
   }
   return out
 }
@@ -70,21 +73,27 @@ export function recordVisit(db: Database, visit: Visit, now = Date.now()): void 
   put.run('project', projectVisitKey(visit.project), now)
   if (visit.epic !== undefined) put.run('epic', epicVisitKey(visit.project, visit.epic), now)
   if (visit.kehikko !== undefined) put.run('kehikko', kehikkoVisitKey(visit.project, visit.kehikko), now)
+  if (visit.space !== undefined) put.run('space', spaceVisitKey(visit.project, visit.space), now)
 }
 
 /** What a POST body names as a visit, or null for anything else. */
 export function visitOf(body: unknown): Visit | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null
-  const { project, epic, kehikko, left } = body as { project?: unknown; epic?: unknown; kehikko?: unknown; left?: unknown }
+  const { project, epic, kehikko, left, space } = body as { project?: unknown; epic?: unknown; kehikko?: unknown; left?: unknown; space?: unknown }
   if (typeof project !== 'number' || !Number.isInteger(project) || project < 0) return null
   const text = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 200
   if (epic !== undefined && epic !== null && !text(epic)) return null
   if (kehikko !== undefined && kehikko !== null && !text(kehikko)) return null
+  /* A space deeper than its epic: a path of ids starting at the epic, at most a dozen deep. */
+  const id = (v: unknown) => typeof v === 'string' && SPACE_ID.test(v)
+  const path = space === undefined || space === null ? null : space
+  if (path !== null && (!Array.isArray(path) || path.length < 2 || path.length > 12 || !path.every(id) || path[0] !== epic)) return null
   const before = left === undefined || left === null ? null : visitOf(left)
   if (left !== undefined && left !== null && (!before || before.left)) return null
   return {
     project,
     ...(typeof epic === 'string' ? { epic } : {}),
+    ...(path ? { space: [...(path as string[])] } : {}),
     ...(typeof kehikko === 'string' ? { kehikko } : {}),
     ...(before ? { left: before } : {}),
   }
@@ -107,7 +116,7 @@ export function visitsRoute(deps: { db: Database; now?: () => number }) {
       return json({ ok: false, why: 'The body is not JSON.' }, 400)
     }
     const visit = visitOf(body)
-    if (!visit) return json({ ok: false, why: 'A visit names a project id, and may name an epic and a kehikko.' }, 400)
+    if (!visit) return json({ ok: false, why: 'A visit names a project id, and may name an epic, a space in it and a kehikko.' }, 400)
     recordVisit(deps.db, visit, deps.now?.())
     return json({ ok: true, visits: readVisits(deps.db) })
   }
