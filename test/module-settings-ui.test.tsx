@@ -15,7 +15,7 @@ import type { SetAnswer, SettingsAnswer, SettingsListed } from '../src/host/modu
  */
 
 const inChild = process.env.MODULE_SETTINGS_DOM === '1'
-const TESTS = 13
+const TESTS = 16
 
 if (!inChild) {
   test('the module settings, rendered in a process of their own', () => {
@@ -400,5 +400,36 @@ describe('the gear in the header', () => {
     act(() => unmount?.())
     unmount = null
     document.body.innerHTML = ''
+  })
+})
+
+describe('opening at a setting, and a module that does not answer', () => {
+  if (!inChild) return
+
+  test('a target is scrolled to, focused and lit once the form is drawn', async () => {
+    const { api } = fakeApi()
+    await render(<UI.ModuleSettingsForm module="kehikot.factory" project={7} api={api} target="rounds" />)
+    await act(async () => {})
+    expect(field('rounds')!.getAttribute('data-lit')).toBe('true')
+    expect(document.activeElement).toBe(field('rounds')!.querySelector('input'))
+  })
+
+  test('a read that does not come says the module is not answering, and Try again reads again', async () => {
+    const { api } = fakeApi()
+    let reads = 0
+    const slow = { ...api, read: (module: string, project: number | null) => (++reads === 1 ? new Promise<SettingsAnswer>(() => {}) : api.read(module, project)) }
+    await render(<UI.ModuleSettingsForm module="kehikot.factory" name="Factory" project={7} api={slow} readMs={30} />)
+    await act(async () => void (await new Promise((done) => setTimeout(done, 60))))
+    expect(document.querySelector('[data-settings-why]')!.textContent).toBe('Factory isn’t answering, so its settings could not be read. It may be busy or restarting. Try again in a moment.')
+    await act(async () => document.querySelector<HTMLElement>('[data-settings-retry]')!.click())
+    await act(async () => {})
+    expect(reads).toBe(2)
+    expect(field('rounds')).not.toBeNull()
+  })
+
+  test('readWithin answers what came first', async () => {
+    const quick: SettingsAnswer = { ok: false, why: 'quick' }
+    expect(await UI.readWithin(Promise.resolve(quick), 1000, 'Factory')).toBe(quick)
+    expect(await UI.readWithin(new Promise(() => {}), 5, 'Factory')).toEqual({ ok: false, why: 'Factory isn’t answering, so its settings could not be read. It may be busy or restarting. Try again in a moment.' })
   })
 })
