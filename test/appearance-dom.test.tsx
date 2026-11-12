@@ -12,7 +12,7 @@ import { APPEARANCE_DEFAULT } from '../src/host/appearance.ts'
  */
 
 const inChild = process.env.APPEARANCE_DOM === '1'
-const TESTS = 13
+const TESTS = 14
 
 if (!inChild) {
   test('Settings › Appearance, rendered in a process of its own', () => {
@@ -72,13 +72,13 @@ function answer(): SettingsAnswer {
   }
 }
 
-async function tab() {
+async function tab(modules: readonly { id: string; name: string }[] = []) {
   const changes: unknown[] = []
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () =>
-    root.render(<Settings.SettingsBody answer={answer()} busy={false} section="appearance" onSection={() => {}} onChange={(what) => void changes.push(what)} />),
+    root.render(<Settings.SettingsBody answer={answer()} busy={false} section="appearance" modules={modules} onSection={() => {}} onChange={(what) => void changes.push(what)} />),
   )
   unmount = () => root.unmount()
   return changes
@@ -97,6 +97,7 @@ test('a tab of its own, after Modules: a preview, header and footer, folds, them
   const values = (name: string) => [...group(name).querySelectorAll('[data-choice]')].map((one) => one.getAttribute('data-choice'))
   expect(values('rows')).toEqual(['always', 'hover', 'click', 'longpress'])
   expect(values('foldRows')).toEqual(['1', '2'])
+  expect(values('collapse')).toEqual(['fold', 'tile', 'each'])
   expect(values('theme')).toEqual(['system', 'light', 'dark'])
   expect(values('border')).toEqual(['none', 'solid', 'rounded', 'dotted', 'dashed'])
   expect(values('background')).toEqual(['card', 'transparent'])
@@ -295,7 +296,7 @@ test('the preview’s ^ folds it or makes it a tile, as chosen, and puts it back
   expect(example().querySelector('[data-tile]')!.textContent).toContain('Example module')
   await act(async () => caret().click())
   expect(example().getAttribute('data-tiled')).toBeNull()
-  expect(changes).toEqual([{ appearance: { foldRows: 2 } }, { appearance: { collapse: 'tile' } }])
+  expect(changes).toEqual([{ appearance: { foldRows: 2 } }, { appearance: { collapse: 'tile', collapseBase: 'tile' } }])
 })
 
 test('pointing at a fold choice shows it on the preview, and leaving puts the preview back', async () => {
@@ -318,6 +319,9 @@ test('the preview follows the border, the background and the theme', async () =>
   await act(async () => choice('background', 'transparent').click())
   expect(preview().getAttribute('data-appearance-preview')).toBe('dashed-off')
   expect(example().querySelector('[data-preview-body]')!.classList.contains('bg-card')).toBe(false)
+  /* The rows keep their surface: the header is still the card, and nothing clears it. */
+  expect(example().querySelector('.container-grip')!.classList.contains('bg-card')).toBe(true)
+  expect(example().querySelector('.container-footer')!.classList.contains('bg-card')).toBe(true)
   await act(async () => choice('theme', 'light').click())
   /* The preview is in the page, so the theme's class on <html> draws it at once. */
   expect(html().classList.contains('dark')).toBe(false)
@@ -333,4 +337,34 @@ test('a link into Settings opens the tab at its first control', async () => {
   await act(async () => void (shown = revealTarget(document, APPEARANCE_TARGET, () => {})))
   expect(shown).toBe(true)
   expect(document.querySelector(`[data-settings-target="${APPEARANCE_TARGET}"] [data-appearance="rows"]`)).not.toBeNull()
+})
+
+test('Decide per module: a list of modules, each with its own answer; the ^ button and the preview follow it', async () => {
+  if (!inChild) return
+  const { collapseFor } = await import('../src/host/appearance.ts')
+  const changes = await tab([
+    { id: 'kehikot.a', name: 'Alpha' },
+    { id: 'kehikot.b', name: 'Beta' },
+  ])
+  expect(document.querySelector('[data-collapse-each]')).toBeNull()
+  await act(async () => choice('collapse', 'tile').click())
+  await act(async () => choice('collapse', 'each').click())
+  /* Still the one group of three radios; the list's radios are groups of their own. */
+  expect(group('collapse').querySelectorAll('[data-choice]')).toHaveLength(3)
+  expect(document.querySelectorAll('[data-appearance="collapse"]')).toHaveLength(1)
+  expect(document.querySelectorAll('[data-collapse-module]')).toHaveLength(2)
+  /* Not in the map: what was picked before, tile. */
+  const own = (id: string) => document.querySelector<HTMLElement>(`[data-collapse-of="${id}"] [aria-checked="true"]`)!.getAttribute('data-choice')
+  expect(own('kehikot.a')).toBe('tile')
+  await act(async () => document.querySelector<HTMLElement>('[data-collapse-of="kehikot.a"] [data-choice="fold"]')!.click())
+  expect(own('kehikot.a')).toBe('fold')
+  expect(own('kehikot.b')).toBe('tile')
+  expect(collapseFor(Look.appearance.get(), 'kehikot.a')).toBe('fold')
+  expect(collapseFor(Look.appearance.get(), 'kehikot.b')).toBe('tile')
+  expect(changes.at(-1)).toEqual({ appearance: { collapseEach: { 'kehikot.a': 'fold' } } })
+  /* The example module has no answer of its own: its ^ makes a tile, and says so. */
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1900)))
+  const caret = document.querySelector<HTMLElement>('[data-preview-container="first"] [data-tour="fold"]')!
+  expect(caret.getAttribute('data-collapse-makes')).toBe('tile')
+  expect(caret.getAttribute('aria-label')).toBe('make this container a tile')
 })

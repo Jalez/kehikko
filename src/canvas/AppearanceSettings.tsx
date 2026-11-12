@@ -11,6 +11,9 @@ import {
   BORDERS,
   BORDER_SAID,
   COLLAPSES,
+  COLLAPSE_CHOICES,
+  EACH_SAID,
+  collapseFor,
   COLLAPSE_SAID,
   FOLD_SAID,
   ROWS_SAID,
@@ -21,11 +24,14 @@ import {
   type BackgroundChoice,
   type Border,
   type Collapse,
+  type CollapseChoice,
   type ThemeChoice,
 } from '@/host/appearance.ts'
 import { appearance as page, useAppearance, type AppearanceStore } from '@/host/appearanceStore.ts'
 import { FOLD_ROWS, SHOW_ROWS, type FoldRows, type ShowRows } from '@/host/rows.ts'
 import { TARGET_ATTR } from '@/host/settingsTarget.ts'
+import { EXAMPLE_ID } from './appearanceExample.ts'
+import { ModuleIcon } from './ModuleIcon.tsx'
 import { AppearancePreview, usePeek } from './AppearancePreview.tsx'
 
 /**
@@ -39,7 +45,16 @@ import { AppearancePreview, usePeek } from './AppearancePreview.tsx'
  * tab is wide enough. Each question is ONE radio group with a visible question
  * as its name (`aria-labelledby`), so the groups never read as one list.
  */
-export function AppearanceSettings({ onChange, store = page }: { onChange(what: { appearance: AppearancePatch }): void; store?: AppearanceStore }) {
+export function AppearanceSettings({
+  onChange,
+  store = page,
+  modules = [],
+}: {
+  onChange(what: { appearance: AppearancePatch }): void
+  store?: AppearanceStore
+  /** The installed modules, for "Decide per module". */
+  modules?: readonly { id: string; name: string }[]
+}) {
   const now = useAppearance(store)
   const { peek, point, flash } = usePeek()
   const set = (patch: AppearancePatch) => {
@@ -86,17 +101,32 @@ export function AppearanceSettings({ onChange, store = page }: { onChange(what: 
                 flash({ shape: 'fold', foldRows })
               }}
             />
-            <Choices<Collapse>
+            <Choices<CollapseChoice>
               name="collapse"
               question={ASKED.collapse}
               value={now.collapse}
-              options={COLLAPSES.map((collapse) => ({ value: collapse, label: COLLAPSE_SAID[collapse].label, line: COLLAPSE_SAID[collapse].line }))}
-              onPoint={(collapse) => point(collapse === null ? null : { shape: collapse })}
+              options={COLLAPSE_CHOICES.map((collapse) =>
+                collapse === 'each'
+                  ? { value: collapse, label: EACH_SAID.label, line: EACH_SAID.line }
+                  : { value: collapse, label: COLLAPSE_SAID[collapse].label, line: COLLAPSE_SAID[collapse].line },
+              )}
+              onPoint={(collapse) => point(collapse === null ? null : { shape: collapse === 'each' ? collapseFor(now, EXAMPLE_ID) : collapse })}
               onChange={(collapse) => {
-                set({ collapse })
-                flash({ shape: collapse })
+                /* Whichever of fold and tile was picked last is what a module with no answer of its own does. */
+                set(collapse === 'each' ? { collapse } : { collapse, collapseBase: collapse })
+                flash({ shape: collapse === 'each' ? collapseFor({ ...now, collapse }, EXAMPLE_ID) : collapse })
               }}
             />
+            {now.collapse === 'each' ? (
+              <EachList
+                now={now}
+                modules={modules}
+                onPick={(id, collapse) => {
+                  set({ collapseEach: { ...now.collapseEach, [id]: collapse } })
+                  if (id === EXAMPLE_ID) flash({ shape: collapse })
+                }}
+              />
+            ) : null}
           </Group>
 
           <Separator />
@@ -134,6 +164,49 @@ export function AppearanceSettings({ onChange, store = page }: { onChange(what: 
           </Group>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** "Decide per module": every installed module, each with its own Fold / Tile choice. */
+function EachList({
+  now,
+  modules,
+  onPick,
+}: {
+  now: Appearance
+  modules: readonly { id: string; name: string }[]
+  onPick(id: string, collapse: Collapse): void
+}) {
+  const id = useId()
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5" data-collapse-each>
+      <p className="text-sm font-medium">{EACH_SAID.list}</p>
+      {modules.length === 0 ? <p className="text-muted-foreground text-xs">No modules installed.</p> : null}
+      <ul className="flex min-w-0 flex-col gap-1">
+        {modules.map((module) => (
+          <li key={module.id} className="flex min-w-0 items-center gap-2" data-collapse-module={module.id}>
+            <ModuleIcon id={module.id} name={module.name} />
+            <span className="min-w-0 flex-1 truncate text-xs">{module.name}</span>
+            <RadioGroup
+              aria-label={`What ^ does in ${module.name}`}
+              data-collapse-of={module.id}
+              value={collapseFor(now, module.id)}
+              onValueChange={(picked) => onPick(module.id, picked as Collapse)}
+              className="flex gap-3"
+            >
+              {COLLAPSES.map((collapse) => (
+                <div key={collapse} className="flex items-center gap-1.5">
+                  <RadioGroupItem id={`${id}-${module.id}-${collapse}`} value={collapse} data-choice={collapse} />
+                  <Label htmlFor={`${id}-${module.id}-${collapse}`} className="cursor-pointer text-xs font-normal">
+                    {collapse === 'fold' ? 'Fold' : 'Tile'}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

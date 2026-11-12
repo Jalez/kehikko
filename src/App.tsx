@@ -166,6 +166,7 @@ import { watchClicks, withMode, type ClickEvent, type ShowRows } from './host/ro
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
+import { collapseFor } from './host/appearance.ts'
 import { useAppearance, useDrawnTheme } from './host/appearanceStore.ts'
 import { Writer } from './host/writer.ts'
 
@@ -5128,7 +5129,7 @@ export function App() {
                   tiled={placement.tiled === true}
                   onTile={(tiled) => onTile(presence.id, tiled)}
                   /* What the collapse button does: Settings › Appearance's, the same for every container. */
-                  collapseMakes={drawn.collapse}
+                  collapseMakes={collapseFor(drawn, presence.id)}
                   /* How far a fold goes, and when the rows show: Settings › Appearance's, the same for every container. */
                   foldRows={drawn.foldRows}
                   rowsMode={drawn.rows}

@@ -8,6 +8,7 @@ import { readAppearance, writeAppearance } from '../server/appearance.ts'
 import { PAGE_ONLY, refusal } from '../server/guard.ts'
 import {
   APPEARANCE_DEFAULT,
+  collapseFor,
   APPEARANCE_TARGET,
   BACKGROUND_ATTR,
   BORDER_ATTR,
@@ -31,7 +32,7 @@ const ROOT = join(import.meta.dir, '..')
 
 describe('the defaults', () => {
   test('what the app looked like before the tab: headers shown, one-row folds, dark, rounded borders, the card surface', () => {
-    expect(APPEARANCE_DEFAULT).toEqual({ rows: 'always', foldRows: 1, collapse: 'fold', theme: 'dark', border: 'rounded', background: true })
+    expect(APPEARANCE_DEFAULT).toEqual({ rows: 'always', foldRows: 1, collapse: 'fold', collapseEach: {}, collapseBase: 'fold', theme: 'dark', border: 'rounded', background: true })
     expect(appearanceIn(undefined)).toEqual(APPEARANCE_DEFAULT)
     expect(appearanceIn('nonsense')).toEqual(APPEARANCE_DEFAULT)
   })
@@ -184,5 +185,28 @@ describe('a link into Settings › Appearance', () => {
     expect(SETTINGS_SECTIONS).toContain('appearance')
     expect(SETTINGS_TARGETS.appearance).toEqual({ section: 'appearance', target: APPEARANCE_TARGET })
     expect(settingsLinkOf({ section: 'appearance', target: APPEARANCE_TARGET })).toEqual({ section: 'appearance', target: APPEARANCE_TARGET })
+  })
+})
+
+describe('the ^ button per module', () => {
+  test('one answer is the same for every module', () => {
+    expect(collapseFor({ ...APPEARANCE_DEFAULT, collapse: 'tile' }, 'kehikot.a')).toBe('tile')
+    expect(collapseFor({ ...APPEARANCE_DEFAULT, collapse: 'fold', collapseEach: { 'kehikot.a': 'tile' } }, 'kehikot.a')).toBe('fold')
+  })
+
+  test('each: the map applies, and a module not in it takes the default', () => {
+    const each = { ...APPEARANCE_DEFAULT, collapse: 'each' as const, collapseBase: 'tile' as const, collapseEach: { 'kehikot.a': 'fold' as const } }
+    expect(collapseFor(each, 'kehikot.a')).toBe('fold')
+    expect(collapseFor(each, 'kehikot.b')).toBe('tile')
+    expect(collapseFor({ ...each, collapseBase: 'fold' }, 'kehikot.b')).toBe('fold')
+    expect(collapseFor(each, 'toString')).toBe('tile')
+    expect(collapseFor(each, undefined)).toBe('tile')
+  })
+
+  test('the map is stored whole, and a bad one is the default', () => {
+    expect(appearanceIn({ collapse: 'each', collapseEach: { a: 'tile' } })).toMatchObject({ collapse: 'each', collapseEach: { a: 'tile' } })
+    expect(appearanceIn({ collapseEach: { a: 'huge' } }).collapseEach).toEqual({})
+    expect(appearancePatched(APPEARANCE_DEFAULT, { collapseEach: { a: 'huge' } })).toBeNull()
+    expect(appearancePatched(APPEARANCE_DEFAULT, { collapseEach: { a: 'fold' } })?.collapseEach).toEqual({ a: 'fold' })
   })
 })
