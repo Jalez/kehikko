@@ -622,6 +622,18 @@
   Every rule is in `src/host/jump.ts`. A module's `view.goto { epic, step }`
   walks the other containers the same way. `/kehikko-jump` (`skills/`) is the
   skill that says when to use it.
+- To show the person something they did not ask to see, an agent OFFERS instead:
+  `offer_jump { why, project?, kehikko?, epic?, parts?, step? }` (`offerJumpOn`,
+  same target resolution as `jump`, `resolveTarget`) files ONE open Inbox item
+  per session (`Inbox.offer`, origin `offer`, id `offerId`), by the session's
+  agent module, a "said" (`done`) at normal priority with protocol 2.87.0's `go`.
+  It never moves the view; a new offer replaces the session's last; it is refused
+  while the module's "Use inbox" is off or its messages are muted in the project.
+  A module's own list never closes or overwrites an offer (`applyList`). The
+  person takes it with `inbox.open` (page-only, fresh press): `takeOfferRef` in
+  `App.tsx` goes as the jump would (`offerAsk`, `planJump`, `goPlace`), marks Go
+  back ("Went here on <name>'s offer") and closes it (`took`, `how: 'taken'`).
+  No MCP tool takes or dismisses one.
 - An order to a page (`Wakes.press`) goes to that page's streams only. Every
   other kind of news on `/host/watch` goes to everyone and says only that there
   is something to re-read — except where it carries the small thing itself

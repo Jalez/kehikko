@@ -28,6 +28,7 @@ import {
   closedWords,
   inScope,
   isLive,
+  isOffer,
   placeLines,
   rowKey,
   wasWords,
@@ -176,6 +177,8 @@ export function itemOf(
         }
       : {}),
     mutable: mayMute(entry.module),
+    /* An agent's offer (protocol 2.87.0): its press goes there with Go back and closes it. */
+    ...(isOffer(entry) ? { go: {} } : {}),
   }
 }
 

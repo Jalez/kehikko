@@ -5236,6 +5236,8 @@ async function answerRequest(request: Request): Promise<Response> {
           },
           headers: headerDesk.door,
           inbox,
+          /* An agent's offer filed in a project's Inbox (`offer_jump`): every page reads it again. */
+          inboxChanged: (project, rev) => wakes.inboxChanged(project, rev),
           /* How many messages between agent sessions a project keeps (protocol 2.41.0), for my_place. Never their words. */
           messages: agentMessages,
           trackers,

@@ -152,6 +152,8 @@ export interface JumpMark {
   back: Place
   /** Only the step changed: said as a move to the step, not a jump. */
   stepOnly: boolean
+  /** The person went here on an agent's offer from the Inbox (protocol 2.87.0): `by` is whose. */
+  offer?: boolean
 }
 
 /** Whether a mark still describes where the person is. Once they are elsewhere, it is no mark. */
@@ -170,8 +172,31 @@ export function markAfter(was: JumpMark | null, now: Place, to: Place, title?: s
 /** The mark's line. Text only. */
 export function jumpMarkText(mark: JumpMark): string {
   const step = mark.to.step !== null ? `step ${mark.to.step}${mark.title ? ` (${mark.title})` : ''}` : ''
+  if (mark.offer) return `Went here on ${mark.by}’s offer${step ? `, at ${step}` : ''}.`
   if (mark.stepOnly && step) return `Moved to ${step} by ${mark.by}.`
   return `Jumped here by ${mark.by}${step ? `, at ${step}` : ''}.`
+}
+
+/**
+ * What an agent's offer asks for when the person takes it (protocol 2.87.0): what the agent named, as
+ * its `jump` would have — the kehikko, epic and parts its place holds, the step it carries, and the
+ * project its record is in when that is not the one on screen. What it left out stays where the
+ * person is then.
+ */
+export function offerAsk(
+  entry: { place?: { kehikko?: string; epic?: string; parts?: readonly string[] }; go?: { step?: number; title?: string } },
+  project: number,
+  onScreen: number,
+): JumpAsk {
+  const place = entry.place
+  return {
+    ...(project !== onScreen ? { project } : {}),
+    ...(place?.kehikko ? { kehikko: place.kehikko } : {}),
+    ...(place?.epic ? { epic: place.epic } : {}),
+    ...(place?.parts ? { parts: [...place.parts] } : {}),
+    ...(entry.go?.step !== undefined ? { step: entry.go.step } : {}),
+    ...(entry.go?.title ? { title: entry.go.title } : {}),
+  }
 }
 
 /** One container told of a walk: whether it found the step, and its sentence when it did not. */

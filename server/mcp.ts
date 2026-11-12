@@ -4,6 +4,7 @@ import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
 import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
 import type { Database } from 'bun:sqlite'
+import { createHash } from 'node:crypto'
 import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, isSkillName, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
 import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
@@ -321,6 +322,8 @@ export interface Door {
   jumps?: Map<number, number>
   /** One line for the host log. Absent: `console.info`. */
   log?(line: string): void
+  /** Say that a project's Inbox is not what the pages last read: `offer_jump` filed an offer there. */
+  inboxChanged?(project: number, rev: number): void
   /** The clock `jump`'s pace reads. Absent: `Date.now`. */
   now?(): number
   /**
@@ -391,6 +394,7 @@ export const TOOL_NAMES = [
   'fold_modules',
   'press_item',
   'jump',
+  'offer_jump',
   'open_address',
   'read_inbox',
   'my_place',
@@ -1140,7 +1144,8 @@ function tools() {
         'Jump the person’s view: to another project, kehikko, epic, parts of the epic, or a step of it — any of '
         + 'these, and what you leave out stays where the person is. Use it when the person asks to be taken somewhere '
         + '("take me to the auth epic", "show me part 3", "open the Wide kehikko in project X"), or step by step during '
-        + 'a walkthrough the person started; never on your own initiative otherwise. It goes as the person’s own '
+        + 'a walkthrough the person started; never on your own initiative otherwise — to show the person something they '
+        + 'did not ask to see, use offer_jump, which lets them decide. It goes as the person’s own '
         + 'pickers go (another project with the same calm switch), on the page on screen; with no Kehikot page open '
         + 'nothing moves. A step walks every container on the kehikko to it (kehikot.goto): every container '
         + 'that follows a walk shows the step and says so, and the answer names them. Names are resolved strictly: an '
@@ -1186,6 +1191,60 @@ function tools() {
           },
         },
         required: [],
+      },
+    },
+    {
+      name: 'offer_jump',
+      description:
+        'Offer to take the person somewhere in Kehikot — another project, kehikko, epic, parts of the epic, or a step — '
+        + 'without moving their view. Use it when you want to show the person something they did not ask to see ("the '
+        + 'failing test is in the auth epic, part 3"); use jump only when they ask to be taken somewhere, or step by step '
+        + 'during a walkthrough they started. It files ONE item in the person’s Inbox from this session: by your agent '
+        + 'module’s name, saying `why`, with a "Take me there" button. The person decides: pressing it goes there as jump '
+        + 'would, with Go back, and closes the offer; they can also dismiss it. One open offer per session: a new one '
+        + 'replaces your last. The target arguments are jump’s, resolved as strictly (unknown names are refused with the '
+        + 'ones that exist); what you leave out stays where the person is when they take it, and a project left out is '
+        + 'this conversation’s (my_place). Needs a session an agent module started; refused while the person turned off '
+        + 'that module’s inbox or muted its messages. Nothing moves, and no data or arrangement changes.',
+      annotations: {
+        title: 'Offer to take the person somewhere',
+        /* It files an item in the person's Inbox; it never moves the view. */
+        readOnlyHint: false,
+        destructiveHint: false,
+        /* The same offer twice is one: the second replaces the first. */
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          why: {
+            type: 'string',
+            description: `What you want to show the person, and why, in one sentence — the Inbox item's words (plain text; past ${LIMITS.ACTIVITY_LABEL} characters it is clipped). E.g. "The failing test is in the auth epic, part 3."`,
+          },
+          project: {
+            type: 'string',
+            description: 'A project this host holds: its name, its folder or its id, as my_place and read_canvas print them. Left out: this conversation’s project.',
+          },
+          kehikko: {
+            type: 'string',
+            description: 'A kehikko of that project: its name or key, as read_canvas prints them. Left out: the one the person has open when they take it.',
+          },
+          epic: {
+            type: 'string',
+            description: 'An epic of that project, by slug (or its exact title). Left out: the epic the person has open when they take it.',
+          },
+          parts: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Parts of that epic to pick, by id or name; [] picks none (the whole epic). Left out: the parts picked when they take it.',
+          },
+          step: {
+            type: 'number',
+            description: 'A step of that epic, by its 1-based number as the journey numbers it. Left out: no step is walked to.',
+          },
+        },
+        required: ['why'],
       },
     },
     {
@@ -1674,6 +1733,7 @@ export async function call(
   }
   /* The page on screen, wherever it is: it names no kehikko of its own. */
   if (name === 'jump') return jumpOn(args, door)
+  if (name === 'offer_jump') return offerJumpOn(args, door)
   const where = decide(door, args)
   if (!where.ok) return { text: where.why, failed: true }
   if (name === 'module_settings') {
@@ -2139,8 +2199,37 @@ const trimmedPath = (path: string) => (path.length > 1 ? path.replace(/\/+$/, ''
  * moved: it is what the conversation is ABOUT, and the view is where the
  * person is looking — `set_my_place` moves the first. See `src/host/jump.ts`.
  */
-async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text: string; failed: boolean }> {
-  const refuse = (text: string) => ({ text: `${text} Nothing moved.`, failed: true })
+/** A place an agent named, resolved strictly against this host: what `jump` sends and `offer_jump` files. */
+interface Target {
+  ok: true
+  project: Project
+  /** Another project than the base it was resolved from. */
+  away: boolean
+  askedProject: boolean
+  kehikko: Canvas | undefined
+  /** The epic named, resolved; undefined when none was named (the epic open there stays). */
+  askedEpic: string | undefined
+  epic: string | null
+  parts: string[] | undefined
+  step: number | null
+  title: string | undefined
+  /** The epic's steps are kept where this host cannot read them, so the step was not checked. */
+  unchecked: boolean
+}
+
+/**
+ * The target arguments `jump` and `offer_jump` share — project, kehikko, epic, parts, step — read and
+ * resolved strictly: an id, the folder, or the exact name, never a prefix or a guess; an unknown one is
+ * refused with what exists. `base` is the project a call that names none means (the one on screen for
+ * `jump`). `verb` names the tool in a refusal.
+ */
+function resolveTarget(
+  args: Record<string, unknown>,
+  door: Door,
+  base: (projects: Project[]) => Project | { why: string },
+  verb: string,
+  refuse: (text: string) => { ok: false; text: string; failed: true },
+): Target | { ok: false; text: string; failed: true } {
   const text = (value: unknown, name: string): string | undefined | null => {
     if (value === undefined || value === null) return undefined
     if (typeof value !== 'string' || !value.trim() || value.length > 512) return null
@@ -2165,18 +2254,12 @@ async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text
     return refuse('step, when given, is the step’s 1-based number in the epic’s steps, a whole number from 1, e.g. step: 7.')
   }
   if (askedProject === undefined && askedKehikko === undefined && askedEpic === undefined && askedParts === undefined && step == null) {
-    return refuse('jump needs somewhere to go: a project, kehikko, epic, parts or step — any of them, and what is left out stays.')
+    return refuse(`${verb} needs somewhere to go: a project, kehikko, epic, parts or step — any of them, and what is left out stays.`)
   }
 
-  /* The page on screen, and only it. */
-  const which = door.which()
-  if (!which.ok) return refuse(`${which.why} jump moves the view of the page on screen.`)
-  const screen = listCanvases(door.db).find((c) => c.id === which.id)
-  if (!screen || screen.project === null) return refuse('The page on screen has no kehikko in a project open.')
   const projects = listProjects(door.db)
-  const here = projects.find((one) => one.id === screen.project)
-  if (!here) return refuse('The project on screen is not one this host holds any more.')
-
+  const here = base(projects)
+  if ('why' in here) return refuse(here.why)
   /* Each name, strictly: an id, the folder, or the exact name — never a prefix or a guess. */
   let project = here
   if (askedProject !== undefined) {
@@ -2259,6 +2342,39 @@ async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text
     }
   }
 
+  return {
+    ok: true,
+    project,
+    away,
+    askedProject: askedProject !== undefined,
+    kehikko,
+    askedEpic: askedEpic === undefined ? undefined : (epic ?? undefined),
+    epic,
+    parts,
+    step: step == null ? null : (step as number),
+    title,
+    unchecked,
+  }
+}
+
+async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text: string; failed: boolean }> {
+  const refuse = (text: string) => ({ ok: false as const, text: `${text} Nothing moved.`, failed: true as const })
+  /* The page on screen, and only it. */
+  const which = door.which()
+  if (!which.ok) return refuse(`${which.why} jump moves the view of the page on screen.`)
+  const screen = listCanvases(door.db).find((c) => c.id === which.id)
+  if (!screen || screen.project === null) return refuse('The page on screen has no kehikko in a project open.')
+  const target = resolveTarget(
+    args,
+    door,
+    (projects) => projects.find((one) => one.id === screen.project) ?? { why: 'The project on screen is not one this host holds any more.' },
+    'jump',
+    refuse,
+  )
+  if (!target.ok) return target
+  const { project, away, kehikko, askedEpic, epic, parts, step, title, unchecked } = target
+  const askedProject = target.askedProject ? project.name : undefined
+
   const jumps = door.jumps ?? JUMPS
   const now = door.now ? door.now() : Date.now()
   const tooSoon = paceRefusal(jumps.get(0), now)
@@ -2297,6 +2413,83 @@ async function jumpOn(args: Record<string, unknown>, door: Door): Promise<{ text
       + ` The page says "${step != null && where.length === 1 ? `Moved to step ${step}` : 'Jumped here'} by ${JUMP_SIGNED}" with Go back, which restores where the person was. Tell the person where you took them and that Go back undoes it.`
       + ` ${placed}`
       + ' No data and no arrangement changed.',
+    failed: false,
+  }
+}
+
+/** How long `why` may be before it is refused rather than clipped: far past the label, a paste, not a sentence. */
+const OFFER_WHY_MAX = 2000
+
+/**
+ * `offer_jump`: an agent's offer to take the person somewhere, filed in their Inbox instead of moving
+ * the view (protocol 2.87.0, `go`). The target is resolved exactly as `jump`'s (`resolveTarget`), from
+ * this conversation's project when it names none. ONE open item per session — by the session's agent
+ * module's registered name, its label the agent's `why` — that the person takes with "Take me there"
+ * (`inbox.open`: the page goes as the jump would, with Go back, and closes it) or dismisses. Never
+ * moves the view, and is not paced: a new offer replaces the session's last. Refused while the person
+ * turned that module's inbox off or muted its messages in the project. See `Inbox.offer`.
+ */
+async function offerJumpOn(args: Record<string, unknown>, door: Door): Promise<{ text: string; failed: boolean }> {
+  const refuse = (text: string) => ({ ok: false as const, text: `${text} Nothing was offered.`, failed: true as const })
+  if (!door.inbox) return refuse('This host does not hold an inbox.')
+  const why = typeof args.why === 'string' ? args.why.replace(/\s+/g, ' ').trim() : ''
+  if (!why) return refuse('why is what you want to show the person and why, in one sentence, e.g. "The failing test is in the auth epic, part 3."')
+  if (why.length > OFFER_WHY_MAX) return refuse(`why is one sentence, at most ${OFFER_WHY_MAX} characters; the Inbox shows ${LIMITS.ACTIVITY_LABEL}.`)
+  const here = door.here
+  const module = here && here.via === 'token' && here.module ? here.module : null
+  if (!here || !module) {
+    return refuse(
+      'An offer is filed for the session of an agent module, and this call carries none (it came from a connection no agent module started). Tell the person where to look instead, or use jump if they asked to be taken there.',
+    )
+  }
+  const target = resolveTarget(
+    args,
+    door,
+    (projects) => projects.find((one) => one.id === here.project.id) ?? { why: 'This conversation’s project is not one this host holds any more.' },
+    'offer_jump',
+    refuse,
+  )
+  if (!target.ok) return target
+  const { project, kehikko, askedEpic, epic, parts, step, title, unchecked } = target
+
+  const name = (await door.seen()).find((one) => one.id === module)?.name ?? module
+  if (door.inbox.muted().includes(module)) {
+    return refuse(`The person turned off "Use inbox" for ${name}, so nothing of its shows in the Inbox. Tell them in this conversation instead.`)
+  }
+  if (mutedIn(door.db, project.id).includes(module)) {
+    return refuse(`The person muted ${name}’s messages in ${project.name}. Tell them in this conversation instead.`)
+  }
+
+  const place = {
+    ...(kehikko?.key ? { kehikko: kehikko.key } : {}),
+    ...(askedEpic !== undefined && epic !== null ? { epic } : {}),
+    ...(parts !== undefined ? { parts } : {}),
+  }
+  /* One per session: the conversation the record names, else its token — hashed, so neither is shown. */
+  const session = createHash('sha256').update(`${module}\u0000${here.conversation ?? here.token ?? ''}`).digest('hex').slice(0, 24)
+  const filed = door.inbox.offer(project.id, module, name, session, why, Object.keys(place).length ? place : undefined, {
+    ...(step !== null ? { step } : {}),
+    ...(title ? { title } : {}),
+  })
+  door.inboxChanged?.(project.id, filed.rev)
+  for (const other of filed.others) door.inboxChanged?.(other.project, other.rev)
+
+  const where = [
+    `project ${project.name}`,
+    kehikko ? `kehikko ${kehikko.name}` : null,
+    askedEpic !== undefined ? `epic ${epic}` : null,
+    parts !== undefined ? (parts.length ? `part${parts.length === 1 ? '' : 's'} ${parts.join(', ')}` : 'the whole epic (no parts picked)') : null,
+    step !== null ? `step ${step}${title ? ` (${title})` : ''}` : null,
+  ].filter((one): one is string => one !== null)
+  ;(door.log ?? ((line: string) => console.info(line)))(`offer_jump: an agent offered to take the person to ${where.join(', ')}`)
+  return {
+    text:
+      'Offered; the person can go there from the Inbox.'
+      + ` The item says "${why.length > LIMITS.ACTIVITY_LABEL ? `${why.slice(0, LIMITS.ACTIVITY_LABEL - 1)}…` : why}" by ${name}, and takes them to ${where.join(', ')}${
+        step !== null && unchecked ? ` (${epic}'s steps are kept where this host cannot read them, so step ${step} was not checked here)` : ''
+      }.`
+      + (filed.replaced ? ' It replaced your earlier open offer.' : '')
+      + ' Nothing moved: the person decides whether to go. What they leave out stays where they are when they take it.',
     failed: false,
   }
 }
@@ -3017,7 +3210,8 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'toggle, a jump, a run — when the module has marked that item for agents, and shows a web page in the '
         + 'module on the kehikko that shows pages (open_address; never outside the canvas), and jumps the person’s '
         + 'view to another project, kehikko, epic, parts or step when they ask for it (jump; or step by step in a '
-        + 'walkthrough they started), and reads the skills the person wrote for a kehikko (kehikko_skills; only the '
+        + 'walkthrough they started), offers to take them somewhere they did not ask to see with an item in their Inbox '
+        + 'that they take or dismiss (offer_jump; it moves nothing), and reads the skills the person wrote for a kehikko (kehikko_skills; only the '
         + 'person writes them). It can ADD, FOLD, PRESS and JUMP; it '
         + 'cannot remove, move, resize or reorder a container — the arrangement belongs to the person looking at it, '
         + 'and it never jumps the view unasked. What this door adds is what they '

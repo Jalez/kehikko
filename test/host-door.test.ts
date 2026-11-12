@@ -313,6 +313,7 @@ describe('the host’s server, running', () => {
         'module_settings',
         'module_versions',
         'my_place',
+        'offer_jump',
         'open_address',
         'pin_version',
         'place_modules',

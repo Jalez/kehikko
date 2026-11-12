@@ -624,6 +624,7 @@ these tools:
 | `fold_modules` | fold containers to their headers, make them tiles, or unfold them (a tile is put back at the size and place it had), on a kehikko a page has open; marked on the container as an agent's doing |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
 | `jump` | jump the person's view when they ask — `{ project?, kehikko?, epic?, parts?, step? }`, what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
+| `offer_jump` | offer to take the person somewhere they did not ask to see — `{ why, project?, kehikko?, epic?, parts?, step? }`, jump's targets — as one item in their Inbox with **Take me there**; it moves nothing, a new offer replaces the session's last, and the person takes (with Go back) or dismisses it |
 
 All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has

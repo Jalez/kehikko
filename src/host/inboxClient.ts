@@ -117,7 +117,8 @@ export async function postNotice(body: {
   return got && got.ok && Array.isArray(got.open) ? { rev: got.rev, open: got.open, earlier: got.earlier ?? 0 } : null
 }
 
-export type Act = 'seen' | 'dismiss' | 'forget' | 'seen-all'
+/** `took`: the person went where an agent's offer goes, and it closes as taken (the host's own act; no module asks it). */
+export type Act = 'seen' | 'dismiss' | 'forget' | 'seen-all' | 'took'
 
 export async function postAct(body: {
   project: number
