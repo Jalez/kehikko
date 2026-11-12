@@ -160,7 +160,9 @@ describe('why a module is quiet', () => {
       }),
     )
     expect(said.kind).toBe('module')
-    expect(said.line).toContain('choosing not to answer')
+    expect(said.line).toContain('has not answered')
+    /* One file, said as one: not "1 file … were". */
+    expect(said.line).toContain('1 file was fetched')
   })
 
   /*
@@ -208,7 +210,8 @@ describe('why a module is quiet', () => {
       }),
     )
     expect(said.kind).toBe('module')
-    expect(said.line).toContain('choosing not to answer')
+    expect(said.line).toContain('has not answered')
+    expect(said.line).toContain('4 files were fetched')
     /* It says how far it looked, so the shrug is a report rather than a guess. */
     expect(said.line).toContain('following every import')
   })

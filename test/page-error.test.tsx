@@ -57,17 +57,17 @@ describe('a page that says why it did not answer', () => {
     conversation.close()
   })
 
-  test('arriving after the deadline replaces the general sentence at once, and the first failure stands', async () => {
+  test('arriving after the deadline is said at once, and the first failure stands', async () => {
     const said: { line: string; more?: string }[] = []
     const { conversation, from } = conversationFor(said)
     conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
     await Bun.sleep(60)
-    expect(said).toHaveLength(1)
-    expect(said[0]?.more).toBeUndefined()
+    /* Nothing is guessed at the deadline: a page that is only slow is not complained about. */
+    expect(said).toHaveLength(0)
     from(failed('SyntaxError: no export named x', 'error', ''))
     from(failed('Error: and then this'))
-    expect(said).toHaveLength(2)
-    expect(said[1]).toEqual({ line: 'Notes’ page failed to start: SyntaxError: no export named x', more: undefined })
+    expect(said).toHaveLength(1)
+    expect(said[0]).toEqual({ line: 'Notes’ page failed to start: SyntaxError: no export named x', more: undefined })
     conversation.close()
   })
 

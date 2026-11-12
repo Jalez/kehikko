@@ -1,3 +1,5 @@
+import { MODULE_HOST_SUFFIX } from '../src/host/moduleAddress.ts'
+
 /**
  * Why a module that loaded its page did not answer the greeting.
  *
@@ -120,6 +122,11 @@ export type Quiet =
   | { kind: 'module'; line: string }
   /** The host's own proxy refused the frame's address: the page never reached the module. */
   | { kind: 'refused'; line: string }
+  /**
+   * The frame holds a page from an address the module no longer answers at: it was started
+   * again on another port since. Nothing was fetched, and nothing about the module is said.
+   */
+  | { kind: 'moved'; line: string }
 
 /**
  * The header the host's module proxy puts on a refusal of its own (`refused` in
@@ -147,6 +154,48 @@ const REFUSAL_CHARS = 400
  * said is compared; the path is always the module's own entry's, so a request
  * cannot make the host fetch an address of its choosing.
  */
+/**
+ * Where the frame's page came from, when that is no longer where the module answers.
+ *
+ * The module was started again in between — on any free port (`anyPort.ts`), every start is a new
+ * port — and the page that is quiet is the old process's, or the refusal the browser got when it
+ * asked an address nothing listens at any more. Checking the module's CURRENT address then finds
+ * everything in order and blamed the module for the silence of a page it never served: the
+ * sentence named the new port while the frame showed the old one. So the two are compared first,
+ * and only the origin: the stable frame origin and the module's own both count as current.
+ * Returns the frame's origin when it is neither, else null. Never fetched.
+ */
+export function movedFrom(own: string, framed: string | null, stable: string | null, current: readonly (string | null)[] = []): string | null {
+  if (!framed) return null
+  try {
+    const address = new URL(framed)
+    const at = address.origin
+    if (at === 'null') return null
+    if (at === new URL(own).origin) return null
+    if (stable && at === new URL(stable).origin) return null
+    /* A stable address — the module's, or a pinned version's — does not move with a port. */
+    if (address.hostname.endsWith(`.${MODULE_HOST_SUFFIX}`)) return null
+    /* A pinned version runs at its own address, which is as current as the module's. */
+    if (current.some((one) => one !== null && at === one)) return null
+    return at
+  } catch {
+    return null
+  }
+}
+
+/** What a container whose frame holds a page from before its module moved says (`movedFrom`). */
+export function pageMovedLine(name: string, from: string, now: string): string {
+  return (
+    `${name} was started again since this container loaded its page: the page is from ${from}, and ${name} answers at ${new URL(now).origin} now. `
+    + 'Nothing is wrong with the module; the container loads its page again from there.'
+  )
+}
+
+/** "1 file was" / "3 files were": how many were fetched, said as a sentence says it. */
+export function filesFetched(count: number): string {
+  return count === 1 ? '1 file was fetched' : `${count} files were fetched`
+}
+
 export function quietEntry(own: string, framed: string | null, stable: string | null): string {
   if (!framed || !stable) return own
   try {
@@ -407,10 +456,10 @@ export async function whyQuiet(
   return {
     kind: 'module',
     line:
-      `${name} served its page at ${entry} and every script in it, so the page is loading and choosing not to answer. `
+      `${name} serves its page at ${entry}, and the page has not answered. `
       + (scripts.length === 0
         ? 'Its page asks for no scripts at all, which would explain it.'
-        : `That is a fault inside the module rather than in how it is served — ${seen.size} `
-          + `file${seen.size === 1 ? '' : 's'} of it were fetched, following every import, and all of them came back.`),
+        : `How it is served is not the reason: ${filesFetched(seen.size)}, following every import the page needs before it runs, and all of them came back. `
+          + 'The page loaded and has said nothing since; reloading it is the thing to try.'),
   }
 }

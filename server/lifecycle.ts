@@ -720,3 +720,57 @@ export class Idleness {
     for (const id of [...this.#lastNeeded.keys()]) if (!keep.has(id)) this.#lastNeeded.delete(id)
   }
 }
+
+/**
+ * How many times the host starts a module again on its own after its process ENDED, within
+ * `EXIT_RESTARTS_WINDOW_MS`, before it stops and says so.
+ *
+ * The one thing the host restarts a module for is its process ending (`ended` in `server.ts`):
+ * never a page that is slow to greet, never a quiet frame. A process that lived past `MIN_RUN_MS`
+ * and ended was started again at once, every time — so a module that runs for a quarter of a
+ * minute and dies would be started forever, on a new port each time with any-port starts, and
+ * every page framing it would be handed a new address it could not keep up with. Now each start
+ * after an end waits longer (`EXIT_BACKOFF_MS`), and after `EXIT_RESTARTS_MAX` in the window the
+ * container says what happened and offers Start. A person's press starts the count again.
+ */
+export const EXIT_RESTARTS_MAX = 3
+export const EXIT_RESTARTS_WINDOW_MS = 10 * 60_000
+/** The wait before each start after an end: the first at once, then longer. */
+export const EXIT_BACKOFF_MS: readonly number[] = [0, 5_000, 30_000]
+
+/** Said on a container whose module ended too often to be started again on its own. */
+export function endedTooOftenLine(name: string, times: number, log: string): string {
+  return (
+    `${name} stopped ${times} times in ${Math.round(EXIT_RESTARTS_WINDOW_MS / 60_000)} minutes, so Kehikot stopped starting it again on its own. `
+    + `The last of what it printed is below; all of it is in ${log}. Press Start to try again.`
+  )
+}
+
+export class ExitRestarts {
+  #ends = new Map<string, number[]>()
+
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly max = EXIT_RESTARTS_MAX,
+    private readonly window = EXIT_RESTARTS_WINDOW_MS,
+    private readonly backoff: readonly number[] = EXIT_BACKOFF_MS,
+  ) {}
+
+  /**
+   * Its process ended after running: how long to wait before starting it again, or null for
+   * "not again on its own". `times` is how many ends are in the window, this one included.
+   */
+  ended(id: string): { wait: number; times: number } | { wait: null; times: number } {
+    const now = this.now()
+    const ends = (this.#ends.get(id) ?? []).filter((at) => now - at < this.window)
+    ends.push(now)
+    this.#ends.set(id, ends)
+    if (ends.length > this.max) return { wait: null, times: ends.length }
+    return { wait: this.backoff[Math.min(ends.length - 1, this.backoff.length - 1)] ?? 0, times: ends.length }
+  }
+
+  /** A person pressed Start or Restart: their press, and the count begins again. */
+  forget(id: string): void {
+    this.#ends.delete(id)
+  }
+}

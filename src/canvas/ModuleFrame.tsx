@@ -292,6 +292,9 @@ export function ModuleFrame({
           const src = frame.getAttribute('src')
           if (src) frame.setAttribute('src', src)
         },
+        /* The page is from an address the module left (`moved`): the canvas reads the modules
+           again, and a new entry is a new frame (`Frames.tsx` keys on it). */
+        behind: () => watcherRef.current.behind?.(),
         findResult: (result) => watcherRef.current.findResult?.(result),
         findOpen: (open) => watcherRef.current.findOpen?.(open),
       },

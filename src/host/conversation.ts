@@ -207,6 +207,12 @@ export interface ConversationWatcher {
    */
   retry?(): void
   /**
+   * Read the modules again: the host's server says the frame holds a page from an address the
+   * module no longer answers at (`moved` in `server/quiet.ts`) — it was started again elsewhere
+   * since. A fresh reading gives the frame the new address. Absent: the sentence is said instead.
+   */
+  behind?(): void
+  /**
    * What a search came to (`kehikot.find.result`, protocol 2.69.0): the count,
    * or `unsupported`, for the `kehikot.find` whose id it carries. See `host/find.ts`.
    */
@@ -218,8 +224,30 @@ export interface ConversationWatcher {
   findOpen?(open: { query?: string; step?: 'next' | 'prev' }): void
 }
 
-/** How long a module has to answer a greeting before it is reported silent. */
+/**
+ * How long a page has to answer a greeting before the host LOOKS — asks its server what it can
+ * see (`server/quiet.ts`) — and before a page loaded ahead of its module is loaded once again.
+ * Not a verdict: a page that is only slow is not complained about at this point.
+ */
 export const READY_TIMEOUT_MS = 4000
+
+/**
+ * How long a page whose module is up, and whose page and scripts all load, may stay quiet before
+ * the container says so. The last resort, not the judgement: a heavy page on a machine that is
+ * starting fifteen others is slow, not broken, and saying it was broken — then starting it again —
+ * made the start slower still. Every fact found before this (the module not running, a page that
+ * failed and said why, a script that does not load, a page from before a restart) is said at once.
+ */
+export const QUIET_FOR_MS = 60_000
+
+/** Said when a page whose module is up has said nothing for `QUIET_FOR_MS`. */
+export function quietForLine(name: string, ms: number, found?: string | null): string {
+  return (
+    `${name} loaded its page and has said nothing for ${Math.round(ms / 1000)} seconds. `
+    + (found ? `${found} ` : '')
+    + 'Reload the page; Kehikot does not start it again for this, because the program is running.'
+  )
+}
 
 /**
  * How long the host waits for `kehikot.went`.
@@ -294,6 +322,10 @@ export class Conversation {
   private answered = false
   /* Whether this frame's page was loaded again for an unanswered greeting (`retry`); cleared by an answer. */
   private retried = false
+  /* When this frame's page was first greeted and has not answered since: what `QUIET_FOR_MS` counts from. */
+  private quietSince: number | null = null
+  /* Whether the greeting's first deadline has passed unanswered: a failure the page reports after it is said at once. */
+  private looked = false
   /** Whether the greeting's deadline has passed with no answer, so the container says so now. */
   private silenced = false
   /**
@@ -327,6 +359,7 @@ export class Conversation {
   /** The address the frame was given (`server/quiet.ts` checks that one), or null when not said. */
   private readonly entry: string | null
   private readonly readyTimeoutMs: number
+  private readonly quietForMs: number
   private readonly holdCoverMs: number
   private readonly loadingAfterMs: number
   private readonly wentTimeoutMs: number
@@ -352,6 +385,8 @@ export class Conversation {
       entry?: string
       session?: string
       readyTimeoutMs?: number
+      /** How long a page whose module is up may stay quiet before it is said (`QUIET_FOR_MS`). */
+      quietForMs?: number
       /** How long a cover held by `ready { hold: true }` waits for `kehikot.drawn` (`HOLD_COVER_MS`). */
       holdCoverMs?: number
       /** How long after `kehikot.loading` the cover waits for `kehikot.drawn` before it goes up (`LOADING_COVER_AFTER_MS`). */
@@ -367,6 +402,7 @@ export class Conversation {
     this.entry = options.entry ?? null
     this.session = options.session ?? newSession()
     this.readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
+    this.quietForMs = options.quietForMs ?? QUIET_FOR_MS
     this.holdCoverMs = options.holdCoverMs ?? HOLD_COVER_MS
     this.loadingAfterMs = options.loadingAfterMs ?? LOADING_COVER_AFTER_MS
     this.wentTimeoutMs = options.wentTimeoutMs ?? WENT_TIMEOUT_MS
@@ -386,6 +422,7 @@ export class Conversation {
     this.answered = false
     this.letHold()
     this.silenced = false
+    this.looked = false
     this.failure = null
 
     this.post({
@@ -429,62 +466,89 @@ export class Conversation {
       find: true,
     })
 
+    if (this.quietSince === null) this.quietSince = Date.now()
     if (this.readyTimer) clearTimeout(this.readyTimer)
-    this.readyTimer = setTimeout(() => {
-      if (this.answered || this.closed) return
-      this.silenced = true
-      /* The page said why (protocol 2.59.0): that, rather than a guess. */
-      if (this.failure) {
-        this.sayFailure()
-        return
-      }
-      /* Once, before anything is said: load the page again if the module answers now. */
-      if (!this.retried && this.watcher.retry) {
-        void this.retryOrSay()
-        return
-      }
-      /*
-       * Said immediately, then improved on.
-       *
-       * The general sentence goes up at the deadline because the container has
-       * been drawing nothing for `readyTimeoutMs` and a person is owed an
-       * answer now rather than after another round trip. Then the host asks its
-       * own server what it can see and replaces the line with the specific
-       * reading if there is one — see `server/quiet.ts` for what it can tell
-       * apart and why the SERVER is the one asking.
-       *
-       * The general sentence is the fallback in both directions: if the probe
-       * fails, times out, or this conversation ends first, what stands is what
-       * this host has always said, which was never wrong — only unspecific.
-       */
-      this.watcher.silent(
-        `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this container is not speaking.`,
-      )
-      void this.diagnose()
-    }, this.readyTimeoutMs)
+    this.readyTimer = setTimeout(() => this.deadline(), this.readyTimeoutMs)
   }
 
   /**
-   * Ask the host's server why this module is quiet, and say so if it knows.
+   * The greeting went unanswered for `readyTimeoutMs`: look, and say only what is found.
    *
-   * The page cannot look for itself. A module is framed cross-origin and sets
-   * no CORS headers on purpose, so `fetch` from here to a module's origin is
-   * refused before it leaves. The server has no such limit and already fetches
-   * every module's manifest on every sweep, so it does the looking.
+   * ## What this used to do, and why it stopped
    *
-   * Everything here is best-effort by construction. A module that answers while
-   * this is in flight has stopped being quiet and must not have a stale
-   * explanation dropped on top of it, which is what the `answered` and `closed`
-   * checks after the await are for.
+   * It said "did not answer the host's greeting" at four seconds, then improved the sentence
+   * with what the server found — which, when everything loaded, was that the page was "choosing
+   * not to answer" and the fault was the module's. On a cold start the machine is starting a
+   * dozen modules at once and a heavy page is simply slow; on a restart the page in the frame
+   * was the OLD process's. Both were reported as a broken module, a person pressed Restart, and
+   * the restart made the next start slower. Slow is not broken, so a page that is only slow is
+   * not complained about until `QUIET_FOR_MS`; everything that is a fact is said at once.
    */
-  private async diagnose(): Promise<void> {
-    const said = await this.quiet()
-    /* It answered while the host was asking, or the container went away. Either
-       way the sentence below would be describing a moment that has passed. */
+  private deadline(): void {
     if (this.answered || this.closed) return
-    /* The page said why while the host was asking; its own words stand. */
-    if (this.failure) return
-    if (said) this.watcher.silent(said.line)
+    this.looked = true
+    /* The page said why (protocol 2.59.0): that, rather than a guess. */
+    if (this.failure) {
+      this.silenced = true
+      this.sayFailure()
+      return
+    }
+    void this.judge()
+  }
+
+  private async judge(): Promise<void> {
+    const said = await this.quiet()
+    /* It answered while the host was asking, or the container went away: the sentence below
+       would be describing a moment that has passed. */
+    if (this.answered || this.closed) return
+    if (this.failure) {
+      this.silenced = true
+      this.sayFailure()
+      return
+    }
+    /* The frame holds a page from before the module was started again elsewhere: read the
+       modules again and the frame is given the address it answers at now. */
+    if (said?.kind === 'moved') {
+      if (this.watcher.behind) {
+        this.watcher.behind()
+        this.again(this.quietForMs)
+        return
+      }
+      this.say(said.line)
+      return
+    }
+    /* Not running: no page to wait for. */
+    if (said?.kind === 'gone') {
+      this.say(said.line)
+      return
+    }
+    /* Once: a page loaded before its module listened was given a refusal, and nothing else ever
+       loads it again. The server says the module answers now, so the page is loaded again. */
+    if (!this.retried && said && this.watcher.retry) {
+      this.retried = true
+      this.silenced = false
+      this.watcher.retry()
+      return
+    }
+    const waited = Date.now() - (this.quietSince ?? Date.now())
+    /* Everything it needs loads (or the server could not say): as far as anything can tell, the
+       page is slow. Not said until it has been quiet for `QUIET_FOR_MS`. */
+    if ((said === null || said.kind === 'module') && waited < this.quietForMs) {
+      this.again(this.quietForMs - waited)
+      return
+    }
+    this.say(said === null || said.kind === 'module' ? quietForLine(this.name, this.quietForMs, said?.line ?? null) : said.line)
+  }
+
+  /** Look again after `ms`, unless an answer or a new greeting comes first. */
+  private again(ms: number): void {
+    if (this.readyTimer) clearTimeout(this.readyTimer)
+    this.readyTimer = setTimeout(() => this.deadline(), Math.max(1, ms))
+  }
+
+  private say(line: string): void {
+    this.silenced = true
+    this.watcher.silent(line)
   }
 
   /**
@@ -492,6 +556,11 @@ export class Conversation {
    * say. Never throws: a host that threw while explaining a quiet module would
    * be a worse failure than the one being explained. `framed` is the address
    * the frame was given; the server holds it to the module's own addresses.
+   *
+   * The page cannot look for itself. A module is framed cross-origin and sets
+   * no CORS headers on purpose, so `fetch` from here to a module's origin is
+   * refused before it leaves. The server has no such limit and already fetches
+   * every module's manifest on every sweep, so it does the looking.
    */
   private async quiet(): Promise<{ kind: string; line: string } | null> {
     try {
@@ -506,32 +575,6 @@ export class Conversation {
     } catch {
       return null
     }
-  }
-
-  /**
-   * The first unanswered greeting of this frame: when the server says the
-   * module answers now (anything but `gone`), the page is loaded again — it was
-   * very likely loaded before its module listened, and given the proxy's
-   * refusal — and greeted again on its `load`. Only once; an answer clears it.
-   * Otherwise, or after the one retry, what the server found is said.
-   */
-  private async retryOrSay(): Promise<void> {
-    const said = await this.quiet()
-    if (this.answered || this.closed) return
-    if (this.failure) {
-      this.sayFailure()
-      return
-    }
-    if (!this.retried && said && said.kind !== 'gone' && this.watcher.retry) {
-      this.retried = true
-      this.silenced = false
-      this.watcher.retry()
-      return
-    }
-    this.watcher.silent(
-      said?.line
-        ?? `${this.name} loaded its page and did not answer the host's greeting. The program is running at its address; the page inside this container is not speaking.`,
-    )
   }
 
   /**
@@ -878,6 +921,7 @@ export class Conversation {
     case MESSAGE.READY: {
       this.answered = true
       this.retried = false
+      this.quietSince = null
       if (this.readyTimer) clearTimeout(this.readyTimer)
       const later = this.openedLater
       this.openedLater = null
@@ -1075,7 +1119,11 @@ export class Conversation {
       }
       if (this.failure) return true
       this.failure = failure
-      if (this.silenced) this.sayFailure()
+      /* Reported, never inferred: past the first deadline it is said the moment it arrives. */
+      if (this.silenced || this.looked) {
+        this.silenced = true
+        this.sayFailure()
+      }
       return true
     }
 

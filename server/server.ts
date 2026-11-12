@@ -77,6 +77,9 @@ import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
+  endedTooOftenLine,
+  EXIT_RESTARTS_WINDOW_MS,
+  ExitRestarts,
   exitedLine,
   Idleness,
   inFlight,
@@ -137,7 +140,8 @@ import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
-import { framedFetch, quietEntry, whyQuiet } from './quiet.ts'
+import { framedFetch, movedFrom, pageMovedLine, quietEntry, whyQuiet } from './quiet.ts'
+import { sweepAfter } from './sweepAfter.ts'
 import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
 import { Wakes } from './wake.ts'
 import { moved, watchRegistry } from './registryWatch.ts'
@@ -1051,6 +1055,8 @@ async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
  * answer differs; the answer does not.
  */
 let sweeping: Promise<Swept> | null = null
+/** When the sweep out began (`sweepAfter`). */
+let sweepingSince = 0
 /** Whether the sweep out reads only what is kept (`sweep({ kept: true })`). */
 let sweepingKept = false
 /**
@@ -1081,10 +1087,16 @@ function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
     for (const presence of swept.presences) if (presence.module) holdsSaid.set(presence.id, presence.module.holds)
   }, () => undefined)
   sweeping = running
+  sweepingSince = Date.now()
   sweepingKept = kept
   /* The first sweep is also when "Keep modules up to date automatically" reads the copies (`bootAutoUpdates`). */
   if (booting && !bootRead) void because('auto-update’s first look', () => bootAutoUpdates(running))
   return running
+}
+
+/** A sweep that began at or after `at`: see `sweepAfter.ts`. What a start reads once its module answered. */
+function sweepSince(at: number): Promise<Swept> {
+  return sweepAfter(() => (sweeping ? { running: sweeping, since: sweepingSince } : null), at, () => sweep())
 }
 
 /**
@@ -1804,6 +1816,8 @@ function begin(id: string): void {
   /* Already starting, by a press or an update, or a process of the host's is
      there: a second copy would race it for the port (`startOnce.ts`). */
   if (inHand.has(id) || pressedStarts.has(id) || nursery.holds(id)) return
+  /* Its process ended a moment ago and the next start after an end waits (`ExitRestarts`). */
+  if ((exitHeld.get(id) ?? 0) > Date.now()) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
@@ -2401,7 +2415,21 @@ async function ended(id: string, at: number, code: number | null): Promise<void>
       failures.set(id, { line: exitedLine(presence.name ?? spokenName(id), presence.at, code, logFile(id)), detail: tail(logFile(id)) })
       console.log(`kehikko: ${id} stopped again${code === null ? '' : ` (exit code ${code})`} without answering — see ${logFile(id)}`)
     } else {
-      console.log(`kehikko: ${id} is no longer running — the process the host started ended`)
+      /* Started again on its own only so often, and each time later (`ExitRestarts`). */
+      const again = exitRestarts.ended(id)
+      if (again.wait === null) {
+        failures.set(id, { line: endedTooOftenLine(presence.name ?? spokenName(id), again.times, logFile(id)), detail: tail(logFile(id)) })
+        console.log(`kehikko: ${id} ended ${again.times} times within ${EXIT_RESTARTS_WINDOW_MS / 60_000} minutes — not started again until a press`)
+      } else if (again.wait > 0) {
+        exitHeld.set(id, Date.now() + again.wait)
+        console.log(`kehikko: ${id} is no longer running — started again in ${again.wait / 1000} s`)
+        setTimeout(() => {
+          exitHeld.delete(id)
+          void sweep().then((later) => govern(later.presences)).catch(() => null).finally(() => wakes.registryChanged())
+        }, again.wait).unref?.()
+      } else {
+        console.log(`kehikko: ${id} is no longer running — the process the host started ended`)
+      }
     }
     govern(view.presences)
     wakes.registryChanged()
@@ -2423,6 +2451,11 @@ function govern(presences: readonly Presence[], mayStart = true): void {
   notice(presences, now)
   act(standings(presences, now), now, mayStart)
 }
+
+/** How often a module whose process ended is started again on its own (`ExitRestarts`). */
+const exitRestarts = new ExitRestarts()
+/** Modules whose next start after an end waits until this time. */
+const exitHeld = new Map<string, number>()
 
 /** Whose process was answering for each module when it was last seen answering. */
 const answeredBy = new Map<string, 'ours' | 'theirs'>()
@@ -3010,9 +3043,13 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
     const budget = busy ? 1500 : Math.max(1, Math.min(1500, until - now))
     up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, budget) : await answered(runnable.url, paths, budget)
   }
+  let answeredAt = Date.now()
   /* The process ended and something else may answer there: the module was
      already running, and the copy just started stepped aside. */
-  if (!up && !alive()) up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, 600) : await answered(runnable.url, paths, 600)
+  if (!up && !alive()) {
+    up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, 600) : await answered(runnable.url, paths, 600)
+    answeredAt = Date.now()
+  }
   if (!up && !alive()) {
     const detail = tail(log)
     starting.delete(id)
@@ -3020,7 +3057,12 @@ async function bringUp(id: string, runnable: Runnable, within: number, onInstall
     failures.set(id, { line: exitedLine(spokenName(id), runnable.url, exits.get(id) ?? null, log), detail })
     return { ok: false, why: `${spokenName(id)} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
   }
-  const view = told(await sweep())
+  /* Read after it answered, not from a sweep that began before (`sweepAfter.ts`), and not from
+     the refusal a read just before it answered kept for `UNANSWERED_MS` (`manifests.ts`): either
+     one says "silent, starting" about a module that is up, and nothing tells the page otherwise
+     until the watch looks. */
+  if (up) manifests.forget(id)
+  const view = told(await sweepSince(answeredAt))
   return {
     ok: true,
     answered: up,
@@ -3050,6 +3092,9 @@ async function restart(
   anyway?: { pid: number },
   heldOnly = false,
 ): Promise<Restarted> {
+  /* A press, an update or a retry: the count of ends begins again, and nothing waits. */
+  exitRestarts.forget(id)
+  exitHeld.delete(id)
   const mine = !inHand.has(id)
   inHand.add(id)
   try {
@@ -3107,7 +3152,8 @@ async function joinStart(id: string, runnable: Runnable, within: number): Promis
     up = anyPort && token ? await answeredAnywhere(id, token, budget) : await answered(runnable.url, [WELL_KNOWN], budget)
   }
   if (!up && !nursery.holds(id)) return null
-  const view = told(await sweep())
+  if (up) manifests.forget(id)
+  const view = told(await sweepSince(Date.now()))
   return { ok: true, answered: up, detail: up ? [] : tail(logFile(id)), presence: view.presences.find((p) => p.id === id) ?? null }
 }
 
@@ -5510,7 +5556,14 @@ async function answerRequest(request: Request): Promise<Response> {
       /* The address the frame was given, held to the module's stable one or its own
          (`quietEntry`), and asked through the proxy when it is the stable one. */
       const stable = ADDRESSES ? frameOriginFor(id, PORT) : null
-      const checked = quietEntry(presence.module.entry, url.searchParams.get('framed'), stable)
+      const framed = url.searchParams.get('framed')
+      /* The frame holds a page from before the module was started again elsewhere: fetching the
+         module where it is NOW would find everything in order and blame it for a page it never
+         served. Said as what it is, and the page loads the frame again from the new address. */
+      const pinnedAt = versionRuns.all().filter((one) => one.id === id).map((one) => one.origin)
+      const from = movedFrom(presence.module.entry, framed, stable, pinnedAt)
+      if (from) return json({ ok: true, kind: 'moved', line: pageMovedLine(presence.module.name, from, presence.module.entry), checked: presence.module.entry })
+      const checked = quietEntry(presence.module.entry, framed, stable)
       const via = checked === presence.module.entry ? fetch : framedFetch(frameRouteOf, (asked, route) => moduleProxy.answer(asked, route))
       const said = await whyQuiet(presence.module.name, checked, via)
       return json({ ok: true, kind: said.kind, line: said.line, checked })
