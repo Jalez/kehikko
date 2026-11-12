@@ -1680,3 +1680,16 @@
   primary's sessions on that kehikko (`takesNews` in `AgentMessages.handTells`). Messages to a session, a
   module or the project are untouched. No primary chosen, or the chosen one gone: everyone, as before.
   Keep `PRIMARY_SAID.implications` true to that rule.
+
+## Adopting a tracker item
+
+- `server/adoption.ts`. No call of the page waits on a module longer than a few
+  seconds (`ADOPTION_LIMITS`): the finders are asked in parallel, each held to
+  `findMs`, once per item for `freshMs`, and a read answers after `waitMs` with
+  what came in (`finding: true`, the dialog reads again). A module's page gives
+  up after 12 s and the server closes an unanswered GET after 30 s, and the page
+  then said only "Kehikot did not answer".
+- `POST /host/inbox/task` answers at once (`beginTask`); the start runs in the
+  background and the page reads `GET /host/inbox/task` until it started or
+  failed. Every failure names the agent and says why, in words. Never put a
+  module round trip back on the path of a page's call.

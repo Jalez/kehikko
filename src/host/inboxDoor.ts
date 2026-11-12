@@ -94,7 +94,8 @@ export interface InboxDoor {
     adoption(key: { module: string; id: string }, project?: number): Promise<InboxAdoptionResult>
     adopt(key: { module: string; id: string }, epic: string, parts: readonly string[], project?: number): Promise<InboxAdoptResult>
     /** Open the host's dialog with the person's agent; `no-agent` when none is picked. */
-    adoptWith(key: { module: string; id: string }, project?: number): Promise<'opened' | 'no-agent'>
+    /** Where it led; `{ why }` when Kehikot could not tell (the host's server did not answer), said to the module as `declined`. */
+    adoptWith(key: { module: string; id: string }, project?: number): Promise<'opened' | 'no-agent' | { why: string }>
     untrack(key: { module: string; id: string }, project?: number): Promise<{ outcome: 'done' | 'declined'; changed: number; why: string }>
     undo(key: { module: string; id: string }, project?: number): Promise<{ outcome: 'done' | 'declined'; changed: number; why: string }>
   }
@@ -451,6 +452,7 @@ async function answerUnchecked(
       if (method === 'inbox.adopt') return ok(await adopting.adopt(key, String(params.epic), (params.parts as string[] | undefined) ?? [], project))
       if (method === 'inbox.untrack') return ok(await adopting.untrack(key, project))
       const opened = await adopting.adoptWith(key, project)
+      if (typeof opened === 'object') return ok({ outcome: 'declined', why: clip(opened.why, LIMITS.REASON) })
       return ok(opened === 'opened' ? { outcome: 'opened', why: '' } : { outcome: 'no-agent', why: DOOR_SAYS.noAgent })
     }
     case 'inbox.use': {

@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
  */
 
 const inChild = process.env.ADOPT_DIALOG_DOM === '1'
-const TESTS = 3
+const TESTS = 6
 
 if (!inChild) {
   test('the adoption dialog, rendered in a process of its own', () => {
@@ -57,13 +57,19 @@ function adoption(over: Record<string, unknown>) {
 }
 
 /** The host's routes, faked: what `/host/inbox/adoption` answers next, and every request seen. */
-function host(answers: () => Record<string, unknown>) {
+const STARTED = { state: 'started', module: 'kehikot.b', name: 'B', session: 't1', view: 'about:blank' }
+
+function host(answers: () => Record<string, unknown>, task: { begin?: unknown; then?: unknown; fail?: boolean } = {}) {
   const seen: { path: string; query: string; body: unknown }[] = []
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const at = new URL(url, 'http://127.0.0.1')
     seen.push({ path: at.pathname, query: at.search, body: init?.body ? JSON.parse(String(init.body)) : null })
     if (at.pathname === '/host/inbox/adoption') return Response.json({ ok: true, adoption: answers() })
-    if (at.pathname === '/host/inbox/task') return Response.json({ ok: true, result: { ok: true, module: 'kehikot.b', name: 'B', session: 't1', view: 'about:blank' } })
+    if (at.pathname === '/host/inbox/task') {
+      if (task.fail) throw new TypeError('Load failed')
+      /* Answered at once with "starting"; the page reads how it went. */
+      return Response.json({ ok: true, result: init?.method === 'POST' ? (task.begin ?? { state: 'starting', module: 'kehikot.b', name: 'B' }) : (task.then ?? STARTED) })
+    }
     return Response.json({ ok: false }, { status: 404 })
   }) as unknown as typeof fetch
   return seen
@@ -86,7 +92,8 @@ test('the kehikko’s primary agent is started at once, on that kehikko, with no
   const seen = host(() =>
     adoption({ agent: { module: 'kehikot.b', name: 'B' }, ...(++reads > 1 ? { proposal: { epic: 'auth', parts: [], conversations: [], why: 'Same repository.' } } : {}) }),
   )
-  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" kehikkoId={3} onClose={() => {}} pollMs={20} />)
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" kehikkoId={3} onClose={() => {}} pollMs={20} taskPollMs={5} />)
+  await act(async () => new Promise((done) => setTimeout(done, 30)))
   expect(seen[0]!.query).toContain('kehikko=k1')
   const task = seen.find((one) => one.path === '/host/inbox/task')!
   expect(task.body).toMatchObject({ project: 1, module: 'kehikko.tracker', id: 'x', kehikko: 'k1' })
@@ -150,4 +157,41 @@ test('no agent module that can: the picker alone; and “choose myself” from t
   await act(async () => button('I’ll choose a space myself')!.click())
   expect(document.querySelector('[data-adopt-choose]')).toBeNull()
   expect(document.querySelector('[data-adopt-picker]')).not.toBeNull()
+})
+
+test('the agent did not start: why, in its words, and the picker; never “did not answer”', async () => {
+  if (!inChild) return
+  host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), { then: { state: 'failed', why: 'B didn’t start the task: its program is not signed in.' } })
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} pollMs={60_000} taskPollMs={5} />)
+  await act(async () => new Promise((done) => setTimeout(done, 40)))
+  expect(document.querySelector('[data-adopt-task="failed"]')!.textContent).toBe('B didn’t start the task: its program is not signed in. Choose the space yourself.')
+  expect(document.querySelector('[data-adopt-picker]')).not.toBeNull()
+})
+
+test('the host’s server could not be reached: said as that, with its reason', async () => {
+  if (!inChild) return
+  host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), { fail: true })
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} pollMs={60_000} taskPollMs={5} />)
+  const said = document.querySelector('[data-adopt-task="failed"]')!.textContent!
+  expect(said).toContain('could not be reached (Load failed)')
+  expect(said).not.toContain('did not answer.')
+})
+
+test('only confident conversations are listed; the twenty that only worked in the repository fold under one line', async () => {
+  if (!inChild) return
+  const conversation = (session: string, match: string, reason: string) => ({ module: 'kehikot.b', program: 'B CLI', session, title: session, folder: '', lastActive: 1, match, reason, placed: null, comes: false })
+  host(() =>
+    adoption({
+      taskAgents: [],
+      conversations: [conversation('made-it', 'created', 'created !7'), ...Array.from({ length: 20 }, (_, i) => conversation(`other-${i}`, 'folder', 'worked in this repository'))],
+    }),
+  )
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} />)
+  const list = document.querySelector('[data-adopt-conversations]')!
+  expect([...list.querySelectorAll('li')].map((one) => one.getAttribute('data-adopt-match'))).toEqual(['created'])
+  const more = list.querySelector<HTMLButtonElement>('[data-adopt-more]')!
+  expect(more.textContent).toContain('20 other conversations worked in this repository')
+  expect(more.getAttribute('aria-expanded')).toBe('false')
+  await act(async () => more.click())
+  expect(list.querySelectorAll('[data-adopt-folded] li')).toHaveLength(20)
 })

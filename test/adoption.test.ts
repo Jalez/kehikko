@@ -3,10 +3,10 @@ import type { Database } from 'bun:sqlite'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HOST_CALLER, SERVICE_CALLER_HEADER, SERVICE_PASS_HEADER, type ServiceProvider, type TrackerRow } from 'kehikot-module-protocol'
+import { AGENT_TASK_BRIEF_MAX, HOST_CALLER, SERVICE_CALLER_HEADER, SERVICE_PASS_HEADER, type ServiceProvider, type TrackerRow } from 'kehikot-module-protocol'
 import { mintServerPass } from 'kehikot-module-protocol/serve'
 
-import { Adoption, type AdoptionDeps } from '../server/adoption.ts'
+import { Adoption, clipBrief, type AdoptionDeps } from '../server/adoption.ts'
 import { adoptRoutes, ADOPT_ROUTES } from '../server/adoptRoutes.ts'
 import { open } from '../server/canvases.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
@@ -16,7 +16,7 @@ import { TOOL_NAMES } from '../server/mcp.ts'
 import { addProject } from '../server/projects.ts'
 import { TrackerNotices, writeNotices } from '../server/trackerNotices.ts'
 import { epicsByRef } from '../server/trackers/reading.ts'
-import { ADOPT_INSTRUCTION, adoptedSaid, dialogPlan, suggestEpic, taskAgentFor, toBring } from '../src/host/adoption.ts'
+import { ADOPT_INSTRUCTION, adoptedSaid, conversationRows, dialogPlan, suggestEpic, taskAgentFor, toBring } from '../src/host/adoption.ts'
 import type { Entry } from '../src/host/inbox.ts'
 import { answerInbox, readOf, type InboxDoor } from '../src/host/inboxDoor.ts'
 import { DEFAULT_NOTICES, TRACKER_NOTICES_MODULE, noticeItem, type Seen } from '../src/host/trackerNotices.ts'
@@ -81,13 +81,35 @@ describe('the one writer of an epic\'s adopted refs', () => {
 
 type Call = { module: string; path: string; body: any; headers: Record<string, string> }
 
-function fakes(candidates: unknown[], options: { agent?: boolean } = {}) {
+/** Waits `ms` (forever for Infinity), or fails when the caller gives up — a module reading its whole history. */
+const slow = (ms: number, signal?: AbortSignal | null) =>
+  new Promise<void>((done, fail) => {
+    const timer = Number.isFinite(ms) ? setTimeout(done, ms) : undefined
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer)
+      fail(new DOMException('aborted', 'AbortError'))
+    })
+  })
+
+function fakes(
+  candidates: unknown[],
+  options: {
+    agent?: boolean
+    /** More finders, as the five agent modules of a person who has them all. */
+    finders?: number
+    /** How long each finder takes to answer. */
+    findMs?: number
+    /** How the agent module answers a start. */
+    start?: 'hang' | { status: number; body: unknown }
+  } = {},
+) {
   const calls: Call[] = []
   const finder = { name: 'Agent', program: 'Agent CLI', find: '/api/find', bring: '/api/bring' }
   const tasks = { name: 'Agent', program: 'Agent CLI', start: '/api/tasks', view: '/app?session={session}' }
+  const others = Array.from({ length: Math.max(0, (options.finders ?? 1) - 1) }, (_, i) => ({ module: `kehikot.other${i}`, name: `Other ${i}`, descriptor: finder, placed: null }))
   const providers = (service: string): ServiceProvider[] =>
     service === 'conversations.finder'
-      ? [{ module: 'kehikot.agent', name: 'Agent', descriptor: finder, placed: null }]
+      ? [{ module: 'kehikot.agent', name: 'Agent', descriptor: finder, placed: null }, ...others]
       : service === 'agent.tasks' && options.agent
         ? [{ module: 'kehikot.agent', name: 'Agent', descriptor: tasks, placed: null }]
         : []
@@ -96,8 +118,15 @@ function fakes(candidates: unknown[], options: { agent?: boolean } = {}) {
     const path = new URL(url).pathname
     const body = JSON.parse(String(init.body))
     calls.push({ module: 'kehikot.agent', path, body, headers: init.headers as Record<string, string> })
-    if (path === '/api/find') return Response.json({ conversations: candidates })
-    if (path === '/api/tasks') return Response.json({ outcome: 'started', session: 'task-1' })
+    if (path === '/api/find') {
+      if (options.findMs) await slow(options.findMs, init.signal)
+      return Response.json({ conversations: candidates })
+    }
+    if (path === '/api/tasks') {
+      if (options.start === 'hang') await slow(Infinity, init.signal)
+      else if (options.start) return Response.json(options.start.body, { status: options.start.status })
+      return Response.json({ outcome: 'started', session: 'task-1' })
+    }
     if (path === '/api/bring') {
       const now = places.get(body.session) ?? (candidates as any[]).find((one) => one.session === body.session)?.place ?? null
       if (JSON.stringify(now) !== JSON.stringify(body.from)) return Response.json({ outcome: 'elsewhere', place: now })
@@ -285,9 +314,107 @@ describe('adopting, bringing along, Undo and untrack', () => {
     expect(f.calls.filter((one) => one.path === '/api/bring').map((one) => one.body.session)).toEqual(['s1', 'task-1'])
     expect(adoption.proposalOf(project, id)).toBeNull()
   })
+
+  /*
+   * The failure a person met: "Adopt with <agent>…" showed "Kehikot did not answer. Nothing was
+   * changed." and no conversation started. `/host/inbox/task` awaited the whole finder scan — every
+   * agent module asked one after another, each allowed 8 s — before it even asked the agent to start,
+   * and the page's own reads waited on the same scan, so a page's call outlived what the page (12 s)
+   * and the host's server (30 s for a GET) would wait, and the page said only that nothing answered.
+   */
+  describe('a slow finder never keeps the page waiting (the adopt-with failure)', () => {
+    const LIMITS_FAST = { findMs: 150, waitMs: 40, freshMs: 60_000, startMs: 200 }
+    const candidate = { session: 's1', title: 'Fix login', match: 'created', reason: 'created !4721', lastActive: 5 }
+
+    test('POST /host/inbox/task answers at once though five finders hang; the start follows in the background', async () => {
+      const f = fakes([candidate], { agent: true, finders: 5, findMs: Infinity })
+      const adoption = make(f, { limits: LIMITS_FAST })
+      const handle = adoptRoutes({ adoption, untracked: () => [], hasProject: () => true })
+      const t0 = performance.now()
+      const answer = await handle(
+        new Request('http://127.0.0.1/host/inbox/task', { method: 'POST', body: JSON.stringify({ project, module: TRACKER_NOTICES_MODULE, id, kehikko: 'k1' }) }),
+        new URL('http://127.0.0.1/host/inbox/task'),
+      )
+      expect(performance.now() - t0).toBeLessThan(100)
+      expect(await answer!.json()).toEqual({ ok: true, result: { state: 'starting', module: 'kehikot.agent', name: 'Agent' } })
+      /* A second press while it starts joins it, never starts a second one. */
+      expect(adoption.beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1').state).toBe('starting')
+      await Bun.sleep(400)
+      const read = await handle(
+        new Request(`http://127.0.0.1/host/inbox/task?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}`),
+        new URL(`http://127.0.0.1/host/inbox/task?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}`),
+      )
+      expect(await read!.json()).toEqual({ ok: true, result: { state: 'started', module: 'kehikot.agent', name: 'Agent', session: 'task-1', view: 'http://127.0.0.1:9999/app?session=task-1' } })
+      expect(f.calls.filter((one) => one.path === '/api/tasks')).toHaveLength(1)
+    }, 3000)
+
+    test('the finders are asked in parallel, each held to its time limit', async () => {
+      const f = fakes([candidate], { finders: 5, findMs: Infinity })
+      const t0 = performance.now()
+      const got = await make(f, { limits: LIMITS_FAST }).adoption(project, TRACKER_NOTICES_MODULE, id, 'k1', 10_000)
+      /* Five finders that never answer cost one time limit, not five. */
+      expect(performance.now() - t0).toBeLessThan(400)
+      expect(f.calls.filter((one) => one.path === '/api/find')).toHaveLength(5)
+      expect(got).toMatchObject({ outcome: 'ok', conversations: [] })
+      expect(got.finding).toBeUndefined()
+    })
+
+    test('a read answers within its wait with what came in so far, and the next read has the rest without asking again', async () => {
+      const f = fakes([candidate], { findMs: 100 })
+      const adoption = make(f, { limits: LIMITS_FAST })
+      const t0 = performance.now()
+      const first = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
+      expect(performance.now() - t0).toBeLessThan(90)
+      expect(first.finding).toBe(true)
+      expect(first.conversations).toEqual([])
+      await Bun.sleep(150)
+      const second = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
+      expect(second.finding).toBeUndefined()
+      expect(second.conversations.map((one) => one.session)).toEqual(['s1'])
+      expect(f.calls.filter((one) => one.path === '/api/find')).toHaveLength(1)
+    })
+
+    test('an agent that refuses, answers wrongly or does not answer is said in words, naming it', async () => {
+      const said = async (start: 'hang' | { status: number; body: unknown }) =>
+        (await make(fakes([candidate], { agent: true, start }), { limits: LIMITS_FAST }).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')) as { ok: false; why: string }
+      expect((await said({ status: 200, body: { outcome: 'declined', session: null, why: 'its program is not signed in.' } })).why).toBe('Agent didn’t start the task: its program is not signed in.')
+      expect((await said({ status: 403, body: { ok: false, error: 'the host did not vouch for that call' } })).why).toBe('Agent didn’t start the task: the host did not vouch for that call.')
+      expect((await said({ status: 500, body: 'oops' })).why).toBe('Agent didn’t start the task: it answered HTTP 500.')
+      expect((await said('hang')).why).toBe('Agent didn’t start the task: it did not answer within 0 s.')
+      /* And through the background start: the page reads the same words. */
+      const adoption = make(fakes([candidate], { agent: true, start: { status: 200, body: { outcome: 'declined', why: 'No CLI.' } } }), { limits: LIMITS_FAST })
+      adoption.beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1')
+      await Bun.sleep(50)
+      expect(adoption.taskState(project, TRACKER_NOTICES_MODULE, id)).toEqual({ state: 'failed', why: 'Agent didn’t start the task: No CLI.' })
+      /* No agent there: said at once. */
+      expect(make(fakes([]), { agentsOn: () => ({ agents: [], primary: null }) }).beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1')).toMatchObject({ state: 'failed', noAgent: true })
+    })
+
+    test('a brief too long for an agent module is cut, its instruction kept', () => {
+      const long = `start\n${'- x\n'.repeat(20_000)}\n${ADOPT_INSTRUCTION}\npropose_adoption takes …`
+      const cut = clipBrief(long)
+      expect(cut.length).toBeLessThanOrEqual(AGENT_TASK_BRIEF_MAX)
+      expect(cut.endsWith(`${ADOPT_INSTRUCTION}\npropose_adoption takes …`)).toBe(true)
+      expect(clipBrief('short')).toBe('short')
+    })
+  })
 })
 
 describe('the words and the dialog\'s plan', () => {
+  test('only confident matches are listed; the rest fold under one line, never more than a few by default', () => {
+    const one = (session: string, match: string) => ({ session, match })
+    const many = [one('c', 'created'), ...Array.from({ length: 20 }, (_, i) => one(`f${i}`, 'folder')), one('b', 'branch'), one('m', 'mentioned')]
+    const rows = conversationRows(many)
+    expect(rows.shown.map((r) => r.session)).toEqual(['c', 'b'])
+    expect(rows.folded).toHaveLength(21)
+    expect(rows.foldedSaid).toBe('21 other conversations worked in this repository')
+    /* One an agent proposed is listed though weak; at most three. */
+    expect(conversationRows(many, ['m']).shown.map((r) => r.session)).toEqual(['c', 'b', 'm'])
+    expect(conversationRows([one('a', 'created'), one('b', 'pushed'), one('c', 'branch'), one('d', 'created')]).shown).toHaveLength(3)
+    expect(conversationRows([one('a', 'created'), one('f', 'folder')]).foldedSaid).toBe('One other conversation worked in this repository')
+    expect(conversationRows([one('a', 'created')]).foldedSaid).toBeNull()
+  })
+
   test('what an adoption says', () => {
     expect(adoptedSaid('Auth', [], [{ program: 'P', outcome: 'brought' }])).toBe('Added to Auth · its P conversation came along')
     expect(adoptedSaid('Auth', [], [])).toBe('Added to Auth')

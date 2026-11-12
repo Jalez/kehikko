@@ -1,6 +1,8 @@
 import type { Database } from 'bun:sqlite'
 import {
   AGENT_TASKS,
+  AGENT_TASK_BRIEF_MAX,
+  CONVERSATION_MATCHES,
   epicPartsOf,
   CONVERSATIONS_FINDER,
   HOST_CALLER,
@@ -23,6 +25,7 @@ import {
 import { mintServerPass } from 'kehikot-module-protocol/serve'
 
 import {
+  ADOPT_INSTRUCTION,
   adoptedSaid,
   adoptionBrief,
   elsewhere,
@@ -92,7 +95,40 @@ export interface AdoptionDeps {
   changed(project: number): void
   fetch?: typeof fetch
   clock?: () => number
+  /** For tests: the time limits (`ADOPTION_LIMITS`). */
+  limits?: Partial<typeof ADOPTION_LIMITS>
 }
+
+/**
+ * How long anything here may take. The page's own calls carry no work that waits on a module longer
+ * than `waitMs`: a module's page that asks through the host gives up after 12 s (`ANSWER_WITHIN_MS`),
+ * and the host's server closes a GET it has not answered in 30 s (`idleTimeout`). So:
+ *
+ *  - `findMs`: each finder is asked in parallel with the others, and one that has not answered by then
+ *    finds nothing.
+ *  - `waitMs`: how long a read waits for the finders before answering with what came in so far
+ *    (`finding: true`); the scan goes on, and the next read has it.
+ *  - `freshMs`: how long a scan's answer is used as it is; an older one is answered while a new one runs.
+ *  - `startMs`: how long an agent module has to say it started a task. The page is never kept waiting
+ *    for it: the start runs in the background and the page reads how it went (`taskState`).
+ */
+export const ADOPTION_LIMITS = { findMs: 6000, waitMs: 2500, freshMs: 20_000, startMs: 25_000 }
+
+type Candidate = AdoptionConversation & { place: ConversationPlace | null }
+
+/** One scan of the finders for an item: what has come in so far, and whether every finder has answered. */
+interface Scan {
+  at: number
+  done: boolean
+  out: Candidate[]
+  ended: Promise<void>
+}
+
+/** How the start of an adoption's task is going, as the page reads it. */
+export type TaskState =
+  | { state: 'starting'; module: string; name: string }
+  | { state: 'started'; module: string; name: string; session: string; view: string }
+  | { state: 'failed'; why: string; noAgent?: true }
 
 /** One conversation brought along, kept for Undo: who runs it and where it was. */
 interface Brought {
@@ -124,6 +160,9 @@ export interface Proposal {
 
 const CALL_MS = 8000
 
+/** What a module said when it refused a service call: its `error` or `why`, when it gave one. */
+class Refused extends Error {}
+
 export const ADOPTION_SAYS = {
   noItem: 'That names no tracker item Kehikot holds in this project.',
   noProject: 'That names no project of yours.',
@@ -134,6 +173,8 @@ export const ADOPTION_SAYS = {
 
 export class Adoption {
   readonly #proposals = new Map<string, Proposal>()
+  readonly #scans = new Map<string, Scan>()
+  readonly #tasks = new Map<string, TaskState & { at: number }>()
   constructor(private readonly deps: AdoptionDeps) {
     deps.db.exec(`
       create table if not exists inbox_adoptions (
@@ -183,11 +224,15 @@ export class Adoption {
 
   /* ---- finding ---- */
 
-  async #post(module: string, path: string, body: unknown): Promise<unknown> {
+  #limit(name: keyof typeof ADOPTION_LIMITS): number {
+    return this.deps.limits?.[name] ?? ADOPTION_LIMITS[name]
+  }
+
+  async #post(module: string, path: string, body: unknown, ms = CALL_MS): Promise<unknown> {
     const origin = await this.deps.originOf(module)
     if (!origin) throw new Error(`${module} is not registered here.`)
     const control = new AbortController()
-    const timer = setTimeout(() => control.abort(), CALL_MS)
+    const timer = setTimeout(() => control.abort(), ms)
     try {
       const response = await (this.deps.fetch ?? fetch)(`${new URL(origin).origin}${path}`, {
         method: 'POST',
@@ -195,30 +240,69 @@ export class Adoption {
         body: JSON.stringify(body),
         signal: control.signal,
       })
-      return await response.json()
+      const got = (await response.json().catch(() => null)) as unknown
+      if (!response.ok) {
+        const said = got && typeof got === 'object' ? ((got as { error?: unknown; why?: unknown }).error ?? (got as { why?: unknown }).why) : null
+        throw new Refused(typeof said === 'string' && said ? said.slice(0, LIMITS.REASON) : `it answered HTTP ${response.status}`)
+      }
+      return got
+    } catch (error) {
+      if (control.signal.aborted) throw new Refused(`it did not answer within ${Math.round(ms / 1000)} s`)
+      throw error
     } finally {
       clearTimeout(timer)
     }
   }
 
-  /** Every finder's candidates for an item, each with who runs it; a provider that fails says nothing. */
-  async #candidates(root: string, seen: Seen): Promise<(AdoptionConversation & { place: ConversationPlace | null })[]> {
+  /**
+   * Every finder's candidates for an item, each with who runs it; a provider that fails or is slower
+   * than `findMs` says nothing. The finders are asked IN PARALLEL, once per item for `freshMs`, and
+   * this waits at most `wait` ms: `finding` says the scan has not ended, and what came in so far is
+   * answered (or the last scan's answer, while a new one runs).
+   */
+  async #candidates(root: string, seen: Seen, wait: number): Promise<{ found: Candidate[]; finding: boolean }> {
+    const key = `${root}\u0000${seen.ref}\u0000${seen.link?.url ?? ''}\u0000${seen.link?.branch ?? ''}`
+    const had = this.#scans.get(key)
+    const now = this.#now()
+    let scan = had
+    if (!had || (had.done && now - had.at > this.#limit('freshMs'))) {
+      scan = this.#scan(root, seen)
+      this.#scans.set(key, scan)
+      if (this.#scans.size > 200) this.#scans.delete(this.#scans.keys().next().value!)
+    }
+    const current = scan!
+    if (!current.done && wait > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([current.ended, new Promise<void>((done) => (timer = setTimeout(done, wait)))])
+      clearTimeout(timer)
+    }
+    if (current.done) return { found: current.out, finding: false }
+    /* Still finding: the last whole answer when there was one, else what came in so far. */
+    return { found: had && had !== current && had.done ? had.out : ranked(current.out), finding: true }
+  }
+
+  #scan(root: string, seen: Seen): Scan {
     const link = seen.link
     const refs = [...new Set([seen.ref, ...(link ? [`${link.host}/${link.repo}${seen.ref.replace(/^[^#!]*/, '')}`] : [])])].slice(0, 8)
-    const out: (AdoptionConversation & { place: ConversationPlace | null })[] = []
-    for (const provider of this.deps.providers(CONVERSATIONS_FINDER, root)) {
+    const scan: Scan = { at: this.#now(), done: false, out: [], ended: Promise.resolve() }
+    const asks = this.deps.providers(CONVERSATIONS_FINDER, root).map(async (provider) => {
       const finder = serviceDescriptor(CONVERSATIONS_FINDER, provider.descriptor)
-      if (!finder) continue
+      if (!finder) return
       try {
-        const body = await this.#post(provider.module, finder.find, {
-          project: root,
-          refs,
-          ...(link?.url ? { url: link.url } : {}),
-          ...(link?.branch ? { branch: link.branch } : {}),
-          ...(link?.repo ? { repo: link.repo } : {}),
-        })
+        const body = await this.#post(
+          provider.module,
+          finder.find,
+          {
+            project: root,
+            refs,
+            ...(link?.url ? { url: link.url } : {}),
+            ...(link?.branch ? { branch: link.branch } : {}),
+            ...(link?.repo ? { repo: link.repo } : {}),
+          },
+          this.#limit('findMs'),
+        )
         for (const one of candidatesIn(body)) {
-          out.push({
+          scan.out.push({
             module: provider.module,
             program: finder.program,
             session: one.session,
@@ -233,10 +317,14 @@ export class Adoption {
           })
         }
       } catch {
-        /* A finder that does not answer finds nothing. */
+        /* A finder that does not answer, or not in time, finds nothing. */
       }
-    }
-    return out.slice(0, 20)
+    })
+    scan.ended = Promise.allSettled(asks).then(() => {
+      scan.out = ranked(scan.out)
+      scan.done = true
+    })
+    return scan
   }
 
   /**
@@ -263,7 +351,13 @@ export class Adoption {
     return { agent: pick.agent ? named(pick.agent) : null, choose: pick.choose.flatMap((one) => named(one) ?? []), update }
   }
 
-  async adoption(project: number, module: string, id: string, kehikko: string | null = null): Promise<InboxAdoptionResult> {
+  async adoption(
+    project: number,
+    module: string,
+    id: string,
+    kehikko: string | null = null,
+    wait: number = this.#limit('waitMs'),
+  ): Promise<InboxAdoptionResult & { finding?: boolean }> {
     const empty = (outcome: 'no-such-item' | 'declined', why: string): InboxAdoptionResult => ({
       outcome,
       why,
@@ -281,7 +375,7 @@ export class Adoption {
     const epics = this.deps.epics(root)
     const titleOf = (slug: string) => epics.find((one) => one.epic === slug)?.title ?? null
     const suggested = this.#suggest(root, seen, epics)
-    const found = await this.#candidates(root, seen)
+    const { found, finding } = await this.#candidates(root, seen, wait)
     const comes = new Set(toBring(found).map((one) => `${one.module}|${one.session}`))
     const picked = this.taskAgent(project, root, kehikko)
     const agent = picked?.agent ?? null
@@ -308,6 +402,8 @@ export class Adoption {
       ...(picked && !agent ? { taskAgents: picked.choose.slice(0, 16).map((one) => ({ module: one.module, name: one.name.slice(0, LIMITS.TITLE) })) } : {}),
       ...(picked?.update.length ? { agentsToUpdate: picked.update.slice(0, 16).map((one) => ({ module: one.module, name: one.name.slice(0, LIMITS.TITLE) })) } : {}),
       proposal: proposal ? { epic: proposal.epic, parts: proposal.parts, conversations: proposal.conversations, why: proposal.why } : null,
+      /* Not the protocol's: the page's own route reads it, and re-reads until the finders have all answered. */
+      ...(finding ? { finding: true } : {}),
     }
   }
 
@@ -354,7 +450,7 @@ export class Adoption {
     if (written.outcome === 'declined') return declined(written.why)
 
     const to: ConversationPlace = { epic, parts: [...parts], kehikko, ...(into && into.length > 2 ? { space: into } : {}) }
-    const found = await this.#candidates(root, seen)
+    const { found } = await this.#candidates(root, seen, this.#limit('findMs') + 500)
     const brought: Brought[] = []
     const bring = async (one: { module: string; session: string; title: string; program: string }) => {
       const provider = this.deps.providers(CONVERSATIONS_FINDER, root).find((p) => p.module === one.module)
@@ -370,7 +466,7 @@ export class Adoption {
     }
     const sure = toBring(found)
     for (const one of found) if (one.place === null && also.includes(one.session) && !sure.includes(one)) sure.push(one)
-    for (const one of sure) await bring(one)
+    await Promise.all(sure.map((one) => bring(one)))
     for (const one of found) if (elsewhere(one, to) && (confidentMatch(one.match) || also.includes(one.session))) brought.push({ module: one.module, program: one.program, session: one.session, title: one.title, outcome: 'elsewhere', to })
     if (task && !brought.some((one) => one.module === task.module && one.session === task.session)) {
       const program = this.deps.providers(AGENT_TASKS, root).find((p) => p.module === task.module)
@@ -460,8 +556,42 @@ export class Adoption {
   }
 
   /**
-   * Start the person's agent for Kehikot's own tasks on one item: a NEW conversation fed the brief
-   * (`adoptionBrief`), under no place until the adoption files it. Answers the page that shows it.
+   * Start the person's agent for Kehikot's own tasks on one item, and answer AT ONCE: the start runs in
+   * the background (`startTask`) and the page reads how it goes (`taskState`), so no call of the page
+   * waits on the finders or on the agent's program starting. A start already under way for the item is
+   * joined, never made twice. What cannot be started is said at once.
+   */
+  beginTask(project: number, module: string, id: string, kehikko: string | null = null): TaskState {
+    const key = `${project}|${module}|${id}`
+    const was = this.#tasks.get(key)
+    if (was?.state === 'starting') return strip(was)
+    const root = this.deps.pathOf(project)
+    if (!root) return { state: 'failed', why: ADOPTION_SAYS.noProject }
+    const picked = this.taskAgent(project, root, kehikko)?.agent ?? null
+    const provider = picked ? providerOf(AGENT_TASKS, [picked]) : null
+    if (!provider) return { state: 'failed', why: ADOPTION_SAYS.noAgent, noAgent: true }
+    const starting: TaskState = { state: 'starting', module: provider.module, name: provider.name }
+    this.#tasks.set(key, { ...starting, at: this.#now() })
+    if (this.#tasks.size > 200) this.#tasks.delete(this.#tasks.keys().next().value!)
+    void this.startTask(project, module, id, kehikko)
+      .catch((error: unknown): Awaited<ReturnType<Adoption['startTask']>> => ({ ok: false, why: `${provider.name} didn’t start the task: ${error instanceof Error ? error.message : String(error)}` }))
+      .then((got) => {
+        const now = this.#now()
+        this.#tasks.set(key, got.ok ? { state: 'started', module: got.module, name: got.name, session: got.session, view: got.view, at: now } : { state: 'failed', why: got.why, ...(got.noAgent ? { noAgent: true as const } : {}), at: now })
+        this.deps.changed(project)
+      })
+    return starting
+  }
+
+  /** How the last start of a task for the item went; null when none was asked. */
+  taskState(project: number, module: string, id: string): TaskState | null {
+    const got = this.#tasks.get(`${project}|${module}|${id}`)
+    return got ? strip(got) : null
+  }
+
+  /**
+   * The start itself: a NEW conversation fed the brief (`adoptionBrief`), under no place until the
+   * adoption files it. Every way it fails is said in words, naming the agent.
    */
   async startTask(project: number, module: string, id: string, kehikko: string | null = null): Promise<{ ok: true; module: string; name: string; session: string; view: string } | { ok: false; why: string; noAgent?: true }> {
     const root = this.deps.pathOf(project)
@@ -469,23 +599,45 @@ export class Adoption {
     const picked = this.taskAgent(project, root, kehikko)?.agent ?? null
     const provider = picked ? providerOf(AGENT_TASKS, [picked]) : null
     if (!provider) return { ok: false, why: ADOPTION_SAYS.noAgent, noAgent: true }
-    const read = await this.adoption(project, module, id, kehikko)
+    const read = await this.adoption(project, module, id, kehikko, this.#limit('findMs') + 500)
     if (read.outcome !== 'ok' || !read.item) return { ok: false, why: read.why || ADOPTION_SAYS.noItem }
-    const brief = adoptionBrief({
-      project: root,
-      item: read.item,
-      epics: read.epics,
-      candidates: read.conversations.map((one) => ({ program: one.program, session: one.session, title: one.title, reason: one.reason, match: one.match, placed: one.placed })),
-      suggested: read.suggested,
-    })
+    const brief = clipBrief(
+      adoptionBrief({
+        project: root,
+        item: read.item,
+        epics: read.epics,
+        candidates: read.conversations.map((one) => ({ program: one.program, session: one.session, title: one.title, reason: one.reason, match: one.match, placed: one.placed })),
+        suggested: read.suggested,
+      }),
+    )
+    const didNot = (why: string) => ({ ok: false as const, why: `${provider.name} didn’t start the task: ${why.replace(/\.$/, '')}.`.slice(0, LIMITS.REASON) })
     try {
-      const got = agentTaskStartResult.safeParse(await this.#post(provider.module, provider.descriptor.start, { project: root, brief, place: null, title: `Place ${read.item.ref} in a space`.slice(0, LIMITS.TITLE) }))
-      if (!got.success || got.data.outcome !== 'started' || !got.data.session) return { ok: false, why: got.success ? got.data.why || `${provider.name} did not start it.` : `${provider.name} answered in a shape Kehikot does not read.` }
+      const got = agentTaskStartResult.safeParse(
+        await this.#post(provider.module, provider.descriptor.start, { project: root, brief, place: null, title: `Place ${read.item.ref} in a space`.slice(0, LIMITS.TITLE) }, this.#limit('startMs')),
+      )
+      if (!got.success) return didNot('it answered in a shape Kehikot does not read')
+      if (got.data.outcome !== 'started' || !got.data.session) return didNot(got.data.why || 'it gave no reason')
       const origin = await this.deps.originOf(provider.module)
       if (!origin) return { ok: false, why: `${provider.name} is not registered here.` }
       return { ok: true, module: provider.module, name: provider.name, session: got.data.session, view: `${new URL(origin).origin}${agentTaskView(provider.descriptor, got.data.session)}` }
     } catch (error) {
-      return { ok: false, why: `${provider.name} did not answer: ${error instanceof Error ? error.message : String(error)}` }
+      return didNot(error instanceof Error ? error.message : String(error))
     }
   }
+}
+
+const strip = ({ at: _at, ...state }: TaskState & { at: number }): TaskState => state as TaskState
+
+/** Strongest match first, then the newest; at most the twenty the page is given. */
+function ranked(found: readonly Candidate[]): Candidate[] {
+  const rank = (one: Candidate) => CONVERSATION_MATCHES.indexOf(one.match)
+  return [...found].sort((a, b) => rank(a) - rank(b) || b.lastActive - a.lastActive).slice(0, 20)
+}
+
+/** A brief an agent module takes: at most `AGENT_TASK_BRIEF_MAX`, its instruction kept at the end. */
+export function clipBrief(brief: string): string {
+  if (brief.length <= AGENT_TASK_BRIEF_MAX) return brief
+  const tail = brief.slice(brief.lastIndexOf(`\n\n${ADOPT_INSTRUCTION}`))
+  const room = AGENT_TASK_BRIEF_MAX - tail.length - 40
+  return `${brief.slice(0, Math.max(0, room)).trimEnd()}\n- … (more left out)${tail}`
 }

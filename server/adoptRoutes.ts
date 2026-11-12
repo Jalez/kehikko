@@ -14,6 +14,8 @@ import type { Adoption } from './adoption.ts'
  *  - `POST /host/inbox/undo` — `{ project, module, id }`.
  *  - `GET  /host/inbox/untracked?project=N`, `POST /host/inbox/retrack` `{ project, id }` — Settings › Trackers.
  *  - `POST /host/inbox/task` — `{ project, module, id, kehikko }`: the agent of that kehikko (its primary, or its only one) started on it.
+ *    Answered at once with how it stands (`TaskState`: starting, or why it cannot); the start runs in the background.
+ *  - `GET  /host/inbox/task?project=N&module=M&id=I` — how that start went (`taskState`); the page reads it until it ends.
  *
  * Every one is the page's alone (`PAGE_ONLY` in `guard.ts`): conversation titles are read, and the
  * person's acts are taken, nowhere else. The page holds each act to the person's fresh press in the
@@ -86,7 +88,14 @@ export function adoptRoutes(deps: AdoptRouteDeps) {
         const item = url.searchParams.get('id') ?? ''
         if (!module || !item) return reply({ ok: false, error: 'Name the item: module and id.' }, 400)
         const kehikko = url.searchParams.get('kehikko')
-        return reply({ ok: true, adoption: await deps.adoption.adoption(id, module, item, kehikko && KEHIKKO_KEY.test(kehikko) ? kehikko : null) })
+        const { finding, ...adoption } = await deps.adoption.adoption(id, module, item, kehikko && KEHIKKO_KEY.test(kehikko) ? kehikko : null)
+        return reply({ ok: true, adoption, finding: finding === true })
+      }
+      if (url.pathname === '/host/inbox/task') {
+        const module = url.searchParams.get('module') ?? ''
+        const item = url.searchParams.get('id') ?? ''
+        if (!module || !item) return reply({ ok: false, error: 'Name the item: module and id.' }, 400)
+        return reply({ ok: true, result: deps.adoption.taskState(id, module, item) })
       }
       return reply({ ok: false, error: `${url.pathname} answers POST.` }, 405)
     }
@@ -110,7 +119,7 @@ export function adoptRoutes(deps: AdoptRouteDeps) {
     if (url.pathname === '/host/inbox/undo') return reply({ ok: true, result: await deps.adoption.undo(b.project, b.module, b.id) })
     if (url.pathname === '/host/inbox/task') {
       const kehikko = (raw as { kehikko?: unknown } | null)?.kehikko
-      return reply({ ok: true, result: await deps.adoption.startTask(b.project, b.module, b.id, typeof kehikko === 'string' && KEHIKKO_KEY.test(kehikko) ? kehikko : null) })
+      return reply({ ok: true, result: deps.adoption.beginTask(b.project, b.module, b.id, typeof kehikko === 'string' && KEHIKKO_KEY.test(kehikko) ? kehikko : null) })
     }
     return null
   }
