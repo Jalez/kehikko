@@ -1,18 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ScopeChip } from './Scope.tsx'
-import { ArrowDownLeft, ArrowUpRight, Compass, Eye, LoaderCircle, MousePointerClick } from 'lucide-react'
+import { ChevronRight, LoaderCircle } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { Progress } from '@/components/ui/progress.tsx'
 import { StepProgress, useJob } from './StepProgress.tsx'
+import { barValue, jobLine, type JobSaid } from '@/host/jobSteps.ts'
 import { appEngine } from '@/host/appUpdate.ts'
-import type { Canvas } from '@/host/canvases.ts'
 import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { protocolDetailSaid } from '@/host/worksWith.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
-import { arrange, attention, builtFrom, deprecatedSaid, rowsOf, uninstallSaid, type Available, type Registered } from '@/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, firstSentence, HERE, rowsOf, uninstallSaid, type Available, type Registered } from '@/host/moduleMenu.ts'
 import { fetchOfficial, installOfficial, uninstallModule, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
 import {
   addRepository,
@@ -27,15 +28,6 @@ import {
   type MineList,
 } from '@/host/myModules.ts'
 import type { RegistryView } from '@/host/registry.ts'
-import {
-  labelFor,
-  relate,
-  sentenceFor,
-  standingOf,
-  type Placings,
-  type Relationship,
-  type Standing,
-} from '@/host/relations.ts'
 import { ConditionDot } from './Conditions.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { GitSaid } from './GitSaid.tsx'
@@ -99,17 +91,14 @@ export interface IntroAbout {
 export function ModuleList({
   registry,
   onCanvas,
-  canvases,
-  open,
   onPlace,
   onUnplace,
   onLookAgain,
   onIntro,
+  openAtFirst,
 }: {
   registry: RegistryView | null
   onCanvas: Set<string>
-  canvases: readonly Canvas[]
-  open: Canvas | null
   onPlace(id: string): void
   onUnplace(id: string): void
   /** Sweep the registry again: an install has just registered something. */
@@ -120,9 +109,21 @@ export function ModuleList({
    * on every row, installed or not; the introduction is read without running the module.
    */
   onIntro?(id: string, about: IntroAbout): void
+  /** The rows open when the menu opens; none by default. A test opens them. */
+  openAtFirst?: readonly string[] | 'all'
 }) {
   const [query, setQuery] = useState('')
   const official = useOfficial(onLookAgain)
+  /* Which rows are open: kept for as long as the menu is (the popover unmounts this on close), never stored. */
+  const [opened, setOpened] = useState<ReadonlySet<string> | 'all'>(() => (openAtFirst === 'all' ? 'all' : new Set(openAtFirst ?? [])))
+  const isOpen = (id: string) => opened === 'all' || opened.has(id)
+  const setRow = (id: string, to: boolean, every: readonly string[]) =>
+    setOpened((was) => {
+      const now = new Set(was === 'all' ? every : was)
+      if (to) now.add(id)
+      else now.delete(id)
+      return now
+    })
 
   if (!registry) return <p className="text-muted-foreground p-4 text-sm">Reading the modules…</p>
 
@@ -146,31 +147,42 @@ export function ModuleList({
     )
   }
 
-  /*
-   * Which module touches which, out of what each of them declared.
-   *
-   * Derived here rather than carried on the presence, because half the answer
-   * is about the CANVASES — where the other end is right now — and the server
-   * that reads manifests knows nothing about those. The whole derivation is a
-   * pure function in `host/relations.ts`, with the argument for each kind of
-   * relationship and, more importantly, for the ones it refuses to draw.
-   */
-  const elsewhere = new Map<string, string[]>()
-  for (const canvas of canvases) {
-    if (open && canvas.id === open.id) continue
-    for (const placement of canvas.placements) {
-      const already = elsewhere.get(placement.i)
-      if (already) already.push(canvas.name)
-      else elsewhere.set(placement.i, [canvas.name])
-    }
-  }
-  const placings: Placings = { onCanvas, elsewhere }
-  const relationships = relate(presences, placings)
+  /* What a module works with — what it follows, narrows to, consumes and provides — is not in the
+     row: it is in the "What <name> is" dialog (`worksWithSaid`), with the rest of the long words. */
   const sections = arrange(rows, query)
   const stale = staleLine(official.standing)
+  const every = rows.map((row) => row.id)
+  const toggle = (id: string) => setRow(id, !isOpen(id), every)
+
+  /*
+   * The keyboard: Up and Down move between rows, Right (or Enter, which presses the name) opens one
+   * and Right again goes to its one thing to do, Left closes it and comes back to its name.
+   */
+  function onKeys(event: KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement
+    if (target.closest('input, textarea, [role="alert"]')) return
+    const row = target.closest<HTMLElement>('[data-module-row]')
+    const id = row?.dataset.moduleRow
+    if (!row || !id) return
+    const name = row.querySelector<HTMLElement>('[data-module-row-toggle]')
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const names = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-module-row-toggle]')]
+      const next = names[names.indexOf(name!) + (event.key === 'ArrowDown' ? 1 : -1)]
+      event.preventDefault()
+      next?.focus()
+    } else if (event.key === 'ArrowRight' && target === name) {
+      event.preventDefault()
+      if (!isOpen(id)) setRow(id, true, every)
+      else row.querySelector<HTMLElement>('[data-row-primary]')?.focus()
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      setRow(id, false, every)
+      name?.focus()
+    }
+  }
 
   return (
-    <div className="flex max-h-[70vh] flex-col">
+    <div className="flex max-h-[70vh] min-w-0 flex-col" data-module-list="">
       <div className="space-y-2 border-b p-3">
         <h2 className="text-sm font-medium">Kehikko modules</h2>
         <Input
@@ -180,9 +192,16 @@ export function ModuleList({
           placeholder="Search by name, what it does, category or scope"
           aria-label="search modules"
           className="h-7 text-xs"
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown') return
+            const first = event.currentTarget.closest('[data-module-list]')?.querySelector<HTMLElement>('[data-module-row-toggle]')
+            if (!first) return
+            event.preventDefault()
+            first.focus()
+          }}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onKeys}>
         {/* Where the official list would begin: said once, in a sentence, so a short list is not a mystery. */}
         {stale ? <p className="text-muted-foreground border-b px-3 py-2 text-[11px] leading-relaxed">{stale}</p> : null}
         {sections.length ? (
@@ -197,6 +216,8 @@ export function ModuleList({
                     <AvailableRow
                       key={row.id}
                       row={row}
+                      open={isOpen(row.id)}
+                      onToggle={() => toggle(row.id)}
                       onInstall={() => (row.entry.mine ? official.installMine(row.id) : official.install(row.id))}
                       onRemove={row.entry.mine ? () => official.remove(row.id) : undefined}
                       refused={official.refused.get(row.id) ?? null}
@@ -206,7 +227,8 @@ export function ModuleList({
                     <ModuleRow
                       key={row.id}
                       row={row}
-                      relationships={relationships.get(row.id) ?? []}
+                      open={isOpen(row.id)}
+                      onToggle={() => toggle(row.id)}
                       onPlace={() => onPlace(row.id)}
                       onUnplace={() => onUnplace(row.id)}
                       onRemove={row.mine ? () => official.remove(row.id) : undefined}
@@ -312,26 +334,147 @@ function useOfficial(onInstalled?: () => void) {
 }
 
 /**
- * An official module that is not on this machine: what it is, and one button.
- *
- * Greyed, because it cannot be placed yet, and under the registered rows of
- * its shelf, because what is here comes before what could be. While it
- * installs the button says which step it is on; a failure is the server's
- * sentence, and the button tries again.
- *
- * One that needs a newer app than this one says so and has no button: the
- * host would refuse the module once it was here.
+ * One row, folded or open. Folded it is one line: the dot, the icon, the NAME — which wraps before it
+ * is ever cut, and never gives way to anything beside it — and at most one short status at the end,
+ * then the "?". Badges go on a line of their own under the name. Opened (a click on the name, Right or
+ * Enter) it says one sentence, the one thing to do, how far an install has got, and at the foot
+ * Remove and Uninstall side by side. Everything longer — what it is, its introduction, how to use
+ * it, what it works with, its version — is in the "What <name> is" dialog the "?" opens.
+ */
+function RowShell({
+  id,
+  name,
+  open,
+  onToggle,
+  dot,
+  icon,
+  status,
+  badges,
+  onIntro,
+  children,
+  muted = false,
+}: {
+  id: string
+  name: string
+  open: boolean
+  onToggle(): void
+  dot: ReactNode
+  icon: ReactNode
+  status: ReactNode
+  badges: ReactNode[]
+  onIntro?(): void
+  children: ReactNode
+  muted?: boolean
+}) {
+  const body = `module-row-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`
+  const shown = badges.filter(Boolean)
+  return (
+    <li data-module-row={id} data-open={open ? '' : undefined} className="px-2 py-1.5">
+      <div className="flex items-start gap-1.5">
+        <button
+          type="button"
+          data-module-row-toggle=""
+          aria-expanded={open}
+          aria-controls={open ? body : undefined}
+          onClick={onToggle}
+          className="hover:bg-muted/50 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-start gap-1.5 rounded px-1 py-0.5 text-left outline-none focus-visible:ring-2"
+        >
+          <ChevronRight className={`text-muted-foreground mt-1 size-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+          <span className="mt-1.5 flex shrink-0">{dot}</span>
+          <span className={`mt-0.5 flex shrink-0 ${muted ? 'opacity-70' : ''}`}>{icon}</span>
+          {/* The name gets the room: it wraps, and is never truncated for the status beside it. */}
+          <span data-module-name="" className={`min-w-0 flex-1 text-sm leading-snug font-medium [overflow-wrap:anywhere] ${muted ? 'opacity-70' : ''}`}>
+            {name}
+          </span>
+        </button>
+        {status ? <span className="flex min-h-6 shrink-0 items-center">{status}</span> : null}
+        {onIntro ? <IntroButton name={name} onIntro={onIntro} /> : null}
+      </div>
+      {shown.length ? (
+        <div data-module-badges="" className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 pl-[3.25rem]">
+          {shown}
+        </div>
+      ) : null}
+      {open ? (
+        <div id={body} data-module-row-body="" className="mt-1 space-y-1.5 pr-1 pb-1 pl-[3.25rem]">
+          {children}
+        </div>
+      ) : null}
+    </li>
+  )
+}
+
+/** The one short status at the end of a folded row; it is what gives way when room runs out, never the name. */
+function Status({ children, tone = 'muted', label }: { children: ReactNode; tone?: 'muted' | 'warn'; label?: string }) {
+  return (
+    <span
+      data-row-status=""
+      title={label}
+      className={`max-w-[7rem] truncate text-[11px] ${tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** An install or update on its way, as a mini-bar; the step and its time are in the open row and the label. */
+function MiniBar({ job }: { job: JobSaid }) {
+  return (
+    <span data-row-status="" data-row-progress="" className="flex w-14 items-center" title={jobLine(job)}>
+      <Progress value={barValue(job)} aria-label={`${job.name}: ${jobLine(job)}`} className="h-1" />
+    </span>
+  )
+}
+
+/** The foot of an open row: Remove (from this kehikko) and Uninstall (from this computer), side by side. */
+function RowFoot({ children }: { children: ReactNode }) {
+  return (
+    <div data-row-foot="" className="flex flex-wrap items-start gap-x-3 gap-y-1 pt-0.5">
+      {children}
+    </div>
+  )
+}
+
+/** A small button of a row's foot. */
+function FootButton({ children, onClick, hint }: { children: ReactNode; onClick(): void; hint: string }) {
+  return (
+    <Hint label={hint} side="bottom">
+      <button type="button" className="text-muted-foreground hover:text-foreground text-[11px] underline" onClick={onClick}>
+        {children}
+      </button>
+    </Hint>
+  )
+}
+
+const REMOVE_HINT = 'take it off this kehikko — it stays registered, and stays on any other kehikko'
+const UNINSTALL_HINT = 'take it off this computer and every kehikko (the “remove” button only takes it off this one)'
+
+/** The one sentence an open row says. */
+function Sentence({ text }: { text: string }) {
+  const said = firstSentence(text)
+  return said ? <p className="text-muted-foreground text-xs leading-relaxed" data-row-sentence="">{said}</p> : null
+}
+
+/**
+ * An official module that is not on this machine: greyed, because it cannot be placed yet, and under
+ * the registered rows of its shelf. Opened, one button installs it; while it installs the bar says
+ * which step it is on; a failure is the server's sentence, and the button tries again. One that needs
+ * a newer app than this one says so and has no button: the host would refuse the module once here.
  */
 function AvailableRow({
   row,
+  open,
+  onToggle,
   onInstall,
   onRemove,
   refused,
   onIntro,
 }: {
   row: Available
+  open: boolean
+  onToggle(): void
   onInstall(): void
-  /** Open its introduction, read from the release an install would take: a "?" beside install. */
+  /** Open "What <name> is", read from the release an install would take: the "?". */
   onIntro?(): void
   /** One of the person's own: take it off My modules (and delete what an earlier attempt cloned). */
   onRemove?(): void
@@ -343,43 +486,65 @@ function AvailableRow({
   const shownJob = job && job.kind === 'install' && (working(install) || job.failed) ? job : null
   const isWorking = working(install)
   const failed = install?.state === 'failed' ? install.why : refused
+  const newer = row.entry.newer
+  const status =
+    shownJob && !shownJob.failed ? (
+      <MiniBar job={shownJob} />
+    ) : isWorking ? (
+      <Status>installing</Status>
+    ) : failed ? (
+      <Status tone="warn">failed</Status>
+    ) : (
+      <Status>not installed</Status>
+    )
+  const badges = [
+    newer ? (
+      <Badge key="newer" variant="outline" className="text-muted-foreground cursor-default px-1.5 py-0 text-[10px] font-normal" title={protocolDetailSaid(newer.protocol, newer.has)}>
+        needs a newer Kehikot
+      </Badge>
+    ) : null,
+    row.entry.mine ? <AddedByYou key="mine" repo={repoSaid(row.entry)} /> : null,
+  ]
   return (
-    <li className="flex items-start gap-2.5 p-3">
-      <span className="border-muted-foreground/50 mt-1.5 size-1.5 shrink-0 rounded-full border" aria-label="not installed" title="not installed" />
-      <div className="min-w-0 flex-1 opacity-70">
-        <div className="flex items-center gap-2">
-          <ModuleIcon id={row.id} icon={row.entry.icon} name={row.name} className="text-muted-foreground size-3.5" />
-          <span className="truncate text-sm font-medium">{row.name}</span>
-          <Badge variant="outline" className="text-muted-foreground shrink-0">
-            not installed
-          </Badge>
-          {row.entry.mine ? <AddedByYou repo={repoSaid(row.entry)} /> : null}
-        </div>
-        {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
-        {row.entry.newer ? (
-          <p className="text-muted-foreground mt-1 text-xs leading-relaxed" title={protocolDetailSaid(row.entry.newer.protocol, row.entry.newer.has)} data-needs-newer>
-            {row.entry.newer.app ? `Needs Kehikot ${row.entry.newer.app} or later.` : 'Needs a newer version of Kehikot than this one.'}
-          </p>
-        ) : shownJob ? (
-          <StepProgress job={shownJob} className="mt-1.5" />
-        ) : failed ? (
-          <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
-            <GitSaid said={failed} />
-          </p>
-        ) : install?.state === 'installing' ? (
-          <p className="text-muted-foreground mt-1 text-xs">{installStepSaid(install.step)}…</p>
-        ) : null}
-        {onRemove && !isWorking ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
-      </div>
-      {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
-      {row.entry.newer ? null : (
-        <Hint label={`clone ${repoSaid(row.entry)}, install it and register it on this computer`} side="left">
-          <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={isWorking} onClick={onInstall}>
-            {isWorking ? 'installing…' : failed ? 'try again' : 'install'}
+    <RowShell
+      id={row.id}
+      name={row.name}
+      open={open}
+      onToggle={onToggle}
+      muted
+      dot={<span className="border-muted-foreground/50 size-1.5 rounded-full border" aria-label="not installed" title="not installed" />}
+      icon={<ModuleIcon id={row.id} icon={row.entry.icon} name={row.name} className="text-muted-foreground size-3.5" />}
+      status={status}
+      badges={badges}
+      onIntro={onIntro}
+    >
+      <Sentence text={row.summary} />
+      {newer ? (
+        <p className="text-muted-foreground text-xs leading-relaxed" title={protocolDetailSaid(newer.protocol, newer.has)} data-needs-newer>
+          {newer.app ? `Needs Kehikot ${newer.app} or later.` : 'Needs a newer version of Kehikot than this one.'}
+        </p>
+      ) : shownJob ? (
+        <StepProgress job={shownJob} />
+      ) : failed ? (
+        <p role="alert" className="text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+          <GitSaid said={failed} />
+        </p>
+      ) : install?.state === 'installing' ? (
+        <p className="text-muted-foreground text-xs">{installStepSaid(install.step)}…</p>
+      ) : null}
+      {newer ? null : (
+        <Hint label={`clone ${repoSaid(row.entry)}, install it and register it on this computer`} side="bottom">
+          <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" data-row-primary="" disabled={isWorking} onClick={onInstall}>
+            {isWorking ? 'Installing…' : failed ? 'Try again' : 'Install'}
           </Button>
         </Hint>
       )}
-    </li>
+      {onRemove && !isWorking ? (
+        <RowFoot>
+          <RemoveMine name={row.name} installed={false} onRemove={onRemove} />
+        </RowFoot>
+      ) : null}
+    </RowShell>
   )
 }
 
@@ -392,7 +557,8 @@ function installStepSaid(step: string): string {
 
 function ModuleRow({
   row,
-  relationships,
+  open,
+  onToggle,
   onPlace,
   onUnplace,
   onRemove,
@@ -401,8 +567,8 @@ function ModuleRow({
   onIntro,
 }: {
   row: Registered
-  /** What this module touches, and how. Empty for most of them, honestly. */
-  relationships: readonly Relationship[]
+  open: boolean
+  onToggle(): void
   onPlace(): void
   onUnplace(): void
   /** One of the person's own: take it off this computer. */
@@ -411,114 +577,83 @@ function ModuleRow({
   onUninstall(): void
   /** Why the last press on it was refused. */
   refused?: string | null
-  /** Open its introduction (protocol 2.57.0), or its "How to use": a "?" beside add. */
+  /** Open "What <name> is" (its introduction, how to use it, what it works with): the "?". */
   onIntro?(): void
 }) {
   const { presence, placed } = row
-  const standing = standingOf(presence, relationships)
   const trouble = attention(presence)
-  /* The word beside the name, only where the dot's colour is not enough: what
-     the host itself did (asleep, starting), and a module it cannot speak to.
-     Plain "not running" gets no word. It is the resting state of the list. */
+  const job = useJob(row.id)
+  const shownJob = job && (presence.lifecycle === 'installing' || presence.lifecycle === 'updating' || job.failed) ? job : null
+  /* The word at the end, only where the dot's colour is not enough: what the host itself is doing
+     (asleep, starting, updating), and a module it cannot speak to. Plain "not running" gets no word —
+     it is the resting state of the list. */
   const word = presence.lifecycle ?? (presence.condition === 'incompatible' ? 'incompatible' : null)
   const deprecated = deprecatedSaid(presence)
-  return (
-    <li className="flex items-start gap-2.5 p-3">
-      <span className="mt-1.5">
-        <ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />
-          <span className="truncate text-sm font-medium">{row.name}</span>
-          {/* What its content belongs to (protocol 2.29.0): its default scope, the line and the others in the tooltip. */}
-          {row.scope ? <ScopeChip scope={row.scope} /> : null}
-          {word ? (
-            <Badge variant="outline" className="text-muted-foreground shrink-0">
-              {word}
-            </Badge>
-          ) : null}
-          {deprecated ? (
-            <Hint label={deprecated} side="top">
-              <Badge variant="outline" className="shrink-0 border-amber-600/50 text-amber-700 dark:text-amber-400">
-                Deprecated
-              </Badge>
-            </Hint>
-          ) : null}
-          <Standings standing={standing} />
-          {row.mine ? <AddedByYou repo={row.mine.repo} /> : null}
-        </div>
-        {row.summary ? <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{row.summary}</p> : null}
-        {refused ? (
-          <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
-            {refused}
-          </p>
-        ) : null}
-        {trouble ? (
-          <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
-            {trouble}
-          </p>
-        ) : null}
-        {/* The list can come to name another repository for a module that is
-            already here. Nothing follows it there; the row says so. */}
-        {row.elsewhere ? (
-          <p className="text-muted-foreground mt-1 text-xs leading-relaxed break-words">
-            The official list names {row.elsewhere.listed} for this module. This one comes from {row.elsewhere.from} and
-            stays there.
-          </p>
-        ) : null}
-        {/*
-         * What it touches. Absent entirely when it touches nothing, which is
-         * seven of the eleven modules on this machine — and that absence is the
-         * feature. A row of marks on every module is a row of marks nobody
-         * reads; `Tools.tsx` has the long version of the argument, and it is
-         * why nothing here marks the thing almost every module has in common.
-         *
-         * `min-w-0` on the wrapper because a badge is `whitespace-nowrap` in
-         * shadcn's base, and a nowrap child sets a min-content floor under
-         * everything above it. A sibling module put a sentence in one and gave
-         * a two-hundred pixel container an eleven-hundred pixel floor. Nothing in a
-         * badge here is longer than a module's name; the sentence is in the
-         * tooltip, where there is room for it.
-         */}
-        {relationships.length ? (
-          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
-            {relationships.map((relationship) => (
-              <RelationBadge
-                /* The role is in the key because a module can be both ends of
-                   one context kind — a notes pane that follows a passage and
-                   points at one when somebody presses a note — and those are
-                   two rows, not one drawn twice. */
-                key={`${relationship.kind}:${relationship.role ?? ''}:${relationship.extension ?? ''}`}
-                relationship={relationship}
-                module={row.name}
-              />
-            ))}
-          </div>
-        ) : null}
-        <Halves standing={standing} />
-        <Details row={row} shown={trouble} onRemove={onRemove} />
-        <UninstallAsk name={row.name} own={presence.own === true} onUninstall={onUninstall} />
-      </div>
-      {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
-      <Hint
-        label={
-          placed
-            ? 'take it off this kehikko — it stays registered, and stays on any other kehikko'
-            : 'put it on this kehikko'
-        }
-        side="left"
-      >
-        <Button
-          variant={placed ? 'ghost' : 'secondary'}
-          size="sm"
-          className="h-6 shrink-0 px-2 text-xs"
-          onClick={placed ? onUnplace : onPlace}
-        >
-          {placed ? 'remove' : 'add'}
-        </Button>
+  const status =
+    shownJob && !shownJob.failed ? (
+      <MiniBar job={shownJob} />
+    ) : trouble || refused ? (
+      <Status tone="warn" label={trouble ?? refused ?? undefined}>
+        {word ?? 'needs you'}
+      </Status>
+    ) : word ? (
+      <Status>{word}</Status>
+    ) : placed ? (
+      <Status>{HERE}</Status>
+    ) : null
+  const badges = [
+    deprecated ? (
+      <Hint key="deprecated" label={deprecated} side="top">
+        <Badge variant="outline" className="cursor-default border-amber-600/50 px-1.5 py-0 text-[10px] font-normal text-amber-700 dark:text-amber-400">
+          Deprecated
+        </Badge>
       </Hint>
-    </li>
+    ) : null,
+    /* What its content belongs to (protocol 2.29.0): its default scope, the line and the others in the tooltip. */
+    row.scope ? <ScopeChip key="scope" scope={row.scope} /> : null,
+    row.mine ? <AddedByYou key="mine" repo={row.mine.repo} /> : null,
+  ]
+  return (
+    <RowShell
+      id={row.id}
+      name={row.name}
+      open={open}
+      onToggle={onToggle}
+      dot={<ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} />}
+      icon={<ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />}
+      status={status}
+      badges={badges}
+      onIntro={onIntro}
+    >
+      <Sentence text={row.summary} />
+      {refused ? (
+        <p role="alert" className="text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+          {refused}
+        </p>
+      ) : null}
+      {trouble ? (
+        <p role="alert" className="text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+          {trouble}
+        </p>
+      ) : null}
+      {shownJob ? <StepProgress job={shownJob} /> : null}
+      {placed ? null : (
+        <Hint label="put it on this kehikko" side="bottom">
+          <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" data-row-primary="" onClick={onPlace}>
+            Add to this kehikko
+          </Button>
+        </Hint>
+      )}
+      <Details row={row} shown={trouble} onRemove={onRemove} />
+      <RowFoot>
+        {placed ? (
+          <FootButton hint={REMOVE_HINT} onClick={onUnplace}>
+            Remove
+          </FootButton>
+        ) : null}
+        <UninstallAsk name={row.name} own={presence.own === true} onUninstall={onUninstall} />
+      </RowFoot>
+    </RowShell>
   )
 }
 
@@ -574,6 +709,13 @@ function Details({ row, shown, onRemove }: { row: Registered; shown: string | nu
       </dl>
       {opened ? <ReleaseDetails id={row.id} /> : null}
       {line ? <p className="mt-1 leading-relaxed">{line}</p> : null}
+      {/* The list can come to name another repository for a module that is already here. Nothing
+          follows it there; the details say so. */}
+      {row.elsewhere ? (
+        <p className="mt-1 leading-relaxed break-words">
+          The official list names {row.elsewhere.listed} for this module. This one comes from {row.elsewhere.from} and stays there.
+        </p>
+      ) : null}
       {row.mine ? (
         <p className="mt-1 leading-relaxed">
           Added by you from {row.mine.repo}. Kehikot does not vouch for it. It runs its newest release (its main
@@ -712,15 +854,13 @@ function UninstallAsk({ name, own, onUninstall }: { name: string; own: boolean; 
   const [asking, setAsking] = useState(false)
   if (!asking) {
     return (
-      <Hint label="take it off this computer and every kehikko (the “remove” button only takes it off this one)" side="bottom">
-        <button type="button" className="text-muted-foreground hover:text-foreground mt-1.5 block text-[11px] underline" onClick={() => setAsking(true)}>
-          Uninstall
-        </button>
-      </Hint>
+      <FootButton hint={UNINSTALL_HINT} onClick={() => setAsking(true)}>
+        Uninstall
+      </FootButton>
     )
   }
   return (
-    <p role="alert" className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+    <p role="alert" className="text-muted-foreground basis-full text-[11px] leading-relaxed">
       {uninstallSaid(name, own)}{' '}
       <button
         type="button"
@@ -743,13 +883,13 @@ function RemoveMine({ name, installed, onRemove }: { name: string; installed: bo
   const [asking, setAsking] = useState(false)
   if (!asking) {
     return (
-      <button type="button" className="text-muted-foreground hover:text-foreground mt-1.5 block text-[11px] underline" onClick={() => setAsking(true)}>
+      <button type="button" className="text-muted-foreground hover:text-foreground mt-1 block text-[11px] underline" onClick={() => setAsking(true)}>
         {installed ? 'Remove from this computer' : 'Remove from my modules'}
       </button>
     )
   }
   return (
-    <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+    <p className="text-muted-foreground mt-1 basis-full text-[11px] leading-relaxed">
       {installed
         ? `This stops ${name}, deletes the copy Kehikot installed, and takes it off My modules. What it kept in your projects stays. `
         : `This takes ${name} off My modules, and deletes anything an earlier install left. `}
@@ -1051,196 +1191,6 @@ function Propose({ id, name }: { id: string; name: string }) {
         </p>
       ) : null}
     </div>
-  )
-}
-
-/**
- * Consumer, provider, or both, in a word the host chose.
- *
- * ## Why the word is fixed, and why that is not a small point
- *
- * Every string in these two badges is a literal in this file. Nothing from a
- * manifest gets in. A badge is `whitespace-nowrap` in shadcn's base, and a
- * nowrap child puts a min-content floor under every flex and grid ancestor it
- * has: a sibling module in this workspace put a variable string in one and gave
- * a 220-pixel container an 1187-pixel floor, which does not look like a badge
- * bug — it looks like the whole window refusing to be narrow. `Tools.tsx` has
- * the long version. Module names in this row go in the prose lines below, which
- * can truncate; the badges get words nobody else writes.
- *
- * ## What the two words claim, which is less than it looks
- *
- * They are read off this module's own manifest, not off who else is installed.
- * "Provider" means it says it emits a format or declared a capability that puts
- * something in front of every pane on a canvas; "consumer" means it says it
- * shows a format or reacts to something in the context. Both stay true on a
- * machine where nothing else is registered, which is what somebody browsing to
- * decide what to install actually wants to read.
- *
- * Neither is a permission and neither is checked. A module is not stopped from
- * consuming a context it never declared — it is sent the context regardless —
- * and the badge is a description that can be wrong without anything else being
- * different. See the essay on `reacts` in the protocol's `manifest.ts`.
- *
- * Nothing at all when a module is neither, which is most of them, and the
- * silence is the feature: a mark on every row is a mark nobody reads.
- */
-function Standings({ standing }: { standing: Standing }) {
-  if (!standing.consumer && !standing.provider) return null
-  return (
-    <>
-      {standing.consumer ? (
-        <Hint
-          label={
-            <span className="block max-w-[22rem] leading-relaxed">
-              It says in its own manifest that it shows an event format, or that it reacts to
-              something the canvas broadcasts. Nothing here is checked or enforced — every framed
-              module is sent the whole context in any case.
-            </span>
-          }
-        >
-          <Badge variant="outline" className="shrink-0 cursor-default px-1.5 py-0 text-[10px] font-normal">
-            consumer
-          </Badge>
-        </Hint>
-      ) : null}
-      {standing.provider ? (
-        <Hint
-          label={
-            <span className="block max-w-[22rem] leading-relaxed">
-              It says in its own manifest that it emits an event format, or it declared a capability
-              that puts something in front of every module on the canvas.
-            </span>
-          }
-        >
-          <Badge variant="outline" className="shrink-0 cursor-default px-1.5 py-0 text-[10px] font-normal">
-            provider
-          </Badge>
-        </Hint>
-      ) : null}
-    </>
-  )
-}
-
-/**
- * "Consumes: X, Y, Z" and "Provides to: Z, W, A", one line each.
- *
- * ## One line each, and it stays one line however many there are
- *
- * The standing complaint about this workspace is prose in a narrow column, and
- * a module with six relationships is exactly where a summary turns into a
- * paragraph. So each half is a single row that TRUNCATES: `min-w-0` on the
- * container, `truncate` on the names, and the whole list in the tooltip where
- * there is room. Six counterparts produce two lines, the same as one does.
- *
- * The names are a stranger's strings, so they are here in ordinary text rather
- * than in a badge — see `Standings` above for what a variable string inside a
- * nowrap badge did to a container in this workspace.
- *
- * ## Absent rather than empty
- *
- * A half with nothing in it draws nothing. "Provides to: —" would be a row
- * asserting that this module provides to nobody, and the host does not know
- * that: what it knows is that no registered module has DECLARED that it takes
- * anything from this one, which is a fact about who is installed today. The
- * badge above already says the module provides. `relations.ts` has the argument
- * in full, and it is the same one that keeps half a relationship from being
- * drawn as one.
- */
-function Halves({ standing }: { standing: Standing }) {
-  if (!standing.consumes.length && !standing.providesTo.length) return null
-  return (
-    <div className="mt-1 min-w-0 space-y-0.5">
-      {standing.consumes.length ? (
-        <Half label="Consumes" who={standing.consumes.map((one) => one.name)} />
-      ) : null}
-      {standing.providesTo.length ? (
-        <Half label="Provides to" who={standing.providesTo.map((one) => one.name)} />
-      ) : null}
-    </div>
-  )
-}
-
-function Half({ label, who }: { label: string; who: readonly string[] }) {
-  const all = who.join(', ')
-  return (
-    <Hint label={<span className="block max-w-[22rem] leading-relaxed">{`${label}: ${all}`}</span>} side="bottom" align="start">
-      <p className="text-muted-foreground min-w-0 text-[11px] leading-relaxed">
-        {/* The label is the host's own word and never wraps away from the names
-            it introduces; the names are the part allowed to run out of room. */}
-        <span className="text-foreground/70 font-medium">{label}:</span>{' '}
-        <span className="inline-block max-w-full truncate align-bottom">{all}</span>
-      </p>
-    </Hint>
-  )
-}
-
-/**
- * One relationship, in as few words as it can be said.
- *
- * ## Two families, because the user asked about two things
- *
- * They asked whether a module that uses another, "indirectly or directly",
- * should show something. Both do, and they must not look alike.
- *
- * A DIRECT one is an event: the host itself takes a payload from one named
- * program and posts it into another named program's frame, and `host/events.ts`
- * is the thing that does it. So it gets an arrow, pointing the way the message
- * goes, and it names the other end — the strongest claim in the list, drawn as
- * the strongest badge.
- *
- * An INDIRECT one names nobody, because there is nobody to name. A module that
- * can move the canvas's subject, or set the selection, changes what everything
- * else is told without any of them being its correspondent; the host can vouch
- * for the sending half and there is no declared receiving half to vouch for.
- * That gets a dashed outline and a muted word, which reads as weaker at a
- * glance and is weaker.
- *
- * A direct relationship whose other end is on no kehikko keeps the arrow — it
- * is still that kind of claim — and goes muted, because at this moment nothing
- * is being carried. The tooltip says which of the two it is.
- */
-function RelationBadge({ relationship, module }: { relationship: Relationship; module: string }) {
-  const carrying = relationship.with.some(
-    (one) => one.reach.where === 'here' || one.reach.where === 'elsewhere',
-  )
-  /* A reaction gets the eye rather than the pointer, and it is the only mark in
-     the row that stands for something nobody performs: the module says it
-     watches the context go by. The pointer belongs to the half that acts. */
-  const Icon =
-    relationship.kind === 'emits'
-      ? ArrowUpRight
-      : relationship.kind === 'consumes'
-        ? ArrowDownLeft
-        : relationship.kind === 'navigation'
-          ? Compass
-          : relationship.role === 'reacts'
-            ? Eye
-            : MousePointerClick
-
-  return (
-    /* The sentence is bounded rather than left to `w-fit`, which would draw one
-       very long line across the window. Radix balances the text; it does not
-       decide how wide is sensible. */
-    <Hint
-      label={<span className="block max-w-[22rem] leading-relaxed">{sentenceFor(module, relationship)}</span>}
-      side="bottom"
-      align="start"
-    >
-      <Badge
-        variant={relationship.direct && carrying ? 'secondary' : 'outline'}
-        className={
-          relationship.direct
-            ? carrying
-              ? 'max-w-[13rem] cursor-default gap-1 px-1.5 py-0 text-[11px] font-normal'
-              : 'text-muted-foreground max-w-[13rem] cursor-default gap-1 px-1.5 py-0 text-[11px] font-normal'
-            : 'text-muted-foreground max-w-[13rem] cursor-default gap-1 border-dashed px-1.5 py-0 text-[11px] font-normal'
-        }
-      >
-        <Icon className="shrink-0" />
-        <span className="min-w-0 truncate">{labelFor(relationship)}</span>
-      </Badge>
-    </Hint>
   )
 }
 

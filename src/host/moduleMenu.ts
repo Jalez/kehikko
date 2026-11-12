@@ -1,6 +1,7 @@
 import type { OfficialModule } from './official.ts'
 import { scopeOfContainer, type ContainerScope } from './scope.ts'
 import type { Presence } from './registry.ts'
+import { relate, sentenceFor, standingOf } from './relations.ts'
 
 /**
  * The module list, as something to look through: which shelf each module is
@@ -263,4 +264,67 @@ export function uninstallSaid(name: string, own: boolean): string {
   return own
     ? `Unregister ${name} from this computer? It is taken off every kehikko it is on. Your own folder is not deleted, and what it kept in your projects stays.`
     : `Uninstall ${name} from this computer? It is taken off every kehikko it is on and the copy Kehikot installed is deleted. What it kept in your projects stays.`
+}
+
+/** How long a row's one sentence may run before it is clipped. */
+export const SENTENCE_MAX = 120
+
+/**
+ * The one sentence a row says when it is opened: the summary up to its first full stop, clipped at
+ * `SENTENCE_MAX` with an ellipsis. The rest is in the "What <name> is" dialog.
+ */
+export function firstSentence(text: string | null | undefined): string {
+  const flat = (text ?? '').replace(/\s+/g, ' ').trim()
+  if (!flat) return ''
+  const end = /[.!?](?=\s|$)/.exec(flat)
+  const sentence = end ? flat.slice(0, end.index + 1) : flat
+  if (sentence.length <= SENTENCE_MAX) return sentence
+  const cut = sentence.slice(0, SENTENCE_MAX)
+  const word = cut.lastIndexOf(' ')
+  return `${(word > SENTENCE_MAX / 2 ? cut.slice(0, word) : cut).replace(/[\s,;:]+$/, '')}…`
+}
+
+/**
+ * What a module works with, a line each, for its "What <name> is" dialog: each relationship as a
+ * sentence (what it follows, what it narrows to, what it sends), then whom it consumes from and whom
+ * it provides to. The names are the registry's; the host's words are fixed. Empty for a module that
+ * touches nothing, and then the dialog has no such part.
+ */
+export function worksWithSaid(
+  lines: readonly string[],
+  standing: { consumes: readonly { name: string }[]; providesTo: readonly { name: string }[] },
+): string[] {
+  return [
+    ...lines,
+    ...(standing.consumes.length ? [`Consumes: ${standing.consumes.map((one) => one.name).join(', ')}`] : []),
+    ...(standing.providesTo.length ? [`Provides to: ${standing.providesTo.map((one) => one.name).join(', ')}`] : []),
+  ]
+}
+
+/** The kehikkos as `worksWithOf` needs them: an id, a name and what is placed on each. */
+interface Kehikko {
+  id: string | number
+  name: string
+  placements: readonly { i: string }[]
+}
+
+/**
+ * What one module works with, from what every registered module declared and where each is placed
+ * now (`relate` in `relations.ts`): the lines of the "What <name> is" dialog's "Works with" part.
+ */
+export function worksWithOf(id: string, presences: readonly Presence[], kehikkos: readonly Kehikko[], open: Kehikko | null): string[] {
+  const presence = presences.find((one) => one.id === id)
+  if (!presence) return []
+  const onCanvas = new Set((open?.placements ?? []).map((one) => one.i))
+  const elsewhere = new Map<string, string[]>()
+  for (const kehikko of kehikkos) {
+    if (open && kehikko.id === open.id) continue
+    for (const placement of kehikko.placements) elsewhere.set(placement.i, [...(elsewhere.get(placement.i) ?? []), kehikko.name])
+  }
+  const relationships = relate(presences, { onCanvas, elsewhere }).get(id) ?? []
+  const name = presence.name ?? id
+  return worksWithSaid(
+    relationships.map((one) => sentenceFor(name, one)),
+    standingOf(presence, relationships),
+  )
 }

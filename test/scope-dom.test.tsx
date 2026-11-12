@@ -192,7 +192,7 @@ describe('the modules menu', () => {
       sweep: { dir: '/tmp/modules', rejected: [] },
       protocol: 2,
     }
-    await render(<Lists.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />)
+    await render(<Lists.ModuleList registry={registry} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} />)
     const chips = [...document.querySelectorAll<HTMLElement>('[data-testid="module-scope"]')]
     expect(chips.map((one) => [one.getAttribute('data-scope'), one.textContent])).toEqual(
       expect.arrayContaining([

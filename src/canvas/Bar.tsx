@@ -415,12 +415,10 @@ export function Bar({
               </Button>
             </PopoverTrigger>
           </Hint>
-          <PopoverContent align="end" className="w-96 p-0">
+          <PopoverContent align="end" className="w-96 max-w-[calc(100vw-1rem)] min-w-[17.5rem] p-0">
             <ModuleList
               registry={registry}
               onCanvas={onCanvas}
-              canvases={canvases}
-              open={open}
               onPlace={onPlace}
               onUnplace={onUnplace}
               onLookAgain={onLookAgain}

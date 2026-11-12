@@ -25,7 +25,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
  */
 
 const inChild = process.env.MODULE_INTRO_DOM === '1'
-const TESTS = 9
+const TESTS = 10
 
 const INTRO = {
   slides: [
@@ -176,9 +176,12 @@ describe('the dialog', () => {
   test('shows the module’s slides in the app’s dialog: its name on top, text as text, the picture in the host’s shapes', async () => {
     await render(<Dialog.ModuleIntroDialog open onOpenChange={() => {}} id="kehikot.lists" name="Lists" intro={introFor({ intro: INTRO })} />)
     const dialog = document.querySelector('[role="dialog"]')!
-    expect(dialog.getAttribute('aria-label')).toBe('Introduction to Lists')
+    expect(dialog.getAttribute('aria-label')).toBe('What Lists is')
     expect(document.querySelector('[data-intro-name]')!.textContent).toBe('Lists')
-    expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(3)
+    /* What it is first, then its three slides. */
+    expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(4)
+    expect(dialog.getAttribute('data-intro')).toBe('what')
+    await press(next()!)
     expect(dialog.textContent).toContain('One list <b>for</b> the work')
     expect(dialog.querySelector('b, i, a')).toBeNull()
     const art = dialog.querySelector('svg[data-intro-picture]')!
@@ -204,6 +207,7 @@ describe('the dialog', () => {
     await render(<Dialog.ModuleIntroDialog open onOpenChange={() => {}} id="kehikot.lists" name="Lists" help={HELP} />)
     await settle()
     expect(asked).toContain('GET /host/module-intro')
+    await press(next()!)
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain('How to use Lists')
     await press(next()!)
     expect([...document.querySelectorAll('[data-intro-points] li')].map((one) => one.textContent)).toEqual(['Press things.', 'Then more.'])
@@ -226,10 +230,10 @@ describe('the dialog', () => {
         addable={{ open: true, placed: false, registered: true, onPlace: () => placed.push('kehikot.lists') }}
       />,
     )
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       expect(addButton()!.textContent).toBe('Add to this kehikko')
-      expect(addButton()!.getAttribute('data-variant') ?? addButton()!.className).toMatch(i === 2 ? /default|bg-primary/ : /secondary/)
-      if (i < 2) await press(next()!)
+      expect(addButton()!.getAttribute('data-variant') ?? addButton()!.className).toMatch(i === 3 ? /default|bg-primary/ : /secondary/)
+      if (i < 3) await press(next()!)
     }
     await press(addButton()!)
     expect(placed).toEqual(['kehikot.lists'])
@@ -272,6 +276,7 @@ describe('the dialog', () => {
       />,
     )
     await settle()
+    await press(next()!)
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain('One list <b>for</b> the work')
     expect(addButton()!.textContent).toBe('Install and add')
     await press(addButton()!)
@@ -283,6 +288,41 @@ describe('the dialog', () => {
     await settle()
     expect(swept).toBe(1)
     expect(placed).toEqual(['kehikot.lists'])
+  })
+
+  test('its parts in one order — what it is, the introduction, how to use, works with, version — and release notes a press away', async () => {
+    let notes = 0
+    serve({ 'GET /host/module-release': () => ({ release: null, protocol: null, build: null }) })
+    await render(
+      <Dialog.ModuleIntroDialog
+        open
+        onOpenChange={() => {}}
+        id="kehikot.lists"
+        name="Lists"
+        summary="Your standing lists for every change, kept per epic and checked by agents as they work."
+        intro={introFor({ intro: INTRO })}
+        help={HELP}
+        works={['Lists follows the selection.', 'Consumes: Notes, Paper', 'Provides to: Browser']}
+        version={['Version 1.4.0']}
+        releases
+        onNotes={() => notes++}
+      />,
+    )
+    await settle()
+    const dialog = document.querySelector('[role="dialog"]')!
+    const ids: string[] = []
+    for (let i = 0; i < document.querySelectorAll('[data-intro-dot]').length; i++) {
+      ids.push(dialog.getAttribute('data-intro')!)
+      if (i === 0) expect(dialog.textContent).toContain('Your standing lists for every change, kept per epic and checked by agents as they work.')
+      if (dialog.getAttribute('data-intro') === 'works') {
+        expect([...dialog.querySelectorAll('[data-intro-points] li')].map((one) => one.textContent)).toEqual(['Lists follows the selection.', 'Consumes: Notes, Paper', 'Provides to: Browser'])
+      }
+      if (next()) await press(next()!)
+    }
+    expect(ids).toEqual(['what', 'slide-1', 'slide-2', 'slide-3', 'help', 'help-1', 'works', 'version'])
+    expect(dialog.textContent).toContain('Version 1.4.0')
+    await press(document.querySelector('[data-intro-notes]')!)
+    expect(notes).toBe(1)
   })
 })
 
@@ -305,7 +345,7 @@ describe('the modules list and the container', () => {
       const [opened, setOpened] = React.useState<string | null>(null)
       return (
         <>
-          <Lists.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} onIntro={(id) => setOpened(id)} />
+          <Lists.ModuleList registry={registry} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} onIntro={(id) => setOpened(id)} />
           {opened ? (
             <Dialog.ModuleIntroDialog
               open
@@ -321,6 +361,7 @@ describe('the modules list and the container', () => {
     await render(<Harness />)
     await press(document.querySelector('[data-module-help-button]')!)
     await settle()
+    await press(next()!)
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain('One list <b>for</b> the work')
     await press(addButton()!)
     expect(placed).toEqual(['kehikot.lists'])

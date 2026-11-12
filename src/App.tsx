@@ -182,6 +182,7 @@ import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
 import { collapseFor } from './host/appearance.ts'
 import { useAppearance, useDrawnTheme } from './host/appearanceStore.ts'
 import { Writer } from './host/writer.ts'
+import { builtFrom, worksWithOf } from './host/moduleMenu.ts'
 
 /**
  * The canvas.
@@ -5635,6 +5636,13 @@ export function App() {
           summary={byId.get(introOpen.id)?.summary ?? introOpen.about.summary ?? null}
           intro={introOfModule(byId.get(introOpen.id)?.module)}
           help={helpOfModule(byId.get(introOpen.id)?.module)}
+          works={worksWithOf(introOpen.id, registry?.presences ?? [], canvases, open)}
+          version={(() => {
+            const built = byId.get(introOpen.id) ? builtFrom(byId.get(introOpen.id)!) : null
+            return built ? [`Version ${built.version}`] : []
+          })()}
+          releases={byId.has(introOpen.id)}
+          onNotes={byId.has(introOpen.id) ? () => openWhatsNew({ item: introOpen.id }) : undefined}
           addable={
             introOpen.add
               ? {

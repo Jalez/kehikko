@@ -1,19 +1,21 @@
-import { Plus } from 'lucide-react'
+import { FileText, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Help, Intro } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { fetchOfficial, installOfficial, type OfficialModule } from '@/host/official.ts'
 import { fetchMine, installMine } from '@/host/myModules.ts'
+import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
+import { fetchModuleRelease } from '@/host/updates.ts'
+import { appEngine } from '@/host/appUpdate.ts'
 import {
   addDisabled,
   addSaid,
   addStateOf,
   fetchIntro,
   introTitle,
-  slidesOfHelp,
-  slidesOfIntro,
-  slidesOfSummary,
+  slidesOfModule,
+  VERSION_TITLE,
   type AddState,
   type ShownSlide,
 } from '@/host/moduleIntro.ts'
@@ -22,12 +24,15 @@ import { ModuleArt } from './ModuleArt.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
- * A module's own introduction (protocol 2.57.0), in the app's introduction dialog (`IntroModal`):
- * the same frame, controls and look, the module's icon and name at the top.
+ * "What <name> is": everything long about a module, in the app's introduction dialog (`IntroModal`) —
+ * the same frame, controls and look, the module's icon and name at the top. The modules list's rows
+ * say one sentence and send the rest here.
  *
- * What it shows, first that there is: the module's introduction — from its running manifest, else
- * read by the server without running it (`fetchIntro`: the installed copy, or the release an install
- * would take) — else its "How to use" as slides, else the one line it says about itself.
+ * Its parts, in this order, each only when the module has it (`slidesOfModule`): what it is (its
+ * summary, whole); its introduction (protocol 2.57.0) — from its running manifest, else read by the
+ * server without running it (`fetchIntro`: the installed copy, or the release an install would take);
+ * its "How to use"; what it works with (what it follows and narrows to, whom it consumes from and
+ * provides to); and its version and releases, with its release notes a press away.
  *
  * Opened from the "?" in the modules list, with "Add to this kehikko" in its footer on every slide
  * (`addable`): the picker's own add, or the list's own install followed by the add ("Install and
@@ -50,9 +55,50 @@ export interface Addable {
   onLookAgain?(): void
 }
 
-function asModal(slide: ShownSlide): ModalSlide {
+function asModal(slide: ShownSlide, below?: ModalSlide['below']): ModalSlide {
   const art = slide.art
-  return { id: slide.id, title: slide.title, body: slide.body, ...(slide.points ? { points: slide.points } : {}), ...(art ? { art: () => <ModuleArt art={art} /> } : {}) }
+  return {
+    id: slide.id,
+    title: slide.title,
+    body: slide.body,
+    ...(slide.points ? { points: slide.points } : {}),
+    ...(art ? { art: () => <ModuleArt art={art} /> } : {}),
+    ...(below ? { below } : {}),
+  }
+}
+
+/** The releases an installed module is on and could move to, a line each, with the Kehikot each works with. */
+export function releaseLines(release: ModuleRelease | null, have: { app?: string | null; protocol?: string | null }): string[] {
+  if (!release) return []
+  const line = (label: string, tag: string) => {
+    const works = worksSaid(release, tag)
+    return `${label} ${releaseVersion(tag)}${works ? ` · ${works}` : ''}`
+  }
+  const newer = needsNewerSaid(release, have)
+  return [
+    ...(release.installed ? [line('Release', release.installed)] : []),
+    ...(release.newest && release.newest !== release.installed ? [line('Newest', release.newest)] : []),
+    ...(newer ? [newer] : []),
+  ]
+}
+
+/** An installed module's releases, read while the dialog is open. */
+function useReleaseLines(id: string, wanted: boolean): string[] {
+  const [lines, setLines] = useState<{ id: string; lines: string[] } | null>(null)
+  useEffect(() => {
+    if (!wanted) return
+    const abort = new AbortController()
+    void (async () => {
+      try {
+        const [got, status] = await Promise.all([fetchModuleRelease(id, abort.signal), appEngine()?.status().catch(() => null) ?? Promise.resolve(null)])
+        if (!abort.signal.aborted) setLines({ id, lines: releaseLines(got.release, { app: status?.current ?? null, protocol: got.protocol }) })
+      } catch {
+        /* Said nothing: the version the module gave stands on its own. */
+      }
+    })()
+    return () => abort.abort()
+  }, [id, wanted])
+  return lines?.id === id ? lines.lines : []
 }
 
 /** The list's entry for a module not installed here, read while the dialog is open; polled while it installs. */
@@ -142,6 +188,10 @@ export function ModuleIntroDialog({
   summary,
   intro: known,
   help,
+  works,
+  version,
+  releases = false,
+  onNotes,
   addable,
 }: {
   open: boolean
@@ -154,6 +204,14 @@ export function ModuleIntroDialog({
   /** What the running module's manifest says; absent or null: the server is asked. */
   intro?: Intro | null
   help?: Help | null
+  /** What it works with, a line each (`worksWithOf`); none: no such part. */
+  works?: readonly string[]
+  /** The version it gives, a line each; with `releases`, its releases are read and follow. */
+  version?: readonly string[]
+  /** It is installed here: its releases are read while the dialog is open. */
+  releases?: boolean
+  /** Open its release notes: a button on the version part. */
+  onNotes?(): void
   /** Given: the add button in the footer. */
   addable?: Addable
 }) {
@@ -169,10 +227,30 @@ export function ModuleIntroDialog({
   const intro = known ?? (read?.id === id ? read.intro : undefined)
   const add = useAddFromIntro(id, addable)
 
-  const slides: ModalSlide[] =
-    intro === undefined
-      ? [{ id: 'reading', title: name, body: 'Reading its introduction…' }]
-      : (intro ? slidesOfIntro(intro) : help ? slidesOfHelp(name, help) : slidesOfSummary(name, summary)).map(asModal)
+  const released = useReleaseLines(id, open && releases)
+
+  const shown = slidesOfModule(name, { summary, intro: intro ?? null, help, works, version: [...(version ?? []), ...released] })
+  const notes: ModalSlide['below'] = onNotes
+    ? (close) => (
+        <Button
+          size="sm"
+          variant="outline"
+          data-intro-notes=""
+          onClick={() => {
+            close()
+            onNotes()
+          }}
+        >
+          <FileText className="size-3.5" />
+          Release notes
+        </Button>
+      )
+    : undefined
+  /* The version part is there whenever release notes can be opened, even with nothing else to say. */
+  const withVersion = notes && !shown.some((one) => one.id === 'version') ? [...shown, { id: 'version', title: VERSION_TITLE, body: '' }] : shown
+  const slides: ModalSlide[] = withVersion.map((one) => asModal(one, one.id === 'version' ? notes : undefined))
+  /* While its introduction is being read, a line says so where it will be. */
+  if (intro === undefined) slides.splice(1, 0, { id: 'reading', title: name, body: 'Reading its introduction…' })
 
   const said = addSaid(add.state)
   return (

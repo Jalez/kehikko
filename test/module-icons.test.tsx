@@ -163,7 +163,7 @@ describe('the modules menu, drawn', () => {
     setRegisteredIcons(presences)
     const html = renderToStaticMarkup(
       <TooltipProvider>
-        <ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+        <ModuleList registry={registry} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} />
       </TooltipProvider>,
     )
     const drawn = [...html.matchAll(/data-module-icon="([^"]+)"/g)].map((match) => match[1])
@@ -223,7 +223,7 @@ describe('a module installed from a repository, not on the official list', () =>
     const named = { ...never, ...namedByLists(never.id, [[], [mineEntry]]) }
     const html = renderToStaticMarkup(
       <TooltipProvider>
-        <ModuleList registry={{ presences: [named], sweep: { dir: '/tmp/modules', rejected: [] }, protocol: 2 }} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+        <ModuleList registry={{ presences: [named], sweep: { dir: '/tmp/modules', rejected: [] }, protocol: 2 }} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} />
       </TooltipProvider>,
     )
     expect(html).toContain('>Antigravity<')

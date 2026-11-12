@@ -378,14 +378,18 @@ describe('the modules list', () => {
       <Lists.ModuleList
         registry={{ presences, sweep: { dir: '/registry', rejected: [] }, protocol: 2 }}
         onCanvas={new Set()}
-        canvases={[]}
-        open={null}
         onPlace={() => {}}
         onUnplace={() => {}}
       />,
     )
+    /* Folded, the row says the word at its end, and the notice is its tooltip. */
+    const status = document.querySelector('[data-row-status]')!
+    expect(status.textContent).toBe('incompatible')
+    expect(status.getAttribute('title')).toBe('Monitor needs a newer Kehikot. It uses the call log, added in protocol 2.20.')
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
+    /* Opened, the notice is said in words. */
+    await act(async () => document.querySelector<HTMLElement>('[data-module-row-toggle]')!.click())
     const alerts = [...document.querySelectorAll('[role="alert"]')].map((one) => one.textContent)
     expect(alerts).toEqual(['Monitor needs a newer Kehikot. It uses the call log, added in protocol 2.20.'])
-    expect(document.body.textContent).toContain('incompatible')
   })
 })
