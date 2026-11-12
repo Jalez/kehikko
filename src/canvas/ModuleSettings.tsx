@@ -28,6 +28,8 @@ import { ConnectionsTab, type ConnectionsProps } from './Connections.tsx'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
 import type { ModuleScope } from 'kehikot-module-protocol'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
+import { moduleSettingsTarget } from '@/host/agentSettings.ts'
+import { TARGET_ATTR } from '@/host/settingsTarget.ts'
 import { ScopeControl, ScopeIcon } from './Scope.tsx'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 
@@ -593,7 +595,7 @@ export function ModulesSettings({ api = HOST_SETTINGS_API, project }: { api?: Se
         What each module lets you set{project ? ` for ${project.name}` : ''}. The module saves each change itself, in its own folder of the project; Kehikot never writes there.
       </p>
       {modules.map((one) => (
-        <section key={one.id} className="min-w-0 rounded-lg border px-4 py-3" aria-labelledby={`module-settings-${one.id}`} data-settings-module={one.id}>
+        <section key={one.id} className="min-w-0 rounded-lg border px-4 py-3" aria-labelledby={`module-settings-${one.id}`} data-settings-module={one.id} {...{ [TARGET_ATTR]: moduleSettingsTarget(one.id) }}>
           <h4 id={`module-settings-${one.id}`} className="mb-3 flex items-center gap-2 text-sm font-medium">
             <ModuleIcon id={one.id} icon={one.icon} name={one.name} className="text-muted-foreground size-4" />
             {one.name}

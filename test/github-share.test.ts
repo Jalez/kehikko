@@ -45,7 +45,7 @@ describe('the share setting', () => {
     const route = settingsRoute({
       db,
       status: () => ({ at: 0, running: false, problems: [], modules: [] }),
-      changed: () => {},
+     
       skillsAt: () => '/scratch/.claude/skills',
       hook: () => ({ file: '/scratch/.claude/settings.json', on: false }),
     })

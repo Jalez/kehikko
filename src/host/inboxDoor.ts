@@ -114,7 +114,7 @@ export const DOOR_SAYS = {
   muteHost: 'Kehikot’s own lists are not muted here; they have their own settings.',
   noAdopting: 'This Kehikot does not adopt items into spaces.',
   notAdoptable: 'That names no open item about a change that no space names.',
-  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose the space here.',
+  noAgent: 'No agent module on this kehikko can find where it belongs. Add one to let it find the right space, or choose the space here.',
 } as const
 
 /*

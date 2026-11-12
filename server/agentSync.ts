@@ -35,8 +35,9 @@ import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSki
 
 /**
  * Keeping every module's tools and skills set up in the person's agent, as the
- * Settings say (`src/host/agentSettings.ts`), so nobody presses Connect or
- * Install once per module.
+ * agent module that holds the choice says (protocol 2.91.0, `agent.setup`;
+ * `agentSetup.ts` reads it into `src/host/agentSettings.ts`' stored copy), so
+ * nobody presses Connect or Install once per module.
  *
  * ## When it runs
  *
@@ -50,8 +51,8 @@ import { fetchSkillText, isMachineRegistry, readLocal, sha256, statusOf, syncSki
  *
  * ## What it touches, and what it never does
  *
- * Nothing at all before the one-time question was answered (`asked`), nor with
- * the agent switched off, nor for a module the person left out.
+ * Nothing at all while the choice is off (the agent module's default), nor for
+ * a module the person left out.
  *
  * Tools: every answering module with an MCP door is connected at user scope
  * (`connect` in `register.ts`, the same `claude mcp add` the Tools window
@@ -132,6 +133,11 @@ export interface SyncDeps {
   tell(line: string): void
   /** What could not be done, as the one quiet item; empty clears it. */
   trouble(problems: string[]): void
+  /**
+   * Before each run of the loop (`AgentSync`): read the agent module's choice into the stored copy
+   * (`refreshChoice` in `agentSetup.ts`). Absent: the stored copy as it is.
+   */
+  refresh?(): Promise<unknown>
   /**
    * Every module id the registry holds now, a file it would not read included,
    * or null when the registry could not be read. Asked after `modules`. Absent:
@@ -537,6 +543,8 @@ export class AgentSync {
   async #once(): Promise<void> {
     let transient = false
     try {
+      /* The agent module's choice first: what the person last chose there, or the copy as it stood. */
+      await this.deps.refresh?.().catch(() => null)
       const deps: SyncDeps = {
         ...this.deps,
         modules: async () => {

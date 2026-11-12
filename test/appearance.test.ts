@@ -135,7 +135,7 @@ describe('the store on the page', () => {
 
 describe('kept on this machine, changed only by the page', () => {
   const route = (db: Database) =>
-    settingsRoute({ db, status: () => ({ at: null, problems: [] }) as never, changed: () => {}, skillsAt: () => '/tmp/skills', hook: () => ({ file: '/x', on: false }) })
+    settingsRoute({ db, status: () => ({ at: null, problems: [] }) as never, skillsAt: () => '/tmp/skills', hook: () => ({ file: '/x', on: false }) })
   const call = async (handler: ReturnType<typeof route>, method: string, body?: unknown) => {
     const url = new URL('http://127.0.0.1/host/settings')
     const response = await handler(new Request(url, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url)

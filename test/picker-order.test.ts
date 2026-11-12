@@ -111,7 +111,7 @@ describe('the host keeps them in frame.sqlite', () => {
     const url = new URL(`http://127.0.0.1${path}`)
     return route(new Request(url, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }), url)
   }
-  const settings = (db: Database) => settingsRoute({ db, status: () => ({}) as never, changed: () => undefined, skillsAt: () => '/nowhere' })
+  const settings = (db: Database) => settingsRoute({ db, status: () => ({}) as never, skillsAt: () => '/nowhere' })
 
   test('visits are stamped per project, per epic in its project and per kehikko, and the latest wins', () => {
     const db = new Database(':memory:')

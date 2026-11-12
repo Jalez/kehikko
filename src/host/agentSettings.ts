@@ -1,3 +1,5 @@
+import type { AgentSetupChoice } from 'kehikot-module-protocol'
+
 import type { ChimeSettings } from './chime.ts'
 import { GITHUB_SHARE_TARGET } from './githubShare.ts'
 import type { PickerSorts, Visits } from './pickerOrder.ts'
@@ -5,31 +7,33 @@ import type { NoticeSettings } from './trackerNotices.ts'
 import { APPEARANCE_TARGET, type AppearanceAnswer } from './appearance.ts'
 
 /**
- * How Kehikot works with a person's coding agents, chosen ONCE for every module
- * and every project: the words and the pure parts, shared by the page
- * (`src/canvas/Settings.tsx`) and the server (`server/agentSettings.ts`,
- * `server/agentSync.ts`).
+ * Whether the person's agent program uses every module's tools and skills in conversations started
+ * outside Kehikot too: the words and the pure parts, shared by the page (`src/canvas/Settings.tsx`)
+ * and the server (`server/agentSettings.ts`, `server/agentSetup.ts`, `server/agentSync.ts`).
  *
- * The person's words that started it: being made to connect the tools to each
- * module separately, in every project, is bad. So the choice is made here,
- * machine-wide, and a sync keeps every registered module's door and skills in
- * step with it (`server/agentSync.ts`).
+ * ## Who owns the choice
  *
- * Nothing automatic happens before the person answered the one-time question
- * (`asked`). A setting is a choice the person made, not a default this host
- * made for them.
+ * The agent module whose program it sets up (protocol 2.91.0, `agent.setup`): it is that module's own
+ * machine setting, shown in its settings (and in Settings › Modules). The host never asks for it. It
+ * reads the choice at the module's settings door and keeps a copy here (`AgentSettings`, one row of
+ * `frame.sqlite`), which the sync acts on while the module sleeps (`server/agentSetup.ts`).
+ *
+ * ## Who writes the program's configuration
+ *
+ * This host (`server/agentSync.ts`, through `register.ts` and `skills.ts`): it runs while modules
+ * sleep, sees modules installed, moved and uninstalled, and a module's Tools and Skills windows write
+ * the same configuration through the same code. A setting is a choice the person made, not a default
+ * this host made for them: off until they turn it on.
  */
 
 /**
- * The agents Kehikot can set up. One is built; the shape is a map so another
- * is a key added here and a writer added on
- * the server, not a new settings shape.
+ * The stored copy's shape, kept as it was when the host held the choice itself (before 2.91.0), so a
+ * row written then reads the same. `providers` and `asked` are no longer asked of anyone: a choice read
+ * from the module is written with both on, and its own switches say the rest.
  */
 export interface Providers {
   claudeCode: { enabled: boolean }
 }
-
-export type ProviderKey = keyof Providers
 
 /** One kind of thing kept set up: on for every module, except the ones named. */
 export interface Automatic {
@@ -54,21 +58,6 @@ export const DEFAULT_SETTINGS: AgentSettings = {
   skills: { auto: true, except: [] },
   asked: false,
 }
-
-/**
- * The agents listed in Settings, in order. Only the built ones. `name` is the
- * one place a person reads which program is set up — it is data, like the
- * official module list, and the sentences around it say "your agent".
- */
-export const PROVIDERS: readonly { key: ProviderKey; name: string; says: string }[] = [
-  {
-    key: 'claudeCode',
-    name: 'Claude Code',
-    says: 'Its user-wide MCP server list (claude mcp add --scope user) and its personal skills folder.',
-  },
-]
-
-export const MORE_AGENTS = 'More agents are coming. For now Kehikot sets up the one listed here.'
 
 const EXCEPT_MAX = 500
 const ID_MAX = 64
@@ -138,22 +127,50 @@ export function automatic(settings: AgentSettings, kind: 'tools' | 'skills', mod
   return active(settings, kind) && !settings[kind].except.includes(module)
 }
 
-/* ---- the one-time question ---- */
+/**
+ * What the stored settings mean as the module's choice: on only where the sync acted on its own
+ * (`active`), with the person's exceptions. How a choice made in the host's own Settings before 2.91.0
+ * is carried over to the agent module, so nothing the person set up changes: an unanswered question,
+ * or the agent switched off, is off.
+ */
+export function carriedChoice(settings: AgentSettings): AgentSetupChoice {
+  return {
+    tools: { auto: active(settings, 'tools'), except: [...settings.tools.except] },
+    skills: { auto: active(settings, 'skills'), except: [...settings.skills.except] },
+  }
+}
 
-export const FIRST_QUESTION = {
-  title: 'Let Kehikot keep your agent set up?',
-  lead: 'Kehikot can connect every module’s tools to your agent and keep each module’s skills installed and up to date — once, for every module and every project — so you do not press Connect or Install for each one.',
-  writes: [
-    'Your agent’s user-wide MCP server list, through its own command (claude mcp add --scope user). Only entries Kehikot adds are ever changed or removed.',
-    'Folders under ~/.claude/skills/<name>, one per skill. A skill you changed, or a name another skill already has, is left alone.',
-    'An agent module that installs skills itself keeps the same skills where its agent reads them, under the same rules.',
-  ],
-  after: 'Each change is one line in the Inbox. You can change this any time in Settings, and leave single modules out there.',
-  keep: 'Save',
-  self: 'I’ll do it myself',
-  toolsBox: 'Connect every module’s tools',
-  skillsBox: 'Install every module’s skills and keep them up to date',
-} as const
+/** The module's choice as the stored copy keeps it. */
+export function choiceSettings(choice: AgentSetupChoice): AgentSettings {
+  return {
+    providers: { claudeCode: { enabled: true } },
+    tools: { auto: choice.tools.auto, except: [...new Set(choice.tools.except)].sort() },
+    skills: { auto: choice.skills.auto, except: [...new Set(choice.skills.except)].sort() },
+    asked: true,
+  }
+}
+
+/**
+ * The agent module that holds the choice (`agent.setup`), as Settings names it: its id, its registered
+ * name and the program it says it sets up. The host never names one of its own accord.
+ */
+export interface SetupHolder {
+  module: string
+  name: string
+  program: string
+}
+
+/** Where a module's form is in Settings › Modules, for a link to it (`SETTINGS_TARGETS`' rule). */
+export function moduleSettingsTarget(module: string): string {
+  return `module-${module.toLowerCase().replace(/[^a-z0-9-]+/g, '-')}`.slice(0, 64).replace(/-+$/, '')
+}
+
+/** What the Tools and Skills sections say about who holds the choice. */
+export function heldSays(holder: SetupHolder | null | undefined): string {
+  return holder
+    ? `Chosen in ${holder.name}’s settings, for ${holder.program}. Kehikot keeps it set up as chosen there.`
+    : 'No agent module here offers this choice now. What was last chosen is kept; the agent module that offers it holds the choice.'
+}
 
 /* ---- what the sync found ---- */
 
@@ -304,7 +321,7 @@ export function chordSaid(mac: boolean): string {
 }
 
 /** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['agents', 'tools', 'skills', 'trackers', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
+export const SETTINGS_SECTIONS = ['tools', 'skills', 'trackers', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
@@ -389,6 +406,8 @@ export interface SettingsAnswer {
   hook: StartHook
   /** Where skills are written, for the words. */
   skillsAt: string
+  /** The agent module that holds the choice (`agent.setup`), or null when none is running. Absent from an older host. */
+  setup?: SetupHolder | null
   /** Tracker notices in the Inbox (`trackerNotices.ts`). Absent from an older host. */
   notices?: NoticeSettings
   /** "Keep this project's modules running" (`server/keepRunning.ts`). Absent from an older host. */

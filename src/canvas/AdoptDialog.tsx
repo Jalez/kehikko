@@ -7,16 +7,23 @@ import { Dialog } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { dialogPlan } from '@/host/adoption.ts'
+import { dialogPlan, TASK_AGENT_SAID } from '@/host/adoption.ts'
 import { fetchAdoption, postAdopt, postTask, type TaskStarted } from '@/host/adoptClient.ts'
+import { postKehikkoSettings } from '@/host/kehikkoSettings.ts'
+import { AgentCubes } from './KehikkoSettings.tsx'
 
 /**
- * Adopting a tracker item no epic names, with the person's agent for Kehikot's own tasks (protocol
- * 2.88.0). The dialog starts a NEW conversation with that agent, fed the item, the epics and the
- * conversations that worked on it (`postTask`), and shows its page while it works. The agent only
- * PROPOSES (`propose_adoption`); the person confirms with ONE press — "Adopt into <epic> · bring
- * <conversation>" — or changes it in the picker, or cancels. With no agent picked, the picker alone,
- * with the host's suggestion chosen (`dialogPlan`).
+ * Adopting a tracker item no space names, with the agent of the kehikko the person is on (protocol
+ * 2.88.0, 2.91.0): its primary agent, or its only agent module (`taskAgentFor`). The dialog starts a
+ * NEW conversation with that agent, fed the item, the spaces and the conversations that worked on it
+ * (`postTask`), and shows its page while it works. The agent only PROPOSES (`propose_adoption`); the
+ * person confirms with ONE press — "Adopt into <space> · bring <conversation>" — or changes it in the
+ * picker, or cancels.
+ *
+ * With two or more agent modules that can and none primary, the dialog asks first, with the cubes of
+ * the primary dialog, and says that the one chosen becomes the kehikko's primary agent; on Choose it
+ * is made so (`postKehikkoSettings`) and started. With none, the picker alone, with the host's
+ * suggestion chosen (`dialogPlan`).
  *
  * The task's conversation is filed under the epic with the adoption, and left in its module's
  * records like any other when the dialog closes.
@@ -25,14 +32,26 @@ import { fetchAdoption, postAdopt, postTask, type TaskStarted } from '@/host/ado
 export interface AdoptDialogProps {
   project: number
   item: { module: string; id: string }
-  /** The kehikko the person is on: the place a conversation brought along is filed at. */
+  /** The kehikko the person is on: the place a conversation brought along is filed at, and whose agent does the task. */
   kehikko: string | null
+  /** That kehikko's id on this machine, for making the agent chosen its primary; null when it is not the open one. */
+  kehikkoId?: number | null
+  /** For tests: how the choice is made the kehikko's primary. */
+  makePrimary?(kehikko: number, module: string): Promise<unknown>
   onClose(said: string | null): void
   /** For tests: how often the proposal is read again while the agent works. */
   pollMs?: number
 }
 
-export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: AdoptDialogProps) {
+export function AdoptDialog({
+  project,
+  item,
+  kehikko,
+  kehikkoId = null,
+  makePrimary = (id, module) => postKehikkoSettings(id, { primary: module }),
+  onClose,
+  pollMs = 2500,
+}: AdoptDialogProps) {
   const [read, setRead] = useState<InboxAdoptionResult | null>(null)
   const [task, setTask] = useState<TaskStarted | null>(null)
   const [changing, setChanging] = useState(false)
@@ -43,11 +62,27 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
   const [busy, setBusy] = useState(false)
   const [trouble, setTrouble] = useState<string | null>(null)
   const started = useRef(false)
+  /** Which agent, when two or more can and none is primary: the one picked among the cubes, and whether it is asked. */
+  const [asking, setAsking] = useState(false)
+  const [pickedAgent, setPickedAgent] = useState<string | null>(null)
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+    }
+  }, [])
 
-  /* Read what to offer; with an agent, start it once. */
+  const start = () => {
+    if (started.current) return
+    started.current = true
+    void postTask(project, item, kehikko).then((one) => live.current && setTask(one))
+  }
+
+  /* Read what to offer; with an agent, start it once; with a choice to make, ask it first. */
   useEffect(() => {
     let live = true
-    void fetchAdoption(project, item).then((got) => {
+    void fetchAdoption(project, item, kehikko).then((got) => {
       if (!live) return
       setRead(got)
       if (got.suggested) {
@@ -57,27 +92,48 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
         setEpic(got.epics[0].epic)
         setSpace([got.epics[0].epic])
       }
-      if (got.agent && !started.current) {
-        started.current = true
-        void postTask(project, item).then((one) => live && setTask(one))
+      if (got.agent) start()
+      else if ((got.taskAgents?.length ?? 0) > 1 && kehikkoId !== null) {
+        setPickedAgent(got.taskAgents![0]!.module)
+        setAsking(true)
       }
     })
     return () => {
       live = false
     }
-  }, [project, item.module, item.id])
+  }, [project, item.module, item.id, kehikko])
+
+  /* The person chose among the cubes: it becomes the kehikko's primary agent, then it is started. */
+  const choose = async () => {
+    if (!pickedAgent || kehikkoId === null) return
+    setBusy(true)
+    setTrouble(null)
+    try {
+      await makePrimary(kehikkoId, pickedAgent)
+    } catch (error) {
+      setBusy(false)
+      setTrouble(error instanceof Error ? error.message : String(error))
+      return
+    }
+    const got = await fetchAdoption(project, item, kehikko)
+    setBusy(false)
+    if (!live.current) return
+    setRead(got)
+    setAsking(false)
+    if (got.agent) start()
+  }
 
   /* While the agent works and has proposed nothing, read again for its proposal. */
   useEffect(() => {
     if (!read?.agent || read.proposal || !task?.ok) return
     const timer = setInterval(() => {
-      void fetchAdoption(project, item).then((got) => got.outcome === 'ok' && setRead(got))
+      void fetchAdoption(project, item, kehikko).then((got) => got.outcome === 'ok' && setRead(got))
     }, pollMs)
     return () => clearInterval(timer)
-  }, [read?.agent, read?.proposal, task, project, item.module, item.id, pollMs])
+  }, [read?.agent, read?.proposal, task, project, item.module, item.id, kehikko, pollMs])
 
   const plan = useMemo(() => (read ? dialogPlan(read) : null), [read])
-  const picking = plan?.mode === 'picker' || changing || (task !== null && !task.ok)
+  const picking = !asking && (plan?.mode === 'picker' || changing || (task !== null && !task.ok))
   const chosen = read?.epics.find((one) => one.epic === epic) ?? null
   /* Every space at any depth, as one list: the tree the host sent, or the epics and their parts from an older one. */
   const tree = useMemo<SpaceNode[]>(
@@ -118,6 +174,21 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
           descriptionClassName="text-sm"
         />
         <ModalBody>
+          {asking && read?.taskAgents ? (
+            <div className="flex flex-col gap-3" data-adopt-choose="">
+              <div>
+                <p className="text-sm font-medium">{TASK_AGENT_SAID.title}</p>
+                <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{TASK_AGENT_SAID.lede}</p>
+              </div>
+              <AgentCubes
+                agents={read.taskAgents.map((one) => ({ id: one.module, name: one.name, icon: null }))}
+                picked={pickedAgent}
+                onPick={setPickedAgent}
+                label="Agents that can place it"
+              />
+              <p className="text-muted-foreground text-xs leading-relaxed" data-adopt-becomes="">{TASK_AGENT_SAID.becomes}</p>
+            </div>
+          ) : null}
           {read && read.outcome !== 'ok' ? <p className="text-sm" data-adopt-trouble="">{read.why}</p> : null}
           {task && !task.ok ? (
             <p className="text-muted-foreground mb-2 text-sm" data-adopt-task="failed">
@@ -142,7 +213,7 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
               <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{read.proposal.why}</p>
             </div>
           ) : null}
-          {read && read.conversations.length ? (
+          {read && !asking && read.conversations.length ? (
             <ul className="text-muted-foreground mb-3 flex flex-col gap-1 text-xs" data-adopt-conversations="">
               {read.conversations.map((one) => (
                 <li key={`${one.module}:${one.session}`} data-comes={one.comes ? '' : undefined}>
@@ -200,6 +271,16 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
           <Button variant="ghost" size="sm" onClick={() => onClose(null)}>
             Cancel
           </Button>
+          {asking ? (
+            <>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => setAsking(false)} data-adopt-self="">
+                {TASK_AGENT_SAID.self}
+              </Button>
+              <Button size="sm" disabled={busy || !pickedAgent} onClick={() => void choose()} data-adopt-confirm="agent">
+                {TASK_AGENT_SAID.confirm}
+              </Button>
+            </>
+          ) : null}
           {plan?.mode === 'agent' && !picking ? (
             <Button variant="outline" size="sm" onClick={() => setChanging(true)}>
               Change…

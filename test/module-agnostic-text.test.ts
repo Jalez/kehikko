@@ -46,7 +46,6 @@ const NAMES = namesOf(ROOT)
  */
 const ALLOWED: readonly { file: RegExp; word: string; why: string }[] = [
   /* Data that names a program, read where a person needs to know which one; never a sentence. */
-  { file: /^src\/host\/agentSettings\.ts$/, word: 'Claude', why: 'PROVIDERS: the one place Settings says which agent program is set up' },
   { file: /^server\/callers\.ts$/, word: 'Claude', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^server\/callers\.ts$/, word: 'Codex', why: 'AGENTS: how the traffic monitor names a running executable, as it names curl' },
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Claude', why: 'the title of a trademark icon a module names as its own (`brand:claude`)' },

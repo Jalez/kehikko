@@ -105,75 +105,57 @@ const pressTab = (one: Element) => one.dispatchEvent(new MouseEvent('mousedown',
 
 const button = (text: string) => [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === text) as HTMLButtonElement
 
-test('the one-time question: its words, both boxes checked, and what each answer stores', async () => {
-  if (!inChild) return
-  const saved: unknown[] = []
-  const load = async () => answer({ settings: DEFAULT_SETTINGS })
-  const save = async (change: unknown) => {
-    saved.push(change)
-    return answer()
-  }
-  await render(<Settings.AgentSettingsHost load={load} save={save as typeof Settings.postSettings} />)
-  const dialog = document.querySelector('[data-first-question]')!
-  expect(dialog.textContent).toContain('Let Kehikot keep your agent set up?')
-  expect(dialog.textContent).toContain('claude mcp add --scope user')
-  expect(dialog.textContent).toContain('~/.claude/skills/<name>')
-  expect(dialog.textContent).toContain('change this any time in Settings')
-  const boxes = switches(dialog)
-  expect(boxes.map(on)).toEqual([true, true])
-  expect(boxes.map(named)).toEqual(['Connect every module’s tools', 'Install every module’s skills and keep them up to date'])
-  expect(button('Save')).toBeTruthy()
-  expect(button('I’ll do it myself')).toBeTruthy()
-  await act(async () => boxes[1]!.click())
-  expect(on(boxes[1]!)).toBe(false)
-  await act(async () => button('Save').click())
-  expect(saved).toEqual([{ settings: { asked: true, tools: { auto: true }, skills: { auto: false } } }])
-  expect(document.querySelector('[data-first-question]')).toBeNull()
-})
-
-test('“I’ll do it myself” turns both off and is an answer; an answered question is not asked', async () => {
+test('no Agents tab, no one-time question: the agent setup is the agent module’s own setting', async () => {
   if (!inChild) return
   const saved: unknown[] = []
   const save = async (change: unknown) => {
     saved.push(change)
     return answer()
   }
+  /* A machine that never answered the old question is not asked it. */
   await render(<Settings.AgentSettingsHost load={async () => answer({ settings: DEFAULT_SETTINGS })} save={save as typeof Settings.postSettings} />)
-  await act(async () => button('I’ll do it myself').click())
-  expect(saved).toEqual([{ settings: { asked: true, tools: { auto: false }, skills: { auto: false } } }])
-  act(() => unmount?.())
-  document.body.innerHTML = ''
-  await render(<Settings.AgentSettingsHost load={async () => answer()} />)
   expect(document.querySelector('[data-first-question]')).toBeNull()
+  expect(saved).toEqual([])
+  expect(AgentSettings.SETTINGS_SECTIONS).not.toContain('agents' as never)
+  expect('PROVIDERS' in AgentSettings).toBe(false)
+  expect('FIRST_QUESTION' in AgentSettings).toBe(false)
+  expect('FirstQuestion' in Settings).toBe(false)
 })
 
-test('Settings: a section nav, agents, tools and skills with status in words and exceptions, and the start hook read only', async () => {
+test('Settings: a section nav, tools and skills with status in words, who holds the choice, exceptions, and the start hook read only', async () => {
   if (!inChild) return
   const saved: unknown[] = []
+  const held = { module: 'kehikot.agent', name: 'Agent', program: 'Agent CLI' }
   await render(
     <Settings.SettingsDialog
       open
       onOpenChange={() => {}}
-      load={async () => answer()}
+      load={async () => answer({ setup: held })}
       save={(async (change: unknown) => {
         saved.push(change)
-        return answer()
+        return answer({ setup: held })
       }) as typeof Settings.postSettings}
     />,
   )
   const body = document.querySelector('[data-settings]')!
-  /* The nav: one tab per section, the first chosen; no Tracker notices from a host that says nothing of them. */
+  /* The nav: one tab per section, the first chosen; no Agents tab any more. */
   const tabs = [...body.querySelectorAll('[role="tab"]')]
-  expect(tabs.map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Modules', 'Appearance', 'About'])
+  expect(tabs.map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Modules', 'Appearance', 'About'])
+  expect(body.querySelector('[data-section="agents"]')).toBeNull()
   expect(body.querySelector('[role="tablist"]')!.getAttribute('aria-orientation')).toBe('vertical')
   expect(tabs[0]!.getAttribute('aria-selected')).toBe('true')
-  for (const heading of ['Agents', 'Module tools', 'Skills', 'Conversations started outside Kehikot', 'About']) {
+  for (const heading of ['Module tools', 'Skills', 'Conversations started outside Kehikot', 'About']) {
     expect([...body.querySelectorAll('h3')].map((one) => one.textContent)).toContain(heading)
   }
-  expect(body.textContent).toContain('Set up Claude Code')
-  expect(body.textContent).toContain('More agents are coming')
+  expect([...body.querySelectorAll('h3')].map((one) => one.textContent)).not.toContain('Agents')
+  expect(body.textContent).not.toContain('Agent for Kehikot')
   expect(body.textContent).toContain('Left alone')
   expect(body.querySelector('[data-status="tools"]')!.textContent).toBe('2 connected (1 not running now), 1 left to you')
+  /* Who holds the choice, by its own name and program, and a press to its form. */
+  const holder = body.querySelector('[data-held-by="kehikot.agent"]')!
+  expect(holder.textContent).toContain('Every module’s tools are kept connected.')
+  expect(holder.textContent).toContain('Chosen in Agent’s settings, for Agent CLI.')
+  expect(holder.querySelector('[data-press="setup-settings"]')!.textContent).toBe('Open Agent’s settings')
   /* Status chips, in words. */
   expect(body.querySelector('[data-module="kehikot.browser"]')!.textContent).toContain('Connected (not running now)')
   expect(body.querySelector('[data-module="kehikko"] [data-tone="ok"]')!.textContent).toBe('Connected')
@@ -182,27 +164,32 @@ test('Settings: a section nav, agents, tools and skills with status in words and
   expect(body.querySelector('[data-status="skills"]')!.textContent).toBe('1 installed, 1 changed by you')
   expect(body.querySelector('[data-hook="off"]')).not.toBeNull()
   expect(body.textContent).toContain('Report them')
-  expect(body.textContent).toContain('changed by you')
-  /* Every switch has a name a reader can say. */
+  /* Every switch has a name a reader can say; none turns the setup itself on or off. */
   for (const one of switches(body)) expect(named(one).length).toBeGreaterThan(0)
-  /* The other sections are there and hidden until chosen; a press on a tab shows its own. */
+  expect(switches(body).some((one) => named(one).startsWith('Connect every module'))).toBe(false)
+  expect(switches(body).some((one) => named(one).startsWith('Install every module'))).toBe(false)
   const panel = (key: string) => body.querySelector(`[role="tabpanel"][id$="-content-${key}"]`)!
-  expect(panel('tools').getAttribute('data-state')).toBe('inactive')
+  expect(panel('skills').getAttribute('data-state')).toBe('inactive')
   await act(async () => pressTab(tabs[1]!))
-  expect(tabs[1]!.getAttribute('aria-selected')).toBe('true')
-  expect(panel('tools').getAttribute('data-state')).toBe('active')
-  /* A module's switch leaves it out, at once: no Save. */
+  expect(panel('skills').getAttribute('data-state')).toBe('active')
+  expect(body.querySelector('[data-held-by="kehikot.agent"]')).not.toBeNull()
+  await act(async () => pressTab(tabs[0]!))
+  /* A module's switch leaves it out, at once: relayed to the agent module by the host. */
   const browser = body.querySelector<HTMLButtonElement>('[data-module="kehikot.browser"] [role="switch"]')!
   expect(on(browser)).toBe(true)
   expect(named(browser)).toBe('Browser: keep connected')
   await act(async () => browser.click())
   expect(saved).toEqual([{ except: { kind: 'tools', module: 'kehikot.browser', out: true } }])
   expect(body.querySelector('[data-saved]')!.textContent).toBe('Saved')
-  expect(body.querySelector('[data-saved]')!.getAttribute('role')).toBe('status')
-  const toggle = switches(body).find((one) => named(one).startsWith('Connect every module'))!
-  await act(async () => toggle.click())
-  expect(saved.at(-1)).toEqual({ settings: { tools: { auto: false }, asked: true } })
   expect([...body.querySelectorAll('button')].some((one) => one.textContent === 'Save')).toBe(false)
+})
+
+test('with no agent module holding the choice, the sections say what was last chosen is kept', async () => {
+  if (!inChild) return
+  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer({ setup: null })} section="tools" />)
+  const holder = document.querySelector('[data-held-by=""]')!
+  expect(holder.textContent).toContain('What was last chosen is kept')
+  expect(holder.querySelector('[data-press="setup-settings"]')).toBeNull()
 })
 
 test('Skills: Kehikot’s own skills apart from the modules’, kept by the same switch, with their text a press away', async () => {
@@ -324,14 +311,14 @@ test('Tracker notices: on, which items, and each event, every one a labelled nat
   expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).not.toContain('Tracker notices')
 })
 
-test('a module’s Tools window says it is kept connected, and can leave it out', async () => {
+test('a module’s Tools window leaves it out through the agent module’s own setting, as the person', async () => {
   if (!inChild) return
-  const posts: unknown[] = []
+  const posts: { url: string; body: unknown }[] = []
+  const held = { module: 'kehikot.agent', name: 'Agent', program: 'Agent CLI' }
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
-    if (String(url).startsWith('/host/settings')) {
-      if (init?.method === 'POST') posts.push(JSON.parse(String(init.body)))
-      return new Response(JSON.stringify(answer()), { status: 200 })
-    }
+    if (init?.method === 'POST') posts.push({ url: String(url), body: JSON.parse(String(init.body)) })
+    if (String(url).startsWith('/host/settings')) return new Response(JSON.stringify(answer({ setup: held })), { status: 200 })
+    if (String(url) === '/host/module-settings/set') return new Response(JSON.stringify({ outcome: 'saved', why: '' }), { status: 200 })
     return new Response(JSON.stringify({ ok: false, why: 'Browser is not answering.' }), { status: 409 })
   }) as unknown as typeof fetch
   await render(<Tools.ToolsDialog open onOpenChange={() => {}} module="kehikot.browser" name="Browser" onChanged={() => {}} />)
@@ -341,7 +328,9 @@ test('a module’s Tools window says it is kept connected, and can leave it out'
   const out = kept.querySelector<HTMLInputElement>('input[type="checkbox"]')!
   expect(out.checked).toBe(false)
   await act(async () => out.click())
-  expect(posts).toEqual([{ except: { kind: 'tools', module: 'kehikot.browser', out: true } }])
+  for (let i = 0; i < 3; i++) await act(async () => {})
+  /* Never relayed by the host: the page's own press, at the one route that mints the person's pass. */
+  expect(posts).toEqual([{ url: '/host/module-settings/set', body: { module: 'kehikot.agent', project: null, key: 'agentSetup.toolsExcept', value: ['kehikot.browser', 'kehikot.notes'] } }])
 })
 
 test('with the setting off, a module’s window points to Settings', async () => {
@@ -388,7 +377,7 @@ test('the gear, ⌘, and openSettings(section) open Settings; the bare shell eve
   await act(async () => AgentSettings.openSettings('tools'))
   await act(async () => {})
   const selected = document.querySelector('[role="tab"][aria-selected="true"]')!
-  expect(selected.textContent).toBe('Module tools')
+  expect(selected.textContent).toBe('Module tools1 left alone')
   await act(async () => closeIt())
 
   /* What the desktop shell would send: the bare event, no section. */
@@ -461,7 +450,7 @@ test('Project: the open project’s base branch, origin’s default until set, c
     />,
   )
   const body = document.querySelector('[data-settings]')!
-  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Agents1 left alone', 'Module tools', 'Skills', 'Conversations', 'Project', 'Modules', 'Appearance', 'About'])
+  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Project', 'Modules', 'Appearance', 'About'])
   const form = body.querySelector('[data-base-branch]')!
   expect(form.getAttribute('data-base-branch')).toBe('default')
   expect(form.textContent).toContain('The branch agents start their work from and updates are pulled from.')
