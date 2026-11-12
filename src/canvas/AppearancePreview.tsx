@@ -3,7 +3,8 @@ import type { FooterItem, HeaderItem } from 'kehikot-module-protocol'
 
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import type { Appearance, Collapse } from '@/host/appearance.ts'
+import { collapseFor, type Appearance, type Collapse } from '@/host/appearance.ts'
+import { EXAMPLE_ID } from './appearanceExample.ts'
 import { fixedFooter } from '@/host/footerStore.ts'
 import type { Pressed, Pressing } from '@/host/header.ts'
 import { LONG_PRESS_MS, rowsHide, type FoldRows, type ShowRows } from '@/host/rows.ts'
@@ -213,7 +214,7 @@ function Example({ now, peek, which, name, icon }: { now: Appearance; peek: Peek
           <FoldControl
             collapsed={collapsed}
             tiled={tiled}
-            makes={now.collapse}
+            makes={collapseFor(now, EXAMPLE_ID)}
             foldedBy={null}
             rows={foldRows}
             onCollapse={(fold) => setShut(fold ? 'fold' : null)}

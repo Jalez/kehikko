@@ -560,7 +560,7 @@ export function SettingsBody({
                   <About onClose={onClose} />
                 ) : key === 'appearance' ? (
                   /* Only while it is shown, like Modules: its controls are nobody else's to find. */
-                  shown === 'appearance' ? <AppearanceSettings onChange={onChange} /> : null
+                  shown === 'appearance' ? <AppearanceSettings onChange={onChange} modules={modules} /> : null
                 ) : key === 'trackers' ? (
                   <TrackersSection
                     door={trackers}

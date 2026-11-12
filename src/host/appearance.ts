@@ -50,13 +50,24 @@ export type Border = (typeof BORDERS)[number]
 export const COLLAPSES = ['fold', 'tile'] as const
 export type Collapse = (typeof COLLAPSES)[number]
 
+/** The choice itself: one answer for every container, or `each` — the module's own, in `collapseEach`. */
+export const COLLAPSE_CHOICES = ['fold', 'tile', 'each'] as const
+export type CollapseChoice = (typeof COLLAPSE_CHOICES)[number]
+
+/** Each module's own answer, by module id. A module not in it takes `collapseBase`. */
+export type CollapseEach = Readonly<Record<string, Collapse>>
+
 export interface Appearance {
   /** When every container's header and footer show. */
   rows: ShowRows
   /** How far a fold goes: the header (1), or the header and the footer where the host draws one (2). */
   foldRows: FoldRows
-  /** What the collapse button does: folds to the header, or makes a tile. */
-  collapse: Collapse
+  /** What the collapse button does: folds to the header, makes a tile, or is decided per module (`each`). */
+  collapse: CollapseChoice
+  /** With `collapse: 'each'`: each module's answer, by id. */
+  collapseEach: CollapseEach
+  /** Whichever of fold and tile was picked last (or fold): what a module not in `collapseEach` does. */
+  collapseBase: Collapse
   theme: ThemeChoice
   border: Border
   /** On: the card surface behind the chrome and the module's page. Off: transparent over the canvas. */
@@ -64,7 +75,7 @@ export interface Appearance {
 }
 
 /** Headers drawn, dark, one-row folds, rounded borders, the card surface: what the app looked like before this tab. */
-export const APPEARANCE_DEFAULT: Appearance = { rows: 'always', foldRows: 1, collapse: 'fold', theme: 'dark', border: 'rounded', background: true }
+export const APPEARANCE_DEFAULT: Appearance = { rows: 'always', foldRows: 1, collapse: 'fold', collapseEach: {}, collapseBase: 'fold', theme: 'dark', border: 'rounded', background: true }
 
 export type AppearancePatch = Partial<Appearance>
 
@@ -73,10 +84,20 @@ const one = <T extends string | number>(list: readonly T[], value: unknown): val
 const FIELDS: { [K in keyof Appearance]: (value: unknown) => value is Appearance[K] } = {
   rows: (value): value is ShowRows => one(SHOW_ROWS, value),
   foldRows: (value): value is FoldRows => one(FOLD_ROWS, value),
-  collapse: (value): value is Collapse => one(COLLAPSES, value),
+  collapse: (value): value is CollapseChoice => one(COLLAPSE_CHOICES, value),
+  collapseEach: (value): value is CollapseEach =>
+    !!value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every((one_) => one(COLLAPSES, one_)),
+  collapseBase: (value): value is Collapse => one(COLLAPSES, value),
   theme: (value): value is ThemeChoice => one(THEME_CHOICES, value),
   border: (value): value is Border => one(BORDERS, value),
   background: (value): value is boolean => typeof value === 'boolean',
+}
+
+/** What the ^ button makes of one module: the module's own answer under `each`, else the one answer. */
+export function collapseFor(appearance: Pick<Appearance, 'collapse' | 'collapseEach' | 'collapseBase'>, moduleId: string | undefined): Collapse {
+  if (appearance.collapse !== 'each') return appearance.collapse
+  const own = moduleId === undefined || !Object.hasOwn(appearance.collapseEach, moduleId) ? undefined : appearance.collapseEach[moduleId]
+  return own ?? appearance.collapseBase
 }
 
 /** A stored value, whole: each field it got right, the default for the rest. */
@@ -169,6 +190,13 @@ export const COLLAPSE_SAID: Readonly<Record<Collapse, { label: string; line: str
     line: 'The container becomes a small square: its icon, its name and what its footer says. Restore puts it back as it was.',
   },
 }
+
+/** The third answer to "The ^ button on a container:", and the words over its list. */
+export const EACH_SAID = {
+  label: 'Decide per module',
+  line: 'Each module gets its own choice, below: fold it, or make it a tile.',
+  list: 'What ^ does in each module:',
+} as const
 
 export const THEME_SAID: Readonly<Record<ThemeChoice, string>> = { system: 'System', light: 'Light', dark: 'Dark' }
 

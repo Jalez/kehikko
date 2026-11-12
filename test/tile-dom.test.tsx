@@ -246,6 +246,6 @@ describe('Settings › Appearance', () => {
     const tile = group.querySelector<HTMLButtonElement>('[data-choice="tile"]')!
     await act(async () => tile.click())
     expect(store.get().collapse).toBe('tile')
-    expect(saved).toEqual([{ appearance: { collapse: 'tile' } }])
+    expect(saved).toEqual([{ appearance: { collapse: 'tile', collapseBase: 'tile' } }])
   })
 })

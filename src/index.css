@@ -494,8 +494,8 @@ html[data-container-border='dashed'] .container-frame:not([data-picked]) {
   border-style: dashed;
 }
 
-html[data-container-background='off'] .container-frame .container-grip,
-html[data-container-background='off'] .container-frame .container-footer,
+/* Only the body (the module's page) goes transparent. The header and footer rows keep their
+   opaque card surface: they overlay the page in the reveal modes and must stay readable. */
 html[data-container-background='off'] [data-frame] > iframe {
   background-color: transparent;
 }

@@ -54,3 +54,31 @@ describe('the frame', () => {
     expect(css).toMatch(/html\[data-container-background='off'\] \[data-frame\] > iframe/)
   })
 })
+
+describe('the rows keep their surface', () => {
+  const css = readFileSync(join(import.meta.dir, '..', 'src', 'index.css'), 'utf8')
+  const read = (file: string) => readFileSync(join(import.meta.dir, '..', 'src', 'canvas', file), 'utf8')
+
+  test('no rule under background off clears a header or footer row', () => {
+    const rules = css.split('}').filter((rule) => rule.includes("data-container-background='off'"))
+    expect(rules.length).toBeGreaterThan(0)
+    for (const rule of rules) {
+      expect(rule).not.toContain('.container-grip')
+      expect(rule).not.toContain('.container-footer')
+      expect(rule).not.toContain('.container-reveal')
+    }
+    expect(css).toMatch(/html\[data-container-background='off'\] \[data-frame\] > iframe \{\s*background-color: transparent;/)
+  })
+
+  test('the header and footer rows paint an opaque card surface', () => {
+    expect(read('FooterBar.tsx')).toMatch(/container-footer bg-card /)
+    expect(read('Container.tsx')).toMatch(/container-grip[^'`]*bg-card|bg-card[^'`]*container-grip/)
+    expect(read('AppearancePreview.tsx')).toMatch(/container-grip bg-card/)
+  })
+
+  test('the preview body is transparent when off and its rows are still solid', () => {
+    const preview = read('AppearancePreview.tsx')
+    expect(preview).toContain("now.background ? 'bg-card' : ''")
+    expect(preview).toMatch(/container-grip bg-card/)
+  })
+})
