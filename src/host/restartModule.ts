@@ -1,3 +1,4 @@
+import { decide } from './pageLog.ts'
 import type { Presence } from './registry.ts'
 
 /**
@@ -50,6 +51,13 @@ export function restartable(presence: Pick<Presence, 'run' | 'dir' | 'reached'>)
 export type RestartAnswer = { ok: true } | { ok: false; why: string; detail: string[]; busy?: true }
 
 export async function askRestart(id: string): Promise<RestartAnswer> {
+  decide('press', `restart ${id} pressed`)
+  const answer = await restartAsked(id)
+  decide('press', `restart ${id}: ${answer.ok ? 'done' : `not done: ${answer.why}`}`)
+  return answer
+}
+
+async function restartAsked(id: string): Promise<RestartAnswer> {
   const response = await fetch('/host/restart-module', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

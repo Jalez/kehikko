@@ -1,3 +1,4 @@
+import { decide } from './pageLog.ts'
 import type { ModuleCondition } from 'kehikot-module-protocol'
 
 import type { Presence } from './registry.ts'
@@ -147,6 +148,14 @@ export function runControl(presence: Pick<Presence, 'run' | 'dir' | 'reached' | 
 export type StopAnswer = { ok: true } | { ok: false; why: string }
 
 async function post(route: string, id: string): Promise<StopAnswer> {
+  const what = route === '/host/stop-module' ? 'stop' : 'start'
+  decide('press', `${what} ${id} pressed`)
+  const answer = await sent(route, id)
+  decide('press', `${what} ${id}: ${answer.ok ? 'done' : `not done: ${answer.why}`}`)
+  return answer
+}
+
+async function sent(route: string, id: string): Promise<StopAnswer> {
   const response = await fetch(route, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

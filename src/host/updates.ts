@@ -1,3 +1,4 @@
+import { decide } from './pageLog.ts'
 import { z } from 'zod'
 
 import { buildDetailsSchema, buildToldSchema, type BuildDetails, type BuildTold } from './moduleBuilds.ts'
@@ -382,12 +383,15 @@ async function restarted(response: Response): Promise<NotRestarted | null> {
  * with the last it printed when the host has that.
  */
 export async function restartModule(id: string): Promise<NotRestarted | null> {
+  decide('press', `start ${id} pressed again after an update`)
   const response = await fetch('/host/start', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ module: id }),
   })
-  return restarted(response)
+  const not = await restarted(response)
+  decide('press', `start ${id}: ${not ? 'not done' : 'done'}`)
+  return not
 }
 
 /** A first press the server is holding: what it says will be stopped and lost, and for how long it stands. */

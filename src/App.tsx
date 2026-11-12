@@ -43,6 +43,7 @@ import { Container } from './canvas/Container.tsx'
 import { Absent } from './canvas/Arriving.tsx'
 import { rememberedModules, rememberModules } from './host/arriving.ts'
 import { tellStartup } from './host/startupReport.ts'
+import { decide } from './host/pageLog.ts'
 import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
 import { Followed } from './canvas/Followed.tsx'
@@ -491,6 +492,11 @@ export function App() {
    */
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number | null>(null)
+  /* The page log's line for every project or kehikko switch, by id (`host/pageLog.ts`). */
+  useEffect(() => {
+    if (projectId === null && openId === null) return
+    decide('switch', `showing project ${projectId ?? 'none'}, kehikko ${openId ?? 'none'}`)
+  }, [projectId, openId])
   /* Which project's folder is being located ("Locate…"), or null. See `Locate.tsx`. */
   const [locating, setLocating] = useState<number | null>(null)
   /* Read the projects and the kehikot again, when the server says a project was

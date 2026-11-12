@@ -324,6 +324,7 @@ describe('the host’s server, running', () => {
         'propose_adoption',
         'read_canvas',
         'read_inbox',
+        'read_logs',
         'read_tracker',
         'select_modules',
         'set_my_place',

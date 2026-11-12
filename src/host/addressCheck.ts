@@ -1,4 +1,5 @@
 import { stableEntry } from './moduleAddress.ts'
+import { decide } from './pageLog.ts'
 
 /**
  * Whether THIS page frames modules on their stable frame addresses (`moduleAddress.ts`).
@@ -35,15 +36,41 @@ interface Said {
   check?: { url?: unknown; host?: unknown }
 }
 
-/** Find out, once per page. Never throws; resolves when it is known. */
-export function checkAddresses(fetchImpl: typeof fetch = fetch): Promise<State> {
+/**
+ * Find out, once per page. Never throws; resolves when it is known.
+ *
+ * Its result goes to the page log (`pageLog.ts`, area `addresses`): usable or
+ * not, why not, how long the check took and its timeout — the line that was
+ * missing when a page framed its modules on their ports and nobody could say why.
+ */
+export function checkAddresses(fetchImpl: typeof fetch = fetch, log: (area: string, message: string) => void = decide, clock: () => number = () => Date.now()): Promise<State> {
   if (state) return Promise.resolve(state)
+  const started = clock()
   checking ??= run(fetchImpl).then((found) => {
     state = found
+    log('addresses', checkedLine(found, clock() - started))
     if (!found.usable && found.why) tell(found.why, fetchImpl)
     return found
   })
   return checking
+}
+
+/** The page log's line for a finished check. */
+export function checkedLine(found: State, ms: number): string {
+  const took = `after ${Math.round(ms)} ms (timeout ${CHECK_TIMEOUT_MS} ms)`
+  if (found.usable) return `stable addresses usable: the check address answered as this host ${took}; frames go on /m/<id>/ addresses`
+  return `stable addresses not used ${took}; frames stay on their modules' own ports: ${found.why ?? 'the host has them off, or did not say'}`
+}
+
+/**
+ * Why a module's frame is at the address it is, for the page log (`frames`). `module` is as the
+ * host's reading had it, before `framedOn`.
+ */
+export function whyFramed(module: { address?: string }): string {
+  if (!module.address) return 'its own port: the host gave this module no stable address'
+  if (state?.usable) return 'its stable address: the check passed'
+  if (!state) return 'its own port: the stable-address check has not finished'
+  return `its own port: ${state.why ?? 'stable addresses are off on this host'}`
 }
 
 async function run(fetchImpl: typeof fetch): Promise<State> {

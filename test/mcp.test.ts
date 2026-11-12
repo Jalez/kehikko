@@ -127,6 +127,7 @@ describe('the door says what it is and what it offers', () => {
       'propose_adoption',
       'read_canvas',
       'read_inbox',
+      'read_logs',
       'read_tracker',
       'select_modules',
       'set_my_place',

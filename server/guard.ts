@@ -198,6 +198,8 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/pinned-places',
   '/host/module-addresses/check',
   '/host/startup',
+  '/host/log',
+  '/host/logs/open',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+/* First: the host's own log captures everything after it (`hostLogStart.ts`). */
+import { hostLog } from './hostLogStart.ts'
 import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
@@ -159,6 +161,10 @@ import { mentionsDesk, releasesIn } from './whatsNewMentions.ts'
 import { APP_ITEM } from '../src/host/whatsNew.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
+import { fromThePage } from './traffic.ts'
+import { PageLog, BODY_MAX as PAGE_LOG_BODY_MAX } from './pageLog.ts'
+import { diagnostics, readLogs } from './readLogs.ts'
+import { logsDir } from './machineDirs.ts'
 import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
 import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
@@ -265,6 +271,24 @@ const OWN = ownAddress(process.env, PORT, PAGE_ORIGINS)
    folder under a project's `.kehikot/` is named for — comes from `kehikot.ts`,
    so the door and the folder cannot drift apart. */
 const HOST_VERSION: string = pkg.version
+
+/* The page's log (`pageLog.ts`), written at `POST /host/log`. */
+const pageLog = new PageLog()
+
+/** What "Copy recent diagnostics" says first: which app, host, protocol and process this is. */
+function diagnosticFacts(): Record<string, string | number | boolean | null> {
+  return {
+    app: process.env.KEHIKKO_APP_VERSION ?? null,
+    host: HOST_VERSION,
+    protocol: PACKAGE_VERSION,
+    runtime: `bun ${Bun.version}`,
+    platform: `${process.platform} ${process.arch}`,
+    pid: process.pid,
+    port: PORT,
+    bundled: BUNDLED,
+    logs: logsDir(),
+  }
+}
 
 /** How often a missing project's bookmark is asked where its folder went. */
 const FOLLOW_EVERY_MS = 5_000
@@ -3968,6 +3992,7 @@ const serving = {
 
 const server = Bun.serve<SocketData>({ hostname: '127.0.0.1', port: PORT, ...serving })
 startup.mark('listening')
+hostLog.started({ app: process.env.KEHIKKO_APP_VERSION ?? null, host: HOST_VERSION, protocol: PACKAGE_VERSION, pid: process.pid, port: PORT, bundled: BUNDLED, runtime: `bun ${Bun.version}, ${process.platform}` })
 listeners.push(server)
 
 /*
@@ -4000,6 +4025,41 @@ async function answerRequest(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => null)) as { ok?: unknown; why?: unknown } | null
       moduleAddresses.checked(body?.ok === true, typeof body?.why === 'string' ? body.why : null)
       return json({ ok: true })
+    }
+
+    /* The page's log (`pageLog.ts`): its console warnings and errors and its decisions, batched. The page's alone. */
+    if (url.pathname === '/host/log' && request.method === 'POST') {
+      if (!fromThePage(request, OWN.origins)) return json({ ok: false, error: 'Only this host’s own page writes its log. Nothing was written.' }, 403)
+      if (Number(request.headers.get('content-length') ?? '0') > PAGE_LOG_BODY_MAX) return json({ ok: false, error: `At most ${PAGE_LOG_BODY_MAX} bytes a request.` }, 413)
+      const taken = pageLog.take(await request.text())
+      return taken.ok ? json(taken) : json({ ok: false, error: taken.why }, taken.status)
+    }
+    /* "Copy recent diagnostics" (Settings › About): versions and the last lines of the host's and the page's logs, scrubbed (`readLogs.ts`). */
+    if (url.pathname === '/host/diagnostics' && request.method === 'GET') {
+      const text = diagnostics(diagnosticFacts())
+      return new Response(text, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } })
+    }
+    /* The last lines of one log, for the page (the same reading as `read_logs`). */
+    if (url.pathname === '/host/logs' && request.method === 'GET') {
+      const read = readLogs({
+        which: url.searchParams.get('which') ?? 'host',
+        module: url.searchParams.get('module') ?? undefined,
+        since: url.searchParams.get('since') ?? undefined,
+        grep: url.searchParams.get('grep') ?? undefined,
+        lines: url.searchParams.has('lines') ? Number(url.searchParams.get('lines')) : undefined,
+      })
+      return read.ok ? json({ ok: true, file: read.file, lines: read.lines }) : json({ ok: false, error: read.why }, 400)
+    }
+    /* "Open logs folder" (Settings › About): the folder, in the system's file browser. The page's alone. */
+    if (url.pathname === '/host/logs/open' && request.method === 'POST') {
+      const dir = logsDir()
+      try {
+        mkdirSync(dir, { recursive: true })
+        Bun.spawn(process.platform === 'darwin' ? ['open', dir] : ['xdg-open', dir], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
+        return json({ ok: true, dir })
+      } catch (error) {
+        return json({ ok: false, error: `The logs folder could not be opened (${(error as Error).message}). It is ${dir}.`, dir }, 500)
+      }
     }
 
     /* What is registered, and what the host made of each of them. The page asks

@@ -114,6 +114,28 @@
   test that moves one of those variables restores what it found — never
   `delete`. A new machine-level location goes in that file's `LOCATIONS`.
 
+## Kehikot's own logs
+
+- Three kinds, all under `logsDir()` (`~/Library/Logs/Kehikot/`, `KEHIKOT_LOGS_DIR`):
+  `host.log` (`server/hostLog.ts`: this process's console, uncaught errors and
+  rejections, a start line with versions, pid and port), `page.log`
+  (`server/pageLog.ts`, written at `POST /host/log`) and `modules/<id>.log`
+  (`server/moduleLog.ts`). The two own logs rotate at 5 MB, three files each.
+- One line shape, spelled once in `src/host/logLine.ts`: ISO time, level, `[area]`,
+  message. Scrubbed (`redact`) on the page, at the host as it is written, and
+  again as it is read back.
+- Never log a token, password, cookie, header value, request body or module
+  content (a document's text, a message). Log ids, origins and paths — an
+  address through `addressOnly`, never with its query.
+- The page's decisions go through `decide(area, message)` (`src/host/pageLog.ts`):
+  `addresses` (the stable-address check), `frames` (each frame's address and why,
+  a frame followed to a moved module), `quiet`, `switch`, `press`. A new decision
+  worth tracing afterwards is a `decide` line, not a `console.log`.
+- `/host/log` and `/host/logs/open` are `PAGE_ONLY`; `/host/log` also checks
+  `fromThePage` and is bounded (64 KB a body, 100 lines a request, 1000 characters
+  a line, 300 lines a minute). `read_logs` at the door and `GET /host/diagnostics`
+  only read; they name a file by kind (host, page, a module id), never by path.
+
 ## Browser tests run on bee
 
 - Browsers (Playwright's Chromium, its headless shell, WebKit) start only on bee,

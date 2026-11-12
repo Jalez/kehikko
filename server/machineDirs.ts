@@ -113,6 +113,24 @@ export function logsDir(env: Env = process.env, platform: string = process.platf
 }
 
 /**
+ * The host's own log: what this process printed (its `console`), its uncaught
+ * errors and a start line — see `server/hostLog.ts`. Beside the modules' logs
+ * in `logsDir()`, so `KEHIKOT_LOGS_DIR` moves it with them.
+ */
+export function hostLogFile(env: Env = process.env, platform: string = process.platform): string {
+  return join(logsDir(env, platform), 'host.log')
+}
+
+/**
+ * The page's log: the canvas page's console warnings and errors, its uncaught
+ * errors and the decisions it made (which address a frame got, and why), told
+ * to this host at `POST /host/log` — see `server/pageLog.ts`. Beside `hostLogFile`.
+ */
+export function pageLogFile(env: Env = process.env, platform: string = process.platform): string {
+  return join(logsDir(env, platform), 'page.log')
+}
+
+/**
  * Where modules installed from the app are cloned — official ones and the
  * person's own (`myModulesFile`): one checkout per module id, `installed/<id>/` — see `server/installs.ts`. Machine-level for
  * `versionsDir`'s reason: it is program code, and it must never land in
