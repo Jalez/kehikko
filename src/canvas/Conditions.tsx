@@ -3,6 +3,7 @@ import type { ModuleCondition } from 'kehikot-module-protocol'
 
 import { cn } from '@/lib/utils'
 import { coverSentence, type Waiting } from '@/host/standing.ts'
+import { dotOf, type RunLook, type RunShape } from '@/host/runState.ts'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { StepProgress, useJob } from './StepProgress.tsx'
 
@@ -56,39 +57,49 @@ import { StepProgress, useJob } from './StepProgress.tsx'
 /** What the host has lately done, when it has done anything. See the essay above. */
 export type Lifecycle = 'starting' | 'installing' | 'updating' | 'restarting' | 'asleep'
 
-const dots: Record<ModuleCondition, string> = {
-  ready: 'bg-emerald-400',
-  incompatible: 'bg-amber-400',
-  silent: 'bg-neutral-500',
-}
-
 /**
- * The dot for a module the host put to sleep or has just run.
+ * The dot, and what it says in words.
  *
- * Dimmer than `silent` for asleep, because it is the one state on this canvas
- * that is working as intended, and a pulse for starting, because it is the one
- * that is about to change on its own. Neither is a colour: `silent` is already
- * the absence of one, and asleep is less than that rather than other than it.
+ * The meaning is `runStateOf` in `host/runState.ts`: green and a filled disc is "Running" and only
+ * that; a pulsing grey disc is "Starting…"; a grey ring is asleep (it starts when a kehikko uses it);
+ * a grey square is stopped or simply not running; an amber diamond is "Not answering"; a dashed ring is
+ * "Not installed". The tooltip and the aria-label are the same sentence, so it is never colour alone.
  */
-const WAITING = 'bg-neutral-400 animate-pulse'
-const lifecycles: Record<Lifecycle | 'loading', string> = {
-  starting: WAITING,
-  installing: WAITING,
-  updating: WAITING,
-  restarting: WAITING,
-  loading: WAITING,
-  asleep: 'bg-neutral-600',
+const SHAPE_CLASS: Record<RunShape, string> = {
+  disc: 'size-1.5 rounded-full',
+  ring: 'size-2 rounded-full border',
+  square: 'size-1.5 rounded-[1px]',
+  diamond: 'size-1.5 rotate-45 rounded-[1px]',
+  dashed: 'size-2 rounded-full border border-dashed',
 }
 
-export function ConditionDot({ condition, lifecycle }: { condition: ModuleCondition; lifecycle?: Lifecycle | 'loading' }) {
-  const said = lifecycle ?? condition
+export function ConditionDot({
+  condition,
+  lifecycle,
+  reached,
+  stopped,
+}: {
+  condition: ModuleCondition
+  lifecycle?: Lifecycle | 'loading'
+  reached?: boolean
+  stopped?: boolean
+}) {
+  const look = dotOf({ condition, lifecycle, reached, stopped })
+  return <RunDot look={look} condition={condition} lifecycle={lifecycle} />
+}
+
+/** A dot for a state already decided, such as "Not installed" on a module not on this machine. */
+export function RunDot({ look, condition, lifecycle }: { look: RunLook; condition?: ModuleCondition; lifecycle?: string }) {
   return (
     <span
-      title={said}
-      aria-label={said}
+      title={look.label}
+      aria-label={look.label}
+      role="img"
+      data-run-state={look.state}
+      data-shape={look.shape}
       data-condition={condition}
       data-lifecycle={lifecycle ?? undefined}
-      className={cn('size-1.5 shrink-0 rounded-full', lifecycle ? lifecycles[lifecycle] : dots[condition])}
+      className={cn('shrink-0', SHAPE_CLASS[look.shape], look.colour)}
     />
   )
 }

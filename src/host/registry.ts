@@ -149,6 +149,11 @@ export interface Presence {
    * `server/lifecycle.ts`.
    */
   lifecycle?: 'starting' | 'installing' | 'updating' | 'restarting' | 'asleep'
+  /**
+   * A person stopped it from the modules menu and has not pressed Start since: the host does not
+   * start it by itself. Set only while nothing answers; absent from an older host.
+   */
+  stopped?: true
   /** When this host started the process that is there, in ms; absent for one it did not start. */
   run?: number
   /** The last lines a module the host started printed, when that start failed. */

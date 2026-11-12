@@ -266,6 +266,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/sounds/rename',
       '/host/startup',
       '/host/steps/cancel',
+      '/host/stop-module',
       '/host/storage',
       '/host/trackers',
       '/host/uninstall',
