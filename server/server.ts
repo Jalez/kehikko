@@ -3767,6 +3767,9 @@ const moduleProxy = new ModuleProxy({
     }
     return { origin, token: nursery.tokenOf(wanted.id) }
   },
+  /* An agent's request at a module's MCP door is held while this host brings the module up: a
+     start, a restart or an update it is running, or somebody else's restart it gives time to. */
+  starting: (id) => isStarting(id, Date.now()) || theirs.has(id),
 })
 
 /**
