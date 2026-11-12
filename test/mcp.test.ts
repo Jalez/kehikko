@@ -102,9 +102,13 @@ describe('the door says what it is and what it offers', () => {
        dismiss, which moves nothing — see `test/offer-jump.test.ts`. And one
        proposes where a tracker item no epic names belongs, which the person
        confirms or not, and adopts nothing — see `test/adoption.test.ts`. And one
+       resizes, moves and shows containers on the conversation's own kehikko,
+       because the person asked for it: marked with Undo, which restores the
+       arrangement before — see `test/arrange.test.ts`. Removing stays absent. And one
        edits the tree of spaces through the writer the space picker uses, the
        parts' writer one level up and down — see `test/spaces.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'arrange_modules',
       'create_epic',
       'edit_space',
       'fold_modules',

@@ -5,6 +5,7 @@ import { EPIC_SLUG, LIMITS, MODULE_ID, MODULE_SCOPES, contentSignalSchema, isWeb
 import { projectSchema, type Project } from './projects.ts'
 import { subjectsSchema, type Subjects } from './subject.ts'
 import { foldNoteIn, type FoldNote } from './folds.ts'
+import { arrangeNoteIn, type ArrangeNote } from './arrange.ts'
 import { arranged, dragged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
@@ -515,6 +516,21 @@ export function reportOpen(kehikko: number | null, { again = false }: { again?: 
 }
 
 /**
+ * Say that the person started (`true`) or ended (`false`) a drag or a resize on `kehikko`, so no
+ * agent's `arrange_modules` lands under their hand (`server/arranging.ts`). Said with `false` only
+ * once what the hand left is stored. A failed word is not retried: the host forgets a "started"
+ * by itself after a while.
+ */
+export function reportArranging(kehikko: number, arranging: boolean): void {
+  void fetch('/host/arranging', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ page: pageId(), kehikko, arranging }),
+    keepalive: true,
+  }).catch(() => {})
+}
+
+/**
  * The last report this page made, so one said again on focus, on `pageshow` and by React's
  * StrictMode in development is not sent again. Said anew after `REASSERT_MS`: the server believes
  * a report for half a day (`server/open.ts`), and a page open longer than that says it again.
@@ -563,7 +579,7 @@ export function watchCanvases(
    * A kehikko changed under this page. With a note when what changed is a
    * fold somebody other than the person made — see `folds.ts`.
    */
-  woke: (kehikko: number, folded: FoldNote | null) => void,
+  woke: (kehikko: number, folded: FoldNote | null, arranged?: ArrangeNote | null) => void,
   /**
    * What is registered or answering changed: look again — or, with the reading the host sent
    * with the news (`{ registry: true, modules }`), take that instead of asking for it.
@@ -691,7 +707,7 @@ export function watchCanvases(
       const parsed: unknown = JSON.parse(event.data)
       const id = (parsed as { kehikko?: unknown })?.kehikko
       if (typeof id === 'number' && Number.isInteger(id)) {
-        woke(id, foldNoteIn((parsed as { folded?: unknown }).folded))
+        woke(id, foldNoteIn((parsed as { folded?: unknown }).folded), arrangeNoteIn((parsed as { arranged?: unknown }).arranged))
       }
       /* Checked for `=== true` rather than for truthiness, so that a future
          server sending something else under this name is news this page does

@@ -78,8 +78,9 @@ const entrySchema = z.object({
 export type Official = z.infer<typeof entrySchema>
 
 /**
- * A module taken off the list for good: apps that read it remove the module from the machine
- * (`retired.ts`). `name` and `says` are the words the person is told in the Inbox. Read with the
+ * A module taken off the list for good: apps that read it never offer it, and say so wherever
+ * it is still here (`retired.ts`); nothing is removed without a press. `name` and `says` are the
+ * words the person is told, `replacedBy` the module that took its place. Read with the
  * same leniency as `layouts`: a list without the key has none, and an entry this host cannot read
  * is dropped alone; an older host never sees the key at all.
  */
@@ -87,6 +88,8 @@ const retiredSchema = z.object({
   id: z.string().regex(MODULE_ID).refine((id) => !id.startsWith('.')),
   name: z.string().min(1).max(LIMITS.NAME),
   says: z.string().min(1).max(300),
+  /** The module that took its place, when one did: the page offers to swap a container for it. */
+  replacedBy: z.string().regex(MODULE_ID).refine((id) => !id.startsWith('.')).optional(),
 })
 export type Retired = z.infer<typeof retiredSchema>
 

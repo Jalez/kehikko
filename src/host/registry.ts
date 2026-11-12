@@ -181,6 +181,13 @@ export interface Presence {
    * not running. See `attention` in `moduleMenu.ts`.
    */
   reached?: boolean
+  /**
+   * The official list retired this module: its words, and the module that took its place when the
+   * list names one. Set whatever the directory is; nothing is removed until a press.
+   */
+  /** A checkout somebody registered, not a copy this host installed: Uninstall unregisters it and deletes nothing. */
+  own?: true
+  retired?: { says: string; successor?: { id: string; name: string } }
   /** Where the registration says the program lives, when it says. */
   dir?: string
   module?: FramedModule

@@ -242,3 +242,25 @@ export function attention(presence: Presence): string | null {
   if (presence.lifecycle || !presence.reached) return null
   return `${presence.line} Check what is running at ${presence.at}, then start the module again.`
 }
+
+/**
+ * What the "Deprecated" badge says on hover: "Replaced by <successor>." when the official list names
+ * the module that took its place, else the list's own words. Null for a module the list did not retire.
+ * Every word is the list's — the host names no module.
+ */
+export function deprecatedSaid(presence: Pick<Presence, 'retired'>): string | null {
+  const retired = presence.retired
+  if (!retired) return null
+  return retired.successor ? `Replaced by ${retired.successor.name}.` : retired.says
+}
+
+/**
+ * What Uninstall asks before it acts, in one sentence that says what happens. A copy Kehikot installed is
+ * deleted; a checkout the person registered is only unregistered ("Unregister"), their folder stays.
+ * Either way it comes off every kehikko it is on, and what it kept in the projects stays.
+ */
+export function uninstallSaid(name: string, own: boolean): string {
+  return own
+    ? `Unregister ${name} from this computer? It is taken off every kehikko it is on. Your own folder is not deleted, and what it kept in your projects stays.`
+    : `Uninstall ${name} from this computer? It is taken off every kehikko it is on and the copy Kehikot installed is deleted. What it kept in your projects stays.`
+}

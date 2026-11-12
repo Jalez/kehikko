@@ -223,6 +223,7 @@ describe('the running server and where a request came from', () => {
       { method: 'POST', path: '/host/mine/install', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/mine/remove', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/mine/adopt', body: { module: 'kehikot.nothing' } },
+      { method: 'POST', path: '/host/uninstall', body: { module: 'kehikot.nothing' } },
       { method: 'POST', path: '/host/no-such-route', body: {} },
       { method: 'POST', path: '/mcp', body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_epic', arguments: { project, title: 'From elsewhere' } } } },
       { method: 'PUT', path: '/', body: {} },
@@ -330,6 +331,7 @@ describe('the running server and where a request came from', () => {
     expect((await pressed('POST', '/host/mine/install', { module: 'kehikot.nothing' })).status).toBe(404)
     expect((await pressed('POST', '/host/mine/remove', { module: 'kehikot.nothing' })).status).toBe(404)
     expect((await pressed('POST', '/host/mine/adopt', { module: 'kehikot.nothing' })).status).toBe(404)
+    expect((await pressed('POST', '/host/uninstall', { module: 'kehikot.nothing' })).status).toBe(404)
     expect(existsSync(at('my-modules.json'))).toBe(false)
     expect((await pressed('POST', '/host/no-such-route', {})).status).toBe(404)
 

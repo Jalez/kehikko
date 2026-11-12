@@ -614,7 +614,7 @@ these tools:
 
 | tool | what it does |
 |---|---|
-| `read_canvas` | what is arranged on a kehikko: the containers, which are picked out, the project folder and the epic, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
+| `read_canvas` | what is arranged on a kehikko: the containers with each one's column, row, width and height, which are picked out, the project folder and the epic, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
 | `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/host/epics/<slug>.json` — without opening it |
@@ -622,6 +622,7 @@ these tools:
 | `read_tracker` | the project's shared tracker reading |
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
 | `fold_modules` | fold containers to their headers, make them tiles, or unfold them (a tile is put back at the size and place it had), on a kehikko a page has open; marked on the container as an agent's doing |
+| `arrange_modules` | resize, move and show containers on the conversation's OWN kehikko — `{ containers: [{ module, size? (small, half, wide, full) or columns?, rows?, column?, row? }], show? }` — by the rules a person's drag is made by; never another kehikko, never while the person is dragging or resizing, at most ten changes a minute; marked on the containers with **Undo**, which restores the arrangement before exactly |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
 | `jump` | jump the person's view when they ask — `{ project?, kehikko?, epic?, parts?, step? }`, what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
 | `offer_jump` | offer to take the person somewhere they did not ask to see — `{ why, project?, kehikko?, epic?, parts?, step? }`, jump's targets — as one item in their Inbox with **Take me there**; it moves nothing, a new offer replaces the session's last, and the person takes (with Go back) or dismisses it |
@@ -630,9 +631,10 @@ All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
 said or when two browser windows have two different ones open.
 
-The door can ADD and cannot take away: no tool removes, moves or resizes a
-container, and only `jump` moves the view — when the person asks for it, marked
-with Go back. The arrangement
+The door can ADD and cannot take away: no tool removes a container. On the
+conversation's own kehikko it may add, show, fold, tile, resize and move
+containers, each change marked and undone with one press; and only `jump`
+moves the view — when the person asks for it, marked with Go back. The arrangement
 belongs to the person looking at it, and what an agent may add is what they
 can see arrive and take off with one press — a container, or an epic in the
 dropdown. `place_modules` refuses rather than squeeze a container somebody

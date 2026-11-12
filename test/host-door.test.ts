@@ -305,8 +305,9 @@ describe('the host’s server, running', () => {
       expect(door.agent.kind).toBe('told')
       expect(door.tools.ok).toBe(true)
       expect(door.tools.tools?.map((t) => t.name).sort()).toEqual([
+        'arrange_modules',
         'create_epic',
-      'edit_space',
+        'edit_space',
         'fold_modules',
         'jump',
         'kehikko_skills',
