@@ -28,6 +28,7 @@ import {
   elsewhere,
   placeSaid,
   suggestEpic,
+  taskAgentFor,
   toBring,
   untrackedSaid,
   type BroughtOne,
@@ -82,8 +83,11 @@ export interface AdoptionDeps {
   providers(service: string, root: string): ServiceProvider[]
   /** A module's registered origin. */
   originOf(module: string): Promise<string | null>
-  /** The person's agent for Kehikot's own tasks: a module id, or null. */
-  tasksAgent(): string | null
+  /**
+   * The agent modules placed on a kehikko of the project, in order, and its chosen primary (Kehikko
+   * settings; null when none). Which of them does a task is `taskAgentFor`.
+   */
+  agentsOn(project: number, kehikko: string): { agents: string[]; primary: string | null; names?: Readonly<Record<string, string>> }
   /** An epic named one of the project's refs, or stopped: notices again, pages told. */
   changed(project: number): void
   fetch?: typeof fetch
@@ -124,7 +128,7 @@ export const ADOPTION_SAYS = {
   noItem: 'That names no tracker item Kehikot holds in this project.',
   noProject: 'That names no project of yours.',
   inEpic: 'A space names it already.',
-  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose a space yourself.',
+  noAgent: 'No agent module on this kehikko can find where it belongs. Add one to let it find the right space, or choose a space yourself.',
   nothingToUndo: 'There is nothing to undo for that item.',
 } as const
 
@@ -239,7 +243,27 @@ export class Adoption {
    * `inbox.adoption`: what the page needs to offer adopting one item. The candidates are asked of the
    * finders now; only titles and reasons go to the page.
    */
-  async adoption(project: number, module: string, id: string): Promise<InboxAdoptionResult> {
+  /**
+   * Which agent does the task on the kehikko the person is on (`taskAgentFor`): its primary, its only
+   * agent module, or the one that can; `choose` when two or more can and none is primary. Nothing at no
+   * kehikko.
+   */
+  taskAgent(
+    project: number,
+    root: string,
+    kehikko: string | null,
+  ): { agent: ServiceProvider | null; choose: ServiceProvider[]; update: { module: string; name: string }[] } | null {
+    if (!kehikko) return null
+    const providers = this.deps.providers(AGENT_TASKS, root)
+    const on = this.deps.agentsOn(project, kehikko)
+    const pick = taskAgentFor(on.agents, providers.map((one) => one.module), on.primary)
+    const named = (module: string) => providers.find((one) => one.module === module) ?? null
+    /* No agent there can: the ones that might after an update (an older version, before `agent.tasks`). */
+    const update = !pick.agent && !pick.choose.length ? on.agents.map((module) => ({ module, name: on.names?.[module] ?? module })) : []
+    return { agent: pick.agent ? named(pick.agent) : null, choose: pick.choose.flatMap((one) => named(one) ?? []), update }
+  }
+
+  async adoption(project: number, module: string, id: string, kehikko: string | null = null): Promise<InboxAdoptionResult> {
     const empty = (outcome: 'no-such-item' | 'declined', why: string): InboxAdoptionResult => ({
       outcome,
       why,
@@ -259,8 +283,8 @@ export class Adoption {
     const suggested = this.#suggest(root, seen, epics)
     const found = await this.#candidates(root, seen)
     const comes = new Set(toBring(found).map((one) => `${one.module}|${one.session}`))
-    const agentId = this.deps.tasksAgent()
-    const agent = agentId ? this.deps.providers(AGENT_TASKS, root).find((one) => one.module === agentId) : undefined
+    const picked = this.taskAgent(project, root, kehikko)
+    const agent = picked?.agent ?? null
     const proposal = this.#proposals.get(`${project}|${id}`) ?? null
     return {
       outcome: 'ok',
@@ -280,6 +304,9 @@ export class Adoption {
       suggested,
       conversations: found.map(({ place, ...one }) => ({ ...one, placed: placeSaid(place, titleOf), comes: comes.has(`${one.module}|${one.session}`) })),
       agent: agent ? { module: agent.module, name: agent.name } : null,
+      /* With no agent: the ones the person would choose between, or none there can (protocol 2.91.0). */
+      ...(picked && !agent ? { taskAgents: picked.choose.slice(0, 16).map((one) => ({ module: one.module, name: one.name.slice(0, LIMITS.TITLE) })) } : {}),
+      ...(picked?.update.length ? { agentsToUpdate: picked.update.slice(0, 16).map((one) => ({ module: one.module, name: one.name.slice(0, LIMITS.TITLE) })) } : {}),
       proposal: proposal ? { epic: proposal.epic, parts: proposal.parts, conversations: proposal.conversations, why: proposal.why } : null,
     }
   }
@@ -436,13 +463,13 @@ export class Adoption {
    * Start the person's agent for Kehikot's own tasks on one item: a NEW conversation fed the brief
    * (`adoptionBrief`), under no place until the adoption files it. Answers the page that shows it.
    */
-  async startTask(project: number, module: string, id: string): Promise<{ ok: true; module: string; name: string; session: string; view: string } | { ok: false; why: string; noAgent?: true }> {
+  async startTask(project: number, module: string, id: string, kehikko: string | null = null): Promise<{ ok: true; module: string; name: string; session: string; view: string } | { ok: false; why: string; noAgent?: true }> {
     const root = this.deps.pathOf(project)
     if (!root) return { ok: false, why: ADOPTION_SAYS.noProject }
-    const agentId = this.deps.tasksAgent()
-    const provider = agentId ? providerOf(AGENT_TASKS, this.deps.providers(AGENT_TASKS, root).filter((one) => one.module === agentId)) : null
+    const picked = this.taskAgent(project, root, kehikko)?.agent ?? null
+    const provider = picked ? providerOf(AGENT_TASKS, [picked]) : null
     if (!provider) return { ok: false, why: ADOPTION_SAYS.noAgent, noAgent: true }
-    const read = await this.adoption(project, module, id)
+    const read = await this.adoption(project, module, id, kehikko)
     if (read.outcome !== 'ok' || !read.item) return { ok: false, why: read.why || ADOPTION_SAYS.noItem }
     const brief = adoptionBrief({
       project: root,

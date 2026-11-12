@@ -18,7 +18,7 @@ const TREE: SpaceNode[] = [
  * The list itself, opened, in a DOM of its own process (the pattern of `onboarding-dom.test.tsx`).
  */
 const inChild = process.env.SPACE_PICKER_DOM === '1'
-const DOM_TESTS = 4
+const DOM_TESTS = 7
 
 if (!inChild) {
   test('the picker’s list, rendered in a process of its own', () => {
@@ -43,8 +43,20 @@ if (!inChild) {
     const { SpacePicker } = await import('../src/canvas/SpacePicker.tsx')
     const { TooltipProvider } = await import('../src/components/ui/tooltip.tsx')
     const { spaceHere } = await import('../src/host/spaces.ts')
+    const store = await import('../src/host/pickerStore.ts')
+    type Activity = import('../src/host/spaceRecency.ts').SpaceActivity
+    const sent: Array<{ url: string; body: unknown }> = []
+    globalThis.fetch = (async (url: string, init?: { body?: string }) => {
+      const body = init?.body ? JSON.parse(init.body) : undefined
+      sent.push({ url, body })
+      if (url === '/host/settings') return Response.json({ ok: true, picker: { projects: 'recent', epics: 'az', kehikot: 'recent', ...body?.picker } })
+      return Response.json({ ok: false })
+    }) as never
+    /* Thursday 12 November 2026, 15:00 local. */
+    const NOW = new Date(2026, 10, 12, 15, 0).getTime()
+    const HOUR = 3_600_000
 
-    function draw(here = spaceHere(TREE, { epic: 'auth', parts: ['login'] })) {
+    function draw(here = spaceHere(TREE, { epic: 'auth', parts: ['login'] }), activity: Activity[] = []) {
       const picks: Array<[string[], string[] | undefined]> = []
       const host = document.createElement('div')
       document.body.appendChild(host)
@@ -52,11 +64,17 @@ if (!inChild) {
       act(() =>
         root.render(
           <TooltipProvider>
-            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} store={null} defaultOpen />
+            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} store={null} defaultOpen activity={activity} clock={() => NOW} />
           </TooltipProvider>,
         ),
       )
-      return { picks, done: () => act(() => root.unmount()) }
+      return {
+        picks,
+        done: () => {
+          act(() => root.unmount())
+          host.remove()
+        },
+      }
     }
     const rowKeys = () => [...document.querySelectorAll('[role="treeitem"]')].map((one) => one.getAttribute('data-space-row'))
     const press = (key: string) =>
@@ -99,6 +117,92 @@ if (!inChild) {
       expect(rowKeys()).toEqual(['auth', 'auth/login', 'auth/login/errors', 'auth/login/errors/copy'])
       act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
       expect(view.picks).toEqual([[['auth', 'login', 'errors', 'copy'], undefined]])
+      view.done()
+    })
+
+    const flush = () => act(async () => {})
+    const headingsNow = () => [...document.querySelectorAll('[data-space-heading]')].map((one) => one.textContent)
+    const typeFilter = (text: string) =>
+      act(() => {
+        const input = document.querySelector('[data-space-filter]') as HTMLInputElement
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+        set.call(input, text)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+
+    test('a dot on each row with its state in words; a closed branch shows the worst inside it', () => {
+      const view = draw(spaceHere(TREE, { epic: 'search', parts: [] }), [
+        { state: 'attention', place: { epic: 'auth', space: ['auth', 'login', 'errors'] }, entered: NOW - HOUR, live: true },
+        { state: 'working', place: { epic: 'billing', parts: ['invoices'] }, entered: NOW - HOUR, live: true },
+        { state: 'done', place: { epic: 'search' }, entered: NOW - HOUR, live: false },
+      ])
+      const dot = (key: string) => document.querySelector(`[data-space-row="${key}"] [data-activity]`)
+      /* Auth and Billing are closed: their subtrees' worst shows on them, said in words. */
+      expect(dot('auth')!.getAttribute('data-activity')).toBe('attention')
+      expect(dot('auth')!.getAttribute('aria-label')).toBe('inside Auth — needs your attention')
+      expect(dot('billing')!.getAttribute('data-activity')).toBe('working')
+      expect(dot('billing')!.getAttribute('role')).toBe('img')
+      /* A put-away item marks nothing. */
+      expect(dot('search')).toBeNull()
+      /* Opened, the parent holds nothing of its own and the child shows its own. */
+      act(() => (document.querySelector('[data-space-row="billing"] [data-space-chevron]') as HTMLElement).click())
+      expect(dot('billing')).toBeNull()
+      expect(dot('billing/invoices')!.getAttribute('aria-label')).toBe('Invoices — working')
+      /* The closed control says something goes on in another space. */
+      expect(document.querySelector('[aria-label="the space this project is on"] [data-activity]')!.getAttribute('data-activity')).toBe('attention')
+      view.done()
+    })
+
+    test('the order switch: Alphabetical, then Recent activity with time headings, remembered and sent', async () => {
+      store.resetPickerStore()
+      store.adoptVisits({ projects: {}, epics: { '1/search': NOW - 10 * 60_000 }, kehikot: {}, spaces: {} })
+      const activity: Activity[] = [{ state: 'done', place: { epic: 'billing' }, entered: NOW - 26 * HOUR, live: false }]
+      let view = draw(spaceHere(TREE, { epic: 'search', parts: [] }), activity)
+      const group = document.querySelector('[role="radiogroup"]')!
+      expect(group.getAttribute('aria-label')).toBe('order of spaces')
+      const radio = (word: string) => [...group.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent === word)!
+      expect(radio('Alphabetical').getAttribute('aria-checked')).toBe('true')
+      expect(radio('Recent activity').getAttribute('aria-checked')).toBe('false')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
+      expect(headingsNow()).toEqual([])
+
+      act(() => radio('Recent activity').click())
+      await flush()
+      expect(sent.some((one) => one.url === '/host/settings' && JSON.stringify(one.body) === JSON.stringify({ picker: { epics: 'recent' } }))).toBe(true)
+      expect(radio('Recent activity').getAttribute('aria-checked')).toBe('true')
+      /* Search visited ten minutes ago; Billing had activity yesterday; Auth never. */
+      expect(rowKeys()).toEqual(['search', 'billing', 'auth'])
+      expect(headingsNow()).toEqual(['Last hour', 'Yesterday', 'Not visited yet'])
+      /* Each row is described by the heading it sits under; the heading itself is not a tree item. */
+      const billing = document.querySelector('[data-space-row="billing"]')!
+      expect(document.getElementById(billing.getAttribute('aria-describedby')!)!.textContent).toBe('Yesterday')
+      expect(document.querySelector('[data-space-heading]')!.getAttribute('aria-hidden')).toBe('true')
+      expect(billing.querySelector('button[title]')!.getAttribute('title')).toBe('Activity 1 d ago')
+      view.done()
+
+      /* Remembered: drawn again, it is still Recent. */
+      view = draw(spaceHere(TREE, { epic: 'search', parts: [] }), activity)
+      expect(document.querySelector('[data-order="recent"]')!.getAttribute('aria-checked')).toBe('true')
+      expect(rowKeys()).toEqual(['search', 'billing', 'auth'])
+      view.done()
+    })
+
+    test('search finds at every depth, ordered by match, with no headings', async () => {
+      await act(async () => {
+        await store.setSort('epics', 'recent')
+      })
+      const view = draw(spaceHere(TREE, { epic: 'search', parts: [] }))
+      expect(headingsNow().length).toBeGreaterThan(0)
+      typeFilter('in')
+      expect(headingsNow()).toEqual([])
+      /* Billing holds "in" itself and comes before Auth, which only leads to Login; every branch above a match is open. */
+      expect(rowKeys()).toEqual(['billing', 'billing/invoices', 'auth', 'auth/login'])
+      typeFilter('inv')
+      expect(rowKeys()).toEqual(['billing', 'billing/invoices'])
+      expect(headingsNow()).toEqual([])
+      typeFilter('')
+      expect(headingsNow().length).toBeGreaterThan(0)
+      store.resetPickerStore()
       view.done()
     })
 

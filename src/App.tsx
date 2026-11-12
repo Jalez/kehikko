@@ -4,7 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, type Space } from 'kehikot-module-protocol'
-import { spaceHere } from './host/spaces.ts'
+import { heldSpaceOf, spaceHere } from './host/spaces.ts'
+import type { SpaceActivity } from './host/spaceRecency.ts'
 import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
 import type { Build, ContentChange, Disposition, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
@@ -120,8 +121,11 @@ import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, re
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { outsideHow } from './host/goToPlace.ts'
-import { fetchAdoption, fetchAfters, fetchTasksAgent, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
+import { fetchAdoption, fetchAfters, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
 import { AdoptDialog } from './canvas/AdoptDialog.tsx'
+import { adoptWithStep } from './host/adoption.ts'
+import { openModuleList } from './host/moduleList.ts'
+import { openUpdates } from './host/updates.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
@@ -3636,13 +3640,20 @@ export function App() {
   const visitedHere: Here | null =
     projectId === null
       ? null
-      : { project: projectId, epic: about.scope === 'project' ? null : about.epic, kehikko: open && open.project === projectId ? (open.key ?? null) : null }
+      : {
+          project: projectId,
+          epic: about.scope === 'project' ? null : about.epic,
+          kehikko: open && open.project === projectId ? (open.key ?? null) : null,
+          /* The space stood in, as a path: a part picked alone is the child space it became. */
+          space: about.scope === 'project' ? null : (heldSpaceOf(about)?.ids ?? null),
+        }
+  const visitedSpace = visitedHere?.space?.join('/') ?? ''
   const visitedBefore = useRef<Here | null>(null)
   useEffect(() => {
     const visit = visitFor(visitedBefore.current, visitedHere)
     visitedBefore.current = visitedHere
     if (visit) noteVisit(visit)
-  }, [visitedHere?.project, visitedHere?.epic, visitedHere?.kehikko])
+  }, [visitedHere?.project, visitedHere?.epic, visitedHere?.kehikko, visitedSpace])
 
   /** The containers on the open kehikko, but `except`, walked to a step: a person's press on a step in a module that shows steps. */
   const turnHere = (target: { epic: string; step: number }, except?: string) => {
@@ -4239,6 +4250,12 @@ export function App() {
      next, across kehikot, epics and parts. See `nextOf`. */
   const [lastNext, setLastNext] = useState<string | null>(null)
   const nextEntry = useMemo(() => nextOf(inbox.open, lastNext), [inbox.open, lastNext])
+  /* The open project's record as the space picker reads it: every open item for when a space last saw
+     activity (agent sessions, modules, tracker news alike), the live ones for its dots. */
+  const spaceActivity = useMemo<SpaceActivity[]>(() => {
+    const live = new Set(inbox.live)
+    return inbox.all.map((one) => ({ state: one.state, ...(one.place ? { place: one.place } : {}), entered: one.entered, live: live.has(one) }))
+  }, [inbox.all, inbox.live])
   /*
    * The module that shows the Inbox (protocol 2.79.0): whichever registered module declares
    * `inbox:person`, else the official list's entry whose role is `inbox` (`inboxModuleOf`). The
@@ -4446,15 +4463,20 @@ export function App() {
     hasProject: (id) => projects.some((one) => one.id === id),
     adopting: {
       afters: () => afters,
-      adoption: (key, inProject) => fetchAdoption(inProject ?? projectId ?? 0, key),
+      /* The kehikko the person is on names the agent that would do the task: in this project only. */
+      adoption: (key, inProject) => fetchAdoption(inProject ?? projectId ?? 0, key, (inProject ?? projectId) === projectId ? (open?.key ?? null) : null),
       adopt: (key, epic, parts, inProject) => postAdopt(inProject ?? projectId ?? 0, key, epic, parts, open?.key ?? null),
       adoptWith: async (key, inProject) => {
         const at = inProject ?? projectId
         if (at === null) return 'no-agent'
-        const got = await fetchTasksAgent()
-        if (!got.agent || !got.choices.some((one) => one.module === got.agent)) return 'no-agent'
-        setAdopting({ project: at, item: key })
-        return 'opened'
+        /* Never a dead end (`adoptWithStep`): the agent's dialog, the choice of agent in it, the update
+           the agent module needs, or the module list to add one. */
+        const got = await fetchAdoption(at, key, at === projectId ? (open?.key ?? null) : null)
+        const step = adoptWithStep(got)
+        if (step.kind === 'dialog') setAdopting({ project: at, item: key })
+        else if (step.kind === 'update') openUpdates(step.module)
+        else if (step.kind === 'add') openModuleList()
+        return step.kind === 'none' ? 'no-agent' : 'opened'
       },
       untrack: (key, inProject) => postUntrack(inProject ?? projectId ?? 0, key),
       undo: (key, inProject) => postUndo(inProject ?? projectId ?? 0, key),
@@ -4994,6 +5016,7 @@ export function App() {
           onPick: (ids, picked) => changeSubject({ space: { ids, picked: picked ?? [] } }),
           onPickAll: () => changeSubject({ scope: 'project' }),
           onEdit: project && !project.missing ? onEditSpaces : null,
+          activity: spaceActivity,
         }}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
@@ -5502,6 +5525,7 @@ export function App() {
           project={adopting.project}
           item={adopting.item}
           kehikko={adopting.project === projectId ? (open?.key ?? null) : null}
+          kehikkoId={adopting.project === projectId ? openId : null}
           onClose={() => setAdopting(null)}
         />
       ) : null}

@@ -435,7 +435,6 @@ describe('the switch is stored on this machine, on by default', () => {
     const route = settingsRoute({
       db,
       status: () => ({ at: 0, running: false, problems: [], modules: [] }),
-      changed: () => {},
       updatesChanged: (auto) => heard.push(auto),
       skillsAt: () => '/scratch/.claude/skills',
       hook: () => ({ file: '/scratch/.claude/settings.json', on: false }),

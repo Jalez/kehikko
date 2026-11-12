@@ -2,7 +2,7 @@
 import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_TASKS, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_SETUP, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
@@ -64,7 +64,7 @@ import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
 import { Adoption } from './adoption.ts'
 import { adoptRoutes } from './adoptRoutes.ts'
-import { readTasksAgent, tasksAgentRoute } from './tasksAgent.ts'
+import { carriedValues, holderOf, isSetupKey, refreshChoice, type SetupDeps } from './agentSetup.ts'
 import { BY as HOST_BY, isOwnCheckout, noteOf, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { changesOfCopy, hostChanges } from './agentChanges.ts'
@@ -3190,8 +3190,23 @@ function settingsProjects(): number[] {
   return first ? [first.id] : []
 }
 
+/*
+ * Whose choice the sync acts on: the agent module that provides `agent.setup` (protocol 2.91.0) and
+ * holds it as its own settings, read at its door through the same desk as Settings › Modules; it is
+ * changed only by the person's press in a form (`/host/module-settings/set`). `agentSetup.ts`.
+ */
+const setupDeps: SetupDeps = {
+  db,
+  providers: () => servicesHere(AGENT_SETUP, null, null).map((one) => ({ module: one.module, name: one.name, descriptor: one.descriptor })),
+  read: async (module) => {
+    const got = await moduleSettings.read(module, null)
+    return got.ok ? { ok: true, values: got.values, problem: got.problem } : { ok: false, why: got.why }
+  },
+}
+
 const agentSync = new AgentSync({
   db,
+  refresh: () => refreshChoice(setupDeps),
   /* The sweep it was poked by (`saw`), not one of its own: a sweep asks every module that is not
      answering, and at a cold start each module coming up poked it again. */
   modules: () => because('your agent’s setup', async () => seenOf((await (seen ?? sweep())).presences)),
@@ -3207,7 +3222,7 @@ const agentSync = new AgentSync({
 const settingsDesk = settingsRoute({
   db,
   status: () => agentSync.status(),
-  changed: () => agentSync.poke(),
+  setup: () => holderOf(setupDeps.providers()),
   noticesChanged: () => {
     for (const one of trackerNotices.restate(listProjects(db).map((project) => project.id))) wakes.inboxChanged(one.project, one.rev)
   },
@@ -3290,7 +3305,12 @@ const adoption = new Adoption({
   editRef: (root, epic, ref, parts, add) => editEpicRef(root, epic, ref, parts, add),
   providers: (service, root) => servicesHere(service, root, null),
   originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
-  tasksAgent: () => readTasksAgent(db),
+  agentsOn: (project, key) => {
+    const canvas = listCanvases(db).find((one) => one.project === project && one.key === key)
+    const agents = canvas ? agentModulesOfCanvas(canvas) : []
+    const names = Object.fromEntries(agents.map((id) => [id, lastPresences.get(id)?.module?.name ?? lastPresences.get(id)?.name ?? knownName(id) ?? nameFromId(id)]))
+    return { agents, primary: readKehikkoSettings(db, project, key).primary, names }
+  },
   changed: (project) => {
     const root = projectById(db, project)?.path
     const out = trackerNotices.restateOne(project, root ? epicsByRef(root) : undefined)
@@ -3301,10 +3321,6 @@ const adoptDesk = adoptRoutes({
   adoption,
   untracked: (project) => trackerNotices.untracked(project),
   hasProject: (project) => projectById(db, project) !== null,
-})
-const tasksAgentDesk = tasksAgentRoute({
-  db,
-  choices: () => servicesHere(AGENT_TASKS, null, null).map((one) => ({ module: one.module, name: one.name })),
 })
 
 /* A module the official list retired, still here: said on its presence, removed only on a press
@@ -4626,6 +4642,11 @@ async function answerRequest(request: Request): Promise<Response> {
            the one way a grant to send messages as them is recorded (protocol
            2.50.0, `personGrants.ts`). */
         if ('outcome' in changed && changed.outcome === 'saved') personGrants.saw(module, body.key, body.value)
+        /* The agent setup choice is the agent module's own setting (`agentSetup.ts`): the sync reads it again. */
+        if ('outcome' in changed && changed.outcome === 'saved' && isSetupKey(body.key)) {
+          await refreshChoice(setupDeps).catch(() => null)
+          agentSync.poke()
+        }
         return json(changed)
       }
     }
@@ -4637,6 +4658,15 @@ async function answerRequest(request: Request): Promise<Response> {
      */
     if (url.pathname === SETTINGS_PASS_PATH && request.method === 'GET') {
       return json(moduleSettings.vouch(url.searchParams))
+    }
+
+    /*
+     * The agent setup choice this host held itself before protocol 2.91.0, as settings values, for the
+     * agent module that holds it now to carry over once (`AGENT_SETUP_CARRIED_PATH`, `agentSetup.ts`).
+     * Answered to programs on this machine, like the pass above; read only.
+     */
+    if (url.pathname === AGENT_SETUP_CARRIED_PATH && request.method === 'GET') {
+      return json({ ok: true, values: carriedValues(db) })
     }
 
     /*
@@ -5142,8 +5172,6 @@ async function answerRequest(request: Request): Promise<Response> {
     /* Adopting a tracker item no epic names, and this host's passes for the modules it calls. `adoptRoutes.ts`. */
     const adoptAnswer = await adoptDesk(request, url)
     if (adoptAnswer) return adoptAnswer
-    const tasksAgentAnswer = await tasksAgentDesk(request, url)
-    if (tasksAgentAnswer) return tasksAgentAnswer
 
     /* A module's server asking what its page would be told. `serverAsk.ts`. */
     if (url.pathname === SERVER_ASK_PATH) {

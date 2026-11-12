@@ -146,7 +146,7 @@ describe('serving, renaming and removing', () => {
     expect((await (await post(route, '/host/sounds/rename', { id: sound.id, name: 'Victory' }))!.json()).chime.files[0].name).toBe('Victory')
     expect((await post(route, '/host/sounds/rename', { id: sound.id, name: '../x' }))!.status).toBe(400)
     /* In use by Finished, then removed. */
-    const settings = settingsRoute({ db, status: () => ({ at: 0, running: false, problems: [], modules: [] }), changed: () => {}, skillsAt: () => '', hook: () => ({ file: '', on: false }) })
+    const settings = settingsRoute({ db, status: () => ({ at: 0, running: false, problems: [], modules: [] }), skillsAt: () => '', hook: () => ({ file: '', on: false }) })
     const url = new URL('http://127.0.0.1/host/settings')
     const set = await settings(new Request(url, { method: 'POST', body: JSON.stringify({ chime: { sounds: { done: { type: 'file', id: sound.id } } } }) }), url)
     expect((await set!.json()).chime.sounds.done).toEqual({ type: 'file', id: sound.id })
@@ -162,7 +162,7 @@ describe('serving, renaming and removing', () => {
 describe('the settings route', () => {
   const desk = () => {
     const { db } = scratch()
-    const route = settingsRoute({ db, status: () => ({ at: 0, running: false, problems: [], modules: [] }), changed: () => {}, skillsAt: () => '', hook: () => ({ file: '', on: false }) })
+    const route = settingsRoute({ db, status: () => ({ at: 0, running: false, problems: [], modules: [] }), skillsAt: () => '', hook: () => ({ file: '', on: false }) })
     const url = new URL('http://127.0.0.1/host/settings')
     return { db, read: async () => (await (await route(new Request(url), url))!.json()).chime, post: (body: unknown) => route(new Request(url, { method: 'POST', body: JSON.stringify(body) }), url) }
   }

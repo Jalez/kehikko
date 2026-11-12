@@ -28,8 +28,10 @@ export async function fetchAfters(project: number): Promise<Map<string, { said: 
   return new Map((got?.afters ?? []).map((one) => [`${one.module}\u0000${one.id}`, { said: one.said, undo: one.undo }]))
 }
 
-export async function fetchAdoption(project: number, key: Key): Promise<InboxAdoptionResult> {
-  const got = await ask<{ adoption?: InboxAdoptionResult }>(`/host/inbox/adoption?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}`)
+/** What to offer for one item; `kehikko` (its key) is the one the person is on, whose agent would do the task. */
+export async function fetchAdoption(project: number, key: Key, kehikko: string | null = null): Promise<InboxAdoptionResult> {
+  const at = kehikko ? `&kehikko=${encodeURIComponent(kehikko)}` : ''
+  const got = await ask<{ adoption?: InboxAdoptionResult }>(`/host/inbox/adoption?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}${at}`)
   return got?.adoption ?? { outcome: 'declined', why: NO_ANSWER, item: null, epics: [], suggested: null, conversations: [], agent: null, proposal: null }
 }
 
@@ -60,8 +62,9 @@ export async function postUndo(project: number, key: Key): Promise<Done> {
 
 export type TaskStarted = { ok: true; module: string; name: string; session: string; view: string } | { ok: false; why: string; noAgent?: true }
 
-export async function postTask(project: number, key: Key): Promise<TaskStarted> {
-  return (await post<{ result?: TaskStarted }>('/host/inbox/task', { project, ...key }))?.result ?? { ok: false, why: NO_ANSWER }
+/** Start the agent of kehikko `kehikko` (its primary, or its only one) on the item. */
+export async function postTask(project: number, key: Key, kehikko: string | null = null): Promise<TaskStarted> {
+  return (await post<{ result?: TaskStarted }>('/host/inbox/task', { project, ...key, kehikko }))?.result ?? { ok: false, why: NO_ANSWER }
 }
 
 export async function fetchUntracked(project: number): Promise<{ id: string; ref: string; title: string; at: number }[]> {
@@ -72,11 +75,3 @@ export async function postRetrack(project: number, id: string): Promise<boolean>
   return (await post<{ ok?: boolean }>('/host/inbox/retrack', { project, id }))?.ok === true
 }
 
-export async function fetchTasksAgent(): Promise<{ agent: string | null; choices: { module: string; name: string }[] }> {
-  const got = await ask<{ agent?: string | null; choices?: { module: string; name: string }[] }>('/host/tasks-agent')
-  return { agent: got?.agent ?? null, choices: got?.choices ?? [] }
-}
-
-export async function postTasksAgent(agent: string | null): Promise<boolean> {
-  return (await post<{ ok?: boolean }>('/host/tasks-agent', { agent }))?.ok === true
-}

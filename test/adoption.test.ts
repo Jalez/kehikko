@@ -16,7 +16,7 @@ import { TOOL_NAMES } from '../server/mcp.ts'
 import { addProject } from '../server/projects.ts'
 import { TrackerNotices, writeNotices } from '../server/trackerNotices.ts'
 import { epicsByRef } from '../server/trackers/reading.ts'
-import { ADOPT_INSTRUCTION, adoptedSaid, dialogPlan, suggestEpic, toBring } from '../src/host/adoption.ts'
+import { ADOPT_INSTRUCTION, adoptedSaid, dialogPlan, suggestEpic, taskAgentFor, toBring } from '../src/host/adoption.ts'
 import type { Entry } from '../src/host/inbox.ts'
 import { answerInbox, readOf, type InboxDoor } from '../src/host/inboxDoor.ts'
 import { DEFAULT_NOTICES, TRACKER_NOTICES_MODULE, noticeItem, type Seen } from '../src/host/trackerNotices.ts'
@@ -175,7 +175,7 @@ describe('adopting, bringing along, Undo and untrack', () => {
       },
       providers: f.providers,
       originOf: async () => 'http://127.0.0.1:9999',
-      tasksAgent: () => 'kehikot.agent',
+      agentsOn: () => ({ agents: ['kehikot.agent'], primary: null }),
       changed: (p) => notices.restateOne(p, epicsByRef(root)),
       fetch: f.fetch,
       clock: () => clock,
@@ -257,7 +257,7 @@ describe('adopting, bringing along, Undo and untrack', () => {
 
   test('the dialog starts a new conversation with the brief, through the person\'s agent', async () => {
     const f = fakes([{ session: 's1', title: 'Fix login', match: 'created', reason: 'created !4721', lastActive: 5 }], { agent: true })
-    const got = await make(f).startTask(project, TRACKER_NOTICES_MODULE, id)
+    const got = await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')
     expect(got).toEqual({ ok: true, module: 'kehikot.agent', name: 'Agent', session: 'task-1', view: 'http://127.0.0.1:9999/app?session=task-1' })
     const start = f.calls.find((one) => one.path === '/api/tasks')!
     expect(start.headers[SERVICE_CALLER_HEADER]).toBe(HOST_CALLER)
@@ -265,7 +265,9 @@ describe('adopting, bringing along, Undo and untrack', () => {
     for (const line of ['!4721', 'Fix login', 'https://gitlab.example.org/group/app/-/merge_requests/4721', 'feat/login', 'auth — Auth', 'login (Login)', 's1 (Agent CLI)', ADOPT_INSTRUCTION]) {
       expect(start.body.brief).toContain(line)
     }
-    expect((await make(f, { tasksAgent: () => null }).startTask(project, TRACKER_NOTICES_MODULE, id)).ok).toBe(false)
+    /* No agent module on the kehikko, or no kehikko at all: no task. */
+    expect((await make(f, { agentsOn: () => ({ agents: [], primary: null }) }).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')).ok).toBe(false)
+    expect((await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, null)).ok).toBe(false)
   })
 
   test('propose fills the dialog and adopts nothing; the task\'s conversation is filed with the adoption', async () => {
@@ -273,7 +275,7 @@ describe('adopting, bringing along, Undo and untrack', () => {
     const adoption = make(f)
     adoption.propose(project, id, { epic: 'auth', parts: [], conversations: ['s1'], why: 'Same repository.' })
     expect(edits).toEqual([])
-    const read = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id)
+    const read = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
     expect(read.proposal).toEqual({ epic: 'auth', parts: [], conversations: ['s1'], why: 'Same repository.' })
     expect(read.agent).toEqual({ module: 'kehikot.agent', name: 'Agent' })
     expect(read.conversations[0]).toMatchObject({ session: 's1', comes: false, program: 'Agent CLI' })
@@ -395,7 +397,8 @@ describe('only the person\'s fresh press in a page adopts', () => {
   test('no agent tool adopts, untracks or undoes; the routes are the page\'s alone', () => {
     for (const name of TOOL_NAMES) expect(name).not.toMatch(/adopt$|untrack|undo/)
     expect(TOOL_NAMES).toContain('propose_adoption')
-    for (const path of [...ADOPT_ROUTES, '/host/tasks-agent']) expect(PAGE_ONLY).toContain(path)
+    for (const path of ADOPT_ROUTES) expect(PAGE_ONLY).toContain(path)
+    expect(PAGE_ONLY).not.toContain('/host/tasks-agent')
     expect(PAGE_ONLY).not.toContain('/host/server-pass')
   })
 
@@ -405,5 +408,106 @@ describe('only the person\'s fresh press in a page adopts', () => {
     const ask = async (p: string) => (await (await route(new Request(`http://127.0.0.1/host/server-pass?pass=${p}`), new URL(`http://127.0.0.1/host/server-pass?pass=${p}`)))!.json()) as { minted: boolean }
     expect((await ask(pass)).minted).toBe(true)
     expect((await ask(pass)).minted).toBe(false)
+  })
+})
+
+describe('which agent does the task: the kehikko’s primary (2.91.0)', () => {
+  test('the primary, the only agent module, the only one that can, a choice, or none', () => {
+    /* The only agent module there is implicitly primary. */
+    expect(taskAgentFor(['a'], ['a'], null)).toEqual({ agent: 'a', choose: [] })
+    /* The chosen primary, among several. */
+    expect(taskAgentFor(['a', 'b'], ['a', 'b'], 'b')).toEqual({ agent: 'b', choose: [] })
+    /* Several and none primary: the person is asked, among those that can. */
+    expect(taskAgentFor(['a', 'b', 'c'], ['a', 'c'], null)).toEqual({ agent: null, choose: ['a', 'c'] })
+    /* A primary no longer on the kehikko counts as none. */
+    expect(taskAgentFor(['a', 'b'], ['a', 'b'], 'gone')).toEqual({ agent: null, choose: ['a', 'b'] })
+    /* Only one can: that one, primary or not. */
+    expect(taskAgentFor(['a', 'b'], ['b'], 'a')).toEqual({ agent: 'b', choose: [] })
+    /* No agent module there, or none that can. */
+    expect(taskAgentFor([], ['a'], null)).toEqual({ agent: null, choose: [] })
+    expect(taskAgentFor(['a'], [], null)).toEqual({ agent: null, choose: [] })
+  })
+
+  test('the adoption names the agent, or the ones to choose between, or that none there can', async () => {
+    const db = open(':memory:')
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikot-adopt-agents-')))
+    try {
+      const project = 1
+      const notices = { seen: () => ({ ref: '!1', title: 'T', link: null }) } as never
+      const tasks = { name: 'A', program: 'P', start: '/api/tasks', view: '/app?session={session}' }
+      const both: ServiceProvider[] = [
+        { module: 'kehikot.a', name: 'A', descriptor: tasks, placed: null },
+        { module: 'kehikot.b', name: 'B', descriptor: { ...tasks, name: 'B' }, placed: null },
+      ]
+      const make = (agents: string[], primary: string | null) =>
+        new Adoption({
+          db,
+          notices,
+          pathOf: () => root,
+          epics: () => [],
+          rows: () => [],
+          editRef: () => ({ outcome: 'unchanged', why: '' }),
+          providers: (service) => (service === 'agent.tasks' ? both : []),
+          originOf: async () => 'http://127.0.0.1:9999',
+          agentsOn: () => ({ agents, primary }),
+          changed: () => {},
+          fetch: (async () => Response.json({ conversations: [] })) as unknown as typeof fetch,
+        })
+      const read = (agents: string[], primary: string | null, kehikko: string | null = 'k1') => make(agents, primary).adoption(project, TRACKER_NOTICES_MODULE, 'x', kehikko)
+      expect((await read(['kehikot.a', 'kehikot.b'], 'kehikot.b')).agent).toEqual({ module: 'kehikot.b', name: 'B' })
+      expect((await read(['kehikot.a'], null)).agent).toEqual({ module: 'kehikot.a', name: 'A' })
+      const asked = await read(['kehikot.a', 'kehikot.b'], null)
+      expect(asked.agent).toBeNull()
+      expect(asked.taskAgents).toEqual([{ module: 'kehikot.a', name: 'A' }, { module: 'kehikot.b', name: 'B' }])
+      const none = await read([], null)
+      expect(none.agent).toBeNull()
+      expect(none.taskAgents).toEqual([])
+      /* At no kehikko, nothing is said of agents. */
+      expect((await read(['kehikot.a'], null, null)).taskAgents).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('“Adopt with…” is never a dead end (2.91.0)', () => {
+  const read = (over: Record<string, unknown>) => ({ outcome: 'ok', agent: null, ...over })
+  test('the agent’s dialog, the choice, the update, or adding an agent module', async () => {
+    const { adoptWithStep } = await import('../src/host/adoption.ts')
+    expect(adoptWithStep(read({ agent: { module: 'kehikot.a' } }))).toEqual({ kind: 'dialog' })
+    expect(adoptWithStep(read({ taskAgents: [{ module: 'kehikot.a' }, { module: 'kehikot.b' }] }))).toEqual({ kind: 'dialog' })
+    expect(adoptWithStep(read({ taskAgents: [], agentsToUpdate: [{ module: 'kehikot.old' }] }))).toEqual({ kind: 'update', module: 'kehikot.old' })
+    expect(adoptWithStep(read({ taskAgents: [] }))).toEqual({ kind: 'add' })
+    /* An older host's answer, or a read that failed: nothing known. */
+    expect(adoptWithStep(read({}))).toEqual({ kind: 'none' })
+    expect(adoptWithStep({ outcome: 'declined', agent: null })).toEqual({ kind: 'none' })
+  })
+
+  test('an agent module on the kehikko that does not provide agent.tasks is named to update', async () => {
+    const db = open(':memory:')
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikot-adopt-update-')))
+    try {
+      const adoption = new Adoption({
+        db,
+        notices: { seen: () => ({ ref: '!1', title: 'T', link: null }) } as never,
+        pathOf: () => root,
+        epics: () => [],
+        rows: () => [],
+        editRef: () => ({ outcome: 'unchanged', why: '' }),
+        providers: () => [],
+        originOf: async () => null,
+        agentsOn: () => ({ agents: ['kehikot.old'], primary: null, names: { 'kehikot.old': 'Old agent' } }),
+        changed: () => {},
+        fetch: (async () => Response.json({ conversations: [] })) as unknown as typeof fetch,
+      })
+      const got = await adoption.adoption(1, TRACKER_NOTICES_MODULE, 'x', 'k1')
+      expect(got.agent).toBeNull()
+      expect(got.taskAgents).toEqual([])
+      expect(got.agentsToUpdate).toEqual([{ module: 'kehikot.old', name: 'Old agent' }])
+      const task = await adoption.startTask(1, TRACKER_NOTICES_MODULE, 'x', 'k1')
+      expect(task.ok).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

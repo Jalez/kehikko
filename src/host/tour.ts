@@ -431,7 +431,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour="settings"]', 'button[aria-label="Settings"]'],
         title: 'Settings',
-        body: 'How Kehikot works with your agents, how the Inbox tells you, and how it looks: Appearance has the headers and footers, the theme, and the containers’ borders and background. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
+        body: 'What your agent uses outside Kehikot, how the Inbox tells you, and how it looks: Appearance has the headers and footers, the theme, and the containers’ borders and background. ⌘, (Ctrl+, elsewhere) opens it from anywhere.',
         side: 'bottom',
         align: 'end',
       },

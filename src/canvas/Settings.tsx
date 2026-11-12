@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   Bell,
   Blocks,
-  Bot,
   Check,
   CircleDot,
   ExternalLink,
@@ -16,7 +15,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
-import { PACKAGE_VERSION } from 'kehikot-module-protocol'
+import { AGENT_SETUP_KEYS, PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
@@ -24,7 +23,7 @@ import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Card } from '@/components/ui/card.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
-import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
+import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
@@ -35,20 +34,19 @@ import {
   active,
   automatic,
   chordSaid,
-  FIRST_QUESTION,
+  heldSays,
   isSettingsChord,
-  MORE_AGENTS,
+  moduleSettingsTarget,
   onMac,
   onOpenSettings,
   openSettings,
-  PROVIDERS,
   SKILL_STATE_SAYS,
   skillsSaid,
   START_HOOK_WHERE,
   toolSays,
   toolsSaid,
-  type AgentSettings,
   type SettingsAnswer,
+  type SetupHolder,
   type SettingsSection,
   SETTINGS_SECTIONS,
   SETTINGS_TARGETS,
@@ -68,8 +66,7 @@ import { openStorage } from '@/host/storage.ts'
 import { TRACKERS_ARE_FOR } from '@/host/trackerSources.ts'
 import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
 import { LIT_ROW, TrackerSourcesSettings, type TrackersDoor } from './TrackerSettings.tsx'
-import { fetchTasksAgent, fetchUntracked, postRetrack, postTasksAgent } from '@/host/adoptClient.ts'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { fetchUntracked, postRetrack } from '@/host/adoptClient.ts'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
@@ -84,19 +81,21 @@ import { adoptAppearance } from '@/host/appearanceStore.ts'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
- * Settings: how Kehikot works with the person's coding agents, chosen once for
- * every module and every project (`host/agentSettings.ts` has the shape and the
- * words, `server/agentSync.ts` what is done with them).
+ * Settings: this computer's settings and the open project's (`host/agentSettings.ts`
+ * has the shape and the words of the agent setup, `server/agentSync.ts` what is
+ * done with it). Whether the person's agent uses every module's tools and skills
+ * outside Kehikot is the agent module's own setting (protocol 2.91.0,
+ * `agent.setup`): the Module tools and Skills sections show what is set up, and
+ * say where it is chosen.
  *
  * Three pieces, all here so the words stay together:
  *
- *  - `AgentSettingsHost`, mounted once by the page: asks the one-time question
- *    while it is unanswered, and opens the dialog when anything calls
- *    `openSettings()` — the gear in the strip, ⌘, (Ctrl+, off a Mac), the
+ *  - `AgentSettingsHost`, mounted once by the page: opens the dialog when anything
+ *    calls `openSettings()` — the gear in the strip, ⌘, (Ctrl+, off a Mac), the
  *    projects menu, a module's Tools or Skills window, the sync's line in the
  *    Inbox, and the desktop shell's own event.
- *  - `SettingsDialog` and its body: a section nav on the left (Agents, Module
- *    tools, Skills, Tracker notices, Conversations, Project, About) and one section at a
+ *  - `SettingsDialog` and its body: a section nav on the left (Module tools,
+ *    Skills, Tracker notices, Conversations, Project, About) and one section at a
  *    time on the right — a summary card, then each setting as a row with its
  *    switch. A change is sent as it is made and said "Saved"; there is no Save
  *    button for a switch.
@@ -115,7 +114,6 @@ export const KEEP_RUNNING = {
 } as const
 
 type Change =
-  | { settings: Partial<Record<keyof AgentSettings, unknown>> }
   | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
   | { modules: { keep: boolean } }
@@ -144,6 +142,7 @@ export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<Sett
 }
 
 export async function postSettings(change: Change): Promise<SettingsAnswer> {
+  if ('except' in change) return postExcept(change.except)
   const response = await fetch('/host/settings', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -156,6 +155,29 @@ export async function postSettings(change: Change): Promise<SettingsAnswer> {
   if (body.status) keepRead('settings', body)
   else forgetRead('settings')
   return body
+}
+
+/**
+ * One module left out of the agent setup, or put back: a change of the agent module's own setting
+ * (protocol 2.91.0, `AGENT_SETUP_KEYS`), made as the person through the one route that mints their
+ * pass (`/host/module-settings/set`). The host never relays it. The list is read afresh first, so two
+ * windows each changing one module do not undo each other.
+ */
+async function postExcept(except: { kind: 'tools' | 'skills'; module: string; out: boolean }): Promise<SettingsAnswer> {
+  const now = await fetchSettings(undefined, true)
+  const holder = now.setup
+  if (!holder) throw new Error('No agent module that holds this choice is running, so it cannot be changed now. Start it and try again.')
+  const list = new Set(now.settings[except.kind].except)
+  if (except.out) list.add(except.module)
+  else list.delete(except.module)
+  const response = await fetch('/host/module-settings/set', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ module: holder.module, project: null, key: except.kind === 'tools' ? AGENT_SETUP_KEYS.toolsExcept : AGENT_SETUP_KEYS.skillsExcept, value: [...list].sort() }),
+  })
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; outcome?: string; why?: string } | null
+  if (!response.ok || !body || body.ok === false || body.outcome !== 'saved') throw new Error(body?.why || `${holder.name} did not take that change. Try again.`)
+  return fetchSettings(undefined, true)
 }
 
 /** A machine with no Appearance row yet is given what the cookies said (the bar's old buttons), once. */
@@ -223,7 +245,7 @@ export interface BaseBranchDoor {
 
 const BASE_BRANCH_DOOR: BaseBranchDoor = { load: fetchBaseBranch, save: setBaseBranch }
 
-/** Mounted once by the page: the one-time question, ⌘, and the dialog wherever it is asked for. */
+/** Mounted once by the page: ⌘, and the dialog wherever it is asked for. */
 export function AgentSettingsHost({
   load = fetchSettings,
   save = postSettings,
@@ -239,8 +261,7 @@ export function AgentSettingsHost({
   trackers?: TrackersDoor | null
 } = {}) {
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<SettingsSection>('agents')
-  const [question, setQuestion] = useState(false)
+  const [section, setSection] = useState<SettingsSection>('tools')
   /* The control a link named, until it has been shown. */
   const [target, setTarget] = useState<string | null>(null)
 
@@ -266,99 +287,10 @@ export function AgentSettingsHost({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  /* Asked once per page load while unanswered. Closing it without answering asks again next time. */
-  useEffect(() => {
-    const stop = new AbortController()
-    load(stop.signal)
-      .then((answer) => setQuestion(!answer.settings.asked))
-      .catch(() => {})
-    return () => stop.abort()
-  }, [load])
-
   return (
     <>
-      <FirstQuestion
-        open={question && !open}
-        onOpenChange={setQuestion}
-        onAnswer={async (choice) => {
-          await save({
-            settings: { asked: true, tools: { auto: choice?.tools ?? false }, skills: { auto: choice?.skills ?? false } },
-          })
-          setQuestion(false)
-        }}
-      />
       <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} trackers={trackers} target={target} onTargetShown={() => setTarget(null)} />
     </>
-  )
-}
-
-/**
- * The one-time question. Both switches on to start; "Save" takes what is on,
- * "I'll do it myself" turns both off. Either answer is kept.
- */
-export function FirstQuestion({
-  open,
-  onOpenChange,
-  onAnswer,
-}: {
-  open: boolean
-  onOpenChange(open: boolean): void
-  /** `null`: the person will do it themselves. */
-  onAnswer(choice: { tools: boolean; skills: boolean } | null): Promise<void>
-}) {
-  const [tools, setTools] = useState(true)
-  const [skills, setSkills] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [trouble, setTrouble] = useState<string | null>(null)
-
-  const answer = async (choice: { tools: boolean; skills: boolean } | null) => {
-    setBusy(true)
-    setTrouble(null)
-    try {
-      await onAnswer(choice)
-    } catch (error) {
-      setTrouble(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <ModalContent className="sm:max-w-lg" data-first-question>
-        <ModalHeader
-          icon={<KehikkoMark working={false} className="text-muted-foreground size-4 shrink-0" />}
-          title={FIRST_QUESTION.title}
-          titleClassName="text-base"
-          description={FIRST_QUESTION.lead}
-          descriptionClassName="text-sm leading-relaxed"
-        />
-        <ModalBody className="text-sm">
-          <Rows>
-            <SettingRow label={FIRST_QUESTION.toolsBox} checked={tools} onChange={setTools} disabled={busy} />
-            <SettingRow label={FIRST_QUESTION.skillsBox} checked={skills} onChange={setSkills} disabled={busy} />
-          </Rows>
-          <div className="bg-muted/50 rounded-lg px-4 py-3">
-            <p className="text-xs font-medium">What Kehikot will write</p>
-            <ul className="text-muted-foreground mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed">
-              {FIRST_QUESTION.writes.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </div>
-          <p className="text-muted-foreground text-xs leading-relaxed">{FIRST_QUESTION.after}</p>
-          {trouble ? <Trouble>{trouble}</Trouble> : null}
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="ghost" size="sm" disabled={busy} data-answer="self" onClick={() => void answer(null)}>
-            {FIRST_QUESTION.self}
-          </Button>
-          <Button size="sm" disabled={busy} data-answer="keep" onClick={() => void answer({ tools, skills })}>
-            {FIRST_QUESTION.keep}
-          </Button>
-        </ModalFooter>
-      </ModalContent>
-    </Dialog>
   )
 }
 
@@ -374,7 +306,6 @@ function KehikotMark({ className }: { className?: string }) {
 export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[] }
 
 const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> = {
-  agents: { title: 'Agents', icon: Bot },
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
   trackers: { title: 'Trackers', icon: CircleDot },
@@ -418,7 +349,7 @@ export function SettingsDialog({
   modules?: readonly ModuleRef[]
 }) {
   const { answer, trouble, busy, saved, read, change } = useAgentSettings(open, load, save)
-  const [own, setOwn] = useState<SettingsSection>('agents')
+  const [own, setOwn] = useState<SettingsSection>('tools')
   const section = given ?? own
   const setSection = setGiven ?? setOwn
 
@@ -444,7 +375,7 @@ export function SettingsDialog({
         <ModalHeader
           icon={<KehikkoMark working={false} className="text-muted-foreground size-4" />}
           title="Settings"
-          description="How Kehikot works with your agents and what the Inbox tells you, on this computer, and the open project’s own settings."
+          description="What your agent uses outside Kehikot, what the Inbox tells you and how Kehikot looks, on this computer, and the open project’s own settings."
           descriptionClassName="max-sm:sr-only"
         />
         <ModalBody scroll={false}>
@@ -505,7 +436,7 @@ export function SettingsBody({
   const sections = SETTINGS_SECTIONS.filter(
     (one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project) && (one !== 'trackers' || trackers || answer?.github),
   )
-  const shown = sections.includes(section) ? section : 'agents'
+  const shown = sections.includes(section) ? section : 'tools'
   const problems = answer?.status.problems.length ?? 0
 
   return (
@@ -531,7 +462,7 @@ export function SettingsBody({
               >
                 <Icon className="size-4" aria-hidden />
                 {title}
-                {key === 'agents' && problems > 0 ? (
+                {key === 'tools' && problems > 0 ? (
                   <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
                     {problems}
                     <span className="sr-only"> left alone</span>
@@ -551,11 +482,6 @@ export function SettingsBody({
         <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
             {trouble ? <Trouble>{trouble}</Trouble> : null}
-            {answer && !answer.settings.asked && shown !== 'about' && shown !== 'appearance' ? (
-              <p className="bg-muted/60 rounded-lg px-3 py-2 text-xs leading-relaxed" data-unasked>
-                You have not chosen yet, so nothing is done for you automatically. Any choice here counts as your answer.
-              </p>
-            ) : null}
             {sections.map((key) => (
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
                 {key === 'about' ? (
@@ -643,60 +569,6 @@ function Section({
   projectId?: number | null
 }) {
   const { settings, status, hook } = answer
-  /* Any choice made here is an answer to the one-time question too. */
-  const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
-  const claude = settings.providers.claudeCode.enabled
-  const needsClaude = claude ? null : 'Turn on your agent under Agents first.'
-
-  if (which === 'agents') {
-    return (
-      <>
-        <Heading id="agents" lead="Which coding agents Kehikot sets up for you. Everything else here acts through them.">
-          Agents
-        </Heading>
-        <Summary icon={Bot} title="Status">
-          <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
-            <dt className="text-muted-foreground">{PROVIDERS[0]?.name ?? 'Agent'}</dt>
-            <dd>{claude ? 'Set up by Kehikot' : 'Off — Kehikot sets nothing up'}</dd>
-            <dt className="text-muted-foreground">Module tools</dt>
-            <dd>{toolsSaid(status)}</dd>
-            <dt className="text-muted-foreground">Skills</dt>
-            <dd>{skillsSaid(status)}</dd>
-            <dt className="text-muted-foreground">Last looked</dt>
-            <dd>{status.running ? 'Looking now…' : status.at === null ? 'Not yet' : new Date(status.at).toLocaleTimeString()}</dd>
-          </dl>
-        </Summary>
-        <Rows>
-          {PROVIDERS.map((provider) => (
-            <SettingRow
-              key={provider.key}
-              label={`Set up ${provider.name}`}
-              description={provider.says}
-              checked={settings.providers[provider.key].enabled}
-              onChange={(on) => set({ providers: { [provider.key]: { enabled: on } } })}
-            />
-          ))}
-        </Rows>
-        <p className="text-muted-foreground text-xs">{MORE_AGENTS}</p>
-        <TasksAgentPicker />
-        {status.problems.length ? (
-          <section aria-labelledby="settings-problems" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
-            <h4 id="settings-problems" className="flex items-center gap-2 text-sm font-medium">
-              <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
-              Left alone
-            </h4>
-            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-xs leading-relaxed">
-              {status.problems.map((line) => (
-                <li key={line} className="break-words">
-                  {line}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-      </>
-    )
-  }
 
   if (which === 'tools') {
     const doors = status.modules.filter((one) => one.tools !== null)
@@ -714,15 +586,22 @@ function Section({
             Only entries Kehikot added are re-pointed or removed; a server you added is never touched.
           </p>
         </Summary>
-        <Rows>
-          <SettingRow
-            label="Connect every module’s tools to your agent, and keep them connected"
-            description={needsClaude ?? 'A new module is connected when it first runs, and re-pointed when it moves.'}
-            checked={settings.tools.auto}
-            disabled={!claude}
-            onChange={(on) => set({ tools: { auto: on } })}
-          />
-        </Rows>
+        <HeldBy holder={answer.setup} on={active(settings, 'tools')} what="Every module’s tools are kept connected" />
+        {status.problems.length ? (
+          <section aria-labelledby="settings-problems" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
+            <h4 id="settings-problems" className="flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+              Left alone
+            </h4>
+            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-xs leading-relaxed">
+              {status.problems.map((line) => (
+                <li key={line} className="break-words">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {doors.length ? (
           <ModuleExceptions
             kind="tools"
@@ -769,15 +648,7 @@ function Section({
             Written to <span className="font-mono break-all">{answer.skillsAt}</span>. A skill you changed, or a name another skill already has, is left alone.
           </p>
         </Summary>
-        <Rows>
-          <SettingRow
-            label="Install every module’s skills, and keep them up to date"
-            description={needsClaude ?? 'A module’s new skill is installed, and a changed one updated, as soon as it is seen.'}
-            checked={settings.skills.auto}
-            disabled={!claude}
-            onChange={(on) => set({ skills: { auto: on } })}
-          />
-        </Rows>
+        <HeldBy holder={answer.setup} on={active(settings, 'skills')} what="Every module’s skills are kept installed and up to date" />
         {own ? (
           <OwnSkills
             row={{
@@ -848,49 +719,27 @@ function Section({
 }
 
 /**
- * The person's agent for Kehikot's own tasks (protocol 2.88.0, `agent.tasks`): every module that provides
- * it now, by its registered name, and none picked until the person picks one. Adopting an Inbox item with
- * one starts a conversation there; with none, the person chooses the epic themselves.
+ * Where the agent setup is chosen: the agent module that holds it (protocol 2.91.0, `agent.setup`),
+ * with a press that opens its form in Settings › Modules. Its name and program are data from it.
  */
-function TasksAgentPicker() {
-  const [state, setState] = useState<{ agent: string | null; choices: { module: string; name: string }[] } | null>(null)
-  const id = useId()
-  useEffect(() => {
-    let live = true
-    void fetchTasksAgent().then((got) => live && setState(got))
-    return () => {
-      live = false
-    }
-  }, [])
-  if (!state) return null
+function HeldBy({ holder, on, what }: { holder: SetupHolder | null | undefined; on: boolean; what: string }) {
   return (
-    <section aria-labelledby={`${id}-h`} className="min-w-0" data-tasks-agent={state.agent ?? ''}>
-      <h4 id={`${id}-h`} className="mb-1 text-sm font-medium">
-        Agent for Kehikot's own tasks
-      </h4>
-      <p className="text-muted-foreground mb-2 text-xs leading-relaxed">
-        Kehikot starts a conversation with it for work of its own, such as finding which space an item belongs to. It only proposes; you confirm.
-      </p>
-      {state.choices.length ? (
-        <NativeSelect
-          aria-labelledby={`${id}-h`}
-          value={state.agent ?? ''}
-          onChange={(event) => {
-            const agent = event.target.value || null
-            void postTasksAgent(agent).then((ok) => ok && setState({ ...state, agent }))
-          }}
+    <div className="rounded-lg border px-4 py-3" data-held-by={holder?.module ?? ''}>
+      <p className="text-sm font-medium">{on ? `${what}.` : 'Off: nothing is set up for you.'}</p>
+      <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{heldSays(holder)}</p>
+      {holder ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-2 h-7"
+          data-press="setup-settings"
+          onClick={() => openSettings('modules', moduleSettingsTarget(holder.module))}
         >
-          <NativeSelectOption value="">None — I choose myself</NativeSelectOption>
-          {state.choices.map((one) => (
-            <NativeSelectOption key={one.module} value={one.module}>
-              {one.name}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      ) : (
-        <p className="text-muted-foreground text-xs">No installed module starts conversations for Kehikot's tasks yet.</p>
-      )}
-    </section>
+          Open {holder.name}’s settings
+        </Button>
+      ) : null}
+    </div>
   )
 }
 
@@ -1567,7 +1416,7 @@ function ModuleExceptions({
           </h4>
           <p className="text-muted-foreground text-xs">
             {disabled
-              ? 'Turn on the setting above to choose modules.'
+              ? 'Turn it on in the agent module’s settings to choose modules.'
               : `Turn one off to leave it to you.${out ? ` ${out} of ${rows.length} left to you.` : ''}`}
           </p>
         </div>
