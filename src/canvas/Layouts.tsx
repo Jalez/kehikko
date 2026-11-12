@@ -3,10 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Dialog } from '@/components/ui/dialog.tsx'
-import { ModalBody, ModalContent, ModalHeader } from '@/components/ui/modal.tsx'
+import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
-import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { COLUMNS } from '@/host/canvases.ts'
 import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
@@ -278,23 +277,11 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
               computer, exactly as the modules list does. Their containers wait on the kehikko until they are ready.
             </p>
             {refused ? <p className="text-destructive text-xs">{refused}</p> : null}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setAsking(false)} disabled={busy}>
-                Back
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void use([])} disabled={busy} data-layout-without="">
-                Create without {installs.length === 1 ? 'it' : 'them'}
-              </Button>
-              <Button size="sm" onClick={() => void use(installs.map((one) => one.module))} disabled={busy} data-layout-install="">
-                Install {installs.length === 1 ? installs[0]!.name : `${installs.length} modules`} and create
-              </Button>
-            </div>
           </div>
         ) : (
           <>
-            {/* Radix wraps the viewport's content in a `display: table` box that grows to its widest child; block keeps it the viewport's width. */}
-            <ScrollArea className="max-h-[56vh] pr-2 [&_[data-radix-scroll-area-viewport]>div]:!block" data-layout-scroll="">
-              <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4" data-layout-scroll="">
+              <div className="contents">
                 {sections.map((section) => (
                   <section
                     key={section.title}
@@ -327,9 +314,26 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
                   </ul>
                 ) : null}
               </div>
-            </ScrollArea>
+            </div>
+          </>
+        )}
+        </ModalBody>
+        {asking ? (
+          <ModalFooter data-layout-footer="">
+              <Button variant="ghost" size="sm" onClick={() => setAsking(false)} disabled={busy}>
+                Back
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void use([])} disabled={busy} data-layout-without="">
+                Create without {installs.length === 1 ? 'it' : 'them'}
+              </Button>
+              <Button size="sm" onClick={() => void use(installs.map((one) => one.module))} disabled={busy} data-layout-install="">
+                Install {installs.length === 1 ? installs[0]!.name : `${installs.length} modules`} and create
+              </Button>
+          </ModalFooter>
+        ) : (
+          <ModalFooter data-layout-footer="">
             <form
-              className="flex flex-wrap items-end gap-2 border-t pt-3"
+              className="flex w-full flex-wrap items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
                 if (installs.length) setAsking(true)
@@ -361,9 +365,8 @@ export function LayoutPicker({ open, onOpenChange, mode, project, registered, on
                 {mode === 'fill' ? 'Use this layout' : 'Create kehikko'}
               </Button>
             </form>
-          </>
+          </ModalFooter>
         )}
-        </ModalBody>
       </ModalContent>
     </Dialog>
   )

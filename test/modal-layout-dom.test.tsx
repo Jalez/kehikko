@@ -58,7 +58,7 @@ if (!inChild) {
     const out = `${run.stdout.toString()}${run.stderr.toString()}`
     if (run.exitCode !== 0) console.error(out)
     expect(run.exitCode).toBe(0)
-    expect(out).toMatch(new RegExp(`\\b${CASES.length * 2 + 1} pass`))
+    expect(out).toMatch(new RegExp(`\\b${CASES.length * 2 + 2} pass`))
     expect(out).toMatch(/\b0 fail/)
   }, 120_000)
 }
@@ -327,4 +327,35 @@ describe('every window', () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull()
     })
   }
+})
+
+describe('the layout picker with many layouts', () => {
+  if (!inChild) return
+
+  test('the list scrolls in the body; the footer holds Create and Cancel and is never inside it', async () => {
+    const { LayoutPicker } = await import('../src/canvas/Layouts.tsx')
+    const many = Array.from({ length: 40 }, (_, n) => ({
+      id: `layout-${n}`,
+      from: 'mine' as const,
+      name: `Layout ${n}`,
+      summary: 'A layout.',
+      containers: [{ module: 'kehikot.any', x: 0, y: 0, w: 4, h: 4 }],
+    }))
+    const load = async () => ({ builtIn: [], project: [], mine: many, trouble: [] })
+    await render(
+      <LayoutPicker open onOpenChange={() => {}} mode="new" project={null} registered={new Map()} onUse={async () => null} load={load} loadOfficial={() => new Promise(() => {})} />,
+    )
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    const body = dialog.querySelector('[data-modal-body]')!
+    const footer = dialog.querySelector('[data-modal-footer]')!
+    expect(body.querySelectorAll('[data-layout-scroll] section').length).toBeGreaterThan(0)
+    expect(body.querySelectorAll('[data-layout-card], button').length).toBeGreaterThan(40)
+    expect(classes(body)).toContain('overflow-y-auto')
+    expect(classes(body)).toContain('min-h-0')
+    expect(classes(footer)).toContain('shrink-0')
+    expect(body.contains(footer)).toBe(false)
+    expect(footer.querySelector('[data-layout-create]')).not.toBeNull()
+    expect(footer.textContent).toContain('Cancel')
+    expect([footer, ...footer.querySelectorAll('*')].some(scrolls)).toBe(false)
+  })
 })
