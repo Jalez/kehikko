@@ -74,6 +74,7 @@ import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from '
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, stepBackAsked, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
+import type { JobSaid } from '@/host/jobSteps.ts'
 import { StepList, StepProgress, useJobSteps } from './StepProgress.tsx'
 
 /**
@@ -805,6 +806,7 @@ export function Updates({
                       Object.hasOwn(told, one.id) ? told[one.id] : undefined,
                     )}
                     reading={one}
+                    job={Object.hasOwn(steps, one.id) && steps[one.id]!.kind === 'update' ? steps[one.id]! : null}
                     outcome={outcome}
                     preview={check && Object.hasOwn(check.previews, one.id) ? check.previews[one.id] : undefined}
                     retrying={retryingIds.includes(one.id)}
@@ -823,7 +825,6 @@ export function Updates({
                     onNotes={(release, opener) => showModuleNotes(one.id, one.name, release, opener)}
                     have={{ app: app?.current ?? null, protocol: check?.protocol ?? null }}
                   />
-                  {Object.hasOwn(steps, one.id) && steps[one.id]!.kind === 'update' ? <StepProgress job={steps[one.id]!} className="mt-1 px-1" /> : null}
                   </div>
                 )
               })}
@@ -1018,6 +1019,7 @@ export function AppRow({
 function Row({
   row,
   reading,
+  job = null,
   outcome,
   preview,
   retrying,
@@ -1035,6 +1037,8 @@ function Row({
   /** The same state the app row and the header indicator read. */
   row: UpdateRow
   reading: Reading
+  /** Its update as it goes, step by step: drawn inside this row, under its name. */
+  job?: JobSaid | null
   outcome: Outcome | null
   /** What pressing Update would do to its running module, said first. Absent when it is not running. */
   preview?: Preview
@@ -1094,6 +1098,7 @@ function Row({
           <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
         ) : null}
       </div>
+      {job ? <StepProgress job={job} className="pt-1" /> : null}
       {release && summaryTags(release).length ? (
         <UpdateSummaries repo={release.repo} tags={summaryTags(release)} onMore={onNotes ? (opener) => onNotes(release, opener) : undefined} />
       ) : null}

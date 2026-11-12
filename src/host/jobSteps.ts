@@ -23,6 +23,7 @@ export const jobSchema = z.object({
   step: stepSchema,
   detail: z.string().nullable(),
   fraction: z.number().nullable(),
+  bytes: z.number().nullable().optional(),
   stepMs: z.number(),
   totalMs: z.number(),
   steps: z.array(z.object({ step: stepSchema, ms: z.number() })),
@@ -80,11 +81,61 @@ const DOING: Record<StepName, string> = {
   failed: 'finishing',
 }
 
-/** The one line a job is shown with: "Installing dependencies… 0:12", "Done in 0:31", or where it failed. */
+/** The steps an install or an update goes through, in order, and about how long each takes (ms; measured by hand). */
+const SEQUENCES: Record<JobSaid['kind'], ReadonlyArray<readonly [StepName, number]>> = {
+  update: [['fetching', 1000], ['checkout', 300], ['installing', 1400], ['building', 1200], ['starting', 300], ['waiting', 500]],
+  install: [['cloning', 3000], ['checkout', 300], ['installing', 1400], ['building', 1200], ['starting', 300], ['waiting', 500]],
+}
+
+/** Where a job is in its steps: "step 3 of 6". Null for a step that is not one of them (queued, done, failed). */
+export function stepCounter(job: Pick<JobSaid, 'kind' | 'step'>): { at: number; of: number } | null {
+  const sequence = SEQUENCES[job.kind]
+  const index = sequence.findIndex(([step]) => step === job.step)
+  return index < 0 ? null : { at: index + 1, of: sequence.length }
+}
+
+/**
+ * How far the whole job has got, 0..1, across its steps: each step weighs its
+ * typical duration; inside the step now, git's fraction where it says one,
+ * otherwise the time it has run against what it usually takes (never past 90%,
+ * since it is only a guess). Null when nothing is known — a step that is not
+ * one of the job's — so the bar slides instead.
+ */
+export function overallFraction(job: Pick<JobSaid, 'kind' | 'step' | 'fraction' | 'stepMs'>): number | null {
+  if (job.step === 'done') return 1
+  if (job.step === 'queued') return 0
+  const sequence = SEQUENCES[job.kind]
+  const index = sequence.findIndex(([step]) => step === job.step)
+  if (index < 0) return null
+  const total = sequence.reduce((sum, [, weight]) => sum + weight, 0)
+  const before = sequence.slice(0, index).reduce((sum, [, weight]) => sum + weight, 0)
+  const weight = sequence[index]![1]
+  const within = job.fraction !== null ? Math.max(0, Math.min(1, job.fraction)) : Math.min(0.9, Math.max(0, job.stepMs) / weight)
+  return (before + weight * within) / total
+}
+
+/** "1.2 MB" for a byte count. */
+export function bytesSaid(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} kB`
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+}
+
+/** What the bar's tooltip says about why it is not exact bytes like the app's. */
+export const BAR_EXPLAINED =
+  'Modules update in steps on this computer: fetching, installing, building. The app downloads one file, so it can show exact bytes.'
+
+/** The one line a job is shown with: "Installing dependencies · step 3 of 6 · 0:12", "Waiting · 1 ahead", "Done in 0:31", or where it failed. */
 export function jobLine(job: JobSaid): string {
   if (job.failed) return `Stopped while ${DOING[job.failed.step]}`
   if (job.step === 'done') return `Done in ${clock(job.totalMs)}`
-  return `${stepLabel(job.step, job.detail)}… ${clock(job.stepMs)}`
+  if (job.step === 'queued') return job.detail ? `Waiting · ${job.detail}` : 'Waiting'
+  const counter = stepCounter(job)
+  const parts = [stepLabel(job.step, job.detail)]
+  if (counter) parts.push(`step ${counter.at} of ${counter.of}`)
+  parts.push(clock(job.totalMs))
+  if (typeof job.bytes === 'number' && (job.step === 'fetching' || job.step === 'cloning')) parts.push(bytesSaid(job.bytes))
+  return parts.join(' · ')
 }
 
 /** Said under a job nothing has moved in for a minute. */
@@ -92,10 +143,10 @@ export function stalledSaid(job: JobSaid): string {
   return `Nothing has changed for over a minute while ${DOING[job.step]}. It may be stuck; Cancel stops only this ${job.kind}.`
 }
 
-/** 0–100 for the bar, or null when the step cannot say (an indeterminate bar). */
+/** 0–100 for the bar across all the steps, or null when nothing is known (an indeterminate bar). */
 export function barValue(job: JobSaid): number | null {
-  if (job.step === 'done') return 100
-  return job.fraction === null ? null : Math.round(job.fraction * 100)
+  const whole = overallFraction(job)
+  return whole === null ? null : Math.round(whole * 100)
 }
 
 /* ---------- the store ---------- */
