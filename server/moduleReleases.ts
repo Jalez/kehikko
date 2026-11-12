@@ -290,6 +290,26 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
     return needs
   }
 
+  /**
+   * `needOfAll` for only the tags `pickNewest` will ask about: newest first, down to the floor, until
+   * one this host can run. Two git calls a tag, one after another, used to be asked of every tag a
+   * copy has — over a hundred processes for a module with sixty releases, at every host start, while
+   * the module waited to be started. On a copy that is on its newest release this is one tag.
+   */
+  async function needsForPick(dir: string, releases: readonly string[], entry: string | undefined, floor: string | null): Promise<Map<string, string | null>> {
+    const needs = new Map<string, string | null>()
+    /* `pickNewest` asks nothing of a tag when the list entry's own need is not met. */
+    if (!meetsProtocol(entry, have)) return needs
+    for (const tag of releases) {
+      if (floor && compareReleases(tag, floor) < 0) break
+      const one = await needOfAll(dir, [tag])
+      for (const [read, need] of one) needs.set(read, need)
+      const need = one.get(tag) ?? null
+      if (need === null || meetsProtocol(need, have)) break
+    }
+    return needs
+  }
+
   async function dataOf(dir: string, tag: string): Promise<number | null> {
     const commit = await out(dir, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`])
     if (!commit) return null
@@ -391,7 +411,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       return { ...checkout, release: base }
     }
 
-    const needs = await needOfAll(dir, releases)
+    const needs = await needsForPick(dir, releases, deps.entryProtocol(place.id), installed)
     const picked = pickNewest(releases, (tag) => needs.get(tag) ?? null, {
       have,
       entry: deps.entryProtocol(place.id),
@@ -418,6 +438,7 @@ export function releaseFollower(deps: FollowerDeps): ReleaseFollower {
       if (newest && compareReleases(newest, installed) > 0) target = newest
       else if (!newest) {
         /* The release it is on needs a newer Kehikot than this one: step back, or ask to. */
+        for (const [tag, need] of await needOfAll(dir, releases)) needs.set(tag, need)
         back = await stepBackOf(place, dir, releases, needs, installed)
         if (back && back.ask === null) target = back.to
       }
