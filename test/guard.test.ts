@@ -235,6 +235,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/inbox/untrack',
       '/host/inbox/untracked',
       '/host/inbox/use',
+      '/host/kehikko-settings',
       '/host/kehikko-skills',
       '/host/layouts',
       '/host/messages/clear',

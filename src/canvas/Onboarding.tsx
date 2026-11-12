@@ -21,8 +21,6 @@ import { installOfficial } from '@/host/official.ts'
 import { EXPLORING, NO_FACTS, type Facts } from '@/host/tour.ts'
 import { IntroDialog } from './Intro.tsx'
 import { LayoutPicker, SaveLayoutDialog } from './Layouts.tsx'
-import { KehikkoSkillsDialog } from './KehikkoSkills.tsx'
-import { onOpenKehikkoSkills } from '@/host/kehikkoSkills.ts'
 import { fetchSettings } from './Settings.tsx'
 import { Guide, type Drawer } from './Tour.ts'
 
@@ -137,7 +135,6 @@ export function OnboardingHost({
   const [intro, setIntro] = useState(false)
   const [picker, setPicker] = useState<LayoutsMode | null>(null)
   const [saving, setSaving] = useState(false)
-  const [skilling, setSkilling] = useState(false)
   const [installing, setInstalling] = useState<ReadonlySet<string>>(new Set())
   const stateRef = useRef(state)
   stateRef.current = state
@@ -217,7 +214,6 @@ export function OnboardingHost({
       onOpenTour((from) => setTimeout(() => tour(from), 0)),
       onOpenLayouts((mode) => setPicker(mode)),
       onOpenSaveLayout(() => setSaving(true)),
-      onOpenKehikkoSkills(() => setSkilling(true)),
     ]
     return () => off.forEach((one) => one())
   }, [tour])
@@ -295,7 +291,6 @@ export function OnboardingHost({
         onUse={use}
       />
       <SaveLayoutDialog open={saving} onOpenChange={setSaving} kehikko={open} />
-      <KehikkoSkillsDialog open={skilling} onOpenChange={setSkilling} kehikko={open} />
     </>
   )
 }

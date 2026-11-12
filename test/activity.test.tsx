@@ -166,7 +166,7 @@ describe('the dots', () => {
     ] as never
     const switcher = renderToStaticMarkup(
       <TooltipProvider>
-        <Canvases canvases={canvases} open={(canvases as unknown as never[])[0] as never} onOpen={() => {}} onRename={() => {}} onCreate={() => {}} onDelete={() => {}} marks={new Map([['k2', 'done' as const]])} />
+        <Canvases canvases={canvases} open={(canvases as unknown as never[])[0] as never} onOpen={() => {}} onCreate={() => {}} onDelete={() => {}} marks={new Map([['k2', 'done' as const]])} />
       </TooltipProvider>,
     )
     expect(switcher).toContain('data-activity="done"')

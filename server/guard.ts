@@ -128,6 +128,9 @@ export interface Refusal {
  *    `/task` — adopting a tracker item no epic names (`adoptRoutes.ts`): conversation titles are read and
  *    the person's acts taken only here. An agent only proposes, at the door's `propose_adoption`.
  *  - `/host/tasks-agent` — the person's agent for Kehikot's own tasks (`tasksAgent.ts`).
+ *  - `/host/kehikko-settings` — a kehikko's own settings (`kehikkoSettings.ts`):
+ *    which agent module is primary, and so who is handed the kehikko's shared
+ *    news. Only the person chooses; no MCP tool reads or changes it.
  *  - `/host/module-addresses/check` — what the page's own self-check of the
  *    modules' frame addresses found (`moduleAddresses.ts`). Only the page
  *    checks how it reaches this host.
@@ -176,6 +179,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds/remove',
   '/host/layouts',
   '/host/kehikko-skills',
+  '/host/kehikko-settings',
   '/host/onboarding',
   '/host/whats-new',
   '/host/whats-new/mentions',

@@ -24,6 +24,7 @@ import type { IntroAbout } from './canvas/Modules.tsx'
 import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
 import { AgentSettingsHost, fetchSettings } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
+import { KehikkoSettingsHost } from './canvas/KehikkoSettings.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { openWhatsNew } from './host/whatsNew.ts'
 import { introFor as introOfModule } from './host/moduleIntro.ts'
@@ -3325,8 +3326,8 @@ export function App() {
   )
 
   /**
-   * Rename any kehikko, not only the open one — the pencil is on every row of
-   * the kehikko menu, as the retitle is on every row of the epic menu.
+   * Rename any kehikko, not only the open one — from Kehikko settings › General,
+   * which the gear on every row of the kehikko menu opens.
    */
   const onRename = useCallback(
     (id: number, name: string) => {
@@ -4873,7 +4874,6 @@ export function App() {
         onLocateProject={setLocating}
         storageViews={storageViews}
         onOpen={setOpenId}
-        onRename={onRename}
         onCreate={() => openLayouts('new')}
         onDelete={(id) => void onDelete(id)}
         onSubject={setSubject}
@@ -5568,6 +5568,11 @@ export function App() {
         onFill={(placements) => change({ placements })}
         onInstalled={() => void look(true)}
       />
+
+      {/* Kehikko settings (the gear on each row of the kehikko menu) and the
+          question of which agent is primary when a kehikko has more than one.
+          See `KehikkoSettings.tsx`. */}
+      <KehikkoSettingsHost canvases={canvases} open={open} onRename={onRename} />
 
       {/* "What's new" after Kehikot or a module updates: it never opens by
           itself — the bar's notice (`WhatsNewNotice`) opens it. See `WhatsNew.tsx`. */}

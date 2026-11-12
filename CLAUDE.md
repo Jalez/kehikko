@@ -1613,3 +1613,16 @@
   `FOR_AGENTS.md`, one or two bullets in the agent's terms, no module or vendor
   named. People read a module's notes without that section (`withoutForAgents`
   in the release-notes `shown` transform).
+
+## Kehikko settings and the primary agent
+
+- One kehikko's own settings window is `src/canvas/KehikkoSettings.tsx` (General: name; Skills; Agents),
+  opened by the gear on each row of the kehikko menu or `openKehikkoSettings(section, target, kehikko)`.
+  There is no rename form or skills item in the menu any more; both live in the window.
+- Agent modules are the ones whose manifest declares `declares.agentSessions` (`runsAgents`); never by id.
+- The primary agent is kept in `frame.sqlite` per project id and kehikko key (`server/kehikkoSettings.ts`),
+  written only by `POST /host/kehikko-settings` (`PAGE_ONLY`). No MCP tool reads or changes it.
+- It decides one thing: news to a PLACE (`messages.tell`, the host's tracker news) is handed only to the
+  primary's sessions on that kehikko (`takesNews` in `AgentMessages.handTells`). Messages to a session, a
+  module or the project are untouched. No primary chosen, or the chosen one gone: everyone, as before.
+  Keep `PRIMARY_SAID.implications` true to that rule.
